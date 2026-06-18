@@ -4733,8 +4733,10 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         effective_status = "offline"
         reason = "Current environment bridge no longer owns the active session."
     elif resident_bridge_stale and not active_run:
-        # A stale resident bridge means a DEAD worker → `stale`, even when the
-        # agent owes a channel reply. (Previously `and not channel_pending_reply_run`
+        # An expired resident bridge means a DEAD worker → `offline` (the proof-based
+        # rewrite dropped the resident-only `stale` label; a lapsed bridge lease IS
+        # offline), even when the agent owes a channel reply. (Previously `and not
+        # channel_pending_reply_run`
         # suppressed this so the channel-pending branch could manufacture `online`
         # for a dead agent — the FIX-3 bug. The channel-pending branch now refuses
         # to upgrade a dead worker, so this stale derivation is the correct landing.)
@@ -4745,10 +4747,10 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         # lingering turn_busy=1 (a missed turn-end on a now-dead worker) would have
         # SKIPPED this stale branch and fallen into `elif turn_busy → working`, i.e.
         # working-forever. The resident bridge lease (150s, _resident_bridge_is_fresh)
-        # is the liveness signal: a stale bridge is a dead worker regardless of any
-        # turn_busy=1, so it must derive stale BEFORE the turn_busy branch is reached.
-        effective_status = "stale"
-        reason = "Resident bridge heartbeat is stale or missing."
+        # is the liveness signal: an expired bridge is a dead worker regardless of any
+        # turn_busy=1, so it must derive offline BEFORE the turn_busy branch is reached.
+        effective_status = "offline"
+        reason = "Resident bridge heartbeat is gone; restart the resident wrapper or switch to managed."
     # A console terminal reaching an end state returns ownership to managed (the
     # runtime contract reverts owner_mode to managed on stop/fail). So it is a
     # fallback-to-managed candidate, not final unavailability: fall through to
@@ -4795,7 +4797,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         )
         if not worker_is_dead:
             awaiting_reply = True
-            if effective_status not in {"offline", "stale", "blocked"}:
+            if effective_status not in {"offline", "blocked"}:
                 effective_status = "online"
             reason = (
                 f'Idle — awaiting reply: '
@@ -4812,25 +4814,13 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # is reachable, so it falls through to the heartbeat branch as "active",
     # never "working". (Supersedes the B1 / console-activity heuristics.)
     else:
-        # Staleness checks: heartbeat-stale agents are functionally offline
-        # regardless of worker presence — apply to both `online` and
-        # `available`. Idle-warning only meaningful for `online` (workers
-        # that haven't done anything in a while); `available` agents are
-        # by definition not working, so the idle marker is redundant.
-        if effective_status in {"online", "available"}:
-            idle_minutes = int(settings.get("idle_minutes", 5) or 5)
-            offline_minutes = int(settings.get("offline_minutes", 30) or 30)
-            freshness = max(_iso_to_epoch(agent_last_seen), _iso_to_epoch(session_row["last_seen"] if session_row else ""))
-            try:
-                age = datetime.now(timezone.utc).timestamp() - freshness if freshness else 0
-                if freshness and age > timedelta(minutes=offline_minutes).total_seconds():
-                    effective_status = "offline"
-                    reason = "Agent heartbeat is stale."
-                elif effective_status == "online" and freshness and age > timedelta(minutes=idle_minutes).total_seconds():
-                    effective_status = "idle"
-                    reason = "Agent is idle."
-            except Exception:
-                pass
+        # Proof-based rewrite (2026-06-18): the time-decay staleness block that lived
+        # here (idle_minutes→`idle`, offline_minutes→`offline`) was REMOVED. It only ever
+        # set `effective_status`, which is a byproduct overridden by derive() — and derive()
+        # (the authority) does NOT demote a live-but-quiet agent by wall-clock minutes:
+        # `offline` comes from worker/bridge liveness, and `idle` no longer exists. Heartbeat
+        # liveness is enforced by `refresh_after` (agent_liveness_seconds) + has_live_worker,
+        # not a minute threshold here.
         # Task 1.6: surface WHY a channel-enabled managed agent is only
         # `available` rather than deliverable — the channel sidecar
         # (hermes-channel.js) is not heartbeating. Only annotate when we

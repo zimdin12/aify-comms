@@ -220,10 +220,12 @@ class ChatAnalyticsTests(FastApiTestCase):
         self.assertEqual(data["overdueReplyContracts"], 1)
         # fleet median reply over completed rr=1 runs = 10 minutes (fr1 only).
         self.assertAlmostEqual(data["fleetMedianReplyMinutes"], 10.0, places=1)
-        # dispatch outcomes: 14 zero-filled days, today has 2 completed + 1 failed.
+        # dispatch outcomes: 14 zero-filled days. The runs finished ~2h ago, so they land
+        # in today's bucket — or yesterday's when the suite runs within ~2h of UTC midnight.
+        # Assert the window TOTALS (boundary-independent) rather than a hardcoded bucket.
         self.assertEqual(len(data["dispatchOutcomes"]), 14)
-        self.assertEqual(data["dispatchOutcomes"][-1]["completed"], 2)
-        self.assertEqual(data["dispatchOutcomes"][-1]["failed"], 1)
+        self.assertEqual(sum(b["completed"] for b in data["dispatchOutcomes"]), 2)
+        self.assertEqual(sum(b["failed"] for b in data["dispatchOutcomes"]), 1)
         # leaderboard: fa-alpha has 2 completed.
         leaders = {r["agent"]: r for r in data["agentLeaderboard"]}
         self.assertEqual(leaders["fa-alpha"]["completed"], 2)
