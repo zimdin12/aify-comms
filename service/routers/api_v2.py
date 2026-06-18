@@ -17804,9 +17804,15 @@ async def _clear_turn_busy_for_dead_bridges(db, *, limit: int = 200) -> list[dic
     orphaned-claim requeue (ACTIVE_RUN_BRIDGE_STALE_SECONDS heartbeat window):
 
       1. turn_busy = 1 (the agent is marked mid-turn), AND
-      2. turn_bridge_id is non-empty (an identifiable owning bridge — an empty
-         owner is a harness/Stop-hook turn, left to the existing 30-min ceiling so
-         a genuinely-working resident is never cut off), AND
+      2. turn_bridge_id identifies a REAL owning BRIDGE — excludes both the empty
+         owner AND the resident-claude hook marker 'user-prompt-submit'. Both are
+         harness/hook-owned turns (the UserPromptSubmit/PostToolUse hook sets
+         turn_bridge_id='user-prompt-submit', which is NOT a bridge_instances id),
+         validated by the agent's own liveness + the turn-end (Stop) hook, not by a
+         bridge row. Sweeping them treated every hook-driven turn as "owned by a
+         dead bridge" and wiped turn_busy each reconcile cycle → working agents
+         flickered to online (#233). Left to the live-gate (a dead session reads
+         offline) + the 30-min ceiling so a genuinely-working agent is never cut off. AND
       3. that turn_bridge_id is NOT a fresh bridge_instances row — either no such
          row exists (superseded-away / never-registered) OR its last_seen is past
          the stale window (the loop stopped heartbeating ⇒ dead).
@@ -17824,7 +17830,7 @@ async def _clear_turn_busy_for_dead_bridges(db, *, limit: int = 200) -> list[dic
         SELECT ats.agent_id, ats.turn_bridge_id
         FROM agent_turn_state ats
         WHERE ats.turn_busy = 1
-          AND COALESCE(ats.turn_bridge_id, '') != ''
+          AND COALESCE(ats.turn_bridge_id, '') NOT IN ('', 'user-prompt-submit')
           AND NOT EXISTS (
             SELECT 1 FROM bridge_instances bi
             WHERE bi.id = ats.turn_bridge_id
