@@ -141,6 +141,22 @@
             </div>
             <div id="chat-timeline" class="chat-timeline"></div>
             <form id="chat-composer" class="composer" hidden>
+              <div class="composer-meta">
+                <select id="chat-type" class="composer-select" title="Message type" aria-label="Message type">
+                  <option value="info">info</option>
+                  <option value="request">request</option>
+                  <option value="review">review</option>
+                  <option value="approval">approval</option>
+                  <option value="response">response</option>
+                  <option value="error">error</option>
+                </select>
+                <select id="chat-priority" class="composer-select" title="Priority" aria-label="Priority">
+                  <option value="normal">normal</option>
+                  <option value="high">high</option>
+                  <option value="urgent">urgent</option>
+                </select>
+                <input id="chat-subject" class="composer-subject" placeholder="Subject (optional — for tasks / handoffs)" aria-label="Subject">
+              </div>
               <div class="composer-options">
                 <label class="check-row"><input id="chat-expects-reply" type="checkbox"><span>Expects reply</span></label>
                 <label class="check-row"><input id="chat-queue" type="checkbox"><span>Queue if busy</span></label>

@@ -441,14 +441,21 @@ export function createChatController(deps) {
     const id = key.slice(key.indexOf(':') + 1);
     const expectsReply = byId('chat-expects-reply')?.checked;
     const queueIfBusy = byId('chat-queue')?.checked;
+    // Composer meta (restored regression): explicit message type, priority, and subject.
+    const type = byId('chat-type')?.value || 'info';
+    const priority = byId('chat-priority')?.value || 'normal';
+    const subjectEl = byId('chat-subject');
+    const subject = (subjectEl?.value || '').trim();
     const reply = state.chat.replyTo;
     const inReplyTo = (reply && reply.conversationKey === key) ? reply.id : '';
     try {
       const response = await sendMessage({
         isChannel, target: id, identity: state.chat.identity, body,
         expectsReply: !!expectsReply, queueIfBusy: !!queueIfBusy, inReplyTo,
+        type, priority, subject,
       });
       if (bodyEl) bodyEl.value = '';
+      if (subjectEl) subjectEl.value = '';
       // Sent cleanly: drop the saved draft + reply context for this conversation.
       if (state.chat.drafts) delete state.chat.drafts[key];
       state.chat.replyTo = null;

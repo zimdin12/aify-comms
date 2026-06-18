@@ -118,18 +118,23 @@ async function chatLoadConversation(name) {
   const res = await api(`/channels/${encodeURIComponent(name)}?limit=80&agentId=${encodeURIComponent(state.chat.identity)}`);
   state.chat.channelMessages[name] = res.messages || res.channel?.messages || [];
 }
-async function chatSendMessage({ isChannel, target, identity, body, expectsReply, queueIfBusy, inReplyTo }) {
+async function chatSendMessage({ isChannel, target, identity, body, expectsReply, queueIfBusy, inReplyTo, type, priority, subject }) {
   if (isChannel) {
+    // Channel posts are plain {from, body}; type/priority/subject don't apply to channels.
     return api(`/channels/${encodeURIComponent(target)}/send`, {
       method: 'POST',
       body: JSON.stringify({ from: identity, body }),
     });
   }
-  const type = expectsReply ? 'request' : 'info';
+  // Explicit composer type wins; fall back to the expects-reply heuristic for back-compat.
+  const finalType = type || (expectsReply ? 'request' : 'info');
+  // Explicit subject wins; otherwise derive a short one from the body as before.
+  const finalSubject = (subject && subject.trim()) ? subject.trim() : body.slice(0, 80);
   return sendMessageWithTimeout({
-    from_agent: identity, to: target, type,
-    subject: body.slice(0, 80), body, trigger: true,
+    from_agent: identity, to: target, type: finalType,
+    subject: finalSubject, body, trigger: true,
     queueIfBusy: !!queueIfBusy, requireReply: !!expectsReply,
+    ...(priority && priority !== 'normal' ? { priority } : {}),
     ...(inReplyTo ? { inReplyTo } : {}),
   });
 }
