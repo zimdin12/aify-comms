@@ -2,11 +2,154 @@
 SQLite database layer for aify-comms v2.
 Single database file replaces all JSON file storage.
 """
+import asyncio
 import json
 import aiosqlite
 from pathlib import Path
 
 SQLITE_BUSY_TIMEOUT_MS = 5000
+
+# ---------------------------------------------------------------------------
+# Write serialization (2026-06-18) — eliminate `database is locked`.
+#
+# get_db() hands out a NEW connection per request, and the live fleet (every
+# bridge heartbeating + polling claims, both dashboards, agents' comms_agents,
+# the 60s reconcile) means many connections try to WRITE at once. SQLite allows
+# exactly ONE writer; under that concurrency the losers waited past busy_timeout
+# and surfaced as HTTP 503 "database is locked", starving the fleet's claim/
+# heartbeat writes. Reducing write VOLUME helped but couldn't remove the class.
+#
+# Fix: serialize writes IN-PROCESS through one asyncio lock. A write statement
+# lazily acquires the lock (held from the first write of a transaction until its
+# commit/rollback/close — mirroring SQLite's own write-lock lifetime), so two
+# connections never hold SQLite's write lock simultaneously. Waiting on an
+# asyncio.Lock just queues the coroutine — it NEVER errors at busy_timeout — so
+# the 503s become impossible. READS never take the lock (WAL keeps them fully
+# concurrent). The lock is RE-ENTRANT BY TASK so a single request that opens two
+# writing connections can't deadlock against itself.
+#
+# PAIRING (do NOT ship serialization alone — see db-lock-write-serialization
+# memory / 2026-06-18): serialization makes a request's writes pay FAIR FIFO
+# queue latency behind the whole fleet. A read path that writes many rows in one
+# request (the GET /agents post-restart roster re-derive, ~28 rows) therefore
+# stalled long enough to time the dashboard out — which is why 258cb82 was
+# reverted. The cure is to BOUND the read-path write burst: list_agents caps its
+# live-state refresh (LIST_AGENTS_REFRESH_LIMIT) so no single poll queues more
+# than a handful of writes; the unbounded warm-up stays on the background
+# reconcile. Serialization + bounded read-path writes together = 0 locks AND a
+# fast roster post-restart.
+_WRITE_LOCK = asyncio.Lock()
+_write_owner_task = None
+_write_owner_depth = 0
+
+
+def _is_write_sql(sql: str) -> bool:
+    # Only DML/DDL that takes SQLite's write lock. SELECT/PRAGMA stay lock-free so
+    # the hot read path (and per-connection pragma setup) never serializes.
+    head = sql.lstrip().lstrip("(").lstrip()[:8].upper()
+    return head.startswith(("INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "DROP", "ALTER"))
+
+
+async def _acquire_write_lock() -> bool:
+    """Acquire the global write lock, re-entrant by asyncio task. Returns True if
+    this call actually acquired (caller must release), False if the current task
+    already owned it (a deeper level — release is a no-op for this level)."""
+    global _write_owner_task, _write_owner_depth
+    task = asyncio.current_task()
+    if _write_owner_task is task:
+        _write_owner_depth += 1
+        return False
+    await _WRITE_LOCK.acquire()
+    _write_owner_task = task
+    _write_owner_depth = 1
+    return True
+
+
+def _release_write_lock() -> None:
+    global _write_owner_task, _write_owner_depth
+    if _write_owner_task is not asyncio.current_task() or _write_owner_depth <= 0:
+        return
+    _write_owner_depth -= 1
+    if _write_owner_depth == 0:
+        _write_owner_task = None
+        _WRITE_LOCK.release()
+
+
+class _SerializedWriteConnection:
+    """Thin proxy over an aiosqlite connection that serializes WRITE transactions
+    through the process-global write lock. Acquires on the first write statement,
+    releases on commit/rollback/close. Reads pass straight through (no lock)."""
+
+    __slots__ = ("_conn", "_holds")
+
+    def __init__(self, conn: aiosqlite.Connection):
+        self._conn = conn
+        self._holds = False
+
+    @property
+    def row_factory(self):
+        return self._conn.row_factory
+
+    @row_factory.setter
+    def row_factory(self, value):
+        self._conn.row_factory = value
+
+    async def _maybe_lock(self, sql: str) -> None:
+        if _is_write_sql(sql) and not self._holds:
+            await _acquire_write_lock()
+            # Track that THIS connection is responsible for a release. Even on a
+            # re-entrant (depth++) acquire we set _holds so our commit/close pops a level.
+            self._holds = True
+
+    def _unlock(self) -> None:
+        if self._holds:
+            self._holds = False
+            _release_write_lock()
+
+    async def execute(self, sql, parameters=None):
+        await self._maybe_lock(sql)
+        if parameters is None:
+            return await self._conn.execute(sql)
+        return await self._conn.execute(sql, parameters)
+
+    async def executemany(self, sql, parameters):
+        await self._maybe_lock(sql)
+        return await self._conn.executemany(sql, parameters)
+
+    async def executescript(self, script):
+        # executescript may contain writes; acquire unconditionally (rare — migrations
+        # run on a raw connection at init, not through this proxy).
+        if not self._holds:
+            await _acquire_write_lock()
+            self._holds = True
+        return await self._conn.executescript(script)
+
+    async def commit(self):
+        try:
+            await self._conn.commit()
+        finally:
+            self._unlock()
+
+    async def rollback(self):
+        try:
+            await self._conn.rollback()
+        finally:
+            self._unlock()
+
+    async def close(self):
+        try:
+            await self._conn.close()
+        finally:
+            self._unlock()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        await self.close()
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
 
 
 async def _apply_connection_pragmas(db: aiosqlite.Connection) -> None:
@@ -685,8 +828,11 @@ async def get_db() -> aiosqlite.Connection:
     db = await aiosqlite.connect(_db_path)
     db.row_factory = aiosqlite.Row
     try:
+        # Pragmas run on the RAW connection (they are not write-DML and run on every
+        # connect — they must NOT take the write lock, or every connection open would
+        # serialize). Wrap AFTER, so only real write statements serialize.
         await _apply_connection_pragmas(db)
     except BaseException:
         await db.close()
         raise
-    return db
+    return _SerializedWriteConnection(db)
