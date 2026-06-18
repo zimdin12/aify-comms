@@ -260,6 +260,18 @@ small, .subtle { color: var(--muted); }
 .attention-strip .metric { padding: 9px 11px; }
 .attention-strip .metric b { font-size: 19px; }
 .attention-strip .metric span { margin-top: 5px; font-size: .82em; }
+/* Chat attention items are COMPACT single rows — not the tall Diagnostics cards (which stack
+   their actions vertically + reserve an empty checkbox column, making the strip a broken mess
+   of full-width Inspect/Remind/Close buttons). One row: subject+meta left, small inline actions
+   right. (2026-06-18 UI fix.) */
+.attention-strip .contract { grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding: 8px 12px; gap: 12px; }
+.attention-strip .contract .diagnostic-check { display: none; }
+.attention-strip .contract .preview { -webkit-line-clamp: 1; margin-top: 2px; }
+.attention-strip .contract-meta { margin-top: 2px; }
+.attention-strip .contract-actions { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 6px; min-width: max-content; }
+.attention-strip .contract-actions button { padding: 5px 11px; font-size: .8em; }
+.attention-list { display: flex; flex-direction: column; gap: 7px; max-height: 168px; overflow-y: auto; }
+.attention-strip.collapsed .attention-list { max-height: none; }
 .band { padding: 12px; }
 .section-head {
   display: flex;
@@ -1068,8 +1080,13 @@ small, .subtle { color: var(--muted); }
 .chat-new-channel { display: flex; gap: 6px; }
 .chat-new-channel input { flex: 1; background: var(--panel-3); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 6px 8px; font-size: .8em; }
 .chat-new-channel button { flex: 0 0 auto; padding: 4px 11px; font-weight: 800; }
-.chat-conv-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.chat-conv-actions { display: inline-flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+/* Conversation header: title flexes on the left, search stays compact, the action cluster
+   stays grouped on the right and wraps as ONE unit (was a cramped mix of title + search + 5
+   buttons fighting on one line). (2026-06-18 UI fix.) */
+.chat-conv-head { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; padding: 10px 14px; }
+.chat-conv-head h2 { margin: 0; font-size: 1em; flex: 1 1 130px; min-width: 0; overflow-wrap: anywhere; }
+.chat-msg-search { flex: 0 1 180px; }
+.chat-conv-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 0 0 auto; justify-content: flex-end; }
 .chat-members { font-size: .76em; color: var(--muted); }
 .chat-conv-actions button { padding: 4px 10px; font-size: .78em; }
 
