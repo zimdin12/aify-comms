@@ -44,7 +44,7 @@ const state = {
   sessionTerminals: new Map(), // sessionId → most-recent terminalId seen for this session (cache prevents widget oscillation when the server clears runtime_state.virtualTerminalId mid-conversation per Bug #3 root cause)
   realtimeConnected: false,
   // Chat-first landing (Phase 1): conversation rail + timeline + composer state.
-  chat: { identity: 'dashboard', selected: '', view: 'messenger', filter: '', liveOnly: false, openOnly: false, workingUp: false, sortMode: 'activity', channels: [], channelMessages: {}, analytics: { agent: '', data: null }, pulse: { window: 60, data: null, loading: false }, drafts: {}, replyTo: null, msgFilter: '' },
+  chat: { identity: 'dashboard', selected: '', view: 'messenger', filter: '', liveOnly: false, openOnly: false, workingUp: false, unreadOnly: false, scope: 'all', statusFilter: new Set(), sortMode: 'activity', channels: [], channelMessages: {}, analytics: { agent: '', data: null }, pulse: { window: 60, data: null, loading: false }, drafts: {}, replyTo: null, msgFilter: '' },
   selectedConversation: 'dashboard',
   selectedSessionId: '',
   selectedSessionTab: 'console', // Sessions = terminal-first (Console default); Activity is the read-only log
@@ -3309,29 +3309,55 @@ function persistChatPrefs() {
   try {
     localStorage.setItem('aify.next.chatPrefs', JSON.stringify({
       liveOnly: state.chat.liveOnly, openOnly: state.chat.openOnly,
-      workingUp: state.chat.workingUp, sortMode: state.chat.sortMode,
+      workingUp: state.chat.workingUp, unreadOnly: state.chat.unreadOnly,
+      scope: state.chat.scope, statusFilter: [...(state.chat.statusFilter || [])],
+      sortMode: state.chat.sortMode,
     }));
   } catch { /* ignore */ }
 }
-byId('chat-live-only')?.addEventListener('change', (event) => {
-  state.chat.liveOnly = event.target.checked;
-  persistChatPrefs();
-  chatController.renderRail();
-});
+// Reflect filter state into the always-visible chip bar (chips are static markup; only their
+// active class tracks state, so the rail re-render never has to rebuild them).
+function syncChatChips() {
+  document.querySelectorAll('[data-chat-scope]').forEach((el) => {
+    el.classList.toggle('active', el.dataset.chatScope === (state.chat.scope || 'all'));
+  });
+  document.querySelectorAll('[data-chat-toggle]').forEach((el) => {
+    el.classList.toggle('active', !!state.chat[el.dataset.chatToggle]);
+  });
+  const sf = state.chat.statusFilter instanceof Set ? state.chat.statusFilter : new Set();
+  document.querySelectorAll('[data-chat-status]').forEach((el) => {
+    el.classList.toggle('active', sf.has(el.dataset.chatStatus));
+  });
+}
 byId('chat-sort')?.addEventListener('change', (event) => {
   state.chat.sortMode = event.target.value || 'activity';
   persistChatPrefs();
   chatController.renderRail();
 });
-byId('chat-open-only')?.addEventListener('change', (event) => {
-  state.chat.openOnly = event.target.checked;
-  persistChatPrefs();
-  chatController.renderRail();
-});
-byId('chat-working-up')?.addEventListener('change', (event) => {
-  state.chat.workingUp = event.target.checked;
-  persistChatPrefs();
-  chatController.renderRail();
+// Delegated handler for the filter-bar chips (scope / quick toggles / status filter).
+byId('page-chat')?.addEventListener('click', (event) => {
+  const scopeBtn = event.target.closest('[data-chat-scope]');
+  if (scopeBtn) {
+    state.chat.scope = scopeBtn.dataset.chatScope || 'all';
+    persistChatPrefs(); syncChatChips(); chatController.renderRail();
+    return;
+  }
+  const toggleBtn = event.target.closest('[data-chat-toggle]');
+  if (toggleBtn) {
+    const key = toggleBtn.dataset.chatToggle;
+    state.chat[key] = !state.chat[key];
+    persistChatPrefs(); syncChatChips(); chatController.renderRail();
+    return;
+  }
+  const statusBtn = event.target.closest('[data-chat-status]');
+  if (statusBtn) {
+    const kind = statusBtn.dataset.chatStatus;
+    if (!(state.chat.statusFilter instanceof Set)) state.chat.statusFilter = new Set();
+    if (state.chat.statusFilter.has(kind)) state.chat.statusFilter.delete(kind);
+    else state.chat.statusFilter.add(kind);
+    persistChatPrefs(); syncChatChips(); chatController.renderRail();
+    return;
+  }
 });
 byId('chat-composer')?.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -3429,11 +3455,12 @@ try {
   state.chat.liveOnly = !!p.liveOnly;
   state.chat.openOnly = !!p.openOnly;
   state.chat.workingUp = !!p.workingUp;
+  state.chat.unreadOnly = !!p.unreadOnly;
+  if (typeof p.scope === 'string') state.chat.scope = p.scope;
+  if (Array.isArray(p.statusFilter)) state.chat.statusFilter = new Set(p.statusFilter);
   if (p.sortMode) state.chat.sortMode = p.sortMode;
-  const lo = byId('chat-live-only'); if (lo) lo.checked = state.chat.liveOnly;
-  const oo = byId('chat-open-only'); if (oo) oo.checked = state.chat.openOnly;
-  const wu = byId('chat-working-up'); if (wu) wu.checked = state.chat.workingUp;
   const so = byId('chat-sort'); if (so) so.value = state.chat.sortMode;
+  syncChatChips();
 } catch { /* ignore */ }
 // Restore the collapsed Needs-Attention preference (full-screen chat).
 try {

@@ -83,29 +83,45 @@
             <div class="chat-rail-controls">
               <div class="chat-search-row">
                 <input id="chat-filter" type="search" placeholder="Search conversations + messages">
-                <button type="button" class="icon-button chat-filter-toggle" id="chat-filter-toggle" aria-label="Sort, filters & channels" title="Sort, filters & channels" aria-expanded="false">⚙</button>
+                <label class="chat-sort-inline" title="Conversation sort order">
+                  <select id="chat-sort" aria-label="Sort conversations">
+                    <option value="activity">Recent</option>
+                    <option value="unread">Unread</option>
+                    <option value="name">A–Z</option>
+                    <option value="name-desc">Z–A</option>
+                    <option value="status">Status</option>
+                    <option value="runtime">Runtime</option>
+                  </select>
+                </label>
+                <button type="button" class="icon-button chat-filter-toggle" id="chat-filter-toggle" aria-label="Identity & channels" title="Identity & new channel" aria-expanded="false">⚙</button>
+              </div>
+              <!-- Always-visible filter bar (parity with the old dashboard's Filters tab). -->
+              <div class="chat-filter-bar">
+                <div class="chat-chip-group" role="group" aria-label="Scope">
+                  <button type="button" class="chat-chip scope active" data-chat-scope="all">All</button>
+                  <button type="button" class="chat-chip scope" data-chat-scope="dm">DMs</button>
+                  <button type="button" class="chat-chip scope" data-chat-scope="channel">Channels</button>
+                  <button type="button" class="chat-chip scope" data-chat-scope="favorites">★</button>
+                </div>
+                <div class="chat-chip-group" role="group" aria-label="Quick filters">
+                  <button type="button" class="chat-chip toggle" data-chat-toggle="unreadOnly">Unread</button>
+                  <button type="button" class="chat-chip toggle" data-chat-toggle="liveOnly">Live</button>
+                  <button type="button" class="chat-chip toggle" data-chat-toggle="openOnly">Has msgs</button>
+                  <button type="button" class="chat-chip toggle" data-chat-toggle="workingUp">Working↑</button>
+                </div>
+                <div class="chat-chip-group chat-status-chips" role="group" aria-label="Filter by status">
+                  <button type="button" class="chat-chip status s-working" data-chat-status="working">working</button>
+                  <button type="button" class="chat-chip status s-online" data-chat-status="online">online</button>
+                  <button type="button" class="chat-chip status s-available" data-chat-status="available">available</button>
+                  <button type="button" class="chat-chip status s-blocked" data-chat-status="blocked">blocked</button>
+                  <button type="button" class="chat-chip status s-offline" data-chat-status="offline">offline</button>
+                  <button type="button" class="chat-chip status s-stopped" data-chat-status="stopped">stopped</button>
+                </div>
               </div>
               <div id="chat-rail-options" class="chat-rail-options" hidden>
-                <div class="chat-rail-row">
-                  <label class="chat-as">Viewing as
-                    <select id="chat-identity" title="Send and read as this identity"></select>
-                  </label>
-                  <label class="chat-as">Sort
-                    <select id="chat-sort" title="Conversation sort order">
-                      <option value="activity">Recent activity</option>
-                      <option value="unread">Unread first</option>
-                      <option value="name">Name (A–Z)</option>
-                      <option value="name-desc">Name (Z–A)</option>
-                      <option value="status">Status</option>
-                      <option value="runtime">Runtime</option>
-                    </select>
-                  </label>
-                </div>
-                <div class="chat-rail-row chat-rail-toggles">
-                  <label class="check-row chat-live-toggle"><input id="chat-live-only" type="checkbox"><span>Live only</span></label>
-                  <label class="check-row"><input id="chat-open-only" type="checkbox"><span>Has messages</span></label>
-                  <label class="check-row"><input id="chat-working-up" type="checkbox"><span>Working first</span></label>
-                </div>
+                <label class="chat-as">Viewing as
+                  <select id="chat-identity" title="Send and read as this identity"></select>
+                </label>
                 <form id="chat-new-channel-form" class="chat-new-channel">
                   <input id="chat-new-channel" type="text" placeholder="New channel name" autocomplete="off">
                   <button type="submit" class="ghost" title="Create a channel and join as the viewing identity">+ Channel</button>

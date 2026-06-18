@@ -32,6 +32,8 @@ export function chatConversationItems(state) {
   const liveOnly = !!chat.liveOnly;
   const openOnly = !!chat.openOnly;
   const workingUp = !!chat.workingUp;
+  const unreadOnly = !!chat.unreadOnly;
+  const scope = chat.scope || 'all'; // 'all' | 'dm' | 'channel' | 'favorites'
   const sortMode = chat.sortMode || 'activity';
   const statusSet = chat.statusFilter instanceof Set ? chat.statusFilter : null;
   const ts = (v) => { const n = Date.parse(String(v || '')); return Number.isFinite(n) ? n : Number(v) || 0; };
@@ -71,8 +73,13 @@ export function chatConversationItems(state) {
   }));
 
   let items = [...dms, ...channels];
+  // Scope (DMs / Channels / Favorites) — a top-level lens over the rail.
+  if (scope === 'dm') items = items.filter((i) => i.kind === 'dm');
+  else if (scope === 'channel') items = items.filter((i) => i.kind === 'channel');
+  else if (scope === 'favorites') items = items.filter((i) => i.favorited);
   const live = new Set(['working', 'online', 'idle', 'available', 'blocked']);
   if (liveOnly) items = items.filter((i) => i.kind === 'channel' || live.has(resolveStatus(i.status).kind));
+  if (unreadOnly) items = items.filter((i) => i.unread > 0);
   if (statusSet && statusSet.size) items = items.filter((i) => i.kind === 'channel' || statusSet.has(resolveStatus(i.status).kind) || i.unread > 0 || i.favorited);
   if (openOnly) items = items.filter((i) => i.kind === 'channel' ? i.unread > 0 : i.msgCount > 0);
   if (filter) {

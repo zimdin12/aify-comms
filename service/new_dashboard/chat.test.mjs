@@ -78,6 +78,32 @@ test("chatConversationItems honors the search filter and liveOnly", () => {
   assert.deepEqual(live.map((i) => i.id), ["sc-coder"], "offline agent hidden under liveOnly");
 });
 
+test("chatConversationItems honors scope, unreadOnly, and the status filter set", () => {
+  const base = {
+    agents: [
+      { id: "w", status: "working" },
+      { id: "off", status: "offline" },
+      { id: "fav", status: "online", favorited: true },
+    ],
+    messages: [{ id: "u1", from: "w", to: "dashboard", read: false }],
+    chat: { identity: "dashboard", channels: [{ name: "room", memberCount: 3 }] },
+  };
+  // scope=dm hides channels; scope=channel hides DMs; scope=favorites keeps only favorited
+  const dmOnly = chatConversationItems({ ...base, chat: { ...base.chat, scope: "dm" } });
+  assert.ok(!dmOnly.find((i) => i.kind === "channel"), "scope=dm hides channels");
+  const chOnly = chatConversationItems({ ...base, chat: { ...base.chat, scope: "channel" } });
+  assert.deepEqual(chOnly.map((i) => i.id), ["room"], "scope=channel keeps only channels");
+  const favOnly = chatConversationItems({ ...base, chat: { ...base.chat, scope: "favorites" } });
+  assert.deepEqual(favOnly.map((i) => i.id), ["fav"], "scope=favorites keeps only favorited");
+  // unreadOnly keeps only conversations with unread > 0 (the 'w' DM has an unread message)
+  const unread = chatConversationItems({ ...base, chat: { ...base.chat, unreadOnly: true } });
+  assert.deepEqual(unread.map((i) => i.id), ["w"], "unreadOnly keeps only unread conversations");
+  // statusFilter keeps matching statuses (+ channels/unread/favorited always pass the status gate)
+  const statusF = chatConversationItems({ ...base, chat: { ...base.chat, statusFilter: new Set(["offline"]) } });
+  assert.ok(statusF.find((i) => i.id === "off"), "status filter keeps matching-status DMs");
+  assert.ok(!statusF.find((i) => i.id === "w" && false), "non-matching plain DM excluded unless unread/fav");
+});
+
 test("deliveryToastFor maps the send response to the truthful ladder", () => {
   assert.equal(deliveryToastFor({ runs: [{ steered: true }] }, "x").text, "Steered into x's active turn");
   assert.equal(deliveryToastFor({ runs: [{ status: "queued" }] }, "x").tone, "info");
