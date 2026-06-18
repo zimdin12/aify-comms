@@ -1474,3 +1474,35 @@ textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible, [role="
     transition-duration: .001ms !important; scroll-behavior: auto !important;
   }
 }
+
+/* ============================================================================
+   Tabular surfaces — Spawn requests (Environments page) + Identity directory
+   (inspector drawer). The dashboard is otherwise card-based, so these tables
+   ship their own minimal styling on the existing tokens.
+   ============================================================================ */
+.table-wrap { overflow-x: auto; }
+.spawn-requests-table, .identity-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .8em;
+}
+.spawn-requests-table th, .identity-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 6px 9px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.spawn-requests-table td, .identity-table td {
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--line-soft, var(--panel-2));
+  vertical-align: top;
+  color: var(--text);
+}
+.spawn-requests-table tr:hover td, .identity-table tbody tr:hover td { background: var(--panel-2); }
+.spawn-requests-table td.clip, .identity-table td.clip { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spawn-requests-table .subtle, .identity-table .subtle { font-size: .85em; }
+.identity-directory .identity-table { margin-top: 8px; }
+.identity-directory-stats { margin: 6px 0 4px; }
+.identity-row-actions { display: flex; gap: 6px; white-space: nowrap; }

@@ -35,6 +35,7 @@ const state = {
   runs: [],
   sessions: [],
   environments: [],
+  spawnRequests: [], // GET /spawn-requests — queued/claimed/failed/done spawns, surfaced on Environments.
   stats: {},
   files: [],
   // Plan 6 C3/C4/C5/C6: server settings snapshot (GET /api/v1/settings).
@@ -537,7 +538,7 @@ async function refresh() {
   byId('api-status').textContent = 'refreshing';
   byId('api-status').className = 'status-chip muted';
   try {
-    const [agents, contracts, inboxMessages, recentMessages, runs, sessions, environments, stats, settings] = await Promise.all([
+    const [agents, contracts, inboxMessages, recentMessages, runs, sessions, environments, spawnRequests, stats, settings] = await Promise.all([
       api('/agents'),
       api('/contracts?limit=80'),
       api('/messages/inbox/dashboard?filter=all&peek=true&limit=80'),
@@ -545,6 +546,7 @@ async function refresh() {
       api(runQueryPath()),
       api('/sessions?limit=80'),
       api('/environments'),
+      api('/spawn-requests?limit=200').catch(() => ({})),
       api('/stats'),
       // Settings are still loaded for legacy controls; mode-switch chips are
       // always visible for managed/resident agents.
@@ -556,6 +558,7 @@ async function refresh() {
     state.runs = runs.runs || [];
     state.sessions = asArray(sessions, 'sessions');
     state.environments = asArray(environments, 'environments');
+    state.spawnRequests = asArray(spawnRequests, 'spawnRequests');
     state.stats = stats || {};
     state.settings = settings && typeof settings === 'object' ? settings : {};
     applyTheme(state.settings); // apply the server-stored appearance (theme/palette/title)
@@ -609,6 +612,7 @@ const _agentSig = () => state.agents.map((a) => [a.id, a.status]);
 const _contractSig = () => state.contracts.map((c) => [c.id, c.state, c.status, c.overdue, c.subject]);
 const _runSig = () => state.runs.map((r) => [r.id, r.status, r.subject, r.summary, r.targetAgentId || r.target_agent]);
 const _envSig = () => state.environments.map((e) => [e.id, e.status, e.label]);
+const _spawnReqSig = () => state.spawnRequests.map((r) => [r.id, r.status, r.agentId, r.error, r.updatedAt]);
 const _msgSig = () => state.messages.map((m) => [m.id, m.from, m.subject, m.read]);
 const _chatChanSig = () => (state.chat.channels || []).map((c) => [c.name, c.unreadCount, c.memberCount]);
 const _chatConvSig = () => Object.entries(state.chat.channelMessages || {}).map(([k, v]) => [k, (v || []).length]);
@@ -627,6 +631,7 @@ function renderAll() {
   renderSection('envSummary', [_envSig()], renderEnvironmentSummary);
   renderEnvironmentSpawnOptions();
   renderSection('runtime', [_envSig()], renderRuntime);
+  renderSection('spawnRequests', [_spawnReqSig()], renderSpawnRequests);
   renderSection('runs', [_runSig(), f, state.runStatusFilter || '', state.runFromFilter, state.runToFilter, state.runRuntimeFilter, state.runSearch, [...state.selectedDiagnosticIds]], renderRuns);
   renderSection('files', [state.files.map((x) => [x.name, x.size, x.sharedAt]), f], renderFiles);
   renderSection('settings', [state.settings], renderSettings);
@@ -2048,6 +2053,39 @@ function renderRuntime() {
     </article>`).join('') || '<div class="empty-state"><span class="empty-icon">🔌</span><strong>No environments connected</strong><p>Start an aify-comms bridge on a host to see it here.</p></div>';
 }
 
+// Spawn-requests queue/history (ported from 8800 renderSpawnRequests): surfaces queued/
+// claimed/failed/done spawn requests on the Environments page so failed or stuck spawns have
+// somewhere to appear. Reads GET /spawn-requests (loaded into state.spawnRequests on refresh).
+// `done` is the one spawn status the canonical resolver doesn't know — alias it to completed.
+function renderSpawnRequests() {
+  const el = byId('spawn-requests-list');
+  if (!el) return;
+  const requests = [...state.spawnRequests].sort((a, b) =>
+    String(b.createdAt || b.created_at || '').localeCompare(String(a.createdAt || a.created_at || '')));
+  if (!requests.length) {
+    el.innerHTML = '<div class="empty-state"><span class="empty-icon">🌱</span><strong>No spawn requests</strong><p>Queued, failed, and completed spawns will appear here.</p></div>';
+    return;
+  }
+  const rows = requests.map((req) => {
+    const status = String(req.status || 'queued').toLowerCase();
+    const chipStatus = status === 'done' ? 'completed' : status;
+    const detail = req.error || req.claimedByBridgeId || '';
+    const created = req.createdAt || req.created_at || '';
+    return `<tr>
+      <td>${created ? esc(relTime(created)) + ' ago' : '—'}</td>
+      <td><strong>${esc(req.agentId || req.agent_id || '—')}</strong>${req.role ? `<br><span class="subtle">${esc(req.role)}</span>` : ''}</td>
+      <td class="clip">${esc(req.environmentId || req.environment_id || '—')}</td>
+      <td>${esc(req.runtime || '—')}</td>
+      <td>${renderStatusChip(chipStatus, { label: status, why: `Spawn request status: ${status}.` })}</td>
+      <td class="clip">${esc(req.workspace || '—')}</td>
+      <td class="clip">${esc(detail)}</td>
+    </tr>`;
+  }).join('');
+  el.innerHTML = `<div class="table-wrap"><table class="spawn-requests-table"><thead><tr>
+      <th>Requested</th><th>Agent</th><th>Environment</th><th>Runtime</th><th>Status</th><th>Workspace</th><th>Bridge / error</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
 async function controlEnvironment(environmentId, action) {
   if ((action === 'stop' || action === 'forget') && !await uiConfirm(`${action === 'stop' ? 'Stop the bridge process' : 'Forget this environment'} "${environmentId}"?`)) return;
   try {
@@ -2273,6 +2311,62 @@ async function inspect(kind, payload) {
   state.inspector = { kind, runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false, eventOrder: 'desc', sourceMessageId: '' };
   byId('inspector-content').innerHTML = `<pre>${esc(JSON.stringify(data || {}, null, 2))}</pre>`;
   openInspector();
+}
+
+// Identity Directory (ported from 8800): an operator audit of every agent identity —
+// role, runtime, session mode (resident/managed), bound environment, live status, and unread.
+// Identity is the stable mailbox/role/routing behind chat; runtime control lives on Sessions.
+// Renders into the shared inspector drawer (same pattern as the agent/history drawers). The
+// per-row "Details" reuses openAgentDrawer; "Remove" reuses removeAgent (DELETE /agents/{id})
+// — the only cleanup affordance the backend exposes for forgetting an offline CLI identity.
+function openIdentityDirectory() {
+  const agents = [...state.agents].sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+  const modeOf = (agent, session) => String(agent.sessionMode || (session && (session.mode || session.session_mode)) || 'resident').toLowerCase();
+  const managed = agents.filter((a) => modeOf(a, sessionForAgent(a.id)) === 'managed').length;
+  const resident = agents.length - managed;
+  const unread = agents.reduce((sum, a) => sum + Number(a.unread || a.unreadCount || 0), 0);
+  const rows = agents.map((agent) => {
+    const id = String(agent.id || '');
+    const session = sessionForAgent(id);
+    const mode = modeOf(agent, session);
+    const env = session ? (state.environments.find((e) => String(e.id) === String(sessionEnvironmentId(session))) || null) : null;
+    const envLabel = (env && (env.label || env.id)) || (session ? sessionEnvironmentId(session) : '') || '';
+    const runtime = agent.runtime || (session && sessionRuntime(session)) || '';
+    const lastSeen = agent.lastSeen || agent.last_seen || '';
+    return `<tr>
+      <td><strong>${esc(id)}</strong></td>
+      <td>${esc(agent.role || '')}</td>
+      <td>${esc(runtime || '—')}</td>
+      <td>${esc(mode)}</td>
+      <td class="clip">${esc(envLabel === 'unassigned' ? '—' : (envLabel || '—'))}</td>
+      <td>${renderStatusChip(agent.status || 'unknown', statusWhyContext('agent', agent, agent.status))}</td>
+      <td>${Number(agent.unread || agent.unreadCount || 0) || 0}</td>
+      <td>${lastSeen ? esc(relTime(lastSeen)) + ' ago' : '—'}</td>
+      <td class="identity-row-actions">
+        <button class="ghost" data-agent-details="${esc(id)}" title="Open the agent detail drawer (lifecycle controls)">Details</button>
+        <button class="ghost danger" data-agent-remove="${esc(id)}" title="Unregister/forget this identity (tombstones it)">Remove</button>
+      </td>
+    </tr>`;
+  }).join('');
+  const table = agents.length
+    ? `<div class="table-wrap"><table class="identity-table"><thead><tr>
+        <th>ID</th><th>Role</th><th>Runtime</th><th>Mode</th><th>Environment</th><th>Status</th><th>Unread</th><th>Last seen</th><th></th>
+      </tr></thead><tbody>${rows}</tbody></table></div>`
+    : '<div class="empty-state"><span class="empty-icon">🪪</span><strong>No identities</strong><p>No agents are registered yet.</p></div>';
+  byId('inspector-content').innerHTML = `
+    <div class="agent-drawer identity-directory">
+      <div class="agent-drawer-head"><strong>Identity directory</strong></div>
+      <p class="subtle">Identities are the stable mailbox, role, and routing behind chat. Use this directory to audit roles, runtime, session mode, bound environment, and live status — or to forget an offline CLI identity. Runtime control lives on Sessions.</p>
+      <dl class="chat-kv agent-drawer-kv identity-directory-stats">
+        <dt>Managed</dt><dd>${managed}</dd>
+        <dt>Resident / manual</dt><dd>${resident}</dd>
+        <dt>Total unread</dt><dd>${unread}</dd>
+      </dl>
+      ${table}
+    </div>`;
+  state.inspector = { ...state.inspector, kind: 'identity-directory', runId: '' };
+  byId('inspector')?.classList.add('open');
+  byId('inspector')?.classList.remove('run-inspector-sheet');
 }
 
 // Agent-detail drawer (Phase 1.3): ONE drawer (the shared inspector) surfacing an agent's
@@ -3027,6 +3121,8 @@ document.addEventListener('click', (event) => {
   if (agentHistory) { openCompactionHistory(agentHistory.dataset.agentHistory); return; }
   const agentEditSubmit = event.target.closest('[data-agent-edit-submit]');
   if (agentEditSubmit) { submitAgentEdit(agentEditSubmit.dataset.agentEditSubmit); return; }
+  const agentDetails = event.target.closest('[data-agent-details]');
+  if (agentDetails) { openAgentDrawer(agentDetails.dataset.agentDetails); return; }
   const agentRemove = event.target.closest('[data-agent-remove]');
   if (agentRemove) { removeAgent(agentRemove.dataset.agentRemove); return; }
   const agentDeleteSession = event.target.closest('[data-agent-delete-session]');
@@ -3313,6 +3409,7 @@ byId('chat-identity')?.addEventListener('change', (event) => {
   state.chat.identity = event.target.value || 'dashboard';
   chatController.render();
 });
+byId('chat-identity-directory')?.addEventListener('click', () => openIdentityDirectory());
 // Persist the rail filter prefs so "live only" (which hides offline/archived agents) and the
 // other declutter toggles STICK across reloads — the old dashboard remembered these; not
 // persisting them is why the rail re-cluttered with offline conversations on every refresh.

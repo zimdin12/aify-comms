@@ -129,6 +129,7 @@
                   <input id="chat-new-channel" type="text" placeholder="New channel name" autocomplete="off">
                   <button type="submit" class="ghost" title="Create a channel and join as the viewing identity">+ Channel</button>
                 </form>
+                <button type="button" class="ghost" id="chat-identity-directory" title="Audit agent identities: roles, runtime, session mode, environment, and live status">Identity directory</button>
               </div>
             </div>
             <div id="chat-rail-list" class="chat-rail-list"></div>
@@ -236,6 +237,13 @@
           <p class="preview">Spawn starts a fresh session. To keep existing context, use Compact or Continue&nbsp;as from an agent's Details drawer (Chat → Details, or Sessions).</p>
         </section>
         <div id="environment-list" class="runtime-grid"></div>
+        <section class="band spawn-requests">
+          <div class="section-head">
+            <h2>Spawn requests</h2>
+            <span class="subtle">queue + history</span>
+          </div>
+          <div id="spawn-requests-list"></div>
+        </section>
       </section>
 
       <section id="page-diagnostics" class="page">
