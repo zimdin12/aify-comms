@@ -379,6 +379,18 @@ keepalive is armed (managed claude PTY) and the service carries the 20s TTL. *No
 time-grace:* a deaf/stale console can be recent too, so no age threshold distinguishes "working
 but unwatched" from "wedged"; forcing the signal to keep flowing is the only truthful fix.
 
+**Update (idle-grace → re-probe, 2026-06-18, `cf6ef25`).** The keepalive doesn't nudge at the full
+~4s rate forever: after a sustained run of idle-prompt ticks it would drop to a SLOW re-probe
+cadence (`consoleKeepaliveIdleReprobeTicks`, ~16s — below the 20s lease) instead of stopping
+entirely. The earlier "stop after grace" let a turn RESUMING after a long idle never be
+re-discovered (quiet PTY never re-emits a working footer → lease lapses → false `online`, the #224
+residual); the re-probe re-discovers resumed work within the lease window with negligible churn (an
+idle console only re-emits its idle residue → no working pulse). Defense-in-depth: a transient
+`consoleClass==='unknown'` footer refreshes the lease only when a turn is known in-flight. If a
+managed claude still flips to `online` mid-turn: confirm the bridge carries `cf6ef25` (re-run
+`install.sh` + restart the env bridge) — the transcript turn-state detector is the primary backstop,
+this keepalive is the console-lease layer.
+
 ## Managed claude showed `blocked` mid-generation (2026-06-07)
 
 **Symptom.** A managed claude with a live active run flips to `blocked` while it is actually
