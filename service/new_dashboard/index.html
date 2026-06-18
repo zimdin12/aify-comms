@@ -95,9 +95,9 @@
                 </label>
                 <button type="button" class="icon-button chat-filter-toggle" id="chat-filter-toggle" aria-label="Identity & channels" title="Identity & new channel" aria-expanded="false">⚙</button>
               </div>
-              <!-- Compact always-visible filter bar: scope + key quick filters on one wrap-row,
-                   status filters as small color dots on a second. Less-used toggles + identity +
-                   channel-create live in the ⚙ panel. -->
+              <!-- Compact always-visible filter bar: just scope + key quick filters on one row.
+                   Status-color filters, less-used toggles, identity + channel-create all live in
+                   the ⚙ panel so the rail stays uncluttered. -->
               <div class="chat-filter-bar">
                 <div class="chat-chip-group" role="group" aria-label="Scope and quick filters">
                   <button type="button" class="chat-chip scope active" data-chat-scope="all">All</button>
@@ -107,6 +107,8 @@
                   <button type="button" class="chat-chip toggle" data-chat-toggle="unreadOnly">Unread</button>
                   <button type="button" class="chat-chip toggle" data-chat-toggle="liveOnly">Live</button>
                 </div>
+              </div>
+              <div id="chat-rail-options" class="chat-rail-options" hidden>
                 <div class="chat-status-row" role="group" aria-label="Filter by status">
                   <span class="chat-status-label">Status</span>
                   <button type="button" class="chat-chip status dot s-working" data-chat-status="working" title="working — live and in an active turn right now" aria-label="Filter: working"></button>
@@ -116,8 +118,6 @@
                   <button type="button" class="chat-chip status dot s-offline" data-chat-status="offline" title="offline — no live session and not auto-startable" aria-label="Filter: offline"></button>
                   <button type="button" class="chat-chip status dot s-stopped" data-chat-status="stopped" title="stopped — explicitly disabled / hard-blocked" aria-label="Filter: stopped"></button>
                 </div>
-              </div>
-              <div id="chat-rail-options" class="chat-rail-options" hidden>
                 <div class="chat-chip-group" role="group" aria-label="More filters">
                   <button type="button" class="chat-chip toggle" data-chat-toggle="openOnly">Has messages</button>
                   <button type="button" class="chat-chip toggle" data-chat-toggle="workingUp">Working first</button>
