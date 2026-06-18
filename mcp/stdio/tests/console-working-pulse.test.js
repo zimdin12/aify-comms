@@ -16,6 +16,20 @@ assert.deepEqual(
   decideConsolePulse({ runtime: "claude-code", consoleClass: "unknown", agentId: "a1" }),
   { kind: "none" },
 );
+// Defense-in-depth (#224): a transient "unknown" footer frame refreshes the lease ONLY when a
+// turn is already known in flight — never at rest, never on a clear "idle" reading.
+assert.deepEqual(
+  decideConsolePulse({ runtime: "claude-code", consoleClass: "unknown", agentId: "a1", turnInFlight: true }),
+  { kind: "console-working", agentId: "a1" },
+);
+assert.deepEqual(
+  decideConsolePulse({ runtime: "claude-code", consoleClass: "idle", agentId: "a1", turnInFlight: true }),
+  { kind: "none" },
+);
+assert.deepEqual(
+  decideConsolePulse({ runtime: "claude-code", consoleClass: null, agentId: "a1", turnInFlight: true }),
+  { kind: "none" },
+);
 assert.deepEqual(
   decideConsolePulse({ runtime: "claude-code", consoleClass: null, agentId: "a1" }),
   { kind: "none" },

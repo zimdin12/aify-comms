@@ -884,11 +884,18 @@ function pulseTerminalTurnBusy(terminalId, agentId) {
 // decide which working pulse to emit. Claude uses the spinner-gated console-working
 // lease (the strong, specific "claude is generating" signal — the TUI footer). Other
 // runtimes keep the legacy any-output terminal pulse (they own native turn detectors).
-export function decideConsolePulse({ runtime, consoleClass, agentId }) {
+export function decideConsolePulse({ runtime, consoleClass, agentId, turnInFlight = false }) {
   const aid = String(agentId || "").trim();
   if (!aid) return { kind: "none" };
   if (runtime === "claude-code") {
-    return consoleClass === "working" ? { kind: "console-working", agentId: aid } : { kind: "none" };
+    // The spinner footer ("working") is the strong, specific generating signal → refresh.
+    if (consoleClass === "working") return { kind: "console-working", agentId: aid };
+    // Defense-in-depth (#224, 2026-06-18): a transient "unknown" footer frame mid-generation
+    // (neither a clear spinner nor the idle prompt) must NOT let the lease lapse WHEN a turn is
+    // already known in flight — refresh across the ambiguous frame. NEVER on "idle" (a clear
+    // at-rest reading) and never when no turn is known, so this can't manufacture working at rest.
+    if (consoleClass === "unknown" && turnInFlight) return { kind: "console-working", agentId: aid };
+    return { kind: "none" };
   }
   // Non-claude runtimes (codex/hermes/pi) own native turn detectors (codex turn/completed,
   // hermes gateway idle/running, pi agent_end). The legacy any-output terminal pulse was
@@ -898,6 +905,10 @@ export function decideConsolePulse({ runtime, consoleClass, agentId }) {
 }
 
 const CONSOLE_WORKING_REMIT_MS = 2000;
+// How recently a console-working pulse must have fired for a subsequent "unknown" footer frame
+// to count as mid-turn (and thus refresh the lease). Shorter than the server console-working
+// lease so a genuinely ended turn still lets the lease lapse rather than self-extending forever.
+const CONSOLE_WORKING_TURN_WINDOW_MS = 15000;
 const CONSOLE_WORKING_TIMERS = new Map();
 
 // Refresh the server-side console-working lease while the claude spinner footer is
@@ -1030,10 +1041,16 @@ const TERMINAL_MANAGER = new TerminalProcessManager({
     // dispatch_run is in flight. Self-clears after the quiet window.
     try {
       const st = TERMINAL_MANAGER.stateFor?.(terminalId) || {};
+      // A turn is "known in flight" if we emitted a console-working pulse recently (claude showed
+      // its spinner within the window) — used to bridge transient "unknown" footer frames mid-turn
+      // without ever manufacturing working from a cold/idle console (see decideConsolePulse).
+      const lastWorking = CONSOLE_WORKING_TIMERS.get(terminalId) || 0;
+      const turnInFlight = lastWorking > 0 && (Date.now() - lastWorking) < CONSOLE_WORKING_TURN_WINDOW_MS;
       const decision = decideConsolePulse({
         runtime: st.runtime,
         consoleClass: st.consoleClass,
         agentId: st.agentId,
+        turnInFlight,
       });
       if (decision.kind === "console-working") pulseConsoleWorking(terminalId, decision.agentId, st.subagentsActive);
       else if (decision.kind === "terminal-pulse") pulseTerminalTurnBusy(terminalId, decision.agentId);
