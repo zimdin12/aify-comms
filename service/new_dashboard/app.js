@@ -451,8 +451,8 @@ function applyRealtimeEvent(event, data = {}) {
       // re-fetch the authoritative buffer instead of painting out-of-order bytes.
       const seq = Number(data.seq);
       if (Number.isFinite(seq) && entry.lastSeq >= 0) {
-        if (seq <= entry.lastSeq) { refreshSoon(); return; }
-        if (seq > entry.lastSeq + 1) { resyncActiveConsole().catch(() => {}); refreshSoon(); return; }
+        if (seq <= entry.lastSeq) { return; }
+        if (seq > entry.lastSeq + 1) { resyncActiveConsole().catch(() => {}); return; }
       }
       if (Number.isFinite(seq)) entry.lastSeq = seq;
       try {
@@ -462,7 +462,10 @@ function applyRealtimeEvent(event, data = {}) {
         updateAwaitPill();
       } catch {}
     }
-    refreshSoon();
+    // NOTE: do NOT refreshSoon() here. terminal_output streams every 1-4s; a full data
+    // refetch per frame made the api-status chip flap 'refreshing'↔'live' every second and
+    // wasted the 9-endpoint refetch. Live bytes are written to xterm above; agent/roster data
+    // changes arrive via the granular agent_status / other WS events below.
     return;
   }
   // Granular consumption (Phase 1.2): a status change patches the agent in place and

@@ -301,13 +301,13 @@ small, .subtle { color: var(--muted); }
 .status-dot.online { background: var(--green-soft, #88c999); box-shadow: 0 0 0 3px rgba(136,201,153,.12); }
 .status-dot.available { background: var(--available-blue); box-shadow: 0 0 0 3px rgba(111,180,255,.14); }
 .status-dot.working {
-  background: var(--blue);
-  box-shadow: 0 0 0 3px rgba(111,180,255,.12);
+  background: var(--amber, #dfb156);
+  box-shadow: 0 0 0 3px rgba(223,177,86,.14);
   animation: status-working-pulse 1.4s ease-in-out infinite;
 }
 @keyframes status-working-pulse {
-  0%, 100% { box-shadow: 0 0 0 3px rgba(111,180,255,.12); }
-  50%      { box-shadow: 0 0 0 6px rgba(111,180,255,.28); }
+  0%, 100% { box-shadow: 0 0 0 3px rgba(223,177,86,.14); }
+  50%      { box-shadow: 0 0 0 6px rgba(223,177,86,.32); }
 }
 .status-dot.blocked, .status-dot.bad, .status-dot.failed { background: var(--red); box-shadow: 0 0 0 3px rgba(238,106,116,.12); }
 .status-dot.offline { background: var(--muted); box-shadow: 0 0 0 3px rgba(158,170,165,.12); }
