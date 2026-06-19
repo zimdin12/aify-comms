@@ -3465,8 +3465,15 @@ install_claude_turn_end_hook() {
   fi
   local node_settings_file
   node_settings_file="$(path_for_node "$settings_file")"
+  # SECONDARY pure-event fix (2026-06-19): route the Stop hook through claude-stop-gate.js, which
+  # SUPPRESSES a premature/duplicate Stop fired mid-turn (it reads the transcript tail and only
+  # posts /turn-end when the turn is NOT still in-flight). FAIL-SAFE: if node or the gate file is
+  # unavailable, fall back to the original raw curl /turn-end — worst case is exactly the old
+  # behavior, never a stuck-`working`. The curl-fallback string also keeps the dedup filter below
+  # matching this hook on re-install.
+  local gate_path="$AIFY_BRIDGE_DIR/claude-stop-gate.js"
   local hook_command
-  hook_command='if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then curl -sS --max-time 2 -X POST "${AIFY_COMMS_URL%/}/api/v1/agents/${AIFY_AGENT_ID}/turn-end" >/dev/null 2>&1 || true; fi'
+  hook_command='if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then if command -v node >/dev/null 2>&1 && [ -f "'"$gate_path"'" ]; then node "'"$gate_path"'" 2>/dev/null || true; else curl -sS --max-time 2 -X POST "${AIFY_COMMS_URL%/}/api/v1/agents/${AIFY_AGENT_ID}/turn-end" >/dev/null 2>&1 || true; fi; fi'
   MSYS_NO_PATHCONV=1 node -e "
     const fs = require('fs');
     const settingsPath = process.argv[1];
