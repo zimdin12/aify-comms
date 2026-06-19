@@ -348,6 +348,11 @@ export class CodexSession {
       turn.activeTurnId = params.turn.id;
       turn.callbacks?.onRefs?.({ threadId: this.threadId, turnId: turn.activeTurnId });
       turn.callbacks?.onEvent?.("turn", `Started turn ${turn.activeTurnId}`);
+      // TERTIARY pure-event (2026-06-19): the codex app-server's native turn/started is the
+      // event-EXACT working signal — cleaner than the 5s rollout-tail poll (no FS-flush latency,
+      // no schema-drift, no #136 uuid-mismatch no-op). Fire it so the caller can set working the
+      // instant codex begins generating. Additive + idempotent with the dispatch-boundary set.
+      try { turn.callbacks?.onTurnStart?.(); } catch {}
       this._pushTerminalFrame(`\r\n\x1b[96m\x1b[1m▶ turn started\x1b[0m\r\n`);
     } else if (message.method === "turn/completed") {
       turn.finalStatus = params.turn?.status || "completed";
@@ -359,6 +364,10 @@ export class CodexSession {
       this._pushTerminalFrame(`\r\n\x1b[36m\x1b[1m■ turn ended\x1b[0m${usageStr}\r\n`);
       if (turn.finalStatus === "completed" || turn.finalStatus === "interrupted" || turn.finalStatus === "failed") {
         turn.settled = true;
+        // TERTIARY pure-event (2026-06-19): turn/completed is the real, event-exact turn-end —
+        // fire it so the caller clears `working` immediately on the native signal rather than
+        // waiting for the rollout-tail detector or the dispatch settle. Additive + idempotent.
+        try { turn.callbacks?.onTurnEnd?.(); } catch {}
       }
     } else if (message.method === "item/agentMessage/delta") {
       const delta = params.delta || "";

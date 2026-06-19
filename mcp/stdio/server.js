@@ -3288,6 +3288,17 @@ async function runDispatchLoop() {
               // best effort
             }
           },
+          // TERTIARY pure-event (2026-06-19): wire codex's native app-server turn events to the
+          // turn-state poster — turn/started → working, turn/completed → cleared — so managed
+          // codex status is event-EXACT instead of leaning on the 5s rollout-tail poll. Both are
+          // idempotent (reportTurnBusy is ownership-guarded) and additive to the existing
+          // dispatch-boundary + rollout-detector signals, so they only sharpen, never conflict.
+          onTurnStart: async () => {
+            try { await reportTurnBusy(agentId, state, { busy: true, runId: run.id, runtime: "codex" }); } catch { /* best-effort */ }
+          },
+          onTurnEnd: async () => {
+            try { await reportTurnBusy(agentId, state, { busy: false, runId: run.id, runtime: "codex" }); } catch { /* best-effort */ }
+          },
           // Fired when the runtime controller had to discard an unloadable
           // thread/session and start a fresh one. Non-empty handles are
           // persisted through re-registration; explicit clears use the
