@@ -4455,14 +4455,12 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
             datetime.now(timezone.utc).timestamp() - last_event_epoch
         ) > TURN_BUSY_BACKSTOP_SECONDS:
             in_turn = False
-    # Turn-end grace (#224, 2026-06-18): hold in_turn briefly after a turn-END so a managed
-    # wrapper's premature Stop-then-re-assert doesn't flap the WS-pushed status to `online`.
-    # Mirrors the byproduct path (_compute_live_status_cache); derive() still gates on `live`,
-    # so a recent turn-end on a dead worker can't surface as working.
-    if (not in_turn) and st and str(st["last_event"] or "") == "turn_end":
-        _end_epoch = _iso_to_epoch(st["last_event_at"] if st else "")
-        if _end_epoch and (datetime.now(timezone.utc).timestamp() - _end_epoch) <= TURN_END_GRACE_SECONDS:
-            in_turn = True
+    # PURE-EVENT (2026-06-19): the turn-end GRACE was removed from BOTH status paths — this
+    # WS-push path (_gather_status_inputs) and the byproduct/poll path (_compute_live_status_cache).
+    # It held in_turn for 20s after a turn-END to mask a managed wrapper's premature Stop, but
+    # that 20s time-decay is exactly what the operator rejects, and leaving it ONLY here made the
+    # pushed status disagree with the polled status for 20s. The flap is fixed at the SOURCE (fast
+    # bridge turn detectors re-assert a premature clear within a tick); derive() stays pure-event.
     # DISABLED = explicit stop OR wake disabled (launch_mode='none' — the operator's "Stop
     # wake"). The engine only knew 'stopped' (2026-06-12 audit): wake-disabled agents served
     # `available` under status_engine=new — inviting sends that can never wake them — while
@@ -20758,6 +20756,8 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
             f = _ep(r["finished_at"]) if r["finished_at"] else now_s
             if s is None:
                 continue
+            if f <= s:
+                continue  # negative/zero span (clock skew or late-backfilled claimed_at) → no work; parity with the per-agent MAX(0,...)
             # Skip reaped/stuck runs (claimed-but-abandoned, force-closed ~24h later): their
             # claimed→finished span is non-work and would otherwise add the whole window as
             # "working". See WORKED_SPAN_CEILING_SECONDS.

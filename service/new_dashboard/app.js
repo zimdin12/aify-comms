@@ -1794,6 +1794,15 @@ async function switchAgentSessionMode(agentId, targetMode, { force = false } = {
 function renderSessionConsole(session, targetEl, opts = {}) {
   const host = targetEl || byId('session-console-summary');
   if (!host) return;
+  // Dual-host xterm guard (2026-06-19 review): this runs for BOTH the Sessions summary host
+  // AND the Chat inline console host, and renderSessionWorkspace() calls it on EVERY poll
+  // regardless of the active page. state.activeXterm is a single global, so a HIDDEN host
+  // re-rendering would dispose+re-mount the live xterm out from under the VISIBLE host → the
+  // other pane goes black ("visible for a sec then black", now reachable cross-host since
+  // auto-attach mounts terminals for far more sessions). A hidden host (its page/tab inactive →
+  // display:none → offsetParent null) must be a no-op; only the visible host owns the mount.
+  // setPage() re-renders on switch, so the console appears immediately when its page is shown.
+  if (host.offsetParent === null) return;
   const id = sessionId(session);
   const status = String(session?.status || '').toLowerCase();
   const canStop = !['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled'].includes(status);
@@ -3011,6 +3020,11 @@ function setPage(page) {
   // page wasted ~210px and made every page feel sparse. Chat is the landing; show it there.
   const strip = byId('attention-strip');
   if (strip) strip.hidden = page !== 'chat';
+  // Re-render the session workspace on switch so its now-visible console mounts immediately
+  // (renderSessionConsole no-ops on a hidden host, so without this the terminal would only
+  // appear on the next poll). Cheap + idempotent; on non-Sessions pages the console render
+  // no-ops (host hidden) and only the title/rail update.
+  renderSessionWorkspace();
 }
 
 function updateStaticLinks() {

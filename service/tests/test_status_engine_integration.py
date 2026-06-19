@@ -83,6 +83,31 @@ class StatusEventIngestTests(FastApiTestCase):
                 await db.close()
         self.assertEqual(asyncio.run(run()), "working")
 
+    def test_engine_status_online_immediately_after_turn_end(self):
+        # PURE-EVENT (2026-06-19): with the turn-end grace removed, a turn_end must flip the
+        # derived engine status to `online` IMMEDIATELY — no 20s grace hold. This pins the grace
+        # removal in BOTH _gather_status_inputs (the WS-push path, fired by /turn-end) and
+        # _compute_live_status_cache (the poll path); before the fix the surviving grace block in
+        # _gather_status_inputs held `working` for 20s after turn_end, so this asserted-online
+        # test would FAIL — it is the regression net for that exact bug.
+        self._register("a-pe", mode="resident", runtime="claude-code")
+        self.client.post("/api/v1/agents/a-pe/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
+        self.client.post("/api/v1/agents/a-pe/status-event", json={"kind": "turn_start", "runId": "r1"})
+        self.client.post("/api/v1/agents/a-pe/status-event", json={"kind": "turn_end", "runId": "r1"})
+        self.assertEqual(int(self._state("a-pe")["in_turn"]), 0)
+        import asyncio
+        from service.db import get_db
+        from service.routers import api_v2
+        async def run():
+            db = await get_db()
+            try:
+                row = await (await db.execute("SELECT * FROM agents WHERE id='a-pe'")).fetchone()
+                return await api_v2.engine_status(db, row)
+            finally:
+                await db.close()
+        self.assertEqual(asyncio.run(run()), "online",
+                         "turn_end must flip to online immediately (the turn-end grace was removed)")
+
     def _set(self, key, val):
         c = sqlite3.connect(str(self._db_path))
         try:

@@ -136,6 +136,39 @@ class ChatAnalyticsTests(FastApiTestCase):
         # 15 minutes from the claimed→finished span, despite started_at being NULL.
         self.assertAlmostEqual(data["workingMinutes"], 15.0, places=3)
 
+    def test_agent_analytics_excludes_reaped_long_spans(self):
+        """Regression (2026-06-19): a run that was claimed, abandoned, and force-closed by the
+        24h reaper has a completed row with a ~24h claimed→finished span that is NOT work.
+        Counting it inflated 'working total' to absurd values (sc-architect showed 909h).
+        WORKED_SPAN_CEILING_SECONDS (4h) must exclude such spans — they contribute 0 — while a
+        normal sub-ceiling run still counts."""
+        self._register("ca-reaped")
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            # A reaped/stuck run: claimed, then force-closed ~24h later (span >> 4h ceiling).
+            conn.execute(
+                "INSERT INTO dispatch_runs (id, message_id, from_agent, target_agent, status, "
+                "requested_at, claimed_at, started_at, finished_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                ("rr1", None, "peerA", "ca-reaped", "completed",
+                 "2021-06-07T01:00:00Z", "2021-06-07T01:00:00Z", None, "2021-06-08T01:00:00Z"),
+            )
+            # A normal 10-minute run that MUST still count (proves the ceiling discriminates,
+            # not just zeroes everything again).
+            conn.execute(
+                "INSERT INTO dispatch_runs (id, message_id, from_agent, target_agent, status, "
+                "requested_at, claimed_at, started_at, finished_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                ("rr2", None, "peerA", "ca-reaped", "completed",
+                 "2021-06-07T03:00:00Z", "2021-06-07T03:00:00Z", None, "2021-06-07T03:10:00Z"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        data = self.client.get("/api/v1/analytics/agent/ca-reaped").json()
+        self.assertEqual(data["ok"], True)
+        # Only the 10-minute run counts; the ~24h reaped span is excluded.
+        self.assertAlmostEqual(data["workingMinutes"], 10.0, places=3)
+
     def test_agent_analytics_revamp_fields(self):
         """2026-06-12 revamp: sent/received split, 14-day dailyActivity, runs7d,
         reply latency, and openContracts. Old fields stay (back-compat)."""
