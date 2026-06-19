@@ -211,6 +211,12 @@ function mountChatConsole(agentId, hostEl) {
   const sig = session
     ? [sessionId(session), session.status || '', session.terminalStatus || session.terminal_status || '',
        agentForSession(session)?.runtimeState?.virtualTerminalId || '',
+       // Include the auto-attach sources (2026-06-19 review) so a terminal that first goes live
+       // via the top-level PTY / console pointer / session-bound id changes the sig and mounts
+       // inline immediately, instead of lagging a poll until it lands in state.sessionTerminals.
+       agentForSession(session)?.runtimeState?.terminalId || '',
+       agentForSession(session)?.runtimeState?.consoleTerminal?.terminalId || '',
+       session.terminalId || session.terminal?.id || session.terminal_id || '',
        (state.sessionTerminals && state.sessionTerminals[sessionId(session)]) || ''].join('|')
     : 'none';
   if (hostEl.dataset.consoleSig === sig) return; // unchanged → leave the mounted terminal alone
@@ -1964,7 +1970,7 @@ function renderSessionConsole(session, targetEl, opts = {}) {
   // xterm is still mounted to this host — the live terminal then persists across polls.
   // Live status/meta that must stay fresh lives in the panel header (renderSessionWorkspace),
   // not in this console host, so this guard does not stale anything visible.
-  const consoleKey = JSON.stringify([id, widgetChoice.kind, terminalId, hermesGatewayHttp, codexAppServerUrl, codexThreadId, canStop, isChatSource]);
+  const consoleKey = JSON.stringify([id, widgetChoice.kind, terminalId, hermesGatewayHttp, codexAppServerUrl, codexThreadId, canStop, isChatSource, isVirtualTerminal]);
   const xtermStillMounted = hasTerminal && state.activeXterm
     && state.activeXterm.terminalId === terminalId
     && host.contains(state.activeXterm.container);
