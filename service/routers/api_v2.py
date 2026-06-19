@@ -8693,8 +8693,21 @@ async def _clear_turn_busy_if_no_open_reply_owing_run(db, target_agent: str, exc
         """,
         (target_agent, _now()),
     )
-    # Keep the v2 engine in sync (dual-table drift guard, review M3 2026-06-10).
-    await _clear_status_state_in_turn(db, target_agent)
+    # PURE-EVENT FIX (2026-06-19): do NOT clear the v2 status signal (agent_status_state.in_turn)
+    # here. A reply landing is NOT a turn-end — the channel contract REQUIRES the agent to send
+    # its reply mid-turn, before it finishes, so clearing in_turn on reply-landed flipped the
+    # derived status to `online` while the agent was still working, then the bridge's turn
+    # detector re-asserted → the working→online→working flicker the operator reported on BOTH
+    # hermes (sc-coder) and claude (sc-claude). The 20s grace used to mask this; with the grace
+    # gone (pure-event), the premature clear was exposed.
+    #
+    # We STILL clear agent_turn_state.turn_busy above — that releases the claim/send-queue gate
+    # (the original send-deadlock fix: the queue gate reads turn_busy freshness, and a phantom
+    # turn_busy from the delivery re-pulse stranded the next queued send for 120s). The two
+    # consumers are now decoupled: turn_busy (queue gate) clears on reply-landed; in_turn
+    # (status) clears ONLY on a real turn-end (the bridge turn detector / Stop / heartbeat-false
+    # / dead-bridge sweep / 30-min backstop). This matches the file's anti-feedback invariant
+    # ("only a bridge/event clears turn state") with ZERO new time-based logic.
     return True
 
 

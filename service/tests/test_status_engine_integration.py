@@ -108,6 +108,36 @@ class StatusEventIngestTests(FastApiTestCase):
         self.assertEqual(asyncio.run(run()), "online",
                          "turn_end must flip to online immediately (the turn-end grace was removed)")
 
+    def test_reply_landed_keeps_in_turn_until_real_turn_end(self):
+        # PRIMARY pure-event fix (2026-06-19): a dispatched reply landing mid-turn must NOT clear
+        # the STATUS signal (agent_status_state.in_turn) — it must only release the claim/send-queue
+        # gate (agent_turn_state.turn_busy). The channel contract requires agents to send their
+        # reply mid-turn, so clearing in_turn on reply-landed flipped status to `online` while the
+        # agent was still working → the working→online→working flicker on BOTH hermes and claude.
+        # in_turn must stay set until a REAL turn-end (bridge detector / Stop / heartbeat-false).
+        self._register("rl1", mode="managed", runtime="claude-code")
+        # turn-start via heartbeat sets BOTH turn_busy (queue gate) and in_turn (status).
+        self.client.post("/api/v1/agents/rl1/heartbeat",
+                         json={"bridgeId": "b1", "sessionMode": "managed", "turnBusy": True, "runId": "r1"})
+        self.assertEqual(int(self._state("rl1")["in_turn"]), 1)  # heartbeat turnBusy set in_turn
+        import asyncio
+        from service.db import get_db
+        from service.routers import api_v2
+        async def run():
+            db = await get_db()
+            try:
+                await api_v2._clear_turn_busy_if_no_open_reply_owing_run(db, "rl1", "r1")
+                await db.commit()
+                tb = await (await db.execute("SELECT turn_busy FROM agent_turn_state WHERE agent_id='rl1'")).fetchone()
+                it = await (await db.execute("SELECT in_turn FROM agent_status_state WHERE agent_id='rl1'")).fetchone()
+                return (int(tb["turn_busy"]) if tb else None, int(it["in_turn"]) if it else None)
+            finally:
+                await db.close()
+        turn_busy, in_turn = asyncio.run(run())
+        self.assertEqual(turn_busy, 0, "reply-landed must release the queue gate (turn_busy=0)")
+        self.assertEqual(in_turn, 1,
+                         "reply-landed must NOT clear the status signal (in_turn stays 1 until a real turn-end)")
+
     def _set(self, key, val):
         c = sqlite3.connect(str(self._db_path))
         try:
