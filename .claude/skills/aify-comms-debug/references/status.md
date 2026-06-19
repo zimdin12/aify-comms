@@ -99,6 +99,20 @@ event-driven path was built — read "new" as "the (now sole) `derive()` path".
   evidence. Bridge-side: the fix only applies to consoles hosted by a bridge process started
   after reinstall — a stuck agent means its environment bridge predates the fix; restart the
   `aify-comms` wrapper.
+- **Pure-event decouple + claude Stop-gate (2026-06-19).** The `working`→`online`→`working`
+  flicker (hermes sc-coder AND claude sc-claude) was a SHARED server-side premature clear:
+  `_clear_turn_busy_if_no_open_reply_owing_run` cleared `agent_status_state.in_turn` when a
+  dispatched REPLY landed — but agents reply MID-turn, so status flipped to `online` while still
+  working, then the bridge re-asserted. Now that path clears ONLY `agent_turn_state.turn_busy`
+  (the claim/send-queue gate), NOT `in_turn`; `in_turn` clears only on a real turn-END. **Debug:**
+  if a managed/channel agent shows `online` while clearly working, compare `agent_turn_state.turn_busy`
+  vs `agent_status_state.in_turn` — they are now INTENTIONALLY decoupled (`turn_busy=0` + `in_turn=1`
+  = replied mid-turn, still working). The 20s turn-end grace was removed (no sub-minute time-decay).
+  claude `Stop` routes through `claude-stop-gate.js` (suppresses a premature mid-turn Stop via the
+  transcript classifier; FAIL-SAFE posts `/turn-end` on any doubt — never stuck-working). codex
+  managed turn state also comes from the app-server `turn/started`/`turn/completed` events. The
+  Stop-gate + codex wiring need a wrapper/env-bridge RESTART to take effect (server-side decouple
+  is live on container rebuild).
 - **2026-06-12 evening audit (`00bb544`) — four pipeline flaws.** (1) The read-path cache
   upserts ROLLED BACK on close (no commit in list/get agents) — the cache only persisted
   via the 60s reconcile and every poll re-derived expired rows; both endpoints now commit.
