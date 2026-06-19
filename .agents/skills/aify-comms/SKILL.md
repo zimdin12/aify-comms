@@ -130,12 +130,13 @@ Dashboard is a special store-only recipient for human-visible updates. Use `comm
 - Close the original contract with a real reply/result. Do not treat reminders, unread counts, or run summaries as proof that communication happened.
 - If an automated reminder arrives, inspect the original message/run and answer the original owner/result. The reminder itself is only a nudge and should not create another Work Loop obligation.
 - Managers should split work by owner/topic, request evidence, and route blockers precisely.
+- Managers monitoring the team (especially on a heartbeat/self-wake loop) can read a **managed** agent's live console with `comms_console_tail(agentId="...")` to see *why* it's stuck — mid-build, waiting at a prompt, looping, or errored — when status alone is ambiguous; `comms_console_input` types in to unstick it. Managed-only (resident agents have no aify-owned console). See `references/teamwork.md`.
 - Autonomous teams should keep the loop moving: implement bounded chunks, request review, approve/rework, self-wake only for known next chunks, and report meaningful decisions to dashboard.
 
 ## Compacting
 
-- `comms_compact(mode="handoff", agentId="...")` is the reliable path today. It creates a fresh managed backing from a compact handoff packet and defaults to the same agent ID.
-- `mode="internal"` requests native in-place compact and may be unsupported. Current managed runtime adapters do not expose a verified headless native compact API.
+- `comms_compact(from="you", targetAgentId="...", mode="handoff")` is the reliable path today. It creates a fresh managed backing from a compact handoff packet and defaults to the same agent ID (pass `newAgentId` to split identity). A manager can compact **another** agent this way; it needs a managed backing, so a resident-only agent can't be compacted — switch it to managed first, or `comms_send` a request asking it to `/compact` itself.
+- `mode="internal"` requests native in-place compact and may be unsupported. Current managed runtime adapters do not expose a verified headless native compact API. To trigger a managed PTY runtime's own `/compact` (claude-code/codex/hermes), type it via `comms_console_input(agentId="...", text="/compact")` while the agent is at its prompt.
 - Dashboard **Compact** keeps the same agent identity; **Continue as** intentionally creates a separate identity.
 
 ## Tool Map
