@@ -13148,13 +13148,20 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertEqual(reply.status_code, 200, reply.text)
 
-        # turn_busy must have been auto-cleared.
+        # turn_busy (the claim/send-queue gate) must have been auto-cleared — this is the
+        # send-deadlock fix and it is UNCHANGED by the pure-event decoupling.
         tb = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("clearer-claude",))
         self.assertEqual(int(tb["turn_busy"] or 0), 0, "expected turn_busy auto-cleared after reply closed the delivered run")
 
-        # And derived status should no longer be working.
+        # PURE-EVENT DECOUPLING (2026-06-19): a reply landing is NOT a turn-end — the channel
+        # contract requires the agent to send its reply mid-turn — so the DERIVED STATUS must STAY
+        # `working` until a real turn-end (bridge detector / Stop / heartbeat-false). Clearing it
+        # here was the working→online→working flicker. in_turn stays set; only turn_busy (queue
+        # gate) cleared above.
         after = self.client.get("/api/v1/agents/clearer-claude").json()["agent"]
-        self.assertNotEqual(after["status"], "working", after)
+        self.assertEqual(after["status"], "working", after)
+        st = self._fetchone("SELECT in_turn FROM agent_status_state WHERE agent_id = ?", ("clearer-claude",))
+        self.assertEqual(int(st["in_turn"] or 0), 1, "reply-landed must NOT clear the status in_turn signal")
 
     def test_terminal_route_delivered_does_not_pin_working_status(self):
         # Guardrail for the channel-route fix: the new

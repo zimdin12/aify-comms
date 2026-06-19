@@ -115,7 +115,8 @@ class NewDashboardAppTest(unittest.TestCase):
         styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn("@media (max-width: 414px)", styles)
-        self.assertRegex(styles, r"button,\s*input,\s*select,\s*textarea\s*\{[^}]*min-height:\s*44px")
+        # Mobile touch target (the 2026-06-19 mobile rewrite sets it at the ≤540px breakpoint).
+        self.assertRegex(styles, r"button,\s*input,\s*select,\s*textarea\s*\{[^}]*min-height:\s*4[24]px")
         self.assertIn(".contract-actions { grid-template-columns: 1fr; }", styles)
         self.assertIn(".run-actions { grid-template-columns: 1fr; }", styles)
 
@@ -255,16 +256,18 @@ class NewDashboardAppTest(unittest.TestCase):
 
         self.assertIn('id="mobile-tabbar"', html)
         self.assertIn('class="mobile-tabbar"', html)
+        # The tabbar buttons key on data-page (shared with the desktop nav); app.js drives the
+        # active state via `.mobile-tabbar [data-page]`. (The 2026-06-19 mobile rewrite moved the
+        # tabbar reveal from ≤414px to ≤760px so 415–760px phones/tablets get navigation too.)
         for page in ["sessions", "environments", "diagnostics", "settings"]:
-            self.assertIn(f'data-mobile-page="{page}"', html)
             self.assertIn(f'data-page="{page}"', html)
         self.assertIn("document.querySelectorAll('.mobile-tabbar [data-page]')", script)
         self.assertIn("el.dataset.page === page", script)
         self.assertIn(".mobile-tabbar", styles)
         self.assertIn("display: none;", styles)
-        self.assertRegex(styles, r"@media \(max-width: 414px\)[\s\S]*\.mobile-tabbar\s*\{[^}]*position:\s*fixed")
-        self.assertRegex(styles, r"@media \(max-width: 414px\)[\s\S]*\.workspace\s*\{[^}]*padding-bottom:\s*calc\(\d+px \+ env\(safe-area-inset-bottom\)\)")
-        self.assertRegex(styles, r"@media \(max-width: 414px\)[\s\S]*\.nav nav\s*\{[^}]*display:\s*none")
+        self.assertRegex(styles, r"@media \(max-width: 760px\)[\s\S]*\.mobile-tabbar\s*\{[^}]*position:\s*fixed")
+        self.assertRegex(styles, r"@media \(max-width: 760px\)[\s\S]*\.workspace\s*\{[^}]*padding-bottom:\s*calc\(\d+px \+ env\(safe-area-inset-bottom\)\)")
+        self.assertRegex(styles, r"@media \(max-width: 760px\)[\s\S]*\.nav nav[\s\S]*display:\s*none")
 
     def test_diagnostics_destination_has_summary_and_bulk_selection(self):
         html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")

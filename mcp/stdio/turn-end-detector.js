@@ -57,7 +57,10 @@ const TERMINAL_STOP_REASONS = new Set(["end_turn", "stop_sequence", "max_tokens"
 
 // Decide turn state from a structural tail summary.
 // Returns "ended" | "in-flight" | "unknown".
-function classify(summary) {
+// Exported so the Stop-hook gate (claude-stop-gate.js) can reuse the SAME structural
+// truth the detector uses — a premature Stop fired mid-turn is suppressed iff this says
+// "in-flight"; on "ended"/"unknown" the gate falls through to the normal /turn-end.
+export function classify(summary) {
   if (!summary || typeof summary !== "object") return "unknown";
   const { lastRole, lastStopReason, pendingToolUse } = summary;
   if (!lastRole) return "unknown";

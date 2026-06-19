@@ -33,15 +33,17 @@ class NewDashboardSessionModeSwitchTests(unittest.TestCase):
         )
 
     def test_refresh_loads_settings_via_api(self):
+        # 2026-06-18 resilient-poll refactor (267b88f): refresh() now batches all GETs through
+        # Promise.allSettled (tolerant of a single failed endpoint) instead of per-call .catch.
         self.assertIn(
-            "api('/settings').catch",
+            "api('/settings')",
             self.script,
-            "Plan 6 C3/C4: refresh() must GET /api/v1/settings (tolerant of failure)",
+            "refresh() must GET /api/v1/settings (in the allSettled batch — tolerant of failure)",
         )
         self.assertIn(
-            "state.settings = settings",
+            "state.settings = val(9)",
             self.script,
-            "Plan 6 C3/C4: refresh() must persist the settings snapshot into state",
+            "refresh() must persist the settings snapshot (allSettled slot 9) into state",
         )
 
     def test_render_mode_switch_chip_helper_exists_without_settings_gate(self):
