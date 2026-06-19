@@ -233,12 +233,20 @@ export function createChatController(deps) {
     const loaded = state.loaded !== false;
     const dmEmpty = loaded ? 'No agents.' : 'Loading…';
     const chEmpty = loaded ? 'No channels.' : 'Loading…';
-    host.innerHTML = (
+    const html = (
       `<div class="chat-rail-section">Direct messages</div>`
       + (dmItems.length ? dmItems.map((i) => railItemHtml(i, state.chat.selected)).join('') : `<p class="subtle chat-rail-empty">${dmEmpty}</p>`)
       + `<div class="chat-rail-section">Channels</div>`
       + (chItems.length ? chItems.map((i) => railItemHtml(i, state.chat.selected)).join('') : `<p class="subtle chat-rail-empty">${chEmpty}</p>`)
     );
+    // Re-render guard (2026-06-19): re-setting innerHTML on every poll recreates every .status-dot,
+    // which RESTARTS the `working` pulse animation each cycle — a steady `working` dot then visibly
+    // flickers ("sc-coder changes status all the time" while it was solidly working server-side).
+    // Only touch the DOM when the rendered rail actually changed; listeners are delegated, so
+    // skipping an identical rebuild loses nothing. The dots then persist and the pulse runs smooth.
+    if (host.__railHtml === html) return;
+    host.__railHtml = html;
+    host.innerHTML = html;
   }
 
   function renderConversation() {
