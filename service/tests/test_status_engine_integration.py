@@ -138,6 +138,20 @@ class StatusEventIngestTests(FastApiTestCase):
         self.assertEqual(in_turn, 1,
                          "reply-landed must NOT clear the status signal (in_turn stays 1 until a real turn-end)")
 
+    def test_heartbeat_turnbusy_false_clears_in_turn(self):
+        # The codex TERTIARY onTurnEnd path (app-server turn/completed → reportTurnBusy(busy:false))
+        # and any heartbeat turnBusy:false is a REAL turn-end — it MUST clear agent_status_state.in_turn
+        # (the status signal), under the ownership guard (same bridge + run that set it). This is the
+        # path codex relies on for turn-end after PRIMARY removed the reply-landed status clear.
+        self._register("hb1", mode="managed", runtime="codex")
+        self.client.post("/api/v1/agents/hb1/heartbeat",
+                         json={"bridgeId": "b1", "sessionMode": "managed", "turnBusy": True, "runId": "r1"})
+        self.assertEqual(int(self._state("hb1")["in_turn"]), 1)
+        self.client.post("/api/v1/agents/hb1/heartbeat",
+                         json={"bridgeId": "b1", "sessionMode": "managed", "turnBusy": False, "runId": "r1"})
+        self.assertEqual(int(self._state("hb1")["in_turn"]), 0,
+                         "heartbeat turnBusy:false from the owning bridge must clear in_turn (real turn-end)")
+
     def _set(self, key, val):
         c = sqlite3.connect(str(self._db_path))
         try:

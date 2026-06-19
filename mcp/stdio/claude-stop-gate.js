@@ -16,7 +16,7 @@
 // Env:   AIFY_AGENT_ID + AIFY_COMMS_URL (present in the claude hook env, set by the wrapper).
 // Exit:  always 0 — a Stop hook must never block the agent.
 
-import { readFileSync, statSync, openSync, readSync, closeSync } from "node:fs";
+import { readFileSync, fstatSync, openSync, readSync, closeSync } from "node:fs";
 import { summarizeTranscriptTail } from "./adapters/claude.js";
 import { classify } from "./turn-end-detector.js";
 
@@ -34,13 +34,13 @@ function readStdin() {
 function readTail(path) {
   const fd = openSync(path, "r");
   try {
-    const size = statSync(path).size;
+    const size = fstatSync(fd).size; // stat the OPEN fd (not the path) — no TOCTOU on rotate/replace
     const start = Math.max(0, size - TAIL_BYTES);
     const len = size - start;
     if (len <= 0) return "";
     const buf = Buffer.alloc(len);
-    readSync(fd, buf, 0, len, start);
-    return buf.toString("utf8");
+    const n = readSync(fd, buf, 0, len, start); // readSync may short-read — decode only what we got
+    return buf.subarray(0, n).toString("utf8");
   } finally {
     closeSync(fd);
   }

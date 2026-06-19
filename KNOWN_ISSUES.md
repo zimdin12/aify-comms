@@ -10,6 +10,11 @@ No occlusion analogs of the claude footer-scrape exist (hermes/codex/pi/opencode
 - **hermes watch-item:** delegation (`delegate_task`) currently blocks the parent turn (tracked); if a future hermes makes it async, the 3-tick idle debounce would false-end — recheck on hermes upgrades.
 - **opencode resident is presence-only by design** (documented); revisit via the OpenCode SDK event stream if it ever matters.
 
+### Pure-event status branch watch-items (2026-06-19, `feature/status-pure-event-no-flicker`)
+The working→online→working flicker root cause was a shared server-side premature clear (`_clear_turn_busy_if_no_open_reply_owing_run` cleared the status `in_turn` when a dispatched reply landed mid-turn). Fixed by decoupling: reply-landed clears only `turn_busy` (queue gate), not `in_turn` (status); `in_turn` clears only on a real turn-end. Two low watch-items from the 4-reviewer audit:
+- **codex chained-sub-turn (theoretical, low):** managed-codex `onTurnEnd` (TERTIARY) clears on each app-server `turn/completed`. One `runTurn` = one `turn/start` RPC = one turn/started+completed pair, so within a single dispatch there is no clear-then-set flap. Risk only if the codex app-server ever emits multiple turn pairs per `turn/start` (current protocol does not). Recheck on codex app-server upgrades; the 5s rollout detector + dispatch-boundary clear are the backstops.
+- **deploy sequencing:** PRIMARY (server `in_turn` decouple) is server-only (container rebuild). SECONDARY (claude Stop-gate) + TERTIARY (codex turn events) are host bridge changes that only take effect after `install.sh` re-run + `*-aify` wrapper / env-bridge restart. PRIMARY-alone is strictly an improvement (removes one flap source, adds none), so the split state is safe.
+
 ## Backlog from the 2026-06-10 project-wide review (should-fix, deferred)
 
 The 11 must-fix findings were fixed same-day (see the `fix(review): project-wide bug-hunt` commit). These remain, prioritized:
