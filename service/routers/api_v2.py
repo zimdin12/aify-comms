@@ -383,6 +383,14 @@ TURN_BUSY_STALE_SECONDS = 120
 # self-expires within seconds of claude truly stopping. ADDITIVE only: OR'd into derived
 # `working`, it never clears turn_busy.
 CONSOLE_WORKING_LEASE_SECONDS = 20
+# Analytics data-quality ceiling (2026-06-19). NOT a status timer — used only by the
+# work-minutes analytics. Dispatch runs go queued→claimed→completed, and a run that is
+# claimed but then abandoned/stuck is force-closed by a 24h reaper, leaving a completed row
+# whose claimed→finished span is ~24h of NON-work. Counting COALESCE(started_at, claimed_at)→
+# finished for those (a regression in 93f44df) inflated "working total" to absurd values
+# (sc-architect showed 909h). A real worked span — even a long autonomous run — never
+# approaches this; anything above it is a reaped/stuck run and contributes 0 worked minutes.
+WORKED_SPAN_CEILING_SECONDS = 4 * 3600
 # pure-event-status change #3 (2026-06-02): STATUS is now PURE-EVENT. The
 # turn-START event sets turn_busy=1 → working; the turn-END event clears
 # turn_busy=0 → idle, INSTANTLY (the /turn-end POST invalidates the live-status
@@ -20554,8 +20562,9 @@ async def get_agent_analytics(agent_id: str, request: Request):
             WHERE target_agent = ?
               AND COALESCE(started_at, claimed_at) IS NOT NULL
               AND finished_at IS NOT NULL
+              AND (julianday(finished_at) - julianday(COALESCE(started_at, claimed_at))) * 86400 <= ?
             """,
-            (agent_id,),
+            (agent_id, WORKED_SPAN_CEILING_SECONDS),
         )
         working_minutes_raw = (await work_c.fetchone())[0]
         working_minutes = max(0.0, float(working_minutes_raw or 0))
@@ -20757,6 +20766,11 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
             s = _ep(r["started_at"] or r["claimed_at"])
             f = _ep(r["finished_at"]) if r["finished_at"] else now_s
             if s is None:
+                continue
+            # Skip reaped/stuck runs (claimed-but-abandoned, force-closed ~24h later): their
+            # claimed→finished span is non-work and would otherwise add the whole window as
+            # "working". See WORKED_SPAN_CEILING_SECONDS.
+            if r["finished_at"] and (f - s) > WORKED_SPAN_CEILING_SECONDS:
                 continue
             overlap = min(f, now_s) - max(s, win_s)
             if overlap > 0:

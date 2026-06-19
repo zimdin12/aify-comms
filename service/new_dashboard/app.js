@@ -1948,6 +1948,23 @@ function renderSessionConsole(session, targetEl, opts = {}) {
        </div>`
     : '';
 
+  // Re-render guard (2026-06-19): renderSessionConsole runs on EVERY poll-driven render.
+  // Rewriting host.innerHTML destroys the live xterm DOM node, so the mounted PTY was
+  // re-created every poll → "visible for a sec, then black" (operator-reported, hermes AND
+  // claude). Skip the rewrite when nothing that changes the rendered widget changed AND the
+  // xterm is still mounted to this host — the live terminal then persists across polls.
+  // Live status/meta that must stay fresh lives in the panel header (renderSessionWorkspace),
+  // not in this console host, so this guard does not stale anything visible.
+  const consoleKey = JSON.stringify([id, widgetChoice.kind, terminalId, hermesGatewayHttp, codexAppServerUrl, codexThreadId, canStop, isChatSource]);
+  const xtermStillMounted = hasTerminal && state.activeXterm
+    && state.activeXterm.terminalId === terminalId
+    && host.contains(state.activeXterm.container);
+  if (host.dataset.consoleKey === consoleKey && (!hasTerminal || xtermStillMounted)) {
+    if (hasTerminal && state.activeXterm) state.activeXterm.canInput = canStop;
+    return;
+  }
+  host.dataset.consoleKey = consoleKey;
+
   host.innerHTML = `${headerCard}${ptyEmbed}${startConsoleEmbed}${residentConsoleNote}${hermesIframe}${codexConsole}`;
 
   // Mount xterm.js into the terminal container we just rendered. If a
