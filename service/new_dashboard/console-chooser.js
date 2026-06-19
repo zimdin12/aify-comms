@@ -50,9 +50,8 @@ export function chooseSessionConsoleWidget({ agent, sessionId, sessionMode, term
   // all real sources (wrapper PTY first, then the console pointer, then synth, then session-bound)
   // so a running terminal AUTO-MOUNTS and Start is only offered when genuinely none exists.
   const rs = agent?.runtimeState || {};
-  const consoleTerminalId = String(rs?.consoleTerminal?.terminalId || '').trim();
   const liveTerminalId = terminalCanRepresentCurrentOwner
-    ? String(rs.terminalId || consoleTerminalId || rs.virtualTerminalId || String(sessionTerminalId || '').trim() || '').trim()
+    ? String(rs.terminalId || rs.consoleTerminal?.terminalId || rs.virtualTerminalId || sessionTerminalId || '').trim()
     : '';
   if (liveTerminalId && cache && typeof cache.set === 'function') {
     cache.set(String(sessionId || ''), liveTerminalId);

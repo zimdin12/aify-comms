@@ -418,14 +418,8 @@ WORKED_SPAN_CEILING_SECONDS = 4 * 3600
 # ANTI-FEEDBACK-LOOP: only a bridge/event sets turn_busy; only an event/this
 # ceiling/the run-reply clear clears it. Status is NEVER read back to re-arm it.
 TURN_BUSY_BACKSTOP_SECONDS = 30 * 60
-# Turn-end grace (#224, 2026-06-18). A managed wrapper (claude) fires premature/duplicate Stop
-# hooks BETWEEN tool calls of one logical turn, briefly clearing turn_busy before the next
-# tool's re-assert — so the derived status flapped `working`→`online`→`working`. Hold `working`
-# for this short grace after turn_busy is cleared: a re-assert within the window absorbs the
-# flap, and a genuinely-ended turn flips to `online` once the grace lapses. derive() still
-# gates the in-turn input on `live` (worker_present), so a recent clear on a DEAD worker never
-# shows working — the grace only smooths an actively-alive worker's between-tool gaps.
-TURN_END_GRACE_SECONDS = 20
+# (TURN_END_GRACE_SECONDS removed 2026-06-19 — status is pure-event; the grace flap-absorber
+# was deleted from both status paths and the flap is fixed at the bridge source.)
 # Poll-load fix (2026-06-18): a settled `offline` agent's cached status only changes via an
 # explicit cache-invalidating event (a returning heartbeat/turn/operator action all DELETE the
 # row). Its refresh_after is otherwise `last_seen + liveness`, which is ANCIENT for a long-dead
