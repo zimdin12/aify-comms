@@ -392,7 +392,13 @@ if (
   typeof __runtimeAdapter.transcriptTail === "function"
 ) {
   __stopClaudeTurnEndDetector = startClaudeTurnEndDetector({
-    intervalMs: 30_000,
+    // PURE-EVENT (2026-06-19): 30s→5s. With the server-side turn-end GRACE removed, this
+    // structural detector IS the flap fix for a managed claude's premature/duplicate Stop
+    // hooks: a premature Stop clears turn_busy, and this detector re-asserts /turn-start
+    // within one tick once it sees the transcript is still in-flight (pendingToolUse / non-
+    // terminal tail). 5s keeps that heal window short (was up to 30s) without meaningful
+    // transcript-read load. Mirrors the hermes gateway detector's ~3s cadence.
+    intervalMs: 5_000,
     // Re-stamp /turn-start while the transcript stays in-flight (KEEP-FRESH,
     // 2026-06-12): the server's delivery-completion clear can wipe a LIVE turn's
     // turn_busy (steered message lands mid-turn → no reply-owing run → clear), and
@@ -440,7 +446,9 @@ if (
   typeof __runtimeAdapter.transcriptTail === "function"
 ) {
   __stopCodexTurnDetector = startClaudeTurnEndDetector({
-    intervalMs: 30_000,
+    // PURE-EVENT (2026-06-19): 30s→5s, same rationale as the claude detector above — fast
+    // re-assert after a premature/dropped Stop now that the server grace is gone.
+    intervalMs: 5_000,
     workingRefreshMs: 45_000,
     readTranscript: async () => __runtimeAdapter.transcriptTail({ agentId: AIFY_AGENT_ID }),
     postTurnStart: async () => {
