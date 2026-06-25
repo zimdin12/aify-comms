@@ -32,7 +32,7 @@
 // ANTI-FEEDBACK-LOOP: the detector keys ONLY on transcript STRUCTURE (process
 // truth), NEVER on the server's computed status — so it cannot self-reinforce.
 import assert from "node:assert/strict";
-import { makeTurnEndDetector } from "../turn-end-detector.js";
+import { makeTurnEndDetector, classify } from "../turn-end-detector.js";
 
 // Terminal (yielded-to-user) stop reasons that mean the turn ENDED.
 const ENDED = (stopReason) => ({ lastRole: "assistant", lastStopReason: stopReason, pendingToolUse: false });
@@ -140,6 +140,42 @@ const USER_PENDING = { lastRole: "user", lastStopReason: null, pendingToolUse: f
   assert.equal(d.observe(TOOL_USE), "start", "channel-woken turn observed in-flight -> START (the fix)");
   assert.equal(d.observe(USER_PENDING), null, "still in-flight -> no fire");
   assert.equal(d.observe(ENDED("end_turn")), "end", "yields -> END");
+}
+
+// (k) INTERACTIVE-YIELD tools (AskUserQuestion / ExitPlanMode): the assistant's tail
+//     is a PENDING tool_use, but the tool BLOCKS the turn awaiting a HUMAN and never
+//     auto-resumes via PostToolUse — so the turn has yielded and the agent is IDLE,
+//     not working. classify() must report "ended" (despite stop_reason "tool_use") so
+//     the Stop-gate posts /turn-end and the detector clears working. Repro: a resident
+//     claude stuck at `working` for the ENTIRE human wait (comms-tech-lead, 2h).
+{
+  const yield_ = (name) => ({ lastRole: "assistant", lastStopReason: "tool_use", pendingToolUse: true, pendingToolNames: [name] });
+  assert.equal(classify(yield_("AskUserQuestion")), "ended", "(k) pending AskUserQuestion -> yielded to human -> ended");
+  assert.equal(classify(yield_("ExitPlanMode")), "ended", "(k) pending ExitPlanMode -> yielded for approval -> ended");
+  // NO FLICKER REGRESSION: a generic pending tool (real work about to run, or a premature
+  // mid-turn Stop that resumes via PostToolUse) stays in-flight — unchanged behavior.
+  assert.equal(classify(yield_("Bash")), "in-flight", "(k) pending Bash -> real work -> in-flight (unchanged)");
+  // SAFE on a mix: only clear when EVERY pending tool is a yielding one (never strand real work).
+  assert.equal(
+    classify({ lastRole: "assistant", lastStopReason: "tool_use", pendingToolUse: true, pendingToolNames: ["AskUserQuestion", "Bash"] }),
+    "in-flight",
+    "(k) AskUserQuestion batched with Bash -> in-flight (do not clear while real work pending)",
+  );
+  // Backward-compat: a summary WITHOUT pendingToolNames behaves exactly as before.
+  assert.equal(classify({ lastRole: "assistant", lastStopReason: "tool_use", pendingToolUse: true }), "in-flight",
+    "(k) no pendingToolNames field -> in-flight (legacy summary unchanged)");
+}
+
+// (l) DETECTOR: a persistent AskUserQuestion tail settles to ENDED once and does NOT
+//     keep re-setting working (the 2h-stuck repro: the detector held it in-flight
+//     forever). On answering, a new in-flight turn re-arms START.
+{
+  const ask = { lastRole: "assistant", lastStopReason: "tool_use", pendingToolUse: true, pendingToolNames: ["AskUserQuestion"] };
+  const d = makeTurnEndDetector();
+  assert.equal(d.observe(TOOL_USE), "start", "(l) active turn -> START (working)");
+  assert.equal(d.observe(ask), "end", "(l) yields to AskUserQuestion -> END (idle, awaiting human)");
+  for (let i = 0; i < 5; i++) assert.equal(d.observe(ask), null, `(l) still awaiting answer tick ${i} -> no re-set working`);
+  assert.equal(d.observe(USER_PENDING), "start", "(l) human answered (tool_result) -> new turn START");
 }
 
 console.log("turn-end-detector.test.js: all assertions passed");

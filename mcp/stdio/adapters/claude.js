@@ -186,7 +186,7 @@ export class ClaudeAdapter extends RuntimeAdapter {
         if (!stat.isFile()) return null;
         const start = Math.max(0, stat.size - tailBytes);
         const len = stat.size - start;
-        if (len <= 0) return { lastRole: null, lastStopReason: null, pendingToolUse: false };
+        if (len <= 0) return { lastRole: null, lastStopReason: null, pendingToolUse: false, pendingToolNames: [] };
         const buf = Buffer.alloc(len);
         await fh.read(buf, 0, len, start);
         text = buf.toString("utf8");
@@ -214,7 +214,7 @@ const NON_MESSAGE_TYPES = new Set([
 // holds no message line, returns lastRole:null so the caller treats it as
 // "unknown / not-ended".
 export function summarizeTranscriptTail(text) {
-  const empty = { lastRole: null, lastStopReason: null, pendingToolUse: false };
+  const empty = { lastRole: null, lastStopReason: null, pendingToolUse: false, pendingToolNames: [] };
   if (!text) return empty;
   const lines = text.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -230,10 +230,20 @@ export function summarizeTranscriptTail(text) {
     if (!role) continue; // not a message line
     const stopReason = msg && typeof msg.stop_reason !== "undefined" ? msg.stop_reason : null;
     let pendingToolUse = false;
+    const pendingToolNames = [];
     if (role === "assistant" && msg && Array.isArray(msg.content)) {
-      pendingToolUse = msg.content.some((b) => b && b.type === "tool_use");
+      for (const b of msg.content) {
+        if (b && b.type === "tool_use") {
+          pendingToolUse = true;
+          // The tool name lets the detector distinguish an interactive-YIELD tool
+          // (AskUserQuestion / ExitPlanMode — blocks awaiting a human, never resumes
+          // via PostToolUse) from real work about to run. Without it a turn that
+          // yields to a human is read as in-flight and strands the agent at `working`.
+          if (b.name) pendingToolNames.push(b.name);
+        }
+      }
     }
-    return { lastRole: role, lastStopReason: stopReason ?? null, pendingToolUse };
+    return { lastRole: role, lastStopReason: stopReason ?? null, pendingToolUse, pendingToolNames };
   }
   return empty;
 }

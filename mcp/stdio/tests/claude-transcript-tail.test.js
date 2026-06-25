@@ -149,4 +149,25 @@ const permLine = { type: "permission-mode", permissionMode: "default" };
   await fs.rm(homeDir, { recursive: true, force: true });
 }
 
+// (9) pending tool NAMES: a tail ending in an assistant tool_use block exposes the
+//     tool name(s) so the detector can tell an interactive-YIELD tool (AskUserQuestion /
+//     ExitPlanMode — blocks awaiting a human) from real work. Mirrors the real shape
+//     observed live: thinking + text blocks, then the tool_use block written LAST.
+{
+  const askMsg = {
+    type: "assistant",
+    message: {
+      role: "assistant",
+      stop_reason: "tool_use",
+      content: [{ type: "text" }, { type: "tool_use", name: "AskUserQuestion" }],
+    },
+  };
+  const { homeDir, cwd, sessionId } = await makeTranscript([userMsg(["text"]), askMsg, lastPrompt]);
+  const s = await adapter.transcriptTail({ homeDir, cwd, env: { CLAUDE_SESSION_ID: sessionId } });
+  assert.equal(s.lastRole, "assistant", "(9) last role assistant");
+  assert.equal(s.pendingToolUse, true, "(9) pending tool_use true");
+  assert.deepEqual(s.pendingToolNames, ["AskUserQuestion"], "(9) pending tool name captured for yield detection");
+  await fs.rm(homeDir, { recursive: true, force: true });
+}
+
 console.log("claude-transcript-tail.test.js: all assertions passed");
