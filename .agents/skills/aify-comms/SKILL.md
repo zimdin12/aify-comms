@@ -153,6 +153,8 @@ Channels/files: `comms_channel_create`, `comms_channel_join`, `comms_channel_sen
 
 Dashboard: `comms_dashboard`.
 
+Usage/quota: `comms_usage` shows each source pool's remaining subscription quota % (Anthropic Claude Max; OpenAI ChatGPT — shared by codex + hermes) plus your own pool + consumed tokens. Advisory only — a pool near 0% means agents on it should hand work to a pool with headroom (it never gates sends). `comms_agent_info` also carries `usageSource` + `poolWeeklyPctLeft` + `quotaCritical`. The OpenAI pool % can read `stale` (only the codex rollout exposes it; hermes usage isn't reflected live).
+
 Deprecated: `comms_listen` remains for compatibility/debug long-poll experiments only. Do not use it in normal teamwork or managed delivered runs.
 
 ## When To Read More
