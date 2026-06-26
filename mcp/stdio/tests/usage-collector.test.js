@@ -30,3 +30,50 @@ assert.equal(n.severity, "warning");
 assert.equal(n.plan_type, "max");
 
 console.log("usage-collector.test.js: helpers ok");
+
+// ── anthropic adapter: oauth/usage shape -> normalized ───────────────────────
+import { fetchAnthropicUsage, fetchCodexUsage } from "../usage-collector.js";
+{
+  const fakeFetch = async () => ({
+    ok: true, status: 200,
+    json: async () => ({
+      five_hour: { utilization: 10.0, resets_at: "2026-06-26T16:00:00Z" },
+      seven_day: { utilization: 81.0, resets_at: "2026-06-26T17:00:00Z" },
+      limits: [{ kind: "weekly_all", group: "weekly", percent: 81, severity: "warning", is_active: true }],
+    }),
+  });
+  const fakeCreds = JSON.stringify({ claudeAiOauth: { accessToken: "x", expiresAt: Date.now() + 1e6 } });
+  const r = await fetchAnthropicUsage({ readCreds: () => fakeCreds, fetchImpl: fakeFetch });
+  assert.equal(r.source_id, "anthropic-claude-max");
+  assert.equal(r.weekly.used_pct, 81);
+  assert.equal(r.weekly.left_pct, 19);
+  assert.equal(r.five_hour.used_pct, 10);
+  assert.equal(r.severity, "warning", "active weekly limit severity carried through");
+}
+// anthropic: HTTP error / missing creds -> unknown, never throws
+{
+  const r = await fetchAnthropicUsage({ readCreds: () => { throw new Error("no creds"); } });
+  assert.equal(r.unknown, true);
+  assert.equal(r.source_id, "anthropic-claude-max");
+  const r2 = await fetchAnthropicUsage({ readCreds: () => JSON.stringify({ claudeAiOauth: { accessToken: "x" } }), fetchImpl: async () => ({ ok: false, status: 401, json: async () => ({}) }) });
+  assert.equal(r2.unknown, true, "401 -> unknown");
+}
+// ── codex adapter: rollout rate_limits -> normalized ─────────────────────────
+{
+  const rollout = JSON.stringify({ rate_limits: { primary: { used_percent: 1, window_minutes: 300, resets_at: 1778617622 }, secondary: { used_percent: 0, window_minutes: 10080, resets_at: 1779146585 }, plan_type: "prolite" } });
+  const r = await fetchCodexUsage({ readLatestRollout: () => rollout });
+  assert.equal(r.source_id, "openai-chatgpt-codex");
+  assert.equal(r.weekly.used_pct, 0, "secondary=weekly");
+  assert.equal(r.five_hour.used_pct, 1, "primary=5h");
+  assert.equal(r.plan_type, "prolite");
+  // epoch-seconds resets_at converted to ISO
+  assert.equal(typeof r.weekly.resets_at, "string");
+  assert.ok(r.weekly.resets_at.includes("T"), "resets_at is ISO");
+}
+// codex: no rollout / no rate_limits -> unknown
+{
+  const r = await fetchCodexUsage({ readLatestRollout: () => "" });
+  assert.equal(r.unknown, true);
+  assert.equal(r.source_id, "openai-chatgpt-codex");
+}
+console.log("usage-collector.test.js: adapters ok");
