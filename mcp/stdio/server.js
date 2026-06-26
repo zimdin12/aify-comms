@@ -3928,6 +3928,41 @@ server.tool(
 );
 
 server.tool(
+  "comms_usage",
+  "Show remaining subscription quota per source pool (Anthropic Claude, OpenAI ChatGPT-Codex) and your own. Advisory: a pool near 0% means agents on it should hand work to a pool with headroom.",
+  {},
+  async () => {
+    if (!IS_REMOTE) {
+      return { content: [{ type: "text", text: "Usage data requires remote server mode." }], isError: true };
+    }
+    const r = await httpCall("GET", "/usage");
+    const pools = (r && r.pools) || [];
+    if (!pools.length) return { content: [{ type: "text", text: "No usage data yet (collector warming up)." }] };
+    const fmt = (p) => {
+      const w = p.weekly || {};
+      const f = p.five_hour || {};
+      const left = w.left_pct == null ? "?" : `${w.left_pct}%`;
+      const fleft = f.left_pct == null ? "?" : `${f.left_pct}%`;
+      const sev = p.severity && p.severity !== "normal" ? ` [${p.severity}]` : "";
+      const tags = `${p.stale ? " (stale)" : ""}${p.unknown ? " (unknown)" : ""}`;
+      return `- ${p.source_id}: weekly ${left} left, 5h ${fleft} left${sev}${tags}`;
+    };
+    let mine = "";
+    if (AIFY_AGENT_ID) {
+      try {
+        const info = await httpCall("GET", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}`);
+        const a = (info && info.agent) || {};
+        if (a.usageSource) {
+          const left = a.poolWeeklyPctLeft == null ? "?" : `${a.poolWeeklyPctLeft}%`;
+          mine = `\nYou (${AIFY_AGENT_ID}) → ${a.usageSource}: ${left} weekly left${a.quotaCritical ? " [CRITICAL]" : ""}`;
+        }
+      } catch { /* best-effort */ }
+    }
+    return { content: [{ type: "text", text: `Quota pools (% remaining):\n${pools.map(fmt).join("\n")}${mine}` }] };
+  }
+);
+
+server.tool(
   "comms_spawn",
   "Create a persistent dashboard-managed agent session through an environment bridge. This is the only normal agent-spawn path; choose an environment from comms_envs or omit environmentId to use the first online environment supporting the runtime.",
   {
