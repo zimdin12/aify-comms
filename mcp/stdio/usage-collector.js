@@ -65,7 +65,13 @@ export function readAgentConsumption({ runtime, cwd, sessionHandle, readFile = (
 
 // Poll every pool and POST each result (including `unknown`, so the UI can show it).
 // Each adapter is isolated — one throwing/failing never blocks the others.
-export async function collectOnce({ fetchAnthropic = fetchAnthropicUsage, fetchCodex = fetchCodexUsage, post } = {}) {
+// Default OpenAI fetcher: prefer the live (fresh, no-waste) wham/usage source, fall back
+// to the codex rollout snapshot.
+async function defaultFetchCodex() {
+  return (await fetchChatGptUsageLive()) || (await fetchCodexUsage());
+}
+
+export async function collectOnce({ fetchAnthropic = fetchAnthropicUsage, fetchCodex = defaultFetchCodex, post } = {}) {
   const settled = await Promise.allSettled([fetchAnthropic(), fetchCodex()]);
   for (const s of settled) {
     const r = s.status === "fulfilled" ? s.value : null;
@@ -217,8 +223,73 @@ function epochToIso(v) {
   try { return new Date(n * 1000).toISOString(); } catch { return null; }
 }
 
+// LIVE, NO-WASTE OpenAI quota. hermes keeps a fresh ChatGPT OAuth token in its auth store
+// (it auto-refreshes it); `GET /backend-api/wham/usage` with that token returns
+// ACCOUNT-LEVEL rate limits — covering hermes AND codex — with NO billed completion.
+// This is the authoritative fresh source; the rollout reader is the fallback.
+const CHATGPT_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+
+function defaultHermesAuthPath() {
+  const localAppData = process.env.LOCALAPPDATA || join(homeDir(), "AppData", "Local");
+  return join(localAppData, "hermes", "auth.json");
+}
+function defaultReadHermesAuth() {
+  return readFileSync(defaultHermesAuthPath(), "utf8");
+}
+
+// Pull an OpenAI (auth.openai.com) access_token out of the hermes auth store, ignoring
+// tokens for other providers (nous/anthropic). Returns null if none present.
+export function extractOpenAiToken(authJsonText) {
+  let j;
+  try { j = JSON.parse(authJsonText || "{}"); } catch { return null; }
+  const isOpenAi = (t) => {
+    try {
+      const payload = JSON.parse(Buffer.from(String(t).split(".")[1], "base64url").toString());
+      return String(payload.iss || "").includes("openai.com");
+    } catch { return false; }
+  };
+  let found = null;
+  const walk = (o) => {
+    if (!o || typeof o !== "object" || found) return;
+    for (const [k, v] of Object.entries(o)) {
+      if (found) return;
+      if (k === "access_token" && typeof v === "string" && v.startsWith("ey") && isOpenAi(v)) { found = v; return; }
+      if (v && typeof v === "object") walk(v);
+    }
+  };
+  walk(j);
+  return found;
+}
+
+export async function fetchChatGptUsageLive({ readHermesAuth = defaultReadHermesAuth, fetchImpl = globalThis.fetch } = {}) {
+  let tok;
+  try { tok = extractOpenAiToken(readHermesAuth()); } catch { return null; }
+  if (!tok) return null;
+  try {
+    const res = await fetchImpl(CHATGPT_USAGE_URL, {
+      headers: { authorization: `Bearer ${tok}`, accept: "application/json", "user-agent": "codex-cli" },
+    });
+    if (!res || !res.ok) return null;
+    const j = await res.json();
+    const rl = j.rate_limit || {};
+    const prim = rl.primary_window || {};
+    const sec = rl.secondary_window || {};
+    if (prim.used_percent == null && sec.used_percent == null) return null;
+    return normalizeUsage({
+      sourceId: SOURCE_CODEX,
+      fiveHourUsed: prim.used_percent,
+      weeklyUsed: sec.used_percent,
+      fiveHourResetsAt: epochToIso(prim.reset_at),
+      weeklyResetsAt: epochToIso(sec.reset_at),
+      providerSeverity: rl.limit_reached ? "critical" : undefined,
+      planType: j.plan_type,
+    });
+  } catch { return null; }
+}
+
 // OpenAI ChatGPT-Codex (shared by codex + hermes): the latest rollout snapshots
-// `rate_limits` on every response. primary=5h, secondary=weekly.
+// `rate_limits` on every response. primary=5h, secondary=weekly. Fallback for when the
+// live wham/usage source is unavailable.
 export async function fetchCodexUsage({ readLatestRollout = defaultReadLatestRollout } = {}) {
   const unknown = { source_id: SOURCE_CODEX, unknown: true };
   try {

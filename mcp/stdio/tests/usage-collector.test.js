@@ -78,6 +78,41 @@ import { fetchAnthropicUsage, fetchCodexUsage } from "../usage-collector.js";
 }
 console.log("usage-collector.test.js: adapters ok");
 
+// ── live OpenAI usage via hermes token (no-waste wham/usage) ─────────────────
+import { extractOpenAiToken, fetchChatGptUsageLive } from "../usage-collector.js";
+{
+  const b64u = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const oaToken = "ey." + b64u({ iss: "https://auth.openai.com" }) + ".sig";
+  const nousToken = "ey." + b64u({ iss: "https://nous.example" }) + ".sig";
+  // extractOpenAiToken picks the openai token, ignores other providers
+  assert.equal(
+    extractOpenAiToken(JSON.stringify({ providers: { nous: { access_token: nousToken }, "openai-codex": { cred: { access_token: oaToken } } } })),
+    oaToken, "extracts the openai-issued token");
+  assert.equal(extractOpenAiToken(JSON.stringify({ providers: { nous: { access_token: nousToken } } })), null, "no openai token -> null");
+  assert.equal(extractOpenAiToken("{bad json"), null);
+
+  // wham/usage shape -> normalized; limit_reached -> critical
+  const fakeFetch = async (url) => {
+    assert.ok(url.includes("/backend-api/wham/usage"), "hits wham/usage");
+    return { ok: true, status: 200, json: async () => ({
+      plan_type: "prolite",
+      rate_limit: { limit_reached: true,
+        primary_window: { used_percent: 0, reset_at: 1782514022 },
+        secondary_window: { used_percent: 100, reset_at: 1782600000 } },
+    }) };
+  };
+  const r = await fetchChatGptUsageLive({ readHermesAuth: () => JSON.stringify({ p: { access_token: oaToken } }), fetchImpl: fakeFetch });
+  assert.equal(r.source_id, "openai-chatgpt-codex");
+  assert.equal(r.weekly.used_pct, 100);
+  assert.equal(r.weekly.left_pct, 0);
+  assert.equal(r.five_hour.left_pct, 100);
+  assert.equal(r.severity, "critical", "limit_reached -> critical");
+  // no token / no auth file -> null (never throws), so collectOnce falls back to rollout
+  assert.equal(await fetchChatGptUsageLive({ readHermesAuth: () => "{}" }), null);
+  assert.equal(await fetchChatGptUsageLive({ readHermesAuth: () => { throw new Error("no file"); } }), null);
+}
+console.log("usage-collector.test.js: live openai ok");
+
 // ── collectOnce: poll both pools, POST each result that has a source_id ───────
 import { collectOnce } from "../usage-collector.js";
 {
