@@ -1,0 +1,191 @@
+#!/usr/bin/env node
+// Tests for the usage collector (per-pool subscription quota + consumption).
+// Pure helpers + adapters with injected fetch/fs so they run with no network/creds.
+import assert from "node:assert/strict";
+import { pctLeft, severityFor, normalizeUsage } from "../usage-collector.js";
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+assert.equal(pctLeft(81), 19, "pctLeft(81)=19");
+assert.equal(pctLeft(0), 100, "pctLeft(0)=100");
+assert.equal(pctLeft(100), 0, "pctLeft(100)=0");
+assert.equal(pctLeft("nope"), null, "pctLeft(non-number)=null");
+
+assert.equal(severityFor(10), "normal", "10% used -> normal");
+assert.equal(severityFor(92), "warning", "92% -> warning (>=90)");
+assert.equal(severityFor(99), "critical", "99% -> critical (>=98)");
+assert.equal(severityFor(50, "warning"), "warning", "provider severity escalates a normal pct");
+assert.equal(severityFor(99, "warning"), "critical", "threshold beats a lower provider severity");
+
+const n = normalizeUsage({
+  sourceId: "anthropic-claude-max",
+  fiveHourUsed: 10, weeklyUsed: 81,
+  fiveHourResetsAt: "2026-06-26T16:00:00Z", weeklyResetsAt: "2026-06-26T17:00:00Z",
+  providerSeverity: "warning", planType: "max",
+});
+assert.equal(n.source_id, "anthropic-claude-max");
+assert.equal(n.weekly.left_pct, 19, "weekly left = 100-81");
+assert.equal(n.weekly.used_pct, 81);
+assert.equal(n.five_hour.left_pct, 90);
+assert.equal(n.severity, "warning");
+assert.equal(n.plan_type, "max");
+
+// severity is the WORST of the two windows: a critical 5-hour window must escalate
+// even when weekly is comfortable (the binding Claude-Max limit).
+assert.equal(normalizeUsage({ sourceId: "x", fiveHourUsed: 99, weeklyUsed: 5 }).severity, "critical", "5h critical escalates severity");
+assert.equal(normalizeUsage({ sourceId: "x", fiveHourUsed: 92, weeklyUsed: 5 }).severity, "warning", "5h warning escalates");
+assert.equal(normalizeUsage({ sourceId: "x", fiveHourUsed: 5, weeklyUsed: 5 }).severity, "normal");
+
+console.log("usage-collector.test.js: helpers ok");
+
+// ── anthropic adapter: oauth/usage shape -> normalized ───────────────────────
+import { fetchAnthropicUsage, fetchCodexUsage } from "../usage-collector.js";
+{
+  const fakeFetch = async () => ({
+    ok: true, status: 200,
+    json: async () => ({
+      five_hour: { utilization: 10.0, resets_at: "2026-06-26T16:00:00Z" },
+      seven_day: { utilization: 81.0, resets_at: "2026-06-26T17:00:00Z" },
+      limits: [{ kind: "weekly_all", group: "weekly", percent: 81, severity: "warning", is_active: true }],
+    }),
+  });
+  const fakeCreds = JSON.stringify({ claudeAiOauth: { accessToken: "x", expiresAt: Date.now() + 1e6 } });
+  const r = await fetchAnthropicUsage({ readCreds: () => fakeCreds, fetchImpl: fakeFetch });
+  assert.equal(r.source_id, "anthropic-claude-max");
+  assert.equal(r.weekly.used_pct, 81);
+  assert.equal(r.weekly.left_pct, 19);
+  assert.equal(r.five_hour.used_pct, 10);
+  assert.equal(r.severity, "warning", "active weekly limit severity carried through");
+}
+// anthropic: HTTP error / missing creds -> unknown, never throws
+{
+  const r = await fetchAnthropicUsage({ readCreds: () => { throw new Error("no creds"); } });
+  assert.equal(r.unknown, true);
+  assert.equal(r.source_id, "anthropic-claude-max");
+  const r2 = await fetchAnthropicUsage({ readCreds: () => JSON.stringify({ claudeAiOauth: { accessToken: "x" } }), fetchImpl: async () => ({ ok: false, status: 401, json: async () => ({}) }) });
+  assert.equal(r2.unknown, true, "401 -> unknown");
+}
+// ── codex adapter: rollout rate_limits -> normalized ─────────────────────────
+{
+  const rollout = JSON.stringify({ rate_limits: { primary: { used_percent: 1, window_minutes: 300, resets_at: 1778617622 }, secondary: { used_percent: 0, window_minutes: 10080, resets_at: 1779146585 }, plan_type: "prolite" } });
+  const r = await fetchCodexUsage({ readLatestRollout: () => rollout });
+  assert.equal(r.source_id, "openai-chatgpt-codex");
+  assert.equal(r.weekly.used_pct, 0, "secondary=weekly");
+  assert.equal(r.five_hour.used_pct, 1, "primary=5h");
+  assert.equal(r.plan_type, "prolite");
+  // epoch-seconds resets_at converted to ISO
+  assert.equal(typeof r.weekly.resets_at, "string");
+  assert.ok(r.weekly.resets_at.includes("T"), "resets_at is ISO");
+}
+// codex: no rollout / no rate_limits -> unknown
+{
+  const r = await fetchCodexUsage({ readLatestRollout: () => "" });
+  assert.equal(r.unknown, true);
+  assert.equal(r.source_id, "openai-chatgpt-codex");
+}
+console.log("usage-collector.test.js: adapters ok");
+
+// ── live OpenAI usage via hermes token (no-waste wham/usage) ─────────────────
+import { extractOpenAiToken, fetchChatGptUsageLive } from "../usage-collector.js";
+{
+  const b64u = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const oaToken = "ey." + b64u({ iss: "https://auth.openai.com" }) + ".sig";
+  const nousToken = "ey." + b64u({ iss: "https://nous.example" }) + ".sig";
+  // extractOpenAiToken picks the openai token, ignores other providers
+  assert.equal(
+    extractOpenAiToken(JSON.stringify({ providers: { nous: { access_token: nousToken }, "openai-codex": { cred: { access_token: oaToken } } } })),
+    oaToken, "extracts the openai-issued token");
+  assert.equal(extractOpenAiToken(JSON.stringify({ providers: { nous: { access_token: nousToken } } })), null, "no openai token -> null");
+  assert.equal(extractOpenAiToken("{bad json"), null);
+  // CRITICAL: must pick the OpenAI token, never an Anthropic one, when both are present
+  // (this token is sent to chatgpt.com — sending the wrong provider's would be a leak).
+  const anthropicToken = "ey." + b64u({ iss: "https://api.anthropic.com" }) + ".sig";
+  assert.equal(
+    extractOpenAiToken(JSON.stringify({ providers: { anthropic: { access_token: anthropicToken }, "openai-codex": { cred: { access_token: oaToken } } } })),
+    oaToken, "picks openai over a competing anthropic token");
+
+  // wham/usage shape -> normalized; limit_reached -> critical
+  const fakeFetch = async (url) => {
+    assert.ok(url.includes("/backend-api/wham/usage"), "hits wham/usage");
+    return { ok: true, status: 200, json: async () => ({
+      plan_type: "prolite",
+      rate_limit: { limit_reached: true,
+        primary_window: { used_percent: 0, reset_at: 1782514022 },
+        secondary_window: { used_percent: 100, reset_at: 1782600000 } },
+    }) };
+  };
+  const r = await fetchChatGptUsageLive({ readHermesAuth: () => JSON.stringify({ p: { access_token: oaToken } }), fetchImpl: fakeFetch });
+  assert.equal(r.source_id, "openai-chatgpt-codex");
+  assert.equal(r.weekly.used_pct, 100);
+  assert.equal(r.weekly.left_pct, 0);
+  assert.equal(r.five_hour.left_pct, 100);
+  assert.equal(r.severity, "critical", "limit_reached -> critical");
+  // PRIVACY CONTRACT: the wham/usage response carries email + user_id; they must NEVER
+  // be kept in the normalized result that gets stored/served.
+  const pii = await fetchChatGptUsageLive({
+    readHermesAuth: () => JSON.stringify({ p: { access_token: oaToken } }),
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ email: "secret@x.com", user_id: "user-PRIVATE", plan_type: "prolite", rate_limit: { secondary_window: { used_percent: 50, reset_at: 1782600000 } } }) }),
+  });
+  const dumped = JSON.stringify(pii);
+  assert.ok(!dumped.includes("secret@x.com") && !dumped.includes("user-PRIVATE"), "email/user_id are never retained");
+  // no token / no auth file -> null (never throws), so collectOnce falls back to rollout
+  assert.equal(await fetchChatGptUsageLive({ readHermesAuth: () => "{}" }), null);
+  assert.equal(await fetchChatGptUsageLive({ readHermesAuth: () => { throw new Error("no file"); } }), null);
+}
+console.log("usage-collector.test.js: live openai ok");
+
+// ── collectOnce: poll both pools, POST each result that has a source_id ───────
+import { collectOnce } from "../usage-collector.js";
+{
+  const posted = [];
+  await collectOnce({
+    fetchAnthropic: async () => ({ source_id: "anthropic-claude-max", weekly: { used_pct: 81 } }),
+    fetchCodex: async () => ({ source_id: "openai-chatgpt-codex", weekly: { used_pct: 0 } }),
+    post: async (p) => posted.push(p.source_id),
+  });
+  assert.deepEqual(posted.sort(), ["anthropic-claude-max", "openai-chatgpt-codex"]);
+}
+// an adapter that throws must not abort the other pool's post
+{
+  const posted = [];
+  await collectOnce({
+    fetchAnthropic: async () => { throw new Error("boom"); },
+    fetchCodex: async () => ({ source_id: "openai-chatgpt-codex" }),
+    post: async (p) => posted.push(p.source_id),
+  });
+  assert.deepEqual(posted, ["openai-chatgpt-codex"], "one adapter throwing still posts the other");
+}
+console.log("usage-collector.test.js: collectOnce ok");
+
+// ── readClaudeConsumption: sum per-message billed tokens across a transcript ──
+import { readClaudeConsumption } from "../usage-collector.js";
+{
+  const lines = [
+    JSON.stringify({ type: "assistant", message: { role: "assistant", usage: { input_tokens: 100, output_tokens: 10, cache_creation_input_tokens: 5, cache_read_input_tokens: 20 } } }),
+    JSON.stringify({ type: "user", message: { role: "user", content: [] } }),
+    JSON.stringify({ type: "assistant", message: { role: "assistant", usage: { input_tokens: 200, output_tokens: 30, cache_read_input_tokens: 50 } } }),
+    "{ partial json truncated by tail window",
+  ].join("\n");
+  const c = readClaudeConsumption(lines);
+  assert.equal(c.input_tokens, 300, "summed input across requests");
+  assert.equal(c.output_tokens, 40, "summed output");
+  assert.equal(c.cache_tokens, 75, "cache_creation + cache_read summed");
+  assert.deepEqual(readClaudeConsumption(""), { input_tokens: 0, output_tokens: 0, cache_tokens: 0 });
+}
+// ── collectConsumptionOnce: enumerate agents -> rows -> POST ─────────────────
+import { collectConsumptionOnce } from "../usage-collector.js";
+{
+  let postedRows = null;
+  await collectConsumptionOnce({
+    getAgents: async () => ({
+      a: { runtime: "claude-code", cwd: "x", sessionHandle: "s", usageSource: "anthropic-claude-max", model: "claude-opus-4-8" },
+      b: { runtime: "opencode" },
+    }),
+    readConsumption: ({ runtime }) => (runtime === "claude-code" ? { input_tokens: 100, output_tokens: 10, cache_tokens: 5 } : null),
+    post: async (rows) => { postedRows = rows; },
+  });
+  assert.equal(postedRows.length, 1, "only the agent with readable consumption is posted");
+  assert.equal(postedRows[0].agent_id, "a");
+  assert.equal(postedRows[0].source_id, "anthropic-claude-max");
+  assert.equal(postedRows[0].input_tokens, 100);
+}
+console.log("usage-collector.test.js: collectConsumptionOnce ok");

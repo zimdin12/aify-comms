@@ -88,6 +88,7 @@ import {
 import { startHermesGatewayTurnDetector } from "./hermes-gateway-turn-detector.js";
 import { pinnedSessionId } from "./hermes-session-id.js";
 import { startClaudeTurnEndDetector } from "./claude-turn-end-detector.js";
+import { collectOnce as collectUsageOnce, collectConsumptionOnce } from "./usage-collector.js";
 
 // Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
 // `omp --mode rpc --resume <session>`), that child inherits the aify
@@ -839,6 +840,7 @@ const TERMINAL_CONTROL_POLL_MS = Math.max(
 let dispatchLoopTimer = null;
 let dispatchLoopBusy = false;
 let environmentHeartbeatTimer = null;
+let usageCollectorTimer = null;
 let environmentControlTimer = null;
 let environmentControlBusy = false;
 let spawnLoopTimer = null;
@@ -2433,6 +2435,23 @@ function ensureEnvironmentHeartbeat() {
   }, intervalMs);
 }
 
+// Usage/quota collector (2026-06-26): poll each subscription pool's remaining %% on
+// this host (~3 min) and POST to /usage. Env-bridge only — it has the host creds and
+// reads the rollouts. Best-effort; a failed poll never disturbs the bridge.
+function ensureUsageCollector() {
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || usageCollectorTimer) return;
+  const tick = () => {
+    collectUsageOnce({ post: (p) => httpCall("POST", "/usage", p) }).catch(() => {});
+    collectConsumptionOnce({
+      getAgents: () => httpCall("GET", "/agents").then((r) => (r && r.agents) || {}),
+      post: (rows) => httpCall("POST", "/usage/consumption", { rows }),
+    }).catch(() => {});
+  };
+  tick();
+  const intervalMs = Math.max(60000, Number(process.env.AIFY_USAGE_POLL_MS || 180000));
+  usageCollectorTimer = setInterval(tick, intervalMs);
+}
+
 function ensureEnvironmentControlLoop() {
   if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || environmentControlTimer) return;
   runEnvironmentControlLoop().catch((error) => console.error("[aify] environment control loop error:", error));
@@ -2964,6 +2983,7 @@ function ensureDispatchLoop() {
 }
 
 ensureEnvironmentControlLoop();
+ensureUsageCollector();
 // WS2: reap crash/SIGKILL managed-triad survivors of a dead predecessor BEFORE
 // the spawn loop brings fresh managed agents up AND before the environment
 // heartbeat's syncManagedEnvironmentAgents() can re-bind those agents'
@@ -3910,6 +3930,41 @@ server.tool(
     const envs = r.environments || [];
     if (!envs.length) return { content: [{ type: "text", text: "No environment bridges are connected. Start `aify-comms` in WSL/Linux and/or `aify-comms.cmd` in Windows." }] };
     return { content: [{ type: "text", text: `${envs.length} environment(s):\n${envs.map(summarizeEnvironment).join("\n")}` }] };
+  }
+);
+
+server.tool(
+  "comms_usage",
+  "Show remaining subscription quota per source pool (Anthropic Claude, OpenAI ChatGPT-Codex) and your own. Advisory: a pool near 0% means agents on it should hand work to a pool with headroom.",
+  {},
+  async () => {
+    if (!IS_REMOTE) {
+      return { content: [{ type: "text", text: "Usage data requires remote server mode." }], isError: true };
+    }
+    const r = await httpCall("GET", "/usage");
+    const pools = (r && r.pools) || [];
+    if (!pools.length) return { content: [{ type: "text", text: "No usage data yet (collector warming up)." }] };
+    const fmt = (p) => {
+      const w = p.weekly || {};
+      const f = p.five_hour || {};
+      const left = w.left_pct == null ? "?" : `${w.left_pct}%`;
+      const fleft = f.left_pct == null ? "?" : `${f.left_pct}%`;
+      const sev = p.severity && p.severity !== "normal" ? ` [${p.severity}]` : "";
+      const tags = `${p.stale ? " (stale)" : ""}${p.unknown ? " (unknown)" : ""}`;
+      return `- ${p.source_id}: weekly ${left} left, 5h ${fleft} left${sev}${tags}`;
+    };
+    let mine = "";
+    if (AIFY_AGENT_ID) {
+      try {
+        const info = await httpCall("GET", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}`);
+        const a = (info && info.agent) || {};
+        if (a.usageSource) {
+          const left = a.poolWeeklyPctLeft == null ? "?" : `${a.poolWeeklyPctLeft}%`;
+          mine = `\nYou (${AIFY_AGENT_ID}) → ${a.usageSource}: ${left} weekly left${a.quotaCritical ? " [CRITICAL]" : ""}`;
+        }
+      } catch { /* best-effort */ }
+    }
+    return { content: [{ type: "text", text: `Quota pools (% remaining):\n${pools.map(fmt).join("\n")}${mine}` }] };
   }
 );
 
