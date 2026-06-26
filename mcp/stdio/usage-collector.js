@@ -44,9 +44,12 @@ export function readClaudeConsumption(content) {
 }
 
 // claude transcript path: ~/.claude/projects/<cwd-with-nonalnum-as-dash>/<sessionId>.jsonl
+// Both cwd and sessionId are AGENT-SUPPLIED — scrub every non-[alnum-hyphen] char (claude
+// session ids are UUIDs) so neither can path-traverse out of the projects dir.
 function claudeTranscriptPath(cwd, sessionId) {
   const enc = String(cwd || "").replace(/[^a-zA-Z0-9]/g, "-");
-  return join(homeDir(), ".claude", "projects", enc, `${sessionId}.jsonl`);
+  const sid = String(sessionId || "").replace(/[^a-zA-Z0-9-]/g, "-");
+  return join(homeDir(), ".claude", "projects", enc, `${sid}.jsonl`);
 }
 
 // Best-effort consumption for one agent. Only claude-code is computed in v1 (its
@@ -131,11 +134,17 @@ export function normalizeUsage({
     left_pct: pctLeft(used),
     resets_at: resets || null,
   });
+  // Severity is the WORST of either window (a fully-consumed 5-hour window rate-limits
+  // the agent for hours and is the binding limit on Claude Max — it must not be hidden
+  // behind a low weekly %). providerSeverity (pool-wide, e.g. limit_reached) escalates too.
+  const sWeekly = severityFor(weeklyUsed, providerSeverity, warn, critical);
+  const sFiveHour = severityFor(fiveHourUsed, providerSeverity, warn, critical);
+  const severity = SEVERITY_RANK[sFiveHour] > SEVERITY_RANK[sWeekly] ? sFiveHour : sWeekly;
   return {
     source_id: sourceId,
     five_hour: win(fiveHourUsed, fiveHourResetsAt),
     weekly: win(weeklyUsed, weeklyResetsAt),
-    severity: severityFor(weeklyUsed, providerSeverity, warn, critical),
+    severity,
     plan_type: planType || null,
   };
 }

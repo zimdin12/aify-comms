@@ -29,6 +29,12 @@ assert.equal(n.five_hour.left_pct, 90);
 assert.equal(n.severity, "warning");
 assert.equal(n.plan_type, "max");
 
+// severity is the WORST of the two windows: a critical 5-hour window must escalate
+// even when weekly is comfortable (the binding Claude-Max limit).
+assert.equal(normalizeUsage({ sourceId: "x", fiveHourUsed: 99, weeklyUsed: 5 }).severity, "critical", "5h critical escalates severity");
+assert.equal(normalizeUsage({ sourceId: "x", fiveHourUsed: 92, weeklyUsed: 5 }).severity, "warning", "5h warning escalates");
+assert.equal(normalizeUsage({ sourceId: "x", fiveHourUsed: 5, weeklyUsed: 5 }).severity, "normal");
+
 console.log("usage-collector.test.js: helpers ok");
 
 // ── anthropic adapter: oauth/usage shape -> normalized ───────────────────────
@@ -90,6 +96,12 @@ import { extractOpenAiToken, fetchChatGptUsageLive } from "../usage-collector.js
     oaToken, "extracts the openai-issued token");
   assert.equal(extractOpenAiToken(JSON.stringify({ providers: { nous: { access_token: nousToken } } })), null, "no openai token -> null");
   assert.equal(extractOpenAiToken("{bad json"), null);
+  // CRITICAL: must pick the OpenAI token, never an Anthropic one, when both are present
+  // (this token is sent to chatgpt.com — sending the wrong provider's would be a leak).
+  const anthropicToken = "ey." + b64u({ iss: "https://api.anthropic.com" }) + ".sig";
+  assert.equal(
+    extractOpenAiToken(JSON.stringify({ providers: { anthropic: { access_token: anthropicToken }, "openai-codex": { cred: { access_token: oaToken } } } })),
+    oaToken, "picks openai over a competing anthropic token");
 
   // wham/usage shape -> normalized; limit_reached -> critical
   const fakeFetch = async (url) => {
@@ -107,6 +119,14 @@ import { extractOpenAiToken, fetchChatGptUsageLive } from "../usage-collector.js
   assert.equal(r.weekly.left_pct, 0);
   assert.equal(r.five_hour.left_pct, 100);
   assert.equal(r.severity, "critical", "limit_reached -> critical");
+  // PRIVACY CONTRACT: the wham/usage response carries email + user_id; they must NEVER
+  // be kept in the normalized result that gets stored/served.
+  const pii = await fetchChatGptUsageLive({
+    readHermesAuth: () => JSON.stringify({ p: { access_token: oaToken } }),
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ email: "secret@x.com", user_id: "user-PRIVATE", plan_type: "prolite", rate_limit: { secondary_window: { used_percent: 50, reset_at: 1782600000 } } }) }),
+  });
+  const dumped = JSON.stringify(pii);
+  assert.ok(!dumped.includes("secret@x.com") && !dumped.includes("user-PRIVATE"), "email/user_id are never retained");
   // no token / no auth file -> null (never throws), so collectOnce falls back to rollout
   assert.equal(await fetchChatGptUsageLive({ readHermesAuth: () => "{}" }), null);
   assert.equal(await fetchChatGptUsageLive({ readHermesAuth: () => { throw new Error("no file"); } }), null);

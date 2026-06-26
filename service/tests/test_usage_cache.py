@@ -31,6 +31,8 @@ def test_derive_usage_source():
     assert uc.derive_usage_source("hermes") == "openai-chatgpt-codex"  # shares codex pool
     assert uc.derive_usage_source("hermes", {"modelBaseUrl": "http://192.168.100.10:11434/v1"}) == "local-ollama"
     assert uc.derive_usage_source("hermes", {"modelBaseUrl": "https://chatgpt.com/backend-api/codex"}) == "openai-chatgpt-codex"
+    # any non-chatgpt base (incl. a bare LAN IP with no keyword) is the local pool, not codex
+    assert uc.derive_usage_source("hermes", {"modelBaseUrl": "http://192.168.1.5:8080/v1"}) == "local-ollama"
     assert uc.derive_usage_source("opencode") is None
 
 

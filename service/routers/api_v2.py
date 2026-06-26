@@ -27,7 +27,7 @@ _listen_events: dict[str, asyncio.Event] = {}
 from pydantic import BaseModel
 from service.db import get_db
 from service.status_engine import apply_event, derive, StatusInputs, VALID_STATUSES
-from service.usage_cache import usage_set, usage_all, usage_get, summarize_consumption, derive_usage_source, consumption_set, consumption_summary
+from service.usage_cache import usage_set, usage_all, usage_get, derive_usage_source, consumption_set, consumption_summary
 from service.models import (
     AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
     ChannelCreate, ChannelMessage, ChannelJoin,

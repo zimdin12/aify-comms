@@ -31,7 +31,9 @@ def derive_usage_source(runtime: Any, runtime_config: Any = None) -> Optional[st
         return "openai-chatgpt-codex"
     if rt == "hermes":
         base = str(rc.get("modelBaseUrl") or "").lower()
-        if base and "chatgpt" not in base and any(k in base for k in ("ollama", "11434", "localhost", "127.0.0.1")):
+        # hermes shares the codex pool ONLY when pointed at the chatgpt backend; any other
+        # explicit base (ollama, a LAN model server, etc.) is a non-quota local pool.
+        if base and "chatgpt" not in base:
             return "local-ollama"
         return "openai-chatgpt-codex"
     return None
