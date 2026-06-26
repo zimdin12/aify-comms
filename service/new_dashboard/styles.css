@@ -346,6 +346,28 @@ small, .subtle { color: var(--muted); }
 .status-dot.offline { background: var(--muted); box-shadow: 0 0 0 3px rgba(158,170,165,.12); }
 .status-dot.queued { background: var(--violet); box-shadow: 0 0 0 3px rgba(169,141,245,.12); }
 .status-dot.unknown, .status-dot.muted { background: var(--muted); }
+/* Usage / quota Pools band + Consumption section (2026-06-26) */
+.usage-pools { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin: 10px 0; }
+.usage-pool-card { background: var(--panel, #13161a); border: 1px solid var(--line, #262b30); border-radius: 12px; padding: 12px 14px; }
+.usage-pool-card.warning { border-color: #e3a008; box-shadow: 0 0 0 1px #e3a00833; }
+.usage-pool-card.critical { border-color: #ff6a74; box-shadow: 0 0 0 1px #ff6a7433; }
+.usage-pool-name { font-size: .8em; color: var(--muted); display: flex; align-items: center; justify-content: space-between; min-height: 18px; }
+.usage-pool-weekly { font-size: 1.7em; font-weight: 600; margin: 4px 0; line-height: 1.1; }
+.usage-pool-card.warning .usage-pool-weekly { color: #e3a008; }
+.usage-pool-card.critical .usage-pool-weekly { color: #ff6a74; }
+.usage-pool-sub { font-size: .42em; font-weight: 400; color: var(--muted); }
+.usage-pool-bar { height: 6px; border-radius: 999px; background: #0a0b0c; border: 1px solid #282d30; overflow: hidden; margin: 6px 0; }
+.usage-pool-bar > span { display: block; height: 100%; background: linear-gradient(90deg, #54c58b, #e3a008); }
+.usage-pool-card.critical .usage-pool-bar > span { background: #ff6a74; }
+.usage-pool-meta { font-size: .73em; color: var(--muted); }
+.usage-tag { font-size: .62em; background: var(--line, #262b30); color: var(--muted); border-radius: 999px; padding: 1px 6px; margin-left: 4px; }
+.usage-consumption { margin: 0 0 14px; }
+.usage-consumption-h { font-size: .78em; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 4px 0 6px; }
+.usage-consumption-table { width: 100%; border-collapse: collapse; font-size: .84em; }
+.usage-consumption-table th, .usage-consumption-table td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--line, #262b30); }
+.usage-consumption-table th:first-child, .usage-consumption-table td:first-child { text-align: left; }
+.usage-consumption-table thead th { color: var(--muted); font-weight: 500; }
+.usage-consumption-table tfoot td { font-weight: 600; border-bottom: none; }
 /* Text-color helpers — used by callers that render bare text labels rather than full chips. */
 .status-ready { color: var(--status-online, var(--green-soft, #88c999)); }
 .status-online { color: var(--status-online, var(--green-soft, #88c999)); }

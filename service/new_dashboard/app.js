@@ -897,9 +897,72 @@ async function loadAnalytics() {
   }
 }
 
+function usageResetLabel(iso) {
+  try {
+    const ms = new Date(iso) - new Date();
+    if (!(ms > 0)) return 'resets soon';
+    const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+    return h > 0 ? `resets in ${h}h ${m}m` : `resets in ${m}m`;
+  } catch { return ''; }
+}
+function usageFmtTokens(n) {
+  n = Number(n || 0);
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+  return String(n);
+}
+// Usage/quota Pools band + Consumption section (2026-06-26). Advisory — read-only.
+async function renderUsagePools() {
+  const host = byId('usage-pools');
+  if (!host) return;
+  let pools = [];
+  try { const d = await api('/usage'); pools = (d && d.pools) || []; } catch { return; }
+  if (!pools.length) { host.innerHTML = '<p class="em">Usage collector warming up…</p>'; return; }
+  const LABELS = {
+    'anthropic-claude-max': 'Anthropic · Claude Max',
+    'openai-chatgpt-codex': 'OpenAI · ChatGPT (Codex + Hermes)',
+    'local-ollama': 'Local · Ollama',
+  };
+  host.innerHTML = pools.map((p) => {
+    const w = p.weekly || {}, f = p.five_hour || {};
+    const sev = (p.severity && p.severity !== 'normal') ? p.severity : '';
+    const left = (w.left_pct == null) ? '—' : w.left_pct + '%';
+    const fleft = (f.left_pct == null) ? '—' : f.left_pct + '%';
+    const used = (w.used_pct == null) ? 0 : Math.max(0, Math.min(100, w.used_pct));
+    const reset = w.resets_at ? usageResetLabel(w.resets_at) : '';
+    const tags = (p.unknown ? '<span class="usage-tag">unknown</span>' : '') + (p.stale ? '<span class="usage-tag">stale</span>' : '');
+    const name = LABELS[p.source_id] || p.source_id;
+    return `<div class="usage-pool-card ${sev}"><div class="usage-pool-name"><span>${esc(name)}</span><span>${tags}</span></div>`
+      + `<div class="usage-pool-weekly">${left}<span class="usage-pool-sub"> weekly left</span></div>`
+      + `<div class="usage-pool-bar"><span style="width:${used}%"></span></div>`
+      + `<div class="usage-pool-meta">5h ${fleft} left${reset ? ' · ' + esc(reset) : ''}</div></div>`;
+  }).join('');
+}
+async function renderUsageConsumption() {
+  const host = byId('usage-consumption');
+  if (!host) return;
+  let s;
+  try { s = await api('/usage/consumption'); } catch { return; }
+  const byAgent = (s && s.by_agent) || {};
+  const agents = Object.keys(byAgent);
+  if (!agents.length) { host.innerHTML = '<p class="em">No per-agent token data yet (collector warming up).</p>'; return; }
+  agents.sort((a, b) => (byAgent[b].output_tokens || 0) - (byAgent[a].output_tokens || 0));
+  const rows = agents.map((a) => {
+    const c = byAgent[a];
+    return `<tr><td>${esc(a)}</td><td>${usageFmtTokens(c.input_tokens)}</td><td>${usageFmtTokens(c.output_tokens)}</td><td>${usageFmtTokens(c.cache_tokens)}</td></tr>`;
+  }).join('');
+  const t = (s && s.totals) || {};
+  host.innerHTML = '<div class="usage-consumption-h">Token consumption — this session, per agent</div>'
+    + '<table class="usage-consumption-table"><thead><tr><th>Agent</th><th>In</th><th>Out</th><th>Cache</th></tr></thead>'
+    + `<tbody>${rows}</tbody>`
+    + `<tfoot><tr><td>Total</td><td>${usageFmtTokens(t.input_tokens)}</td><td>${usageFmtTokens(t.output_tokens)}</td><td>${usageFmtTokens(t.cache_tokens)}</td></tr></tfoot></table>`;
+}
+
 function renderAnalyticsPage() {
   const statsHost = byId('analytics-stats');
   if (!statsHost) return;
+  renderUsagePools();
+  renderUsageConsumption();
   const data = state.analytics.data;
   const rangeHost = byId('analytics-range');
   if (rangeHost) rangeHost.innerHTML = rangeSelectorHtml(state.analytics.range);
