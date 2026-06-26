@@ -19,6 +19,24 @@ _USAGE_CACHE: dict[str, dict[str, Any]] = {}
 STALE_AFTER_SECONDS = 420  # ~2x the 3-min collector cadence
 
 
+def derive_usage_source(runtime: Any, runtime_config: Any = None) -> Optional[str]:
+    """Map a runtime (+ its config) to its quota pool id. Auto-bound at register;
+    overridable later. hermes shares the codex pool (same chatgpt backend) unless it
+    is pointed at a local model."""
+    rt = str(runtime or "").strip().lower()
+    rc = runtime_config if isinstance(runtime_config, dict) else {}
+    if rt in ("claude-code", "claude", "claude_code"):
+        return "anthropic-claude-max"
+    if rt == "codex":
+        return "openai-chatgpt-codex"
+    if rt == "hermes":
+        base = str(rc.get("modelBaseUrl") or "").lower()
+        if base and "chatgpt" not in base and any(k in base for k in ("ollama", "11434", "localhost", "127.0.0.1")):
+            return "local-ollama"
+        return "openai-chatgpt-codex"
+    return None
+
+
 def usage_set(source_id: str, payload: dict[str, Any]) -> None:
     """Store the latest snapshot for a pool, stamping its source_id."""
     data = dict(payload or {})

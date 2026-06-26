@@ -24,6 +24,16 @@ def test_get_missing_returns_none():
     assert uc.usage_get("nope") is None
 
 
+def test_derive_usage_source():
+    assert uc.derive_usage_source("claude-code") == "anthropic-claude-max"
+    assert uc.derive_usage_source("claude") == "anthropic-claude-max"
+    assert uc.derive_usage_source("codex") == "openai-chatgpt-codex"
+    assert uc.derive_usage_source("hermes") == "openai-chatgpt-codex"  # shares codex pool
+    assert uc.derive_usage_source("hermes", {"modelBaseUrl": "http://192.168.100.10:11434/v1"}) == "local-ollama"
+    assert uc.derive_usage_source("hermes", {"modelBaseUrl": "https://chatgpt.com/backend-api/codex"}) == "openai-chatgpt-codex"
+    assert uc.derive_usage_source("opencode") is None
+
+
 def test_consumption_summary():
     rows = [
         {"agent_id": "a", "source_id": "anthropic-claude-max", "model": "claude-opus-4-8",

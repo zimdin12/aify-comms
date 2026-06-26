@@ -27,7 +27,7 @@ _listen_events: dict[str, asyncio.Event] = {}
 from pydantic import BaseModel
 from service.db import get_db
 from service.status_engine import apply_event, derive, StatusInputs, VALID_STATUSES
-from service.usage_cache import usage_set, usage_all, usage_get, summarize_consumption
+from service.usage_cache import usage_set, usage_all, usage_get, summarize_consumption, derive_usage_source
 from service.models import (
     AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
     ChannelCreate, ChannelMessage, ChannelJoin,
@@ -3831,6 +3831,12 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
     # Never surface a legacy raw status (e.g. heartbeat-stamped 'active') as-is.
     base_status = _LEGACY_RAW_STATUS_TO_CANONICAL.get(base_status.lower(), base_status)
     effective_status = _status_with_dispatch(base_status, dispatch_state)
+    # Usage/quota (2026-06-26): bind the agent to a quota pool (explicit override in
+    # runtime_config.usageSource, else derived from runtime) and merge that pool's live
+    # remaining %% from the in-memory usage cache. Advisory only — never gates anything.
+    _rc_for_usage = _json_loads_or(row["runtime_config"], {}) if "runtime_config" in row.keys() else {}
+    _usage_source = (_rc_for_usage.get("usageSource") if isinstance(_rc_for_usage, dict) else None) or derive_usage_source(runtime, _rc_for_usage)
+    _pool = usage_get(_usage_source) if _usage_source else None
     return {
         "role": row["role"],
         "name": row["name"],
@@ -3845,6 +3851,10 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
         "lastSeen": row["last_seen"],
         "unread": unread,
         "runtime": runtime,
+        "usageSource": _usage_source or "",
+        "poolWeeklyPctLeft": ((_pool.get("weekly") or {}).get("left_pct") if _pool else None),
+        "poolSeverity": ((_pool.get("severity") if _pool else None) or ""),
+        "quotaCritical": bool(_pool and _pool.get("severity") == "critical"),
         "machineId": row["machine_id"] or "",
         "launchMode": row["launch_mode"] or "detached",
         "sessionMode": session_mode,
@@ -9773,6 +9783,34 @@ async def post_usage(request: Request):
 @router.get("/usage")
 async def get_usage():
     return {"pools": usage_all()}
+
+
+@router.patch("/agents/{agent_id}/usage-source")
+async def patch_usage_source(agent_id: str, request: Request):
+    """Operator override of an agent's quota-pool binding. Empty value clears the
+    override, reverting to the runtime-derived source."""
+    body = await request.json()
+    source = str((body or {}).get("usageSource") or "").strip()
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute("SELECT runtime_config FROM agents WHERE id = ?", (agent_id,))
+        row = await cursor.fetchone()
+        if not row:
+            await db.rollback()
+            raise HTTPException(404, f'Agent "{agent_id}" not found')
+        rc = _json_loads_or(row["runtime_config"], {})
+        if not isinstance(rc, dict):
+            rc = {}
+        if source:
+            rc["usageSource"] = source
+        else:
+            rc.pop("usageSource", None)
+        await db.execute("UPDATE agents SET runtime_config = ? WHERE id = ?", (json.dumps(rc), agent_id))
+        await db.commit()
+        return {"ok": True, "agentId": agent_id, "usageSource": source}
+    finally:
+        await db.close()
 
 
 # ─── Spawn Requests And Sessions ─────────────────────────────────────────────
