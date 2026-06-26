@@ -88,6 +88,7 @@ import {
 import { startHermesGatewayTurnDetector } from "./hermes-gateway-turn-detector.js";
 import { pinnedSessionId } from "./hermes-session-id.js";
 import { startClaudeTurnEndDetector } from "./claude-turn-end-detector.js";
+import { collectOnce as collectUsageOnce } from "./usage-collector.js";
 
 // Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
 // `omp --mode rpc --resume <session>`), that child inherits the aify
@@ -839,6 +840,7 @@ const TERMINAL_CONTROL_POLL_MS = Math.max(
 let dispatchLoopTimer = null;
 let dispatchLoopBusy = false;
 let environmentHeartbeatTimer = null;
+let usageCollectorTimer = null;
 let environmentControlTimer = null;
 let environmentControlBusy = false;
 let spawnLoopTimer = null;
@@ -2433,6 +2435,17 @@ function ensureEnvironmentHeartbeat() {
   }, intervalMs);
 }
 
+// Usage/quota collector (2026-06-26): poll each subscription pool's remaining %% on
+// this host (~3 min) and POST to /usage. Env-bridge only — it has the host creds and
+// reads the rollouts. Best-effort; a failed poll never disturbs the bridge.
+function ensureUsageCollector() {
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || usageCollectorTimer) return;
+  const tick = () => collectUsageOnce({ post: (p) => httpCall("POST", "/usage", p) }).catch(() => {});
+  tick();
+  const intervalMs = Math.max(60000, Number(process.env.AIFY_USAGE_POLL_MS || 180000));
+  usageCollectorTimer = setInterval(tick, intervalMs);
+}
+
 function ensureEnvironmentControlLoop() {
   if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || environmentControlTimer) return;
   runEnvironmentControlLoop().catch((error) => console.error("[aify] environment control loop error:", error));
@@ -2964,6 +2977,7 @@ function ensureDispatchLoop() {
 }
 
 ensureEnvironmentControlLoop();
+ensureUsageCollector();
 // WS2: reap crash/SIGKILL managed-triad survivors of a dead predecessor BEFORE
 // the spawn loop brings fresh managed agents up AND before the environment
 // heartbeat's syncManagedEnvironmentAgents() can re-bind those agents'

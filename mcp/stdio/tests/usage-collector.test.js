@@ -77,3 +77,26 @@ import { fetchAnthropicUsage, fetchCodexUsage } from "../usage-collector.js";
   assert.equal(r.source_id, "openai-chatgpt-codex");
 }
 console.log("usage-collector.test.js: adapters ok");
+
+// ── collectOnce: poll both pools, POST each result that has a source_id ───────
+import { collectOnce } from "../usage-collector.js";
+{
+  const posted = [];
+  await collectOnce({
+    fetchAnthropic: async () => ({ source_id: "anthropic-claude-max", weekly: { used_pct: 81 } }),
+    fetchCodex: async () => ({ source_id: "openai-chatgpt-codex", weekly: { used_pct: 0 } }),
+    post: async (p) => posted.push(p.source_id),
+  });
+  assert.deepEqual(posted.sort(), ["anthropic-claude-max", "openai-chatgpt-codex"]);
+}
+// an adapter that throws must not abort the other pool's post
+{
+  const posted = [];
+  await collectOnce({
+    fetchAnthropic: async () => { throw new Error("boom"); },
+    fetchCodex: async () => ({ source_id: "openai-chatgpt-codex" }),
+    post: async (p) => posted.push(p.source_id),
+  });
+  assert.deepEqual(posted, ["openai-chatgpt-codex"], "one adapter throwing still posts the other");
+}
+console.log("usage-collector.test.js: collectOnce ok");

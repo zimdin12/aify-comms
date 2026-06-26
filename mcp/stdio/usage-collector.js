@@ -22,6 +22,20 @@ const SOURCE_CODEX = "openai-chatgpt-codex";
 
 function homeDir() { return process.env.HOME || process.env.USERPROFILE || ""; }
 
+// ── collector loop ───────────────────────────────────────────────────────────
+
+// Poll every pool and POST each result (including `unknown`, so the UI can show it).
+// Each adapter is isolated — one throwing/failing never blocks the others.
+export async function collectOnce({ fetchAnthropic = fetchAnthropicUsage, fetchCodex = fetchCodexUsage, post } = {}) {
+  const settled = await Promise.allSettled([fetchAnthropic(), fetchCodex()]);
+  for (const s of settled) {
+    const r = s.status === "fulfilled" ? s.value : null;
+    if (r && r.source_id && typeof post === "function") {
+      try { await post(r); } catch { /* best-effort, like the rest of the bridge */ }
+    }
+  }
+}
+
 // ── pure helpers ─────────────────────────────────────────────────────────────
 
 // Percent of quota REMAINING from percent USED (provider reports "used").
