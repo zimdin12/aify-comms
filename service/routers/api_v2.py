@@ -27,6 +27,7 @@ _listen_events: dict[str, asyncio.Event] = {}
 from pydantic import BaseModel
 from service.db import get_db
 from service.status_engine import apply_event, derive, StatusInputs, VALID_STATUSES
+from service.usage_cache import usage_set, usage_all, usage_get, summarize_consumption
 from service.models import (
     AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
     ChannelCreate, ChannelMessage, ChannelJoin,
@@ -9750,6 +9751,28 @@ async def update_environment_roots(environment_id: str, req: EnvironmentRootsUpd
         return {"ok": True, "environment": environment}
     finally:
         await db.close()
+
+
+# ─── Usage / Quota ───────────────────────────────────────────────────────────
+# Per-pool subscription quota snapshots POSTed by the env-bridge collector and read
+# by the dashboards + comms_usage. In-memory only (single-worker invariant) — see
+# service/usage_cache.py and docs/superpowers/specs/2026-06-26-usage-quota-stats-design.md.
+
+@router.post("/usage")
+async def post_usage(request: Request):
+    body = await request.json()
+    source_id = str((body or {}).get("source_id") or "").strip()
+    if not source_id:
+        raise HTTPException(400, "source_id is required")
+    payload = dict(body)
+    payload["updated_at"] = _now()
+    usage_set(source_id, payload)
+    return {"ok": True, "source_id": source_id}
+
+
+@router.get("/usage")
+async def get_usage():
+    return {"pools": usage_all()}
 
 
 # ─── Spawn Requests And Sessions ─────────────────────────────────────────────
