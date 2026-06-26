@@ -27,7 +27,7 @@ _listen_events: dict[str, asyncio.Event] = {}
 from pydantic import BaseModel
 from service.db import get_db
 from service.status_engine import apply_event, derive, StatusInputs, VALID_STATUSES
-from service.usage_cache import usage_set, usage_all, usage_get, summarize_consumption, derive_usage_source
+from service.usage_cache import usage_set, usage_all, usage_get, summarize_consumption, derive_usage_source, consumption_set, consumption_summary
 from service.models import (
     AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
     ChannelCreate, ChannelMessage, ChannelJoin,
@@ -9783,6 +9783,19 @@ async def post_usage(request: Request):
 @router.get("/usage")
 async def get_usage():
     return {"pools": usage_all()}
+
+
+@router.post("/usage/consumption")
+async def post_usage_consumption(request: Request):
+    body = await request.json()
+    rows = (body or {}).get("rows") or []
+    consumption_set(rows)
+    return {"ok": True, "count": len(rows)}
+
+
+@router.get("/usage/consumption")
+async def get_usage_consumption():
+    return consumption_summary()
 
 
 @router.patch("/agents/{agent_id}/usage-source")

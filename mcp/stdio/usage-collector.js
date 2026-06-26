@@ -22,6 +22,45 @@ const SOURCE_CODEX = "openai-chatgpt-codex";
 
 function homeDir() { return process.env.HOME || process.env.USERPROFILE || ""; }
 
+// ── per-agent consumption (attribution) ─────────────────────────────────────
+
+// Sum a claude transcript's per-message token usage into session totals. Each assistant
+// message's `usage` is ONE API request's billed tokens, so summing across messages =
+// total tokens consumed this session (input + output + cache creation/read).
+export function readClaudeConsumption(content) {
+  const out = { input_tokens: 0, output_tokens: 0, cache_tokens: 0 };
+  for (const line of String(content || "").split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    let o;
+    try { o = JSON.parse(t); } catch { continue; }
+    const u = o && o.message && o.message.usage;
+    if (!u) continue;
+    out.input_tokens += Number(u.input_tokens || 0);
+    out.output_tokens += Number(u.output_tokens || 0);
+    out.cache_tokens += Number(u.cache_creation_input_tokens || 0) + Number(u.cache_read_input_tokens || 0);
+  }
+  return out;
+}
+
+// claude transcript path: ~/.claude/projects/<cwd-with-nonalnum-as-dash>/<sessionId>.jsonl
+function claudeTranscriptPath(cwd, sessionId) {
+  const enc = String(cwd || "").replace(/[^a-zA-Z0-9]/g, "-");
+  return join(homeDir(), ".claude", "projects", enc, `${sessionId}.jsonl`);
+}
+
+// Best-effort consumption for one agent. Only claude-code is computed in v1 (its
+// transcript path is deterministic from cwd+sessionHandle); codex/hermes return null
+// until their session->file mapping is added.
+export function readAgentConsumption({ runtime, cwd, sessionHandle, readFile = (p) => readFileSync(p, "utf8") }) {
+  const rt = String(runtime || "").toLowerCase();
+  if ((rt === "claude-code" || rt === "claude") && cwd && sessionHandle) {
+    try { return readClaudeConsumption(readFile(claudeTranscriptPath(cwd, sessionHandle))); }
+    catch { return null; }
+  }
+  return null;
+}
+
 // ── collector loop ───────────────────────────────────────────────────────────
 
 // Poll every pool and POST each result (including `unknown`, so the UI can show it).
@@ -33,6 +72,22 @@ export async function collectOnce({ fetchAnthropic = fetchAnthropicUsage, fetchC
     if (r && r.source_id && typeof post === "function") {
       try { await post(r); } catch { /* best-effort, like the rest of the bridge */ }
     }
+  }
+}
+
+// Enumerate agents, compute each one's consumption (where readable), and POST the rows.
+export async function collectConsumptionOnce({ getAgents, post, readConsumption = readAgentConsumption } = {}) {
+  let agents;
+  try { agents = await getAgents(); } catch { return; }
+  const rows = [];
+  for (const [id, info] of Object.entries(agents || {})) {
+    const c = readConsumption({ runtime: info.runtime, cwd: info.cwd, sessionHandle: info.sessionHandle });
+    if (c && (c.input_tokens || c.output_tokens || c.cache_tokens)) {
+      rows.push({ agent_id: id, source_id: info.usageSource || "", model: info.model || "", ...c });
+    }
+  }
+  if (rows.length && typeof post === "function") {
+    try { await post(rows); } catch { /* best-effort */ }
   }
 }
 

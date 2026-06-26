@@ -699,6 +699,13 @@ tr:hover{background:#1b1f21}
 .usage-pool-card.critical .usage-pool-bar>span{background:#ff6a74}
 .usage-pool-meta{font-size:.73em;color:var(--muted,#9aa)}
 .usage-tag{font-size:.62em;background:var(--line,#262b30);color:var(--muted,#9aa);border-radius:999px;padding:1px 6px;margin-left:4px}
+.usage-consumption{margin:0 0 14px}
+.usage-consumption-h{font-size:.78em;text-transform:uppercase;letter-spacing:.6px;color:var(--muted,#9aa);margin:4px 0 6px}
+.usage-consumption-table{width:100%;border-collapse:collapse;font-size:.84em}
+.usage-consumption-table th,.usage-consumption-table td{text-align:right;padding:4px 8px;border-bottom:1px solid var(--line,#262b30)}
+.usage-consumption-table th:first-child,.usage-consumption-table td:first-child{text-align:left}
+.usage-consumption-table thead th{color:var(--muted,#9aa);font-weight:500}
+.usage-consumption-table tfoot td{font-weight:600;border-bottom:none}
 .analytics-layout{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(320px,.8fr);gap:12px;align-items:start}
 .analytics-main{min-height:390px}
 .analytics-wide{grid-column:1/-1}
@@ -1535,7 +1542,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
     <p class="worker-note">Traffic, live capacity, and run health. This is intentionally operational: enough signal to keep the dashboard open while agents work.</p>
     <div class="stats" id="analytics-stats"></div>
     <div class="usage-pools" id="usage-pools"></div>
-    <div class="usage-consumption" id="usage-consumption"><div class="subtle" style="padding:6px 4px">Per-agent token consumption — coming next.</div></div>
+    <div class="usage-consumption" id="usage-consumption"></div>
     <div class="analytics-layout">
       <section class="ops-panel analytics-main">
         <div class="ops-panel-head">
@@ -4651,10 +4658,38 @@ async function renderUsagePools() {
   }).join('');
 }
 
+function usageFmtTokens(n) {
+  n = Number(n || 0);
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+  return String(n);
+}
+// Consumption section (per-agent token totals this session).
+async function renderUsageConsumption() {
+  const host = document.getElementById('usage-consumption');
+  if (!host) return;
+  let s;
+  try { const r = await apiFetch(API + '/usage/consumption'); s = await r.json(); } catch { return; }
+  const byAgent = (s && s.by_agent) || {};
+  const agents = Object.keys(byAgent);
+  if (!agents.length) { host.innerHTML = '<div class="subtle" style="padding:6px 4px">No per-agent token data yet (collector warming up).</div>'; return; }
+  agents.sort((a, b) => (byAgent[b].output_tokens || 0) - (byAgent[a].output_tokens || 0));
+  const rows = agents.map((a) => {
+    const c = byAgent[a];
+    return `<tr><td>${esc(a)}</td><td>${usageFmtTokens(c.input_tokens)}</td><td>${usageFmtTokens(c.output_tokens)}</td><td>${usageFmtTokens(c.cache_tokens)}</td></tr>`;
+  }).join('');
+  const t = (s && s.totals) || {};
+  host.innerHTML = '<div class="usage-consumption-h">Token consumption — this session, per agent</div>'
+    + '<table class="usage-consumption-table"><thead><tr><th>Agent</th><th>In</th><th>Out</th><th>Cache</th></tr></thead>'
+    + `<tbody>${rows}</tbody>`
+    + `<tfoot><tr><td>Total</td><td>${usageFmtTokens(t.input_tokens)}</td><td>${usageFmtTokens(t.output_tokens)}</td><td>${usageFmtTokens(t.cache_tokens)}</td></tr></tfoot></table>`;
+}
+
 function renderAnalytics(data = {}) {
   const stats = document.getElementById('analytics-stats');
   if (!stats) return;
   renderUsagePools();
+  renderUsageConsumption();
   const runsByStatus = data.runsByStatus || {};
   const rangeLabel = data.rangeLabel || analyticsSeries(data).label;
   const failedRuns = Number(runsByStatus.failed || 0) + Number(runsByStatus.cancelled || 0);

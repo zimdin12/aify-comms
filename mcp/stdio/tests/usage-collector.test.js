@@ -100,3 +100,37 @@ import { collectOnce } from "../usage-collector.js";
   assert.deepEqual(posted, ["openai-chatgpt-codex"], "one adapter throwing still posts the other");
 }
 console.log("usage-collector.test.js: collectOnce ok");
+
+// ── readClaudeConsumption: sum per-message billed tokens across a transcript ──
+import { readClaudeConsumption } from "../usage-collector.js";
+{
+  const lines = [
+    JSON.stringify({ type: "assistant", message: { role: "assistant", usage: { input_tokens: 100, output_tokens: 10, cache_creation_input_tokens: 5, cache_read_input_tokens: 20 } } }),
+    JSON.stringify({ type: "user", message: { role: "user", content: [] } }),
+    JSON.stringify({ type: "assistant", message: { role: "assistant", usage: { input_tokens: 200, output_tokens: 30, cache_read_input_tokens: 50 } } }),
+    "{ partial json truncated by tail window",
+  ].join("\n");
+  const c = readClaudeConsumption(lines);
+  assert.equal(c.input_tokens, 300, "summed input across requests");
+  assert.equal(c.output_tokens, 40, "summed output");
+  assert.equal(c.cache_tokens, 75, "cache_creation + cache_read summed");
+  assert.deepEqual(readClaudeConsumption(""), { input_tokens: 0, output_tokens: 0, cache_tokens: 0 });
+}
+// ── collectConsumptionOnce: enumerate agents -> rows -> POST ─────────────────
+import { collectConsumptionOnce } from "../usage-collector.js";
+{
+  let postedRows = null;
+  await collectConsumptionOnce({
+    getAgents: async () => ({
+      a: { runtime: "claude-code", cwd: "x", sessionHandle: "s", usageSource: "anthropic-claude-max", model: "claude-opus-4-8" },
+      b: { runtime: "opencode" },
+    }),
+    readConsumption: ({ runtime }) => (runtime === "claude-code" ? { input_tokens: 100, output_tokens: 10, cache_tokens: 5 } : null),
+    post: async (rows) => { postedRows = rows; },
+  });
+  assert.equal(postedRows.length, 1, "only the agent with readable consumption is posted");
+  assert.equal(postedRows[0].agent_id, "a");
+  assert.equal(postedRows[0].source_id, "anthropic-claude-max");
+  assert.equal(postedRows[0].input_tokens, 100);
+}
+console.log("usage-collector.test.js: collectConsumptionOnce ok");

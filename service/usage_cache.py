@@ -37,6 +37,19 @@ def derive_usage_source(runtime: Any, runtime_config: Any = None) -> Optional[st
     return None
 
 
+# Latest per-(agent) consumption rows reported by the env-bridge collector.
+_CONSUMPTION_ROWS: list[dict[str, Any]] = []
+
+
+def consumption_set(rows: list[dict[str, Any]]) -> None:
+    global _CONSUMPTION_ROWS
+    _CONSUMPTION_ROWS = list(rows or [])
+
+
+def consumption_summary() -> dict[str, Any]:
+    return summarize_consumption(_CONSUMPTION_ROWS)
+
+
 def usage_set(source_id: str, payload: dict[str, Any]) -> None:
     """Store the latest snapshot for a pool, stamping its source_id."""
     data = dict(payload or {})

@@ -17,8 +17,11 @@ def test_usage_render_and_fetch_wired():
     assert "/usage'" in HTML or "/usage`" in HTML, "must fetch the /usage endpoint"
 
 
-def test_consumption_section_container():
-    assert 'id="usage-consumption"' in HTML, "Consumption section container must exist (data wired in Task 8)"
+def test_consumption_section_container_and_render():
+    assert 'id="usage-consumption"' in HTML, "Consumption section container must exist"
+    assert "function renderUsageConsumption" in HTML, "consumption renderer must be defined"
+    assert "/usage/consumption" in HTML, "must fetch the consumption endpoint"
+    assert "usage-consumption-table" in HTML, "consumption table markup"
 
 
 def test_severity_classes_present():

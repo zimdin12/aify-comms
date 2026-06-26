@@ -88,7 +88,7 @@ import {
 import { startHermesGatewayTurnDetector } from "./hermes-gateway-turn-detector.js";
 import { pinnedSessionId } from "./hermes-session-id.js";
 import { startClaudeTurnEndDetector } from "./claude-turn-end-detector.js";
-import { collectOnce as collectUsageOnce } from "./usage-collector.js";
+import { collectOnce as collectUsageOnce, collectConsumptionOnce } from "./usage-collector.js";
 
 // Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
 // `omp --mode rpc --resume <session>`), that child inherits the aify
@@ -2440,7 +2440,13 @@ function ensureEnvironmentHeartbeat() {
 // reads the rollouts. Best-effort; a failed poll never disturbs the bridge.
 function ensureUsageCollector() {
   if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || usageCollectorTimer) return;
-  const tick = () => collectUsageOnce({ post: (p) => httpCall("POST", "/usage", p) }).catch(() => {});
+  const tick = () => {
+    collectUsageOnce({ post: (p) => httpCall("POST", "/usage", p) }).catch(() => {});
+    collectConsumptionOnce({
+      getAgents: () => httpCall("GET", "/agents").then((r) => (r && r.agents) || {}),
+      post: (rows) => httpCall("POST", "/usage/consumption", { rows }),
+    }).catch(() => {});
+  };
   tick();
   const intervalMs = Math.max(60000, Number(process.env.AIFY_USAGE_POLL_MS || 180000));
   usageCollectorTimer = setInterval(tick, intervalMs);

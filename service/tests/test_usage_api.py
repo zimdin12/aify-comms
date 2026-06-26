@@ -42,6 +42,17 @@ class UsageApiTests(FastApiTestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(self.client.get("/api/v1/agents/u-ov").json()["agent"]["usageSource"], "local-ollama")
 
+    def test_consumption_roundtrip(self):
+        r = self.client.post("/api/v1/usage/consumption", json={"rows": [
+            {"agent_id": "a", "source_id": "anthropic-claude-max", "model": "claude-opus-4-8", "input_tokens": 100, "output_tokens": 10, "cache_tokens": 5},
+            {"agent_id": "b", "source_id": "openai-chatgpt-codex", "model": "gpt-5.5", "input_tokens": 200, "output_tokens": 20, "cache_tokens": 0},
+        ]})
+        self.assertEqual(r.status_code, 200, r.text)
+        s = self.client.get("/api/v1/usage/consumption").json()
+        self.assertEqual(s["totals"]["input_tokens"], 300)
+        self.assertEqual(s["by_agent"]["a"]["output_tokens"], 10)
+        self.assertEqual(s["by_source"]["openai-chatgpt-codex"]["input_tokens"], 200)
+
     def test_agent_info_merges_pool_pct(self):
         uc.usage_set("anthropic-claude-max", {"weekly": {"used_pct": 87, "left_pct": 13}, "severity": "warning", "updated_at": "2999-01-01T00:00:00Z"})
         self.client.post("/api/v1/agents", json={"agentId": "u-cl", "role": "coder", "runtime": "claude-code"})
