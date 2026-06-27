@@ -2615,12 +2615,29 @@ async function openCompactionHistory(agentId) {
 // I3 — edit agent identity: rename, description, native session handle.
 function openAgentEditForm(agentId) {
   const agent = state.agents.find((a) => a.id === agentId) || { id: agentId };
+  const currentEnv = String((agent.runtimeState && agent.runtimeState.environmentId) || (agent.runtimeConfig && agent.runtimeConfig.environmentId) || '');
+  const currentRuntime = String(agent.runtime || 'generic');
+  const onlineEnvs = state.environments.filter((env) => resolveStatus(env.status).kind === 'online');
+  const envOptions = ['<option value="">— keep current —</option>']
+    .concat(onlineEnvs.map((env) => {
+      const id = String(env.id || env.environmentId || '');
+      return `<option value="${esc(id)}"${id === currentEnv ? ' selected' : ''}>${esc(env.label || id)}</option>`;
+    })).join('');
+  const runtimeOptions = ['generic', 'claude-code', 'codex', 'pi', 'opencode']
+    .map((rt) => `<option value="${esc(rt)}"${rt === currentRuntime ? ' selected' : ''}>${esc(rt)}</option>`).join('');
   byId('inspector-content').innerHTML = `
     <div class="agent-drawer continue-form">
       <div class="agent-drawer-head"><strong>Edit ${esc(agentId)}</strong></div>
       <label class="settings-label">Agent ID (rename)<input id="edit-agent-id" type="text" value="${esc(agentId)}"></label>
       <label class="settings-label">Description<input id="edit-agent-desc" type="text" value="${esc(agent.description || '')}" placeholder="Short role/description"></label>
       <label class="settings-label">Native session handle<input id="edit-agent-handle" type="text" value="${esc(agent.sessionHandle || agent.session_handle || '')}" placeholder="Claude/Codex/Pi session id — blank clears"></label>
+      <fieldset class="agent-edit-env">
+        <legend>Re-assign environment</legend>
+        <label class="settings-label">Environment<select id="edit-agent-env">${envOptions}</select></label>
+        <label class="settings-label">Runtime<select id="edit-agent-runtime">${runtimeOptions}</select></label>
+        <label class="settings-label">Workspace (optional)<input id="edit-agent-workspace" type="text" value="${esc(agent.cwd || '')}" placeholder="Leave blank for the environment default root"></label>
+        <p class="subtle">Only takes effect when an environment is chosen above. The environment must be online and advertise the selected runtime.</p>
+      </fieldset>
       <div class="agent-drawer-actions"><button class="primary" data-agent-edit-submit="${esc(agentId)}">Save changes</button></div>
     </div>`;
   state.inspector = { ...state.inspector, kind: 'agent-edit', runId: '' };
@@ -2639,6 +2656,15 @@ async function submitAgentEdit(agentId) {
     }
     if (handle !== String(agent.sessionHandle || agent.session_handle || '')) {
       await api(`/agents/${encodeURIComponent(agentId)}/session-handle`, { method: 'PATCH', body: JSON.stringify({ sessionHandle: handle }) });
+    }
+    const envId = byId('edit-agent-env')?.value.trim() || '';
+    if (envId) {
+      const runtime = byId('edit-agent-runtime')?.value.trim() || '';
+      const workspace = byId('edit-agent-workspace')?.value.trim() || '';
+      const body = { environmentId: envId };
+      if (runtime) body.runtime = runtime;
+      if (workspace) body.workspace = workspace;
+      await api(`/agents/${encodeURIComponent(agentId)}/environment`, { method: 'POST', body: JSON.stringify(body) });
     }
     if (newId && newId !== agentId) {
       if (!await uiConfirm(`Rename "${agentId}" → "${newId}"? Chats/sessions/records move to the new id.`)) return;
