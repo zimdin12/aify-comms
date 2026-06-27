@@ -110,8 +110,9 @@ export function chatConversationItems(state) {
 // Chat overview shown when no conversation is open (re-click an open chat to return here).
 function railItemHtml(item, selectedKey) {
   const active = item.key === selectedKey ? ' active' : '';
+  const dotStatus = item.kind === 'dm' ? resolveStatus(item.status) : null;
   const dot = item.kind === 'dm'
-    ? `<span class="status-dot ${esc(resolveStatus(item.status).dotKind)}"></span>`
+    ? `<span class="status-dot ${esc(dotStatus.dotKind)}" role="img" title="${esc(dotStatus.label)}" aria-label="${esc(dotStatus.label)}"></span>`
     : '<span class="chat-rail-hash">#</span>';
   const unread = item.unread > 0 ? `<span class="chat-unread">${item.unread}</span>` : '';
   // DMs get a clickable star (PATCH /agents/{id}/favorite); channels have no server favorite.

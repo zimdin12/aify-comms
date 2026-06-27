@@ -96,7 +96,7 @@ const pages = {
   chat: ['Chat', 'Direct messages and channels across the fleet — the operator landing surface.'],
   sessions: ['Sessions', 'Live terminal and lifecycle controls per session — messaging lives in Chat.'],
   environments: ['Environments', 'Connected bridges, runtimes, roots, and capacity.'],
-  diagnostics: ['Diagnostics', 'Runs and Work Loop evidence stay secondary to the session workspace.'],
+  diagnostics: ['Work', 'Work-loop contracts and run/dispatch evidence.'],
   analytics: ['Analytics', 'Fleet-wide message traffic, run outcomes, and live capacity.'],
   files: ['Files', 'Shared artifacts (comms_share). Upload, download, and remove files.'],
   settings: ['Settings', 'Curated service + dashboard configuration. Save writes to the live settings; rare knobs stay on classic.'],
@@ -938,12 +938,14 @@ function renderUsagePools() {
   if (!host) return;
   const pools = (state.analytics.usage && state.analytics.usage.pools) || [];
   if (!pools.length) { host.innerHTML = '<p class="em">Usage collector warming up…</p>'; return; }
+  // Stale notice when the last refresh failed (we keep showing last-good rather than blanking).
+  const staleNote = state.analytics.usageStale ? '<p class="subtle usage-stale-note">⚠ Last usage refresh failed — showing last known values.</p>' : '';
   const LABELS = {
     'anthropic-claude-max': 'Anthropic · Claude Max',
     'openai-chatgpt-codex': 'OpenAI · ChatGPT (Codex + Hermes)',
     'local-ollama': 'Local · Ollama',
   };
-  host.innerHTML = pools.map((p) => {
+  host.innerHTML = staleNote + pools.map((p) => {
     const w = p.weekly || {}, f = p.five_hour || {};
     const sev = (p.severity && p.severity !== 'normal') ? p.severity : '';
     const left = (w.left_pct == null) ? '—' : w.left_pct + '%';
@@ -3101,8 +3103,16 @@ function setPage(page) {
   byId('page-title').textContent = title;
   byId('page-subtitle').textContent = subtitle;
   document.querySelectorAll('.page').forEach((el) => el.classList.toggle('active', el.id === `page-${page}`));
-  document.querySelectorAll('.nav-item[data-page]').forEach((el) => el.classList.toggle('active', el.dataset.page === page));
-  document.querySelectorAll('.mobile-tabbar [data-page]').forEach((el) => el.classList.toggle('active', el.dataset.page === page));
+  document.querySelectorAll('.nav-item[data-page]').forEach((el) => {
+    const on = el.dataset.page === page;
+    el.classList.toggle('active', on);
+    if (on) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current');
+  });
+  document.querySelectorAll('.mobile-tabbar [data-page]').forEach((el) => {
+    const on = el.dataset.page === page;
+    el.classList.toggle('active', on);
+    if (on) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current');
+  });
   // WS-G1: the Needs-Attention strip belongs to the landing surface only — showing it on every
   // page wasted ~210px and made every page feel sparse. Chat is the landing; show it there.
   const strip = byId('attention-strip');
@@ -3449,8 +3459,8 @@ document.addEventListener('click', (event) => {
     requestSessionControl(sessionControlButton.dataset.sessionId, sessionControlButton.dataset.sessionControl);
     return;
   }
-  const inspectItem = event.target.closest('[data-kind]');
-  if (inspectItem && !inspectButton) inspect(inspectItem.dataset.kind, inspectItem.dataset.id);
+  // (Removed the catch-all [data-kind] → JSON-inspector fallback: it hijacked clicks on the
+  // empty area of any row/message and popped raw JSON. Explicit inspect buttons still work.)
 });
 
 document.addEventListener('keydown', (event) => {

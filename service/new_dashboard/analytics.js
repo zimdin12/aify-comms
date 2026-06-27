@@ -45,12 +45,12 @@ export function fleetPulseHtml(data, windowMinutes = 60) {
   const overdue = Number(data.overdueReplyContracts || 0);
   const card = (n, l, sub, tone) => `<div class="metric${tone ? ` ${tone}` : ''}" data-tone="${tone || ''}">`
     + `<b>${esc(String(n))}</b><span>${esc(l)}</span>${sub ? `<small class="pulse-sub">${esc(sub)}</small>` : ''}</div>`;
-  const dot = (k) => `<span class="status-dot ${esc(k)}"></span>`;
+  const dot = (k, label) => `<span class="status-dot ${esc(k)}" role="img" title="${esc(label || k)}" aria-label="${esc(label || k)}"></span>`;
   const rows = (data.agents || []).map((a) => {
     const st = resolveStatus(a.status);
     const worked = a.workingNow ? '<span class="pulse-now">● working now</span>' : esc(pulseWorkedLabel(a.lastWorkedAt));
     return `<button class="pulse-agent" data-chat-open="dm:${esc(a.id)}" title="Open chat with ${esc(a.id)}">`
-      + `<span class="pulse-agent-id">${dot(st.dotKind)}<strong>${esc(a.id)}</strong>`
+      + `<span class="pulse-agent-id">${dot(st.dotKind, st.label)}<strong>${esc(a.id)}</strong>`
       + `<small>${esc(a.role || '')}${a.runtime ? ` · ${esc(a.runtime)}` : ''}${a.mode ? ` · ${esc(a.mode)}` : ''}</small></span>`
       + `<span class="pulse-agent-meta"><span class="pulse-worked">${worked}</span>`
       + `<span class="pulse-counts">${Number(a.messagesInWindow || 0)} msg · ${Number(a.workingMinutesInWindow || 0)}m work</span></span></button>`;
