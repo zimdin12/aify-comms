@@ -971,10 +971,9 @@ function renderUsageConsumption() {
     return `<tr><td>${esc(a)}</td><td>${usageFmtTokens(c.input_tokens)}</td><td>${usageFmtTokens(c.output_tokens)}</td><td>${usageFmtTokens(c.cache_tokens)}</td></tr>`;
   }).join('');
   const t = (s && s.totals) || {};
-  host.innerHTML = '<div class="usage-consumption-h">Token consumption — this session, per agent</div>'
-    + '<table class="usage-consumption-table"><thead><tr><th>Agent</th><th>In</th><th>Out</th><th>Cache</th></tr></thead>'
+  host.innerHTML = '<div class="table-wrap"><table class="usage-consumption-table"><thead><tr><th>Agent</th><th>In</th><th>Out</th><th>Cache</th></tr></thead>'
     + `<tbody>${rows}</tbody>`
-    + `<tfoot><tr><td>Total</td><td>${usageFmtTokens(t.input_tokens)}</td><td>${usageFmtTokens(t.output_tokens)}</td><td>${usageFmtTokens(t.cache_tokens)}</td></tr></tfoot></table>`;
+    + `<tfoot><tr><td>Total</td><td>${usageFmtTokens(t.input_tokens)}</td><td>${usageFmtTokens(t.output_tokens)}</td><td>${usageFmtTokens(t.cache_tokens)}</td></tr></tfoot></table></div>`;
 }
 
 function renderAnalyticsPage() {

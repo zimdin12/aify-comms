@@ -337,8 +337,14 @@
       <section id="page-analytics" class="page">
         <div class="metric-grid" id="analytics-ops"></div>
         <div class="metric-grid" id="analytics-stats"></div>
-        <div class="usage-pools" id="usage-pools"></div>
-        <div class="usage-consumption" id="usage-consumption"></div>
+        <section class="band">
+          <div class="section-head"><h2>Usage &amp; quota</h2></div>
+          <div class="usage-pools" id="usage-pools"></div>
+        </section>
+        <section class="band">
+          <div class="section-head"><h2>Token consumption <span class="subtle">— this session, per agent</span></h2></div>
+          <div class="usage-consumption" id="usage-consumption"></div>
+        </section>
         <section class="band">
           <div class="section-head">
             <h2>Message traffic</h2>
