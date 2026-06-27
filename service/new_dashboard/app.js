@@ -111,7 +111,9 @@ let dashboardSocket = null;
 // loadConversation fetches a channel's messages; loadChannels refreshes the rail's channels.
 async function chatLoadChannels() {
   try {
-    const res = await api('/channels');
+    // Pass the viewer id — /channels only computes per-channel unread_count when agentId is
+    // supplied; without it every channel's unread badge was permanently 0.
+    const res = await api(`/channels?agentId=${encodeURIComponent(state.chat.identity)}`);
     state.chat.channels = res.channels || res || [];
   } catch (_) { /* keep prior list */ }
 }
@@ -121,10 +123,16 @@ async function chatLoadConversation(name) {
 }
 async function chatSendMessage({ isChannel, target, identity, body, expectsReply, queueIfBusy, inReplyTo, type, priority, subject }) {
   if (isChannel) {
-    // Channel posts are plain {from, body}; type/priority/subject don't apply to channels.
+    // ChannelMessage requires from_agent + channel (the bare {from, body} 422'd). type/priority
+    // ARE accepted by the model; subject/inReplyTo are not part of the channel contract.
     return api(`/channels/${encodeURIComponent(target)}/send`, {
       method: 'POST',
-      body: JSON.stringify({ from: identity, body }),
+      body: JSON.stringify({
+        from_agent: identity, channel: target, body,
+        ...(type ? { type } : {}),
+        ...(priority && priority !== 'normal' ? { priority } : {}),
+        ...(queueIfBusy ? { queueIfBusy: true } : {}),
+      }),
     });
   }
   // Explicit composer type wins; fall back to the expects-reply heuristic for back-compat.
@@ -410,7 +418,14 @@ async function api(path, options = {}) {
   });
   const text = await response.text();
   const data = text ? JSON.parse(text) : {};
-  if (!response.ok) throw new Error(data.error || data.detail || response.statusText);
+  if (!response.ok) {
+    // FastAPI validation errors return `detail` as an array of {loc,msg,...}; the old
+    // `data.detail` coerced that to "[object Object]". Flatten to readable text.
+    let detail = data.error || data.detail || response.statusText;
+    if (Array.isArray(detail)) detail = detail.map((d) => (d && d.msg) ? d.msg : JSON.stringify(d)).join('; ');
+    else if (detail && typeof detail === 'object') detail = JSON.stringify(detail);
+    throw new Error(detail);
+  }
   return data;
 }
 
