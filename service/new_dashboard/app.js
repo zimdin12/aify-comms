@@ -1256,18 +1256,22 @@ function renderActivityFeed() {
   }).join('') : '<div class="activity-item"><strong>No recent activity loaded</strong><p class="preview">Activity appears after messages, runs, or Work Loop updates.</p></div>';
 }
 
+let _statusWhyReturnFocus = null;
 function openStatusWhy(trigger) {
   const popover = byId('status-why-popover');
   if (!popover || !trigger) return;
+  _statusWhyReturnFocus = trigger;
   const reason = trigger.dataset.statusWhy || trigger.title || 'No status reason loaded.';
   const kind = trigger.dataset.statusKind || 'unknown';
   popover.hidden = false;
+  popover.setAttribute('role', 'dialog');
   popover.innerHTML = `
     <div class="item-title">
       <strong>Status: ${esc(kind)}</strong>
       <button class="ghost" data-close-status-why>Close</button>
     </div>
     <p>${esc(reason)}</p>`;
+  setTimeout(() => popover.querySelector('[data-close-status-why]')?.focus(), 20);
   const rect = trigger.getBoundingClientRect();
   const top = Math.min(window.innerHeight - 160, Math.max(12, rect.bottom + 8));
   const left = Math.min(window.innerWidth - 320, Math.max(12, rect.left));
@@ -1280,6 +1284,8 @@ function closeStatusWhy() {
   if (!popover) return;
   popover.hidden = true;
   popover.innerHTML = '';
+  try { if (_statusWhyReturnFocus && _statusWhyReturnFocus.focus) _statusWhyReturnFocus.focus(); } catch {}
+  _statusWhyReturnFocus = null;
 }
 
 function sessionId(session) {
@@ -1415,7 +1421,7 @@ function renderSessionStatusFilter() {
     + `<button type="button" class="filter-preset" data-session-status-preset="live">Live</button>`
     + `</span>`;
   host.innerHTML = presets + SESSION_FILTER_KINDS.map((k) =>
-    `<button type="button" class="session-filter-chip${state.sessionStatusFilter.has(k) ? ' active' : ''}" data-session-status-filter="${k}">${k}</button>`
+    `<button type="button" class="session-filter-chip${state.sessionStatusFilter.has(k) ? ' active' : ''}" data-session-status-filter="${k}" aria-pressed="${state.sessionStatusFilter.has(k) ? 'true' : 'false'}">${k}</button>`
   ).join('');
 }
 
@@ -3820,16 +3826,13 @@ function persistChatPrefs() {
 // Reflect filter state into the always-visible chip bar (chips are static markup; only their
 // active class tracks state, so the rail re-render never has to rebuild them).
 function syncChatChips() {
-  document.querySelectorAll('[data-chat-scope]').forEach((el) => {
-    el.classList.toggle('active', el.dataset.chatScope === (state.chat.scope || 'all'));
-  });
-  document.querySelectorAll('[data-chat-toggle]').forEach((el) => {
-    el.classList.toggle('active', !!state.chat[el.dataset.chatToggle]);
-  });
+  // Mirror the visual .active state into aria-pressed so the toggle state isn't conveyed by
+  // colour alone (matters for the status dots, which have no text).
+  const press = (el, on) => { el.classList.toggle('active', on); el.setAttribute('aria-pressed', on ? 'true' : 'false'); };
+  document.querySelectorAll('[data-chat-scope]').forEach((el) => press(el, el.dataset.chatScope === (state.chat.scope || 'all')));
+  document.querySelectorAll('[data-chat-toggle]').forEach((el) => press(el, !!state.chat[el.dataset.chatToggle]));
   const sf = state.chat.statusFilter instanceof Set ? state.chat.statusFilter : new Set();
-  document.querySelectorAll('[data-chat-status]').forEach((el) => {
-    el.classList.toggle('active', sf.has(el.dataset.chatStatus));
-  });
+  document.querySelectorAll('[data-chat-status]').forEach((el) => press(el, sf.has(el.dataset.chatStatus)));
 }
 byId('chat-sort')?.addEventListener('change', (event) => {
   state.chat.sortMode = event.target.value || 'activity';
