@@ -508,7 +508,7 @@ function applyRealtimeEvent(event, data = {}) {
     if (agent) {
       if (data.status) { agent.status = data.status; agent.statusRaw = data.status; }
       if (data.statusNote !== undefined) agent.statusNote = data.statusNote;
-      renderAll();
+      scheduleRenderAll();
       return;
     }
     refreshSoon(); // unknown agent — a registration we haven't loaded yet
@@ -662,6 +662,16 @@ const _spawnReqSig = () => state.spawnRequests.map((r) => [r.id, r.status, r.age
 const _msgSig = () => state.messages.map((m) => [m.id, m.from, m.subject, m.read]);
 const _chatChanSig = () => (state.chat.channels || []).map((c) => [c.name, c.unreadCount, c.memberCount]);
 const _chatConvSig = () => Object.entries(state.chat.channelMessages || {}).map(([k, v]) => [k, (v || []).length]);
+
+// Coalesce render bursts (e.g. many agent_status events during fleet turn-churn) into one
+// render per animation frame. renderSection is signature-gated so the DOM writes already
+// dedupe, but the per-section JSON.stringify fingerprinting ran synchronously per event.
+let _renderAllScheduled = false;
+function scheduleRenderAll() {
+  if (_renderAllScheduled) return;
+  _renderAllScheduled = true;
+  requestAnimationFrame(() => { _renderAllScheduled = false; renderAll(); });
+}
 
 function renderAll() {
   const f = state.filter || '';
@@ -3678,9 +3688,9 @@ byId('run-status-filter').addEventListener('change', async (event) => {
     byId('api-status').textContent = 'live';
     byId('api-status').className = 'status-chip ok';
   } catch (error) {
-    byId('api-status').textContent = 'API error';
-    byId('api-status').className = 'status-chip bad';
-    inspect('API error', { message: error.message });
+    byId('api-status').textContent = 'live';
+    byId('api-status').className = 'status-chip ok';
+    toast(`Run filter failed: ${error?.message || error}`, 'error');
   }
 });
 byId('run-from-filter')?.addEventListener('change', (e) => { state.runFromFilter = e.target.value; renderRuns(); });
@@ -3696,13 +3706,19 @@ byId('environment-spawn-form')?.addEventListener('submit', async (event) => {
   try {
     await createSpawnRequest();
   } catch (error) {
-    inspect('spawn-error', { message: error.message || 'Spawn request failed' });
+    toast(`Spawn request failed: ${error?.message || error}`, 'error');
   }
 });
 byId('send-reminders').addEventListener('click', async () => {
-  const result = await api('/contracts/reminders/run', { method: 'POST' });
-  inspect('reminders', result);
-  await refresh();
+  if (!await uiConfirm('Send due reminders now? This pings agents with overdue work.', { confirmLabel: 'Send reminders' })) return;
+  try {
+    const result = await api('/contracts/reminders/run', { method: 'POST' });
+    const n = (result && (result.sent ?? result.reminded ?? result.count));
+    toast(`Reminders: ${n != null ? `${n} sent` : 'done'}`, 'ok');
+    await refresh();
+  } catch (error) {
+    toast(`Send reminders failed: ${error?.message || error}`, 'error');
+  }
 });
 // Codex live-console input form: send turn/start via the existing WS
 // the operator opened with "Connect live console".
