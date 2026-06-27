@@ -1261,6 +1261,9 @@ small, .subtle { color: var(--muted); }
 .agent-drawer-kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: .85em; margin: 0 0 14px; }
 .agent-drawer-kv dt { color: var(--muted); }
 .agent-drawer-kv dd { margin: 0; word-break: break-word; }
+.session-changed-banner { border: 1px solid color-mix(in srgb, var(--amber) 55%, var(--line)); background: color-mix(in srgb, var(--amber) 12%, var(--panel-3)); border-radius: var(--radius-card); padding: 10px 12px; margin: 6px 0 10px; display: flex; flex-direction: column; gap: 8px; }
+.session-changed-banner p { margin: 0; font-size: var(--fs-sm); }
+.session-changed-banner code { font-size: var(--fs-xs); }
 .agent-edit-env { border: 1px solid var(--line); border-radius: var(--radius-card); padding: 10px 12px; margin: 4px 0 10px; display: flex; flex-direction: column; gap: 8px; }
 .agent-edit-env legend { font-size: var(--fs-sm); color: var(--muted); padding: 0 6px; }
 .agent-drawer-actions { display: flex; flex-wrap: wrap; gap: 7px; }

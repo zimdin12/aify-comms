@@ -2560,9 +2560,18 @@ function openAgentDrawer(agentId) {
     `<button class="ghost danger" data-agent-remove="${esc(id)}">Remove agent</button>`,
     `<button class="ghost" data-agent-open-sessions="${esc(sid)}">Open in Sessions</button>`,
   ].filter(Boolean).join('');
+  const sessionChangedBanner = agent.sessionChanged ? `
+      <div class="session-changed-banner" role="alert">
+        <p>⚠ This agent reported a new session id <code>${esc(agent.pendingSessionId)}</code> that differs from its pinned handle <code>${esc(agent.sessionHandle || '—')}</code>. Delivery still targets the pinned handle until you resolve this.</p>
+        <div class="button-row">
+          <button class="primary" data-session-confirm="${esc(id)}">Confirm new id</button>
+          <button class="ghost" data-session-keep="${esc(id)}">Keep pinned</button>
+        </div>
+      </div>` : '';
   byId('inspector-content').innerHTML = `
     <div class="agent-drawer">
       <div class="agent-drawer-head"><strong>${esc(id)}</strong>${renderStatusChip(agent.status || 'unknown', statusWhyContext('agent', agent, agent.status))}</div>
+      ${sessionChangedBanner}
       <dl class="chat-kv agent-drawer-kv">
         ${row('Runtime', esc(agent.runtime || (session && sessionRuntime(session)) || '—'))}
         ${row('Mode', esc(mode))}
@@ -2674,6 +2683,26 @@ async function submitAgentEdit(agentId) {
     closeInspector();
     await refresh();
   } catch (err) { toast(`Edit failed: ${err?.message || err}`, 'error'); }
+}
+
+// Sticky session identity (governance): resolve a `session-changed` agent by
+// confirming the new (pending) id or keeping the pinned handle. Both endpoints
+// clear the pending id and exit the session-changed state.
+async function resolveAgentSession(agentId, mode) {
+  const path = mode === 'confirm' ? 'session/confirm' : 'session/keep';
+  const label = mode === 'confirm' ? 'Confirm new session id' : 'Keep pinned handle';
+  try {
+    const res = await api(`/agents/${encodeURIComponent(agentId)}/${path}`, { method: 'POST', body: JSON.stringify({ requestedBy: 'dashboard' }) });
+    // `keep` surfaces the runtime resume command so the operator can re-attach the
+    // agent onto the pinned id. Show it in a prompt-style dialog for easy copy.
+    if (mode === 'keep' && res && res.resumeCommand) {
+      await uiPrompt('Re-attach the agent to its pinned session with this command:', { defaultValue: res.resumeCommand, confirmLabel: 'Done' });
+    } else {
+      toast(`${label}: done`, 'ok');
+    }
+    await refresh();
+    openAgentDrawer(agentId);
+  } catch (err) { toast(`${label} failed: ${err?.message || err}`, 'error'); }
 }
 
 // F8 — message detail surface in the inspector.
@@ -3325,6 +3354,10 @@ document.addEventListener('click', (event) => {
   if (agentHistory) { openCompactionHistory(agentHistory.dataset.agentHistory); return; }
   const agentEditSubmit = event.target.closest('[data-agent-edit-submit]');
   if (agentEditSubmit) { submitAgentEdit(agentEditSubmit.dataset.agentEditSubmit); return; }
+  const sessionConfirm = event.target.closest('[data-session-confirm]');
+  if (sessionConfirm) { resolveAgentSession(sessionConfirm.dataset.sessionConfirm, 'confirm'); return; }
+  const sessionKeep = event.target.closest('[data-session-keep]');
+  if (sessionKeep) { resolveAgentSession(sessionKeep.dataset.sessionKeep, 'keep'); return; }
   const agentDetails = event.target.closest('[data-agent-details]');
   if (agentDetails) { openAgentDrawer(agentDetails.dataset.agentDetails); return; }
   const agentRemove = event.target.closest('[data-agent-remove]');
