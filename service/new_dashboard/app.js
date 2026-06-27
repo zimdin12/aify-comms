@@ -361,7 +361,7 @@ async function addChannelMember(name) {
   } catch (err) { toast(`Add member failed: ${err?.message || err}`, 'error'); }
 }
 async function removeChannelMember(name, agentId) {
-  if (!await uiConfirm(`Remove ${agentId} from #${name}? They stop receiving fan-out; history remains.`)) return;
+  if (!await uiConfirm(`Remove ${agentId} from #${name}? They stop receiving fan-out; history remains.`, { tone: 'danger', confirmLabel: 'Remove' })) return;
   try {
     await api(`/channels/${encodeURIComponent(name)}/leave`, { method: 'POST', body: JSON.stringify({ agentId }) });
     await chatLoadChannels();
@@ -788,7 +788,8 @@ const HELP_TAB = 'Help';
 function settingsFieldHtml(item, value, settings = {}) {
   const id = `set-${item.key}`;
   const hint = item.hint ? `<span class="field-hint">${esc(item.hint)}</span>` : '';
-  const labelBlock = `<div class="field-label">${esc(item.label)}${hint}</div>`;
+  // Associate the label with its input (for/id) so screen readers announce the field name.
+  const labelBlock = `<label class="field-label" for="${id}">${esc(item.label)}${hint}</label>`;
   const bounds = `${item.min != null ? ` min="${item.min}"` : ''}${item.max != null ? ` max="${item.max}"` : ''}`;
 
   if (item.type === 'toggle') {
@@ -894,7 +895,18 @@ async function saveSettings() {
     const key = el.dataset.settingKey;
     const type = el.dataset.settingType;
     if (type === 'toggle') payload[key] = el.checked;
-    else if (type === 'number') { const n = Number(el.value); if (el.value !== '' && Number.isFinite(n)) payload[key] = n; }
+    else if (type === 'number') {
+      let n = Number(el.value);
+      if (el.value !== '' && Number.isFinite(n)) {
+        // Clamp to the rendered min/max — the PUT /settings endpoint does no bounds validation,
+        // so an out-of-range value would otherwise persist verbatim.
+        const min = el.min !== '' ? Number(el.min) : null;
+        const max = el.max !== '' ? Number(el.max) : null;
+        if (min != null && Number.isFinite(min)) n = Math.max(min, n);
+        if (max != null && Number.isFinite(max)) n = Math.min(max, n);
+        payload[key] = n;
+      }
+    }
     else if (type === 'csv') payload[key] = el.value.split(',').map((s) => s.trim()).filter(Boolean);
     else payload[key] = el.value; // text, select, theme, color
   });
@@ -903,6 +915,7 @@ async function saveSettings() {
     const res = await api('/settings', { method: 'PUT', body: JSON.stringify(payload) });
     state.settings = res && typeof res === 'object' ? res : { ...state.settings, ...payload };
     applyTheme(state.settings); // persist + paint the saved appearance
+    armRefreshTimer(); // a changed dashboard_refresh_seconds takes effect immediately, not next poll
     if (statusEl) statusEl.textContent = 'Saved';
     toast('Settings saved', 'ok');
     renderSettings();
