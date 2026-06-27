@@ -472,6 +472,10 @@ function applyRealtimeEvent(event, data = {}) {
     // Live PTY rendering: if this terminal is currently mounted in the Session Console pane,
     // write the new bytes straight to the xterm.js instance — no DOM refresh for the stream.
     const entry = state.activeXterm;
+    // Skip painting when the console pane is hidden (operator switched pages): the xterm stays
+    // mounted but offscreen, so writing to it just burns CPU and grows scrollback invisibly.
+    // It re-syncs from the authoritative buffer on next mount/visible render.
+    if (entry && entry.container && entry.container.offsetParent === null) return;
     if (entry && String(entry.terminalId) === String(data.terminalId) && data.output) {
       // Seq-based dedup + gap-resync (WS-D): the server tags frames with a monotonic seq.
       // Drop frames we've already painted; on a gap (missed a frame, e.g. WS reconnect blip)
@@ -1647,7 +1651,9 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
     const data = await api(`/terminals/${encodeURIComponent(terminalId)}`);
     const output = data?.terminal?.output;
     if (output) term.write(String(output));
-    if (state.activeXterm) state.activeXterm.lastSeq = Number(data?.terminal?.seq ?? state.activeXterm.lastSeq);
+    // GET /terminals/{id} returns the buffer sequence as `outputSeq` (only the WS frame uses `seq`).
+    // Reading `seq` here left lastSeq=-1, disabling dedup so the first live frames re-painted history.
+    if (state.activeXterm) state.activeXterm.lastSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? state.activeXterm.lastSeq);
   } catch (err) {
     term.write(`\r\n\x1b[2m[history fetch failed: ${String(err?.message || err).replace(/\x1b/g, '')}]\x1b[0m\r\n`);
   }
@@ -1666,7 +1672,7 @@ async function resyncActiveConsole() {
     const data = await api(`/terminals/${encodeURIComponent(entry.terminalId)}`);
     entry.term.clear();
     entry.term.write(String(data?.terminal?.output || ''));
-    entry.lastSeq = Number(data?.terminal?.seq ?? entry.lastSeq);
+    entry.lastSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? entry.lastSeq);
   } catch { /* keep current buffer */ }
 }
 
@@ -2944,7 +2950,9 @@ async function requestBulkSessionControl(action) {
     if (action === 'delete') {
       try { await api(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch (err) { toast(`Delete ${id} failed: ${err?.message || err}`, 'error'); }
     } else {
-      await requestSessionControl(id, action, false, false);
+      // Isolate per-item failures so one bad session doesn't abort the rest of the batch
+      // (and skip the trailing clear()/refresh()).
+      try { await requestSessionControl(id, action, false, false); } catch (err) { toast(`${action} ${id} failed: ${err?.message || err}`, 'error'); }
     }
   }
   state.selectedSessionIds.clear();
