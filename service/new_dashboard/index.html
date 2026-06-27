@@ -262,6 +262,11 @@
       <section id="page-diagnostics" class="page">
         <div id="diagnostics-summary" class="diagnostics-summary"></div>
         <div id="diagnostics-bulk-toolbar" class="diagnostics-bulk-toolbar" hidden></div>
+        <div class="button-row diagnostics-maintenance">
+          <span class="subtle">Maintenance</span>
+          <button class="ghost" data-maint-action="repair-reads" title="Mark old dispatched source messages read when a run already claimed/handled them">Repair delivered reads</button>
+          <button class="ghost" data-maint-action="repair-handoffs" title="Create fallback chat replies for terminal runs that never recorded a handoff">Repair handoffs</button>
+        </div>
         <section class="split diagnostics-grid">
           <div class="band">
             <div class="section-head">

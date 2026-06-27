@@ -1114,6 +1114,28 @@ function renderDiagnosticsSummary() {
   ].join('');
 }
 
+// Work-loop maintenance actions (parity with old dashboard's hygiene buttons).
+// Both endpoints are safe to run idempotently; they create fallback records for
+// terminal runs that never recorded a handoff / never marked their source read.
+const MAINTENANCE_ACTIONS = {
+  'repair-reads': { path: '/contracts/hygiene/repair-read-receipts', label: 'Repair delivered reads' },
+  'repair-handoffs': { path: '/dispatch/handoffs/repair', label: 'Repair handoffs' },
+};
+
+async function runMaintenance(action) {
+  const def = MAINTENANCE_ACTIONS[action];
+  if (!def) return;
+  if (!(await uiConfirm(`${def.label}? This is safe to run while agents are working.`, { confirmLabel: def.label }))) return;
+  try {
+    const res = await api(def.path, { method: 'POST' });
+    const n = (res && (res.repaired ?? res.mirrored ?? res.count ?? res.updated ?? res.fixed));
+    toast(`${def.label}: ${n != null ? `${n} fixed` : 'done'}`, 'ok');
+    refresh();
+  } catch (err) {
+    toast(`${def.label} failed: ${err && err.message ? err.message : err}`, 'error');
+  }
+}
+
 function renderDiagnosticsBulkToolbar() {
   const toolbar = byId('diagnostics-bulk-toolbar');
   if (!toolbar) return;
@@ -3361,6 +3383,11 @@ document.addEventListener('click', (event) => {
   const diagnosticAction = event.target.closest('[data-diagnostic-action]');
   if (diagnosticAction) {
     requestBulkDiagnosticAction(diagnosticAction.dataset.diagnosticAction);
+    return;
+  }
+  const maintAction = event.target.closest('[data-maint-action]');
+  if (maintAction) {
+    runMaintenance(maintAction.dataset.maintAction);
     return;
   }
   const envSpawn = event.target.closest('[data-env-spawn]');
