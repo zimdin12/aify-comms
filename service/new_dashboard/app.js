@@ -947,6 +947,7 @@ function usageResetLabel(iso) {
 }
 function usageFmtTokens(n) {
   n = Number(n || 0);
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
   if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
   if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
   return String(n);
@@ -2726,6 +2727,10 @@ async function submitAgentEdit(agentId) {
   const newId = byId('edit-agent-id')?.value.trim() || agentId;
   const desc = byId('edit-agent-desc')?.value ?? '';
   const handle = byId('edit-agent-handle')?.value.trim() ?? '';
+  const willRename = !!(newId && newId !== agentId);
+  // Confirm the rename UP FRONT — confirming after the other edits already fired left those
+  // writes applied with no toast/refresh when the operator cancelled the rename prompt.
+  if (willRename && !await uiConfirm(`Rename "${agentId}" → "${newId}"? Chats/sessions/records move to the new id.`)) return;
   try {
     if (desc !== (agent.description || '')) {
       await api(`/agents/${encodeURIComponent(agentId)}/description`, { method: 'PATCH', body: JSON.stringify({ description: desc }) });
@@ -2742,8 +2747,7 @@ async function submitAgentEdit(agentId) {
       if (workspace) body.workspace = workspace;
       await api(`/agents/${encodeURIComponent(agentId)}/environment`, { method: 'POST', body: JSON.stringify(body) });
     }
-    if (newId && newId !== agentId) {
-      if (!await uiConfirm(`Rename "${agentId}" → "${newId}"? Chats/sessions/records move to the new id.`)) return;
+    if (willRename) {
       await api(`/agents/${encodeURIComponent(agentId)}/rename`, { method: 'POST', body: JSON.stringify({ newAgentId: newId }) });
     }
     toast('Agent updated', 'ok');
@@ -2886,9 +2890,13 @@ function openInspector(request) {
     return;
   }
   const inspector = byId('inspector');
+  if (inspector && !inspector.classList.contains('open')) _inspectorReturnFocus = document.activeElement;
   inspector?.classList.add('open');
   inspector?.classList.toggle('run-inspector-sheet', state.inspector.kind === 'run' || request?.kind === 'run');
+  // Move focus into the drawer so keyboard users land in the panel (and Escape can return them).
+  setTimeout(() => { const f = inspector?.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'); if (f) try { f.focus(); } catch {} }, 30);
 }
+let _inspectorReturnFocus = null;
 
 function closeInspector() {
   const inspector = byId('inspector');
@@ -2896,6 +2904,8 @@ function closeInspector() {
   inspector?.classList.remove('run-inspector-sheet');
   state.inspector = { kind: '', runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false, eventOrder: 'desc', sourceMessageId: '' };
   byId('inspector-content').textContent = 'Select an item to inspect details.';
+  try { if (_inspectorReturnFocus && _inspectorReturnFocus.focus) _inspectorReturnFocus.focus(); } catch {}
+  _inspectorReturnFocus = null;
   evaluateFlowGates();
 }
 
@@ -3625,7 +3635,11 @@ document.addEventListener('click', (event) => {
 });
 
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') closeStatusWhy();
+  if (event.key === 'Escape') {
+    closeStatusWhy();
+    // Escape also dismisses the inspector/agent drawer when it's open and focus isn't in a field.
+    if (byId('inspector')?.classList.contains('open') && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')) closeInspector();
+  }
   if ((event.key === 'Enter' || event.key === ' ') && event.target?.matches?.('[data-status-why]')) {
     event.preventDefault();
     openStatusWhy(event.target);
