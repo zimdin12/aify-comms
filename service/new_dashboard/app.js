@@ -2211,6 +2211,7 @@ function renderRuntime() {
       </div>
       <div class="contract-actions">
         <button class="ghost" data-env-spawn="${esc(env.id)}">Spawn here</button>
+        <button class="ghost" data-env-roots="${esc(env.id)}" title="Edit the workspace roots agents may be spawned into">Edit roots…</button>
         ${resolveStatus(env.status).kind === 'offline'
           ? `<button class="ghost danger" data-env-control="forget" data-env-id="${esc(env.id)}" title="Hide this offline environment (identities/chats/records remain)">Forget</button>`
           : `<button class="ghost danger" data-env-control="stop" data-env-id="${esc(env.id)}" title="Ask this host bridge process to exit">Stop bridge</button>`}
@@ -2258,6 +2259,51 @@ async function controlEnvironment(environmentId, action) {
     toast(`Environment ${action} requested`, 'ok');
     refreshSoon();
   } catch (err) { toast(`Environment ${action} failed: ${err?.message || err}`, 'error'); }
+}
+
+// H4 — workspace-roots editor (parity with old dashboard's environment editor).
+// Roots gate which cwd an agent may be spawned into. A dashboard override persists
+// until "Reset to bridge roots" restores whatever the bridge process advertises.
+function openEnvironmentRootsEditor(environmentId) {
+  const env = state.environments.find((e) => String(e.id) === String(environmentId)) || { id: environmentId };
+  const roots = environmentRoots(env);
+  byId('inspector-content').innerHTML = `
+    <div class="agent-drawer continue-form">
+      <div class="agent-drawer-head"><strong>Workspace roots — ${esc(env.label || environmentId)}</strong></div>
+      <label class="settings-label">Roots (one per line)
+        <textarea id="env-edit-roots" rows="6" spellcheck="false" placeholder="C:/work&#10;C:/projects">${esc(roots.join('\n'))}</textarea>
+      </label>
+      <p class="subtle">Agents spawned in this environment must use a cwd under one of these roots. Leave non-empty; use “Reset to bridge roots” to restore the advertised set.</p>
+      <div class="agent-drawer-actions">
+        <button class="primary" data-env-roots-submit="${esc(environmentId)}">Save roots</button>
+        <button class="ghost" data-env-roots-reset="${esc(environmentId)}">Reset to bridge roots</button>
+      </div>
+    </div>`;
+  state.inspector = { ...state.inspector, kind: 'env-roots', runId: '' };
+  byId('inspector')?.classList.add('open');
+  byId('inspector')?.classList.remove('run-inspector-sheet');
+}
+
+async function submitEnvironmentRoots(environmentId) {
+  const text = byId('env-edit-roots')?.value || '';
+  const roots = text.split(/\r?\n|,/).map((item) => item.trim()).filter(Boolean);
+  if (!roots.length) { toast('At least one root is required. Use “Reset to bridge roots” to restore advertised roots.', 'warn'); return; }
+  try {
+    await api(`/environments/${encodeURIComponent(environmentId)}/roots`, { method: 'PATCH', body: JSON.stringify({ roots, requestedBy: 'dashboard' }) });
+    toast('Workspace roots updated', 'ok');
+    closeInspector();
+    await refresh();
+  } catch (err) { toast(`Root update failed: ${err?.message || err}`, 'error'); }
+}
+
+async function resetEnvironmentRoots(environmentId) {
+  if (!await uiConfirm(`Reset "${environmentId}" to the roots advertised by its bridge process?`)) return;
+  try {
+    await api(`/environments/${encodeURIComponent(environmentId)}/roots`, { method: 'PATCH', body: JSON.stringify({ resetToBridgeAdvertised: true, requestedBy: 'dashboard' }) });
+    toast('Workspace roots reset to bridge-advertised', 'ok');
+    closeInspector();
+    await refresh();
+  } catch (err) { toast(`Root reset failed: ${err?.message || err}`, 'error'); }
 }
 
 const runFrom = (r) => String(r.from || r.fromAgent || r.from_agent || '');
@@ -3456,6 +3502,12 @@ document.addEventListener('click', (event) => {
     byId('env-spawn-agent-id')?.focus();
     return;
   }
+  const envRoots = event.target.closest('[data-env-roots]');
+  if (envRoots) { openEnvironmentRootsEditor(envRoots.dataset.envRoots); return; }
+  const envRootsSubmit = event.target.closest('[data-env-roots-submit]');
+  if (envRootsSubmit) { submitEnvironmentRoots(envRootsSubmit.dataset.envRootsSubmit); return; }
+  const envRootsReset = event.target.closest('[data-env-roots-reset]');
+  if (envRootsReset) { resetEnvironmentRoots(envRootsReset.dataset.envRootsReset); return; }
   const envControl = event.target.closest('[data-env-control]');
   if (envControl) { controlEnvironment(envControl.dataset.envId, envControl.dataset.envControl); return; }
   const openChat = event.target.closest('[data-open-chat]');
