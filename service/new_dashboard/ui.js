@@ -20,7 +20,8 @@ export function toast(message, tone = 'info', { timeout = 4200 } = {}) {
   const host = ensureToastHost();
   const el = document.createElement('div');
   el.className = `toast toast-${tone}`;
-  el.setAttribute('role', 'status');
+  // errors/warnings are assertive (announced immediately); info/ok are polite.
+  el.setAttribute('role', (tone === 'error' || tone === 'warn') ? 'alert' : 'status');
   el.textContent = String(message ?? '');
   host.appendChild(el);
   requestAnimationFrame(() => el.classList.add('show'));

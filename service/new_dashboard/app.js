@@ -47,7 +47,7 @@ const state = {
   sessionTerminals: new Map(), // sessionId → most-recent terminalId seen for this session (cache prevents widget oscillation when the server clears runtime_state.virtualTerminalId mid-conversation per Bug #3 root cause)
   realtimeConnected: false,
   // Chat-first landing (Phase 1): conversation rail + timeline + composer state.
-  chat: { identity: 'dashboard', selected: '', view: 'messenger', filter: '', liveOnly: false, openOnly: false, workingUp: false, unreadOnly: false, scope: 'all', statusFilter: new Set(), sortMode: 'activity', channels: [], channelMessages: {}, analytics: { agent: '', data: null }, pulse: { window: 60, data: null, loading: false }, drafts: {}, replyTo: null, msgFilter: '' },
+  chat: { identity: 'dashboard', selected: '', view: 'messenger', filter: '', liveOnly: false, openOnly: false, workingUp: false, unreadOnly: false, scope: 'all', statusFilter: new Set(), sortMode: 'activity', channels: [], channelMessages: {}, analytics: { agent: '', data: null }, pulse: { window: 60, data: null, loading: false, lastMs: 0 }, drafts: {}, replyTo: null, msgFilter: '' },
   selectedConversation: 'dashboard',
   selectedSessionId: '',
   selectedSessionTab: 'console', // Sessions = terminal-first (Console default); Activity is the read-only log
@@ -61,7 +61,7 @@ const state = {
   settingsTab: '', // active settings tab (empty → first group)
   // Global analytics page (WS-C). Lazily loaded when the page is first opened, then on refresh
   // while it stays active, and on range change. data === null until first load completes.
-  analytics: { range: 'hour', data: null, loading: false },
+  analytics: { range: 'hour', data: null, loading: false, usage: null, consumption: null, usageStale: false, lastMs: 0 },
 };
 
 // Agent status taxonomy: available (blue, wakeable/spawnable idle) → online
@@ -96,7 +96,7 @@ const pages = {
   chat: ['Chat', 'Direct messages and channels across the fleet — the operator landing surface.'],
   sessions: ['Sessions', 'Live terminal and lifecycle controls per session — messaging lives in Chat.'],
   environments: ['Environments', 'Connected bridges, runtimes, roots, and capacity.'],
-  diagnostics: ['Diagnostics', 'Runs and Work Loop evidence stay secondary to the session workspace.'],
+  diagnostics: ['Work', 'Work-loop contracts and run/dispatch evidence.'],
   analytics: ['Analytics', 'Fleet-wide message traffic, run outcomes, and live capacity.'],
   files: ['Files', 'Shared artifacts (comms_share). Upload, download, and remove files.'],
   settings: ['Settings', 'Curated service + dashboard configuration. Save writes to the live settings; rare knobs stay on classic.'],
@@ -586,6 +586,7 @@ async function refresh() {
   if (ok(9) && val(9) && typeof val(9) === 'object') {
     state.settings = val(9);
     applyTheme(state.settings); // apply the server-stored appearance (theme/palette/title)
+    armRefreshTimer(); // honor dashboard_refresh_seconds (no-op unless it changed)
   }
   try { await chatLoadChannels(); } catch (_) { /* keep prior channels */ }
   try { await loadFiles(); } catch (_) { /* keep prior files */ }
@@ -882,14 +883,34 @@ async function saveSettings() {
   }
 }
 
-async function loadAnalytics() {
+// Fetch the analytics page's data (analytics + usage pools + consumption) into state,
+// then render. Throttled + in-flight-guarded so the WS-driven renderAll loop (which can
+// fire many times/sec) collapses to at most one fetch per ~12s — the backend is
+// single-worker + lock-sensitive. Pass force=true on page-open / range-change / manual.
+async function loadAnalytics(force = false) {
+  if (state.analytics.loading) return;
+  if (!force && state.analytics.lastMs && (Date.now() - state.analytics.lastMs) < 12000) {
+    renderAnalyticsPage();
+    return;
+  }
   const range = rangeDef(state.analytics.range).key;
   state.analytics.loading = true;
   try {
-    const data = await api(`/analytics?range=${encodeURIComponent(range)}`);
-    state.analytics.data = data && typeof data === 'object' ? data : {};
+    const [data, usage, consumption] = await Promise.all([
+      api(`/analytics?range=${encodeURIComponent(range)}`).catch(() => null),
+      api('/usage').catch(() => null),
+      api('/usage/consumption').catch(() => null),
+    ]);
+    if (data && typeof data === 'object') state.analytics.data = data;
+    else if (!state.analytics.data) state.analytics.data = {};
+    // Keep last-good usage on a transient failure (never blank a live quota number);
+    // flag it stale so the panel can say so.
+    if (usage) { state.analytics.usage = usage; state.analytics.usageStale = false; }
+    else if (state.analytics.usage) state.analytics.usageStale = true;
+    if (consumption) state.analytics.consumption = consumption;
+    state.analytics.lastMs = Date.now();
   } catch (error) {
-    state.analytics.data = state.analytics.data || {};
+    if (!state.analytics.data) state.analytics.data = {};
     toast(`Analytics failed: ${error?.message || error}`, 'error');
   } finally {
     state.analytics.loading = false;
@@ -912,18 +933,19 @@ function usageFmtTokens(n) {
   return String(n);
 }
 // Usage/quota Pools band + Consumption section (2026-06-26). Advisory — read-only.
-async function renderUsagePools() {
+function renderUsagePools() {
   const host = byId('usage-pools');
   if (!host) return;
-  let pools = [];
-  try { const d = await api('/usage'); pools = (d && d.pools) || []; } catch { return; }
+  const pools = (state.analytics.usage && state.analytics.usage.pools) || [];
   if (!pools.length) { host.innerHTML = '<p class="em">Usage collector warming up…</p>'; return; }
+  // Stale notice when the last refresh failed (we keep showing last-good rather than blanking).
+  const staleNote = state.analytics.usageStale ? '<p class="subtle usage-stale-note">⚠ Last usage refresh failed — showing last known values.</p>' : '';
   const LABELS = {
     'anthropic-claude-max': 'Anthropic · Claude Max',
     'openai-chatgpt-codex': 'OpenAI · ChatGPT (Codex + Hermes)',
     'local-ollama': 'Local · Ollama',
   };
-  host.innerHTML = pools.map((p) => {
+  host.innerHTML = staleNote + pools.map((p) => {
     const w = p.weekly || {}, f = p.five_hour || {};
     const sev = (p.severity && p.severity !== 'normal') ? p.severity : '';
     const left = (w.left_pct == null) ? '—' : w.left_pct + '%';
@@ -938,11 +960,10 @@ async function renderUsagePools() {
       + `<div class="usage-pool-meta">5h ${fleft} left${reset ? ' · ' + esc(reset) : ''}</div></div>`;
   }).join('');
 }
-async function renderUsageConsumption() {
+function renderUsageConsumption() {
   const host = byId('usage-consumption');
   if (!host) return;
-  let s;
-  try { s = await api('/usage/consumption'); } catch { return; }
+  const s = state.analytics.consumption;
   const byAgent = (s && s.by_agent) || {};
   const agents = Object.keys(byAgent);
   if (!agents.length) { host.innerHTML = '<p class="em">No per-agent token data yet (collector warming up).</p>'; return; }
@@ -952,10 +973,9 @@ async function renderUsageConsumption() {
     return `<tr><td>${esc(a)}</td><td>${usageFmtTokens(c.input_tokens)}</td><td>${usageFmtTokens(c.output_tokens)}</td><td>${usageFmtTokens(c.cache_tokens)}</td></tr>`;
   }).join('');
   const t = (s && s.totals) || {};
-  host.innerHTML = '<div class="usage-consumption-h">Token consumption — this session, per agent</div>'
-    + '<table class="usage-consumption-table"><thead><tr><th>Agent</th><th>In</th><th>Out</th><th>Cache</th></tr></thead>'
+  host.innerHTML = '<div class="table-wrap"><table class="usage-consumption-table"><thead><tr><th>Agent</th><th>In</th><th>Out</th><th>Cache</th></tr></thead>'
     + `<tbody>${rows}</tbody>`
-    + `<tfoot><tr><td>Total</td><td>${usageFmtTokens(t.input_tokens)}</td><td>${usageFmtTokens(t.output_tokens)}</td><td>${usageFmtTokens(t.cache_tokens)}</td></tr></tfoot></table>`;
+    + `<tfoot><tr><td>Total</td><td>${usageFmtTokens(t.input_tokens)}</td><td>${usageFmtTokens(t.output_tokens)}</td><td>${usageFmtTokens(t.cache_tokens)}</td></tr></tfoot></table></div>`;
 }
 
 function renderAnalyticsPage() {
@@ -1092,6 +1112,28 @@ function renderDiagnosticsSummary() {
     metric('Active runs', activeRuns, activeRuns ? 'working' : 'neutral'),
     metric('Failed recent', failedRuns, failedRuns ? 'bad' : 'neutral'),
   ].join('');
+}
+
+// Work-loop maintenance actions (parity with old dashboard's hygiene buttons).
+// Both endpoints are safe to run idempotently; they create fallback records for
+// terminal runs that never recorded a handoff / never marked their source read.
+const MAINTENANCE_ACTIONS = {
+  'repair-reads': { path: '/contracts/hygiene/repair-read-receipts', label: 'Repair delivered reads' },
+  'repair-handoffs': { path: '/dispatch/handoffs/repair', label: 'Repair handoffs' },
+};
+
+async function runMaintenance(action) {
+  const def = MAINTENANCE_ACTIONS[action];
+  if (!def) return;
+  if (!(await uiConfirm(`${def.label}? This is safe to run while agents are working.`, { confirmLabel: def.label }))) return;
+  try {
+    const res = await api(def.path, { method: 'POST' });
+    const n = (res && (res.repaired ?? res.mirrored ?? res.count ?? res.updated ?? res.fixed));
+    toast(`${def.label}: ${n != null ? `${n} fixed` : 'done'}`, 'ok');
+    refresh();
+  } catch (err) {
+    toast(`${def.label} failed: ${err && err.message ? err.message : err}`, 'error');
+  }
 }
 
 function renderDiagnosticsBulkToolbar() {
@@ -2169,6 +2211,7 @@ function renderRuntime() {
       </div>
       <div class="contract-actions">
         <button class="ghost" data-env-spawn="${esc(env.id)}">Spawn here</button>
+        <button class="ghost" data-env-roots="${esc(env.id)}" title="Edit the workspace roots agents may be spawned into">Edit roots…</button>
         ${resolveStatus(env.status).kind === 'offline'
           ? `<button class="ghost danger" data-env-control="forget" data-env-id="${esc(env.id)}" title="Hide this offline environment (identities/chats/records remain)">Forget</button>`
           : `<button class="ghost danger" data-env-control="stop" data-env-id="${esc(env.id)}" title="Ask this host bridge process to exit">Stop bridge</button>`}
@@ -2216,6 +2259,51 @@ async function controlEnvironment(environmentId, action) {
     toast(`Environment ${action} requested`, 'ok');
     refreshSoon();
   } catch (err) { toast(`Environment ${action} failed: ${err?.message || err}`, 'error'); }
+}
+
+// H4 — workspace-roots editor (parity with old dashboard's environment editor).
+// Roots gate which cwd an agent may be spawned into. A dashboard override persists
+// until "Reset to bridge roots" restores whatever the bridge process advertises.
+function openEnvironmentRootsEditor(environmentId) {
+  const env = state.environments.find((e) => String(e.id) === String(environmentId)) || { id: environmentId };
+  const roots = environmentRoots(env);
+  byId('inspector-content').innerHTML = `
+    <div class="agent-drawer continue-form">
+      <div class="agent-drawer-head"><strong>Workspace roots — ${esc(env.label || environmentId)}</strong></div>
+      <label class="settings-label">Roots (one per line)
+        <textarea id="env-edit-roots" rows="6" spellcheck="false" placeholder="C:/work&#10;C:/projects">${esc(roots.join('\n'))}</textarea>
+      </label>
+      <p class="subtle">Agents spawned in this environment must use a cwd under one of these roots. Leave non-empty; use “Reset to bridge roots” to restore the advertised set.</p>
+      <div class="agent-drawer-actions">
+        <button class="primary" data-env-roots-submit="${esc(environmentId)}">Save roots</button>
+        <button class="ghost" data-env-roots-reset="${esc(environmentId)}">Reset to bridge roots</button>
+      </div>
+    </div>`;
+  state.inspector = { ...state.inspector, kind: 'env-roots', runId: '' };
+  byId('inspector')?.classList.add('open');
+  byId('inspector')?.classList.remove('run-inspector-sheet');
+}
+
+async function submitEnvironmentRoots(environmentId) {
+  const text = byId('env-edit-roots')?.value || '';
+  const roots = text.split(/\r?\n|,/).map((item) => item.trim()).filter(Boolean);
+  if (!roots.length) { toast('At least one root is required. Use “Reset to bridge roots” to restore advertised roots.', 'warn'); return; }
+  try {
+    await api(`/environments/${encodeURIComponent(environmentId)}/roots`, { method: 'PATCH', body: JSON.stringify({ roots, requestedBy: 'dashboard' }) });
+    toast('Workspace roots updated', 'ok');
+    closeInspector();
+    await refresh();
+  } catch (err) { toast(`Root update failed: ${err?.message || err}`, 'error'); }
+}
+
+async function resetEnvironmentRoots(environmentId) {
+  if (!await uiConfirm(`Reset "${environmentId}" to the roots advertised by its bridge process?`)) return;
+  try {
+    await api(`/environments/${encodeURIComponent(environmentId)}/roots`, { method: 'PATCH', body: JSON.stringify({ resetToBridgeAdvertised: true, requestedBy: 'dashboard' }) });
+    toast('Workspace roots reset to bridge-advertised', 'ok');
+    closeInspector();
+    await refresh();
+  } catch (err) { toast(`Root reset failed: ${err?.message || err}`, 'error'); }
 }
 
 const runFrom = (r) => String(r.from || r.fromAgent || r.from_agent || '');
@@ -2518,9 +2606,18 @@ function openAgentDrawer(agentId) {
     `<button class="ghost danger" data-agent-remove="${esc(id)}">Remove agent</button>`,
     `<button class="ghost" data-agent-open-sessions="${esc(sid)}">Open in Sessions</button>`,
   ].filter(Boolean).join('');
+  const sessionChangedBanner = agent.sessionChanged ? `
+      <div class="session-changed-banner" role="alert">
+        <p>⚠ This agent reported a new session id <code>${esc(agent.pendingSessionId)}</code> that differs from its pinned handle <code>${esc(agent.sessionHandle || '—')}</code>. Delivery still targets the pinned handle until you resolve this.</p>
+        <div class="button-row">
+          <button class="primary" data-session-confirm="${esc(id)}">Confirm new id</button>
+          <button class="ghost" data-session-keep="${esc(id)}">Keep pinned</button>
+        </div>
+      </div>` : '';
   byId('inspector-content').innerHTML = `
     <div class="agent-drawer">
       <div class="agent-drawer-head"><strong>${esc(id)}</strong>${renderStatusChip(agent.status || 'unknown', statusWhyContext('agent', agent, agent.status))}</div>
+      ${sessionChangedBanner}
       <dl class="chat-kv agent-drawer-kv">
         ${row('Runtime', esc(agent.runtime || (session && sessionRuntime(session)) || '—'))}
         ${row('Mode', esc(mode))}
@@ -2573,12 +2670,29 @@ async function openCompactionHistory(agentId) {
 // I3 — edit agent identity: rename, description, native session handle.
 function openAgentEditForm(agentId) {
   const agent = state.agents.find((a) => a.id === agentId) || { id: agentId };
+  const currentEnv = String((agent.runtimeState && agent.runtimeState.environmentId) || (agent.runtimeConfig && agent.runtimeConfig.environmentId) || '');
+  const currentRuntime = String(agent.runtime || 'generic');
+  const onlineEnvs = state.environments.filter((env) => resolveStatus(env.status).kind === 'online');
+  const envOptions = ['<option value="">— keep current —</option>']
+    .concat(onlineEnvs.map((env) => {
+      const id = String(env.id || env.environmentId || '');
+      return `<option value="${esc(id)}"${id === currentEnv ? ' selected' : ''}>${esc(env.label || id)}</option>`;
+    })).join('');
+  const runtimeOptions = ['generic', 'claude-code', 'codex', 'pi', 'opencode']
+    .map((rt) => `<option value="${esc(rt)}"${rt === currentRuntime ? ' selected' : ''}>${esc(rt)}</option>`).join('');
   byId('inspector-content').innerHTML = `
     <div class="agent-drawer continue-form">
       <div class="agent-drawer-head"><strong>Edit ${esc(agentId)}</strong></div>
       <label class="settings-label">Agent ID (rename)<input id="edit-agent-id" type="text" value="${esc(agentId)}"></label>
       <label class="settings-label">Description<input id="edit-agent-desc" type="text" value="${esc(agent.description || '')}" placeholder="Short role/description"></label>
       <label class="settings-label">Native session handle<input id="edit-agent-handle" type="text" value="${esc(agent.sessionHandle || agent.session_handle || '')}" placeholder="Claude/Codex/Pi session id — blank clears"></label>
+      <fieldset class="agent-edit-env">
+        <legend>Re-assign environment</legend>
+        <label class="settings-label">Environment<select id="edit-agent-env">${envOptions}</select></label>
+        <label class="settings-label">Runtime<select id="edit-agent-runtime">${runtimeOptions}</select></label>
+        <label class="settings-label">Workspace (optional)<input id="edit-agent-workspace" type="text" value="${esc(agent.cwd || '')}" placeholder="Leave blank for the environment default root"></label>
+        <p class="subtle">Only takes effect when an environment is chosen above. The environment must be online and advertise the selected runtime.</p>
+      </fieldset>
       <div class="agent-drawer-actions"><button class="primary" data-agent-edit-submit="${esc(agentId)}">Save changes</button></div>
     </div>`;
   state.inspector = { ...state.inspector, kind: 'agent-edit', runId: '' };
@@ -2598,6 +2712,15 @@ async function submitAgentEdit(agentId) {
     if (handle !== String(agent.sessionHandle || agent.session_handle || '')) {
       await api(`/agents/${encodeURIComponent(agentId)}/session-handle`, { method: 'PATCH', body: JSON.stringify({ sessionHandle: handle }) });
     }
+    const envId = byId('edit-agent-env')?.value.trim() || '';
+    if (envId) {
+      const runtime = byId('edit-agent-runtime')?.value.trim() || '';
+      const workspace = byId('edit-agent-workspace')?.value.trim() || '';
+      const body = { environmentId: envId };
+      if (runtime) body.runtime = runtime;
+      if (workspace) body.workspace = workspace;
+      await api(`/agents/${encodeURIComponent(agentId)}/environment`, { method: 'POST', body: JSON.stringify(body) });
+    }
     if (newId && newId !== agentId) {
       if (!await uiConfirm(`Rename "${agentId}" → "${newId}"? Chats/sessions/records move to the new id.`)) return;
       await api(`/agents/${encodeURIComponent(agentId)}/rename`, { method: 'POST', body: JSON.stringify({ newAgentId: newId }) });
@@ -2606,6 +2729,26 @@ async function submitAgentEdit(agentId) {
     closeInspector();
     await refresh();
   } catch (err) { toast(`Edit failed: ${err?.message || err}`, 'error'); }
+}
+
+// Sticky session identity (governance): resolve a `session-changed` agent by
+// confirming the new (pending) id or keeping the pinned handle. Both endpoints
+// clear the pending id and exit the session-changed state.
+async function resolveAgentSession(agentId, mode) {
+  const path = mode === 'confirm' ? 'session/confirm' : 'session/keep';
+  const label = mode === 'confirm' ? 'Confirm new session id' : 'Keep pinned handle';
+  try {
+    const res = await api(`/agents/${encodeURIComponent(agentId)}/${path}`, { method: 'POST', body: JSON.stringify({ requestedBy: 'dashboard' }) });
+    // `keep` surfaces the runtime resume command so the operator can re-attach the
+    // agent onto the pinned id. Show it in a prompt-style dialog for easy copy.
+    if (mode === 'keep' && res && res.resumeCommand) {
+      await uiPrompt('Re-attach the agent to its pinned session with this command:', { defaultValue: res.resumeCommand, confirmLabel: 'Done' });
+    } else {
+      toast(`${label}: done`, 'ok');
+    }
+    await refresh();
+    openAgentDrawer(agentId);
+  } catch (err) { toast(`${label} failed: ${err?.message || err}`, 'error'); }
 }
 
 // F8 — message detail surface in the inspector.
@@ -3083,8 +3226,16 @@ function setPage(page) {
   byId('page-title').textContent = title;
   byId('page-subtitle').textContent = subtitle;
   document.querySelectorAll('.page').forEach((el) => el.classList.toggle('active', el.id === `page-${page}`));
-  document.querySelectorAll('.nav-item[data-page]').forEach((el) => el.classList.toggle('active', el.dataset.page === page));
-  document.querySelectorAll('.mobile-tabbar [data-page]').forEach((el) => el.classList.toggle('active', el.dataset.page === page));
+  document.querySelectorAll('.nav-item[data-page]').forEach((el) => {
+    const on = el.dataset.page === page;
+    el.classList.toggle('active', on);
+    if (on) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current');
+  });
+  document.querySelectorAll('.mobile-tabbar [data-page]').forEach((el) => {
+    const on = el.dataset.page === page;
+    el.classList.toggle('active', on);
+    if (on) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current');
+  });
   // WS-G1: the Needs-Attention strip belongs to the landing surface only — showing it on every
   // page wasted ~210px and made every page feel sparse. Chat is the landing; show it there.
   const strip = byId('attention-strip');
@@ -3176,7 +3327,7 @@ document.addEventListener('click', (event) => {
     const mins = Number(pulseWindow.dataset.pulseWindow) || 60;
     if (mins !== state.chat.pulse.window) {
       state.chat.pulse.window = mins;
-      chatController.refreshPulse();
+      chatController.refreshPulse(true);
     }
     return;
   }
@@ -3249,6 +3400,10 @@ document.addEventListener('click', (event) => {
   if (agentHistory) { openCompactionHistory(agentHistory.dataset.agentHistory); return; }
   const agentEditSubmit = event.target.closest('[data-agent-edit-submit]');
   if (agentEditSubmit) { submitAgentEdit(agentEditSubmit.dataset.agentEditSubmit); return; }
+  const sessionConfirm = event.target.closest('[data-session-confirm]');
+  if (sessionConfirm) { resolveAgentSession(sessionConfirm.dataset.sessionConfirm, 'confirm'); return; }
+  const sessionKeep = event.target.closest('[data-session-keep]');
+  if (sessionKeep) { resolveAgentSession(sessionKeep.dataset.sessionKeep, 'keep'); return; }
   const agentDetails = event.target.closest('[data-agent-details]');
   if (agentDetails) { openAgentDrawer(agentDetails.dataset.agentDetails); return; }
   const agentRemove = event.target.closest('[data-agent-remove]');
@@ -3313,14 +3468,14 @@ document.addEventListener('click', (event) => {
   const analyticsRange = event.target.closest('[data-analytics-range]');
   if (analyticsRange) {
     state.analytics.range = rangeDef(analyticsRange.dataset.analyticsRange).key;
-    loadAnalytics();
+    loadAnalytics(true);
     return;
   }
   const page = event.target.closest('[data-page], [data-page-jump]')?.dataset.page || event.target.closest('[data-page-jump]')?.dataset.pageJump;
   if (page) {
     setPage(page);
     // Lazy-load the analytics page the first time it's opened (and refresh on re-open).
-    if (page === 'analytics') loadAnalytics();
+    if (page === 'analytics') loadAnalytics(true);
   }
   const diagnosticSelect = event.target.closest('[data-diagnostic-select]');
   if (diagnosticSelect) {
@@ -3335,6 +3490,11 @@ document.addEventListener('click', (event) => {
     requestBulkDiagnosticAction(diagnosticAction.dataset.diagnosticAction);
     return;
   }
+  const maintAction = event.target.closest('[data-maint-action]');
+  if (maintAction) {
+    runMaintenance(maintAction.dataset.maintAction);
+    return;
+  }
   const envSpawn = event.target.closest('[data-env-spawn]');
   if (envSpawn) {
     setPage('environments');
@@ -3342,6 +3502,12 @@ document.addEventListener('click', (event) => {
     byId('env-spawn-agent-id')?.focus();
     return;
   }
+  const envRoots = event.target.closest('[data-env-roots]');
+  if (envRoots) { openEnvironmentRootsEditor(envRoots.dataset.envRoots); return; }
+  const envRootsSubmit = event.target.closest('[data-env-roots-submit]');
+  if (envRootsSubmit) { submitEnvironmentRoots(envRootsSubmit.dataset.envRootsSubmit); return; }
+  const envRootsReset = event.target.closest('[data-env-roots-reset]');
+  if (envRootsReset) { resetEnvironmentRoots(envRootsReset.dataset.envRootsReset); return; }
   const envControl = event.target.closest('[data-env-control]');
   if (envControl) { controlEnvironment(envControl.dataset.envId, envControl.dataset.envControl); return; }
   const openChat = event.target.closest('[data-open-chat]');
@@ -3431,8 +3597,8 @@ document.addEventListener('click', (event) => {
     requestSessionControl(sessionControlButton.dataset.sessionId, sessionControlButton.dataset.sessionControl);
     return;
   }
-  const inspectItem = event.target.closest('[data-kind]');
-  if (inspectItem && !inspectButton) inspect(inspectItem.dataset.kind, inspectItem.dataset.id);
+  // (Removed the catch-all [data-kind] → JSON-inspector fallback: it hijacked clicks on the
+  // empty area of any row/message and popped raw JSON. Explicit inspect buttons still work.)
 });
 
 document.addEventListener('keydown', (event) => {
@@ -3714,7 +3880,17 @@ updateStaticLinks();
 setNavCollapsed(preferredNavCollapsed());
 connectRealtimeSocket();
 refresh();
-setInterval(refresh, 15000);
+// Poll fallback interval, honoring the `dashboard_refresh_seconds` setting (was hardcoded
+// to 15s — the setting silently did nothing). Re-armed when the setting changes.
+let __refreshTimer = null, __refreshSecs = 0;
+function armRefreshTimer() {
+  const secs = Math.max(5, Number(state.settings && state.settings.dashboard_refresh_seconds) || 15);
+  if (secs === __refreshSecs && __refreshTimer) return;
+  __refreshSecs = secs;
+  if (__refreshTimer) clearInterval(__refreshTimer);
+  __refreshTimer = setInterval(refresh, secs * 1000);
+}
+armRefreshTimer();
 byId('attention-collapse')?.addEventListener('click', () => {
   const strip = byId('attention-strip');
   if (!strip) return;

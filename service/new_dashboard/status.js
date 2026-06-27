@@ -57,5 +57,5 @@ export function renderStatusChip(rawStatus, context = {}) {
 // Bare status dot (no label) for dense rows.
 export function renderStatusDot(rawStatus) {
   const status = resolveStatus(rawStatus);
-  return `<span class="status-dot dot ${esc(status.dotKind)}" data-status-kind="${esc(status.kind)}"></span>`;
+  return `<span class="status-dot dot ${esc(status.dotKind)}" data-status-kind="${esc(status.kind)}" role="img" title="${esc(status.label)}" aria-label="${esc(status.label)}"></span>`;
 }

@@ -38,13 +38,13 @@
         <button class="nav-item active" data-page="chat" data-short="C">Chat</button>
         <button class="nav-item" data-page="sessions" data-short="S">Sessions</button>
         <button class="nav-item" data-page="environments" data-short="E">Environments</button>
-        <button class="nav-item" data-page="diagnostics" data-short="D">Diagnostics</button>
+        <button class="nav-item" data-page="diagnostics" data-short="W">Work</button>
         <button class="nav-item" data-page="analytics" data-short="A">Analytics</button>
         <button class="nav-item" data-page="files" data-short="F">Files</button>
         <button class="nav-item" data-page="settings" data-short="G">Settings</button>
       </nav>
       <div class="nav-footer">
-        <span id="api-status" class="status-chip muted">connecting</span>
+        <span id="api-status" class="status-chip muted" role="status" aria-live="polite">connecting</span>
         <a id="version-badge" class="version-badge" href="https://github.com/zimdin12/aify-comms" target="_blank" rel="noreferrer" title="Running build"></a>
         <a id="legacy-dashboard-link" href="/api/v1/dashboard" target="_blank" rel="noreferrer">Old dashboard</a>
       </div>
@@ -68,7 +68,7 @@
         <div class="section-head">
           <h2><button id="attention-collapse" class="attention-collapse" title="Collapse / expand Needs Attention (full-screen chat)" aria-label="Toggle Needs Attention">▾</button>Needs Attention</h2>
           <div class="button-row">
-            <button class="ghost" data-page-jump="diagnostics" title="Open Diagnostics">Diagnostics</button>
+            <button class="ghost" data-page-jump="diagnostics" title="Open Work">Work</button>
             <button class="ghost" data-page-jump="environments" title="Open Environments">Spawn</button>
             <button class="ghost" data-page-jump="settings" title="Open Settings">Settings</button>
           </div>
@@ -262,6 +262,11 @@
       <section id="page-diagnostics" class="page">
         <div id="diagnostics-summary" class="diagnostics-summary"></div>
         <div id="diagnostics-bulk-toolbar" class="diagnostics-bulk-toolbar" hidden></div>
+        <div class="button-row diagnostics-maintenance">
+          <span class="subtle">Maintenance</span>
+          <button class="ghost" data-maint-action="repair-reads" title="Mark old dispatched source messages read when a run already claimed/handled them">Repair delivered reads</button>
+          <button class="ghost" data-maint-action="repair-handoffs" title="Create fallback chat replies for terminal runs that never recorded a handoff">Repair handoffs</button>
+        </div>
         <section class="split diagnostics-grid">
           <div class="band">
             <div class="section-head">
@@ -337,8 +342,14 @@
       <section id="page-analytics" class="page">
         <div class="metric-grid" id="analytics-ops"></div>
         <div class="metric-grid" id="analytics-stats"></div>
-        <div class="usage-pools" id="usage-pools"></div>
-        <div class="usage-consumption" id="usage-consumption"></div>
+        <section class="band">
+          <div class="section-head"><h2>Usage &amp; quota</h2></div>
+          <div class="usage-pools" id="usage-pools"></div>
+        </section>
+        <section class="band">
+          <div class="section-head"><h2>Token consumption <span class="subtle">— this session, per agent</span></h2></div>
+          <div class="usage-consumption" id="usage-consumption"></div>
+        </section>
         <section class="band">
           <div class="section-head">
             <h2>Message traffic</h2>
@@ -504,7 +515,7 @@ aify-comms              # aify-comms.cmd on native Windows</pre>
       <button class="active" type="button" data-page="chat" data-mobile-page="chat">Chat</button>
       <button type="button" data-page="sessions" data-mobile-page="sessions">Sessions</button>
       <button type="button" data-page="environments" data-mobile-page="environments">Environments</button>
-      <button type="button" data-page="diagnostics" data-mobile-page="diagnostics">Diagnostics</button>
+      <button type="button" data-page="diagnostics" data-mobile-page="diagnostics">Work</button>
       <button type="button" data-page="analytics" data-mobile-page="analytics">Analytics</button>
       <button type="button" data-page="files" data-mobile-page="files">Files</button>
       <button type="button" data-page="settings" data-mobile-page="settings">Settings</button>

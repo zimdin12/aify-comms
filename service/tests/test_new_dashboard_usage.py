@@ -13,12 +13,16 @@ def test_containers_present():
 
 
 def test_render_fns_and_fetch():
-    assert "async function renderUsagePools" in APP
-    assert "async function renderUsageConsumption" in APP
+    # render-only (read from state.analytics.usage/consumption); fetch happens in loadAnalytics
+    assert "function renderUsagePools" in APP
+    assert "function renderUsageConsumption" in APP
     assert "api('/usage')" in APP
     assert "api('/usage/consumption')" in APP
     # called from the analytics page render
     assert "renderUsagePools();" in APP and "renderUsageConsumption();" in APP
+    # the fetch is throttled + in-flight-guarded (no per-render storm)
+    assert "state.analytics.loading) return" in APP
+    assert "state.analytics.usage" in APP
 
 
 def test_css_present():
