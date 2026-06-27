@@ -160,7 +160,7 @@ function messageHtml(m, identity = 'dashboard', isChannel = false) {
     </div>
     ${m.subject ? `<h4 class="chat-msg-subject">${esc(m.subject)}</h4>` : ''}
     <p class="chat-msg-body">${esc(m.body || m.preview || '')}</p>
-    <small class="chat-msg-time">${esc(relTime(m.timestamp || m.createdAt))} ago</small>
+    <small class="chat-msg-time">${(() => { const t = relTime(m.timestamp || m.createdAt); return t ? esc(t) + ' ago' : ''; })()}</small>
   </article>`;
 }
 

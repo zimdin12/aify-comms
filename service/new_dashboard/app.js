@@ -2087,8 +2087,11 @@ function renderSessionConsole(session, targetEl, opts = {}) {
 
   const hermesIframe = (widgetChoice.kind === 'hermes-iframe')
     ? `<div class="console-embed" data-kind="hermes-gateway">
-         <div class="console-embed-label">Hermes TUI — embedded live from <code>${esc(hermesGatewayHttp.split('?')[0])}</code></div>
+         <div class="console-embed-label">Hermes TUI — embedded live from <code>${esc(hermesGatewayHttp.split('?')[0])}</code>
+           <a class="ghost console-embed-open" href="${esc(hermesGatewayHttp)}" target="_blank" rel="noopener">Open in new tab ↗</a>
+         </div>
          <iframe src="${esc(hermesGatewayHttp)}" title="Hermes live chat" allow="clipboard-read; clipboard-write"></iframe>
+         <p class="console-embed-hint subtle">If the panel above is blank or shows a load error, this agent's hermes gateway is offline — restart the session, or open it in a new tab.</p>
        </div>`
     : '';
 
@@ -2309,24 +2312,53 @@ async function controlEnvironment(environmentId, action) {
 // H4 — workspace-roots editor (parity with old dashboard's environment editor).
 // Roots gate which cwd an agent may be spawned into. A dashboard override persists
 // until "Reset to bridge roots" restores whatever the bridge process advertises.
+// Build the host start command for an environment (ported from old dashboard
+// environmentStartCommand) — the one-liner an operator runs to bring a dead bridge back.
+function environmentStartCommand(env) {
+  const roots = environmentRoots(env).filter(Boolean);
+  const firstRoot = roots[0] || '';
+  const extras = roots.slice(1);
+  const os = String(env.os || env.kind || '').toLowerCase();
+  const quote = (v) => /[\s"'`]/.test(v) ? JSON.stringify(v) : v;
+  if (os.includes('win')) {
+    const cd = firstRoot ? `cd /d ${quote(firstRoot)}` : 'cd /d C:\\Docker';
+    const args = extras.map(quote).join(' ');
+    return `${cd}\naify-comms.cmd${args ? ' ' + args : ''}`;
+  }
+  const cd = firstRoot ? `cd ${quote(firstRoot)}` : (os.includes('mac') || os.includes('darwin') ? 'cd "$HOME"' : 'cd /mnt/c/Docker');
+  const args = extras.map(quote).join(' ');
+  return `${cd}\naify-comms${args ? ' ' + args : ''}`;
+}
+
 function openEnvironmentRootsEditor(environmentId) {
   const env = state.environments.find((e) => String(e.id) === String(environmentId)) || { id: environmentId };
   const roots = environmentRoots(env);
+  const manualRoots = !!(env.metadata && (env.metadata.manualRoots || env.metadata.manual_roots));
+  const overrideBadge = manualRoots
+    ? '<span class="mb mb-warn" title="Roots were set from the dashboard and override what the bridge advertises">dashboard override active</span>'
+    : '<span class="subtle">using bridge-advertised roots</span>';
+  const startCmd = environmentStartCommand(env);
   byId('inspector-content').innerHTML = `
     <div class="agent-drawer continue-form">
       <div class="agent-drawer-head"><strong>Workspace roots — ${esc(env.label || environmentId)}</strong></div>
+      <div class="env-roots-state">${overrideBadge}</div>
       <label class="settings-label">Roots (one per line)
         <textarea id="env-edit-roots" rows="6" spellcheck="false" placeholder="C:/work&#10;C:/projects">${esc(roots.join('\n'))}</textarea>
       </label>
       <p class="subtle">Agents spawned in this environment must use a cwd under one of these roots. Leave non-empty; use “Reset to bridge roots” to restore the advertised set.</p>
+      <label class="settings-label">Start command <span class="subtle">(run on the host to bring this bridge back)</span>
+        <textarea id="env-start-cmd" rows="2" spellcheck="false" readonly>${esc(startCmd)}</textarea>
+      </label>
       <div class="agent-drawer-actions">
         <button class="primary" data-env-roots-submit="${esc(environmentId)}">Save roots</button>
         <button class="ghost" data-env-roots-reset="${esc(environmentId)}">Reset to bridge roots</button>
+        <button class="ghost" data-copy-text="${esc(startCmd)}">Copy start command</button>
       </div>
     </div>`;
   state.inspector = { ...state.inspector, kind: 'env-roots', runId: '' };
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
+  setTimeout(() => byId('env-edit-roots')?.focus(), 30);
 }
 
 async function submitEnvironmentRoots(environmentId) {
@@ -3564,6 +3596,8 @@ document.addEventListener('click', (event) => {
   if (envRootsSubmit) { submitEnvironmentRoots(envRootsSubmit.dataset.envRootsSubmit); return; }
   const envRootsReset = event.target.closest('[data-env-roots-reset]');
   if (envRootsReset) { resetEnvironmentRoots(envRootsReset.dataset.envRootsReset); return; }
+  const copyTextBtn = event.target.closest('[data-copy-text]');
+  if (copyTextBtn) { copyText(copyTextBtn.dataset.copyText).then((ok) => toast(ok ? 'Copied to clipboard' : 'Copy failed', ok ? 'ok' : 'error')); return; }
   const envControl = event.target.closest('[data-env-control]');
   if (envControl) { controlEnvironment(envControl.dataset.envId, envControl.dataset.envControl); return; }
   const openChat = event.target.closest('[data-open-chat]');

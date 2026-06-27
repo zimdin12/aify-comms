@@ -804,6 +804,9 @@ small, .subtle { color: var(--muted); }
   border: 0;
   background: var(--console-bg);
 }
+.console-embed-open { font-size: var(--fs-xs); padding: 2px 8px; white-space: nowrap; }
+.console-embed-hint { margin: 0; padding: 6px 10px; font-size: var(--fs-xs); border-top: 1px solid var(--line); }
+.env-roots-state { margin: -2px 0 6px; }
 .xterm-host {
   width: 100%;
   height: min(68vh, 720px);
