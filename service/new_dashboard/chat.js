@@ -69,7 +69,7 @@ export function chatConversationItems(state) {
   const channels = (state.chat?.channels || []).map((c) => ({
     kind: 'channel', key: `channel:${c.name}`, id: c.name, status: 'online', runtime: '',
     preview: c.description || `${c.memberCount ?? (c.members?.length || 0)} members`,
-    msgCount: (c.unreadCount || 0) + 1,
+    msgCount: c.messageCount ?? c.message_count ?? 0,
     unread: c.unreadCount || 0, favorited: false, lastTs: ts(c.lastMessageAt || c.createdAt),
   }));
 
@@ -133,7 +133,7 @@ function railItemHtml(item, selectedKey) {
 
 // Wake-vs-stored badge: a message that triggered a dispatch run "woke" the agent; otherwise
 // it was stored to the inbox. read/unread shown alongside.
-function messageHtml(m, identity = 'dashboard') {
+function messageHtml(m, identity = 'dashboard', isChannel = false) {
   const id = String(m.id || m.messageId || '');
   const runId = String(m.dispatchRunId || m.dispatch_run_id || m.runId || m.run_id || '');
   const woke = !!runId || m.dispatchRequested || m.dispatch_requested;
@@ -147,9 +147,13 @@ function messageHtml(m, identity = 'dashboard') {
     (m.expectsReply || m.expects_reply) && m.read === false ? '<span class="msg-badge await">awaiting</span>' : '',
   ].join('');
   const runChip = runId ? `<button class="run-chip" data-run-chip="${esc(runId)}" data-message-id="${esc(id)}">Run ${esc(runId.slice(0, 10))}</button>` : '';
-  const readToggle = !mine ? `<button class="chat-msg-act" data-msg-read="${esc(id)}" data-read="${m.read === false ? '0' : '1'}" title="Mark ${m.read === false ? 'read' : 'unread'}">${m.read === false ? 'Mark read' : 'Unread'}</button>` : '';
-  const unsendBtn = mine ? `<button class="chat-msg-act danger" data-msg-unsend="${esc(id)}" title="Unsend this message">Unsend</button>` : '';
-  const actions = `${runChip}<button class="chat-msg-reply" data-chat-reply="${esc(id)}" title="Reply to this message">Reply</button>${readToggle}${unsendBtn}<button class="chat-msg-detail" data-message-detail="${esc(id)}" aria-label="Message details" title="Message details">⋯</button>`;
+  // Reply / read-toggle / unsend all operate on state.messages (DM store); channel messages
+  // live in state.chat.channelMessages and use fan-out read ids, so those controls would be
+  // dead/incorrect on channel rows — only show them for DMs.
+  const reply = !isChannel ? `<button class="chat-msg-reply" data-chat-reply="${esc(id)}" title="Reply to this message">Reply</button>` : '';
+  const readToggle = (!mine && !isChannel) ? `<button class="chat-msg-act" data-msg-read="${esc(id)}" data-read="${m.read === false ? '0' : '1'}" title="Mark ${m.read === false ? 'read' : 'unread'}">${m.read === false ? 'Mark read' : 'Unread'}</button>` : '';
+  const unsendBtn = (mine && !isChannel) ? `<button class="chat-msg-act danger" data-msg-unsend="${esc(id)}" title="Unsend this message">Unsend</button>` : '';
+  const actions = `${runChip}${reply}${readToggle}${unsendBtn}<button class="chat-msg-detail" data-message-detail="${esc(id)}" aria-label="Message details" title="Message details">⋯</button>`;
   return `<article class="chat-msg${mine ? ' chat-msg-mine' : ''}" data-kind="message" data-id="${esc(id)}" id="chat-msg-${esc(id)}">
     <div class="chat-msg-head"><strong>${esc(m.from || 'unknown')}</strong>
       <span class="chat-msg-badges">${badges}${actions}</span>
@@ -163,7 +167,9 @@ function messageHtml(m, identity = 'dashboard') {
 // Map a /messages/send response to a single truthful delivery toast (the plan's "ladder":
 // steered / queued-busy / console-delivered / woke / stored-offline).
 export function deliveryToastFor(response, to) {
-  const run = (response?.runs || [])[0] || {};
+  // /messages/send returns the runs under `dispatchRuns`, not `runs` — reading the wrong key
+  // silently collapsed the steered/queued/woke ladder to a generic "Sent".
+  const run = (response?.dispatchRuns || response?.runs || [])[0] || {};
   const status = String(run.status || '').toLowerCase();
   const consoleDelivered = (response?.consoleDeliveries || []).length > 0;
   const notStarted = (response?.notStarted || []).length > 0;
@@ -352,7 +358,7 @@ export function createChatController(deps) {
     const nearBottom = (timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight) < 80;
     const searchBanner = msgFilter ? `<p class="chat-search-banner">${msgs.length} of ${allMsgs.length} message${allMsgs.length === 1 ? '' : 's'} match “${esc(msgFilter)}”</p>` : '';
     timeline.innerHTML = allMsgs.length
-      ? searchBanner + (msgs.length ? msgs.map((m) => messageHtml(m, state.chat.identity)).join('') : '<p class="chat-search-banner">No messages match.</p>')
+      ? searchBanner + (msgs.length ? msgs.map((m) => messageHtml(m, state.chat.identity, isChannel)).join('') : '<p class="chat-search-banner">No messages match.</p>')
       : '<div class="empty-state"><span class="empty-icon">✉️</span><strong>No messages yet</strong><p>Send the first message below to start this conversation.</p></div>';
     if (nearBottom && !msgFilter) timeline.scrollTop = timeline.scrollHeight;
     // Scroll-to-newest button: wire its scroll listener + click once, and refresh visibility now.

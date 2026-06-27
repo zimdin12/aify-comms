@@ -111,7 +111,9 @@ let dashboardSocket = null;
 // loadConversation fetches a channel's messages; loadChannels refreshes the rail's channels.
 async function chatLoadChannels() {
   try {
-    const res = await api('/channels');
+    // Pass the viewer id — /channels only computes per-channel unread_count when agentId is
+    // supplied; without it every channel's unread badge was permanently 0.
+    const res = await api(`/channels?agentId=${encodeURIComponent(state.chat.identity)}`);
     state.chat.channels = res.channels || res || [];
   } catch (_) { /* keep prior list */ }
 }
@@ -121,10 +123,16 @@ async function chatLoadConversation(name) {
 }
 async function chatSendMessage({ isChannel, target, identity, body, expectsReply, queueIfBusy, inReplyTo, type, priority, subject }) {
   if (isChannel) {
-    // Channel posts are plain {from, body}; type/priority/subject don't apply to channels.
+    // ChannelMessage requires from_agent + channel (the bare {from, body} 422'd). type/priority
+    // ARE accepted by the model; subject/inReplyTo are not part of the channel contract.
     return api(`/channels/${encodeURIComponent(target)}/send`, {
       method: 'POST',
-      body: JSON.stringify({ from: identity, body }),
+      body: JSON.stringify({
+        from_agent: identity, channel: target, body,
+        ...(type ? { type } : {}),
+        ...(priority && priority !== 'normal' ? { priority } : {}),
+        ...(queueIfBusy ? { queueIfBusy: true } : {}),
+      }),
     });
   }
   // Explicit composer type wins; fall back to the expects-reply heuristic for back-compat.
@@ -353,7 +361,7 @@ async function addChannelMember(name) {
   } catch (err) { toast(`Add member failed: ${err?.message || err}`, 'error'); }
 }
 async function removeChannelMember(name, agentId) {
-  if (!await uiConfirm(`Remove ${agentId} from #${name}? They stop receiving fan-out; history remains.`)) return;
+  if (!await uiConfirm(`Remove ${agentId} from #${name}? They stop receiving fan-out; history remains.`, { tone: 'danger', confirmLabel: 'Remove' })) return;
   try {
     await api(`/channels/${encodeURIComponent(name)}/leave`, { method: 'POST', body: JSON.stringify({ agentId }) });
     await chatLoadChannels();
@@ -410,7 +418,14 @@ async function api(path, options = {}) {
   });
   const text = await response.text();
   const data = text ? JSON.parse(text) : {};
-  if (!response.ok) throw new Error(data.error || data.detail || response.statusText);
+  if (!response.ok) {
+    // FastAPI validation errors return `detail` as an array of {loc,msg,...}; the old
+    // `data.detail` coerced that to "[object Object]". Flatten to readable text.
+    let detail = data.error || data.detail || response.statusText;
+    if (Array.isArray(detail)) detail = detail.map((d) => (d && d.msg) ? d.msg : JSON.stringify(d)).join('; ');
+    else if (detail && typeof detail === 'object') detail = JSON.stringify(detail);
+    throw new Error(detail);
+  }
   return data;
 }
 
@@ -457,6 +472,10 @@ function applyRealtimeEvent(event, data = {}) {
     // Live PTY rendering: if this terminal is currently mounted in the Session Console pane,
     // write the new bytes straight to the xterm.js instance — no DOM refresh for the stream.
     const entry = state.activeXterm;
+    // Skip painting when the console pane is hidden (operator switched pages): the xterm stays
+    // mounted but offscreen, so writing to it just burns CPU and grows scrollback invisibly.
+    // It re-syncs from the authoritative buffer on next mount/visible render.
+    if (entry && entry.container && entry.container.offsetParent === null) return;
     if (entry && String(entry.terminalId) === String(data.terminalId) && data.output) {
       // Seq-based dedup + gap-resync (WS-D): the server tags frames with a monotonic seq.
       // Drop frames we've already painted; on a gap (missed a frame, e.g. WS reconnect blip)
@@ -489,7 +508,7 @@ function applyRealtimeEvent(event, data = {}) {
     if (agent) {
       if (data.status) { agent.status = data.status; agent.statusRaw = data.status; }
       if (data.statusNote !== undefined) agent.statusNote = data.statusNote;
-      renderAll();
+      scheduleRenderAll();
       return;
     }
     refreshSoon(); // unknown agent — a registration we haven't loaded yet
@@ -644,6 +663,16 @@ const _msgSig = () => state.messages.map((m) => [m.id, m.from, m.subject, m.read
 const _chatChanSig = () => (state.chat.channels || []).map((c) => [c.name, c.unreadCount, c.memberCount]);
 const _chatConvSig = () => Object.entries(state.chat.channelMessages || {}).map(([k, v]) => [k, (v || []).length]);
 
+// Coalesce render bursts (e.g. many agent_status events during fleet turn-churn) into one
+// render per animation frame. renderSection is signature-gated so the DOM writes already
+// dedupe, but the per-section JSON.stringify fingerprinting ran synchronously per event.
+let _renderAllScheduled = false;
+function scheduleRenderAll() {
+  if (_renderAllScheduled) return;
+  _renderAllScheduled = true;
+  requestAnimationFrame(() => { _renderAllScheduled = false; renderAll(); });
+}
+
 function renderAll() {
   const f = state.filter || '';
   renderSection('chat', [_agentSig(), _msgSig(), _chatChanSig(), _chatConvSig(), state.chat.selected, state.chat.view, state.chat.filter, state.chat.identity, state.chat.liveOnly, state.chat.analytics.agent, !!state.chat.analytics.data], () => chatController.render());
@@ -759,7 +788,8 @@ const HELP_TAB = 'Help';
 function settingsFieldHtml(item, value, settings = {}) {
   const id = `set-${item.key}`;
   const hint = item.hint ? `<span class="field-hint">${esc(item.hint)}</span>` : '';
-  const labelBlock = `<div class="field-label">${esc(item.label)}${hint}</div>`;
+  // Associate the label with its input (for/id) so screen readers announce the field name.
+  const labelBlock = `<label class="field-label" for="${id}">${esc(item.label)}${hint}</label>`;
   const bounds = `${item.min != null ? ` min="${item.min}"` : ''}${item.max != null ? ` max="${item.max}"` : ''}`;
 
   if (item.type === 'toggle') {
@@ -865,7 +895,18 @@ async function saveSettings() {
     const key = el.dataset.settingKey;
     const type = el.dataset.settingType;
     if (type === 'toggle') payload[key] = el.checked;
-    else if (type === 'number') { const n = Number(el.value); if (el.value !== '' && Number.isFinite(n)) payload[key] = n; }
+    else if (type === 'number') {
+      let n = Number(el.value);
+      if (el.value !== '' && Number.isFinite(n)) {
+        // Clamp to the rendered min/max — the PUT /settings endpoint does no bounds validation,
+        // so an out-of-range value would otherwise persist verbatim.
+        const min = el.min !== '' ? Number(el.min) : null;
+        const max = el.max !== '' ? Number(el.max) : null;
+        if (min != null && Number.isFinite(min)) n = Math.max(min, n);
+        if (max != null && Number.isFinite(max)) n = Math.min(max, n);
+        payload[key] = n;
+      }
+    }
     else if (type === 'csv') payload[key] = el.value.split(',').map((s) => s.trim()).filter(Boolean);
     else payload[key] = el.value; // text, select, theme, color
   });
@@ -874,6 +915,7 @@ async function saveSettings() {
     const res = await api('/settings', { method: 'PUT', body: JSON.stringify(payload) });
     state.settings = res && typeof res === 'object' ? res : { ...state.settings, ...payload };
     applyTheme(state.settings); // persist + paint the saved appearance
+    armRefreshTimer(); // a changed dashboard_refresh_seconds takes effect immediately, not next poll
     if (statusEl) statusEl.textContent = 'Saved';
     toast('Settings saved', 'ok');
     renderSettings();
@@ -928,6 +970,7 @@ function usageResetLabel(iso) {
 }
 function usageFmtTokens(n) {
   n = Number(n || 0);
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
   if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
   if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
   return String(n);
@@ -1632,7 +1675,9 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
     const data = await api(`/terminals/${encodeURIComponent(terminalId)}`);
     const output = data?.terminal?.output;
     if (output) term.write(String(output));
-    if (state.activeXterm) state.activeXterm.lastSeq = Number(data?.terminal?.seq ?? state.activeXterm.lastSeq);
+    // GET /terminals/{id} returns the buffer sequence as `outputSeq` (only the WS frame uses `seq`).
+    // Reading `seq` here left lastSeq=-1, disabling dedup so the first live frames re-painted history.
+    if (state.activeXterm) state.activeXterm.lastSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? state.activeXterm.lastSeq);
   } catch (err) {
     term.write(`\r\n\x1b[2m[history fetch failed: ${String(err?.message || err).replace(/\x1b/g, '')}]\x1b[0m\r\n`);
   }
@@ -1651,7 +1696,7 @@ async function resyncActiveConsole() {
     const data = await api(`/terminals/${encodeURIComponent(entry.terminalId)}`);
     entry.term.clear();
     entry.term.write(String(data?.terminal?.output || ''));
-    entry.lastSeq = Number(data?.terminal?.seq ?? entry.lastSeq);
+    entry.lastSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? entry.lastSeq);
   } catch { /* keep current buffer */ }
 }
 
@@ -2705,6 +2750,10 @@ async function submitAgentEdit(agentId) {
   const newId = byId('edit-agent-id')?.value.trim() || agentId;
   const desc = byId('edit-agent-desc')?.value ?? '';
   const handle = byId('edit-agent-handle')?.value.trim() ?? '';
+  const willRename = !!(newId && newId !== agentId);
+  // Confirm the rename UP FRONT — confirming after the other edits already fired left those
+  // writes applied with no toast/refresh when the operator cancelled the rename prompt.
+  if (willRename && !await uiConfirm(`Rename "${agentId}" → "${newId}"? Chats/sessions/records move to the new id.`)) return;
   try {
     if (desc !== (agent.description || '')) {
       await api(`/agents/${encodeURIComponent(agentId)}/description`, { method: 'PATCH', body: JSON.stringify({ description: desc }) });
@@ -2721,8 +2770,7 @@ async function submitAgentEdit(agentId) {
       if (workspace) body.workspace = workspace;
       await api(`/agents/${encodeURIComponent(agentId)}/environment`, { method: 'POST', body: JSON.stringify(body) });
     }
-    if (newId && newId !== agentId) {
-      if (!await uiConfirm(`Rename "${agentId}" → "${newId}"? Chats/sessions/records move to the new id.`)) return;
+    if (willRename) {
       await api(`/agents/${encodeURIComponent(agentId)}/rename`, { method: 'POST', body: JSON.stringify({ newAgentId: newId }) });
     }
     toast('Agent updated', 'ok');
@@ -2865,9 +2913,13 @@ function openInspector(request) {
     return;
   }
   const inspector = byId('inspector');
+  if (inspector && !inspector.classList.contains('open')) _inspectorReturnFocus = document.activeElement;
   inspector?.classList.add('open');
   inspector?.classList.toggle('run-inspector-sheet', state.inspector.kind === 'run' || request?.kind === 'run');
+  // Move focus into the drawer so keyboard users land in the panel (and Escape can return them).
+  setTimeout(() => { const f = inspector?.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'); if (f) try { f.focus(); } catch {} }, 30);
 }
+let _inspectorReturnFocus = null;
 
 function closeInspector() {
   const inspector = byId('inspector');
@@ -2875,6 +2927,8 @@ function closeInspector() {
   inspector?.classList.remove('run-inspector-sheet');
   state.inspector = { kind: '', runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false, eventOrder: 'desc', sourceMessageId: '' };
   byId('inspector-content').textContent = 'Select an item to inspect details.';
+  try { if (_inspectorReturnFocus && _inspectorReturnFocus.focus) _inspectorReturnFocus.focus(); } catch {}
+  _inspectorReturnFocus = null;
   evaluateFlowGates();
 }
 
@@ -2929,7 +2983,9 @@ async function requestBulkSessionControl(action) {
     if (action === 'delete') {
       try { await api(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch (err) { toast(`Delete ${id} failed: ${err?.message || err}`, 'error'); }
     } else {
-      await requestSessionControl(id, action, false, false);
+      // Isolate per-item failures so one bad session doesn't abort the rest of the batch
+      // (and skip the trailing clear()/refresh()).
+      try { await requestSessionControl(id, action, false, false); } catch (err) { toast(`${action} ${id} failed: ${err?.message || err}`, 'error'); }
     }
   }
   state.selectedSessionIds.clear();
@@ -3602,7 +3658,11 @@ document.addEventListener('click', (event) => {
 });
 
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') closeStatusWhy();
+  if (event.key === 'Escape') {
+    closeStatusWhy();
+    // Escape also dismisses the inspector/agent drawer when it's open and focus isn't in a field.
+    if (byId('inspector')?.classList.contains('open') && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')) closeInspector();
+  }
   if ((event.key === 'Enter' || event.key === ' ') && event.target?.matches?.('[data-status-why]')) {
     event.preventDefault();
     openStatusWhy(event.target);
@@ -3641,9 +3701,9 @@ byId('run-status-filter').addEventListener('change', async (event) => {
     byId('api-status').textContent = 'live';
     byId('api-status').className = 'status-chip ok';
   } catch (error) {
-    byId('api-status').textContent = 'API error';
-    byId('api-status').className = 'status-chip bad';
-    inspect('API error', { message: error.message });
+    byId('api-status').textContent = 'live';
+    byId('api-status').className = 'status-chip ok';
+    toast(`Run filter failed: ${error?.message || error}`, 'error');
   }
 });
 byId('run-from-filter')?.addEventListener('change', (e) => { state.runFromFilter = e.target.value; renderRuns(); });
@@ -3659,13 +3719,19 @@ byId('environment-spawn-form')?.addEventListener('submit', async (event) => {
   try {
     await createSpawnRequest();
   } catch (error) {
-    inspect('spawn-error', { message: error.message || 'Spawn request failed' });
+    toast(`Spawn request failed: ${error?.message || error}`, 'error');
   }
 });
 byId('send-reminders').addEventListener('click', async () => {
-  const result = await api('/contracts/reminders/run', { method: 'POST' });
-  inspect('reminders', result);
-  await refresh();
+  if (!await uiConfirm('Send due reminders now? This pings agents with overdue work.', { confirmLabel: 'Send reminders' })) return;
+  try {
+    const result = await api('/contracts/reminders/run', { method: 'POST' });
+    const n = (result && (result.sent ?? result.reminded ?? result.count));
+    toast(`Reminders: ${n != null ? `${n} sent` : 'done'}`, 'ok');
+    await refresh();
+  } catch (error) {
+    toast(`Send reminders failed: ${error?.message || error}`, 'error');
+  }
 });
 // Codex live-console input form: send turn/start via the existing WS
 // the operator opened with "Connect live console".

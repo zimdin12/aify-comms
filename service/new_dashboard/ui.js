@@ -54,12 +54,17 @@ function openDialog({ title = '', message = '', kind = 'confirm', defaultValue =
       </div>`;
     document.body.appendChild(overlay);
     const input = overlay.querySelector('.dialog-input');
+    // a11y: aria-modal asserts a focus trap, so actually implement one — remember the trigger,
+    // keep Tab cycling inside the dialog, and restore focus on close.
+    const previouslyFocused = document.activeElement;
+    const focusables = () => Array.from(overlay.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')).filter((el) => !el.disabled && el.offsetParent !== null);
     let settled = false;
     const done = (value) => {
       if (settled) return;
       settled = true;
       overlay.remove();
       document.removeEventListener('keydown', onKey, true);
+      try { if (previouslyFocused && previouslyFocused.focus) previouslyFocused.focus(); } catch {}
       resolve(value);
     };
     const onConfirm = () => done(isPrompt ? (input ? input.value : '') : true);
@@ -69,7 +74,14 @@ function openDialog({ title = '', message = '', kind = 'confirm', defaultValue =
     overlay.addEventListener('click', (event) => { if (event.target === overlay) onCancel(); });
     const onKey = (event) => {
       if (event.key === 'Escape') { event.preventDefault(); onCancel(); }
-      else if (event.key === 'Enter') { event.preventDefault(); onConfirm(); }
+      else if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); onConfirm(); }
+      else if (event.key === 'Tab') {
+        const items = focusables();
+        if (!items.length) return;
+        const first = items[0], last = items[items.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
     };
     document.addEventListener('keydown', onKey, true);
     if (input) { input.value = defaultValue; setTimeout(() => input.focus(), 30); }
