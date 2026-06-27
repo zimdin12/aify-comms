@@ -353,7 +353,7 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn('data-page="analytics"', html, "Analytics nav item must exist")
         self.assertIn('id="analytics-traffic"', html)
         self.assertIn('id="analytics-range"', html)
-        self.assertIn("function loadAnalytics()", script, "analytics loader must exist")
+        self.assertIn("function loadAnalytics(", script, "analytics loader must exist")
         self.assertIn("/analytics?range=", script, "must fetch the ranged analytics endpoint")
         self.assertIn("trafficChartHtml", script)
         self.assertIn("data-analytics-range", script, "range selector must be wired")

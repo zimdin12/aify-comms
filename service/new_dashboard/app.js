@@ -47,7 +47,7 @@ const state = {
   sessionTerminals: new Map(), // sessionId → most-recent terminalId seen for this session (cache prevents widget oscillation when the server clears runtime_state.virtualTerminalId mid-conversation per Bug #3 root cause)
   realtimeConnected: false,
   // Chat-first landing (Phase 1): conversation rail + timeline + composer state.
-  chat: { identity: 'dashboard', selected: '', view: 'messenger', filter: '', liveOnly: false, openOnly: false, workingUp: false, unreadOnly: false, scope: 'all', statusFilter: new Set(), sortMode: 'activity', channels: [], channelMessages: {}, analytics: { agent: '', data: null }, pulse: { window: 60, data: null, loading: false }, drafts: {}, replyTo: null, msgFilter: '' },
+  chat: { identity: 'dashboard', selected: '', view: 'messenger', filter: '', liveOnly: false, openOnly: false, workingUp: false, unreadOnly: false, scope: 'all', statusFilter: new Set(), sortMode: 'activity', channels: [], channelMessages: {}, analytics: { agent: '', data: null }, pulse: { window: 60, data: null, loading: false, lastMs: 0 }, drafts: {}, replyTo: null, msgFilter: '' },
   selectedConversation: 'dashboard',
   selectedSessionId: '',
   selectedSessionTab: 'console', // Sessions = terminal-first (Console default); Activity is the read-only log
@@ -61,7 +61,7 @@ const state = {
   settingsTab: '', // active settings tab (empty → first group)
   // Global analytics page (WS-C). Lazily loaded when the page is first opened, then on refresh
   // while it stays active, and on range change. data === null until first load completes.
-  analytics: { range: 'hour', data: null, loading: false },
+  analytics: { range: 'hour', data: null, loading: false, usage: null, consumption: null, usageStale: false, lastMs: 0 },
 };
 
 // Agent status taxonomy: available (blue, wakeable/spawnable idle) → online
@@ -586,6 +586,7 @@ async function refresh() {
   if (ok(9) && val(9) && typeof val(9) === 'object') {
     state.settings = val(9);
     applyTheme(state.settings); // apply the server-stored appearance (theme/palette/title)
+    armRefreshTimer(); // honor dashboard_refresh_seconds (no-op unless it changed)
   }
   try { await chatLoadChannels(); } catch (_) { /* keep prior channels */ }
   try { await loadFiles(); } catch (_) { /* keep prior files */ }
@@ -882,14 +883,34 @@ async function saveSettings() {
   }
 }
 
-async function loadAnalytics() {
+// Fetch the analytics page's data (analytics + usage pools + consumption) into state,
+// then render. Throttled + in-flight-guarded so the WS-driven renderAll loop (which can
+// fire many times/sec) collapses to at most one fetch per ~12s — the backend is
+// single-worker + lock-sensitive. Pass force=true on page-open / range-change / manual.
+async function loadAnalytics(force = false) {
+  if (state.analytics.loading) return;
+  if (!force && state.analytics.lastMs && (Date.now() - state.analytics.lastMs) < 12000) {
+    renderAnalyticsPage();
+    return;
+  }
   const range = rangeDef(state.analytics.range).key;
   state.analytics.loading = true;
   try {
-    const data = await api(`/analytics?range=${encodeURIComponent(range)}`);
-    state.analytics.data = data && typeof data === 'object' ? data : {};
+    const [data, usage, consumption] = await Promise.all([
+      api(`/analytics?range=${encodeURIComponent(range)}`).catch(() => null),
+      api('/usage').catch(() => null),
+      api('/usage/consumption').catch(() => null),
+    ]);
+    if (data && typeof data === 'object') state.analytics.data = data;
+    else if (!state.analytics.data) state.analytics.data = {};
+    // Keep last-good usage on a transient failure (never blank a live quota number);
+    // flag it stale so the panel can say so.
+    if (usage) { state.analytics.usage = usage; state.analytics.usageStale = false; }
+    else if (state.analytics.usage) state.analytics.usageStale = true;
+    if (consumption) state.analytics.consumption = consumption;
+    state.analytics.lastMs = Date.now();
   } catch (error) {
-    state.analytics.data = state.analytics.data || {};
+    if (!state.analytics.data) state.analytics.data = {};
     toast(`Analytics failed: ${error?.message || error}`, 'error');
   } finally {
     state.analytics.loading = false;
@@ -912,11 +933,10 @@ function usageFmtTokens(n) {
   return String(n);
 }
 // Usage/quota Pools band + Consumption section (2026-06-26). Advisory — read-only.
-async function renderUsagePools() {
+function renderUsagePools() {
   const host = byId('usage-pools');
   if (!host) return;
-  let pools = [];
-  try { const d = await api('/usage'); pools = (d && d.pools) || []; } catch { return; }
+  const pools = (state.analytics.usage && state.analytics.usage.pools) || [];
   if (!pools.length) { host.innerHTML = '<p class="em">Usage collector warming up…</p>'; return; }
   const LABELS = {
     'anthropic-claude-max': 'Anthropic · Claude Max',
@@ -938,11 +958,10 @@ async function renderUsagePools() {
       + `<div class="usage-pool-meta">5h ${fleft} left${reset ? ' · ' + esc(reset) : ''}</div></div>`;
   }).join('');
 }
-async function renderUsageConsumption() {
+function renderUsageConsumption() {
   const host = byId('usage-consumption');
   if (!host) return;
-  let s;
-  try { s = await api('/usage/consumption'); } catch { return; }
+  const s = state.analytics.consumption;
   const byAgent = (s && s.by_agent) || {};
   const agents = Object.keys(byAgent);
   if (!agents.length) { host.innerHTML = '<p class="em">No per-agent token data yet (collector warming up).</p>'; return; }
@@ -3176,7 +3195,7 @@ document.addEventListener('click', (event) => {
     const mins = Number(pulseWindow.dataset.pulseWindow) || 60;
     if (mins !== state.chat.pulse.window) {
       state.chat.pulse.window = mins;
-      chatController.refreshPulse();
+      chatController.refreshPulse(true);
     }
     return;
   }
@@ -3313,14 +3332,14 @@ document.addEventListener('click', (event) => {
   const analyticsRange = event.target.closest('[data-analytics-range]');
   if (analyticsRange) {
     state.analytics.range = rangeDef(analyticsRange.dataset.analyticsRange).key;
-    loadAnalytics();
+    loadAnalytics(true);
     return;
   }
   const page = event.target.closest('[data-page], [data-page-jump]')?.dataset.page || event.target.closest('[data-page-jump]')?.dataset.pageJump;
   if (page) {
     setPage(page);
     // Lazy-load the analytics page the first time it's opened (and refresh on re-open).
-    if (page === 'analytics') loadAnalytics();
+    if (page === 'analytics') loadAnalytics(true);
   }
   const diagnosticSelect = event.target.closest('[data-diagnostic-select]');
   if (diagnosticSelect) {
@@ -3714,7 +3733,17 @@ updateStaticLinks();
 setNavCollapsed(preferredNavCollapsed());
 connectRealtimeSocket();
 refresh();
-setInterval(refresh, 15000);
+// Poll fallback interval, honoring the `dashboard_refresh_seconds` setting (was hardcoded
+// to 15s — the setting silently did nothing). Re-armed when the setting changes.
+let __refreshTimer = null, __refreshSecs = 0;
+function armRefreshTimer() {
+  const secs = Math.max(5, Number(state.settings && state.settings.dashboard_refresh_seconds) || 15);
+  if (secs === __refreshSecs && __refreshTimer) return;
+  __refreshSecs = secs;
+  if (__refreshTimer) clearInterval(__refreshTimer);
+  __refreshTimer = setInterval(refresh, secs * 1000);
+}
+armRefreshTimer();
 byId('attention-collapse')?.addEventListener('click', () => {
   const strip = byId('attention-strip');
   if (!strip) return;

@@ -430,8 +430,10 @@ export function createChatController(deps) {
   }
 
   // Fetch the window-scoped fleet pulse for the landing dashboard.
-  async function loadFleetPulse() {
+  async function loadFleetPulse(force = false) {
     if (!loadPulse) return;
+    if (state.chat.pulse.loading) return; // in-flight guard — WS bursts must not stack fetches
+    if (!force && state.chat.pulse.lastMs && (Date.now() - state.chat.pulse.lastMs) < 12000) return;
     const w = state.chat.pulse.window;
     state.chat.pulse.loading = true;
     try {
@@ -440,6 +442,7 @@ export function createChatController(deps) {
     } catch (_) {
       state.chat.pulse.data = { ok: false };
     }
+    state.chat.pulse.lastMs = Date.now();
     state.chat.pulse.loading = false;
     // Only repaint if we're still on the pulse view (no conversation / analytics open).
     if (!state.chat.selected && !state.chat.analytics.agent) renderConversation();
@@ -447,9 +450,9 @@ export function createChatController(deps) {
 
   // Refetch the pulse without blanking the current numbers (window change / poll tick).
   // Repaint first so the window selector reflects the new selection immediately.
-  function refreshPulse() {
+  function refreshPulse(force = false) {
     if (!state.chat.selected && !state.chat.analytics.agent) renderConversation();
-    loadFleetPulse();
+    loadFleetPulse(force);
   }
 
   async function openAnalytics(agentId) {
