@@ -5,7 +5,7 @@ Inter-agent communication hub: messaging, channels, file sharing, active dispatc
 ## Primary entry points
 
 - [README.md](README.md) — what the service is, setup, day-to-day usage, API reference.
-- [install.claude.md](install.claude.md) / [install.codex.md](install.codex.md) / [install.opencode.md](install.opencode.md) / [install.pi.md](install.pi.md) — per-runtime install guides (wrappers, hooks, verification).
+- [install.claude.md](install.claude.md) / [install.codex.md](install.codex.md) / [install.hermes.md](install.hermes.md) / [install.opencode.md](install.opencode.md) / [install.pi.md](install.pi.md) — per-runtime install guides (wrappers, hooks, verification).
 - [DECISIONS.md](DECISIONS.md) — rationale for non-obvious design choices and current runtime limits.
 - [KNOWN_ISSUES.md](KNOWN_ISSUES.md) — known limitations, deferred work, watch-items, and pre-existing backlog.
 - `.claude/skills/aify-comms/SKILL.md` — agent-facing usage guide (tool reference, multi-instance matrix, status table).

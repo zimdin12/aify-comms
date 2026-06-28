@@ -394,6 +394,9 @@ CREATE TABLE IF NOT EXISTS terminal_controls (
 );
 
 CREATE INDEX IF NOT EXISTS idx_terminal_sessions_session ON terminal_sessions(session_id, updated_at DESC);
+-- Perf (audit 2026-06-28): agent_id is the join key on the hottest liveness path (status derive,
+-- session display, /agents + /sessions worker gates) which previously full-scanned this table.
+CREATE INDEX IF NOT EXISTS idx_terminal_sessions_agent ON terminal_sessions(agent_id, status);
 CREATE INDEX IF NOT EXISTS idx_terminal_events_terminal ON terminal_events(terminal_id, id);
 CREATE INDEX IF NOT EXISTS idx_terminal_controls_env_status ON terminal_controls(environment_id, status, requested_at);
 

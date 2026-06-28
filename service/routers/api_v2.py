@@ -1781,6 +1781,10 @@ async def _remove_agent_record(
     await _tombstone_agent(db, agent_id, removed_by=removed_by, bridge_id=bridge_id, reason=reason)
     await db.execute("DELETE FROM bridge_instances WHERE agent_id = ?", (agent_id,))
     cursor = await db.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
+    # Evict the in-memory derived-status entry too (audit 2026-06-28): SQLite per-agent rows
+    # cascade-delete, but _LIVE_STATE_CACHE is a process-global dict and would otherwise keep a
+    # stale (never-served) entry forever — small unbounded leak across removed agent ids.
+    _live_state_drop(agent_id)
     return cursor.rowcount or 0
 
 
@@ -15754,6 +15758,17 @@ async def agent_heartbeat(agent_id: str, request: Request):
                         "UPDATE bridge_instances SET last_seen = ? WHERE id = ? AND agent_id = ?",
                         (now, bridge_id, agent_id),
                     )
+        # Liveness recovery (audit 2026-06-28): a plain liveness beat (no turnBusy) doesn't flip
+        # turn state, but it DOES prove the bridge is alive again. If the agent was cached
+        # `offline`, drop that entry so the next read recomputes to available/online instead of
+        # serving offline for the full ~180s horizon (the documented "recovery on any real event
+        # is immediate" contract was violated — invalidation only ran on the turnBusy path).
+        # Surgical: only the offline-cached case, so normal online agents keep their warm cache.
+        if body.get("liveness"):
+            _cached_live = _live_state_get(agent_id)
+            if _cached_live and _cached_live.get("status") == "offline":
+                await _invalidate_agent_live_state(db, agent_id)
+
         # Authoritative turn-busy signal (contract with the bridge). Missing
         # "turnBusy" → liveness only (old-bridge safe). turnBusy=true: latest
         # bridge wins. turnBusy=false: only the owning bridge+run may clear,
@@ -17177,32 +17192,39 @@ async def list_dispatch_runs(
         query += " ORDER BY requested_at DESC LIMIT ?"
         params.append(limit)
         cursor = await db.execute(query, params)
-        runs = []
-        for row in await cursor.fetchall():
-            blocked_by = None
-            if row["status"] == "queued":
-                blocked_by = await _get_blocking_active_run(db, row["target_agent"], row["id"])
-            payload = _serialize_dispatch_run_row(row, blocked_by=blocked_by)
+        rows = await cursor.fetchall()
+        # Perf (audit 2026-06-28): batch the per-run source-controls lookup into ONE query keyed
+        # by all run_ids on the page, instead of a sub-query per row (was ~80 queries/poll on the
+        # dashboard's 15s cycle → 1). Read-only; output is identical (same fields, ASC order, the
+        # per-run 50 cap is applied in Python below).
+        run_ids = [row["id"] for row in rows]
+        controls_by_run: dict[str, list[dict[str, Any]]] = {}
+        if run_ids:
+            placeholders = ",".join("?" * len(run_ids))
             controls_cursor = await db.execute(
-                """
-                SELECT id, action, status, source_message_id, response_text
+                f"""
+                SELECT run_id, id, action, status, source_message_id, response_text
                 FROM dispatch_controls
-                WHERE run_id = ? AND source_message_id != ''
+                WHERE run_id IN ({placeholders}) AND source_message_id != ''
                 ORDER BY requested_at ASC
-                LIMIT 50
                 """,
-                (row["id"],),
+                run_ids,
             )
-            source_controls = [
-                {
+            for control in await controls_cursor.fetchall():
+                controls_by_run.setdefault(control["run_id"], []).append({
                     "id": control["id"],
                     "action": control["action"],
                     "status": control["status"],
                     "sourceMessageId": control["source_message_id"],
                     "response": control["response_text"] or "",
-                }
-                for control in await controls_cursor.fetchall()
-            ]
+                })
+        runs = []
+        for row in rows:
+            blocked_by = None
+            if row["status"] == "queued":
+                blocked_by = await _get_blocking_active_run(db, row["target_agent"], row["id"])
+            payload = _serialize_dispatch_run_row(row, blocked_by=blocked_by)
+            source_controls = controls_by_run.get(row["id"], [])[:50]
             if source_controls:
                 payload["sourceControls"] = source_controls
             runs.append(payload)
@@ -19927,6 +19949,14 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
         launchable_recipients = []
         not_started = []
         dispatch_recipients = [recipient_id for recipient_id in recipients if recipient_id != "dashboard"]
+        # Channel fan-out is a SHARED surface: a single offline/non-startable member must not
+        # silence the post for everyone (audit 2026-06-28 — the old code returned ok:False and
+        # stored NOTHING when any member couldn't start live work). Always store the canonical
+        # message + every member's inbox copy below; the preflight here only narrows WHICH live
+        # members get woken now, and unreachable ones are surfaced in `notStarted` (they still
+        # have the message waiting in their inbox). Mirrors the direct-send "stored even if not
+        # live-woken" semantics.
+        not_started = []
         if should_trigger and recipients:
             prefer_steer = (req.steer is not False) and not bool(req.queueIfBusy)
             allow_queue_busy = bool(req.queueIfBusy) or prefer_steer
@@ -19936,28 +19966,8 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
                 allow_steer=prefer_steer,
                 allow_queue_busy=allow_queue_busy,
             )
-            if not_started:
-                recipient_info = {}
-                for recipient_id in recipients:
-                    info = await _get_recipient_info(db, recipient_id)
-                    if info:
-                        recipient_info[recipient_id] = {
-                            "status": info["status"],
-                            "unread": info["unread"],
-                            "runtime": info["runtime"],
-                            "machineId": info["machineId"],
-                        }
-                await db.commit()
-                return {
-                    "ok": False,
-                    "error": "Channel message was not sent because one or more recipients cannot start live work now.",
-                    "members": members,
-                    "recipients": recipients,
-                    "suppressedDuplicates": suppressed_duplicates,
-                    "recipientStatus": recipient_info,
-                    "dispatchRuns": [],
-                    "notStarted": not_started,
-                }
+            # Only wake the members who can actually start; the rest are stored-only.
+            dispatch_recipients = launchable_recipients
 
         # Channel message (canonical)
         await db.execute(
@@ -20057,17 +20067,46 @@ async def get_settings(request: Request):
         await db.close()
 
 
+# Per-key server-side floors for settings consumed server-side that would break behavior at
+# zero/negative (audit 2026-06-28 — PUT /settings previously accepted ANY value for a known
+# key; the min/max in the dashboards were advisory only, so a raw API/MCP caller could set e.g.
+# max_shared_size_mb=0 and zero out all uploads). Keys not listed are merely floored at 0.
+_SETTINGS_MIN = {
+    "max_shared_size_mb": 1,
+    "dashboard_refresh_seconds": 5,
+    "agent_liveness_seconds": 10,
+    "environment_offline_seconds": 10,
+    "resident_lease_seconds": 10,
+    "max_messages_per_agent": 1,
+    "retention_days": 1,
+}
+
+
 @router.put("/settings")
 async def update_settings(request: Request):
     body = await request.json()
     db = await get_db()
     try:
         for key, value in body.items():
-            if key in DEFAULT_SETTINGS:
-                await db.execute(
-                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)",
-                    (key, json.dumps(value))
-                )
+            if key not in DEFAULT_SETTINGS:
+                continue
+            default = DEFAULT_SETTINGS[key]
+            # Validate/clamp numeric settings (bool first — bool is a subclass of int).
+            if isinstance(default, bool):
+                value = bool(value)
+            elif isinstance(default, (int, float)) and not isinstance(value, bool):
+                try:
+                    num = float(value)
+                except (TypeError, ValueError):
+                    continue  # reject non-numeric for a numeric setting
+                if num != num:  # NaN guard
+                    continue
+                num = max(num, float(_SETTINGS_MIN.get(key, 0)))
+                value = int(num) if isinstance(default, int) else num
+            await db.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)",
+                (key, json.dumps(value))
+            )
         _invalidate_settings_cache()
         settings = await _load_settings(db)
         if any(str(key).startswith("managed_") for key in body.keys()):
