@@ -17192,32 +17192,39 @@ async def list_dispatch_runs(
         query += " ORDER BY requested_at DESC LIMIT ?"
         params.append(limit)
         cursor = await db.execute(query, params)
-        runs = []
-        for row in await cursor.fetchall():
-            blocked_by = None
-            if row["status"] == "queued":
-                blocked_by = await _get_blocking_active_run(db, row["target_agent"], row["id"])
-            payload = _serialize_dispatch_run_row(row, blocked_by=blocked_by)
+        rows = await cursor.fetchall()
+        # Perf (audit 2026-06-28): batch the per-run source-controls lookup into ONE query keyed
+        # by all run_ids on the page, instead of a sub-query per row (was ~80 queries/poll on the
+        # dashboard's 15s cycle → 1). Read-only; output is identical (same fields, ASC order, the
+        # per-run 50 cap is applied in Python below).
+        run_ids = [row["id"] for row in rows]
+        controls_by_run: dict[str, list[dict[str, Any]]] = {}
+        if run_ids:
+            placeholders = ",".join("?" * len(run_ids))
             controls_cursor = await db.execute(
-                """
-                SELECT id, action, status, source_message_id, response_text
+                f"""
+                SELECT run_id, id, action, status, source_message_id, response_text
                 FROM dispatch_controls
-                WHERE run_id = ? AND source_message_id != ''
+                WHERE run_id IN ({placeholders}) AND source_message_id != ''
                 ORDER BY requested_at ASC
-                LIMIT 50
                 """,
-                (row["id"],),
+                run_ids,
             )
-            source_controls = [
-                {
+            for control in await controls_cursor.fetchall():
+                controls_by_run.setdefault(control["run_id"], []).append({
                     "id": control["id"],
                     "action": control["action"],
                     "status": control["status"],
                     "sourceMessageId": control["source_message_id"],
                     "response": control["response_text"] or "",
-                }
-                for control in await controls_cursor.fetchall()
-            ]
+                })
+        runs = []
+        for row in rows:
+            blocked_by = None
+            if row["status"] == "queued":
+                blocked_by = await _get_blocking_active_run(db, row["target_agent"], row["id"])
+            payload = _serialize_dispatch_run_row(row, blocked_by=blocked_by)
+            source_controls = controls_by_run.get(row["id"], [])[:50]
             if source_controls:
                 payload["sourceControls"] = source_controls
             runs.append(payload)
