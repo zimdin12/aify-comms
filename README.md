@@ -112,7 +112,7 @@ curl http://192.168.100.10:8800/health
 curl http://192.168.100.10:8801/health
 ```
 
-The stable dashboard/API remains on `8800`. A replacement dashboard preview is served separately on `8801` when `docker compose` is up; it reads and writes through the existing `8800` API and leaves the old dashboard functional. Change `.env` only if another service already uses those ports (`SERVICE_PORT` for `8800`, `NEW_DASHBOARD_PORT` for `8801`).
+The API and the original dashboard remain on `8800`; the redesigned dashboard (a separate ES-module SPA) is served on `8801` when `docker compose` is up. The new dashboard reads and writes through the same `8800` API, and the original `8800` dashboard stays fully functional as a backup. Change `.env` only if another service already uses those ports (`SERVICE_PORT` for `8800`, `NEW_DASHBOARD_PORT` for `8801`).
 
 Install the host-side CLI integration on every machine/runtime that should expose `aify-comms`, `codex-aify`, `claude-aify`, or `hermes-aify`. Pick the client you use on that host:
 

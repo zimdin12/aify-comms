@@ -76,7 +76,7 @@ creating or resuming a hidden session.
 ## Resident Hermes send says managed wrapper PTY is unavailable
 
 **Symptom.** `comms_agent_info` reports a resident Hermes agent as
-`Wake mode: hermes-live`, but `comms_send(..., trigger=true)` fails before
+`Wake mode: hermes-live`, but `comms_send(...)` fails before
 sending with:
 
 ```
@@ -96,7 +96,7 @@ should show `visible session bound`, `prompt.submit`, and `turn completed`.
 ## Resident Hermes reports live but send fails with `ECONNREFUSED 127.0.0.1:<port>`
 
 **Symptom.** `comms_agent_info` says `Wake mode: hermes-live`, but
-`comms_send(..., trigger=true)` fails with:
+`comms_send(...)` fails with:
 
 ```
 Hermes gateway WS open failed: connect ECONNREFUSED 127.0.0.1:<port>
@@ -428,7 +428,7 @@ If hermes asks the bridge to spawn a child process (`terminal/create`, etc.), th
 
 **Symptom.** A `hermes-aify` resident agent reports `wakeMode='hermes-missing-handle'`. From the operator's hermes shell, `echo $AIFY_HERMES_GATEWAY_URL` prints empty. Dispatches to the agent never wake it; the wrapper appears to have launched ok.
 
-**Status note (`4611588`).** A resident hermes whose wake-mode ends in `-missing-handle` (no usable gateway handle) now reads **`stale`**, not `available` — the status label and the sidebar dot share one live-state source, so they agree (they used to split: `available` label + red `unreachable` dot). So if you see this agent as `stale` with a red dot, that's the consistent missing-handle state, not a separate bug; recover it with the fix below. A genuinely-live resident (fresh bridge + usable `gatewayUrl` → `hermes-live`) still reads `available`/`online`.
+**Status note (`4611588`).** A resident hermes whose wake-mode ends in `-missing-handle` (no usable gateway handle) reads **`offline`**, not `available` — the status label and the sidebar dot share one live-state source, so they agree (they used to split: `available` label + red `unreachable` dot). So if you see this agent as `offline` with a red dot, that's the consistent missing-handle state, not a separate bug; recover it with the fix below. A genuinely-live resident (fresh bridge + usable `gatewayUrl` → `hermes-live`) reads `online` (or `available` before its worker starts). (Historically this surfaced as `stale`; that state was removed in the 2026-06-18 proof-based status rewrite.)
 
 **Detection.**
 

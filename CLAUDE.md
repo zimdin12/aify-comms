@@ -4,7 +4,7 @@ Inter-agent communication hub: messaging, channels, file sharing, active dispatc
 
 ## Primary entry points
 
-- [README.md](README.md) — what the service is, setup, day-to-day usage, API reference.
+- [README.md](README.md) — what the service is, setup, day-to-day usage.
 - [install.claude.md](install.claude.md) / [install.codex.md](install.codex.md) / [install.hermes.md](install.hermes.md) / [install.opencode.md](install.opencode.md) / [install.pi.md](install.pi.md) — per-runtime install guides (wrappers, hooks, verification).
 - [DECISIONS.md](DECISIONS.md) — rationale for non-obvious design choices and current runtime limits.
 - [KNOWN_ISSUES.md](KNOWN_ISSUES.md) — known limitations, deferred work, watch-items, and pre-existing backlog.
@@ -33,7 +33,7 @@ The MCP stdio bridges under `mcp/stdio/` run on the **host**, not in the contain
 | `.claude/skills/aify-comms/` | Usage skill — tool reference, workflow, status table, multi-instance matrix. |
 | `.claude/skills/aify-comms-debug/` | Troubleshooting skill — known issues and fixes. |
 | `.agents/skills/aify-comms*/` | Mirrors of the two skills for Codex agents. Keep in sync. |
-| `install.sh` | Client installer. Targets Claude, Codex, or OpenCode via `--client`. |
+| `install.sh` | Client installer. Targets Claude, Codex, or Hermes via `--client` (OpenCode/Pi installs are intentionally disabled). |
 | `examples/team-setup/` | Example team definition (manager, coder, tester, etc.) showing how to register a multi-role team. |
 
 ## Development notes

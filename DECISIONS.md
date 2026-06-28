@@ -34,6 +34,12 @@ The status system was rewritten to be **PROVEN, not time-assumed** — the concl
 
 ## Status engine v2 is event-driven, flag-gated, and LIVE; derive() is pure; settings are cached (2026-06-04 / 06-05)
 
+> **SUPERSEDED 2026-06-18** by the "Status is proof-based" decision above. The `status_engine`
+> `old`/`new` flag was **removed** — `derive()` is now the unconditional sole authority, there is
+> no fallback setting, and the vocabulary dropped to **6 states** (`idle`/`stale` were time-decay
+> artifacts and are gone). The flag/dual-engine/8-status details below are kept for history only;
+> the pure-`derive()` mechanics and the StatusInputs-byproduct/settings-cache reasoning still hold.
+
 The real-time, event-driven status engine (`docs/superpowers/plans/2026-06-04-status-event-engine.md`) shipped. The non-obvious choices:
 
 **The new engine is the DEFAULT (`status_engine="new"`, Phase I flip 2026-06-17); `old` remains a reversible fallback setting.** `DEFAULT_SETTINGS["status_engine"] = "new"` (`api_v2.py`) — a fresh install now gets the event-driven engine. The flip happened only after the old→new divergences were closed (env-resolution parity, `blocked` from the console hint, booting-console→`online`, resident `*-missing-handle`→`stale`, liveness-gated `working`); `idle` is intentionally NOT produced (`online` is the effective ready state). Under `new`, the served status is `derive(...)` (the pure engine in `service/status_engine.py`) for every non-manual agent; manual statuses (`stopped`/disabled) short-circuit it. Turn transitions push the derived status to both dashboards in real time. *Why a flag, not a hard delete of `old`:* keeping `old` selectable lets a deployment fall back instantly (a one-line setting, no deploy) if a regression appears. See `docs/superpowers/plans/2026-06-17-status-accuracy-remediation.md`.
