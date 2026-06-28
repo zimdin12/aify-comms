@@ -1412,6 +1412,12 @@ export async function computeInitialSessionHandle({ adapter, envHandle }) {
 }
 
 async function autoRegisterConfiguredAgent(_retriesLeft = 8) {
+  // Audit 2026-06-28: the environment bridge must NEVER auto-register as an agent. It's always
+  // remote and not managed-dispatch, so if it inherits a parent agent's AIFY_AGENT_ID (the known
+  // gotcha) it would self-register as a resident agent and clobber that agent's real registration.
+  // The launcher scrubs the env, but guard in-code too (belt-and-suspenders, like the line-5832
+  // harness-death guard which already excludes the env-bridge).
+  if (IS_ENVIRONMENT_BRIDGE) return;
   if (!IS_REMOTE || IS_MANAGED_DISPATCH || !AIFY_AGENT_ID) return;
   try { validateName(AIFY_AGENT_ID, "agent ID"); } catch (error) {
     console.error(`[aify] AIFY_AGENT_ID ignored: ${error.message}`);
@@ -3395,6 +3401,30 @@ async function runDispatchLoop() {
         }).catch(() => {});
       };
 
+      // Audit 2026-06-28: when >1 run is claimed into a batch, only run[0] is executed — the
+      // extras' bodies are merged into run[0]'s prompt (above) but the extra dispatch_runs were
+      // left at `claimed`. That stranded them: false-busy "activeRun" for ~5min, then a spurious
+      // [FAILED] handoff mirror to their senders (for content that WAS delivered), plus unclosed
+      // reply contracts. Finalize each extra as `completed` (its text reached the agent in the
+      // merged turn; the response lives in run[0]). Mirrors claude-channel.js, which already
+      // marks every run in its batch delivered. Best-effort; the server reconciler is the backstop.
+      let batchExtrasFinalized = false;
+      const finalizeBatchedExtras = async () => {
+        if (batchExtrasFinalized || batchedRuns.length <= 1) return;
+        batchExtrasFinalized = true;
+        for (const extra of batchedRuns.slice(1)) {
+          try {
+            await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(extra.id)}`, {
+              status: "completed",
+              agentStatus: "idle",
+              summary: `Delivered in a merged batch turn with run ${run.id} (response is on that run).`,
+              appendEvent: `Batch-merged into run ${run.id}; delivered in the same turn.`,
+              eventType: "completed",
+            });
+          } catch { /* best-effort; server reconciler backstops */ }
+        }
+      };
+
       controller.promise
         .then(async (result) => {
           const summary = result.summary || "";
@@ -3410,6 +3440,7 @@ async function runDispatchLoop() {
             eventType: terminalStatus,
           });
           await clearTurnBusy();
+          await finalizeBatchedExtras();
           await ensureRequiredReplyHandoff(agentId, run, terminalStatus, summary);
           if (result.runtimeState) {
             state.info.runtimeState = { ...(state.info.runtimeState || {}), ...result.runtimeState };
@@ -3438,6 +3469,7 @@ async function runDispatchLoop() {
                 eventType: "failed",
               });
               await clearTurnBusy();
+              await finalizeBatchedExtras();
               await ensureRequiredReplyHandoff(agentId, run, "failed", message);
               return;
             } catch (inner) {
