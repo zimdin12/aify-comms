@@ -1,6 +1,25 @@
 # Known Issues & Concerns — aify-comms
 
-Living list of known limitations, deferred work, and things to watch. Complements [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Last reviewed 2026-06-10.
+Living list of known limitations, deferred work, and things to watch. Complements [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Last reviewed 2026-06-28.
+
+## Whole-project deep audit (2026-06-28, 8 adversarial subagents — status/dispatch/persistence/bridges/usage/security/API/docs)
+
+**Fixed this round (all traced + confirmed, tests green):**
+- **Liveness recovery lag:** a plain liveness heartbeat didn't invalidate the in-memory live-status cache, so an agent recovering from `offline` stayed cached `offline` for ~180–240s. Now the offline-cached case invalidates on the liveness beat (`api_v2.py` `agent_heartbeat`).
+- **Channel fan-out drop:** a channel post was dropped entirely (nothing stored) if ANY member couldn't start live work. Now it always stores the canonical + inbox copies and wakes only the launchable members; unreachable ones surface in `notStarted` (mirrors direct-send semantics).
+- **PUT /settings had no server-side validation:** accepted any value for a known key (a raw caller could set `max_shared_size_mb=0` and zero out uploads). Now numeric settings are type-checked + clamped to per-key floors server-side.
+- **Batch-merged dispatch runs stranded:** the native-managed bridge merged extra batched messages' text into run[0] but left their `dispatch_runs` at `claimed` → false-busy ~5min + spurious `[FAILED]` handoff mirrors for content that was actually delivered. Now each extra run is finalized `completed` (response lives on run[0]).
+- **Env-bridge self-registration:** added an in-code `IS_ENVIRONMENT_BRIDGE` guard so the env bridge can never auto-register as an agent even if it inherits a parent's `AIFY_AGENT_ID`.
+- **Cache leak:** `_LIVE_STATE_CACHE` now evicts on agent removal.
+
+**Deferred (low severity, cost/benefit):**
+- **Steer-contract closer bypassed by reaper paths:** a steered parent run reaped (not PATCH-finalized) leaves its rr=1 steer contract showing "reply pending" for up to ~24h before the orphan rule auto-closes it. Bounded, cosmetic; fix = call `_close_steered_contracts_for_parent_run` from the reaper paths.
+- **`comms_status` raw-column vs derived:** `PATCH /agents/{id}` writes the `agents.status` column, but the dashboard status is derived from the event cache, so an operator/agent self-set status may not surface. Working as designed (pure-event model); doc note candidate or push a status-event on set.
+- **Per-agent usage fields drop the pool `stale` flag:** `comms_usage`'s personal "You" line can show a stale % unmarked (advisory only, never gates). Fix = merge `poolStale` + render "(stale)".
+- **`workspaceWithinRoots` is prefix-based, not realpath-resolved, and fails open** on empty roots (`mcp/stdio/server.js`). Defense-in-depth only — workspace is an operator-initiated spawn cwd, not a file-read sink, and `/` is intentional match-all.
+
+**OPERATOR DECISION — security defaults (NOT auto-changed; could break LAN access):** auth is OFF by default (`api_key=""`), CORS defaults to `*`, and the service binds `0.0.0.0`. On a loopback-only host this is benign, but on a LAN-reachable deploy every mutating endpoint — including `POST /agents/{id}/console/input` (types into a live PTY) — is reachable unauthenticated, and CORS `*` + DNS-rebinding means a malicious web page in the operator's browser could drive it even on loopback. Code-level hygiene is otherwise strong (no SQLi/cmd-injection/path-traversal/secret-leak — all agent input is gated by `SAFE_NAME_RE`, arg-array spawns, parametrized SQL, loopback allowlists). **Recommended:** generate a random `API_KEY` in `setup.sh`, default the published port to `127.0.0.1:8800`, and scope `cors_origins` to the dashboard origin. Left for the operator because changing the bind/auth could break an intentional LAN setup.
+
 
 ## Cross-harness status audit (2026-06-11) — verdicts + small backlog
 
