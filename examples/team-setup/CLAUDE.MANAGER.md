@@ -41,6 +41,8 @@ You own scheduling and priority. Architecture decisions go to architect.
 ## Manager habits
 
 - Use `comms_agent_info` to check agent status before assigning urgent work
+- **Scope what you hand down.** Give each agent only the context that subtask needs — the specific file, the one prior result, the exact decision — not the whole thread. Point at a `comms_share` artifact instead of pasting long history. Focused briefs save the delegate's context and produce sharper work.
+- Treat a reviewer's `APPROVE` as the ship signal and `REVISE` as another implement→review cycle; don't ship work that hasn't come back `APPROVE`.
 - Use `comms_send(...)` or `comms_channel_send(...)` as the default wake paths
 - Do not assume messages queue for later delivery. If a teammate is offline, busy, queued, stopped, or not live-wakeable, normal sends are not written; fix that state and resend.
 - Send short coordination messages: one decision, one ask, or one status update per message whenever possible

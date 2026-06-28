@@ -129,7 +129,8 @@ Dashboard is a special store-only recipient for human-visible updates. Use `comm
 - `comms_contracts()` shows open reply/work contracts computed from messages and runs.
 - Close the original contract with a real reply/result. Do not treat reminders, unread counts, or run summaries as proof that communication happened.
 - If an automated reminder arrives, inspect the original message/run and answer the original owner/result. The reminder itself is only a nudge and should not create another Work Loop obligation.
-- Managers should split work by owner/topic, request evidence, and route blockers precisely.
+- Managers should split work by owner/topic, request evidence, and route blockers precisely. When delegating, **hand down only the context that subtask needs** (the specific file/result/decision, or a `comms_share` pointer) — not the whole thread; scoping inputs saves the delegate's context and sharpens the answer.
+- **Reviews return an explicit verdict.** A review reply should lead with `APPROVE` or `REVISE` (then evidence/rework), `inReplyTo` the work request. `APPROVE` is what closes the loop and lets work ship; `REVISE` lists the specific changes. Keep cycling implement→review→revise until a reviewer returns `APPROVE`.
 - Managers monitoring the team (especially on a heartbeat/self-wake loop) can read a **managed** agent's live console with `comms_console_tail(agentId="...")` to see *why* it's stuck — mid-build, waiting at a prompt, looping, or errored — when status alone is ambiguous; `comms_console_input` types in to unstick it. Managed-only (resident agents have no aify-owned console). See `references/teamwork.md`.
 - Autonomous teams should keep the loop moving: implement bounded chunks, request review, approve/rework, self-wake only for known next chunks, and report meaningful decisions to dashboard.
 

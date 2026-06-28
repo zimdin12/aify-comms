@@ -55,6 +55,7 @@ Do not use labels as theater. The body must include evidence or the exact ask.
 
 ## Manager Discipline
 
+- **Scope the context you hand down.** When you delegate, give each agent only the inputs that subtask needs — the specific file, the one prior result, the exact decision — not the whole thread. Broadcasting full history burns the delegate's context and tokens for no benefit, and a focused brief gets a sharper answer. If two agents don't need each other's output, don't cross-pollinate it; if one does, name the exact artifact (`comms_share` + a one-line pointer) rather than pasting it. (Context-scoping discipline — cf. the "Conductor" access-list idea, arXiv:2512.04388.)
 - Check `comms_contracts` and `comms_agent_info` before assuming who is idle or stuck.
 - If an agent is active but not working and owes a contract, send a focused status probe or rebrief.
 - **Peek before you probe (managed agents).** When status alone is ambiguous — an agent shows `working` but owes an overdue reply, or you're sweeping the team on a heartbeat/monitoring loop — read what it is actually doing with `comms_console_tail(agentId="...")` (read-only, last 40 lines by default). The console reveals whether it's mid-build, waiting at a prompt, looping, or errored — detail that status can't convey. This is often faster and cheaper than a status round-trip.
@@ -77,6 +78,7 @@ Do not use labels as theater. The body must include evidence or the exact ask.
 - Keep rework narrow and actionable.
 - If a review finds no issue, say what was checked and what risk remains.
 - Do not approve broad "done" claims without evidence.
+- **End every review with an explicit verdict, not prose.** Reply `inReplyTo` the work request with a clear `APPROVE` or `REVISE` as the first line (then the evidence/rework). `APPROVE` is the signal that closes the loop and lets the manager ship; `REVISE` must list the specific, checkable changes needed. A workflow keeps cycling (implement → review → revise) until a reviewer returns `APPROVE` — that token is the completion contract, so never leave a review ambiguous about which it is. (Explicit accept/revise termination — cf. "TRINITY" Verifier ACCEPT, arXiv:2512.04695.)
 
 ## Dashboard User
 

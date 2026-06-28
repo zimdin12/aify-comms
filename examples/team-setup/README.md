@@ -25,6 +25,8 @@ Example CLAUDE.md files for a 5-agent development team using aify-comms for coor
 - **Push workflow**: Coder commits locally → Tester verifies → Manager tells coder to push
 - **Communication**: `game-dev` channel for team updates and group wakeups, DMs for direct collaboration
 - **Message shape**: one clear ask, one clear result, or one clear status update; keep subjects short and specific
+- **Scoped delegation**: hand each agent only the context its subtask needs (a file, a prior result, a `comms_share` pointer) — not the whole thread; saves context/tokens and sharpens the answer
+- **Explicit review verdicts**: reviews lead with `APPROVE` or `REVISE` (`inReplyTo` the request); `APPROVE` closes the loop, `REVISE` lists specific changes, and work cycles implement→review→revise until `APPROVE`
 - **Status awareness**: Agents use `comms_agent_info` to check before messaging
 - **File sharing**: `comms_share` for handoffs (logs, screenshots, test results)
 - **Long outputs**: send a short result message first, then attach deeper detail via `comms_share` when needed
