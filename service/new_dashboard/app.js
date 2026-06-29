@@ -538,6 +538,18 @@ function runQueryPath(status = state.runStatusFilter) {
   return `/dispatch/runs?${params.toString()}`;
 }
 
+// The base refresh fetches only OPEN contracts, so the State dropdown's terminal options
+// (Answered/Failed/Missing reply/Seen/Sent/Closed) had nothing to match. Reload from the server
+// with the matching scope on change so every option works. (2026-06-29 fix.)
+async function loadContractsForState(stateVal, render = true) {
+  const v = String(stateVal || '').trim();
+  let qs = '/contracts?limit=120';
+  if (v === 'all') qs = '/contracts?includeClosed=true&limit=300';
+  else if (v && v !== 'open') qs = `/contracts?state=${encodeURIComponent(v)}&limit=200`;
+  try { const res = await api(qs); state.contracts = res.contracts || []; } catch (err) { toast(`Load contracts failed: ${err?.message || err}`, 'error'); }
+  if (render) renderContracts();
+}
+
 async function loadRunsForStatus(status = state.runStatusFilter, render = true) {
   state.runStatusFilter = status || '';
   const runs = await api(runQueryPath(state.runStatusFilter));
@@ -2046,6 +2058,12 @@ function renderSessionConsole(session, targetEl, opts = {}) {
   });
   const terminalId = widgetChoice.terminalId;
   const hasTerminal = widgetChoice.kind === 'xterm';
+  // Console input is gated on whether a PTY xterm is actually MOUNTED (the chooser only mounts one
+  // for a terminal that can represent the current owner) — NOT on session.status. The old gate
+  // (canStop, from the narrow LIVE_SESSION_STATUSES) wrongly rejected input for a live-but-idle
+  // `available` agent whose PTY exists, with a misleading "console is not live" toast — while the
+  // backend /terminals/{id}/input accepts the keystroke anyway. (2026-06-29 fix.)
+  const canConsoleInput = hasTerminal;
   const isVirtualTerminal = Boolean(agent?.runtimeState?.virtualTerminal);
   const ptyContainerId = hasTerminal ? `xterm-${terminalId}` : '';
 
@@ -2138,7 +2156,7 @@ function renderSessionConsole(session, targetEl, opts = {}) {
     && state.activeXterm.terminalId === terminalId
     && host.contains(state.activeXterm.container);
   if (host.dataset.consoleKey === consoleKey && (!hasTerminal || xtermStillMounted)) {
-    if (hasTerminal && state.activeXterm) state.activeXterm.canInput = canStop;
+    if (hasTerminal && state.activeXterm) state.activeXterm.canInput = canConsoleInput;
     return;
   }
   host.dataset.consoleKey = consoleKey;
@@ -2151,7 +2169,7 @@ function renderSessionConsole(session, targetEl, opts = {}) {
   // Sessions console can't fight over a duplicate element id.
   if (hasTerminal) {
     const container = host.querySelector('.xterm-host');
-    if (container) mountXtermForTerminal(terminalId, agentIdForCodex, container, { canInput: canStop }).catch(() => {});
+    if (container) mountXtermForTerminal(terminalId, agentIdForCodex, container, { canInput: canConsoleInput }).catch(() => {});
   } else {
     disposeActiveXterm();
   }
@@ -3735,7 +3753,7 @@ document.addEventListener('toggle', (event) => {
   const grp = event.target.closest?.('[data-env-group]');
   if (grp) toggleSessionGroupCollapsed(grp.dataset.envGroup, !grp.open);
 }, true);
-byId('contract-state').addEventListener('change', renderContracts);
+byId('contract-state').addEventListener('change', (event) => loadContractsForState(event.target.value));
 byId('contract-category')?.addEventListener('change', renderContracts);
 byId('run-status-filter').addEventListener('change', async (event) => {
   byId('api-status').textContent = 'filtering';
