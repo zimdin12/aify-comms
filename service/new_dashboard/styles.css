@@ -253,7 +253,10 @@ small, .subtle { color: var(--muted); }
 .attention-strip.collapsed .section-head { margin-bottom: 0; }
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  /* Auto-fit uniform-width cards (2026-06-29): one grid spec for ALL KPI rows (chat attention,
+     analytics, work, environments) instead of bespoke 4/5/6-col rules that gave different card
+     widths per page + ragged trailing cells. Cards are >=150px and stretch evenly to fill. */
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 8px;
   margin-bottom: 8px;
 }
@@ -1320,6 +1323,10 @@ small, .subtle { color: var(--muted); }
 
 /* Analytics page (WS-C) — ported from the old dashboard, retoned to the new palette. */
 .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+/* Consistent vertical rhythm between Analytics sections (bands had 0 margin and abutted; the
+   KPI grid had 8px and splits had 10px — three different gaps). One 12px gap everywhere. */
+#page-analytics > .band, #page-analytics > .split { margin-top: 12px; }
+#page-analytics > .metric-grid { margin-bottom: 0; }
 .analytics-range button { padding: 5px 12px; min-height: 32px; font-size: .82em; }
 .analytics-range button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); font-weight: 750; }
 #analytics-stats { grid-template-columns: repeat(6, minmax(0, 1fr)); }

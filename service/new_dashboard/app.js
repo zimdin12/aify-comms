@@ -1038,22 +1038,22 @@ function renderUsageConsumption() {
 }
 
 function renderAnalyticsPage() {
-  const statsHost = byId('analytics-stats');
-  if (!statsHost) return;
+  // Single KPI grid (2026-06-29): ops + stats cards render into ONE .metric-grid so the two rows
+  // can't have mismatched card widths/rhythm — they pack uniformly as one auto-fit grid.
+  const kpiHost = byId('analytics-ops');
+  if (!kpiHost) return;
   renderUsagePools();
   renderUsageConsumption();
   const data = state.analytics.data;
   const rangeHost = byId('analytics-range');
   if (rangeHost) rangeHost.innerHTML = rangeSelectorHtml(state.analytics.range);
   if (!data) {
-    statsHost.innerHTML = '';
+    kpiHost.innerHTML = '';
     const traffic = byId('analytics-traffic');
     if (traffic) traffic.innerHTML = `<p class="em">${state.analytics.loading ? 'Loading analytics…' : 'Open to load analytics.'}</p>`;
     return;
   }
-  const ops = byId('analytics-ops');
-  if (ops) ops.innerHTML = opsKpisHtml(data);
-  statsHost.innerHTML = statCardsHtml(data);
+  kpiHost.innerHTML = opsKpisHtml(data) + statCardsHtml(data);
   const traffic = byId('analytics-traffic');
   if (traffic) traffic.innerHTML = trafficChartHtml(data, state.analytics.range);
   const outcomes = byId('analytics-outcomes');
