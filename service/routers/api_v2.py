@@ -26,6 +26,7 @@ _listen_events: dict[str, asyncio.Event] = {}
 
 from pydantic import BaseModel
 from service.db import get_db
+from service import longpoll
 from service.status_engine import apply_event, derive, StatusInputs, VALID_STATUSES
 from service.usage_cache import usage_set, usage_all, usage_get, derive_usage_source, consumption_set, consumption_summary
 from service.models import (
@@ -9970,6 +9971,18 @@ async def control_environment(environment_id: str, req: EnvironmentControlReques
 
 @router.post("/environments/controls/claim")
 async def claim_environment_control(req: EnvironmentControlClaim):
+    # Long-poll wrapper — see claim_dispatch / service/longpoll.py. Wait only on the
+    # exact "nothing pending" shape; a claimed control (has controlId) returns at once.
+    return await longpoll.longpoll(
+        getattr(req, "waitMs", 0),
+        lambda: _claim_environment_control_once(req),
+        lambda r: r.get("control") is None and "controlId" not in r,
+        scope="env-control",
+        fallback_s=3.0,
+    )
+
+
+async def _claim_environment_control_once(req: EnvironmentControlClaim):
     db = await get_db()
     try:
         row = None
@@ -10176,6 +10189,19 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
 
 @router.post("/spawn-requests/claim")
 async def claim_spawn_request(req: SpawnRequestClaim, request: Request):
+    # Long-poll wrapper — see claim_dispatch / service/longpoll.py. Wait only when there
+    # is nothing to spawn; a claimed request OR a blockedBy directive returns immediately.
+    return await longpoll.longpoll(
+        getattr(req, "waitMs", 0),
+        lambda: _claim_spawn_request_once(req, request),
+        lambda r: r.get("spawnRequest") is None and not r.get("blockedBy") and "spawnRequest" in r,
+        scope="spawn",
+        fallback_s=3.0,
+        is_disconnected=request.is_disconnected,
+    )
+
+
+async def _claim_spawn_request_once(req: SpawnRequestClaim, request: Request):
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
@@ -11699,6 +11725,18 @@ async def report_terminal_dead(terminal_id: str, req: TerminalDeadReport, reques
 
 @router.post("/terminals/controls/claim")
 async def claim_terminal_controls(req: TerminalControlClaim):
+    # Long-poll wrapper — see claim_dispatch / service/longpoll.py. Fallback 1s matches
+    # the legacy 800ms console-control poll so interactivity latency never regresses.
+    return await longpoll.longpoll(
+        getattr(req, "waitMs", 0),
+        lambda: _claim_terminal_controls_once(req),
+        lambda r: r.get("controls") == [],
+        scope="terminal-control",
+        fallback_s=1.0,
+    )
+
+
+async def _claim_terminal_controls_once(req: TerminalControlClaim):
     db = await get_db()
     try:
         now = _now()
@@ -16711,6 +16749,13 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 }
 
         await db.commit()
+        # Wake any long-polling claim waiters now that work is committed and visible.
+        # A new run was queued and/or a steer control / console delivery appended;
+        # over-notifying is harmless (a woken waiter that finds nothing re-sleeps).
+        longpoll.notify("dispatch")
+        longpoll.notify("control")
+        if console_deliveries:
+            longpoll.notify("terminal-control")
         ws = await _get_ws(request)
         if ws:
             for recipient_id in recipients:
@@ -16740,6 +16785,35 @@ async def create_dispatch(req: DispatchRequest, request: Request):
 
 @router.post("/dispatch/claim")
 async def claim_dispatch(req: DispatchClaimRequest, request: Request):
+    # Long-poll wrapper (2026-06-30): hold the request open until work is claimable
+    # or the client-requested wait elapses, instead of the bridge re-polling every 3s.
+    # `_claim_dispatch_once` is the unchanged, self-contained atomic claim — calling it
+    # repeatedly here is identical to the bridge calling it repeatedly over HTTP, so
+    # claim/supersession/grace semantics are untouched. waitMs defaults to 0 → legacy
+    # single-attempt behaviour (old bridges keep working unchanged). The per-iteration
+    # fallback (3s = the legacy poll interval) bounds latency even if a notify() is missed.
+    # See service/longpoll.py + DECISIONS.md "claim endpoints are long-poll".
+    def _is_empty(result: dict) -> bool:
+        # Keep waiting ONLY for a pure "nothing to do" result. Any actionable signal
+        # (a claimed run, or a stopped/release/blockedBy directive) returns immediately.
+        return (
+            result.get("run") is None
+            and not result.get("stopped")
+            and not result.get("release")
+            and not result.get("blockedBy")
+        )
+
+    return await longpoll.longpoll(
+        getattr(req, "waitMs", 0),
+        lambda: _claim_dispatch_once(req, request),
+        _is_empty,
+        scope="dispatch",
+        fallback_s=3.0,
+        is_disconnected=request.is_disconnected,
+    )
+
+
+async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
@@ -19333,6 +19407,19 @@ async def request_dispatch_control(run_id: str, req: DispatchControlRequest, req
 
 @router.post("/dispatch/controls/claim")
 async def claim_dispatch_controls(req: DispatchControlClaimRequest, request: Request):
+    # Long-poll wrapper — see claim_dispatch / service/longpoll.py. Wait only while the
+    # controls list is exactly empty; any pending control returns immediately.
+    return await longpoll.longpoll(
+        getattr(req, "waitMs", 0),
+        lambda: _claim_dispatch_controls_once(req, request),
+        lambda r: r.get("controls") == [],
+        scope="control",
+        fallback_s=3.0,
+        is_disconnected=request.is_disconnected,
+    )
+
+
+async def _claim_dispatch_controls_once(req: DispatchControlClaimRequest, request: Request):
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")

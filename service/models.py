@@ -162,6 +162,9 @@ class DispatchClaimRequest(_MachineIdNormalizingModel):
     machineId: Optional[str] = None
     bridgeId: Optional[str] = None
     executionModes: Optional[list[str]] = None
+    # Long-poll budget in ms (0 = legacy immediate return). The server holds the
+    # claim open up to this long (capped at longpoll.MAX_WAIT_S) waiting for work.
+    waitMs: Optional[int] = 0
     # Standalone channel sidecars (mcp/stdio/claude-channel.js,
     # hermes-channel.js) declare bridgeKind="channel-sidecar" so the claim gate
     # can distinguish them from a wrapper-PTY child (which registers as
@@ -193,6 +196,7 @@ class DispatchControlClaimRequest(_MachineIdNormalizingModel):
     agentId: str
     runId: Optional[str] = None
     machineId: Optional[str] = None
+    waitMs: Optional[int] = 0  # long-poll budget (0 = legacy immediate return)
 
 
 class DispatchControlUpdate(BaseModel):
@@ -232,6 +236,7 @@ class EnvironmentControlClaim(_MachineIdNormalizingModel):
     environmentId: str
     bridgeId: str
     machineId: Optional[str] = None
+    waitMs: Optional[int] = 0  # long-poll budget (0 = legacy immediate return)
 
 
 class EnvironmentControlUpdate(BaseModel):
@@ -283,6 +288,7 @@ class SpawnRequestClaim(_MachineIdNormalizingModel):
     environmentId: str
     bridgeId: str
     machineId: Optional[str] = None
+    waitMs: Optional[int] = 0  # long-poll budget (0 = legacy immediate return)
 
 
 class SpawnRequestUpdate(BaseModel):
@@ -321,6 +327,7 @@ class TerminalControlRequest(BaseModel):
 class TerminalControlClaim(BaseModel):
     environmentId: str
     bridgeId: str
+    waitMs: Optional[int] = 0  # long-poll budget (0 = legacy immediate return)
 
 
 class TerminalControlUpdate(BaseModel):
