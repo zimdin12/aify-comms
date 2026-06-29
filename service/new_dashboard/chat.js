@@ -201,6 +201,19 @@ export function renderAnalyticsPanelHtml(agentId, data) {
     return `<div class="an-bar-row"><span class="an-bar-label clip">${esc(p.peer)}</span><span class="an-bar-track"><span class="an-bar-fill" style="width:${w}%"></span></span><span class="an-bar-val">${Number(p.count || 0)}</span></div>`;
   }).join('') : '<p class="subtle">No peers yet.</p>';
   const owed = Number(data.openContracts || 0);
+  // Run success rate 7d (completed / (completed+failed)) — the per-agent analogue of the global leaderboard.
+  const _comp = Number(runs.completed || 0), _fail = Number(runs.failed || 0);
+  const succ = (_comp + _fail) > 0 ? Math.round((_comp / (_comp + _fail)) * 100) : null;
+  // Daily activity — 14-day in/out series (already returned by the endpoint; was never rendered).
+  const daily = Array.isArray(data.dailyActivity) ? data.dailyActivity : [];
+  const dGet = (d) => ({ inc: Number(d.received ?? d.in ?? 0), out: Number(d.sent ?? d.out ?? 0) });
+  const dMax = Math.max(1, ...daily.map((d) => { const v = dGet(d); return v.inc + v.out; }));
+  const dailyBars = daily.map((d) => {
+    const v = dGet(d); const tot = v.inc + v.out;
+    const h = Math.max(2, Math.round((tot / dMax) * 100));
+    return `<span class="an-hod-col" title="${esc(String(d.date || d.day || ''))}: ${v.inc} in / ${v.out} out"><span class="an-hod-fill" style="height:${h}%"></span></span>`;
+  }).join('');
+  const dailySection = daily.length ? `<h4 class="an-h">Daily activity — 14 days</h4><div class="an-hod">${dailyBars}</div>` : '';
   // Hour-of-day histogram (0..23, all-time) — when is this agent most active?
   const hod = Array.isArray(data.messagesPerHourOfDay) ? data.messagesPerHourOfDay : [];
   const hodMax = Math.max(1, ...hod.map((b) => Number(b.count || 0)));
@@ -218,8 +231,10 @@ export function renderAnalyticsPanelHtml(agentId, data) {
       <div class="an-card"><div class="an-n">${Number(data.messagesSent || 0)}</div><div class="an-l">Sent</div></div>
       <div class="an-card"><div class="an-n" title="Total time this agent has spent as a dispatch target, all-time">${esc(workLabel)}</div><div class="an-l">Working (total)</div></div>
       <div class="an-card"><div class="an-n">${mr ? esc(mrLabel) : '—'}</div><div class="an-l">Median reply 7d</div></div>
+      <div class="an-card"><div class="an-n">${succ == null ? '—' : succ + '%'}</div><div class="an-l">Run success 7d</div></div>
       <div class="an-card"><div class="an-n${owed ? ' an-bad' : ''}">${owed}</div><div class="an-l">Owes replies</div></div>
     </div>
+    ${dailySection}
     <h4 class="an-h">Work runs — 7 days</h4>
     <dl class="an-runs"><dt>Completed</dt><dd>${Number(runs.completed || 0)}</dd><dt>Failed</dt><dd>${Number(runs.failed || 0)}${runs.lastFailedSubject ? ` <span class="subtle clip" title="${esc(runs.lastFailedSubject)}">· ${esc(runs.lastFailedSubject)}</span>` : ''}</dd><dt>Open</dt><dd>${Number(runs.open || 0)}</dd><dt>Avg turn</dt><dd>${data.avgRunMinutes7d ? `${data.avgRunMinutes7d} min` : '—'}</dd></dl>
     ${hodSection}
