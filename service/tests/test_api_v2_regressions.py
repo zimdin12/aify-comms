@@ -6540,6 +6540,19 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertEqual(failed.status_code, 200, failed.text)
 
+        # The spawn-request repair runs in the reconcile loop, not on the read
+        # path (GET /spawn-requests is a pure read — see api_v2.list_spawn_requests).
+        # Invoke the repair directly here, the same way the reconcile loop does.
+        async def _run_repair():
+            db = await get_db()
+            try:
+                await api_v2._repair_spawn_requests_from_initial_dispatch_failures(db)
+                await api_v2._fail_orphaned_running_spawn_requests(db)
+            finally:
+                await db.close()
+
+        asyncio.run(_run_repair())
+
         listed = self.client.get("/api/v1/spawn-requests")
         self.assertEqual(listed.status_code, 200, listed.text)
         spawn = next(item for item in listed.json()["spawnRequests"] if item["id"] == spawn_id)

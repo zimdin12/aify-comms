@@ -9841,8 +9841,10 @@ async def list_spawn_requests(
 ):
     db = await get_db()
     try:
-        await _repair_spawn_requests_from_initial_dispatch_failures(db)
-        await _fail_orphaned_running_spawn_requests(db)
+        # Read-path-write fix (2026-06-29): these two WRITE repairs used to run on EVERY dashboard
+        # poll of this GET endpoint (~every 15s), opening write transactions that contended with all
+        # concurrent reads — the #1 SLOW-REQ source and a "database is locked" contributor. They now
+        # run in the 60s reconcile loop instead; this endpoint is a pure read.
         where = []
         params: list[Any] = []
         if status:

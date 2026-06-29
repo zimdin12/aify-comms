@@ -80,6 +80,8 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _repair_unusable_active_runs,
         _requeue_orphaned_claimed_runs,
         _run_contract_reminders_once,
+        _repair_spawn_requests_from_initial_dispatch_failures,
+        _fail_orphaned_running_spawn_requests,
     )
 
     db = await _get_db()
@@ -96,6 +98,10 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             return result
 
         repaired_active = await _commit_step(await _repair_unusable_active_runs(db, limit=500))
+        # Moved off the GET /spawn-requests read path (2026-06-29): these writes ran on every
+        # ~15s dashboard poll, contending with all reads. Run them here in the 60s sweep instead.
+        await _commit_step(await _repair_spawn_requests_from_initial_dispatch_failures(db))
+        await _commit_step(await _fail_orphaned_running_spawn_requests(db))
         closed_delivered_total = 0
         for _ in range(10):  # hard cap: <= 10 * 500 = 5k runs per pass
             batch = await _close_reconcilable_delivered_runs(db, limit=500)
