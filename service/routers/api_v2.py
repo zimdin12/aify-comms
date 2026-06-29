@@ -20131,9 +20131,10 @@ async def update_settings(request: Request):
 async def get_stats(request: Request):
     db = await get_db()
     try:
-        repaired_active_runs = await _repair_unusable_active_runs(db)
-        if repaired_active_runs:
-            await db.commit()
+        # Read-path-write fix (2026-06-29): _repair_unusable_active_runs scanned the runs table on
+        # every poll of this stats endpoint. It already runs in the 60s reconcile loop AND on every
+        # GET /agents poll (the constantly-polled live roster), so the copy here was redundant
+        # write-txn contention — removed so /stats is a pure read.
         agents_c = await db.execute("SELECT COUNT(*) FROM agents")
         agents = (await agents_c.fetchone())[0]
 
