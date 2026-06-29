@@ -318,7 +318,7 @@ small, .subtle { color: var(--muted); }
   min-width: 0;
 }
 .item:hover, .contract:hover, .runtime-card:hover, .run-row:hover {
-  border-color: #465454;
+  border-color: var(--border-hover);
 }
 .item-title { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
 /* Let the title's first child (the nowrap name/clip) shrink so a long id + status chip can't
@@ -880,7 +880,7 @@ small, .subtle { color: var(--muted); }
   padding: 8px;
   cursor: pointer;
 }
-.activity-item:hover { border-color: #465454; }
+.activity-item:hover { border-color: var(--border-hover); }
 .status-why-popover {
   position: fixed;
   z-index: 20;
@@ -1028,7 +1028,7 @@ small, .subtle { color: var(--muted); }
 .dialog-title { margin: 0 0 8px; font-size: 1.02em; }
 .dialog-message { margin: 0 0 14px; color: var(--soft); white-space: pre-wrap; line-height: 1.45; }
 .dialog-input {
-  width: 100%; background: var(--panel-3); border: 1px solid var(--line); color: var(--text);
+  width: 100%; background: var(--input-bg); border: 1px solid var(--line); color: var(--text);
   border-radius: var(--radius-control); padding: 9px 11px; font-size: .9em; margin-bottom: 14px;
 }
 .dialog-input:focus { outline: none; border-color: var(--accent); }
@@ -1054,20 +1054,25 @@ small, .subtle { color: var(--muted); }
 .chat-rail { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 13px; overflow: hidden; }
 .chat-rail-controls { padding: 11px; border-bottom: 1px solid var(--line-soft, var(--line)); display: flex; flex-direction: column; gap: 8px; }
 /* Find / Filters / Channels tool tabs (2026-06-29). */
-.chat-tool-tabs { display: flex; gap: 4px; }
-.chat-tool-tab { flex: 1; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); border-radius: var(--radius-sm); padding: 5px 8px; font-size: var(--fs-sm); cursor: pointer; }
-.chat-tool-tab:hover { color: var(--text); }
-.chat-tool-tab.active { background: var(--accent-softer, var(--panel-3)); border-color: var(--accent); color: var(--text); }
+/* Same segmented-switch treatment as .chat-view-toggle (the console/messages switch) —
+   one bordered container with flat, divider-separated segments and a solid-accent active
+   state — so the two switches in the chat panel read as the same control. Full-width
+   (flex:1) because these three span the rail. */
+.chat-tool-tabs { display: flex; border: 1px solid var(--line); border-radius: var(--radius-control); overflow: hidden; }
+.chat-tool-tab { flex: 1; background: transparent; border: 0; color: var(--muted); padding: 6px 8px; font: inherit; font-size: .86em; cursor: pointer; }
+.chat-tool-tab + .chat-tool-tab { border-left: 1px solid var(--line); }
+.chat-tool-tab:hover:not(.active) { background: var(--panel-2); color: var(--text); }
+.chat-tool-tab.active { background: var(--accent, var(--blue)); color: var(--accent-contrast, #fff); }
 .chat-tool-panel { display: flex; flex-direction: column; gap: 8px; }
 .chat-tool-panel[hidden] { display: none; }
 .chat-clear-filters { align-self: flex-start; font-size: var(--fs-xs); padding: 3px 9px; }
-.chat-rail-controls input[type="search"] { width: 100%; background: var(--panel-3); border: 1px solid var(--line); color: var(--text); border-radius: var(--radius-control); padding: 8px 10px; font-size: .85em; }
+.chat-rail-controls input[type="search"] { width: 100%; background: var(--input-bg); border: 1px solid var(--line); color: var(--text); border-radius: var(--radius-control); padding: 8px 10px; font-size: .85em; }
 .chat-rail-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .78em; color: var(--muted); }
-.chat-as select { background: var(--panel-3); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 3px 6px; margin-left: 6px; max-width: 150px; }
+.chat-as select { background: var(--input-bg); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 3px 6px; margin-left: 6px; max-width: 150px; }
 .chat-live-toggle { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 /* Search row: search input + inline sort + gear on one line. */
 .chat-search-row input[type="search"] { flex: 1; min-width: 0; } /* canonical .chat-search-row layout is lower in the file */
-.chat-sort-inline select { background: var(--panel-3); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 7px 6px; font-size: .76em; max-width: 96px; cursor: pointer; }
+.chat-sort-inline select { background: var(--input-bg); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 7px 6px; font-size: .76em; max-width: 96px; cursor: pointer; }
 /* Compact always-visible filter bar: scope + key quick filters wrap on one row, status as a
    tight row of color dots. Surfaced by default so filtering never needs the gear, but kept
    small so it doesn't crowd out the conversation list. */
@@ -1153,7 +1158,7 @@ small, .subtle { color: var(--muted); }
 .chat-view-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius-control); overflow: hidden; margin-right: 6px; }
 .chat-view-toggle .seg { background: transparent; border: 0; color: var(--muted); padding: 5px 11px; cursor: pointer; font: inherit; font-size: .86em; }
 .chat-view-toggle .seg + .seg { border-left: 1px solid var(--line); }
-.chat-view-toggle .seg.active { background: var(--accent, var(--blue)); color: #fff; }
+.chat-view-toggle .seg.active { background: var(--accent, var(--blue)); color: var(--accent-contrast, #fff); }
 .chat-view-toggle .seg:not(.active):hover { background: var(--panel-2); color: var(--text); }
 /* Inline console host inside the chat timeline — fills the pane like the Sessions console. */
 .chat-console-host { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
@@ -1180,7 +1185,7 @@ small, .subtle { color: var(--muted); }
 
 /* Channels management (Phase 1.4): rail create-control + conversation-header actions. */
 .chat-new-channel { display: flex; gap: 6px; }
-.chat-new-channel input { flex: 1; background: var(--panel-3); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 6px 8px; font-size: .8em; }
+.chat-new-channel input { flex: 1; background: var(--input-bg); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 6px 8px; font-size: .8em; }
 .chat-new-channel button { flex: 0 0 auto; padding: 4px 11px; font-weight: 800; }
 /* Conversation header: title flexes on the left, search stays compact, the action cluster
    stays grouped on the right and wraps as ONE unit (was a cramped mix of title + search + 5
@@ -1237,7 +1242,7 @@ small, .subtle { color: var(--muted); }
    inputs share the same right edge and vertical center (QA S-set1). */
 .settings-field .field-control { display: flex; align-items: center; justify-content: flex-end; min-height: 40px; width: 100%; }
 .settings-field .field-control > input[type="text"], .settings-field .field-control > input[type="number"], .settings-field .field-control > select {
-  width: 100%; background: var(--bg); border: 1px solid var(--line); color: var(--text);
+  width: 100%; background: var(--input-bg); border: 1px solid var(--line); color: var(--text);
   border-radius: var(--radius-control); padding: 8px 10px; font-size: .9em; min-height: 40px;
 }
 .settings-field .field-control input:focus, .settings-field .field-control select:focus { outline: none; border-color: var(--accent); }
@@ -1565,8 +1570,9 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 .chat-msg-search { max-width: 200px; min-height: 34px; }
 .chat-search-banner { color: var(--muted); font-size: .8em; margin: 0 0 8px; padding: 4px 8px; background: var(--panel-3); border-radius: var(--radius-control); }
 .filter-presets { display: inline-flex; gap: 3px; margin-right: 6px; }
-.filter-preset { padding: 3px 9px; min-height: 26px; font-size: .72em; border-radius: 999px; color: var(--muted); }
-.filter-preset:hover { color: var(--soft); }
+/* Match .session-filter-chip (the status chips beside these presets) so the whole row reads as one chip group. */
+.filter-preset { padding: 3px 11px; min-height: 26px; font-size: .82em; border-radius: 999px; background: transparent; border-color: transparent; color: var(--muted); }
+.filter-preset:hover { color: var(--soft); background: var(--panel-2); }
 /* WS-F chat attach button. */
 .chat-attach { display: inline-flex; align-items: center; gap: 4px; }
 .chat-attach input[type="file"] { display: none; }

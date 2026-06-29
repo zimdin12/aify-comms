@@ -2460,7 +2460,7 @@ function renderRuns() {
         <button class="ghost" data-run-inspector="${esc(run.id)}" data-run-source="runs">Inspect</button>
         ${['claimed', 'running'].includes(resolveStatus(run.status).kind) ? `<button class="ghost" data-steer-run="${esc(run.id)}">Steer</button>` : ''}
       </div>
-    </article>`).join('') || '<div class="item">No runs loaded.</div>';
+    </article>`).join('') || '<div class="empty-state"><span class="empty-icon">📨</span><strong>No dispatch runs</strong><p>Runs appear here when an agent sends or receives work. Adjust the filters above if you expected to see some.</p></div>';
   renderDiagnosticsBulkToolbar();
 }
 
@@ -2588,7 +2588,7 @@ function renderRunInspector() {
         <button class="ghost" id="run-inspector-order-toggle">${state.inspector.eventOrder === 'desc' ? 'Newest first' : 'Oldest first'}</button>
       </div>
       <div id="run-inspector-events" class="run-event-list">
-        ${events.length ? events.map(renderRunEvent).join('') : '<div class="item">No events for this run yet.</div>'}
+        ${events.length ? events.map(renderRunEvent).join('') : '<div class="em">No events for this run yet.</div>'}
       </div>
       <div class="run-inspector-footer">
         <span>Showing ${events.length} most recent${state.inspector.hasMore ? ' — load more' : ''}</span>
