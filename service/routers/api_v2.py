@@ -10559,6 +10559,10 @@ async def list_sessions(request: Request, agentId: Optional[str] = None, environ
     db = await get_db()
     try:
         # Best-effort consistency repairs — serve cached on a write-lock rather than 503 (see list_agents).
+        # These stay on the read path (NOT moved to reconcile): they correct the console/terminal
+        # binding shown in THIS response (e.g. a just-stopped terminal must immediately read as
+        # unbound), so a 60s reconcile lag would surface a dead terminal as still-attached. The
+        # functions no-op when nothing needs repair, so steady-state polls do not write.
         try:
             await _repair_superseded_recovering_sessions(db)
             await _repair_current_session_freshness(db)
@@ -17169,9 +17173,9 @@ async def list_dispatch_runs(
 ):
     db = await get_db()
     try:
-        repaired_active_runs = await _repair_unusable_active_runs(db)
-        if repaired_active_runs:
-            await db.commit()
+        # Read-path-write fix (2026-06-29): _repair_unusable_active_runs scanned the runs table on
+        # every poll of this endpoint and is already run by the 60s reconcile loop — removed here so
+        # this stays a pure read (no write-txn contention on the single writer).
         # Plan 6 follow-up (2026-05-26): Section C's mode-switch audit
         # inserts synthetic `dispatch_runs` rows with dispatch_mode='audit'
         # to satisfy the dispatch_events.run_id FK constraint. Those rows

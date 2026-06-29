@@ -1376,6 +1376,19 @@ class ApiV2RegressionTests(FastApiTestCase):
             ("ctl-stale", "run-stale", "manager", "steer", "wake up", "msg-1", "pending", "2026-01-01T00:00:02Z"),
         )
 
+        # _repair_unusable_active_runs runs in the reconcile loop, not on the GET /dispatch/runs
+        # read path (2026-06-29 — that write ran on every dashboard poll). Invoke it directly here,
+        # the same way the reconcile loop does.
+        async def _run_repair():
+            db = await get_db()
+            try:
+                await api_v2._repair_unusable_active_runs(db)
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_run_repair())
+
         listed = self.client.get("/api/v1/dispatch/runs?limit=5")
         self.assertEqual(listed.status_code, 200, listed.text)
         run = next(item for item in listed.json()["runs"] if item["id"] == "run-stale")
