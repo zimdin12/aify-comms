@@ -109,6 +109,10 @@ const POLL_MS = Math.max(
   Number(process.env.AIFY_COMMS_CHANNEL_POLL_MS || process.env.AIFY_HERMES_CHANNEL_POLL_MS || 3000),
 );
 const HTTP_TIMEOUT_MS = Math.max(1000, Number(process.env.AIFY_HTTP_TIMEOUT_MS || 20000));
+// Long-poll the dispatch claim (see mcp/stdio/server.js + service/longpoll.py). Single-agent
+// sidecar; keep under the server cap (30s); HTTP timeout must exceed the hold. 0 = short-poll.
+const CLAIM_WAIT_MS = Math.max(0, Math.min(28000, Number(process.env.AIFY_CLAIM_WAIT_MS ?? 20000)));
+const CLAIM_OPTS = CLAIM_WAIT_MS > 0 ? { timeoutMs: CLAIM_WAIT_MS + 8000 } : {};
 const TMP_DIR = process.env.TEMP || process.env.TMP || os.tmpdir();
 const RUNTIME = "hermes";
 // Proactive gateway-liveness probe cadence (status-liveness, 2026-06-02). The
@@ -148,9 +152,11 @@ function readBoundAgentId() {
 // Default aify httpCall(method, endpoint, body) against ${baseUrl}/api/v1.
 // Tests inject their own; the production loop uses this one.
 function makeAifyHttpCall(baseUrl, apiKey) {
-  return async function httpCall(method, endpoint, body = null) {
+  return async function httpCall(method, endpoint, body = null, opts = {}) {
     if (!baseUrl) return null;
     const url = `${baseUrl}/api/v1${endpoint}`;
+    // opts.timeoutMs lets long-poll claim calls hold longer than the default without aborting.
+    const callTimeoutMs = Math.max(1, Number(opts.timeoutMs) || HTTP_TIMEOUT_MS);
     const options = { method, headers: {} };
     if (apiKey) options.headers["X-API-Key"] = apiKey;
     if (body) {
@@ -158,7 +164,7 @@ function makeAifyHttpCall(baseUrl, apiKey) {
       options.body = JSON.stringify(body);
     }
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), callTimeoutMs);
     try {
       const res = await fetch(url, { ...options, signal: controller.signal });
       if (!res.ok) {
@@ -334,7 +340,9 @@ export async function runPollCycle({
         // never happen.
         bridgeKind: "channel-sidecar",
         executionModes: ["channel", "resident"],
-      });
+        // Long-poll only the first claim of the batch; the rest drain queued runs.
+        waitMs: (i === 0 ? CLAIM_WAIT_MS : 0),
+      }, (i === 0 ? CLAIM_OPTS : {}));
       // Mode FSM release signal (Task 4.1): the operator switched this agent to
       // resident — this managed sidecar is no longer the driver. Stop driving
       // (symmetric with claude-channel.js). The release bit propagates to the

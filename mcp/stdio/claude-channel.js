@@ -81,6 +81,12 @@ const POLL_MS = Number(process.env.AIFY_COMMS_CHANNEL_POLL_MS || process.env.AIF
 const RELEASE_RECHECK_MS = Math.max(5000, Number(process.env.AIFY_CHANNEL_RELEASE_RECHECK_MS || 60_000));
 const TMP_DIR = process.env.TEMP || process.env.TMP || os.tmpdir();
 const HTTP_TIMEOUT_MS = Math.max(1000, Number(process.env.AIFY_HTTP_TIMEOUT_MS || 20000));
+// Long-poll for the dispatch claim — the server holds it open up to CLAIM_WAIT_MS waiting
+// for work instead of this sidecar re-polling every POLL_MS. Single-agent sidecar, so no
+// serialization concern. Keep under the server cap (30s); HTTP timeout must exceed the hold.
+// Set AIFY_CLAIM_WAIT_MS=0 to revert to short-poll. See mcp/stdio/server.js + service/longpoll.py.
+const CLAIM_WAIT_MS = Math.max(0, Math.min(28000, Number(process.env.AIFY_CLAIM_WAIT_MS ?? 20000)));
+const CLAIM_OPTS = CLAIM_WAIT_MS > 0 ? { timeoutMs: CLAIM_WAIT_MS + 8000 } : {};
 const IS_MAIN = Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 // Write our claude-code runtime marker from this long-lived bridge process.
@@ -136,12 +142,14 @@ function readBoundAgentId() {
   return "";
 }
 
-async function httpCall(method, endpoint, body = null) {
+async function httpCall(method, endpoint, body = null, opts = {}) {
   // Gate on the resolved URL set (ACTIVE_SERVER_URL / SERVER_URLS), not the raw
   // primary SERVER_URL — a config with only *_FALLBACK_URLS leaves SERVER_URL
   // empty but still yields a usable ACTIVE_SERVER_URL, and httpCall iterates the
   // full SERVER_URLS list below.
   if (!ACTIVE_SERVER_URL) return null;
+  // opts.timeoutMs lets long-poll claim calls hold longer than the default without aborting.
+  const callTimeoutMs = Math.max(1, Number(opts.timeoutMs) || HTTP_TIMEOUT_MS);
   const options = { method, headers: {} };
   if (API_KEY) options.headers["X-API-Key"] = API_KEY;
   if (body) {
@@ -152,7 +160,7 @@ async function httpCall(method, endpoint, body = null) {
   for (const baseUrl of uniqueServerUrls([ACTIVE_SERVER_URL, ...SERVER_URLS])) {
     const url = `${baseUrl}/api/v1${endpoint}`;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), callTimeoutMs);
     try {
       const res = await fetch(url, { ...options, signal: controller.signal });
       if (!res.ok) {
@@ -166,7 +174,7 @@ async function httpCall(method, endpoint, body = null) {
       return res.json();
     } catch (error) {
       if (error?.name === "AbortError") {
-        lastError = new Error(`HTTP ${method} ${endpoint} timed out after ${HTTP_TIMEOUT_MS}ms`);
+        lastError = new Error(`HTTP ${method} ${endpoint} timed out after ${callTimeoutMs}ms`);
         lastError.name = "TimeoutError";
         lastError.serverUrl = baseUrl;
       } else {
@@ -514,7 +522,9 @@ async function pollLoop() {
           // gate _bridge_claim_block_reason.
           bridgeKind: "channel-sidecar",
           executionModes: ["channel", "resident"],
-        });
+          // Long-poll only the first claim of the batch; the rest drain queued runs.
+          waitMs: (i === 0 ? CLAIM_WAIT_MS : 0),
+        }, (i === 0 ? CLAIM_OPTS : {}));
         // Phase H1 (status v2): the agent was explicitly DISABLED (server returns
         // a terminal `stopped` body on a SUCCESSFUL claim). A stopped agent's
         // sidecar must STOP polling — this is the CPU/orphan win. Unlike `release`

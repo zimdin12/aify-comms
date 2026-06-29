@@ -1131,6 +1131,19 @@ const HTTP_RETRY_ATTEMPTS = 3;
 const HTTP_RETRY_BASE_MS = 250;
 const HTTP_TIMEOUT_MS = Math.max(1000, Number(process.env.AIFY_HTTP_TIMEOUT_MS || 20000));
 
+// Long-poll for the "claim" endpoints (2026-06-30): instead of short-polling
+// "is there work yet?" every few seconds, the bridge asks the server to HOLD the
+// request open up to CLAIM_WAIT_MS and return the instant work appears. This cuts
+// idle HTTP request volume ~8-10x (and the per-claim BEGIN IMMEDIATE write-lock rate)
+// without losing latency. The server caps the hold at longpoll.MAX_WAIT_S (30s), so
+// keep CLAIM_WAIT_MS under that; the HTTP timeout must EXCEED the hold or the bridge
+// would abort mid-hold and trip its failure counter. The loop busy-guards already
+// prevent the setInterval ticks from stacking while a claim is held.
+// Set AIFY_CLAIM_WAIT_MS=0 to fall back to legacy short-poll.
+const CLAIM_WAIT_MS = Math.max(0, Math.min(28000, Number(process.env.AIFY_CLAIM_WAIT_MS ?? 20000)));
+const CLAIM_HTTP_TIMEOUT_MS = CLAIM_WAIT_MS > 0 ? CLAIM_WAIT_MS + 8000 : HTTP_TIMEOUT_MS;
+const CLAIM_OPTS = CLAIM_WAIT_MS > 0 ? { timeoutMs: CLAIM_HTTP_TIMEOUT_MS } : {};
+
 // POST is not idempotent in general, so we only retry POSTs that are safe to
 // replay. Everything else (GET, PATCH, DELETE) is always retriable.
 // This list is intentionally narrow. If you add a new POST endpoint that can
@@ -1175,7 +1188,11 @@ function logTransientOrError(prefix, error) {
   console.error(`${prefix}:`, error);
 }
 
-async function httpCall(method, endpoint, body = null) {
+async function httpCall(method, endpoint, body = null, opts = {}) {
+  // opts.timeoutMs overrides the default per-attempt abort timeout. Long-poll claim
+  // calls pass a value larger than the server's max hold so the bridge does NOT abort
+  // (and trip its failure counter) while the server is legitimately holding the request.
+  const callTimeoutMs = Math.max(1, Number(opts.timeoutMs) || HTTP_TIMEOUT_MS);
   const baseOptions = { method, headers: {} };
   if (API_KEY) baseOptions.headers["X-API-Key"] = API_KEY;
   if (body) {
@@ -1190,7 +1207,7 @@ async function httpCall(method, endpoint, body = null) {
     for (const baseUrl of urls) {
       const url = `${baseUrl}/api/v1${endpoint}`;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
+      const timeout = setTimeout(() => controller.abort(), callTimeoutMs);
       try {
         const options = { ...baseOptions, headers: { ...baseOptions.headers }, signal: controller.signal };
         const res = await fetch(url, options);
@@ -1211,7 +1228,7 @@ async function httpCall(method, endpoint, body = null) {
         return res.json();
       } catch (error) {
         if (error?.name === "AbortError") {
-          const timeoutError = new Error(`HTTP ${method} ${endpoint} timed out after ${HTTP_TIMEOUT_MS}ms`);
+          const timeoutError = new Error(`HTTP ${method} ${endpoint} timed out after ${callTimeoutMs}ms`);
           timeoutError.name = "TimeoutError";
           timeoutError.serverUrl = baseUrl;
           lastError = timeoutError;
@@ -2475,7 +2492,8 @@ async function runEnvironmentControlLoop() {
       environmentId: environment.id,
       bridgeId: BRIDGE_INSTANCE_ID,
       machineId: MACHINE_ID,
-    });
+      waitMs: CLAIM_WAIT_MS,
+    }, CLAIM_OPTS);
     const control = claim?.control;
     if (!control) return;
     if (control.action === "stop") {
@@ -2647,7 +2665,8 @@ async function runTerminalControlLoop() {
     const claim = await httpCall("POST", "/terminals/controls/claim", {
       environmentId: environment.id,
       bridgeId: BRIDGE_INSTANCE_ID,
-    });
+      waitMs: CLAIM_WAIT_MS,
+    }, CLAIM_OPTS);
     const controls = claim?.controls || [];
     for (const control of controls) {
       try {
@@ -2888,7 +2907,8 @@ async function runSpawnLoop() {
         environmentId: environment.id,
         bridgeId: BRIDGE_INSTANCE_ID,
         machineId: MACHINE_ID,
-      });
+        waitMs: CLAIM_WAIT_MS,
+      }, CLAIM_OPTS);
     } catch (error) {
       if (error?.status !== 404) {
         noteSpawnClaimFailure(error);
@@ -3057,6 +3077,11 @@ async function runDispatchLoop() {
   if (!IS_REMOTE || dispatchLoopBusy) return;
   dispatchLoopBusy = true;
   try {
+    // Long-poll the dispatch claim ONLY when this bridge hosts a single agent (every
+    // resident claude/codex/hermes bridge — the common case). This loop iterates its
+    // agents SEQUENTIALLY, so a long idle wait per agent would serialize and delay the
+    // others; a multi-agent env-bridge therefore keeps the legacy short-poll (waitMs=0).
+    const soloAgentBridge = REMOTE_AGENT_STATE.size <= 1;
     for (const [agentId, state] of REMOTE_AGENT_STATE.entries()) {
       if (!state?.info) continue;
 
@@ -3168,7 +3193,11 @@ async function runDispatchLoop() {
             machineId: state.info.machineId || MACHINE_ID,
             bridgeId: BRIDGE_INSTANCE_ID,
             executionModes,
-          });
+            // Long-poll only the FIRST claim of the batch (wait for work to arrive), and
+            // only on a single-agent bridge (see soloAgentBridge). The remaining iterations
+            // drain already-queued runs and must return at once.
+            waitMs: (i === 0 && soloAgentBridge ? CLAIM_WAIT_MS : 0),
+          }, (i === 0 && soloAgentBridge ? CLAIM_OPTS : {}));
           CONSECUTIVE_FAILURES.set(agentId, 0);
         } catch (error) {
           if (error?.status === 404) {
