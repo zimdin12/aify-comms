@@ -20,6 +20,17 @@ The recurring `database is locked` 503s are RESOLVED (commit `97a497a`, verified
 
 **Remaining headroom (NOT yet done).** Heartbeat `last_seen` and turn-state still write SQLite at low frequency (they did not lock in testing). Stages 2–3 of `docs/superpowers/plans/2026-06-18-in-memory-hot-state.md` move those to memory too for much-higher agent counts.
 
+## Read GET endpoints must not run repair-WRITES on the poll path (2026-06-29)
+
+A second, distinct source of `database is locked` + idle-CPU churn (separate from the cache write-storm above): several **`GET` list endpoints ran maintenance repairs that WROTE on every dashboard poll**. With a connected fleet (~12 bridges → ~40+ req/s, terminal output ~10/s), each such read opened a write txn (a table scan + commit) that serialized behind the terminal-output writes under WAL — the top `SLOW-REQ` offenders were all these write-on-read GETs. Diagnostic middleware in `service/main.py` (logs `SLOW-REQ`>1s / `DB-LOCK` / 5xx) surfaced this; removing the read-path writes dropped slow-requests ~197→~2 over 3 min.
+
+**The rule: a GET is a pure read unless its repair affects the correctness of THAT response.** Apply it as follows:
+
+- **Made pure reads (repair moved to / already in the 60s reconcile loop):** `GET /spawn-requests` (orphan/failed spawn-request cleanup → reconcile), `GET /dispatch/runs` and `GET /stats` (`_repair_unusable_active_runs` is redundant — it already runs in reconcile AND on every `GET /agents` poll). These tolerate ≤60s repair lag (spawn-failure detection; a diagnostic runs/stats list).
+- **KEEP their read-path repairs (do NOT move to reconcile):** `GET /agents` (`_repair_unusable_active_runs` drives the roster run/agent status the operator watches live) and `GET /sessions` (`_repair_superseded_recovering_sessions` / `_repair_current_session_freshness` / `_repair_terminal_session_consistency` fix the console/terminal binding shown in that very response — a 60s lag would surface a just-stopped terminal as still-attached). These repairs no-op when nothing needs fixing, so steady-state polls don't write.
+
+So before adding a repair call to any GET handler, ask whether the caller needs the corrected state *in this response* or merely *eventually*. Eventually → reconcile loop. The residual CPU after this fix is inherent fleet load (request volume scales with live-bridge count + their poll intervals: `AIFY_DISPATCH_POLL_MS` 3s, `AIFY_TERMINAL_CONTROL_POLL_MS` 800ms), NOT a bug — there is no runaway loop and no pathologically slow endpoint (`/usage` + `/usage/consumption` serve from the in-memory `_USAGE_CACHE`; the new dashboard's `loadAnalytics` is throttled to 12s).
+
 ## Status is proof-based: 6 states, no time-decay, no engine flag (2026-06-18)
 
 The status system was rewritten to be **PROVEN, not time-assumed** — the conclusion of many incremental patches that had accreted into a confusing 8-state model with multiple minute thresholds. The non-obvious choices, superseding the 2026-06-04/06-17 entry below:
