@@ -206,6 +206,7 @@ const chatController = createChatController({
   loadAgentAnalytics: (id) => api(`/analytics/agent/${encodeURIComponent(id)}`),
   mountChatConsole: (agentId, hostEl) => mountChatConsole(agentId, hostEl),
   loadPulse: (mins) => api(`/analytics/pulse?window_minutes=${encodeURIComponent(mins)}`),
+  persistDrafts: () => persistChatDrafts(),
 });
 
 // Mount an agent's live console inline inside the Chat conversation pane. Reuses the exact
@@ -312,7 +313,7 @@ async function attachChatFile(file) {
       bodyEl.value = bodyEl.value ? `${bodyEl.value} ${ref}` : ref;
       bodyEl.focus();
       const key = state.chat.selected;
-      if (key) { state.chat.drafts = state.chat.drafts || {}; state.chat.drafts[key] = bodyEl.value; }
+      if (key) { state.chat.drafts = state.chat.drafts || {}; state.chat.drafts[key] = bodyEl.value; persistChatDrafts(); }
     }
     await loadFiles();
     toast(`Attached ${name}`, 'ok');
@@ -838,9 +839,12 @@ function activeSettingsTab() {
 function renderSettings() {
   const host = byId('settings-form');
   if (!host) return;
-  // Don't rebuild while the operator is editing a field — the 15s poll re-renders settings and
-  // would otherwise wipe an in-progress edit (deep-audit C1).
-  if (host.contains(document.activeElement)) return;
+  // Don't rebuild while the operator is editing a FIELD — the 15s poll re-renders settings and
+  // would otherwise wipe an in-progress edit (deep-audit C1). Scope strictly to editable inputs:
+  // the tab buttons live inside this same host, so guarding on any focused descendant also blocked
+  // tab switches (a real click focuses the tab → early return → panel never switched). 2026-06-29 fix.
+  const _ae = document.activeElement;
+  if (_ae && host.contains(_ae) && _ae.matches && _ae.matches('input, select, textarea')) return;
   const s = state.settings || {};
   const active = activeSettingsTab();
   const tabBar = `<div class="settings-tabs" role="group" aria-label="Settings sections">`
@@ -3766,7 +3770,7 @@ byId('send-reminders').addEventListener('click', async () => {
   if (!await uiConfirm('Send due reminders now? This pings agents with overdue work.', { confirmLabel: 'Send reminders' })) return;
   try {
     const result = await api('/contracts/reminders/run', { method: 'POST' });
-    const n = (result && (result.sent ?? result.reminded ?? result.count));
+    const n = Array.isArray(result?.reminded) ? result.reminded.length : (result?.sent ?? result?.count);
     toast(`Reminders: ${n != null ? `${n} sent` : 'done'}`, 'ok');
     await refresh();
   } catch (error) {
@@ -3868,10 +3872,21 @@ byId('chat-composer')?.addEventListener('submit', (event) => {
   event.preventDefault();
   chatController.send();
 });
+// Draft persistence (2026-06-29 parity with old dashboard): mirror per-conversation drafts to
+// localStorage so a half-written message + its rail "draft" badge survive a page reload.
+function persistChatDrafts() {
+  try {
+    const d = state.chat.drafts || {};
+    const pruned = {};
+    for (const k of Object.keys(d)) { if (String(d[k] || '').trim()) pruned[k] = d[k]; }
+    localStorage.setItem('aifyChatDrafts', JSON.stringify(pruned));
+  } catch { /* ignore quota/serialization */ }
+}
+try { const _d = JSON.parse(localStorage.getItem('aifyChatDrafts') || '{}'); if (_d && typeof _d === 'object') state.chat.drafts = _d; } catch { /* keep {} */ }
 // Draft preservation (WS-F): persist the composer body per conversation as the operator types.
 byId('chat-composer-body')?.addEventListener('input', (event) => {
   const key = state.chat.selected;
-  if (key) { state.chat.drafts = state.chat.drafts || {}; state.chat.drafts[key] = event.target.value; }
+  if (key) { state.chat.drafts = state.chat.drafts || {}; state.chat.drafts[key] = event.target.value; persistChatDrafts(); }
 });
 // Enter-to-send in chat (Shift+Enter inserts a newline) — WS-I11.
 byId('chat-composer-body')?.addEventListener('keydown', (event) => {

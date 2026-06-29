@@ -108,8 +108,11 @@ export function chatConversationItems(state) {
 }
 
 // Chat overview shown when no conversation is open (re-click an open chat to return here).
-function railItemHtml(item, selectedKey) {
+function railItemHtml(item, selectedKey, drafts = {}) {
   const active = item.key === selectedKey ? ' active' : '';
+  const favClass = item.favorited ? ' fav' : '';
+  const hasDraft = !!((drafts[item.key] || '').trim());
+  const draftBadge = hasDraft ? '<span class="chat-draft-badge" title="Half-written message saved for this chat">draft</span>' : '';
   const dotStatus = item.kind === 'dm' ? resolveStatus(item.status) : null;
   const dot = item.kind === 'dm'
     ? `<span class="status-dot ${esc(dotStatus.dotKind)}" role="img" title="${esc(dotStatus.label)}" aria-label="${esc(dotStatus.label)}"></span>`
@@ -125,8 +128,8 @@ function railItemHtml(item, selectedKey) {
     ? [item.role, resolveStatus(item.status).label].filter(Boolean).join(' · ')
     : '';
   const sub = [meta, item.preview || ''].filter(Boolean).join(' · ');
-  return `<button class="chat-rail-item${active}" data-chat-open="${esc(item.key)}" title="${esc(item.id)}">
-    <span class="chat-rail-head">${dot}<span class="chat-rail-name clip">${esc(item.id)}</span>${fav}${unread}</span>
+  return `<button class="chat-rail-item${active}${favClass}" data-chat-open="${esc(item.key)}" title="${esc(item.id)}">
+    <span class="chat-rail-head">${dot}<span class="chat-rail-name clip">${esc(item.id)}</span>${draftBadge}${fav}${unread}</span>
     <span class="chat-rail-preview clip">${esc(sub)}</span>
   </button>`;
 }
@@ -227,7 +230,7 @@ export function renderAnalyticsPanelHtml(agentId, data) {
 // Build the controller that renders the page and wires send. deps: { state, byId, sendMessage,
 // loadChannels, refresh, loadConversation, loadAgentAnalytics }.
 export function createChatController(deps) {
-  const { state, byId, sendMessage, loadChannels, refresh, loadConversation, loadAgentAnalytics, mountChatConsole, loadPulse } = deps;
+  const { state, byId, sendMessage, loadChannels, refresh, loadConversation, loadAgentAnalytics, mountChatConsole, loadPulse, persistDrafts } = deps;
 
   function renderRail() {
     const host = byId('chat-rail-list');
@@ -242,9 +245,9 @@ export function createChatController(deps) {
     const chEmpty = loaded ? 'No channels.' : 'Loading…';
     const html = (
       `<div class="chat-rail-section">Direct messages</div>`
-      + (dmItems.length ? dmItems.map((i) => railItemHtml(i, state.chat.selected)).join('') : `<p class="subtle chat-rail-empty">${dmEmpty}</p>`)
+      + (dmItems.length ? dmItems.map((i) => railItemHtml(i, state.chat.selected, state.chat.drafts)).join('') : `<p class="subtle chat-rail-empty">${dmEmpty}</p>`)
       + `<div class="chat-rail-section">Channels</div>`
-      + (chItems.length ? chItems.map((i) => railItemHtml(i, state.chat.selected)).join('') : `<p class="subtle chat-rail-empty">${chEmpty}</p>`)
+      + (chItems.length ? chItems.map((i) => railItemHtml(i, state.chat.selected, state.chat.drafts)).join('') : `<p class="subtle chat-rail-empty">${chEmpty}</p>`)
     );
     // Re-render guard (2026-06-19): re-setting innerHTML on every poll recreates every .status-dot,
     // which RESTARTS the `working` pulse animation each cycle — a steady `working` dot then visibly
@@ -500,6 +503,7 @@ export function createChatController(deps) {
       if (subjectEl) subjectEl.value = '';
       // Sent cleanly: drop the saved draft + reply context for this conversation.
       if (state.chat.drafts) delete state.chat.drafts[key];
+      persistDrafts?.();
       state.chat.replyTo = null;
       if (!isChannel) {
         const t = deliveryToastFor(response, id);

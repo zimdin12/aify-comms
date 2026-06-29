@@ -318,6 +318,10 @@ small, .subtle { color: var(--muted); }
   border-color: #465454;
 }
 .item-title { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+/* Let the title's first child (the nowrap name/clip) shrink so a long id + status chip can't
+   push the row past its column and force a horizontal scrollbar (was mobile-only → caused the
+   Sessions rail/activity overflow at desktop widths). 2026-06-29. */
+.item-title > :first-child { min-width: 0; }
 .clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .preview { color: var(--muted); margin-top: 5px; overflow-wrap: anywhere; }
 .scroll-region {
@@ -417,8 +421,10 @@ small, .subtle { color: var(--muted); }
 .spawn-field > span { font-size: .78em; color: var(--muted); font-weight: 600; }
 .spawn-field > span em { font-style: normal; color: var(--muted); opacity: .8; font-weight: 400; }
 .spawn-field > input, .spawn-field > select { width: 100%; min-height: 40px; }
-.spawn-field.spawn-submit { align-self: end; }
-.spawn-field.spawn-submit button { width: 100%; min-height: 40px; }
+/* Submit-field buttons are content-width + right-aligned, not full-width (2026-06-29: the old
+   width:100% made the Environments Spawn and Files Upload buttons span the whole row). */
+.spawn-field.spawn-submit { align-self: end; justify-items: end; }
+.spawn-field.spawn-submit button { width: auto; min-width: 130px; min-height: 40px; }
 .diagnostics-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1085,7 +1091,11 @@ small, .subtle { color: var(--muted); }
 .chat-rail-empty { padding: 4px 8px 8px; }
 .chat-rail-item { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 9px; padding: 8px 9px; cursor: pointer; color: var(--text); }
 .chat-rail-item:hover { background: var(--panel-2); }
-.chat-rail-item.active { background: var(--accent-softer, var(--panel-2)); border-color: var(--accent); }
+.chat-rail-item.active { background: var(--accent-softer, var(--panel-2)); border-color: var(--accent); box-shadow: inset 4px 0 0 var(--secondary); }
+/* Favorited rows carry their own gold left-bar (independent of selection), matching the old dashboard. */
+.chat-rail-item.fav { box-shadow: inset 3px 0 0 #f5c84c; }
+.chat-rail-item.fav.active { box-shadow: inset 4px 0 0 var(--secondary); }
+.chat-draft-badge { font-size: var(--fs-xs); color: var(--amber); background: color-mix(in srgb, var(--amber) 16%, transparent); border-radius: var(--radius-sm); padding: 0 5px; margin-left: 4px; }
 .chat-rail-head { display: flex; align-items: center; gap: 7px; }
 .chat-rail-name { font-weight: 650; font-size: .88em; flex: 1; min-width: 0; }
 .chat-rail-hash { color: var(--muted); font-weight: 700; width: 9px; display: inline-block; text-align: center; }
