@@ -31,6 +31,41 @@ A second, distinct source of `database is locked` + idle-CPU churn (separate fro
 
 So before adding a repair call to any GET handler, ask whether the caller needs the corrected state *in this response* or merely *eventually*. Eventually → reconcile loop. The residual CPU after this fix is inherent fleet load (request volume scales with live-bridge count + their poll intervals: `AIFY_DISPATCH_POLL_MS` 3s, `AIFY_TERMINAL_CONTROL_POLL_MS` 800ms), NOT a bug — there is no runaway loop and no pathologically slow endpoint (`/usage` + `/usage/consumption` serve from the in-memory `_USAGE_CACHE`; the new dashboard's `loadAnalytics` is throttled to 12s).
 
+## Claim endpoints are long-poll, not short-poll (2026-06-30)
+
+The bridges discover work by polling "is there anything for me yet?" endpoints —
+`/dispatch/claim` (3s), `/terminals/controls/claim` (800ms), `/spawn-requests/claim`,
+`/environments/controls/claim`. With ~12 live bridges that short-poll is the bulk of the
+service's ~40 req/s (each poll opens a SQLite connection; `/dispatch/claim` takes a
+`BEGIN IMMEDIATE` write lock every attempt). Heartbeats stay periodic (absence-of-signal
+IS the signal); terminal-output POSTs are already event-driven; the claims were the one
+class that *should* be on-demand. See KNOWN_ISSUES / the read-path-write entry above for
+the related GET fix.
+
+**Design (`service/longpoll.py`).** A lock-free per-scope notification bus + a `longpoll()`
+helper. Each claim handler's body is reused verbatim as a `_*_once` per-attempt function;
+the route wrapper calls it, and if the result is EMPTY and the client sent `waitMs>0`, it
+awaits a `notify()` (fired on the enqueue path) and retries until work, disconnect, or the
+budget elapses. **Claim semantics are unchanged** — calling `_*_once` repeatedly server-side
+is identical to the bridge calling it repeatedly over HTTP; only an empty response is held.
+A per-iteration fallback (= the legacy poll interval) bounds latency even if a `notify()` is
+ever missed, so a missed enqueue hook can only degrade to today's behaviour, never lose or
+further delay work. That property is what makes it safe to ship incrementally.
+
+**Backward compatible.** `waitMs` defaults to 0 (legacy immediate return), so the server
+half deployed before any bridge changed, with zero behaviour change for old bridges.
+
+**Bridge side (`AIFY_CLAIM_WAIT_MS`, default 20000; 0 disables).** Bridges send `waitMs` +
+a longer per-call HTTP timeout (must exceed the hold or the bridge aborts mid-hold and trips
+its failure counter; server caps the hold at `longpoll.MAX_WAIT_S`=30s). Two correctness
+guards: (1) `runDispatchLoop` iterates its agents SEQUENTIALLY, so the dispatch claim
+long-polls ONLY on a single-agent bridge (`soloAgentBridge`) — a multi-agent env-bridge
+keeps short-poll so one idle agent can't delay the others; (2) only the first claim of each
+drain-batch long-polls. `/dispatch/controls/claim` stays short-poll — it runs only DURING an
+active run (not idle volume) and governs steer/interrupt responsiveness. Activating the
+bridge half needs an `install.sh` re-run + wrapper restart (the native-copy rule). Validate
+with a two-session live round-trip (see CLAUDE.md "Testing a change").
+
 ## Status is proof-based: 6 states, no time-decay, no engine flag (2026-06-18)
 
 The status system was rewritten to be **PROVEN, not time-assumed** — the conclusion of many incremental patches that had accreted into a confusing 8-state model with multiple minute thresholds. The non-obvious choices, superseding the 2026-06-04/06-17 entry below:
