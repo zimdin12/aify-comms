@@ -216,8 +216,16 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # allow and truncates the file whenever a reader gap appears (returns busy
         # otherwise — non-fatal). Bounds WAL growth without touching the hot path.
         try:
+            import time as _t
+            _ck_start = _t.monotonic()
             row = await (await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")).fetchone()
             checkpoint_result = tuple(row) if row else None
+            _ck_ms = int((_t.monotonic() - _ck_start) * 1000)
+            # Diagnostic (2026-06-29): row = (busy, log_pages, checkpointed_pages). busy=1 means a
+            # live reader blocked the truncate (checkpoint starvation → WAL bloat → the documented
+            # longer write-lock windows). Surface it so the "database is locked" cause is provable.
+            if checkpoint_result and (checkpoint_result[0] == 1 or _ck_ms >= 1000):
+                logger.warning(f"WAL-CHECKPOINT busy={checkpoint_result[0]} log_pages={checkpoint_result[1]} ckpt_pages={checkpoint_result[2]} took={_ck_ms}ms")
         except Exception as exc:
             checkpoint_result = f"skipped: {exc}"
         return {
