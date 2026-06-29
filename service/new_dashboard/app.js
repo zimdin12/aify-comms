@@ -3818,14 +3818,28 @@ byId('chat-msg-search')?.addEventListener('input', (event) => {
   chatController.renderConversation();
 });
 // Collapsible chat sort/filters/channels panel (kept out of the way until needed).
-byId('chat-filter-toggle')?.addEventListener('click', () => {
-  const panel = byId('chat-rail-options');
-  const btn = byId('chat-filter-toggle');
-  if (!panel) return;
-  const open = panel.hidden;
-  panel.hidden = !open;
-  btn?.setAttribute('aria-expanded', String(open));
-  btn?.classList.toggle('active', open);
+// Chat tool tabs (2026-06-29): Find / Filters / Channels — replaces the ⚙ junk-drawer.
+document.querySelectorAll('[data-chat-tool]').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    const which = tab.dataset.chatTool;
+    document.querySelectorAll('[data-chat-tool]').forEach((t) => {
+      const on = t.dataset.chatTool === which;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    document.querySelectorAll('[data-chat-tool-panel]').forEach((p) => {
+      p.hidden = p.dataset.chatToolPanel !== which;
+    });
+  });
+});
+// Clear all rail filters (scope→all, toggles off, status set empty, sort→activity).
+byId('chat-clear-filters')?.addEventListener('click', () => {
+  state.chat.scope = 'all';
+  state.chat.unreadOnly = false; state.chat.liveOnly = false; state.chat.openOnly = false; state.chat.workingUp = false;
+  state.chat.statusFilter = new Set();
+  state.chat.sortMode = 'activity';
+  const sortSel = byId('chat-sort'); if (sortSel) sortSel.value = 'activity';
+  persistChatPrefs(); syncChatChips(); chatController.renderRail();
 });
 byId('chat-identity')?.addEventListener('change', (event) => {
   state.chat.identity = event.target.value || 'dashboard';

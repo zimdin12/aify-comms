@@ -81,9 +81,25 @@
         <section class="chat-shell">
           <aside class="chat-rail" aria-label="Conversations">
             <div class="chat-rail-controls">
-              <div class="chat-search-row">
+              <!-- Three clearly-separated tools (2026-06-29 IA fix): Find (search), Filters
+                   (scope/sort/status/toggles), Channels (identity + create). Replaces the single
+                   ⚙ junk-drawer that mixed filters with identity + channel-create. -->
+              <div class="chat-tool-tabs" role="tablist" aria-label="Conversation tools">
+                <button type="button" class="chat-tool-tab active" data-chat-tool="find" role="tab" aria-selected="true">Find</button>
+                <button type="button" class="chat-tool-tab" data-chat-tool="filters" role="tab" aria-selected="false">Filters</button>
+                <button type="button" class="chat-tool-tab" data-chat-tool="channels" role="tab" aria-selected="false">Channels</button>
+              </div>
+              <div class="chat-tool-panel" data-chat-tool-panel="find" role="tabpanel">
                 <input id="chat-filter" type="search" placeholder="Search conversations + messages">
-                <label class="chat-sort-inline" title="Conversation sort order">
+              </div>
+              <div class="chat-tool-panel" data-chat-tool-panel="filters" role="tabpanel" hidden>
+                <div class="chat-chip-group scope-group" role="group" aria-label="Scope">
+                  <button type="button" class="chat-chip scope active" data-chat-scope="all">All</button>
+                  <button type="button" class="chat-chip scope" data-chat-scope="dm">DMs</button>
+                  <button type="button" class="chat-chip scope" data-chat-scope="channel">Chans</button>
+                  <button type="button" class="chat-chip scope" data-chat-scope="favorites" title="Favorites only">★</button>
+                </div>
+                <label class="chat-sort-inline" title="Conversation sort order">Sort
                   <select id="chat-sort" aria-label="Sort conversations">
                     <option value="activity">Recent</option>
                     <option value="unread">Unread</option>
@@ -93,24 +109,6 @@
                     <option value="runtime">Runtime</option>
                   </select>
                 </label>
-                <button type="button" class="icon-button chat-filter-toggle" id="chat-filter-toggle" aria-label="Identity & channels" title="Identity & new channel" aria-expanded="false">⚙</button>
-              </div>
-              <!-- Compact always-visible filter bar: just scope + key quick filters on one row.
-                   Status-color filters, less-used toggles, identity + channel-create all live in
-                   the ⚙ panel so the rail stays uncluttered. -->
-              <div class="chat-filter-bar">
-                <div class="chat-chip-group scope-group" role="group" aria-label="Scope">
-                  <button type="button" class="chat-chip scope active" data-chat-scope="all">All</button>
-                  <button type="button" class="chat-chip scope" data-chat-scope="dm">DMs</button>
-                  <button type="button" class="chat-chip scope" data-chat-scope="channel">Chans</button>
-                  <button type="button" class="chat-chip scope" data-chat-scope="favorites" title="Favorites only">★</button>
-                </div>
-                <div class="chat-chip-group toggle-group" role="group" aria-label="Quick filters">
-                  <button type="button" class="chat-chip toggle" data-chat-toggle="unreadOnly">Unread</button>
-                  <button type="button" class="chat-chip toggle" data-chat-toggle="liveOnly">Live</button>
-                </div>
-              </div>
-              <div id="chat-rail-options" class="chat-rail-options" hidden>
                 <div class="chat-status-row" role="group" aria-label="Filter by status">
                   <span class="chat-status-label">Status</span>
                   <button type="button" class="chat-chip status dot s-working" data-chat-status="working" title="working — live and in an active turn right now" aria-label="Filter: working"></button>
@@ -120,10 +118,15 @@
                   <button type="button" class="chat-chip status dot s-offline" data-chat-status="offline" title="offline — no live session and not auto-startable" aria-label="Filter: offline"></button>
                   <button type="button" class="chat-chip status dot s-stopped" data-chat-status="stopped" title="stopped — explicitly disabled / hard-blocked" aria-label="Filter: stopped"></button>
                 </div>
-                <div class="chat-chip-group" role="group" aria-label="More filters">
+                <div class="chat-chip-group toggle-group" role="group" aria-label="Quick filters">
+                  <button type="button" class="chat-chip toggle" data-chat-toggle="unreadOnly">Unread</button>
+                  <button type="button" class="chat-chip toggle" data-chat-toggle="liveOnly">Live</button>
                   <button type="button" class="chat-chip toggle" data-chat-toggle="openOnly">Has messages</button>
                   <button type="button" class="chat-chip toggle" data-chat-toggle="workingUp">Working first</button>
                 </div>
+                <button type="button" class="ghost chat-clear-filters" id="chat-clear-filters">Clear filters</button>
+              </div>
+              <div class="chat-tool-panel" data-chat-tool-panel="channels" role="tabpanel" hidden>
                 <label class="chat-as">Viewing as
                   <select id="chat-identity" title="Send and read as this identity"></select>
                 </label>

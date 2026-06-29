@@ -1053,6 +1053,14 @@ small, .subtle { color: var(--muted); }
 .chat-shell { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 14px; flex: 1 1 auto; min-height: 0; }
 .chat-rail { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 13px; overflow: hidden; }
 .chat-rail-controls { padding: 11px; border-bottom: 1px solid var(--line-soft, var(--line)); display: flex; flex-direction: column; gap: 8px; }
+/* Find / Filters / Channels tool tabs (2026-06-29). */
+.chat-tool-tabs { display: flex; gap: 4px; }
+.chat-tool-tab { flex: 1; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); border-radius: var(--radius-sm); padding: 5px 8px; font-size: var(--fs-sm); cursor: pointer; }
+.chat-tool-tab:hover { color: var(--text); }
+.chat-tool-tab.active { background: var(--accent-softer, var(--panel-3)); border-color: var(--accent); color: var(--text); }
+.chat-tool-panel { display: flex; flex-direction: column; gap: 8px; }
+.chat-tool-panel[hidden] { display: none; }
+.chat-clear-filters { align-self: flex-start; font-size: var(--fs-xs); padding: 3px 9px; }
 .chat-rail-controls input[type="search"] { width: 100%; background: var(--panel-3); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 8px 10px; font-size: .85em; }
 .chat-rail-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .78em; color: var(--muted); }
 .chat-as select { background: var(--panel-3); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 3px 6px; margin-left: 6px; max-width: 150px; }
