@@ -394,6 +394,30 @@ def create_app() -> FastAPI:
         app.add_middleware(APIKeyMiddleware, api_key=config.api_key)
         logger.info("API key auth enabled")
 
+    # Diagnostic (2026-06-29): pinpoint "database is locked" + slow handlers. A lock error only
+    # fires after the 5s busy_timeout, so the offending request shows up as a ~5s request to a
+    # specific endpoint — this logs the method+path+duration so the wide-transaction/contention
+    # source can be fixed precisely instead of guessed. Cheap (one monotonic clock per request).
+    @app.middleware("http")
+    async def _timing_and_lock_logger(request: Request, call_next):
+        import time as _t
+        start = _t.monotonic()
+        try:
+            response = await call_next(request)
+        except Exception as exc:  # noqa: BLE001 — log + re-raise, behavior unchanged
+            dur_ms = int((_t.monotonic() - start) * 1000)
+            if "database is locked" in str(exc).lower() or "locked" in str(exc).lower():
+                logger.error(f"DB-LOCK {request.method} {request.url.path} after {dur_ms}ms: {exc}")
+            else:
+                logger.error(f"REQ-ERROR {request.method} {request.url.path} after {dur_ms}ms: {type(exc).__name__}: {exc}")
+            raise
+        dur_ms = int((_t.monotonic() - start) * 1000)
+        if dur_ms >= 1000:
+            logger.warning(f"SLOW-REQ {request.method} {request.url.path} {dur_ms}ms status={response.status_code}")
+        if response.status_code >= 500:
+            logger.error(f"REQ-5XX {request.method} {request.url.path} {dur_ms}ms status={response.status_code}")
+        return response
+
     app.include_router(health.router)
     app.include_router(api_router, prefix="/api/v1")
     app.include_router(containers_router.router)
