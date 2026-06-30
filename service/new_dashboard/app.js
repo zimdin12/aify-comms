@@ -47,7 +47,7 @@ const state = {
   sessionTerminals: new Map(), // sessionId → most-recent terminalId seen for this session (cache prevents widget oscillation when the server clears runtime_state.virtualTerminalId mid-conversation per Bug #3 root cause)
   realtimeConnected: false,
   // Chat-first landing (Phase 1): conversation rail + timeline + composer state.
-  chat: { identity: 'dashboard', selected: '', view: 'messenger', filter: '', liveOnly: false, openOnly: false, workingUp: false, unreadOnly: false, scope: 'all', statusFilter: new Set(), sortMode: 'activity', channels: [], channelMessages: {}, analytics: { agent: '', data: null }, pulse: { window: 60, data: null, loading: false, lastMs: 0 }, drafts: {}, replyTo: null, msgFilter: '' },
+  chat: { identity: 'dashboard', selected: '', view: 'messenger', filter: '', liveOnly: false, openOnly: false, workingUp: false, unreadOnly: false, scope: 'all', statusFilter: new Set(), sortMode: 'activity', channels: [], channelMessages: {}, analytics: { agent: '', data: null }, pulse: { window: 60, data: null, loading: false, lastMs: 0 }, drafts: {}, replyTo: null, msgFilter: '', compact: false },
   selectedConversation: 'dashboard',
   selectedSessionId: '',
   selectedSessionTab: 'console', // Sessions = terminal-first (Console default); Activity is the read-only log
@@ -3929,7 +3929,7 @@ function persistChatPrefs() {
       liveOnly: state.chat.liveOnly, openOnly: state.chat.openOnly,
       workingUp: state.chat.workingUp, unreadOnly: state.chat.unreadOnly,
       scope: state.chat.scope, statusFilter: [...(state.chat.statusFilter || [])],
-      sortMode: state.chat.sortMode,
+      sortMode: state.chat.sortMode, compact: state.chat.compact,
     }));
   } catch { /* ignore */ }
 }
@@ -3941,6 +3941,8 @@ function syncChatChips() {
   const press = (el, on) => { el.classList.toggle('active', on); el.setAttribute('aria-pressed', on ? 'true' : 'false'); };
   document.querySelectorAll('[data-chat-scope]').forEach((el) => press(el, el.dataset.chatScope === (state.chat.scope || 'all')));
   document.querySelectorAll('[data-chat-toggle]').forEach((el) => press(el, !!state.chat[el.dataset.chatToggle]));
+  document.querySelectorAll('[data-chat-compact-toggle]').forEach((el) => press(el, !!state.chat.compact));
+  document.querySelector('.chat-shell')?.classList.toggle('compact', !!state.chat.compact);
   const sf = state.chat.statusFilter instanceof Set ? state.chat.statusFilter : new Set();
   document.querySelectorAll('[data-chat-status]').forEach((el) => press(el, sf.has(el.dataset.chatStatus)));
 }
@@ -3962,6 +3964,12 @@ byId('page-chat')?.addEventListener('click', (event) => {
     const key = toggleBtn.dataset.chatToggle;
     state.chat[key] = !state.chat[key];
     persistChatPrefs(); syncChatChips(); chatController.renderRail();
+    return;
+  }
+  const compactBtn = event.target.closest('[data-chat-compact-toggle]');
+  if (compactBtn) {
+    state.chat.compact = !state.chat.compact;
+    persistChatPrefs(); syncChatChips(); // syncChatChips toggles the .chat-shell.compact class
     return;
   }
   const statusBtn = event.target.closest('[data-chat-status]');
@@ -4085,6 +4093,7 @@ try {
   if (typeof p.scope === 'string') state.chat.scope = p.scope;
   if (Array.isArray(p.statusFilter)) state.chat.statusFilter = new Set(p.statusFilter);
   if (p.sortMode) state.chat.sortMode = p.sortMode;
+  state.chat.compact = !!p.compact;
   const so = byId('chat-sort'); if (so) so.value = state.chat.sortMode;
   syncChatChips();
 } catch { /* ignore */ }

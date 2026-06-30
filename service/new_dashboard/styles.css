@@ -1134,6 +1134,14 @@ small, .subtle { color: var(--muted); }
 .chat-rail-name { font-weight: 650; font-size: .88em; flex: 1; min-width: 0; }
 .chat-rail-hash { color: var(--muted); font-weight: 700; width: 9px; display: inline-block; text-align: center; }
 .chat-rail-preview { font-size: var(--fs-xs); color: var(--muted); }
+/* Compact list density (parity with old dashboard): denser rows, hide the sub-line, narrower rail. */
+.chat-shell.compact { grid-template-columns: minmax(200px, 252px) minmax(0, 1fr); }
+.chat-shell.compact .chat-rail-item { padding: 4px 8px; gap: 0; }
+.chat-shell.compact .chat-rail-preview { display: none; }
+.chat-shell.compact .chat-rail-name { font-size: .84em; }
+.chat-shell.compact .chat-rail-head { gap: 6px; }
+.chat-shell.compact .status-dot { width: 7px; height: 7px; }
+.chat-shell.compact .chat-rail-section { margin: 6px 8px 2px; }
 .chat-fav { color: var(--amber); font-size: .82em; }
 .chat-unread { background: var(--accent); color: #061615; font-weight: 800; font-size: .68em; border-radius: 999px; padding: 1px 6px; min-width: 18px; text-align: center; }
 .chat-conversation { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-card); overflow: hidden; }
