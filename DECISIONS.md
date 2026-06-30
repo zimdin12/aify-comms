@@ -66,6 +66,45 @@ active run (not idle volume) and governs steer/interrupt responsiveness. Activat
 bridge half needs an `install.sh` re-run + wrapper restart (the native-copy rule). Validate
 with a two-session live round-trip (see CLAUDE.md "Testing a change").
 
+## Console replay uses a server-rendered screen snapshot, not the raw byte log (2026-06-30)
+
+Managed-agent consoles scrambled (both dashboards, persisted across refresh). The service
+stores each PTY's **raw byte log** (trimmed to ~64KB) and the client replayed it into a fresh
+xterm. A full-screen TUI's byte stream (claude/codex Ink UIs) is meant to drive a LIVE screen
+at a FIXED size via cursor-positioning; replaying the accumulated log — which starts mid-screen
+after the trim, sometimes mid-escape — overlaps every historical draw into garbage, worse at a
+different width. Refresh re-replayed the same log, so it never recovered. (Hermes never had this:
+its TUI renders through the gateway's own correctly-sized renderer/iframe, not a replayed log.)
+
+**Fix (`service/terminal_snapshot.py`).** On attach/refresh the client passes its grid size;
+`GET /terminals/{id}?cols=&rows=` replays the raw log through a headless VT emulator (`pyte`)
+sized to that grid and returns a clean, self-contained ANSI paint of the CURRENT screen as
+`snapshot`. The dashboard writes that (after `term.reset()`) instead of the raw log; **live
+deltas still stream raw** to the client xterm. This also fixes the per-viewer size mismatch
+(each viewer renders at its own width) and the mid-escape trim corruption.
+
+**Why it's safe + performance-safe.** It runs ONLY on attach/refresh (a rare, bounded, one-shot
+parse over ≤64KB), never on the per-frame streaming path — so no per-frame cost. It is offloaded
+to a thread executor so the parse never blocks the single event loop. `pyte` is an OPTIONAL
+dependency: `render_snapshot` returns the raw log unchanged if the import fails or the parse
+throws, so the console can never break on it. Continuous server-side emulation (feeding every
+frame) was rejected — `pyte` is synchronous pure-Python and full-screen TUIs are high-byte-rate,
+so it would burn CPU and block the loop; lazy on-attach is both safe and sufficient.
+
+## Single dashboard: the new SPA is served at :8800; the monolith is retired (2026-06-30)
+
+There were two dashboards — the legacy monolith `service/dashboard.html` at `:8800` and the
+new ES-module SPA (`service/new_dashboard/`) at `:8801` — which meant every fix had to be made
+twice. They are now ONE: the service serves the new SPA at the canonical `:8800` origin (`/`
+serves the shell, `/assets/*` the bundle, mounted in `service/main.py`), **same-origin as the
+API so there is no CORS**. `service/new_dashboard/app.js` `resolveApiOrigin()` defaults to
+`:8800`, so the SPA targets the API correctly whether served from `:8800` or the standalone
+`:8801` container (which still serves the identical SPA). The legacy route `/api/v1/dashboard`
+307-redirects to `/` so old bookmarks land. `dashboard.html` is left in the tree (unused) and
+can be deleted later. **Do not re-add a second dashboard implementation** — fixes belong in the
+single SPA. (The earlier "8801 is a replacement preview reading through the 8800 API" guidance is
+superseded.)
+
 ## Status is proof-based: 6 states, no time-decay, no engine flag (2026-06-18)
 
 The status system was rewritten to be **PROVEN, not time-assumed** — the conclusion of many incremental patches that had accreted into a confusing 8-state model with multiple minute thresholds. The non-obvious choices, superseding the 2026-06-04/06-17 entry below:

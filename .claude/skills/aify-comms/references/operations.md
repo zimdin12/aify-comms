@@ -104,7 +104,7 @@ Never register the same `agentId` from two tabs. Re-registering the same ID supe
 - Muted live/session/handoff notices stay yellow but stop counting as active red issues.
 - Analytics has range selectors and separates historical counts from live capacity.
 - Settings is grouped into Appearance, Runtime, Work Loop, and Maintenance. Runtime includes managed model/effort defaults plus delivery toggles; Maintenance includes retention, presence thresholds, environment offline threshold, active-run stale cleanup windows, resident bridge lease, and worker auto-close.
-- The stable dashboard/API stays on `8800`. The replacement dashboard preview, when enabled by compose, is on `8801` and must read/write through the existing `8800` API rather than inventing duplicate message, run, session, or Work Loop state.
+- There is ONE dashboard: the SPA (`service/new_dashboard/`) is served at the canonical `8800` origin (same-origin as the API), and the standalone `8801` container serves the identical SPA. The legacy monolith `dashboard.html` is retired (`/api/v1/dashboard` redirects to `/`). All dashboard work goes in the single SPA — do not re-add a second implementation. See DECISIONS.md, "Single dashboard: the new SPA is served at :8800".
 - Chat Peek mode lets an operator watch without marking messages read.
 - Chat composer Queue is opt-in. A normal unchecked send follows ordinary live `comms_send` semantics; checking Queue sets `queueIfBusy=true`.
 - Chat Console attaches to the same managed PTY used for terminal-capable Messenger delivery. Hiding panes or opening Console should not change the identity mode to `cli-takeover`.
