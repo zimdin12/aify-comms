@@ -3006,6 +3006,22 @@ function mountConsoleTerminal(terminalId, output, canInput) {
     // streamConsoleDelta() owns ongoing output for this live xterm.
     if (raw) { try { term.write(raw); } catch {} }
     state.written = raw;
+    // Clean replay (2026-06-30): the raw paint above scrambles full-screen TUIs (the byte
+    // log isn't replayable). After mount, fetch a server-rendered screen snapshot sized to
+    // THIS xterm and repaint cleanly. Mirrors the new dashboard; falls back to the raw paint
+    // already done. Live deltas (streamConsoleDelta) continue from the seeded seq.
+    requestAnimationFrame(() => {
+      const cols = term.cols || 80, rows = term.rows || 24;
+      apiFetch(API + `/terminals/${encodeURIComponent(id)}?cols=${cols}&rows=${rows}`)
+        .then(r => r.json())
+        .then(d => {
+          const snap = d && d.terminal && d.terminal.snapshot;
+          if (snap && window._consoleTerms[id] === state) {
+            try { term.reset(); term.write(snap); state.written = snap; } catch {}
+          }
+        })
+        .catch(() => {});
+    });
   }
   state.canInput = !!canInput;
   // Re-entry (passive renderChat) must NOT re-diff/clear against the cached

@@ -3374,8 +3374,8 @@ function setPage(page) {
 }
 
 function updateStaticLinks() {
-  // (Legacy "Old dashboard" link removed 2026-06-30 — the monolith is retired; the SPA is
-  // now the single dashboard served at the API origin root.)
+  const legacy = byId('legacy-dashboard-link');
+  if (legacy) legacy.href = `${apiOrigin}/api/v1/dashboard`;
 }
 
 document.addEventListener('click', (event) => {

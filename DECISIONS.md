@@ -91,19 +91,17 @@ throws, so the console can never break on it. Continuous server-side emulation (
 frame) was rejected — `pyte` is synchronous pure-Python and full-screen TUIs are high-byte-rate,
 so it would burn CPU and block the loop; lazy on-attach is both safe and sufficient.
 
-## Single dashboard: the new SPA is served at :8800; the monolith is retired (2026-06-30)
+## Two dashboards stay live; shared fixes go server-side (2026-06-30)
 
-There were two dashboards — the legacy monolith `service/dashboard.html` at `:8800` and the
-new ES-module SPA (`service/new_dashboard/`) at `:8801` — which meant every fix had to be made
-twice. They are now ONE: the service serves the new SPA at the canonical `:8800` origin (`/`
-serves the shell, `/assets/*` the bundle, mounted in `service/main.py`), **same-origin as the
-API so there is no CORS**. `service/new_dashboard/app.js` `resolveApiOrigin()` defaults to
-`:8800`, so the SPA targets the API correctly whether served from `:8800` or the standalone
-`:8801` container (which still serves the identical SPA). The legacy route `/api/v1/dashboard`
-307-redirects to `/` so old bookmarks land. `dashboard.html` is left in the tree (unused) and
-can be deleted later. **Do not re-add a second dashboard implementation** — fixes belong in the
-single SPA. (The earlier "8801 is a replacement preview reading through the 8800 API" guidance is
-superseded.)
+Both dashboards are kept and both must work: the legacy monolith `service/dashboard.html` at
+`:8800` (served by the API; root redirects to `/api/v1/dashboard`) and the new ES-module SPA
+(`service/new_dashboard/`) at `:8801` (the `dashboard-next` container). A brief attempt to
+retire the monolith and serve the SPA at `:8800` was reverted — the goal was to fix the
+**console in both**, not to drop the old one. The way to "fix it once, both benefit" is to put
+the shared logic **server-side**: e.g. the console screen snapshot (next entry) lives in
+`GET /terminals/{id}` and BOTH dashboards consume it. Client-only changes still have to be made
+in both `dashboard.html` and `new_dashboard/`. Do not retire either dashboard without the
+operator asking.
 
 ## Status is proof-based: 6 states, no time-decay, no engine flag (2026-06-18)
 

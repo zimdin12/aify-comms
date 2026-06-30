@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Optional
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.routing import APIRoute
 from fastapi.exceptions import RequestValidationError
 
@@ -21220,10 +21220,11 @@ async def rotate(request: Request):
 
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard():
-    # Legacy route — the monolith dashboard.html is retired (2026-06-30). Send old
-    # bookmarks to the single SPA now served at the origin root. See DECISIONS.md
-    # "Single dashboard: the new SPA served at :8800".
-    return RedirectResponse(url="/", status_code=307)
+    html_path = Path(__file__).parent.parent / "dashboard.html"
+    return HTMLResponse(
+        html_path.read_text(encoding="utf-8"),
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
 
 
 @router.get("/dashboard/dispatches", response_class=HTMLResponse)
