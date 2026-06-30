@@ -58,32 +58,46 @@ class JsonApiRoute(APIRoute):
     def get_route_handler(self):
         original_handler = super().get_route_handler()
 
+        # Bounded retry on transient write-lock contention before surfacing a 503. busy_timeout
+        # already lets SQLite spin on the lock for a few seconds; under a heavy concurrent-write
+        # burst (e.g. many agents messaging during a test) a writer can still starve and raise
+        # "database is locked", which previously 503'd and poisoned callers/tests. A lock error is
+        # raised at BEGIN IMMEDIATE — before any commit — so re-running the handler is safe for the
+        # atomic single-transaction writes this service uses; FastAPI caches the request body, so the
+        # re-run re-reads it fine. Reads never take the write lock, so they never reach this path.
+        _LOCK_RETRY_BACKOFFS = (0.1, 0.25, 0.5)
+
         async def custom_route_handler(request: Request):
-            try:
-                return await original_handler(request)
-            except (HTTPException, RequestValidationError):
-                raise
-            except sqlite3.OperationalError as error:
-                message = str(error) or "database operation failed"
-                locked = "locked" in message.lower() or "busy" in message.lower()
-                status_code = 503 if locked else 500
-                logger.warning(
-                    "DB OperationalError on %s %s: %s", request.method, request.url.path, message
-                )
-                return JSONResponse(
-                    status_code=status_code,
-                    content={"ok": False, "error": f"Database temporarily unavailable: {message}"},
-                )
-            except Exception as error:
-                # Never silently swallow an unexpected error into a tidy 500 —
-                # that is exactly what makes production incidents undebuggable.
-                logger.exception(
-                    "Unhandled error on %s %s", request.method, request.url.path
-                )
-                return JSONResponse(
-                    status_code=500,
-                    content={"ok": False, "error": str(error) or error.__class__.__name__},
-                )
+            for attempt in range(len(_LOCK_RETRY_BACKOFFS) + 1):
+                try:
+                    return await original_handler(request)
+                except (HTTPException, RequestValidationError):
+                    raise
+                except sqlite3.OperationalError as error:
+                    message = str(error) or "database operation failed"
+                    locked = "locked" in message.lower() or "busy" in message.lower()
+                    if locked and attempt < len(_LOCK_RETRY_BACKOFFS):
+                        await asyncio.sleep(_LOCK_RETRY_BACKOFFS[attempt])
+                        continue  # the burst usually clears within a retry; absorb it, don't 503
+                    status_code = 503 if locked else 500
+                    logger.warning(
+                        "DB OperationalError on %s %s after %d attempt(s): %s",
+                        request.method, request.url.path, attempt + 1, message,
+                    )
+                    return JSONResponse(
+                        status_code=status_code,
+                        content={"ok": False, "error": f"Database temporarily unavailable: {message}"},
+                    )
+                except Exception as error:
+                    # Never silently swallow an unexpected error into a tidy 500 —
+                    # that is exactly what makes production incidents undebuggable.
+                    logger.exception(
+                        "Unhandled error on %s %s", request.method, request.url.path
+                    )
+                    return JSONResponse(
+                        status_code=500,
+                        content={"ok": False, "error": str(error) or error.__class__.__name__},
+                    )
 
         return custom_route_handler
 
