@@ -23,6 +23,9 @@ export function toast(message, tone = 'info', { timeout = 4200 } = {}) {
   // errors/warnings are assertive (announced immediately); info/ok are polite.
   el.setAttribute('role', (tone === 'error' || tone === 'warn') ? 'alert' : 'status');
   el.textContent = String(message ?? '');
+  // Cap the stack so a burst (WS reconnect loop, repeated save failures) can't push toasts
+  // off the top of the viewport — evict the oldest beyond 4.
+  while (host.children.length >= 4) host.firstElementChild?.remove();
   host.appendChild(el);
   requestAnimationFrame(() => el.classList.add('show'));
   let timer = null;

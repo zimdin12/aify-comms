@@ -81,7 +81,9 @@ export function chatConversationItems(state) {
   const live = new Set(['working', 'online', 'available', 'blocked']);
   if (liveOnly) items = items.filter((i) => i.kind === 'channel' || live.has(resolveStatus(i.status).kind));
   if (unreadOnly) items = items.filter((i) => i.unread > 0);
-  if (statusSet && statusSet.size) items = items.filter((i) => i.kind === 'channel' || statusSet.has(resolveStatus(i.status).kind) || i.unread > 0 || i.favorited);
+  // Status dots filter STRICTLY (a filter should narrow): channels are exempt (no agent status),
+  // but a DM only shows if its status is selected — no unread/favorited escape hatch.
+  if (statusSet && statusSet.size) items = items.filter((i) => i.kind === 'channel' || statusSet.has(resolveStatus(i.status).kind));
   if (openOnly) items = items.filter((i) => i.kind === 'channel' ? i.unread > 0 : i.msgCount > 0);
   if (filter) {
     // Global search (parity with old dashboard): match id/preview AND any loaded message body.

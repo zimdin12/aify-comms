@@ -1773,7 +1773,13 @@ function copyActiveConsole() {
   const entry = state.activeXterm;
   if (!entry || !entry.term) return;
   let text = '';
-  try { text = entry.term.hasSelection() ? entry.term.getSelection() : (entry.term.selectAll(), entry.term.getSelection()); } catch {}
+  let autoSelected = false;
+  try {
+    if (entry.term.hasSelection()) { text = entry.term.getSelection(); }
+    else { entry.term.selectAll(); autoSelected = true; text = entry.term.getSelection(); }
+  } catch {}
+  // Don't leave the whole buffer visually selected when we auto-selected to copy-all.
+  if (autoSelected) { try { entry.term.clearSelection(); } catch {} }
   copyText(text).then((ok) => toast(ok ? 'Console copied' : 'Copy failed', ok ? 'ok' : 'error'));
 }
 
