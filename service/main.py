@@ -450,12 +450,20 @@ def create_app() -> FastAPI:
         except WebSocketDisconnect:
             manager.disconnect(ws)
 
-    # Redirect root to dashboard
+    # Dashboard convergence (2026-06-30): the service now serves the NEW SPA at the
+    # canonical :8800 origin (same-origin as the API — no CORS) and the legacy monolith
+    # is retired. `/` serves the SPA shell; `/assets/*` serves its bundle. The standalone
+    # :8801 container still serves the same SPA, so the two are identical. See DECISIONS.md
+    # "Single dashboard: the new SPA served at :8800".
     from fastapi.responses import RedirectResponse
+    from fastapi.staticfiles import StaticFiles
+
+    _NEW_DASH_DIR = Path(__file__).resolve().parent / "new_dashboard"
+    app.mount("/assets", StaticFiles(directory=_NEW_DASH_DIR), name="dashboard-assets")
 
     @app.get("/", include_in_schema=False)
-    async def root_redirect():
-        return RedirectResponse(url="/api/v1/dashboard")
+    async def dashboard_root():
+        return FileResponse(_NEW_DASH_DIR / "index.html", media_type="text/html")
 
     @app.get("/favicon.svg", include_in_schema=False)
     async def favicon_svg():
