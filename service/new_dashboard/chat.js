@@ -436,10 +436,20 @@ export function createChatController(deps) {
   }
 
   async function open(key) {
+    const isChannel = key.startsWith('channel:');
+    // Sticky view across conversation switches (operator request): switching chats keeps the
+    // current mode for the NEW chat instead of snapping back to Messenger.
+    //  - Analytics: if viewing a per-agent Analytics panel and switching to another AGENT,
+    //    show that agent's analytics. (Channels have no per-agent analytics → fall through.)
+    if (state.chat.analytics.agent && !isChannel) {
+      state.chat.selected = key;
+      return openAnalytics(key);
+    }
     state.chat.analytics = { agent: '', data: null }; // leaving analytics view
-    if (key !== state.chat.selected) state.chat.view = 'messenger'; // new conversation → messenger
+    //  - Console/Messenger: keep state.chat.view as-is (no reset to 'messenger'). Console only
+    //    renders for agent DMs, so a channel naturally shows messages even when 'console' sticks.
     state.chat.selected = key;
-    if (key.startsWith('channel:')) {
+    if (isChannel) {
       const name = key.slice('channel:'.length);
       try { await loadConversation(name); } catch (_) { /* toast handled upstream */ }
     }
