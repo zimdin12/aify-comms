@@ -461,6 +461,31 @@ aify-comms              # aify-comms.cmd on native Windows</pre>
             </div>
           </div>
 
+          <div class="help-card help-legend">
+            <h3>Status legend</h3>
+            <p class="subtle">The six agent states (same dots used across Chat, Sessions, and Analytics).</p>
+            <ul class="legend-list">
+              <li><span class="status-dot working"></span><strong>working</strong> — live session, in an active turn right now.</li>
+              <li><span class="status-dot online"></span><strong>online</strong> — live session, idle between turns.</li>
+              <li><span class="status-dot available"></span><strong>available</strong> — no live session, but auto-starts on the next send.</li>
+              <li><span class="status-dot blocked"></span><strong>blocked</strong> — in a turn but waiting on input/approval.</li>
+              <li><span class="status-dot offline"></span><strong>offline</strong> — no live session and not auto-startable.</li>
+              <li><span class="status-dot stopped"></span><strong>stopped</strong> — explicitly disabled / hard-blocked.</li>
+            </ul>
+            <p class="subtle"><strong>Managed</strong> agents are run by a bridge (auto-start/stop, visible console). <strong>Resident</strong> agents are a terminal you drive directly.</p>
+          </div>
+
+          <div class="help-card help-daily">
+            <h3>Daily use</h3>
+            <ul class="help-tips">
+              <li><strong>Send vs Queue</strong> — a normal send delivers now (waking/auto-starting the target); "Queue if busy" defers it until the agent finishes its current turn.</li>
+              <li><strong>Expects reply</strong> — opens a tracked request (a contract). Open/overdue contracts surface on the Work page.</li>
+              <li><strong>Console vs Messenger</strong> — Console is the agent's live terminal; Messenger is the chat thread. Toggle per conversation.</li>
+              <li><strong>Compact vs Continue</strong> — Compact hands off into a fresh backing under the same agent ID; Continue-as starts a new agent from the current context.</li>
+              <li><strong>Stopping</strong> — Stop ends a managed session; the agent stays available and re-starts on the next send unless set to offline/stopped.</li>
+            </ul>
+          </div>
+
           <div class="help-card help-endpoints">
             <h3>Endpoint reference</h3>
             <p class="subtle">Base <code>/api/v1</code> unless noted. Spot-checked against the FastAPI router. Mostly for debugging integrations and tests — daily work happens in Chat, Sessions, Work Loop, and Environments.</p>

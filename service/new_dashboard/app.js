@@ -348,12 +348,23 @@ async function chatCreateChannel(name) {
 }
 async function chatChannelAction(action, name) {
   const identity = state.chat.identity;
-  if (action === 'join') await api(`/channels/${encodeURIComponent(name)}/join`, { method: 'POST', body: JSON.stringify({ agentId: identity }) });
-  else if (action === 'leave') await api(`/channels/${encodeURIComponent(name)}/leave`, { method: 'POST', body: JSON.stringify({ agentId: identity }) });
-  else if (action === 'read') await api(`/channels/${encodeURIComponent(name)}/read`, { method: 'POST', body: JSON.stringify({ agentId: identity }) });
-  await chatLoadChannels();
-  chatController.render();
-  toast(`${action === 'read' ? 'Marked read' : action === 'join' ? 'Joined' : 'Left'} #${name}`, 'ok');
+  try {
+    if (action === 'delete') {
+      if (!await uiConfirm(`Delete channel #${name}? This removes the channel and its membership for everyone.`)) return;
+      await api(`/channels/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      if (state.chat.selected === `channel:${name}`) chatController.close();
+      await chatLoadChannels();
+      chatController.render();
+      toast(`Deleted #${name}`, 'ok');
+      return;
+    }
+    if (action === 'join') await api(`/channels/${encodeURIComponent(name)}/join`, { method: 'POST', body: JSON.stringify({ agentId: identity }) });
+    else if (action === 'leave') await api(`/channels/${encodeURIComponent(name)}/leave`, { method: 'POST', body: JSON.stringify({ agentId: identity }) });
+    else if (action === 'read') await api(`/channels/${encodeURIComponent(name)}/read`, { method: 'POST', body: JSON.stringify({ agentId: identity }) });
+    await chatLoadChannels();
+    chatController.render();
+    toast(`${action === 'read' ? 'Marked read' : action === 'join' ? 'Joined' : 'Left'} #${name}`, 'ok');
+  } catch (err) { toast(`${action} failed: ${err?.message || err}`, 'error'); }
 }
 
 // I7: add/remove ANOTHER agent to/from a channel (join/leave take an agentId).

@@ -331,6 +331,7 @@ export function createChatController(deps) {
             ? `<button class="ghost" data-chat-channel-action="leave" data-channel="${esc(id)}">Leave</button>`
             : `<button class="ghost" data-chat-channel-action="join" data-channel="${esc(id)}">Join</button>`)
           + `<button class="ghost" data-chat-channel-action="read" data-channel="${esc(id)}">Mark read</button>`
+          + `<button class="ghost danger" data-chat-channel-action="delete" data-channel="${esc(id)}" title="Delete this channel">Delete</button>`
           + addControl;
         // Member chips with remove buttons below the action row.
         if (members.length) {

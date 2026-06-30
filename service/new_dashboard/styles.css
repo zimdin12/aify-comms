@@ -1345,6 +1345,12 @@ small, .subtle { color: var(--muted); }
 .help-tools-note { margin-top: 12px; }
 .help-tools-note a { color: var(--blue); text-decoration: none; }
 .help-tools-note a:hover { text-decoration: underline; }
+.legend-list, .help-tips { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 7px; }
+.legend-list li { display: flex; align-items: center; gap: 8px; font-size: .86em; color: var(--muted); }
+.legend-list li strong { color: var(--text); }
+.legend-list .status-dot { flex: 0 0 auto; }
+.help-tips li { font-size: .86em; color: var(--muted); line-height: 1.45; }
+.help-tips li strong { color: var(--soft); }
 @media (max-width: 720px) { .help-grid { grid-template-columns: 1fr; } }
 
 /* Appearance settings editor (WS-A) — theme tiles + color pickers. */
