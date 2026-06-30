@@ -57,7 +57,8 @@ half deployed before any bridge changed, with zero behaviour change for old brid
 
 **Bridge side (`AIFY_CLAIM_WAIT_MS`, default 20000; 0 disables).** Bridges send `waitMs` +
 a longer per-call HTTP timeout (must exceed the hold or the bridge aborts mid-hold and trips
-its failure counter; server caps the hold at `longpoll.MAX_WAIT_S`=30s). Two correctness
+its failure counter; server caps the hold at `longpoll.MAX_WAIT_S`=25s — kept BELOW the bridge's
+~28s claim HTTP timeout so the server always returns first, see the contention section below). Two correctness
 guards: (1) `runDispatchLoop` iterates its agents SEQUENTIALLY, so the dispatch claim
 long-polls ONLY on a single-agent bridge (`soloAgentBridge`) — a multi-agent env-bridge
 keeps short-poll so one idle agent can't delay the others; (2) only the first claim of each
@@ -65,6 +66,34 @@ drain-batch long-polls. `/dispatch/controls/claim` stays short-poll — it runs 
 active run (not idle volume) and governs steer/interrupt responsiveness. Activating the
 bridge half needs an `install.sh` re-run + wrapper restart (the native-copy rule). Validate
 with a two-session live round-trip (see CLAUDE.md "Testing a change").
+
+## Claim probes fast-fail; writes retry the lock before 503 (2026-07-01)
+
+Two contention behaviours, on two different paths, both keep transient SQLite write-lock
+contention from surfacing as an error.
+
+**Claim probes fail FAST (`6eb3263`).** Every connection has `busy_timeout=5000`, so a claim's
+`BEGIN IMMEDIATE` could block up to 5s waiting for the write lock. `longpoll()` only checks its
+wait deadline at the TOP of the loop, so a final per-iteration attempt started near the ~20s
+deadline could camp ~5s on the lock and push the whole request past the bridge's ~28s HTTP timeout
+("claim timed out after 28000ms", recovering next poll — observed on a busy host). Fix: claim
+probes are idempotent + retry-safe, so they open with a SHORT busy_timeout
+(`db.get_db(busy_timeout_ms=...)`, `SQLITE_CLAIM_BUSY_TIMEOUT_MS=1200`) — a contended attempt
+raises "locked" in ~1.2s → the existing `lock_result` empty shape (200) → retry next poll. Caps
+the long-poll's worst-case overshoot to ~1.2s past the deadline. `MAX_WAIT_S` was also lowered
+30→25 (below the 28s client timeout). Applies to all 5 claim `_*_once` fns.
+
+**Other writes RETRY before 503 (`d069f51`).** A non-claim write (notably `comms_send` during a
+heavy multi-agent burst) that can't grab the lock within `busy_timeout` raised "database is
+locked", which `JsonApiRoute` turned into a 503 (poisoning callers/tests). The route handler now
+retries on a lock/busy error (3 retries, 0.1/0.25/0.5s backoff) before surfacing 503. Safe because
+a lock error is raised at `BEGIN IMMEDIATE` — before any commit — so re-running the atomic
+single-transaction handlers doesn't double-write, and FastAPI caches the request body so the re-run
+re-reads it. Reads never take the write lock, so they never reach this path. A burst is absorbed by
+a retry; only a sustained overload past all retries still 503s (correct backpressure). NOT a
+write-queue — if sustained contention ever becomes real, serialize writes through one task
+(deliberate architecture change), don't bolt retries on top. **Both are server-side: a host running
+its own service must `git pull && docker compose up -d --build`.**
 
 ## Console replay uses a server-rendered screen snapshot, not the raw byte log (2026-06-30)
 

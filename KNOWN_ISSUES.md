@@ -1,6 +1,14 @@
 # Known Issues & Concerns — aify-comms
 
-Living list of known limitations, deferred work, and things to watch. Complements [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Last reviewed 2026-06-28.
+Living list of known limitations, deferred work, and things to watch. Complements [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Last reviewed 2026-07-01.
+
+## Open watch-items (2026-07-01 — teams benchmark + live-DB analysis)
+
+Plan + full analysis: [docs/superpowers/plans/2026-07-01-team-guidance-and-infra.md](docs/superpowers/plans/2026-07-01-team-guidance-and-infra.md).
+
+- **Bug D — `available` managed agent may NOT auto-start on send after a bridge restart (UNFIXED).** Benchmark + 13 live-DB mentions ("won't wake / stayed dormant / no live sidecar"): sending to an `available` managed agent after its bridge returned left it dormant (`/messages/send` → `dispatchRuns: []`), needing a manual `comms_spawn`. This contradicts the "available auto-starts on send" promise (SKILL.md, and the status table below). Likely a stale session/env binding after restart classifying the target as "no live wake path." Needs a live repro (held off — disruptive to active teams). Until fixed: if a warm/available agent stays dormant after a bridge restart, **Restart it** (don't rely on send-to-wake).
+- **Stranded reply-capture — ~50 require-reply runs finished with no `result_message_id` (PARTIALLY UNFIXED).** Live-DB: 50 `dispatch_runs` with `require_reply=1`, terminal status, empty `result_message_id`; split EXACTLY 25/25: (a) **25 LINKAGE** — a reply message with matching `in_reply_to` EXISTS but the run was never closed (a reconcile sweep that sets `result_message_id` from the matching reply fixes these + future ones); (b) **25 SILENT** — no reply at all (turn ended without `comms_send`; the `managed_reply_capture_fallback` should mirror these — verify it fires). Mostly hermes (33), spread 2026-06-02→06-30 (steady drip, not one incident).
+- **Channels underused (process, not a bug).** Live-DB: channels were ~2% of traffic (31 channel vs 1624 DM in 7d); shared decisions fragment into DMs. Addressed in guidance (`references/building-software.md` + teamwork.md "freeze the seams on a channel").
 
 ## Whole-project deep audit (2026-06-28, 8 adversarial subagents — status/dispatch/persistence/bridges/usage/security/API/docs)
 
