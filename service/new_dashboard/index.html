@@ -270,13 +270,18 @@
           <button class="ghost" data-maint-action="repair-reads" title="Mark old dispatched source messages read when a run already claimed/handled them">Repair delivered reads</button>
           <button class="ghost" data-maint-action="repair-handoffs" title="Create fallback chat replies for terminal runs that never recorded a handoff">Repair handoffs</button>
         </div>
-        <section class="split diagnostics-grid">
-          <div class="band">
+        <div class="segmented work-view-toggle" role="group" aria-label="Work view">
+          <button type="button" class="active" data-work-view="all">Both</button>
+          <button type="button" data-work-view="work">Work Loop</button>
+          <button type="button" data-work-view="runs">Runs</button>
+        </div>
+        <section class="split diagnostics-grid" data-work-view="all">
+          <div class="band" data-work-pane="work">
             <div class="section-head">
               <h2>Work Loop</h2>
               <button id="send-reminders" class="ghost" title="Runs existing due-reminder endpoint">Send due reminders</button>
             </div>
-            <div class="toolbar">
+            <div class="toolbar runs-toolbar">
               <label><span class="subtle">State</span>
                 <select id="contract-state">
                   <option value="all">All states</option>
@@ -302,7 +307,7 @@
             </div>
             <div id="contract-list" class="contract-list"></div>
           </div>
-          <div class="band">
+          <div class="band" data-work-pane="runs">
             <div class="section-head">
               <h2>Runs</h2>
               <span id="run-result-note" class="subtle">Showing most recent runs.</span>

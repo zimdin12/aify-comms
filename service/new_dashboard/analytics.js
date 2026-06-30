@@ -98,7 +98,9 @@ export function trafficChartHtml(data = {}, range = 'hour') {
   const innerW = w - padX * 2;
   const innerH = h - padTop - padBottom;
   const points = counts.map((count, i) => {
-    const x = padX + (counts.length <= 1 ? innerW : (i / (counts.length - 1)) * innerW);
+    // Center each point over its bar (band model) so the line/dots align with the bars,
+    // instead of the old edge-to-edge (i/(n-1)) geometry that drifted off the columns.
+    const x = padX + (i + 0.5) * (innerW / Math.max(1, counts.length));
     const y = padTop + innerH - (count / max) * innerH;
     return { x, y, count, item: items[i] };
   });
@@ -202,7 +204,9 @@ export function dispatchOutcomesHtml(data = {}) {
   const max = Math.max(1, ...days.map((d) => Number(d.completed || 0) + Number(d.failed || 0)));
   return `<div class="outcome-chart">` + days.map((d) => {
     const comp = Number(d.completed || 0); const fail = Number(d.failed || 0); const tot = comp + fail;
-    const ch = Math.round((comp / max) * 100); const fh = Math.round((fail / max) * 100);
+    // Floor nonzero values at a visible 2% so a real run never renders as an invisible 0-height bar.
+    const ch = comp ? Math.max(2, Math.round((comp / max) * 100)) : 0;
+    const fh = fail ? Math.max(2, Math.round((fail / max) * 100)) : 0;
     return `<span class="outcome-col" title="${esc(String(d.date || '').slice(5))}: ${comp} completed · ${fail} failed">`
       + `<span class="outcome-stack">`
       + `<span class="outcome-fail" style="height:${fh}%"></span>`

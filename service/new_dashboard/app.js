@@ -270,7 +270,7 @@ function renderFiles() {
       <div class="file-main">
         <strong class="clip">${esc(f.name)}</strong>
         <p class="preview">${esc(f.description || '')}</p>
-        <small>${esc(f.from || 'unknown')} · ${esc(fileSizeLabel(f.size))} · ${esc(relTime(f.sharedAt))} ago</small>
+        <small>${esc(f.from || 'unknown')} · ${esc(fileSizeLabel(f.size))}${f.sharedAt ? ' · ' + esc(relTime(f.sharedAt)) + ' ago' : ''}</small>
       </div>
       <div class="file-actions">
         <a class="ghost" href="${apiBase}/shared/${encodeURIComponent(f.name)}" target="_blank" rel="noreferrer">Download</a>
@@ -1712,11 +1712,17 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
 
   // Replay existing buffered output so the operator sees history when they open the Console
   // pane mid-session (instead of waiting for the next byte to arrive).
+  // Fit FIRST (next frame, after layout settles + with min-width:0 ancestors so fit() measures
+  // the VISIBLE pane, not an overflowing one), THEN fetch the snapshot at the settled cols/rows.
+  // Fetching before the fit settled rendered the snapshot too wide ("tries to compensate").
+  await new Promise((r) => requestAnimationFrame(r));
+  if (fitAddon) { try { fitAddon.fit(); } catch {} }
   try {
-    // Pass our grid size so the server renders a CLEAN current-screen snapshot (via the
+    // Pass our (settled) grid size so the server renders a CLEAN current-screen snapshot (via the
     // headless VT emulator) instead of the raw byte log — replaying the raw log scrambles
     // full-screen TUIs. Prefer `snapshot`; fall back to raw `output` (e.g. pyte absent).
-    const data = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${term.cols}&rows=${term.rows}`);
+    const cols = Math.max(20, term.cols || 80), rows = Math.max(5, term.rows || 24);
+    const data = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${cols}&rows=${rows}`);
     const snapshot = data?.terminal?.snapshot;
     const output = data?.terminal?.output;
     if (snapshot) term.write(String(snapshot));
@@ -1726,9 +1732,6 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
     if (state.activeXterm) state.activeXterm.lastSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? state.activeXterm.lastSeq);
   } catch (err) {
     term.write(`\r\n\x1b[2m[history fetch failed: ${String(err?.message || err).replace(/\x1b/g, '')}]\x1b[0m\r\n`);
-  }
-  if (fitAddon) {
-    try { fitAddon.fit(); } catch {}
   }
   term.focus();
 }
@@ -2240,7 +2243,7 @@ function contractCategory(c) {
   return String(c.category || c.kind || (c.channel ? 'channel' : c.selfWake || c.self_wake ? 'self_wake' : 'direct')).toLowerCase();
 }
 function renderContracts() {
-  const selected = byId('contract-state').value || 'open';
+  const selected = byId('contract-state')?.value || 'open';
   const category = byId('contract-category')?.value || '';
   const contracts = filtered(state.contracts, ['subject', 'preview', 'from', 'targetAgentId'])
     .filter((contract) => selected === 'all' ? true
@@ -2315,7 +2318,7 @@ function renderRuntime() {
         ${environmentRoots(env).slice(0, 4).map((root) => `<code>${esc(root)}</code>`).join('') || '<span class="subtle">No workspace roots advertised</span>'}
       </div>
       <div class="contract-actions">
-        <button class="ghost" data-env-spawn="${esc(env.id)}">Spawn here</button>
+        ${resolveStatus(env.status).kind === 'offline' ? '' : `<button class="ghost" data-env-spawn="${esc(env.id)}">Spawn here</button>`}
         <button class="ghost" data-env-roots="${esc(env.id)}" title="Edit the workspace roots agents may be spawned into">Edit roots…</button>
         ${resolveStatus(env.status).kind === 'offline'
           ? `<button class="ghost danger" data-env-control="forget" data-env-id="${esc(env.id)}" title="Hide this offline environment (identities/chats/records remain)">Forget</button>`
@@ -3486,6 +3489,15 @@ document.addEventListener('click', (event) => {
     }
     return;
   }
+  const workView = event.target.closest('[data-work-view]');
+  if (workView) {
+    const v = workView.dataset.workView;
+    const grid = document.querySelector('.diagnostics-grid');
+    if (grid) grid.setAttribute('data-work-view', v);
+    document.querySelectorAll('[data-work-view]').forEach((b) => b.classList.toggle('active', b.dataset.workView === v));
+    try { localStorage.setItem('aifyWorkView', v); } catch { /* private mode */ }
+    return;
+  }
   const chatAnalytics = event.target.closest('[data-chat-analytics]');
   if (chatAnalytics) {
     chatController.openAnalytics(chatAnalytics.dataset.chatAnalytics);
@@ -3782,9 +3794,9 @@ document.addEventListener('toggle', (event) => {
   const grp = event.target.closest?.('[data-env-group]');
   if (grp) toggleSessionGroupCollapsed(grp.dataset.envGroup, !grp.open);
 }, true);
-byId('contract-state').addEventListener('change', (event) => loadContractsForState(event.target.value));
+byId('contract-state')?.addEventListener('change', (event) => loadContractsForState(event.target.value));
 byId('contract-category')?.addEventListener('change', renderContracts);
-byId('run-status-filter').addEventListener('change', async (event) => {
+byId('run-status-filter')?.addEventListener('change', async (event) => {
   byId('api-status').textContent = 'filtering';
   byId('api-status').className = 'status-chip muted';
   try {
@@ -3813,7 +3825,7 @@ byId('environment-spawn-form')?.addEventListener('submit', async (event) => {
     toast(`Spawn request failed: ${error?.message || error}`, 'error');
   }
 });
-byId('send-reminders').addEventListener('click', async () => {
+byId('send-reminders')?.addEventListener('click', async () => {
   if (!await uiConfirm('Send due reminders now? This pings agents with overdue work.', { confirmLabel: 'Send reminders' })) return;
   try {
     const result = await api('/contracts/reminders/run', { method: 'POST' });
@@ -4057,6 +4069,15 @@ loadVersionBadge();
 setPage('chat'); // chat-first landing: sync the page title/subtitle with the default page
 updateStaticLinks();
 setNavCollapsed(preferredNavCollapsed());
+// Restore the saved Work page view (Both / Work Loop / Runs) — survives reloads.
+try {
+  const wv = localStorage.getItem('aifyWorkView');
+  if (wv && wv !== 'all') {
+    document.querySelector('.diagnostics-grid')?.setAttribute('data-work-view', wv);
+    document.querySelectorAll('[data-work-view]').forEach((b) => b.classList.toggle('active', b.dataset.workView === wv));
+  }
+} catch { /* private mode */ }
+
 connectRealtimeSocket();
 refresh();
 // Poll fallback interval, honoring the `dashboard_refresh_seconds` setting (was hardcoded

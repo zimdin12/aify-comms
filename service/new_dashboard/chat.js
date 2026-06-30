@@ -156,7 +156,9 @@ function messageHtml(m, identity = 'dashboard', isChannel = false) {
   const reply = !isChannel ? `<button class="chat-msg-reply" data-chat-reply="${esc(id)}" title="Reply to this message">Reply</button>` : '';
   const readToggle = (!mine && !isChannel) ? `<button class="chat-msg-act" data-msg-read="${esc(id)}" data-read="${m.read === false ? '0' : '1'}" title="Mark ${m.read === false ? 'read' : 'unread'}">${m.read === false ? 'Mark read' : 'Unread'}</button>` : '';
   const unsendBtn = (mine && !isChannel) ? `<button class="chat-msg-act danger" data-msg-unsend="${esc(id)}" title="Unsend this message">Unsend</button>` : '';
-  const actions = `${runChip}${reply}${readToggle}${unsendBtn}<button class="chat-msg-detail" data-message-detail="${esc(id)}" aria-label="Message details" title="Message details">⋯</button>`;
+  // The ⋯ detail lookup only searches the DM store, so it's dead on channel rows — DMs only.
+  const detail = !isChannel ? `<button class="chat-msg-detail" data-message-detail="${esc(id)}" aria-label="Message details" title="Message details">⋯</button>` : '';
+  const actions = `${runChip}${reply}${readToggle}${unsendBtn}${detail}`;
   return `<article class="chat-msg${mine ? ' chat-msg-mine' : ''}" data-kind="message" data-id="${esc(id)}" id="chat-msg-${esc(id)}">
     <div class="chat-msg-head"><strong>${esc(m.from || 'unknown')}</strong>
       <span class="chat-msg-badges">${badges}${actions}</span>
