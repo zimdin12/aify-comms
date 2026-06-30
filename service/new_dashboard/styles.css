@@ -502,6 +502,9 @@ small, .subtle { color: var(--muted); }
 .runtime-grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-items: stretch; }
 /* Env cards: equal height with the action row pinned to the bottom so side-by-side cards line
    up regardless of how many actions they have (QA E4). */
+/* Consistent section rhythm: the env-card grid had 7px between cards and 0 before the spawn-requests
+   band (it touched). Match the 12px gap the other sections use. */
+#environment-list { gap: 12px; margin-bottom: 12px; }
 #environment-list .runtime-card { display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; }
 #environment-list .runtime-card .contract-actions { margin-top: auto; padding-top: 4px; }
 /* Spawn button gets its own right-aligned row so the form has no ragged last row (QA E1). */

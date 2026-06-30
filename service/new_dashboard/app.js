@@ -1734,7 +1734,20 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
   // Re-fit on container/window resize so the terminal tracks the pane size.
   let resizeObserver = null;
   if (window.ResizeObserver && fitAddon) {
-    resizeObserver = new ResizeObserver(() => { try { fitAddon.fit(); } catch {} });
+    let resyncTimer = null;
+    resizeObserver = new ResizeObserver(() => {
+      try { fitAddon.fit(); } catch {}
+      // The snapshot was server-rendered at a fixed column count. If a late layout settle (page
+      // switch / flex-fill) changes the column count after that, the rendered snapshot is now the
+      // wrong width ("narrow and bugged"). Re-fetch + repaint at the new size, debounced, so the
+      // console self-heals instead of staying stuck at the mount-time width.
+      const entry = state.activeXterm;
+      if (entry && entry.term && entry.term.cols !== entry.renderedCols) {
+        entry.renderedCols = entry.term.cols;
+        clearTimeout(resyncTimer);
+        resyncTimer = setTimeout(() => { resyncActiveConsole(); }, 220);
+      }
+    });
     try { resizeObserver.observe(container); } catch {}
   }
 
@@ -1745,13 +1758,16 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
   // Fit FIRST (next frame, after layout settles + with min-width:0 ancestors so fit() measures
   // the VISIBLE pane, not an overflowing one), THEN fetch the snapshot at the settled cols/rows.
   // Fetching before the fit settled rendered the snapshot too wide ("tries to compensate").
-  await new Promise((r) => requestAnimationFrame(r));
+  // Double rAF: one frame to apply layout, a second so the flex-fill width is final before fit()
+  // measures cols (a single frame can still read a transient narrow width on a fresh page switch).
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   if (fitAddon) { try { fitAddon.fit(); } catch {} }
   try {
     // Pass our (settled) grid size so the server renders a CLEAN current-screen snapshot (via the
     // headless VT emulator) instead of the raw byte log — replaying the raw log scrambles
     // full-screen TUIs. Prefer `snapshot`; fall back to raw `output` (e.g. pyte absent).
     const cols = Math.max(20, term.cols || 80), rows = Math.max(5, term.rows || 24);
+    if (state.activeXterm) state.activeXterm.renderedCols = term.cols;
     const data = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${cols}&rows=${rows}`);
     const snapshot = data?.terminal?.snapshot;
     const output = data?.terminal?.output;
@@ -1779,6 +1795,7 @@ async function resyncActiveConsole() {
     const snapshot = data?.terminal?.snapshot;
     entry.term.write(String(snapshot || data?.terminal?.output || ''));
     entry.lastSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? entry.lastSeq);
+    entry.renderedCols = entry.term.cols;
   } catch { /* keep current buffer */ }
 }
 
