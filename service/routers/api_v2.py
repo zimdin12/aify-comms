@@ -25,7 +25,7 @@ from fastapi.exceptions import RequestValidationError
 _listen_events: dict[str, asyncio.Event] = {}
 
 from pydantic import BaseModel
-from service.db import get_db
+from service.db import get_db, SQLITE_CLAIM_BUSY_TIMEOUT_MS
 from service import longpoll
 from service.terminal_snapshot import render_snapshot as _render_terminal_snapshot
 from service.status_engine import apply_event, derive, StatusInputs, VALID_STATUSES
@@ -9985,7 +9985,7 @@ async def claim_environment_control(req: EnvironmentControlClaim):
 
 
 async def _claim_environment_control_once(req: EnvironmentControlClaim):
-    db = await get_db()
+    db = await get_db(busy_timeout_ms=SQLITE_CLAIM_BUSY_TIMEOUT_MS)
     try:
         row = None
         while True:
@@ -10205,7 +10205,7 @@ async def claim_spawn_request(req: SpawnRequestClaim, request: Request):
 
 
 async def _claim_spawn_request_once(req: SpawnRequestClaim, request: Request):
-    db = await get_db()
+    db = await get_db(busy_timeout_ms=SQLITE_CLAIM_BUSY_TIMEOUT_MS)
     try:
         await db.execute("BEGIN IMMEDIATE")
         env_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (req.environmentId,))
@@ -11756,7 +11756,7 @@ async def claim_terminal_controls(req: TerminalControlClaim):
 
 
 async def _claim_terminal_controls_once(req: TerminalControlClaim):
-    db = await get_db()
+    db = await get_db(busy_timeout_ms=SQLITE_CLAIM_BUSY_TIMEOUT_MS)
     try:
         now = _now()
         cursor = await db.execute(
@@ -16839,7 +16839,7 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
 
 
 async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
-    db = await get_db()
+    db = await get_db(busy_timeout_ms=SQLITE_CLAIM_BUSY_TIMEOUT_MS)
     try:
         await db.execute("BEGIN IMMEDIATE")
         # Plan 5 (2026-05-25): settings is needed below for the
@@ -19446,7 +19446,7 @@ async def claim_dispatch_controls(req: DispatchControlClaimRequest, request: Req
 
 
 async def _claim_dispatch_controls_once(req: DispatchControlClaimRequest, request: Request):
-    db = await get_db()
+    db = await get_db(busy_timeout_ms=SQLITE_CLAIM_BUSY_TIMEOUT_MS)
     try:
         await db.execute("BEGIN IMMEDIATE")
         cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (req.agentId,))

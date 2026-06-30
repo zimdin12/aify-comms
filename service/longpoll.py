@@ -49,8 +49,11 @@ _waiters: dict[str, set[asyncio.Future]] = defaultdict(set)
 DEFAULT_FALLBACK_S = 3.0
 
 # Hard ceiling on how long the server will hold a single long-poll request open,
-# regardless of the client-requested wait. Keeps connections recycling.
-MAX_WAIT_S = 30.0
+# regardless of the client-requested wait. Kept safely BELOW the bridge's HTTP claim timeout
+# (~28s) so the server always returns first — otherwise a high waitMs could hold the connection
+# past the client deadline and surface as a spurious "claim timed out" on the bridge. Pairs with
+# the short claim busy_timeout so the final per-iteration attempt can't overshoot this by >~1.2s.
+MAX_WAIT_S = 25.0
 
 # Wildcard scope: a waiter on "*" wakes on every notify; a notify("*") wakes everyone.
 GLOBAL_SCOPE = "*"

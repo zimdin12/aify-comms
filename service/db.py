@@ -8,13 +8,21 @@ from pathlib import Path
 
 SQLITE_BUSY_TIMEOUT_MS = 5000
 
+# Claim probes (BEGIN IMMEDIATE "is there work for me?") are idempotent and retry-safe: under
+# write contention they should fail fast and report "nothing claimed this round" rather than camp
+# on the write lock for the full 5s. Without this, a long-poll's final attempt near the wait
+# deadline could block ~5s on the lock and push the whole request past the bridge's ~28s HTTP
+# timeout (observed on a busy host). A short claim timeout caps that overshoot to well under a
+# second AND reduces overall write-lock contention. (2026-07-01)
+SQLITE_CLAIM_BUSY_TIMEOUT_MS = 1200
 
-async def _apply_connection_pragmas(db: aiosqlite.Connection) -> None:
+
+async def _apply_connection_pragmas(db: aiosqlite.Connection, busy_timeout_ms: int = SQLITE_BUSY_TIMEOUT_MS) -> None:
     # One round-trip: get_db() runs this on every per-request connection, so on
     # the high-frequency terminal-output path three separate execute() calls
     # were three extra round-trips per chunk.
     await db.executescript(
-        f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS};"
+        f"PRAGMA busy_timeout={busy_timeout_ms};"
         "PRAGMA synchronous=NORMAL;"
         "PRAGMA foreign_keys=ON;"
         # Cap the -wal file SQLite leaves behind after a checkpoint truncates it.
@@ -690,11 +698,11 @@ async def init_db(db_path: Path = None):
         await _backfill_native_managed_capability(db)
         await db.commit()
 
-async def get_db() -> aiosqlite.Connection:
+async def get_db(busy_timeout_ms: int = SQLITE_BUSY_TIMEOUT_MS) -> aiosqlite.Connection:
     db = await aiosqlite.connect(_db_path)
     db.row_factory = aiosqlite.Row
     try:
-        await _apply_connection_pragmas(db)
+        await _apply_connection_pragmas(db, busy_timeout_ms)
     except BaseException:
         await db.close()
         raise
