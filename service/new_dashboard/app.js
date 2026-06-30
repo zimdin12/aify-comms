@@ -1090,9 +1090,11 @@ function renderAnalyticsPage() {
   const rangeHost = byId('analytics-range');
   if (rangeHost) rangeHost.innerHTML = rangeSelectorHtml(state.analytics.range);
   if (!data) {
+    // One coherent page-level empty state instead of a message + 6 stale/blank panels below it.
     kpiHost.innerHTML = '';
     const traffic = byId('analytics-traffic');
-    if (traffic) traffic.innerHTML = `<p class="em">${state.analytics.loading ? 'Loading analytics…' : 'Open to load analytics.'}</p>`;
+    if (traffic) traffic.innerHTML = `<p class="em">${state.analytics.loading ? 'Loading analytics…' : 'No analytics yet — open the page to load fleet metrics.'}</p>`;
+    ['analytics-outcomes', 'analytics-leaderboard', 'analytics-channels', 'analytics-health', 'analytics-runs', 'analytics-failures'].forEach((id) => { const el = byId(id); if (el) el.innerHTML = ''; });
     return;
   }
   kpiHost.innerHTML = opsKpisHtml(data) + statCardsHtml(data);
@@ -1112,8 +1114,9 @@ function renderAnalyticsPage() {
   if (failures) failures.innerHTML = failureReasonsHtml(data);
 }
 
-function metric(label, value, tone = 'neutral') {
-  return `<div class="metric" data-tone="${esc(tone)}"><b>${esc(value)}</b><span>${esc(label)}</span></div>`;
+function metric(label, value, tone = 'neutral', attrs = '') {
+  // attrs is caller-provided raw HTML attributes (e.g. a data-* jump target), never user input.
+  return `<div class="metric${attrs ? ' metric-clickable' : ''}" data-tone="${esc(tone)}"${attrs}><b>${esc(value)}</b><span>${esc(label)}</span></div>`;
 }
 
 function renderMetrics() {
@@ -1213,11 +1216,13 @@ function renderDiagnosticsSummary() {
   const overdue = baseContracts.filter((contract) => contract.overdue).length;
   const activeRuns = (Number(runsByStatus.claimed) || 0) + (Number(runsByStatus.running) || 0);
   const failedRuns = Number(state.stats?.run_failures_24h) || 0;
+  // Tiles are triage shortcuts: clicking jumps to the matching Work-Loop/Runs filter.
+  const jump = (t) => ` data-diag-jump="${t}" role="button" tabindex="0" title="Filter to ${esc(t.replace('run:', ''))}"`;
   target.innerHTML = [
-    metric('Open work', openWork, openWork ? 'warn' : 'neutral'),
-    metric('Overdue', overdue, overdue ? 'bad' : 'neutral'),
-    metric('Active runs', activeRuns, activeRuns ? 'working' : 'neutral'),
-    metric('Failed recent', failedRuns, failedRuns ? 'bad' : 'neutral'),
+    metric('Open work', openWork, openWork ? 'warn' : 'neutral', jump('open')),
+    metric('Overdue', overdue, overdue ? 'bad' : 'neutral', jump('overdue')),
+    metric('Active runs', activeRuns, activeRuns ? 'working' : 'neutral', jump('run:running')),
+    metric('Failed recent', failedRuns, failedRuns ? 'bad' : 'neutral', jump('run:failed')),
   ].join('');
 }
 
@@ -1485,9 +1490,17 @@ function renderSessionStatusFilter() {
     + `<button type="button" class="filter-preset" data-session-status-preset="none">None</button>`
     + `<button type="button" class="filter-preset" data-session-status-preset="live">Live</button>`
     + `</span>`;
-  host.innerHTML = presets + SESSION_FILTER_KINDS.map((k) =>
+  const chips = SESSION_FILTER_KINDS.map((k) =>
     `<button type="button" class="session-filter-chip${state.sessionStatusFilter.has(k) ? ' active' : ''}" data-session-status-filter="${k}" aria-pressed="${state.sessionStatusFilter.has(k) ? 'true' : 'false'}">${k}</button>`
   ).join('');
+  // "N hidden" so a filtered-empty rail reads as filtered, not "no sessions."
+  let hiddenNote = '';
+  const filter = state.sessionStatusFilter;
+  if (filter && filter.size) {
+    const hidden = state.sessions.filter((s) => !filter.has(resolveStatus(s.status || agentForSession(s).status || 'unknown').kind)).length;
+    if (hidden) hiddenNote = `<span class="filter-hidden-note">${hidden} hidden by filter</span>`;
+  }
+  host.innerHTML = presets + chips + hiddenNote;
 }
 
 function persistSessionStatusFilter() {
@@ -2370,13 +2383,13 @@ function renderRuntime() {
       <div class="item-title"><strong>${esc(env.label || env.id)}</strong>${renderStatusChip(env.status, statusWhyContext('environment', env, env.status))}</div>
       <p class="preview">${esc(env.kind || env.os || '')} · ${esc(env.machineId || env.machine_id || '')}</p>
       <div class="env-runtime-list">
-        ${environmentRuntimes(env).map((runtime) => `<span class="env-runtime-pill${runtime.available === false ? ' unavailable' : ''}">${esc(runtime.runtime)}${runtime.available === false ? ' off' : ''}</span>`).join('') || '<span class="env-runtime-pill unavailable">no runtimes</span>'}
+        ${environmentRuntimes(env).map((runtime) => `<span class="env-runtime-pill${runtime.available === false ? ' unavailable' : ''}">${esc(runtime.runtime)}${runtime.available === false ? ' (unavailable)' : ''}</span>`).join('') || '<span class="env-runtime-pill unavailable">no runtimes</span>'}
       </div>
       <div class="env-root-list">
-        ${environmentRoots(env).slice(0, 4).map((root) => `<code>${esc(root)}</code>`).join('') || '<span class="subtle">No workspace roots advertised</span>'}
+        ${(() => { const roots = environmentRoots(env); const shown = roots.slice(0, 4).map((root) => `<code>${esc(root)}</code>`).join(''); const more = roots.length > 4 ? `<span class="subtle">+${roots.length - 4} more</span>` : ''; return (shown + more) || '<span class="subtle">No workspace roots advertised</span>'; })()}
       </div>
       <div class="contract-actions">
-        ${resolveStatus(env.status).kind === 'offline' ? '' : `<button class="ghost" data-env-spawn="${esc(env.id)}">Spawn here</button>`}
+        ${resolveStatus(env.status).kind === 'offline' ? '' : `<button class="ghost" data-env-spawn="${esc(env.id)}" title="Open the spawn form prefilled for this environment">Spawn here…</button>`}
         <button class="ghost" data-env-roots="${esc(env.id)}" title="Edit the workspace roots agents may be spawned into">Edit roots…</button>
         ${resolveStatus(env.status).kind === 'offline'
           ? `<button class="ghost danger" data-env-control="forget" data-env-id="${esc(env.id)}" title="Hide this offline environment (identities/chats/records remain)">Forget</button>`
@@ -3564,6 +3577,16 @@ document.addEventListener('click', (event) => {
     try { localStorage.setItem('aifyWorkView', v); } catch { /* private mode */ }
     return;
   }
+  const diagJump = event.target.closest('[data-diag-jump]');
+  if (diagJump) {
+    const v = diagJump.dataset.diagJump || '';
+    if (v.startsWith('run:')) {
+      const sel = byId('run-status-filter'); if (sel) { sel.value = v.slice(4); sel.dispatchEvent(new Event('change', { bubbles: true })); }
+    } else {
+      const sel = byId('contract-state'); if (sel) { sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); }
+    }
+    return;
+  }
   const chatAnalytics = event.target.closest('[data-chat-analytics]');
   if (chatAnalytics) {
     chatController.openAnalytics(chatAnalytics.dataset.chatAnalytics);
@@ -4175,6 +4198,12 @@ byId('attention-collapse')?.addEventListener('click', () => {
 byId('open-classic-settings')?.addEventListener('click', () => openClassic('settings'));
 byId('settings-save')?.addEventListener('click', () => {
   saveSettings().catch((err) => toast(`Save failed: ${err?.message || err}`, 'error'));
+});
+byId('settings-reset')?.addEventListener('click', () => {
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); // clear the edit-guard
+  applyTheme(state.settings); // undo any live appearance preview
+  renderSettings();           // repaint inputs from the last-saved settings
+  toast('Reverted unsaved changes', 'ok');
 });
 // Live-preview Appearance edits (theme select, color pickers, title) without saving.
 byId('settings-form')?.addEventListener('input', (event) => {

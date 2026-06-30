@@ -281,6 +281,9 @@ small, .subtle { color: var(--muted); }
 .metric[data-tone="queued"] { border-left-color: var(--violet); }
 .metric b { display: block; font-size: 22px; line-height: 1; }
 .metric span { display: block; color: var(--muted); margin-top: 7px; }
+/* Clickable summary tiles (Work triage shortcuts) get a pointer + hover affordance. */
+.metric-clickable { cursor: pointer; }
+.metric-clickable:hover { border-color: var(--border-hover); }
 /* Compact metrics inside the landing pulse strip so it stays slim. */
 .attention-strip .metric { padding: 9px 11px; }
 .attention-strip .metric b { font-size: 19px; }
@@ -1574,6 +1577,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 .session-filter-chip { padding: 3px 11px; min-height: 26px; font-size: .82em; border-radius: 999px; text-transform: capitalize; background: transparent; border-color: transparent; color: var(--muted); }
 .session-filter-chip:hover { color: var(--soft); background: var(--panel-2); }
 .session-filter-chip.active { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); font-weight: 700; }
+.filter-hidden-note { font-size: var(--fs-xs); color: var(--muted); align-self: center; margin-left: 4px; }
 
 /* WS-G7/G8 density: tighter session rows, small inline mode chip (not a full-width button),
    designed empty states. */

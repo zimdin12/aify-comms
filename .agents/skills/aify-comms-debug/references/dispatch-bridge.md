@@ -593,3 +593,13 @@ for the upstream provider message), but the run-failure path is working as desig
 2. Hit `curl http://localhost:8800/api/v1/dispatch/runs/<id>` to get the raw run state.
 3. Hit `curl http://localhost:8800/api/v1/agents/<id>` for the agent state.
 4. Forward those three pieces to whoever is debugging aify-comms. A fresh repro against current code (post-hard-reset) is worth 10× more than a trace against stale state.
+
+## Bridge log lines: `claim timed out` / `503 database is locked` / `fetch failed` — triage (2026-07-01)
+
+Three different signatures, three different meanings — don't conflate them:
+
+- **`fetch failed` / `transient HTTP error … will retry on next poll` … `recovered after N failure(s)`** — TCP-level "service momentarily unreachable," almost always a service container restart (a deploy) or a brief network blip. The bridge retries and self-heals; the `recovered after N` line confirms it. **Ignore it** unless it does NOT recover (many consecutive with no `recovered`), which means the service is actually down — check the container.
+- **`HTTP 503 … database is locked`** — write-lock contention under load. As of `d069f51` the service RETRIES the write (3×, 0.1/0.25/0.5s backoff) before ever surfacing a 503, so this should be rare; if it appears it's genuine sustained overload (correct backpressure), not a transient. The claim endpoints never 503 on contention — they return an empty claim (200) and retry next poll (`6eb3263`).
+- **`claim … timed out after 28000ms`** — the old long-poll lock-overshoot, FIXED (`6eb3263`): claim probes now open with a short busy_timeout (`SQLITE_CLAIM_BUSY_TIMEOUT_MS=1200`) and fail fast, and `longpoll.MAX_WAIT_S` is 25s (below the bridge's 28s HTTP timeout). If you still see it, the host's service predates the fix — `git pull && docker compose up -d --build`.
+
+All three are server-side; a host running its own service must pull + rebuild to get the fixes. See DECISIONS.md, "Claim probes fast-fail; writes retry the lock before 503."

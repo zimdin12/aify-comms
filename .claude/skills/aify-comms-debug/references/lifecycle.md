@@ -325,3 +325,9 @@ stopped" / "Console failed"), never "attached". NOTE: a managed agent whose last
 correctly stays **`available`** (not `blocked`/`errored`) — it lazy-respawns on the next send, so
 it is genuinely available-to-retry (a `failed → blocked` status change was tried and rejected; see
 DECISIONS.md 2026-06-05). Requires the container rebuild to deploy the dashboard.
+
+## `available` managed agent did not auto-start on send after a bridge restart (bug D — workaround: Restart)
+
+Symptom: an `available` managed agent that should cold-start on the next send stays dormant — `comms_send` returns `dispatchRuns: []` and the agent never wakes ("no live sidecar heartbeat"). Seen specifically AFTER a bridge restart, when the agent's prior session/env binding has gone stale and the send-path deliverability check classifies it as "no live wake path." This contradicts the "`available` auto-starts on send" rule (it's an open bug, tracked in KNOWN_ISSUES.md "Open watch-items (2026-07-01)" / the plan `docs/superpowers/plans/2026-07-01-team-guidance-and-infra.md`).
+
+**Workaround until fixed:** don't rely on send-to-wake for a warm/available agent right after a bridge restart — **Restart** it (dashboard Restart, or `comms_spawn`/relaunch) to re-establish the backing, then send. If you're a manager sweeping a stalled team, `comms_console_tail` first to confirm it's dormant (no live console) rather than mid-build.

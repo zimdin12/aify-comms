@@ -349,6 +349,10 @@
       </section>
 
       <section id="page-analytics" class="page">
+        <div class="section-head analytics-page-head">
+          <h2>Analytics <span class="subtle">— fleet-wide, over the selected range</span></h2>
+          <div class="segmented analytics-range" id="analytics-range" role="group" aria-label="Analytics range"></div>
+        </div>
         <div class="metric-grid" id="analytics-ops"></div>
         <section class="band">
           <div class="section-head"><h2 title="Per-pool subscription quota remaining (Anthropic Claude Max / OpenAI). Advisory only — never gates sends.">Usage &amp; quota</h2></div>
@@ -361,7 +365,6 @@
         <section class="band">
           <div class="section-head">
             <h2 title="Chat messages over the selected range — bars are counts, the line is the trend.">Message traffic</h2>
-            <div class="segmented analytics-range" id="analytics-range" role="group" aria-label="Analytics range"></div>
           </div>
           <div id="analytics-traffic"></div>
         </section>
@@ -418,6 +421,7 @@
             <div class="button-row">
               <span id="settings-status" class="subtle" aria-live="polite"></span>
               <button class="primary" id="settings-save" title="Save all settings">Save changes</button>
+              <button class="ghost" id="settings-reset" title="Discard unsaved edits and revert to saved values">Reset</button>
               <button class="ghost" id="open-classic-settings" title="Advanced/rare knobs live on the classic dashboard">Classic Settings</button>
             </div>
           </div>
