@@ -15570,12 +15570,13 @@ async def recent_messages(
     try:
         cursor = await db.execute(
             """
-            SELECT *
-            FROM messages
+            SELECT m.*, rr.read_at AS read_at
+            FROM messages m
+            LEFT JOIN read_receipts rr ON rr.message_id = m.id AND rr.agent_id = m.to_agent
             WHERE
-              (source = 'direct' AND to_agent IS NOT NULL)
-              OR (source = 'channel' AND to_agent IS NULL)
-            ORDER BY timestamp DESC
+              (m.source = 'direct' AND m.to_agent IS NOT NULL)
+              OR (m.source = 'channel' AND m.to_agent IS NULL)
+            ORDER BY m.timestamp DESC
             LIMIT ?
             """,
             (limit,),
@@ -15595,6 +15596,10 @@ async def recent_messages(
                 "timestamp": row["timestamp"],
                 "inReplyTo": row["in_reply_to"],
                 "dispatchRequested": bool(row["dispatch_requested"]) if "dispatch_requested" in row.keys() else False,
+                # Recipient-perspective read state (rr.agent_id = to_agent) so the dashboard's
+                # unread badges work; channel rows (to_agent NULL) have no receipt → read=False.
+                "read": ("read_at" in row.keys()) and (row["read_at"] is not None),
+                "readAt": row["read_at"] if "read_at" in row.keys() else None,
             })
         return {"ok": True, "messages": messages, "total": len(messages)}
     finally:
@@ -19797,6 +19802,8 @@ async def list_channels(request: Request, agentId: Optional[str] = None):
             history_where, history_params = _normalize_channel_history_where(ch["name"])
             msg_c = await db.execute(f"SELECT COUNT(*) FROM messages WHERE {history_where}", history_params)
             msg_count = (await msg_c.fetchone())[0]
+            last_c = await db.execute(f"SELECT MAX(timestamp) FROM messages WHERE {history_where}", history_params)
+            last_message_at = (await last_c.fetchone())[0]
             unread_count = 0
             if viewer_id:
                 unread_c = await db.execute(
@@ -19813,7 +19820,7 @@ async def list_channels(request: Request, agentId: Optional[str] = None):
                 "name": ch["name"], "description": ch["description"],
                 "createdBy": ch["created_by"], "createdAt": ch["created_at"],
                 "members": [], "memberCount": member_count, "messageCount": msg_count,
-                "unreadCount": unread_count,
+                "unreadCount": unread_count, "lastMessageAt": last_message_at,
             })
             # Fetch member list
             mem_c = await db.execute("SELECT agent_id FROM channel_members WHERE channel_name = ?", (ch["name"],))

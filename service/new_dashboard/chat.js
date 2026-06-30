@@ -401,6 +401,9 @@ export function createChatController(deps) {
     // meta row on channels rather than show inert controls.
     const composerMeta = composer?.querySelector('.composer-meta');
     if (composerMeta) composerMeta.hidden = isChannel;
+    // "Expects reply" is a DM-dispatch concept — inert for channel broadcasts, so hide it there too.
+    const expectsRow = composer?.querySelector('#chat-expects-reply')?.closest('.check-row');
+    if (expectsRow) expectsRow.hidden = isChannel;
     // Reply-context banner: when replying to a message, show what we're replying to + a clear button.
     const reply = state.chat.replyTo;
     let banner = byId('chat-reply-banner');

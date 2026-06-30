@@ -31,6 +31,13 @@ export const STATUS_KINDS = {
   cancelled: { label: 'cancelled', dotKind: 'bad', tone: 'bad', inputEnabled: true },
   lost: { label: 'lost', dotKind: 'bad', tone: 'bad', inputEnabled: false },
   unreachable: { label: 'unreachable', dotKind: 'bad', tone: 'bad', inputEnabled: false },
+  // Contract states (_contract_state) — so the work-loop chips show a meaningful dot, not grey.
+  sent: { label: 'sent', dotKind: 'queued', tone: 'muted', inputEnabled: false },
+  seen: { label: 'seen', dotKind: 'working', tone: 'warn', inputEnabled: false },
+  missing_reply: { label: 'missing reply', dotKind: 'blocked', tone: 'bad', inputEnabled: false },
+  answered: { label: 'answered', dotKind: 'ok', tone: 'ok', inputEnabled: true },
+  closed: { label: 'closed', dotKind: 'ok', tone: 'ok', inputEnabled: true },
+  overdue: { label: 'overdue', dotKind: 'blocked', tone: 'bad', inputEnabled: false },
   offline: { label: 'offline', dotKind: 'offline', tone: 'muted', inputEnabled: false },
   unknown: { label: 'unknown', dotKind: 'unknown', tone: 'muted', inputEnabled: false },
 };

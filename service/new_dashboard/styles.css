@@ -263,7 +263,6 @@ small, .subtle { color: var(--muted); }
   margin-bottom: 8px;
 }
 /* Slim "all clear" line replaces the tall empty card. */
-.attention-list.is-clear { max-height: none; }
 .attention-clear { margin: 2px 2px 0; color: var(--green); font-size: .84em; }
 .metric, .band, .inspector {
   background: var(--panel);
@@ -296,8 +295,6 @@ small, .subtle { color: var(--muted); }
 .attention-strip .contract-meta { margin-top: 2px; }
 .attention-strip .contract-actions { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 6px; min-width: max-content; }
 .attention-strip .contract-actions button { padding: 5px 11px; font-size: .8em; }
-.attention-list { display: flex; flex-direction: column; gap: 7px; max-height: 168px; overflow-y: auto; }
-.attention-strip.collapsed .attention-list { max-height: none; }
 .band { padding: 12px; }
 .section-head {
   display: flex;

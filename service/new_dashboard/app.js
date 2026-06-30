@@ -1,7 +1,7 @@
 // Dashboard Next SPA entry. ES module (DASHBOARD_REBUILD_PLAN §0.1): pure cores live in
 // sibling modules and are imported here; app.js remains the orchestrator (render + actions +
 // the single delegated event handler + init) until later Phase-0 slices split those too.
-import { esc, relTime } from './util.js';
+import { esc, relTime, tsMs } from './util.js';
 import { STATUS_KINDS, resolveStatus, renderStatusChip } from './status.js';
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
 import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
@@ -1254,7 +1254,7 @@ function activityItems() {
     title: run.subject || run.id,
     meta: `${runTargetAgent(run) || 'unassigned'} · ${relTime(run.startedAt || run.requestedAt)} ago`,
     status: run.status || 'unknown',
-    at: Date.parse(run.startedAt || run.requestedAt || '') || 0,
+    at: tsMs(run.startedAt || run.requestedAt) || 0,
     source: run,
   }));
   const messageItems = state.messages.slice(0, 8).map((message) => ({
@@ -1263,7 +1263,7 @@ function activityItems() {
     title: message.subject || message.body || '(no subject)',
     meta: `${message.from || 'unknown'} → ${message.to || message.targetAgentId || 'dashboard'} · ${relTime(message.createdAt || message.timestamp || message.time)} ago`,
     status: message.read ? 'completed' : 'queued',
-    at: Date.parse(message.createdAt || message.timestamp || message.time || '') || 0,
+    at: tsMs(message.createdAt || message.timestamp || message.time) || 0,
     source: message,
   }));
   const contractItems = state.contracts.slice(0, 8).map((contract) => ({
@@ -1272,7 +1272,7 @@ function activityItems() {
     title: contract.subject || contract.id,
     meta: `${contract.targetAgentId || 'unknown'} · ${relTime(contract.requestedAt)} old`,
     status: contract.overdue ? 'failed' : contract.state || contract.status || 'unknown',
-    at: Date.parse(contract.lastReminderAt || contract.requestedAt || '') || 0,
+    at: tsMs(contract.lastReminderAt || contract.requestedAt) || 0,
     source: contract,
   }));
   return [...runItems, ...messageItems, ...contractItems]
@@ -1416,8 +1416,9 @@ function messagesForSession(session) {
     .slice(0, 50);
 }
 
+// Single source of truth lives in messageIdOf(); kept as an alias so existing call sites work.
 function messageId(message) {
-  return String(message?.id || message?.messageId || message?.message_id || '');
+  return messageIdOf(message);
 }
 
 function messageRunId(message) {
@@ -1879,7 +1880,8 @@ function codexConsoleConnect(agentId, appServerUrl, threadId) {
   if (!/^wss?:\/\//i.test(wsUrl)) return;
   codexConsoleClose(agentId);
 
-  const container = document.querySelector(`[data-codex-console="${agentId}"] .codex-console-stream`);
+  const sel = String(agentId).replace(/[\\"]/g, '\\$&'); // safe inside a quoted attribute selector
+  const container = document.querySelector(`[data-codex-console="${sel}"] .codex-console-stream`);
   if (!container) return;
   container.innerHTML = '';
   codexConsoleAppendLine(container, `[connecting to ${wsUrl}…]`, 'sys');
@@ -3064,11 +3066,13 @@ function preferredNavCollapsed() {
 async function requestRunControl(runId) {
   const body = await uiPrompt('Steer this active run');
   if (!body || !body.trim()) return;
-  await api(`/dispatch/runs/${encodeURIComponent(runId)}/control`, {
-    method: 'POST',
-    body: JSON.stringify({ from_agent: 'dashboard', action: 'steer', body }),
-  });
-  await openRunInspector({ runId, source: 'runs' });
+  try {
+    await api(`/dispatch/runs/${encodeURIComponent(runId)}/control`, {
+      method: 'POST',
+      body: JSON.stringify({ from_agent: 'dashboard', action: 'steer', body }),
+    });
+    await openRunInspector({ runId, source: 'runs' });
+  } catch (err) { toast(`Steer failed: ${err?.message || err}`, 'error'); }
 }
 
 async function requestSessionControl(sessionId, action, confirmAction = true, refreshAfter = true) {
@@ -3079,15 +3083,17 @@ async function requestSessionControl(sessionId, action, confirmAction = true, re
   };
   if (!sessionId || !action) return;
   if (confirmAction && !await uiConfirm(`Really ${labels[action] || action}?`)) return;
-  await api(`/sessions/${encodeURIComponent(sessionId)}/control`, {
-    method: 'POST',
-    body: JSON.stringify({
-      action,
-      from_agent: 'dashboard',
-      body: `Session ${action} requested from Dashboard Next.`,
-    }),
-  });
-  if (refreshAfter) await refresh();
+  try {
+    await api(`/sessions/${encodeURIComponent(sessionId)}/control`, {
+      method: 'POST',
+      body: JSON.stringify({
+        action,
+        from_agent: 'dashboard',
+        body: `Session ${action} requested from Dashboard Next.`,
+      }),
+    });
+    if (refreshAfter) await refresh();
+  } catch (err) { toast(`Session ${action} failed: ${err?.message || err}`, 'error'); }
 }
 
 async function requestBulkSessionControl(action) {
@@ -3189,7 +3195,7 @@ async function createSpawnRequest() {
   const workspace = byId('env-spawn-workspace')?.value.trim() || '';
   const initialMessage = byId('env-spawn-prompt')?.value.trim() || '';
   if (!environmentId || !runtime || !agentId || !workspace) {
-    inspect('spawn-error', { message: 'Need environment, runtime, agent ID, and workspace.' });
+    toast('Need environment, runtime, agent ID, and workspace.', 'warn');
     return;
   }
   const result = await api('/spawn-requests', {
@@ -3274,6 +3280,7 @@ async function handleRunInspectorControl(action) {
     openRunConsole(run);
     return;
   }
+  try {
   if (action === 'steer') {
     const body = await uiPrompt('Steer this active run');
     if (!body || !body.trim()) return;
@@ -3307,6 +3314,7 @@ async function handleRunInspectorControl(action) {
   }
   await refresh();
   await openRunInspector({ runId: run.id, source: state.inspector.source || 'control', sourceMessageId: state.inspector.sourceMessageId || '' });
+  } catch (err) { toast(`Run ${action} failed: ${err?.message || err}`, 'error'); }
 }
 
 async function loadMoreRunEvents() {
