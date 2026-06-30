@@ -502,7 +502,7 @@ small, .subtle { color: var(--muted); }
 .runtime-grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-items: stretch; }
 /* Env cards: equal height with the action row pinned to the bottom so side-by-side cards line
    up regardless of how many actions they have (QA E4). */
-#environment-list .runtime-card { display: flex; flex-direction: column; gap: 8px; padding: 14px; }
+#environment-list .runtime-card { display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; }
 #environment-list .runtime-card .contract-actions { margin-top: auto; padding-top: 4px; }
 /* Spawn button gets its own right-aligned row so the form has no ragged last row (QA E1). */
 .environment-spawn-grid .spawn-submit { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
@@ -879,6 +879,7 @@ small, .subtle { color: var(--muted); }
 }
 .activity-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr); /* pin items to the rail width so long content clips, not overflows */
   gap: 7px;
 }
 .activity-item {
@@ -887,7 +888,10 @@ small, .subtle { color: var(--muted); }
   border-radius: var(--radius-control);
   padding: 8px;
   cursor: pointer;
+  min-width: 0;
 }
+.activity-item .item-title { min-width: 0; }
+.activity-item .preview { overflow-wrap: anywhere; }
 .activity-item:hover { border-color: var(--border-hover); }
 .status-why-popover {
   position: fixed;
@@ -1213,7 +1217,7 @@ small, .subtle { color: var(--muted); }
 .files-upload input[type="file"] { background: var(--panel-3); border: 1px solid var(--line); color: var(--soft); border-radius: var(--radius-control); padding: 7px 10px; font-size: .82em; min-height: 40px; width: 100%; }
 .files-upload input[type="file"]::file-selector-button { background: var(--panel-2); color: var(--soft); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 4px 9px; margin-right: 9px; cursor: pointer; }
 .files-upload .spawn-submit button { min-height: 40px; }
-.files-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; max-height: calc(100vh - 320px); overflow-y: auto; }
+.files-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; max-height: calc(100vh - 232px); overflow-y: auto; }
 .file-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 11px 14px; }
 .file-main { min-width: 0; }
 .file-main small { color: var(--muted); font-size: .74em; display: block; margin-top: 4px; }
@@ -1241,7 +1245,7 @@ small, .subtle { color: var(--muted); }
 /* Aligned field row: label (+hint) left, control right, divider between. Uniform min row
    height so toggle rows don't read shorter than input rows (QA S-set4). */
 .settings-field {
-  display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(220px, 360px);
+  display: grid; grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
   align-items: center; gap: 14px 24px; padding: 11px 2px; min-height: 62px;
 }
 .settings-field + .settings-field { border-top: 1px solid var(--line-soft); }
@@ -1259,13 +1263,8 @@ small, .subtle { color: var(--muted); }
 .settings-field .field-control-color input[type="color"] { width: 52px; height: 34px; min-height: 34px; padding: 2px; border-radius: var(--radius-control); cursor: pointer; background: var(--bg); border: 1px solid var(--line); }
 .field-color-hex { color: var(--muted); font-size: .82em; }
 /* Full-width field (theme picker): label/control on row 1, tiles span both columns on row 2. */
-.settings-field-wide { grid-template-columns: minmax(0, 1.3fr) minmax(220px, 360px); max-width: 880px; }
+.settings-field-wide { grid-template-columns: minmax(220px, 320px) minmax(0, 1fr); }
 .settings-field-wide .settings-field-extra { grid-column: 1 / -1; }
-/* Constrain simple field rows to a readable column. Full-width rows flung the control ~900px to
-   the right with a dead gulf between label and control, which read as unfinished. The wide theme
-   field keeps full width for its tile row. */
-.settings-field:not(.settings-field-wide) { max-width: 880px; }
-.settings-panel-desc { max-width: 880px; }
 
 /* Real toggle switch (replaces tiny native checkbox). */
 .switch { position: relative; display: inline-flex; width: 46px; height: 26px; cursor: pointer; }
@@ -1392,6 +1391,10 @@ small, .subtle { color: var(--muted); }
 .chart-grid { stroke: var(--line-soft); stroke-width: 1; }
 .chart-axis { stroke: var(--line); stroke-width: 1; }
 .chart-area { fill: url(#trafficGradient); opacity: .72; }
+/* The area/line/grid overlays sit on top of the bars; without this they swallow the hover so the
+   bar <title> tooltips never fire. Let pointer events fall through to the bars + dots. */
+.chart-area, .chart-line, .chart-grid, .chart-axis { pointer-events: none; }
+.chart-bar { cursor: default; }
 .chart-line { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 8px var(--accent-shadow)); }
 .chart-dot { fill: #101214; stroke: var(--accent); stroke-width: 2; }
 .chart-bar { fill: color-mix(in srgb, var(--tertiary) 38%, transparent); }
