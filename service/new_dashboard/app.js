@@ -3230,6 +3230,8 @@ function openMessageThread(messageIdValue) {
 function openAgentChat(agentId) {
   if (!agentId || agentId === 'dashboard') { setPage('chat'); return; }
   setPage('chat');
+  // "Message in Chat" must land on the messenger, not follow a stale open analytics panel.
+  state.chat.analytics = { agent: '', data: null };
   chatController.open(`dm:${agentId}`);
   byId('chat-composer-body')?.focus();
 }

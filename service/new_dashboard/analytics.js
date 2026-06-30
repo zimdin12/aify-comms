@@ -117,6 +117,14 @@ export function trafficChartHtml(data = {}, range = 'hour') {
     .filter((_, i) => items.length <= 14 || i === 0 || i === items.length - 1 || counts[i] === max)
     .map((p) => `<circle class="chart-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4"><title>${esc(p.item?.label || '')}: ${p.count}</title></circle>`)
     .join('');
+  // Full-height transparent hover bands per bucket: the bars are only as tall as their value, so
+  // hovering the empty space above a short bar hit nothing. A full-column band makes the whole
+  // column hoverable (tooltip + highlight) regardless of bar height.
+  const hoverBands = points.map((p, i) => {
+    const colW = innerW / Math.max(1, counts.length);
+    const bx = padX + i * colW;
+    return `<rect class="chart-hover-band" x="${bx.toFixed(1)}" y="${padTop.toFixed(1)}" width="${colW.toFixed(1)}" height="${innerH.toFixed(1)}"><title>${esc(p.item?.label || '')}: ${p.count} message${p.count === 1 ? '' : 's'}</title></rect>`;
+  }).join('');
   const labels = items.length ? [items[0], items[Math.floor(items.length / 2)], items[items.length - 1]] : [];
   return `<div class="chart-wrap">`
     + `<svg class="chart-svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="Message traffic ${esc(series.label)}">`
@@ -127,6 +135,7 @@ export function trafficChartHtml(data = {}, range = 'hour') {
     + (area ? `<polygon class="chart-area" points="${area}"></polygon>` : '')
     + (line ? `<polyline class="chart-line" points="${line}"></polyline>` : '')
     + dots
+    + hoverBands
     + `</svg>`
     + `<div class="chart-labels">${labels.map((it) => `<span title="${esc(it?.start || it?.label || '')}">${esc(it?.label || '')}</span>`).join('')}</div>`
     + `<div class="chart-summary"><div><b>${total}</b><span>Total messages</span></div><div><b>${Math.round(avg * 10) / 10}</b><span>Average</span></div><div><b>${last}</b><span>Latest bucket</span></div></div>`

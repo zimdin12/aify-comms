@@ -444,6 +444,8 @@ export function createChatController(deps) {
 
   async function open(key) {
     const isChannel = key.startsWith('channel:');
+    // Per-conversation message search must not leak into the next conversation.
+    if (key !== state.chat.selected) state.chat.msgFilter = '';
     // Sticky view across conversation switches (operator request): switching chats keeps the
     // current mode for the NEW chat instead of snapping back to Messenger.
     //  - Analytics: if viewing a per-agent Analytics panel and switching to a DIFFERENT agent,

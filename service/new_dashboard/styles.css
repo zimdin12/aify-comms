@@ -675,11 +675,16 @@ small, .subtle { color: var(--muted); }
   opacity: .45;
   cursor: not-allowed;
 }
+/* Sessions fills the viewport like Chat: the page is a flex column that doesn't scroll, and the
+   two columns fill it + scroll internally — no hand-tuned calc(100vh-Npx) leaving dead space. */
+#page-sessions.active { display: flex; flex-direction: column; overflow: hidden; }
 .session-shell {
   display: grid;
   grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
 }
 .session-rail-wrap, .session-main {
   background: var(--panel);
@@ -689,10 +694,10 @@ small, .subtle { color: var(--muted); }
 }
 .session-rail-wrap {
   padding: 10px;
-  max-height: calc(100vh - 205px);
+  min-height: 0;
   overflow: auto;
 }
-.session-main { padding: 12px; }
+.session-main { padding: 12px; min-height: 0; overflow: auto; }
 .session-env-group { margin-bottom: 10px; }
 .session-env-group > .session-env-title { margin-bottom: 7px; }
 .session-env-group[open] > .session-env-title { margin-bottom: 7px; }
@@ -787,8 +792,9 @@ small, .subtle { color: var(--muted); }
 .session-panel { display: none; }
 .session-panel.active { display: block; }
 .session-thread {
-  max-height: calc(100vh - 355px);
+  flex: 1;
   min-height: 260px;
+  overflow: auto;
 }
 .console-summary { display: grid; gap: 8px; min-width: 0; }
 /* One frame, not a box-in-a-box: the embed IS the card (single border + radius, clipped),
@@ -912,6 +918,8 @@ small, .subtle { color: var(--muted); }
   .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .environment-spawn-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .split { grid-template-columns: 1fr; }
+  /* Narrow: stop the flex-fill (single column would clip under overflow:hidden) — let the page scroll. */
+  #page-sessions.active, #page-files.active { display: block; overflow: auto; }
   .session-shell { grid-template-columns: 1fr; }
   .session-rail-wrap { max-height: 38vh; }
 }
@@ -1217,7 +1225,9 @@ small, .subtle { color: var(--muted); }
 .files-upload input[type="file"] { background: var(--panel-3); border: 1px solid var(--line); color: var(--soft); border-radius: var(--radius-control); padding: 7px 10px; font-size: .82em; min-height: 40px; width: 100%; }
 .files-upload input[type="file"]::file-selector-button { background: var(--panel-2); color: var(--soft); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 4px 9px; margin-right: 9px; cursor: pointer; }
 .files-upload .spawn-submit button { min-height: 40px; }
-.files-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; max-height: calc(100vh - 232px); overflow-y: auto; }
+/* Files fills the viewport: page is a flex column, the list fills the remaining height + scrolls. */
+#page-files.active { display: flex; flex-direction: column; overflow: hidden; }
+.files-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; flex: 1; min-height: 0; max-height: none; overflow-y: auto; }
 .file-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 11px 14px; }
 .file-main { min-width: 0; }
 .file-main small { color: var(--muted); font-size: .74em; display: block; margin-top: 4px; }
@@ -1393,8 +1403,10 @@ small, .subtle { color: var(--muted); }
 .chart-area { fill: url(#trafficGradient); opacity: .72; }
 /* The area/line/grid overlays sit on top of the bars; without this they swallow the hover so the
    bar <title> tooltips never fire. Let pointer events fall through to the bars + dots. */
-.chart-area, .chart-line, .chart-grid, .chart-axis { pointer-events: none; }
-.chart-bar { cursor: default; }
+.chart-area, .chart-line, .chart-grid, .chart-axis, .chart-bar, .chart-dot { pointer-events: none; }
+/* Full-column hover targets sit on top + carry the <title> tooltip; highlight the column on hover. */
+.chart-hover-band { fill: transparent; cursor: pointer; }
+.chart-hover-band:hover { fill: color-mix(in srgb, var(--accent) 12%, transparent); }
 .chart-line { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 8px var(--accent-shadow)); }
 .chart-dot { fill: #101214; stroke: var(--accent); stroke-width: 2; }
 .chart-bar { fill: color-mix(in srgb, var(--tertiary) 38%, transparent); }
