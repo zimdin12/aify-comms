@@ -56,6 +56,12 @@ MAX_WAIT_S = 30.0
 GLOBAL_SCOPE = "*"
 
 
+def _is_lock_error(exc: BaseException) -> bool:
+    """True for a transient SQLite contention error (`database is locked` / `busy`)."""
+    msg = str(exc or "").lower()
+    return "locked" in msg or "busy" in msg
+
+
 def notify(scope: str = GLOBAL_SCOPE) -> int:
     """Wake every waiter registered on `scope` (and every wildcard waiter).
 
@@ -95,6 +101,7 @@ async def longpoll(
     scope: str = GLOBAL_SCOPE,
     fallback_s: float = DEFAULT_FALLBACK_S,
     is_disconnected: Optional[Callable[[], Awaitable[bool]]] = None,
+    lock_result: Optional[dict] = None,
 ) -> dict:
     """Run `attempt()`; if its result is empty and `wait_ms` > 0, wait for work and
     retry until a non-empty result, the client disconnects, or `wait_ms` elapses.
@@ -103,8 +110,21 @@ async def longpoll(
     transaction) so it is safe to call repeatedly. `is_empty(result)` decides whether
     to keep waiting — return False for any actionable result (a claimed run, a
     `stopped`/`release` signal, a non-empty control list, …) so it returns at once.
+
+    `lock_result`: when set, a transient SQLite lock/busy contention raised by `attempt()`
+    is treated as this (empty) result instead of bubbling to a 503. A claim that can't grab
+    the write lock just means "nothing claimed this round" — the caller retries on the next
+    poll. The attempt's own connection is already closed in its `finally`, so this never leaks.
     """
-    result = await attempt()
+    async def _try():
+        try:
+            return await attempt()
+        except Exception as exc:  # noqa: BLE001 — only lock/busy is swallowed; everything else re-raises
+            if lock_result is not None and _is_lock_error(exc):
+                return lock_result
+            raise
+
+    result = await _try()
     wait_ms = int(wait_ms or 0)
     if wait_ms <= 0 or not is_empty(result):
         return result
@@ -121,6 +141,6 @@ async def longpoll(
             except Exception:
                 pass
         await _wait_once(scope, min(remaining, fallback_s))
-        result = await attempt()
+        result = await _try()
         if not is_empty(result):
             return result

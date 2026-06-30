@@ -9980,6 +9980,7 @@ async def claim_environment_control(req: EnvironmentControlClaim):
         lambda r: r.get("control") is None and "controlId" not in r,
         scope="env-control",
         fallback_s=3.0,
+        lock_result={"ok": True, "control": None},
     )
 
 
@@ -10199,6 +10200,7 @@ async def claim_spawn_request(req: SpawnRequestClaim, request: Request):
         scope="spawn",
         fallback_s=3.0,
         is_disconnected=request.is_disconnected,
+        lock_result={"ok": True, "spawnRequest": None},
     )
 
 
@@ -11749,6 +11751,7 @@ async def claim_terminal_controls(req: TerminalControlClaim):
         lambda r: r.get("controls") == [],
         scope="terminal-control",
         fallback_s=1.0,
+        lock_result={"ok": True, "controls": []},
     )
 
 
@@ -16826,6 +16829,7 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
         scope="dispatch",
         fallback_s=3.0,
         is_disconnected=request.is_disconnected,
+        lock_result={"ok": True, "run": None},
     )
 
 
@@ -19432,6 +19436,7 @@ async def claim_dispatch_controls(req: DispatchControlClaimRequest, request: Req
         scope="control",
         fallback_s=3.0,
         is_disconnected=request.is_disconnected,
+        lock_result={"ok": True, "controls": []},
     )
 
 

@@ -129,6 +129,42 @@ class LongpollTests(unittest.TestCase):
         self.assertIsNone(result["run"])
         self.assertLess(elapsed, 2.0)  # bailed on disconnect, not the 10s fallback
 
+    def test_lock_error_becomes_empty_result_not_a_raise(self):
+        async def _run():
+            async def attempt():
+                raise Exception("database is locked")
+            # With lock_result set, a lock contention yields the empty shape (no 503),
+            # and the short budget elapses without raising.
+            return await longpoll.longpoll(
+                80, attempt, is_empty=lambda r: r.get("run") is None,
+                scope="dispatch", fallback_s=0.02,
+                lock_result={"ok": True, "run": None},
+            )
+
+        result = asyncio.run(_run())
+        self.assertEqual(result, {"ok": True, "run": None})
+
+    def test_non_lock_error_still_raises(self):
+        async def _run():
+            async def attempt():
+                raise ValueError("boom")
+            return await longpoll.longpoll(
+                0, attempt, is_empty=lambda r: True,
+                lock_result={"ok": True, "run": None},
+            )
+
+        with self.assertRaises(ValueError):
+            asyncio.run(_run())
+
+    def test_lock_without_lock_result_propagates(self):
+        async def _run():
+            async def attempt():
+                raise Exception("database is locked")
+            return await longpoll.longpoll(0, attempt, is_empty=lambda r: True)
+
+        with self.assertRaises(Exception):
+            asyncio.run(_run())
+
     def test_notify_returns_woken_count_and_no_leak(self):
         async def _run():
             async def waiter():
