@@ -138,25 +138,26 @@ export function statCardsHtml(data = {}) {
   const rangeLabel = data.rangeLabel || '';
   const failedRuns = Number(runs.failed || 0) + Number(runs.cancelled || 0);
   const failedSpawns = Number((data.spawnRequestsByStatus || {}).failed || 0);
-  const card = (n, l, sub, tone) => `<div class="sc${tone ? ` ${tone}` : ''}"><div class="n">${esc(n)}</div><div class="l">${esc(l)}</div><div class="s">${esc(sub)}</div></div>`;
-  return card(data.messageTotal || 0, 'Messages', rangeLabel)
-    + card(data.runTotal || 0, 'Runs', rangeLabel)
-    + card(runs.completed || 0, 'Completed', rangeLabel)
-    + card(failedRuns, 'Failed / Cancelled', rangeLabel, failedRuns ? 'warn' : '')
-    + card(failedSpawns, 'Spawn failures', rangeLabel, failedSpawns ? 'warn' : '')
-    + card(runs.running || 0, 'Running runs', 'current window');
+  const card = (n, l, sub, tone, tip) => `<div class="sc${tone ? ` ${tone}` : ''}"${tip ? ` title="${esc(tip)}"` : ''}><div class="n">${esc(n)}</div><div class="l">${esc(l)}</div><div class="s">${esc(sub)}</div></div>`;
+  const win = rangeLabel || 'this window';
+  return card(data.messageTotal || 0, 'Messages', rangeLabel, '', `Total chat messages sent across the fleet (${win}).`)
+    + card(data.runTotal || 0, 'Runs', rangeLabel, '', `Dispatch runs created — every comms_send/wake that targets an agent (${win}).`)
+    + card(runs.completed || 0, 'Completed', rangeLabel, '', `Runs that finished successfully (${win}).`)
+    + card(failedRuns, 'Failed / Cancelled', rangeLabel, failedRuns ? 'warn' : '', `Runs that failed or were cancelled (${win}).`)
+    + card(failedSpawns, 'Spawn failures', rangeLabel, failedSpawns ? 'warn' : '', `Agent spawn requests that failed to start (${win}).`)
+    + card(runs.running || 0, 'Running runs', 'current window', '', 'Runs in progress right now (point-in-time, not windowed).');
 }
 
 export function healthGridHtml(data = {}) {
   const failedSpawns = Number((data.spawnRequestsByStatus || {}).failed || 0);
-  const card = (n, l, tone) => `<div class="health-card${tone ? ` ${tone}` : ''}"><b>${esc(n)}</b><span>${esc(l)}</span></div>`;
+  const card = (n, l, tone, tip) => `<div class="health-card${tone ? ` ${tone}` : ''}"${tip ? ` title="${esc(tip)}"` : ''}><b>${esc(n)}</b><span>${esc(l)}</span></div>`;
   return `<div class="health-grid">`
-    + card(data.liveAgents || 0, 'Live agents', 'good')
-    + card(data.onlineAgents || 0, 'Online agents')
-    + card(data.workingAgents || 0, 'Working now', 'warn')
-    + card(data.onlineEnvironments || 0, 'Online envs')
-    + card(data.spawnRequestTotal || 0, 'Spawn requests')
-    + card(failedSpawns, 'Spawn failures', failedSpawns ? 'bad' : '')
+    + card(data.liveAgents || 0, 'Live agents', 'good', 'Agents with a live worker + fresh heartbeat right now.')
+    + card(data.onlineAgents || 0, 'Online agents', '', 'Agents ready for work right now (online or working).')
+    + card(data.workingAgents || 0, 'Working now', 'warn', 'Agents currently mid-turn (actively running).')
+    + card(data.onlineEnvironments || 0, 'Online envs', '', 'Environment bridges reachable right now (managed agents can be spawned on these).')
+    + card(data.spawnRequestTotal || 0, 'Spawn requests', '', 'Total spawn requests recorded in this window.')
+    + card(failedSpawns, 'Spawn failures', failedSpawns ? 'bad' : '', 'Spawn requests that failed to start (e.g. unreachable env / runtime error).')
     + `</div>`;
 }
 
@@ -190,11 +191,11 @@ export function opsKpisHtml(data = {}) {
   const srTone = sr == null ? '' : (sr >= 90 ? 'good' : sr >= 70 ? 'warn' : 'bad');
   const overdue = Number(data.overdueReplyContracts || 0);
   const open = Number(data.openReplyContracts || 0);
-  const card = (n, l, sub, tone) => `<div class="sc${tone ? ` ${tone}` : ''}"><div class="n">${esc(n)}</div><div class="l">${esc(l)}</div><div class="s">${esc(sub)}</div></div>`;
-  return card(sr == null ? '—' : `${sr}%`, 'Dispatch success', `${Number(data.runsCompleted || 0)} ok · ${Number(data.runsFailed || 0)} failed`, srTone)
-    + card(fmtMins(data.fleetMedianReplyMinutes), 'Median reply', 'completed required replies')
-    + card(open, 'Open contracts', 'awaiting reply now', open ? 'warn' : '')
-    + card(overdue, 'Overdue', '> 30 min unanswered', overdue ? 'bad' : '');
+  const card = (n, l, sub, tone, tip) => `<div class="sc${tone ? ` ${tone}` : ''}"${tip ? ` title="${esc(tip)}"` : ''}><div class="n">${esc(n)}</div><div class="l">${esc(l)}</div><div class="s">${esc(sub)}</div></div>`;
+  return card(sr == null ? '—' : `${sr}%`, 'Dispatch success', `${Number(data.runsCompleted || 0)} ok · ${Number(data.runsFailed || 0)} failed`, srTone, 'Share of FINISHED runs that completed vs failed/cancelled, in this window. 90%+ green, 70-90% amber, below red.')
+    + card(fmtMins(data.fleetMedianReplyMinutes), 'Median reply', 'completed required replies', '', 'Median time agents took to send a REQUIRED reply (only runs whose reply already landed count).')
+    + card(open, 'Open contracts', 'awaiting reply now', open ? 'warn' : '', 'Reply contracts still awaiting an answer right now (point-in-time).')
+    + card(overdue, 'Overdue', '> 30 min unanswered', overdue ? 'bad' : '', 'Open reply contracts unanswered past the reminder threshold (default 30 min).');
 }
 
 // Stacked completed/failed dispatch outcomes over the last 14 days.

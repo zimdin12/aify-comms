@@ -350,46 +350,46 @@
       <section id="page-analytics" class="page">
         <div class="metric-grid" id="analytics-ops"></div>
         <section class="band">
-          <div class="section-head"><h2>Usage &amp; quota</h2></div>
+          <div class="section-head"><h2 title="Per-pool subscription quota remaining (Anthropic Claude Max / OpenAI). Advisory only — never gates sends.">Usage &amp; quota</h2></div>
           <div class="usage-pools" id="usage-pools"></div>
         </section>
         <section class="band">
-          <div class="section-head"><h2>Token consumption <span class="subtle">— this session, per agent</span></h2></div>
+          <div class="section-head"><h2 title="Tokens each agent has consumed this session (from its transcript / rollout).">Token consumption <span class="subtle">— this session, per agent</span></h2></div>
           <div class="usage-consumption" id="usage-consumption"></div>
         </section>
         <section class="band">
           <div class="section-head">
-            <h2>Message traffic</h2>
+            <h2 title="Chat messages over the selected range — bars are counts, the line is the trend.">Message traffic</h2>
             <div class="segmented analytics-range" id="analytics-range" role="group" aria-label="Analytics range"></div>
           </div>
           <div id="analytics-traffic"></div>
         </section>
         <section class="band">
-          <div class="section-head"><h2>Dispatch outcomes — last 14 days</h2></div>
+          <div class="section-head"><h2 title="Completed (green) vs failed (red) dispatch runs per day, last 14 days.">Dispatch outcomes — last 14 days</h2></div>
           <div id="analytics-outcomes"></div>
         </section>
         <section class="split analytics-grid">
           <div class="band">
-            <div class="section-head"><h2>Agent leaderboard</h2><span class="subtle">completed / total · success rate</span></div>
+            <div class="section-head"><h2 title="Agents ranked by completed runs in this window, with their success rate.">Agent leaderboard</h2><span class="subtle">completed / total · success rate</span></div>
             <div id="analytics-leaderboard"></div>
           </div>
           <div class="band">
-            <div class="section-head"><h2>Busiest channels</h2></div>
+            <div class="section-head"><h2 title="Channels ranked by message volume in this window.">Busiest channels</h2></div>
             <div id="analytics-channels"></div>
           </div>
         </section>
         <section class="split analytics-grid">
           <div class="band">
-            <div class="section-head"><h2>Capacity now</h2></div>
+            <div class="section-head"><h2 title="Live fleet capacity right now — live/online/working agents and reachable environments.">Capacity now</h2></div>
             <div id="analytics-health"></div>
           </div>
           <div class="band">
-            <div class="section-head"><h2>Run status mix</h2></div>
+            <div class="section-head"><h2 title="Current distribution of dispatch runs across statuses (queued/running/completed/failed/…).">Run status mix</h2></div>
             <div id="analytics-runs"></div>
           </div>
         </section>
         <section class="band">
-          <div class="section-head"><h2>Failure reasons</h2><span class="subtle">what's breaking, this window</span></div>
+          <div class="section-head"><h2 title="Most common run failure reasons in this window — what is breaking.">Failure reasons</h2><span class="subtle">what's breaking, this window</span></div>
           <div id="analytics-failures"></div>
         </section>
       </section>
