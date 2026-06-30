@@ -443,11 +443,15 @@ export function createChatController(deps) {
     const isChannel = key.startsWith('channel:');
     // Sticky view across conversation switches (operator request): switching chats keeps the
     // current mode for the NEW chat instead of snapping back to Messenger.
-    //  - Analytics: if viewing a per-agent Analytics panel and switching to another AGENT,
-    //    show that agent's analytics. (Channels have no per-agent analytics → fall through.)
-    if (state.chat.analytics.agent && !isChannel) {
+    //  - Analytics: if viewing a per-agent Analytics panel and switching to a DIFFERENT agent,
+    //    follow analytics to that agent. Rail keys are "dm:<id>" — strip the prefix, since
+    //    openAnalytics() wants the raw agent id (passing "dm:id" loaded empty/all-zero analytics).
+    //    Re-opening the SAME agent (the "Back to chat" button → open dm:<currentAnalyticsAgent>)
+    //    falls through to clear analytics and show messages.
+    const dmAgentId = key.startsWith('dm:') ? key.slice('dm:'.length) : key;
+    if (state.chat.analytics.agent && !isChannel && dmAgentId !== state.chat.analytics.agent) {
       state.chat.selected = key;
-      return openAnalytics(key);
+      return openAnalytics(dmAgentId);
     }
     state.chat.analytics = { agent: '', data: null }; // leaving analytics view
     //  - Console/Messenger: keep state.chat.view as-is (no reset to 'messenger'). Console only

@@ -592,8 +592,12 @@ async function refresh() {
 }
 
 async function _refreshImpl() {
-  byId('api-status').textContent = 'refreshing';
-  byId('api-status').className = 'status-chip muted';
+  // Only flip the chip to "refreshing" if the cycle is actually SLOW (>500ms). Fast polls
+  // (the common case) finish before this fires, so the chip stays a steady "live" instead of
+  // flickering live↔refreshing every cycle.
+  const slowChipTimer = setTimeout(() => {
+    const c = byId('api-status'); if (c) { c.textContent = 'refreshing'; c.className = 'status-chip muted'; }
+  }, 500);
   // RESILIENT POLL (2026-06-18): use allSettled, not Promise.all. The single-worker service can
   // transiently drop a request under poll load ("Failed to fetch"); with Promise.all ONE such blip
   // rejected the whole refresh → no state updated, renderAll never ran → the entire dashboard
@@ -647,6 +651,7 @@ async function _refreshImpl() {
   // Status chip: green while the CORE roster (agents) is fresh, even if a non-critical slice
   // blipped (don't alarm the operator over a transient). Only show "reconnecting" when the core
   // roster itself didn't refresh — we keep last-good and retry next cycle (no scary "API error").
+  clearTimeout(slowChipTimer); // cycle finished — cancel the pending "refreshing" flip
   if (failed === 0) {
     byId('api-status').textContent = 'live';
     byId('api-status').className = 'status-chip ok';

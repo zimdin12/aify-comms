@@ -405,6 +405,14 @@ small, .subtle { color: var(--muted); }
 .status-chip.warn { border-color: rgba(223,177,86,.5); color: var(--amber); background: rgba(223,177,86,.08); }
 .status-chip.bad { border-color: rgba(238,106,116,.55); color: var(--red); background: rgba(238,106,116,.08); }
 .status-chip.muted { color: var(--muted); }
+/* Collapsed sidebar: the chip has no room for "live"/"refreshing" text — show just a colored
+   dot (the dot inherits the chip's state color: green=live, amber=reconnecting, grey=refreshing). */
+.app-shell.nav-collapsed #api-status {
+  font-size: 0; padding: 0; border: 0; background: transparent; min-height: 0; justify-content: center;
+}
+.app-shell.nav-collapsed #api-status::before {
+  content: ''; display: block; width: 10px; height: 10px; border-radius: 50%; background: currentColor;
+}
 .toolbar { display: flex; gap: 10px; margin-bottom: 12px; }
 .toolbar label { display: grid; gap: 3px; min-width: 180px; font-size: .8em; }
 .environment-summary {
