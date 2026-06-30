@@ -26,10 +26,11 @@ test("app.js loads as an ES module (Phase 0.1) and imports the extracted pure co
   assert.ok(!/\nfunction chooseSessionConsoleWidget\(/.test(source), "chooser must live only in console-chooser.js");
 });
 
-test("styles.css keeps ready internal: no separate ready dot, .status-ready text alias stays", () => {
+test("styles.css keeps ready internal: ready normalizes to online, no separate ready dot", () => {
   const styles = read("styles.css");
   assert.ok(!/\.status-dot\.ready\b/.test(styles), "no separate ready dot; ready is internal");
-  assert.ok(/\.status-ready\b/.test(styles), ".status-ready stays as an old-cache text alias");
+  // The bare .status-* text-color aliases were removed (dead: status.js only emits chip tone +
+  // dot kind classes, never a bare .status-ready/.status-online text class).
 });
 
 test("chat composer queue defaults to live send (not queued)", () => {

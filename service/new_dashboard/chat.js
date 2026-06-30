@@ -66,7 +66,7 @@ export function chatConversationItems(state) {
       };
     });
 
-  const channels = (state.chat?.channels || []).map((c) => ({
+  const channels = (state.chat?.channels || []).filter((c) => c && c.name).map((c) => ({
     kind: 'channel', key: `channel:${c.name}`, id: c.name, status: 'online', runtime: '',
     preview: c.description || `${c.memberCount ?? (c.members?.length || 0)} members`,
     msgCount: c.messageCount ?? c.message_count ?? 0,

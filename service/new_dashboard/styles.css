@@ -377,11 +377,6 @@ small, .subtle { color: var(--muted); }
 .usage-consumption-table th:first-child, .usage-consumption-table td:first-child { text-align: left; }
 .usage-consumption-table thead th { color: var(--muted); font-weight: 500; }
 .usage-consumption-table tfoot td { font-weight: 600; border-bottom: none; }
-/* Text-color helpers — used by callers that render bare text labels rather than full chips. */
-.status-ready { color: var(--status-online, var(--green-soft, #88c999)); }
-.status-online { color: var(--status-online, var(--green-soft, #88c999)); }
-.status-available { color: var(--status-available, var(--available-blue)); }
-.status-working { color: var(--status-working, var(--blue)); }
 .dot { width: 11px; height: 11px; }
 .status-chip {
   display: inline-flex;
@@ -912,7 +907,7 @@ small, .subtle { color: var(--muted); }
   .app-shell.nav-collapsed { grid-template-columns: 72px minmax(0, 1fr); }
   .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .environment-spawn-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .split, .two-pane.active { grid-template-columns: 1fr; }
+  .split { grid-template-columns: 1fr; }
   .session-shell { grid-template-columns: 1fr; }
   .session-rail-wrap { max-height: 38vh; }
 }
@@ -1085,19 +1080,12 @@ small, .subtle { color: var(--muted); }
 .chat-tool-panel[hidden] { display: none; }
 .chat-clear-filters { align-self: flex-start; font-size: var(--fs-xs); padding: 3px 9px; }
 .chat-rail-controls input[type="search"] { width: 100%; background: var(--input-bg); border: 1px solid var(--line); color: var(--text); border-radius: var(--radius-control); padding: 8px 10px; font-size: .85em; }
-.chat-rail-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .78em; color: var(--muted); }
 .chat-as select { background: var(--input-bg); border: 1px solid var(--line); color: var(--text); border-radius: var(--radius-control); padding: 3px 6px; margin-left: 6px; max-width: 150px; }
-.chat-live-toggle { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-/* Search row: search input + inline sort + gear on one line. */
-.chat-search-row input[type="search"] { flex: 1; min-width: 0; } /* canonical .chat-search-row layout is lower in the file */
 .chat-sort-inline select { background: var(--input-bg); border: 1px solid var(--line); color: var(--text); border-radius: var(--radius-control); padding: 7px 6px; font-size: .76em; max-width: 96px; cursor: pointer; }
 /* Compact always-visible filter bar: scope + key quick filters wrap on one row, status as a
    tight row of color dots. Surfaced by default so filtering never needs the gear, but kept
    small so it doesn't crowd out the conversation list. */
-.chat-filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
 .chat-chip-group { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
-/* Visually separate the mutually-exclusive scope chips from the on/off quick-filter toggles. */
-.chat-filter-bar .toggle-group { padding-left: 8px; border-left: 1px solid var(--line-soft); }
 .chat-status-row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
 .chat-status-label { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-right: 2px; }
 .chat-chip {
@@ -1186,6 +1174,9 @@ small, .subtle { color: var(--muted); }
 .chat-msg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .chat-msg-badges { display: inline-flex; gap: 5px; align-items: center; flex-wrap: wrap; }
 .msg-badge { font-size: .66em; text-transform: uppercase; letter-spacing: .4px; border-radius: var(--radius-sm); padding: 1px 5px; border: 1px solid var(--line); color: var(--muted); }
+/* Inline meta-badge (e.g. "dashboard override active") — small pill, warn variant gets an amber tint. */
+.mb { font-size: .72em; border-radius: var(--radius-sm); padding: 1px 6px; border: 1px solid var(--line); color: var(--muted); }
+.mb-warn { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 45%, transparent); background: color-mix(in srgb, var(--amber) 12%, transparent); }
 .msg-badge.unread { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .msg-badge.woke { color: var(--green); border-color: rgba(84,197,139,.4); }
 .msg-badge.stored { color: var(--muted); }
@@ -1364,8 +1355,8 @@ small, .subtle { color: var(--muted); }
 .sc .n { font-size: 1.7em; font-weight: 750; color: var(--text); line-height: 1; } /* neutral — semantic tone via .sc.warn/.good/.bad; brand palette must not recolor all stats */
 .sc { display: flex; flex-direction: column; }
 .sc .l { color: var(--muted); font-size: .72em; text-transform: uppercase; margin-top: 6px; letter-spacing: .03em; min-height: 2.1em; }
-.sc .s { margin-top: auto; } /* pin the sub-line to the bottom so cards stay equal height */
-.sc .s { color: var(--muted); font-size: .7em; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Pin the sub-line to the bottom (margin-top:auto in the flex column) so cards stay equal height. */
+.sc .s { color: var(--muted); font-size: .7em; margin-top: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sc.warn .n { color: var(--amber); }
 .sc.good .n { color: var(--green); }
 .sc.bad .n { color: var(--red); }
@@ -1575,15 +1566,6 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 .runs-toolbar select, .runs-toolbar input { min-height: var(--control-h); }
 .runs-search-field { flex: 1 1 180px; }
 .runs-search-field input { width: 100%; }
-.chat-rail-toggles { flex-wrap: wrap; gap: 10px 14px; }
-.chat-rail-toggles .check-row { font-size: .8em; }
-/* Collapsible chat sort/filters/channels panel. */
-.chat-search-row { display: flex; gap: 7px; align-items: center; }
-.chat-search-row input[type="search"] { flex: 1; }
-.chat-filter-toggle { flex: 0 0 auto; width: var(--control-h); min-height: var(--control-h); }
-.chat-filter-toggle.active { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
-.chat-rail-options { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; margin-top: 4px; border-top: 1px solid var(--line-soft); }
-.chat-rail-options[hidden] { display: none; }
 .chat-msg-search { max-width: 200px; min-height: 34px; }
 .chat-search-banner { color: var(--muted); font-size: .8em; margin: 0 0 8px; padding: 4px 8px; background: var(--panel-3); border-radius: var(--radius-control); }
 .filter-presets { display: inline-flex; gap: 3px; margin-right: 6px; }

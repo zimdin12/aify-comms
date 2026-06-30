@@ -46,7 +46,7 @@ export function fleetPulseHtml(data, windowMinutes = 60) {
   const card = (n, l, sub, tone) => `<div class="metric${tone ? ` ${tone}` : ''}" data-tone="${tone || ''}">`
     + `<b>${esc(String(n))}</b><span>${esc(l)}</span>${sub ? `<small class="pulse-sub">${esc(sub)}</small>` : ''}</div>`;
   const dot = (k, label) => `<span class="status-dot ${esc(k)}" role="img" title="${esc(label || k)}" aria-label="${esc(label || k)}"></span>`;
-  const rows = (data.agents || []).map((a) => {
+  const rows = (data.agents || []).filter((a) => a && a.id).map((a) => {
     const st = resolveStatus(a.status);
     const worked = a.workingNow ? '<span class="pulse-now">● working now</span>' : esc(pulseWorkedLabel(a.lastWorkedAt));
     return `<button class="pulse-agent" data-chat-open="dm:${esc(a.id)}" title="Open chat with ${esc(a.id)}">`

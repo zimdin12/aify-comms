@@ -1134,7 +1134,7 @@ function contractCard(contract, { selectable = true } = {}) {
         </div>
         <p class="preview">${esc(contract.preview || '')}</p>
         <div class="contract-meta">
-          ${esc(contract.from)} → ${esc(contract.targetAgentId)} · ${esc(contract.type)} · ${relTime(contract.requestedAt)} old · ${contract.lastReminderAt ? `last reminded ${relTime(contract.lastReminderAt)} ago` : 'not reminded'}
+          ${esc(contract.from)} → ${esc(contract.targetAgentId)} · ${esc(contract.type)}${relTime(contract.requestedAt) ? ` · ${relTime(contract.requestedAt)} old` : ''} · ${contract.lastReminderAt ? `last reminded ${relTime(contract.lastReminderAt)} ago` : 'not reminded'}
         </div>
       </div>
       <div class="contract-actions">
