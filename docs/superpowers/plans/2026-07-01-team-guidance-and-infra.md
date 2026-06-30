@@ -201,7 +201,10 @@ It is general on purpose: apply judgment, scale it to the task, and let language
 
 **Symptom (DB):** 50 `dispatch_runs` with `require_reply=1`, `status IN (completed,failed,cancelled)`, and empty `result_message_id`. The benchmark saw at least one dispatch strand entirely (PO never woken). Either the agent ended its turn without the `comms_send` reply AND the fallback mirror didn't fire, or the reply landed but wasn't linked back to the run.
 
-- [ ] **Step 1: Characterize the 50** — `SELECT runtime, status, COUNT(*) ... GROUP BY runtime, status` for those stranded runs. Is it concentrated in one runtime (e.g. resident claude / a specific managed type) or spread? Pull 3 examples and check whether a reply message with matching `in_reply_to` actually exists (reply landed but link failed) vs no reply at all (turn ended silent).
+- [x] **Step 1: Characterize the 50 — DONE 2026-07-01 (read-only).** Split is EXACTLY 25/25:
+  - **25 = LINKAGE bug**: a reply message with `in_reply_to == run.message_id` EXISTS but `result_message_id` was never set → run never closed. This is the fixable code bug (Step 2 branch 1).
+  - **25 = truly silent**: no reply message at all → turn ended without `comms_send` (guidance miss; fallback should have mirrored).
+  - Distribution: 33 hermes, 7 claude-code, 10 unknown-runtime; status 43 completed / 7 failed; spread 2026-06-02→06-30 (steady drip, not one incident).
 
 - [ ] **Step 2: Branch on the finding:**
   - If replies EXIST but aren't linked → fix the run-close linkage (match the reply's `in_reply_to` to the run's `message_id` and set `result_message_id`); add a reconcile sweep that closes such runs. Write a pytest that a reply with matching `in_reply_to` closes its require-reply run.
