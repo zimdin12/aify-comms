@@ -858,13 +858,13 @@ small, .subtle { color: var(--muted); }
   word-break: break-word;
 }
 .codex-line { padding: 1px 0; }
-.codex-line.sys { color: #7a8294; font-style: italic; }
-.codex-line.err { color: #ef5350; }
-.codex-line.turn { color: #74c0fc; font-weight: 600; }
-.codex-line.tool { color: #ffd166; }
-.codex-line.tool.ok { color: #69db7c; }
-.codex-line.user { color: #b5e853; font-weight: 600; }
-.codex-line.delta { color: #cdd6f4; }
+.codex-line.sys { color: var(--muted); font-style: italic; }
+.codex-line.err { color: var(--red); }
+.codex-line.turn { color: var(--blue, var(--secondary)); font-weight: 600; }
+.codex-line.tool { color: var(--amber); }
+.codex-line.tool.ok { color: var(--green); }
+.codex-line.user { color: var(--green); font-weight: 600; }
+.codex-line.delta { color: var(--text); }
 .codex-console-input {
   display: flex;
   gap: 6px;
@@ -1299,7 +1299,7 @@ small, .subtle { color: var(--muted); }
 .an-h { margin: 16px 0 6px; font-size: .76em; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
 .an-bar-row { display: grid; grid-template-columns: 56px 1fr auto; gap: 8px; align-items: center; margin: 3px 0; font-size: .78em; }
 .an-bar-label { color: var(--muted); }
-.an-bar-track { background: var(--panel-2); border-radius: 999px; height: 8px; overflow: hidden; }
+.an-bar-track { background: var(--bg); border-radius: 999px; height: 8px; overflow: hidden; }
 .an-bar-fill { display: block; height: 100%; background: var(--accent); }
 .an-bar-val { color: var(--soft); font-variant-numeric: tabular-nums; }
 .an-runs { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: .82em; margin: 0; }
@@ -1387,7 +1387,7 @@ small, .subtle { color: var(--muted); }
 .lb { display: flex; flex-direction: column; gap: 6px; }
 .lb-row { display: grid; grid-template-columns: minmax(70px, 30%) 1fr auto; gap: 10px; align-items: center; font-size: .82em; }
 .lb-name { color: var(--text); font-weight: 600; }
-.lb-track { background: var(--panel-2); border-radius: 999px; height: 9px; overflow: hidden; }
+.lb-track { background: var(--bg); border-radius: 999px; height: 9px; overflow: hidden; }
 .lb-fill { display: block; height: 100%; background: var(--accent); }
 .lb-meta { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .lb-sr.good { color: var(--green); } .lb-sr.warn { color: var(--amber); } .lb-sr.bad { color: var(--red); }
@@ -1411,11 +1411,11 @@ small, .subtle { color: var(--muted); }
 .chart-labels span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chart-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
 .chart-summary div { background: var(--panel-3); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 9px; }
-.chart-summary b { display: block; color: var(--text); font-size: 1.18em; line-height: 1; }
+.chart-summary b { display: block; color: var(--text); font-size: 1.3em; line-height: 1; }
 .chart-summary span { display: block; color: var(--muted); font-size: .72em; text-transform: uppercase; margin-top: 5px; }
 .health-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .health-card { background: var(--panel-3); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; }
-.health-card b { display: block; font-size: 1.35em; color: var(--text); line-height: 1; }
+.health-card b { display: block; font-size: 1.3em; color: var(--text); line-height: 1; }
 .health-card span { display: block; color: var(--muted); font-size: .74em; text-transform: uppercase; margin-top: 5px; }
 .health-card.warn b { color: var(--amber); }
 .health-card.bad b { color: var(--red); }
@@ -1426,7 +1426,7 @@ small, .subtle { color: var(--muted); }
 .status-bars { display: flex; flex-direction: column; gap: 9px; margin-top: 6px; }
 .status-bar-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) 34px; gap: 8px; align-items: center; }
 .status-bar-label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .78em; min-width: 0; }
-.status-bar-track { height: 8px; border-radius: 999px; background: #0a0b0c; border: 1px solid var(--line); overflow: hidden; }
+.status-bar-track { height: 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; }
 .status-bar-fill { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--blue), color-mix(in srgb, var(--blue) 45%, #0a0b0c)); }
 /* Tint the run-status-mix bars by status so the chart reads at a glance (deep-audit), mirroring
    the old dashboard's red/amber/green. Falls back to the blue default for unknown statuses. */
