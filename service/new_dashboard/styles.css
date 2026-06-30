@@ -367,7 +367,7 @@ small, .subtle { color: var(--muted); }
 .usage-pool-bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--green), var(--amber)); }
 .usage-pool-card.critical .usage-pool-bar > span { background: var(--red); }
 .usage-pool-meta { font-size: var(--fs-xs); color: var(--muted); }
-.usage-tag { font-size: var(--fs-xs); background: var(--line); color: var(--muted); border-radius: 999px; padding: 1px 6px; margin-left: 4px; }
+.usage-tag { font-size: var(--fs-xs); background: var(--line); color: var(--muted); border-radius: 999px; padding: 2px 8px; margin-left: 4px; }
 .usage-consumption-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 .usage-consumption-table th, .usage-consumption-table td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--line); }
 .usage-consumption-table th:first-child, .usage-consumption-table td:first-child { text-align: left; }
@@ -401,7 +401,7 @@ small, .subtle { color: var(--muted); }
 .status-chip.bad { border-color: rgba(238,106,116,.55); color: var(--red); background: rgba(238,106,116,.08); }
 .status-chip.muted { color: var(--muted); }
 .toolbar { display: flex; gap: 10px; margin-bottom: 12px; }
-.toolbar label { display: grid; gap: 4px; min-width: 180px; }
+.toolbar label { display: grid; gap: 3px; min-width: 180px; font-size: .8em; }
 .environment-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -710,7 +710,7 @@ small, .subtle { color: var(--muted); }
 .session-env-title:hover { background: var(--panel-2); color: var(--soft); }
 .session-env-title span { margin-left: auto; background: var(--panel-2); color: var(--muted); border-radius: 999px; padding: 1px 8px; font-size: 10px; }
 /* Read-only Activity rows (WS-J). */
-.activity-row { background: var(--panel-3); border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; margin-bottom: 8px; }
+.activity-row { background: var(--panel-3); border: 1px solid var(--line); border-radius: var(--radius-control); padding: 9px 11px; margin-bottom: 8px; }
 .activity-row .item-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .session-row {
   display: grid;
@@ -1051,7 +1051,7 @@ small, .subtle { color: var(--muted); }
 
 /* Chat-first landing (Phase 1). 2-pane shell: conversation rail + conversation pane. */
 .chat-shell { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 14px; flex: 1 1 auto; min-height: 0; }
-.chat-rail { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 13px; overflow: hidden; }
+.chat-rail { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-card); overflow: hidden; }
 .chat-rail-controls { padding: 11px; border-bottom: 1px solid var(--line-soft, var(--line)); display: flex; flex-direction: column; gap: 8px; }
 /* Find / Filters / Channels tool tabs (2026-06-29). */
 /* Same segmented-switch treatment as .chat-view-toggle (the console/messages switch) —
@@ -1068,11 +1068,11 @@ small, .subtle { color: var(--muted); }
 .chat-clear-filters { align-self: flex-start; font-size: var(--fs-xs); padding: 3px 9px; }
 .chat-rail-controls input[type="search"] { width: 100%; background: var(--input-bg); border: 1px solid var(--line); color: var(--text); border-radius: var(--radius-control); padding: 8px 10px; font-size: .85em; }
 .chat-rail-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .78em; color: var(--muted); }
-.chat-as select { background: var(--input-bg); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 3px 6px; margin-left: 6px; max-width: 150px; }
+.chat-as select { background: var(--input-bg); border: 1px solid var(--line); color: var(--text); border-radius: var(--radius-control); padding: 3px 6px; margin-left: 6px; max-width: 150px; }
 .chat-live-toggle { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 /* Search row: search input + inline sort + gear on one line. */
 .chat-search-row input[type="search"] { flex: 1; min-width: 0; } /* canonical .chat-search-row layout is lower in the file */
-.chat-sort-inline select { background: var(--input-bg); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 7px 6px; font-size: .76em; max-width: 96px; cursor: pointer; }
+.chat-sort-inline select { background: var(--input-bg); border: 1px solid var(--line); color: var(--text); border-radius: var(--radius-control); padding: 7px 6px; font-size: .76em; max-width: 96px; cursor: pointer; }
 /* Compact always-visible filter bar: scope + key quick filters wrap on one row, status as a
    tight row of color dots. Surfaced by default so filtering never needs the gear, but kept
    small so it doesn't crowd out the conversation list. */
@@ -1105,7 +1105,7 @@ small, .subtle { color: var(--muted); }
 .chat-rail-list { flex: 1; overflow-y: auto; padding: 6px; }
 .chat-rail-section { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .6px; color: var(--muted); padding: 10px 8px 4px; }
 .chat-rail-empty { padding: 4px 8px 8px; }
-.chat-rail-item { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 9px; padding: 8px 9px; cursor: pointer; color: var(--text); }
+.chat-rail-item { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; background: transparent; border: 1px solid transparent; border-radius: var(--radius-control); padding: 8px 9px; cursor: pointer; color: var(--text); }
 .chat-rail-item:hover { background: var(--panel-2); }
 .chat-rail-item.active { background: var(--accent-softer, var(--panel-2)); border-color: var(--accent); box-shadow: inset 4px 0 0 var(--secondary); }
 /* Favorited rows carry their own gold left-bar (independent of selection), matching the old dashboard. */
@@ -1118,7 +1118,7 @@ small, .subtle { color: var(--muted); }
 .chat-rail-preview { font-size: var(--fs-xs); color: var(--muted); }
 .chat-fav { color: var(--amber); font-size: .82em; }
 .chat-unread { background: var(--accent); color: #061615; font-weight: 800; font-size: .68em; border-radius: 999px; padding: 1px 6px; min-width: 18px; text-align: center; }
-.chat-conversation { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 13px; overflow: hidden; }
+.chat-conversation { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-card); overflow: hidden; }
 .chat-timeline-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .chat-timeline { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: var(--panel-3); }
 /* Jump-to-newest button (8800 parity): shown only when scrolled up from the bottom. */
@@ -1144,7 +1144,7 @@ small, .subtle { color: var(--muted); }
 .pulse-board-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .pulse-board-head h4 { margin: 0; font-size: .82em; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .pulse-board { display: flex; flex-direction: column; gap: 6px; }
-.pulse-agent { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; background: var(--panel-3); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; cursor: pointer; color: var(--text); font: inherit; text-align: left; }
+.pulse-agent { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; background: var(--panel-3); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 9px 12px; cursor: pointer; color: var(--text); font: inherit; text-align: left; }
 .pulse-agent:hover { border-color: var(--accent, var(--blue)); background: var(--panel-2); }
 .pulse-agent-id { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .pulse-agent-id strong { font-weight: 650; }
@@ -1167,7 +1167,7 @@ small, .subtle { color: var(--muted); }
 .chat-msg { background: var(--input-bg); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 10px 12px; }
 .chat-msg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .chat-msg-badges { display: inline-flex; gap: 5px; align-items: center; flex-wrap: wrap; }
-.msg-badge { font-size: .66em; text-transform: uppercase; letter-spacing: .4px; border-radius: 5px; padding: 1px 5px; border: 1px solid var(--line); color: var(--muted); }
+.msg-badge { font-size: .66em; text-transform: uppercase; letter-spacing: .4px; border-radius: var(--radius-sm); padding: 1px 5px; border: 1px solid var(--line); color: var(--muted); }
 .msg-badge.unread { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .msg-badge.woke { color: var(--green); border-color: rgba(84,197,139,.4); }
 .msg-badge.stored { color: var(--muted); }
@@ -1185,7 +1185,7 @@ small, .subtle { color: var(--muted); }
 
 /* Channels management (Phase 1.4): rail create-control + conversation-header actions. */
 .chat-new-channel { display: flex; gap: 6px; }
-.chat-new-channel input { flex: 1; background: var(--input-bg); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 6px 8px; font-size: .8em; }
+.chat-new-channel input { flex: 1; background: var(--input-bg); border: 1px solid var(--line); color: var(--text); border-radius: var(--radius-control); padding: 6px 8px; font-size: .8em; }
 .chat-new-channel button { flex: 0 0 auto; padding: 4px 11px; font-weight: 800; }
 /* Conversation header: title flexes on the left, search stays compact, the action cluster
    stays grouped on the right and wraps as ONE unit (was a cramped mix of title + search + 5
@@ -1205,7 +1205,7 @@ small, .subtle { color: var(--muted); }
 .files-upload input[type="file"]::file-selector-button { background: var(--panel-2); color: var(--soft); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 4px 9px; margin-right: 9px; cursor: pointer; }
 .files-upload .spawn-submit button { min-height: 40px; }
 .files-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; max-height: calc(100vh - 320px); overflow-y: auto; }
-.file-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 11px 14px; }
+.file-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 11px 14px; }
 .file-main { min-width: 0; }
 .file-main small { color: var(--muted); font-size: .74em; display: block; margin-top: 4px; }
 .file-actions { display: inline-flex; gap: 7px; flex: 0 0 auto; align-items: center; }
@@ -1271,7 +1271,7 @@ small, .subtle { color: var(--muted); }
 /* Per-agent chat analytics panel (Phase 1.5). */
 .chat-analytics { padding: 4px 2px; }
 .an-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 10px; margin-bottom: 8px; }
-.an-card { background: var(--panel-3); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.an-card { background: var(--panel-3); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 10px 12px; }
 .an-n { font-size: 1.3em; font-weight: 750; }
 .an-n.an-bad { color: var(--red); }
 .an-l { font-size: .72em; color: var(--muted); margin-top: 2px; }
@@ -1301,7 +1301,7 @@ small, .subtle { color: var(--muted); }
 /* Help & Reference band (Slice 7 "Help" half) — links + quick-start + endpoint reference. */
 .help-band { margin-top: 14px; }
 .help-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.help-card { background: var(--panel-3); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.help-card { background: var(--panel-3); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 14px; }
 .help-card h3 { margin: 0 0 4px; font-size: .98em; }
 .help-card h4 { margin: 10px 0 4px; font-size: .82em; color: var(--soft); text-transform: uppercase; letter-spacing: .04em; }
 .help-links { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
@@ -1315,7 +1315,7 @@ small, .subtle { color: var(--muted); }
 .help-endpoint-grid li > span { color: var(--muted); font-size: .92em; }
 .help-endpoint-grid li > span code { background: none; padding: 0; font-size: 1em; color: var(--soft); }
 .help-endpoint-grid li em { font-style: normal; color: var(--muted); }
-.help-endpoint-grid code, .help-card code { background: var(--panel-2); border-radius: 5px; padding: 1px 5px; font-size: .92em; }
+.help-endpoint-grid code, .help-card code { background: var(--panel-2); border-radius: var(--radius-sm); padding: 1px 5px; font-size: .92em; }
 .help-tools-note { margin-top: 12px; }
 .help-tools-note a { color: var(--blue); text-decoration: none; }
 .help-tools-note a:hover { text-decoration: underline; }
@@ -1325,14 +1325,14 @@ small, .subtle { color: var(--muted); }
 .theme-preview-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin-top: 8px; }
 .theme-preview {
   display: grid; gap: 7px; text-align: left; padding: 10px;
-  background: var(--panel-3); border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+  background: var(--panel-3); border: 1px solid var(--line); border-radius: var(--radius-card); cursor: pointer;
   min-height: auto; transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease;
 }
 .theme-preview:hover { transform: translateY(-1px); border-color: var(--accent-border); box-shadow: var(--shadow-card); }
 .theme-preview.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow-card); }
 .theme-preview b { font-size: .82em; }
 .theme-preview-swatches { display: flex; gap: 5px; }
-.theme-preview-swatches span { width: 24px; height: 16px; border-radius: 5px; border: 1px solid rgba(255,255,255,.08); }
+.theme-preview-swatches span { width: 24px; height: 16px; border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,.08); }
 
 /* Analytics page (WS-C) — ported from the old dashboard, retoned to the new palette. */
 .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -1343,7 +1343,7 @@ small, .subtle { color: var(--muted); }
 .analytics-range button { padding: 5px 12px; min-height: 32px; font-size: .82em; }
 .analytics-range button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); font-weight: 750; }
 #analytics-stats { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-.sc { background: var(--panel-3); border: 1px solid var(--line); border-radius: 10px; padding: 13px 16px; min-width: 0; box-shadow: var(--shadow-card); }
+.sc { background: var(--panel-3); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 13px 16px; min-width: 0; box-shadow: var(--shadow-card); }
 .sc .n { font-size: 1.7em; font-weight: 750; color: var(--text); line-height: 1; } /* neutral — semantic tone via .sc.warn/.good/.bad; brand palette must not recolor all stats */
 .sc { display: flex; flex-direction: column; }
 .sc .l { color: var(--muted); font-size: .72em; text-transform: uppercase; margin-top: 6px; letter-spacing: .03em; min-height: 2.1em; }
@@ -1390,7 +1390,7 @@ small, .subtle { color: var(--muted); }
 .chart-labels { display: flex; justify-content: space-between; gap: 6px; margin-top: 6px; color: var(--muted); font-size: .72em; }
 .chart-labels span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chart-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
-.chart-summary div { background: var(--panel-3); border: 1px solid var(--line); border-radius: 10px; padding: 9px; }
+.chart-summary div { background: var(--panel-3); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 9px; }
 .chart-summary b { display: block; color: var(--text); font-size: 1.18em; line-height: 1; }
 .chart-summary span { display: block; color: var(--muted); font-size: .72em; text-transform: uppercase; margin-top: 5px; }
 .health-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -1436,7 +1436,7 @@ small, .subtle { color: var(--muted); }
 .console-embed-label { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .console-toolbar { display: flex; align-items: center; gap: 6px; }
 .console-toolbar button { padding: 4px 10px; min-height: var(--control-h-sm); font-size: var(--fs-xs); }
-.console-await-pill { background: color-mix(in srgb, var(--amber) 18%, var(--panel)); color: var(--amber); border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent); border-radius: 999px; padding: 2px 9px; font-size: .74em; font-weight: 700; }
+.console-await-pill { background: color-mix(in srgb, var(--amber) 18%, var(--panel)); color: var(--amber); border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent); border-radius: 999px; padding: 2px 8px; font-size: var(--fs-xs); font-weight: 700; }
 .console-start-actions { display: flex; gap: 8px; padding: 14px; }
 .console-output-fallback { margin: 0; padding: 10px; background: var(--console-bg); color: #d7dde1; font: 12px/1.4 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; max-height: 420px; overflow: auto; }
 
@@ -1522,7 +1522,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 .chat-member-chip button { background: none; border: none; color: var(--muted); cursor: pointer; padding: 0 3px; min-height: auto; font-size: .9em; }
 .chat-member-chip button:hover { color: var(--red); transform: none; }
 /* I9 compaction history rows. */
-.history-row { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-top: 8px; background: var(--panel-3); }
+.history-row { border: 1px solid var(--line); border-radius: var(--radius-card); padding: 10px; margin-top: 8px; background: var(--panel-3); }
 .history-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .chat-reply-banner { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--accent-softer); border: 1px solid var(--accent-border); border-radius: var(--radius-control); padding: 6px 10px; margin: 0 0 8px; font-size: .82em; color: var(--soft); }
 .chat-reply-banner button { padding: 2px 7px; min-height: auto; }
@@ -1555,7 +1555,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 /* WS-H toolbars: runs filter row + chat rail toggle row. */
 .runs-toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: end; }
 .runs-toolbar label { display: grid; gap: 3px; font-size: .8em; }
-.runs-toolbar select, .runs-toolbar input { min-height: 38px; }
+.runs-toolbar select, .runs-toolbar input { min-height: var(--control-h); }
 .runs-search-field { flex: 1 1 180px; }
 .runs-search-field input { width: 100%; }
 .chat-rail-toggles { flex-wrap: wrap; gap: 10px 14px; }
