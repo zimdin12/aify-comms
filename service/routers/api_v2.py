@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Optional
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.routing import APIRoute
 from fastapi.exceptions import RequestValidationError
 
@@ -27,6 +27,7 @@ _listen_events: dict[str, asyncio.Event] = {}
 from pydantic import BaseModel
 from service.db import get_db
 from service import longpoll
+from service.terminal_snapshot import render_snapshot as _render_terminal_snapshot
 from service.status_engine import apply_event, derive, StatusInputs, VALID_STATUSES
 from service.usage_cache import usage_set, usage_all, usage_get, derive_usage_source, consumption_set, consumption_summary
 from service.models import (
@@ -11297,7 +11298,7 @@ async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureReque
 
 
 @router.get("/terminals/{terminal_id}")
-async def get_terminal(terminal_id: str):
+async def get_terminal(terminal_id: str, cols: Optional[int] = None, rows: Optional[int] = None):
     await TERMINAL_OUTPUT_WRITES.flush_terminal(terminal_id)
     db = await get_db()
     try:
@@ -11308,9 +11309,24 @@ async def get_terminal(terminal_id: str):
             "SELECT * FROM terminal_events WHERE terminal_id = ? ORDER BY id ASC LIMIT 200",
             (terminal_id,),
         )).fetchall()
+        term_dict = _terminal_session_to_dict(terminal)
+        # Clean replay (2026-06-30): when the viewer passes its grid size, render the raw
+        # byte log through a headless VT emulator sized to that grid and return a clean
+        # current-screen snapshot. Replaying THIS (instead of the raw log) into a fresh
+        # xterm fixes the full-screen-TUI scramble in BOTH dashboards. One-shot per attach,
+        # offloaded to a thread so the parse never blocks the event loop; falls back to the
+        # raw output on any error / when pyte is absent. See service/terminal_snapshot.py.
+        if cols and rows and term_dict.get("output"):
+            try:
+                loop = asyncio.get_event_loop()
+                term_dict["snapshot"] = await loop.run_in_executor(
+                    None, _render_terminal_snapshot, term_dict["output"], int(cols), int(rows)
+                )
+            except Exception:
+                pass
         return {
             "ok": True,
-            "terminal": _terminal_session_to_dict(terminal),
+            "terminal": term_dict,
             "events": [_terminal_event_to_dict(row) for row in events],
         }
     finally:
@@ -21204,11 +21220,10 @@ async def rotate(request: Request):
 
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard():
-    html_path = Path(__file__).parent.parent / "dashboard.html"
-    return HTMLResponse(
-        html_path.read_text(encoding="utf-8"),
-        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
-    )
+    # Legacy route — the monolith dashboard.html is retired (2026-06-30). Send old
+    # bookmarks to the single SPA now served at the origin root. See DECISIONS.md
+    # "Single dashboard: the new SPA served at :8800".
+    return RedirectResponse(url="/", status_code=307)
 
 
 @router.get("/dashboard/dispatches", response_class=HTMLResponse)

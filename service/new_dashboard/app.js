@@ -1694,9 +1694,14 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
   // Replay existing buffered output so the operator sees history when they open the Console
   // pane mid-session (instead of waiting for the next byte to arrive).
   try {
-    const data = await api(`/terminals/${encodeURIComponent(terminalId)}`);
+    // Pass our grid size so the server renders a CLEAN current-screen snapshot (via the
+    // headless VT emulator) instead of the raw byte log — replaying the raw log scrambles
+    // full-screen TUIs. Prefer `snapshot`; fall back to raw `output` (e.g. pyte absent).
+    const data = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${term.cols}&rows=${term.rows}`);
+    const snapshot = data?.terminal?.snapshot;
     const output = data?.terminal?.output;
-    if (output) term.write(String(output));
+    if (snapshot) term.write(String(snapshot));
+    else if (output) term.write(String(output));
     // GET /terminals/{id} returns the buffer sequence as `outputSeq` (only the WS frame uses `seq`).
     // Reading `seq` here left lastSeq=-1, disabling dedup so the first live frames re-painted history.
     if (state.activeXterm) state.activeXterm.lastSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? state.activeXterm.lastSeq);
@@ -1715,9 +1720,12 @@ async function resyncActiveConsole() {
   const entry = state.activeXterm;
   if (!entry || !entry.term) return;
   try {
-    const data = await api(`/terminals/${encodeURIComponent(entry.terminalId)}`);
-    entry.term.clear();
-    entry.term.write(String(data?.terminal?.output || ''));
+    const data = await api(`/terminals/${encodeURIComponent(entry.terminalId)}?cols=${entry.term.cols}&rows=${entry.term.rows}`);
+    // reset() (not clear()) wipes any scrambled scrollback/alt-screen state before we
+    // repaint the clean server-rendered snapshot — so Refresh actually un-scrambles.
+    entry.term.reset();
+    const snapshot = data?.terminal?.snapshot;
+    entry.term.write(String(snapshot || data?.terminal?.output || ''));
     entry.lastSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? entry.lastSeq);
   } catch { /* keep current buffer */ }
 }
@@ -3366,8 +3374,8 @@ function setPage(page) {
 }
 
 function updateStaticLinks() {
-  const legacy = byId('legacy-dashboard-link');
-  if (legacy) legacy.href = `${apiOrigin}/api/v1/dashboard`;
+  // (Legacy "Old dashboard" link removed 2026-06-30 — the monolith is retired; the SPA is
+  // now the single dashboard served at the API origin root.)
 }
 
 document.addEventListener('click', (event) => {

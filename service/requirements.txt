@@ -18,5 +18,10 @@ docker>=7.0.0
 # SQLite async
 aiosqlite>=0.20.0
 
+# Headless VT emulator — renders a clean current-screen snapshot from the raw PTY
+# byte log for console replay (service/terminal_snapshot.py). Optional at runtime:
+# the renderer falls back to the raw log if this import fails.
+pyte>=0.8.1
+
 # Add service-specific dependencies below
 # ---
