@@ -104,6 +104,13 @@ const pages = {
 
 const byId = (id) => document.getElementById(id);
 let refreshTimer = null;
+// In-flight guard: refresh() fires a ~10-request bundle; refreshSoon() can be triggered by
+// every WS event. Without this, under poll load (slow single-worker service) bundles pile up
+// faster than they drain and saturate the browser's ~6-connection-per-origin limit — which
+// starves lazily-loaded pages (e.g. Analytics) of their own fetches. Coalesce: at most one
+// bundle in flight; if more arrive while it runs, run exactly one more afterwards.
+let _refreshInFlight = false;
+let _refreshQueued = false;
 let dashboardSocket = null;
 
 // Chat-first landing controller (chat.js). Adapters bridge the pure module to app state:
@@ -573,6 +580,18 @@ function asArray(payload, key) {
 }
 
 async function refresh() {
+  // Coalesce concurrent refreshes so the poll bundle can't pile up (see _refreshInFlight).
+  if (_refreshInFlight) { _refreshQueued = true; return; }
+  _refreshInFlight = true;
+  try {
+    await _refreshImpl();
+  } finally {
+    _refreshInFlight = false;
+    if (_refreshQueued) { _refreshQueued = false; refreshSoon(); }
+  }
+}
+
+async function _refreshImpl() {
   byId('api-status').textContent = 'refreshing';
   byId('api-status').className = 'status-chip muted';
   // RESILIENT POLL (2026-06-18): use allSettled, not Promise.all. The single-worker service can

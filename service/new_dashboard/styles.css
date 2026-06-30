@@ -389,7 +389,7 @@ small, .subtle { color: var(--muted); }
   font-size: 12px;
   color: var(--soft);
   white-space: nowrap;
-  background: rgba(255,255,255,.02);
+  background: var(--panel-2);
 }
 .status-why-trigger { cursor: help; }
 .status-why-trigger:focus {
@@ -495,7 +495,7 @@ small, .subtle { color: var(--muted); }
 .runtime-grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-items: stretch; }
 /* Env cards: equal height with the action row pinned to the bottom so side-by-side cards line
    up regardless of how many actions they have (QA E4). */
-#environment-list .runtime-card { display: flex; flex-direction: column; gap: 7px; }
+#environment-list .runtime-card { display: flex; flex-direction: column; gap: 8px; padding: 14px; }
 #environment-list .runtime-card .contract-actions { margin-top: auto; padding-top: 4px; }
 /* Spawn button gets its own right-aligned row so the form has no ragged last row (QA E1). */
 .environment-spawn-grid .spawn-submit { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
