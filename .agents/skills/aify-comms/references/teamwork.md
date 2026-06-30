@@ -9,6 +9,7 @@ Load this file when coordinating an autonomous team, assigning/reviewing lanes, 
 - `coder`: implements bounded chunks, self-checks, reports exact evidence, and asks for review when the slice is ready.
 - `tester` / reviewer: verifies behavior, regressions, and risks. Reports evidence and blockers, not vague confidence.
 - `operator`: manages environments, sessions, runtime settings, compaction, and recovery.
+- `driver`/owner: owns the integrated product end-to-end and the seams between lanes; personally exercises the whole experience before "done." Distinct from per-lane ownership — dashboard-status and integration-order are not the same as owning that the product works. Usually the manager/lead also drives. (See `references/building-software.md`.)
 
 Roles are operating modes, not rigid permissions. The current owner of a contract should act; others should avoid broad unsolicited acknowledgements.
 
@@ -33,7 +34,8 @@ Default lane loop:
 2. Worker reads exact docs/files needed, implements, verifies, and replies with `[REVIEW]` or `[HOLD]`.
 3. Lead verifies on disk and replies `[APPROVE]`, `[REWORK]`, or `[BLOCKED]`.
 4. Worker fixes rework or continues to the next bounded slice.
-5. Manager reports only meaningful decisions/progress to dashboard.
+5. Before "done," the driver INTEGRATES and behaviorally verifies the WHOLE — the end-to-end flow plus the cross-cutting concerns no single lane owns (controls/UX consistency, data across layers, auth→action→persistence, restart/recovery) — not just each approved slice. Per-slice APPROVE is not product-works.
+6. Manager reports only meaningful decisions/progress to dashboard.
 
 Agents may work in parallel when lanes are independent. Every parallel request must name the expected reply target and completion condition so results wake the correct owner.
 
@@ -55,7 +57,9 @@ Do not use labels as theater. The body must include evidence or the exact ask.
 
 ## Manager Discipline
 
-- **Scope the context you hand down.** When you delegate, give each agent only the inputs that subtask needs — the specific file, the one prior result, the exact decision — not the whole thread. Broadcasting full history burns the delegate's context and tokens for no benefit, and a focused brief gets a sharper answer. If two agents don't need each other's output, don't cross-pollinate it; if one does, name the exact artifact (`comms_share` + a one-line pointer) rather than pasting it. (Context-scoping discipline — cf. the "Conductor" access-list idea, arXiv:2512.04388.)
+- **Stuck? Peek before you re-spawn or remind.** When an agent looks stalled or owes an overdue reply, read what it is actually doing first — `comms_console_tail(agentId="...")` for a managed agent, or a focused `[STATUS]` probe for a resident — BEFORE you re-spawn it or fire a reminder. The console reveals mid-build vs waiting-at-a-prompt vs looping vs errored; reach for it as the reflex, not the filesystem.
+- **Right-size the rigor.** Scale review depth and teammate count to task complexity and risk. Do not run the full multi-reviewer gauntlet on trivial/low-risk work — more agents and more review rounds are a COST, not a virtue; spend them where they buy something. (See `references/building-software.md`.)
+- **Scope the context you hand down.** When you delegate, give each agent only the inputs that subtask needs — the specific file, the one prior result, the exact decision — not the whole thread. Broadcasting full history burns the delegate's context and tokens for no benefit, and a focused brief gets a sharper answer. If two agents don't need each other's output, don't cross-pollinate it; if one does, name the exact artifact (`comms_share` + a one-line pointer) rather than pasting it. Put shared DECISIONS everyone needs (frozen contracts, API shapes, integration order) on a team CHANNEL via `comms_channel_send`, not scattered across DMs — DMs are for owned 1:1 handoffs. (Context-scoping discipline — cf. the "Conductor" access-list idea, arXiv:2512.04388.)
 - Check `comms_contracts` and `comms_agent_info` before assuming who is idle or stuck.
 - If an agent is active but not working and owes a contract, send a focused status probe or rebrief.
 - **Peek before you probe (managed agents).** When status alone is ambiguous — an agent shows `working` but owes an overdue reply, or you're sweeping the team on a heartbeat/monitoring loop — read what it is actually doing with `comms_console_tail(agentId="...")` (read-only, last 40 lines by default). The console reveals whether it's mid-build, waiting at a prompt, looping, or errored — detail that status can't convey. This is often faster and cheaper than a status round-trip.
@@ -71,10 +75,11 @@ Do not use labels as theater. The body must include evidence or the exact ask.
 - Self-continue only for a known next chunk. Do not create infinite self-wake loops.
 - If you cannot safely proceed, send `[HOLD]` with exact evidence checked and the narrow decision needed.
 - For long output, share an artifact and send a short summary.
+- Automated tests for real behavior are part of "done," not optional; architect for testability (e.g. an app-factory seam). An `[APPROVE]` should be backed by tests passing. (See `references/building-software.md`.)
 
 ## Review Discipline
 
-- Verify on disk before approval.
+- Distinguish CODE REVIEW (read the diff on disk) from BEHAVIORAL VERIFICATION (run it / measure it). For any user-facing, render-, feel-, or integration-affecting change, behavioral verification is REQUIRED — code review alone misses render/feel/integration bugs. State which you did.
 - Keep rework narrow and actionable.
 - If a review finds no issue, say what was checked and what risk remains.
 - Do not approve broad "done" claims without evidence.

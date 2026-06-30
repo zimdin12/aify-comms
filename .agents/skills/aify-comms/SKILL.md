@@ -18,6 +18,18 @@ Use aify-comms as the team chat and work-loop control plane: direct messages for
 - Answer naturally but compactly: result, evidence checked, blocker/uncertainty, next action.
 - If blocked, ask one concrete question or send a precise handoff. Do not guess or wait vaguely.
 
+## Building software as a team
+
+If you are doing build/implementation work as part of a team, hold these — and **read `references/building-software.md` first** for the full standard:
+
+- **Ownership.** ONE driver owns the integrated product end-to-end + the seams no lane owns; "every slice approved" ≠ "the product works"; the driver runs the whole flow before "done."
+- **Production-grade + idiomatic.** Strong design where the language wants it (don't cargo-cult OOP); validate/bound ALL input (assume clients cheat); handle the unhappy paths; DRY the shared contracts and keep docs in lockstep with code.
+- **Testing is part of done.** Automated tests for real behavior; architect for testability.
+- **Review ≠ on-disk read.** Reviewer ≠ builder; end with an explicit `APPROVE`/`REVISE`; behaviorally VERIFY (run/measure) anything user-facing — code review alone misses render/feel/integration bugs.
+- **Freeze the seams on a channel** before lanes go heads-down; keep sessions lean (scope context, compact long ones).
+- **Honesty:** state proven vs assumed.
+- **Right-size the rigor** to complexity & risk — more agents/reviews are a COST, not a virtue.
+
 ## Quick Start
 
 Resident/live CLI sessions register once from the real session:
