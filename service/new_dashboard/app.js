@@ -442,6 +442,7 @@ function refreshSoon() {
   refreshTimer = setTimeout(refresh, 250);
 }
 
+let _wsReconnectAttempts = 0;
 function connectRealtimeSocket() {
   if (dashboardSocket && [WebSocket.OPEN, WebSocket.CONNECTING].includes(dashboardSocket.readyState)) return;
   const wsOrigin = apiOrigin.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:');
@@ -453,6 +454,7 @@ function connectRealtimeSocket() {
   }
   dashboardSocket.onopen = () => {
     state.realtimeConnected = true;
+    _wsReconnectAttempts = 0; // healthy connection → reset backoff to fast retry
     evaluateFlowGates();
   };
   dashboardSocket.onmessage = (event) => {
@@ -463,7 +465,12 @@ function connectRealtimeSocket() {
   };
   dashboardSocket.onclose = () => {
     state.realtimeConnected = false;
-    setTimeout(connectRealtimeSocket, 2500);
+    // Exponential backoff (capped) instead of hammering /ws every 2.5s. The single-worker
+    // service restarts on every deploy; a flat retry from every open tab piles load on exactly
+    // when it's weakest. Reset to fast on a successful open (see onopen below).
+    _wsReconnectAttempts = Math.min(_wsReconnectAttempts + 1, 6);
+    const delay = Math.min(30000, 1500 * 2 ** _wsReconnectAttempts);
+    setTimeout(connectRealtimeSocket, delay);
   };
 }
 
@@ -1148,6 +1155,7 @@ function renderAttention() {
     .filter((c) => c.overdue || c.state === 'working' || c.state === 'queued')
     .slice(0, 8);
   const host = byId('attention-list');
+  if (!host) return; // never let a missing node throw out of the unconditional renderAll loop
   // WS-G: when clear, collapse to a slim one-liner instead of a tall empty card.
   host.classList.toggle('is-clear', items.length === 0);
   host.innerHTML = items.length
@@ -1832,6 +1840,8 @@ function updateAwaitPill() {
 
 const codexConsoleConnections = new Map(); // agentId → { ws, threadId, container }
 
+// Don't leak codex console sockets across an unload/navigation.
+window.addEventListener('beforeunload', () => { codexConsoleConnections.forEach((e) => { try { e.ws?.close(); } catch {} }); });
 function codexConsoleClose(agentId) {
   const entry = codexConsoleConnections.get(agentId);
   if (!entry) return;
@@ -1845,6 +1855,8 @@ function codexConsoleAppendLine(container, line, cls = '') {
   div.className = `codex-line ${cls}`.trim();
   div.textContent = line;
   container.appendChild(div);
+  // Cap scrollback (the xterm path caps at 5000; this DOM stream had no bound → grew forever).
+  while (container.childElementCount > 2000) container.removeChild(container.firstChild);
   container.scrollTop = container.scrollHeight;
 }
 
@@ -3505,7 +3517,7 @@ document.addEventListener('click', (event) => {
     const v = workView.dataset.workView;
     const grid = document.querySelector('.diagnostics-grid');
     if (grid) grid.setAttribute('data-work-view', v);
-    document.querySelectorAll('[data-work-view]').forEach((b) => b.classList.toggle('active', b.dataset.workView === v));
+    document.querySelectorAll('[data-work-view]').forEach((b) => { const on = b.dataset.workView === v; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
     try { localStorage.setItem('aifyWorkView', v); } catch { /* private mode */ }
     return;
   }

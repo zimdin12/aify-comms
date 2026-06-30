@@ -182,6 +182,7 @@ export function runStatusMixHtml(runsByStatus = {}) {
 function fmtMins(m) {
   if (m == null) return '—';
   const n = Number(m);
+  if (!Number.isFinite(n)) return '—'; // non-numeric input must not render "NaNm"
   return n >= 60 ? `${Math.floor(n / 60)}h ${Math.round(n % 60)}m` : `${Math.round(n)}m`;
 }
 
