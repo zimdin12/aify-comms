@@ -158,15 +158,14 @@ export function statCardsHtml(data = {}) {
 }
 
 export function healthGridHtml(data = {}) {
-  const failedSpawns = Number((data.spawnRequestsByStatus || {}).failed || 0);
+  // "Capacity now" = live capacity only (agents + reachable envs). Spawn throughput/failures live
+  // in the KPI grid + the Environments page, so they're not duplicated here.
   const card = (n, l, tone, tip) => `<div class="health-card${tone ? ` ${tone}` : ''}"${tip ? ` title="${esc(tip)}"` : ''}><b>${esc(n)}</b><span>${esc(l)}</span></div>`;
   return `<div class="health-grid">`
     + card(data.liveAgents || 0, 'Live agents', 'good', 'Agents with a live worker + fresh heartbeat right now.')
     + card(data.onlineAgents || 0, 'Online agents', '', 'Agents ready for work right now (online or working).')
     + card(data.workingAgents || 0, 'Working now', 'warn', 'Agents currently mid-turn (actively running).')
     + card(data.onlineEnvironments || 0, 'Online envs', '', 'Environment bridges reachable right now (managed agents can be spawned on these).')
-    + card(data.spawnRequestTotal || 0, 'Spawn requests', '', 'Total spawn requests recorded in this window.')
-    + card(failedSpawns, 'Spawn failures', failedSpawns ? 'bad' : '', 'Spawn requests that failed to start (e.g. unreachable env / runtime error).')
     + `</div>`;
 }
 

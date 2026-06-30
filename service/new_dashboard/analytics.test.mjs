@@ -44,10 +44,12 @@ test('statCardsHtml shows messages, runs, and a warn tone for failures', () => {
   assert.match(html, /Failed \/ Cancelled/);
 });
 
-test('healthGridHtml shows live agents + flags failed spawns bad', () => {
+test('healthGridHtml shows live capacity (agents + envs), no spawn-throughput dupes', () => {
   const html = healthGridHtml(sample);
   assert.match(html, /Live agents/);
-  assert.match(html, /class="health-card bad"/); // 1 failed spawn
+  assert.match(html, /Online envs/);
+  // Capacity-now is live-capacity only; spawn failures live in the KPI grid, not here.
+  assert.ok(!/Spawn failures/.test(html), 'spawn failures must not be duplicated in capacity grid');
 });
 
 test('runStatusMixHtml renders one bar per non-zero status, sorted', () => {

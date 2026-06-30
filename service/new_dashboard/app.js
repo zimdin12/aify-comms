@@ -639,7 +639,7 @@ async function _refreshImpl() {
   const failed = settled.filter((s) => s.status === 'rejected').length;
 
   if (ok(0)) state.agents = asAgentArray(val(0));
-  if (ok(1)) state.contracts = val(1).contracts || [];
+  if (ok(1)) { state.contracts = val(1).contracts || []; state.contractsBase = state.contracts; }
   // messages: prefer recent, fall back to inbox, then keep prior — only touch if either succeeded.
   if (ok(2) || ok(3)) {
     state.messages = (ok(3) && val(3).messages) || (ok(2) && val(2).messages) || state.messages || [];
@@ -1204,10 +1204,15 @@ function pruneDiagnosticSelection() {
 function renderDiagnosticsSummary() {
   const target = byId('diagnostics-summary');
   if (!target) return;
-  const openWork = state.contracts.filter((contract) => ['overdue', 'working', 'queued', 'sent', 'seen'].includes(contract.state)).length;
-  const overdue = state.contracts.filter((contract) => contract.overdue).length;
-  const activeRuns = state.runs.filter((run) => ['claimed', 'running'].includes(resolveStatus(run.status).kind)).length;
-  const failedRuns = state.runs.filter((run) => resolveStatus(run.status).kind === 'failed').length;
+  // Summary tiles describe the FLEET, not the current Work-Loop/Runs filter. Use the unfiltered
+  // open-contracts snapshot (contractsBase) + fleet-wide /stats so changing a filter never moves
+  // the headline numbers.
+  const baseContracts = state.contractsBase || state.contracts;
+  const runsByStatus = state.stats?.dispatch_runs_by_status || {};
+  const openWork = baseContracts.filter((contract) => ['overdue', 'working', 'queued', 'sent', 'seen'].includes(contract.state)).length;
+  const overdue = baseContracts.filter((contract) => contract.overdue).length;
+  const activeRuns = (Number(runsByStatus.claimed) || 0) + (Number(runsByStatus.running) || 0);
+  const failedRuns = Number(state.stats?.run_failures_24h) || 0;
   target.innerHTML = [
     metric('Open work', openWork, openWork ? 'warn' : 'neutral'),
     metric('Overdue', overdue, overdue ? 'bad' : 'neutral'),

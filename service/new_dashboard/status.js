@@ -26,6 +26,7 @@ export const STATUS_KINDS = {
   claimed: { label: 'claimed', dotKind: 'working', tone: 'warn', inputEnabled: false },
   running: { label: 'running', dotKind: 'working', tone: 'warn', inputEnabled: false },
   completed: { label: 'completed', dotKind: 'ok', tone: 'ok', inputEnabled: true },
+  delivered: { label: 'delivered', dotKind: 'ok', tone: 'ok', inputEnabled: true },
   stopped: { label: 'stopped', dotKind: 'offline', tone: 'muted', inputEnabled: false },
   failed: { label: 'failed', dotKind: 'bad', tone: 'bad', inputEnabled: true },
   cancelled: { label: 'cancelled', dotKind: 'bad', tone: 'bad', inputEnabled: true },

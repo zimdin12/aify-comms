@@ -20,8 +20,9 @@ export function dmMessages(messages, agentId, identity = 'dashboard') {
 }
 
 // Rank for the "status" sort + working-first hoist: busy/blocked float up, dead sink.
-const STATUS_SORT_RANK = { working: 0, blocked: 1, online: 2, idle: 3, available: 4, stale: 5, offline: 6, stopped: 7, unknown: 8 };
-function statusRank(kind) { return STATUS_SORT_RANK[kind] ?? 8; }
+// 6-state proof-based model (idle/stale were removed 2026-06-18 and normalize away in status.js).
+const STATUS_SORT_RANK = { working: 0, blocked: 1, online: 2, available: 3, offline: 4, stopped: 5, unknown: 6 };
+function statusRank(kind) { return STATUS_SORT_RANK[kind] ?? 6; }
 
 // Build rail items (DMs + channels) from state. Pure → unit-tested. Honors sortMode, the
 // live-only / open-only / working-first toggles, the status filter set, and global text search.
@@ -247,9 +248,9 @@ export function renderAnalyticsPanelHtml(agentId, data) {
 }
 
 // Build the controller that renders the page and wires send. deps: { state, byId, sendMessage,
-// loadChannels, refresh, loadConversation, loadAgentAnalytics }.
+// refresh, loadConversation, loadAgentAnalytics, ... } (channel loading is driven from app.js).
 export function createChatController(deps) {
-  const { state, byId, sendMessage, loadChannels, refresh, loadConversation, loadAgentAnalytics, mountChatConsole, loadPulse, persistDrafts } = deps;
+  const { state, byId, sendMessage, refresh, loadConversation, loadAgentAnalytics, mountChatConsole, loadPulse, persistDrafts } = deps;
 
   function renderRail() {
     const host = byId('chat-rail-list');
