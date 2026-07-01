@@ -82,6 +82,17 @@ Judgment rules (apply the test above, don't apply them mechanically):
   have.** New decision, result, blocker, or heads-up: yes. Re-pasting the agreed plan the
   recipient wrote half of: no. If you have nothing new *and* they need nothing, that's a
   cue to ACT, not to write.
+- **Point at bulky content; don't paste it. Reference if co-located, share if not.** When
+  you'd otherwise inline a large brief / diff / spec / log, send a pointer instead — the
+  content then lives in ONE place and the recipient pulls only the part it needs, instead
+  of the whole payload being copied into every recipient's context (and the DB + envelope)
+  on every send. If the recipient shares your workspace, cite the **path** (`tmp/brief.md`,
+  `LiveWorld.h:118`); if they're in a different folder/env, `comms_share` it once and send
+  the one-line pointer (an artifact is also an immutable snapshot — safer for "this exact
+  state" than a live file). **But keep the decision, the ask, and the delta INLINE** —
+  reference the detail, not the intent; a bare "see tmp/x.md" just forces a blind read.
+  Small content (a number, a one-line status, the actual decision) stays inline — a pointer
+  isn't worth a tool round-trip for a sentence.
 - **You don't owe a message just to acknowledge.** If a reply is required to CLOSE A RUN
   (see "Reply on the surface you received"), send that one and make it terminal — an
   explicit stop marker ("Proceeding, no reply needed", `[APPROVE]`, `[COMMIT]`) — then the
