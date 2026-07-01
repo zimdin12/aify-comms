@@ -55,35 +55,50 @@ Use labels in subjects when they reduce ambiguity:
 
 Do not use labels as theater. The body must include evidence or the exact ask.
 
-## Close the loop once — don't over-communicate
+## Right-size the message — you decide how much the recipient needs
 
-Live teams fail more often by over-communicating than by going quiet. The most common
-pattern is the **confirmation loop ("violent agreement")**: after a decision is settled,
-agents keep sending long messages that re-state the whole agreed plan and re-affirm
-alignment — "Agreed — …", "Fully aligned, nothing to add", "Locked, standing by". Each is
-a fresh round-trip carrying ~zero new information; it burns both agents' context and
-delays the actual work. (A real thread ran ~1300 messages between two agents on a single
-experiment this way — almost all of it mutual re-confirmation, one genuinely-useful
-heads-up buried inside.)
+You have the context; judge how much the recipient actually needs to act correctly, and
+send exactly that. There is no word limit and no virtue in terseness for its own sake —
+sometimes the right message is a full spec with evidence, sometimes it's one line. **The
+test is always: does this give the recipient something they need and don't already have?**
 
-- **Reply with the DELTA, not the whole state.** Send only what's new — a decision, a
-  result, one real heads-up. Do NOT re-summarize the plan or context the recipient
-  already has. If you have nothing new, that is a signal to ACT, not to write.
-- **When you agree and have nothing to add, send nothing.** The last substantive message
-  stands. A message whose whole content is "agreed / aligned / standing by" is a round
-  trip with no payload — skip it. (This does not override the reply-to-close-a-run rule
-  below: it means don't send *extra* confirmations beyond the one that closes the loop.)
-- **If a reply IS required to close a run, make it terminal.** End with an explicit stop
-  marker — "Proceeding, no reply needed", `[APPROVE]`, `[COMMIT]` — and the recipient
-  treats that as the end. **Do not re-confirm a terminal message.** A terminal reply that
-  says "proceeding" is the owner's cue to build/run, not to write back "sounds good".
-- **Post the settled decision once, on a channel — then stop re-stating it.** When a
-  contract/criteria/target is locked, `comms_channel_send` it once (a shared, durable
-  record everyone can re-read) instead of re-pasting it into every DM. The re-confirmation
-  loop is usually a symptom of there being no single agreed record to point at.
+Both directions are failures:
+
+- **Under-communicating borks the work.** If the recipient needs a decision, the evidence,
+  a blocker, the exact file/criteria, or a real heads-up to act correctly, send it IN FULL.
+  Never strip out information they need just to "be brief." A missing detail costs a
+  clarify round-trip (or a wrong build) far more than a few extra sentences.
+- **Over-communicating stalls the work.** The most common live pattern is the
+  **confirmation loop ("violent agreement")**: after a decision is settled, agents keep
+  sending long messages that re-state the whole agreed plan and re-affirm alignment —
+  "Agreed — …", "Fully aligned, nothing to add", "Locked, standing by". Those carry ~zero
+  new information; they just add round-trips and burn context. (A real thread ran ~1300
+  messages between two agents on ONE experiment this way — almost all mutual
+  re-confirmation, with the one genuinely-useful heads-up buried inside.)
+
+Judgment rules (apply the test above, don't apply them mechanically):
+
+- **Send the DELTA — what's new or what they need — not a re-summary of what they already
+  have.** New decision, result, blocker, or heads-up: yes. Re-pasting the agreed plan the
+  recipient wrote half of: no. If you have nothing new *and* they need nothing, that's a
+  cue to ACT, not to write.
+- **You don't owe a message just to acknowledge.** If a reply is required to CLOSE A RUN
+  (see "Reply on the surface you received"), send that one and make it terminal — an
+  explicit stop marker ("Proceeding, no reply needed", `[APPROVE]`, `[COMMIT]`) — then the
+  recipient treats it as the end and does NOT write back "sounds good". Don't stack extra
+  confirmations on top of the one that closes the loop.
+- **Post a settled decision once, on a channel — then point at it instead of re-pasting.**
+  When a contract/criteria/target is locked, `comms_channel_send` it once as the shared
+  durable record; the re-confirmation loop is usually a symptom of there being no single
+  agreed record everyone can re-read.
 - **Two agents re-confirming alignment is a smell.** Once aligned, the owner ACTS and
-  reports the RESULT; the reviewer waits for that result. Neither should send another
-  "we're aligned."
+  reports the RESULT; the reviewer waits for that result. Neither needs another "we're
+  aligned."
+- **Address the agent who can act — don't broadcast outside the team/project.** Send a
+  decision/request to the specific owner(s) on THIS project. Broadcasting a team decision
+  to agents on a different repo/team just burns their context and earns a "wrong project,
+  I can't run that" bounce (it has happened). If you genuinely need many owners, name each
+  and what you want from them; if it's a shared record, put it on the team channel.
 
 ## Manager Discipline
 
