@@ -59,7 +59,7 @@ Files: `service/routers/api_v2.py`, tests.
 
 - `service/new_dashboard/status.js`: drop `STATUS_KINDS.idle/.stale`; update the 8→6 contract comment + `status.test.mjs` list.
 - `service/dashboard.html` (old): remove `.st-idle/.st-stale` + idle/stale from CHAT_STATUS_ORDER/LABELS/LIVE + presence/rank/bucket lists + the `['offline','stale','stopped']` checks (fold stale→offline) + help text.
-- Settings UI (both dashboards): remove the idle/offline minute fields; (stale_agent_hours is rotation, not status — relabel/keep). Add `agent_liveness_seconds` if exposed.
+- Settings UI (both dashboards): remove the idle/offline minute fields; (stale_agent_hours is rotation, not status — relabel/keep). Add `agent_liveness_seconds` if exposed. (Update 2026-07-01: `stale_agent_hours` was later removed entirely as vestigial — its only consumer, the "Mark stale agents" UPDATE in /rotate, was deleted in this rewrite, leaving the setting with no live consumer.)
 - Sweep remaining test files asserting idle/stale/available (test_status_deliverability, test_resident_*, test_agent_status_read_gate, test_ready_status_endpoint, status_engine_integration).
 
 ## Phase 5 — Deploy + live-validate + (Phase 6 wrapper-side, deferred).

@@ -6,7 +6,13 @@
   --bg: #0a0b0c;
   --panel: #15191b;
   --panel-2: #1d2325;
-  --panel-3: #0e1416;
+  /* Content/card surface — lifted above bg so cards read as *elevated* rather than flat
+     against the canvas (2026-07-01 elevation fix: was #0e1416, a hair above bg, which made
+     chat/content look flat vs the old dashboard's clearly-lighter surfaces). */
+  --panel-3: #12181a;
+  /* Chat message bubble surface — a raised tier, LIGHTER than bg (was mistakenly --input-bg
+     #090c0d, i.e. darker than the canvas, which inverted the old dashboard's elevation). */
+  --chat-surface: #161b1e;
   --line: #2b3236;
   --text: #eef3ef;
   --muted: #9eaaa5;
@@ -513,8 +519,18 @@ small, .subtle { color: var(--muted); }
 #environment-list { gap: 12px; margin-bottom: 12px; }
 #environment-list .runtime-card { display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; }
 #environment-list .runtime-card .contract-actions { margin-top: auto; padding-top: 4px; }
-/* Spawn button gets its own right-aligned row so the form has no ragged last row (QA E1). */
-.environment-spawn-grid .spawn-submit { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+/* Spawn button is a clean right-aligned form footer OUTSIDE the field grid (2026-07-01) — the
+   old in-grid button either stranded far-right on its own row or wrapped to row-2 with dead
+   space beside it. A footer action row reads as intentional. */
+.spawn-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
+.spawn-actions button { min-width: 130px; min-height: 40px; }
+/* Section-head trailing tag (managed-warm, "latest", "queue + history") reads as a neat pill
+   instead of bare floating text (2026-07-01 positioning polish). */
+.section-head .subtle {
+  font-size: var(--fs-xs); color: var(--muted); font-weight: 600;
+  background: var(--panel-3); border: 1px solid var(--line);
+  border-radius: var(--radius-pill); padding: 2px 10px; white-space: nowrap;
+}
 .environment-spawn-grid .spawn-submit button { min-width: 130px; }
 .env-runtime-list, .env-root-list {
   display: flex;
@@ -1199,7 +1215,7 @@ small, .subtle { color: var(--muted); }
 .chat-console-host { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
 .chat-console-host .console-embed { flex: 1; min-height: 280px; }
 .chat-console-host .xterm-host { flex: 1; height: auto; min-height: 260px; }
-.chat-msg { background: var(--input-bg); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 10px 12px; }
+.chat-msg { background: var(--chat-surface); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 10px 12px; }
 .chat-msg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .chat-msg-badges { display: inline-flex; gap: 5px; align-items: center; flex-wrap: wrap; }
 .msg-badge { font-size: .66em; text-transform: uppercase; letter-spacing: .4px; border-radius: var(--radius-sm); padding: 1px 5px; border: 1px solid var(--line); color: var(--muted); }

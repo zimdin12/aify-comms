@@ -804,7 +804,6 @@ const SETTINGS_SCHEMA = [
     { key: 'retention_days', label: 'Retention (days)', type: 'number', min: 1, max: 3650 },
     { key: 'max_messages_per_agent', label: 'Max messages / agent', type: 'number', min: 10, max: 100000 },
     { key: 'max_shared_size_mb', label: 'Max shared file size (MB)', type: 'number', min: 10, max: 100000 },
-    { key: 'stale_agent_hours', label: 'Stale agent after (h)', type: 'number', min: 1, max: 720 },
     { key: 'active_run_stale_minutes', label: 'Terminal run stale cleanup (min)', type: 'number', min: 5, max: 240 },
     { key: 'active_managed_run_stale_minutes', label: 'Managed run stale cleanup (min)', type: 'number', min: 1, max: 120 },
   ] },

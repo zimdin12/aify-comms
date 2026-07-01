@@ -142,7 +142,6 @@ DEFAULT_SETTINGS = {
     "retention_days": 90,
     "max_messages_per_agent": 1000,
     "max_shared_size_mb": 500,
-    "stale_agent_hours": 24,
     "dashboard_refresh_seconds": 15,
     "rotation_enabled": True,
     # Proof-based status (2026-06-18): a single short liveness window replaces the old
@@ -21231,7 +21230,8 @@ async def rotate(request: Request):
         # never stamped — and 'stale' is no longer a valid status word. Stamping it was a pure
         # write (one per cleanup cycle) of a dead vocabulary value that the live-state cache
         # already overrode. Any legacy 'stale' raw row now canonicalizes to 'offline' via
-        # _LEGACY_RAW_STATUS_TO_CANONICAL.
+        # _LEGACY_RAW_STATUS_TO_CANONICAL. The vestigial `stale_agent_hours` setting itself was
+        # also removed (2026-07-01) — it had no remaining consumer after this UPDATE was deleted.
 
         # Clean orphaned read receipts
         await db.execute("DELETE FROM read_receipts WHERE message_id NOT IN (SELECT id FROM messages)")

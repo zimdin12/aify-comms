@@ -1908,11 +1908,6 @@ codex-aify --aify-agent coder --aify-role coder</pre>
         <div class="hint">An agent shows "offline" if its wrapper heartbeat is silent this long. Status is otherwise proof-based (the wrapper reports working/online). Default: 90</div>
       </div>
       <div class="form-group">
-        <label>Stale Agent Threshold (hours)</label>
-        <input type="number" id="s-stale" min="1" max="720">
-        <div class="hint">Rotation marks agents stale after this many hours since last seen. Default: 24</div>
-      </div>
-      <div class="form-group">
         <label>Auto-Rotation</label>
         <select id="s-rotation"><option value="true">Enabled</option><option value="false">Disabled</option></select>
         <div class="hint">When enabled, rotation expires old messages/files and marks stale agents using the settings above.</div>
@@ -9061,7 +9056,6 @@ async function loadSettings() {
   document.getElementById('s-max-shared').value = s.max_shared_size_mb;
   document.getElementById('s-refresh').value = s.dashboard_refresh_seconds;
   document.getElementById('s-liveness').value = Number(s.agent_liveness_seconds || 90);
-  document.getElementById('s-stale').value = s.stale_agent_hours;
   document.getElementById('s-rotation').value = String(s.rotation_enabled);
   document.getElementById('s-env-offline').value = Number(s.environment_offline_seconds || 90);
   document.getElementById('s-active-run-stale').value = Number(s.active_run_stale_minutes || 30);
@@ -9113,7 +9107,6 @@ async function saveSettings(e) {
       max_shared_size_mb: settingsNumber('s-max-shared', 500, {min: 10, max: 100000}),
       dashboard_refresh_seconds: settingsNumber('s-refresh', 15, {min: 5, max: 300}),
       agent_liveness_seconds: settingsNumber('s-liveness', 90, {min: 30, max: 600}),
-      stale_agent_hours: settingsNumber('s-stale', 24, {min: 1, max: 720}),
       rotation_enabled: settingsBool('s-rotation'),
       environment_offline_seconds: settingsNumber('s-env-offline', 90, {min: 30, max: 3600}),
       active_run_stale_minutes: settingsNumber('s-active-run-stale', 30, {min: 5, max: 240}),
