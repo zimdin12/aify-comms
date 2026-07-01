@@ -61,17 +61,17 @@
             <span>Find</span>
             <input id="global-filter" type="search" placeholder="Agents, runs, subjects">
           </label>
+          <div class="button-row top-quick-jumps">
+            <button class="ghost" data-page-jump="diagnostics" title="Open Work">Work</button>
+            <button class="ghost" data-page-jump="environments" title="Open Environments">Spawn</button>
+            <button class="ghost" data-page-jump="settings" title="Open Settings">Settings</button>
+          </div>
       <button id="refresh" class="ghost" title="Refresh dashboard data">Refresh</button>
         </div>
       </header>
       <section id="attention-strip" class="attention-strip" aria-label="Needs attention">
         <div class="section-head">
           <h2><button id="attention-collapse" class="attention-collapse" title="Collapse / expand Needs Attention (full-screen chat)" aria-label="Toggle Needs Attention">▾</button>Needs Attention</h2>
-          <div class="button-row">
-            <button class="ghost" data-page-jump="diagnostics" title="Open Work">Work</button>
-            <button class="ghost" data-page-jump="environments" title="Open Environments">Spawn</button>
-            <button class="ghost" data-page-jump="settings" title="Open Settings">Settings</button>
-          </div>
         </div>
         <div class="metric-grid" id="metrics"></div>
         <div id="attention-list" class="item-list scroll-region"></div>
