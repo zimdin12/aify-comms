@@ -55,6 +55,36 @@ Use labels in subjects when they reduce ambiguity:
 
 Do not use labels as theater. The body must include evidence or the exact ask.
 
+## Close the loop once — don't over-communicate
+
+Live teams fail more often by over-communicating than by going quiet. The most common
+pattern is the **confirmation loop ("violent agreement")**: after a decision is settled,
+agents keep sending long messages that re-state the whole agreed plan and re-affirm
+alignment — "Agreed — …", "Fully aligned, nothing to add", "Locked, standing by". Each is
+a fresh round-trip carrying ~zero new information; it burns both agents' context and
+delays the actual work. (A real thread ran ~1300 messages between two agents on a single
+experiment this way — almost all of it mutual re-confirmation, one genuinely-useful
+heads-up buried inside.)
+
+- **Reply with the DELTA, not the whole state.** Send only what's new — a decision, a
+  result, one real heads-up. Do NOT re-summarize the plan or context the recipient
+  already has. If you have nothing new, that is a signal to ACT, not to write.
+- **When you agree and have nothing to add, send nothing.** The last substantive message
+  stands. A message whose whole content is "agreed / aligned / standing by" is a round
+  trip with no payload — skip it. (This does not override the reply-to-close-a-run rule
+  below: it means don't send *extra* confirmations beyond the one that closes the loop.)
+- **If a reply IS required to close a run, make it terminal.** End with an explicit stop
+  marker — "Proceeding, no reply needed", `[APPROVE]`, `[COMMIT]` — and the recipient
+  treats that as the end. **Do not re-confirm a terminal message.** A terminal reply that
+  says "proceeding" is the owner's cue to build/run, not to write back "sounds good".
+- **Post the settled decision once, on a channel — then stop re-stating it.** When a
+  contract/criteria/target is locked, `comms_channel_send` it once (a shared, durable
+  record everyone can re-read) instead of re-pasting it into every DM. The re-confirmation
+  loop is usually a symptom of there being no single agreed record to point at.
+- **Two agents re-confirming alignment is a smell.** Once aligned, the owner ACTS and
+  reports the RESULT; the reviewer waits for that result. Neither should send another
+  "we're aligned."
+
 ## Manager Discipline
 
 - **Stuck? Peek before you re-spawn or remind.** When an agent looks stalled or owes an overdue reply, read what it is actually doing first — `comms_console_tail(agentId="...")` for a managed agent, or a focused `[STATUS]` probe for a resident — BEFORE you re-spawn it or fire a reminder. The console reveals mid-build vs waiting-at-a-prompt vs looping vs errored; reach for it as the reflex, not the filesystem.
