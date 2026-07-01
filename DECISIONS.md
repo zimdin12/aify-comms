@@ -112,6 +112,17 @@ sized to that grid and returns a clean, self-contained ANSI paint of the CURRENT
 deltas still stream raw** to the client xterm. This also fixes the per-viewer size mismatch
 (each viewer renders at its own width) and the mid-escape trim corruption.
 
+**Refinement — never render NARROWER than the source (2026-07-01).** A *resident* wrapper mirrors
+the operator's real terminal, which is often much wider than the dashboard pane and whose native
+width we never store (`terminal_sessions.cols` is 0 for residents). Rendering the wide log at the
+narrow pane width wrapped/mangled every full-screen-TUI line (the "gappy / bugged console"). Now
+`terminal_snapshot.infer_source_width()` replays the log at a generous probe width and takes the
+furthest column any cell reaches (a TUI draws a full-width frame) = the source width; the endpoint
+renders at `max(viewer, inferred)` and returns `renderedCols`/`renderedRows`. The dashboard widens
+its xterm to `renderedCols` and scrolls the pane horizontally (`.console-wide-mirror`) instead of
+re-wrapping. **Managed** terminals are drawn at the size the dashboard set, so inferred≈viewer and
+behaviour is unchanged.
+
 **Why it's safe + performance-safe.** It runs ONLY on attach/refresh (a rare, bounded, one-shot
 parse over ≤64KB), never on the per-frame streaming path — so no per-frame cost. It is offloaded
 to a thread executor so the parse never blocks the single event loop. `pyte` is an OPTIONAL
