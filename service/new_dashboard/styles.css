@@ -1,10 +1,13 @@
 :root {
   color-scheme: dark;
-  --bg: #0f1211;
-  --panel: #171b1b;
-  --panel-2: #222928;
-  --panel-3: #111817;
-  --line: #303a39;
+  /* Deep, cool-neutral canvas (2026-07-01 premium pass): a near-black bg makes elevated panels
+     pop, borders stay hairline-thin + neutral (less green tint). Higher bg↔panel contrast is what
+     reads as "premium" — matched to the old dashboard's depth. */
+  --bg: #0a0b0c;
+  --panel: #15191b;
+  --panel-2: #1d2325;
+  --panel-3: #0e1416;
+  --line: #2b3236;
   --text: #eef3ef;
   --muted: #9eaaa5;
   --soft: #d4ddd8;
@@ -16,7 +19,7 @@
   --red: #ee6a74;
   --teal: #58c7bb;
   --violet: #a98df5;
-  --shadow: 0 20px 70px rgba(0, 0, 0, .3);
+  --shadow: 0 14px 44px rgba(0, 0, 0, .45);
 
   /* Brand/accent palette (WS-A theming). --accent drives every brand/action surface
      (primary buttons, brand mark, nav-active, focus rings, links, bars, unread). Status
@@ -39,7 +42,7 @@
   --accent-border: color-mix(in srgb, var(--accent) 45%, var(--line));
   --accent-shadow: color-mix(in srgb, var(--accent) 22%, transparent);
   /* Tokens several rules referenced before they existed (silently fell back). */
-  --line-soft: #283230;
+  --line-soft: #1f2629;
   --surface: var(--panel-3);
   --status-online: var(--green);
   /* Depth tiers (WS-E). */
@@ -54,13 +57,13 @@
   --fs-xs: 11px;            /* smallest legible (floor) — chips, meta labels */
   --fs-sm: 12px;            /* secondary text, small buttons */
   --fs-md: 13px;            /* body-ish */
-  --radius-card: 12px;      /* cards, panels, rails, message bubbles */
+  --radius-card: 10px;      /* cards, panels, rails, message bubbles (tightened for a crisper, pro feel) */
   --radius-control: 8px;    /* buttons, inputs, selects */
   --radius-pill: 999px;     /* status pills, chips */
   --radius-sm: 6px;         /* tight chips, badges, small affordances */
-  --input-bg: #0d1010;      /* form-control background (was hardcoded ~7×) */
-  --console-bg: #0b0e13;    /* terminal/console background (was hardcoded ~6×) */
-  --nav-bg: #0b0f0e;        /* left nav background */
+  --input-bg: #090c0d;      /* form-control background (was hardcoded ~7×) */
+  --console-bg: #080b0f;    /* terminal/console background (was hardcoded ~6×) */
+  --nav-bg: #070809;        /* left nav background (deeper than bg — premium sidebar) */
   --border-hover: #465454;  /* hover border on cards/rows */
 }
 
@@ -1520,7 +1523,9 @@ button.ghost:hover { background: var(--panel-2); }
 .sc:hover, .health-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-panel); }
 
 /* E3 — typography: gradient underline accent on section headings. */
-.section-head h2 { font-weight: 800; letter-spacing: .2px; }
+.section-head h2 { font-weight: 800; letter-spacing: .2px; position: relative; padding-left: 11px; }
+/* Small accent hairline before a section title — premium "accent line" cue, theme-driven. */
+.section-head h2::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: .92em; border-radius: 2px; background: var(--accent); opacity: .9; }
 
 /* E4 — directional chat bubbles + richer pill taxonomy. */
 /* Directional dialogue (WS-G9): my messages hug the right with an accent tint; others' hug the
