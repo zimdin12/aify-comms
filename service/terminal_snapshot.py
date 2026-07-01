@@ -74,6 +74,41 @@ def _cell_sgr(char) -> list[int]:
     return params
 
 
+def infer_source_width(raw_output: str, probe: int = 400, rows: int = 120) -> int:
+    """Best-effort estimate of the terminal WIDTH the raw log was drawn at.
+
+    A resident wrapper mirrors the operator's REAL terminal, whose width we never
+    stored (terminal_sessions.cols is 0/None for residents). Replaying that log at a
+    NARROWER viewer width wraps + mangles every full-screen-TUI line (the "gappy /
+    bugged console"). We replay once at a generous probe width (no clamping, so the
+    app's absolute cursor moves land untouched) and take the furthest column any cell
+    actually reaches — full-screen TUIs draw a full-width frame/rule, so that max IS
+    the source width. Returns 0 when unknown (pyte absent / empty / parse error) so
+    callers fall back to the viewer width and behave exactly as before.
+    """
+    if not raw_output or not _HAVE_PYTE:
+        return 0
+    probe = max(80, min(int(probe or 400), 500))
+    rows = max(5, min(int(rows or 120), 200))
+    screen = pyte.Screen(probe, rows)
+    stream = pyte.Stream(screen)
+    try:
+        stream.feed(raw_output)
+    except Exception:
+        return 0
+    max_col = 0
+    buffer = screen.buffer
+    for y in range(rows):
+        line = buffer.get(y, {})
+        for x in range(probe - 1, -1, -1):
+            ch = line.get(x)
+            if ch is not None and (ch.data not in ("", " ")):
+                if x + 1 > max_col:
+                    max_col = x + 1
+                break
+    return max_col
+
+
 def render_snapshot(raw_output: str, cols: int, rows: int) -> str:
     """Return a clean, self-contained ANSI string that paints the current screen.
 

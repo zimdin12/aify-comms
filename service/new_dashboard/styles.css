@@ -833,6 +833,10 @@ small, .subtle { color: var(--muted); }
   overflow: hidden;
   background: var(--console-bg);
 }
+/* Wide resident-terminal mirror: the xterm is deliberately rendered at the operator's real
+   (wider) terminal width so full-screen-TUI lines don't wrap — scroll the pane horizontally
+   instead of shrinking/re-wrapping ("gappy / bugged console", 2026-07-01 terminal-fit fix). */
+.console-wide-mirror { overflow-x: auto; overflow-y: hidden; }
 .console-embed-label {
   padding: 6px 10px;
   background: var(--panel-2);

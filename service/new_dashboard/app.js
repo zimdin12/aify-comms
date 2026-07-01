@@ -1748,14 +1748,28 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
   if (window.ResizeObserver && fitAddon) {
     let resyncTimer = null;
     resizeObserver = new ResizeObserver(() => {
+      const entry = state.activeXterm;
+      // Wide mirror (resident terminal wider than the pane): fit() would shrink the xterm back
+      // to the pane and re-wrap the source lines. Instead recompute the pane width WITHOUT
+      // applying it; only if it changed materially do we resync (which re-fits + re-widens).
+      if (entry && entry.widened) {
+        let paneCols = entry.fitCols || 0;
+        try { const d = fitAddon.proposeDimensions && fitAddon.proposeDimensions(); if (d && d.cols) paneCols = d.cols; } catch {}
+        if (paneCols && Math.abs(paneCols - (entry.fitCols || 0)) >= 2) {
+          entry.fitCols = paneCols;
+          clearTimeout(resyncTimer);
+          resyncTimer = setTimeout(() => { resyncActiveConsole(); }, 220);
+        }
+        return;
+      }
       try { fitAddon.fit(); } catch {}
       // The snapshot was server-rendered at a fixed column count. If a late layout settle (page
       // switch / flex-fill) changes the column count after that, the rendered snapshot is now the
       // wrong width ("narrow and bugged"). Re-fetch + repaint at the new size, debounced, so the
       // console self-heals instead of staying stuck at the mount-time width.
-      const entry = state.activeXterm;
       if (entry && entry.term && entry.term.cols !== entry.renderedCols) {
         entry.renderedCols = entry.term.cols;
+        entry.fitCols = entry.term.cols;
         clearTimeout(resyncTimer);
         resyncTimer = setTimeout(() => { resyncActiveConsole(); }, 220);
       }
@@ -1779,8 +1793,11 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
     // headless VT emulator) instead of the raw byte log — replaying the raw log scrambles
     // full-screen TUIs. Prefer `snapshot`; fall back to raw `output` (e.g. pyte absent).
     const cols = Math.max(20, term.cols || 80), rows = Math.max(5, term.rows || 24);
-    if (state.activeXterm) state.activeXterm.renderedCols = term.cols;
+    if (state.activeXterm) { state.activeXterm.renderedCols = term.cols; state.activeXterm.fitCols = term.cols; }
     const data = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${cols}&rows=${rows}`);
+    // Widen the xterm to the server's rendered width (resident mirrors are wider than the pane)
+    // BEFORE writing, so the snapshot lands in a grid that matches its render and never re-wraps.
+    applyRenderedWidth(state.activeXterm, term, container, data);
     const snapshot = data?.terminal?.snapshot;
     const output = data?.terminal?.output;
     if (snapshot) term.write(String(snapshot));
@@ -1794,20 +1811,45 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
   term.focus();
 }
 
+// Apply the server's rendered width to the xterm. A resident wrapper mirrors the operator's
+// real (often wider) terminal; the server renders the snapshot at that source width and reports
+// it as `renderedCols`. If that exceeds the pane-fitted cols, widen the xterm to it and let the
+// pane scroll horizontally (class `console-wide-mirror`) — otherwise the wide lines re-wrap and
+// mangle ("gappy / bugged console"). When renderedCols fits (managed terminals), this is a no-op.
+function applyRenderedWidth(entry, term, container, data) {
+  // Compare against the pane's FITTED width (entry.fitCols), not the current term.cols —
+  // term may already be widened from a prior snapshot, and we must be able to shrink back.
+  const base = (entry && entry.fitCols) || term.cols;
+  const rc = Number(data?.terminal?.renderedCols) || 0;
+  const rr = Number(data?.terminal?.renderedRows) || term.rows;
+  if (rc && rc > base) {
+    try { term.resize(rc, Math.max(term.rows, rr)); } catch {}
+    if (container) container.classList.add('console-wide-mirror');
+    if (entry) { entry.widened = true; entry.renderedCols = rc; }
+  } else {
+    if (container) container.classList.remove('console-wide-mirror');
+    try { if (term.cols !== base) term.resize(base, term.rows); } catch {}
+    if (entry) { entry.widened = false; entry.renderedCols = base; }
+  }
+}
+
 // Re-fetch the authoritative buffer and repaint (used by the Refresh button and on a
 // detected seq gap, mirroring the old dashboard's resync path).
 async function resyncActiveConsole() {
   const entry = state.activeXterm;
   if (!entry || !entry.term) return;
   try {
-    const data = await api(`/terminals/${encodeURIComponent(entry.terminalId)}?cols=${entry.term.cols}&rows=${entry.term.rows}`);
+    // Fetch at the pane's FITTED width (not the possibly-widened current width) so the server
+    // can re-infer the source width and hand back the correct renderedCols.
+    const fetchCols = Math.max(20, entry.fitCols || entry.term.cols);
+    const data = await api(`/terminals/${encodeURIComponent(entry.terminalId)}?cols=${fetchCols}&rows=${entry.term.rows}`);
     // reset() (not clear()) wipes any scrambled scrollback/alt-screen state before we
     // repaint the clean server-rendered snapshot — so Refresh actually un-scrambles.
     entry.term.reset();
+    applyRenderedWidth(entry, entry.term, entry.container, data);
     const snapshot = data?.terminal?.snapshot;
     entry.term.write(String(snapshot || data?.terminal?.output || ''));
     entry.lastSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? entry.lastSeq);
-    entry.renderedCols = entry.term.cols;
   } catch { /* keep current buffer */ }
 }
 

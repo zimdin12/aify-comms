@@ -27,7 +27,7 @@ _listen_events: dict[str, asyncio.Event] = {}
 from pydantic import BaseModel
 from service.db import get_db, SQLITE_CLAIM_BUSY_TIMEOUT_MS
 from service import longpoll
-from service.terminal_snapshot import render_snapshot as _render_terminal_snapshot
+from service.terminal_snapshot import render_snapshot as _render_terminal_snapshot, infer_source_width as _infer_terminal_source_width
 from service.status_engine import apply_event, derive, StatusInputs, VALID_STATUSES
 from service.usage_cache import usage_set, usage_all, usage_get, derive_usage_source, consumption_set, consumption_summary
 from service.models import (
@@ -11334,9 +11334,22 @@ async def get_terminal(terminal_id: str, cols: Optional[int] = None, rows: Optio
         if cols and rows and term_dict.get("output"):
             try:
                 loop = asyncio.get_event_loop()
+                raw = term_dict["output"]
+                # Never render NARROWER than the source: a resident wrapper mirrors the
+                # operator's real (often much wider) terminal, and its native width is not
+                # stored. Rendering at the pane's fit-width wrapped/mangled every line
+                # ("gappy / bugged console"). Infer the source width and render at the max
+                # of it and the viewer width; the client widens its xterm to renderedCols so
+                # the wide mirror scrolls instead of re-wrapping. Managed terminals are drawn
+                # at the size we set, so inferred≈viewer and behaviour is unchanged.
+                src_w = await loop.run_in_executor(None, _infer_terminal_source_width, raw)
+                eff_cols = max(20, min(max(int(cols), int(src_w or 0)), 500))
+                eff_rows = max(5, min(int(rows), 200))
                 term_dict["snapshot"] = await loop.run_in_executor(
-                    None, _render_terminal_snapshot, term_dict["output"], int(cols), int(rows)
+                    None, _render_terminal_snapshot, raw, eff_cols, eff_rows
                 )
+                term_dict["renderedCols"] = eff_cols
+                term_dict["renderedRows"] = eff_rows
             except Exception:
                 pass
         return {
