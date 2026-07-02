@@ -1572,7 +1572,6 @@ function renderSessionRail() {
               </div>
               <p class="preview">${esc(session.workspace || session.cwd || '')}</p>
               <span class="session-runtime-badge" data-runtime="${esc(sessionRuntime(session))}">${esc(sessionRuntime(session))}</span>
-              ${renderModeSwitchChip(agent)}
             </div>
           </article>`;
       }).join('')}
