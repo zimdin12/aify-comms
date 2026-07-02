@@ -8614,6 +8614,11 @@ def _serialize_inbox_message(row, *, include_body: bool) -> dict[str, Any]:
     msg = {
         "id": row["id"],
         "from": row["from_agent"],
+        # `to` is implicit for an inbox (every row is addressed to the requested agent), but
+        # the dashboard's unread/mark-read logic filters on it and falls back to inbox data
+        # when /messages/recent blips — without this field that fallback silently matched
+        # nothing (review finding).
+        "to": row["to_agent"] if "to_agent" in row.keys() else None,
         "type": row["type"],
         "source": row["source"],
         "channel": row["channel"],

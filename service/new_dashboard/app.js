@@ -183,7 +183,8 @@ async function markConversationRead(agentId, { quiet = false } = {}) {
   // correctly 403s those (reader must be the recipient), spamming errors on every chat open.
   const me = state.chat.identity;
   const unread = state.messages.filter((m) =>
-    String(m.from || '') === agentId && m.read === false && String(m.to || '') === me);
+    String(m.from || '') === agentId && m.read === false
+    && String(m.to || m.targetAgentId || m.target_agent_id || '') === me); // same fallback chain as chat.js unread count
   if (!unread.length) { if (!quiet) toast('Nothing unread', 'ok'); return; }
   try {
     await Promise.all(unread.map((m) => api(`/messages/${encodeURIComponent(messageIdOf(m))}/read`, { method: 'POST', body: JSON.stringify({ agentId: me, read: true }) })));

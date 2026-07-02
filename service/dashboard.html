@@ -2830,14 +2830,33 @@ function fitConsoleTerminal(terminalId, options = {}) {
   const id = String(terminalId || '').trim();
   const state = window._consoleTerms?.[id];
   if (!id || !state?.term) return;
-  // Wide mirror (resident wrapper wider than the pane): don't fit() — it would shrink the
-  // xterm back and re-wrap the source. The pane scrolls horizontally instead.
-  if (state.widened) return;
+  // Wide mirror (source rendered wider than the pane): don't fit() — that would shrink the
+  // xterm and re-wrap the source; the pane scrolls horizontally instead. But keep tracking
+  // the PANE size (proposeDimensions, without applying) so fitCols stays current for the
+  // shrink-back decision in the snapshot handler, and keep the PTY-resize path alive for
+  // input-capable consoles (the PTY should track the pane; the next snapshot then infers the
+  // new width and un-widens). This replaces the earlier canInput widen-gate, which was wrong:
+  // old-dashboard canInput is terminal-STATUS-derived (true for live resident mirrors too).
+  if (state.widened) {
+    let cols = 0, rows = 0;
+    try { const d = state.fitAddon?.proposeDimensions?.(); if (d) { cols = Number(d.cols || 0); rows = Number(d.rows || 0); } } catch {}
+    if (cols) state.fitCols = cols;
+    if (!cols || !rows || (cols === state.cols && rows === state.rows)) return;
+    state.cols = cols;
+    state.rows = rows;
+    if (options.send === false || !state.canInput) return;
+    if (state.resizeTimer) clearTimeout(state.resizeTimer);
+    state.resizeTimer = setTimeout(() => {
+      sendConsoleResize(id, cols, rows).catch(error => toast(error.message || 'Terminal resize failed', '#f85149'));
+    }, 120);
+    return;
+  }
   if (state.fitAddon) {
     try { state.fitAddon.fit(); } catch {}
   }
   const cols = Number(state.term.cols || 0);
   const rows = Number(state.term.rows || 0);
+  if (cols) state.fitCols = cols; // pane-fitted width — the widen/shrink-back baseline
   if (!cols || !rows || (cols === state.cols && rows === state.rows)) return;
   state.cols = cols;
   state.rows = rows;
@@ -3021,11 +3040,20 @@ function mountConsoleTerminal(terminalId, output, canInput) {
             const rc = Number(d.terminal.renderedCols) || 0;
             const rr = Number(d.terminal.renderedRows) || term.rows;
             try {
-              // Widen ONLY read-only resident mirrors. A managed (canInput) console is sized BY
-              // the dashboard: widening it would latch state.widened and permanently gate
-              // fitConsoleTerminal → the PTY-resize path dies for that mount (review finding).
-              if (rc && rc > term.cols && !state.canInput) { term.resize(rc, Math.max(term.rows, rr)); state.widened = true; el.style.overflowX = 'auto'; }
-              else { state.widened = false; el.style.overflowX = ''; }
+              // Widen when the server rendered the snapshot WIDER than the pane fit (resident
+              // mirrors are drawn at the wrapper's real width). Baseline = the pane-fitted
+              // width (state.fitCols), NOT current term.cols (which may already be widened) —
+              // so a later pane-width snapshot shrinks back instead of latching wide. No
+              // canInput gate: managed consoles that transiently infer wide un-widen on the
+              // next snapshot once their PTY resize lands (fitConsoleTerminal keeps the
+              // PTY-resize path alive while widened).
+              const base = Number(state.fitCols || term.cols) || 0;
+              if (rc && base && rc > base) {
+                term.resize(rc, Math.max(term.rows, rr)); state.widened = true; el.style.overflowX = 'auto';
+              } else {
+                if (state.widened && base) { try { term.resize(base, term.rows); } catch {} }
+                state.widened = false; el.style.overflowX = '';
+              }
             } catch {}
             try { term.reset(); term.write(snap); state.written = snap; } catch {}
           }
