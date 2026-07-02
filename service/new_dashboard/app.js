@@ -824,6 +824,7 @@ const SETTINGS_SCHEMA = [
     { key: 'reply_reminder_minutes', label: 'First reminder after (min)', type: 'number', min: 1, max: 240 },
     { key: 'reply_reminder_repeat_minutes', label: 'Reminder repeat (min)', type: 'number', min: 1, max: 1440 },
     { key: 'reply_reminder_max_count', label: 'Max reminders (0 = unlimited)', type: 'number', min: 0, max: 20 },
+    { key: 'reply_reminder_full_every', label: 'Full reminder every Nth (0 = always full)', type: 'number', min: 0, max: 20 },
     { key: 'contract_stale_hours', label: 'Contract history window (h)', type: 'number', min: 1, max: 720 },
   ] },
   { group: 'Managed runtimes', items: [
@@ -831,6 +832,7 @@ const SETTINGS_SCHEMA = [
     { key: 'insert_messages_via_console', label: 'Legacy PTY-input delivery', type: 'toggle', hint: 'Default off — scrambles concurrent typing. Channel delivery is preferred.' },
     { key: 'managed_pty_eager_spawn', label: 'Eager-spawn managed PTY', type: 'toggle' },
     { key: 'console_auto_confirm_claude_dev_channels', label: 'Auto-confirm claude dev-channels prompt', type: 'toggle' },
+    { key: 'console_auto_confirm_claude_compaction', label: 'Auto-confirm claude compaction prompt', type: 'toggle' },
     { key: 'managed_via_wrapper', label: 'Wrapper-backed managed runtimes', type: 'csv', hint: 'Comma-separated, e.g. codex, hermes.' },
     { key: 'managed_claude_model', label: 'Managed claude model', type: 'text' },
     { key: 'managed_claude_effort', label: 'Managed claude effort', type: 'select', options: EFFORT_OPTS },

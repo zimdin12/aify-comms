@@ -173,6 +173,12 @@ DEFAULT_SETTINGS = {
     # sane non-zero default bounds out-of-the-box behaviour; an operator can
     # set 0 to explicitly opt into unlimited reminders.
     "reply_reminder_max_count": 3,
+    # Light-reminder cadence (operator decision 2026-07-02): reminders keep
+    # firing (no backoff — loops must never stall), but only every Nth one is
+    # the FULL teaching format; the ones in between are a one-line nudge that
+    # still carries the reply anchor. With the default 3, reminders 1-2 are
+    # light and 3 is full, 4-5 light, 6 full, ... 0 or 1 = every reminder full.
+    "reply_reminder_full_every": 3,
     "contract_stale_hours": 24,
     "active_run_stale_minutes": 30,
     # Tighter cleanup window for managed dispatches. Default 5 min.
@@ -213,6 +219,13 @@ DEFAULT_SETTINGS = {
     # already asked for by launching a managed-channel claude wrapper.
     # Operators who want manual approval can flip false.
     "console_auto_confirm_claude_dev_channels": True,
+    # Auto-confirm the Claude compaction prompt in managed/console PTYs.
+    # Setting plumbing only (2026-07-02): the behavior lives in the bridge
+    # (mcp/stdio/), which reads this key off GET /settings like it does
+    # console_auto_confirm_claude_dev_channels. Default true for the same
+    # reason as dev-channels: the prompt confirms behavior the operator
+    # already opted into by running a managed claude.
+    "console_auto_confirm_claude_compaction": True,
     "managed_terminal_backing_enabled": True,
     # Universal delivery-mode flag (operator's design):
     #   false (default, the target architecture) — managed dispatch
@@ -19150,7 +19163,27 @@ def _contract_reminder_due(
     return True, ""
 
 
-def _contract_reminder_body(row) -> str:
+def _contract_reminder_full_every(settings: dict[str, Any]) -> int:
+    try:
+        return max(0, int(settings.get("reply_reminder_full_every", DEFAULT_SETTINGS["reply_reminder_full_every"]) or 0))
+    except (TypeError, ValueError):
+        return int(DEFAULT_SETTINGS["reply_reminder_full_every"])
+
+
+def _contract_reminder_is_full(reminder_number: int, *, settings: dict[str, Any]) -> bool:
+    """Reminder number N (1-based) gets the FULL format when full_every <= 1
+    (always full) or N is a multiple of full_every. Everything in between is a
+    LIGHT one-liner — reminders never stop firing (no backoff), they just get
+    cheaper between the periodic full nudges."""
+    full_every = _contract_reminder_full_every(settings)
+    if full_every <= 1:
+        return True
+    if reminder_number <= 0:
+        return True  # unknown ordinal — fail safe to the full format
+    return reminder_number % full_every == 0
+
+
+def _contract_reminder_body(row, *, full: bool = True) -> str:
     message_id = str(row["message_id"] or "").strip()
     target = str(row["target_agent"] or "").strip()
     sender = str(row["from_agent"] or "").strip()
@@ -19166,6 +19199,13 @@ def _contract_reminder_body(row) -> str:
         if message_id and sender
         else f'comms_send(from="{target}", to="{sender or "original-sender"}", type="response", body="<answer, blocker, or result>")'
     )
+    if not full:
+        # LIGHT reminder (operator decision 2026-07-02): one line — the owed
+        # message id + subject + the same comms_send/inReplyTo wiring the full
+        # format uses, so the recipient can still reply to the right message.
+        # No original body, no boilerplate. The message row itself still
+        # carries in_reply_to, so threading is identical to a full reminder.
+        return f'Reply owed to {message_id or row["id"]}: "{subject}" — {reply_hint}'
     # Terse on purpose (2026-06-18): efficacy comes from the reply ANCHOR, not prose. The
     # sender/subject/ids are already in the agent's inbox, so we don't restate them at length —
     # that was ~210 tokens of context burn per reminder (the system already reminds rarely).
@@ -19261,7 +19301,13 @@ async def _run_contract_reminders_once(
             continue
 
         subject = f"Reminder: reply overdue - {str(row['subject'] or row['id'])[:96]}"
-        body = _contract_reminder_body(row)
+        # The reminder about to be sent is ordinal reminder_count + 1 (the
+        # contract query counts prior 'reply_reminder' events for this run).
+        prior_reminders = int((row["reminder_count"] if "reminder_count" in row.keys() else 0) or 0)
+        body = _contract_reminder_body(
+            row,
+            full=_contract_reminder_is_full(prior_reminders + 1, settings=settings),
+        )
         if dry_run:
             reminded.append({"runId": row["id"], "targetAgentId": row["target_agent"], "subject": subject, "dryRun": True})
             continue
@@ -20300,6 +20346,9 @@ _SETTINGS_MIN = {
     "resident_lease_seconds": 10,
     "max_messages_per_agent": 1,
     "retention_days": 1,
+    # 0 is meaningful (= every reminder full); listed for documentation only —
+    # unlisted numeric keys are floored at 0 anyway.
+    "reply_reminder_full_every": 0,
 }
 
 

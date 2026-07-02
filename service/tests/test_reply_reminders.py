@@ -117,6 +117,24 @@ class ReplyReminderTests(FastApiTestCase):
         )
         return run_id
 
+    def _seed_prior_reminders(self, run_id, count):
+        for idx in range(count):
+            self._execute(
+                "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
+                (run_id, "reply_reminder", f"old reminder {idx}", api_v2._iso_from_ms(int((time.time() - (90 - idx)) * 1000))),
+            )
+
+    def _sent_reminder_message(self, result, run_id):
+        """Return the messages row (body, in_reply_to) of the reminder just sent."""
+        reminded = [r for r in result["reminded"] if r["runId"] == run_id]
+        self.assertEqual(len(reminded), 1, result)
+        rows = self._fetchall(
+            "SELECT body, in_reply_to FROM messages WHERE id = ?",
+            (reminded[0]["messageId"],),
+        )
+        self.assertEqual(len(rows), 1)
+        return rows[0]
+
     def _reminder_events(self, run_id):
         return self._fetchall(
             "SELECT body FROM dispatch_events WHERE run_id = ? AND event_type = 'reply_reminder' ORDER BY created_at ASC",
@@ -266,6 +284,85 @@ class ReplyReminderTests(FastApiTestCase):
                     self.assertEqual(len(self._reminder_events(run_id)), 2)
                 finally:
                     self.tearDown()
+
+
+    # --- light-reminder cadence (reply_reminder_full_every) ----------------
+
+    _FULL_MARKER = "still needs an explicit reply"
+
+    def test_light_reminders_between_full_every_nth(self):
+        """Default cadence (full_every=3): reminders 1-2 are LIGHT one-liners,
+        3 is FULL, 4-5 light again, 6 full — reminders never stop firing, they
+        just get cheaper between the periodic full nudges."""
+        expectations = {0: "light", 1: "light", 2: "full", 3: "light", 4: "light", 5: "full"}
+        for prior, expected in expectations.items():
+            with self.subTest(prior_reminders=prior, expected=expected):
+                self.setUp()
+                try:
+                    self.client.put(
+                        "/api/v1/settings",
+                        json={
+                            "reply_reminder_minutes": 1,
+                            "reply_reminder_repeat_minutes": 1,
+                            "reply_reminder_max_count": 0,
+                            "reply_reminder_full_every": 3,
+                        },
+                    )
+                    run_id = self._make_overdue_required_run("hermes")
+                    self._seed_prior_reminders(run_id, prior)
+                    result = self._run_reminders(run_id=run_id, ignore_repeat=True)
+                    msg = self._sent_reminder_message(result, run_id)
+                    body = msg["body"]
+                    original_id = self._fetchall(
+                        "SELECT message_id FROM dispatch_runs WHERE id = ?", (run_id,)
+                    )[0]["message_id"]
+                    # Both formats stay anchored to the original message.
+                    if original_id:
+                        self.assertEqual(msg["in_reply_to"], original_id)
+                    self.assertIn("inReplyTo", body)
+                    if expected == "light":
+                        self.assertTrue(body.startswith("Reply owed to"), body)
+                        self.assertEqual(len(body.splitlines()), 1, f"light reminder must be one line: {body!r}")
+                        self.assertIn(original_id or run_id, body)
+                        self.assertIn("please answer", body)  # subject
+                        self.assertNotIn(self._FULL_MARKER, body)
+                        self.assertNotIn("need a decision", body)  # no original body
+                    else:
+                        self.assertIn(self._FULL_MARKER, body)
+                finally:
+                    self.tearDown()
+
+    def test_full_every_zero_or_one_means_always_full(self):
+        """full_every=0 or 1 disables the light format entirely — reminder 1
+        (which would be light under the default cadence) is already full."""
+        for full_every in (0, 1):
+            with self.subTest(full_every=full_every):
+                self.setUp()
+                try:
+                    self.client.put(
+                        "/api/v1/settings",
+                        json={
+                            "reply_reminder_minutes": 1,
+                            "reply_reminder_repeat_minutes": 1,
+                            "reply_reminder_max_count": 0,
+                            "reply_reminder_full_every": full_every,
+                        },
+                    )
+                    run_id = self._make_overdue_required_run("hermes")
+                    result = self._run_reminders(run_id=run_id, ignore_repeat=True)
+                    body = self._sent_reminder_message(result, run_id)["body"]
+                    self.assertIn(self._FULL_MARKER, body)
+                    self.assertIn("inReplyTo", body)
+                finally:
+                    self.tearDown()
+
+    def test_full_every_default_registered(self):
+        """The setting ships with the operator-decided default (3) and is
+        exposed via GET /settings."""
+        self.assertEqual(DEFAULT_SETTINGS.get("reply_reminder_full_every"), 3)
+        settings = self.client.get("/api/v1/settings")
+        self.assertEqual(settings.status_code, 200, settings.text)
+        self.assertEqual(settings.json()["reply_reminder_full_every"], 3)
 
 
 if __name__ == "__main__":

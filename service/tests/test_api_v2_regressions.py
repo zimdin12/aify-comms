@@ -602,8 +602,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(settings.json()["dashboard_primary_color"], "")
         self.assertEqual(settings.json()["dashboard_secondary_color"], "")
         self.assertTrue(settings.json()["console_auto_confirm_claude_dev_channels"])
+        self.assertTrue(settings.json()["console_auto_confirm_claude_compaction"])
         self.assertEqual(settings.json()["reply_reminder_minutes"], 10)
         self.assertEqual(settings.json()["reply_reminder_repeat_minutes"], 10)
+        self.assertEqual(settings.json()["reply_reminder_full_every"], 3)
         self.assertTrue(settings.json()["managed_terminal_backing_enabled"])
         self.assertTrue(api_v2.DEFAULT_SETTINGS["managed_pty_eager_spawn"])
         self.assertEqual(api_v2.DEFAULT_SETTINGS["managed_via_wrapper"], ["codex", "hermes"])
@@ -10296,7 +10298,10 @@ class ApiV2RegressionTests(FastApiTestCase):
     def test_contract_reminder_sends_notice_and_records_event(self):
         self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
         self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
-        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1})
+        # full_every=1 pins the FULL reminder format — this test asserts the
+        # full-body teaching content (light-cadence coverage lives in
+        # test_reply_reminders.py).
+        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "reply_reminder_full_every": 1})
 
         created = self._dispatch(
             from_agent="lead",
