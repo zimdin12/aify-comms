@@ -403,6 +403,22 @@ orphan (env-gated `AIFY_HERMES_VERIFY_WS`, default on). The gateway child's stde
 invokes the fixed managed-host.js fresh per spawn). NOTE: the visible `hermes --tui` TUI flag is
 unchanged — only the hidden gateway-host launch dropped `--tui` and gained the env.
 
+**Second cause of the SAME symptom (2026-07-02): hermes itself fails to boot after update
+drift.** A stale hermes checkout (operator's was 1959 commits behind, then a partial
+`hermes update`) crashed at launch — first `Installing TUI dependencies… TUI build failed /
+npm error Missing script: "build"`, then `[hermes-managed-host] fatal: hermes dashboard at
+http://127.0.0.1:<port>/ did not become ready within 60000ms` → wrapper exits → every managed
+hermes agent bounces `up-but-deaf` while claude teammates on the same bridge work fine
+(the hermes-only spread is the tell). The manager-side signature: `[NOT DELIVERED]` mirrors
+for ALL hermes teammates at once. **Triage FIRST, before blaming dispatch:** run the managed
+launch by hand — `HERMES_DASHBOARD_TUI=1 hermes dashboard --port 9199 --host 127.0.0.1
+--no-open --skip-build` — a healthy hermes prints `HERMES_DASHBOARD_READY port=9199` within
+seconds. **Recovery:** fix hermes itself (`hermes update` / force-update the checkout), verify
+the command above, then restart each affected worker (dashboard Sessions → Restart, or
+`POST /api/v1/sessions/{id}/control {"action":"restart"}`). No aify reinstall is needed —
+hermes updates and `install.sh` write disjoint files; reinstall only if the hermes CLI
+*interface* changed (as in the 0.15.1 `--tui` case above).
+
 ## Hermes native fallback ACP persistent session
 
 Managed Hermes defaults to a wrapper-backed `hermes-aify` PTY that delivers through the visible-session gateway bind path. This section applies only when wrapper-backed delivery is disabled/unavailable or when the Console command is `aify://virtual-rpc/hermes`: the native fallback keeps a long-lived `hermes acp --accept-hooks` child per agent (`mcp/stdio/hermes-session.js`). Some symptoms specific to this path:
