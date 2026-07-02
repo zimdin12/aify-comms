@@ -1547,7 +1547,7 @@ button.ghost:hover { background: var(--panel-2); }
 .sc:hover, .health-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-panel); }
 
 /* E3 — typography: gradient underline accent on section headings. */
-.section-head h2 { font-weight: 800; letter-spacing: .2px; position: relative; padding-left: 11px; }
+.section-head h2 { display: flex; align-items: center; font-weight: 800; letter-spacing: .2px; position: relative; padding-left: 11px; }
 /* Small accent hairline before a section title — premium "accent line" cue, theme-driven. */
 .section-head h2::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: .92em; border-radius: 2px; background: var(--accent); opacity: .9; }
 
