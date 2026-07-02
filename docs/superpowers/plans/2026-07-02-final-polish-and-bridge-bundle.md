@@ -38,10 +38,10 @@
   exactly. Kills the live-redraw garble (inference≠actual width). Touch points:
   mcp/stdio terminal-runtime/wrapper (report), server ingest (heartbeat or terminal register),
   api_v2 GET /terminals render width priority: stored native cols > inferred > viewer.
-- [ ] A4 (contained-scope check) **#136 codex stale session_handle** — investigate; fix only
+- [x] A4 (contained-scope check) — RESOLVED: leave documented (task #136 stays pending; not a bounded change — needs a live repro of no_rollout to design the refresh path safely) **#136 codex stale session_handle** — investigate; fix only
   if it's a bounded change (e.g. clear/refresh handle on no_rollout + fall back to fresh
   thread); otherwise leave documented.
-- [ ] A-deploy: `bash install.sh --client claude` + `--client hermes` + `--client codex` as
+- [~] A-deploy: native copy refreshed + verified (diff clean); LIVE verification deferred to next team start — requires operator to restart the env bridge/wrappers (their terminal process); Bug D covered by 7-test regression suite meanwhile. `bash install.sh --client claude` + `--client hermes` + `--client codex` as
   applicable (refresh native copy), restart env bridge; verify: spawn a throwaway managed
   hermes+claude agent, send first message after bridge restart → worker spawns on FIRST send;
   /compact prompt auto-confirms; resident console renders at true width (no garble).
@@ -76,7 +76,7 @@
   ps1 wrapper). Test: `bash -n install.sh`.
 
 ## WS-D — Hermes TUI integration review (read-only upstream study)
-- [ ] Read the current (force-updated) hermes checkout: dashboard/web_server, api_server,
+- [x] Read the current (force-updated) hermes checkout: dashboard/web_server, api_server,
   session APIs, TUI attach mechanics. Look for: (1) a supported way to get session ids /
   attach without scraping; (2) real cols/size APIs (helps A3); (3) event streams that could
   replace polling; (4) anything simplifying hermes-managed-host.js (e.g. the readiness probe,
@@ -84,13 +84,13 @@
   borrow only cheap wins now, file the rest.
 
 ## WS-E — Final polish + verdict
-- [ ] Full test suites (python 803+, node dashboard 61+, mcp/stdio tests), containers rebuilt
+- [x] Full test suites (python 803+, node dashboard 61+, mcp/stdio tests), containers rebuilt
   healthy, browser smoke (chat/sessions/environments/work/settings).
-- [ ] Docs/skills final coherence pass: new settings documented (settings schema + operations.md
+- [x] Docs/skills final coherence pass: new settings documented (settings schema + operations.md
   if needed), DECISIONS.md entries for A1-A3/B1-B3 decisions, KNOWN_ISSUES updates (Bug D →
   fixed; compaction stall → fixed; console garble → fixed), skill mirrors byte-identical.
-- [ ] Remove any throwaway test agents; git status clean; commit(s)+push.
-- [ ] Final report: what shipped, what was verified HOW, publish verdict.
+- [x] Remove any throwaway test agents; git status clean; commit(s)+push.
+- [x] Final report: what shipped, what was verified HOW, publish verdict.
 
 ## Safety rails
 - Teams are down → bridge restarts are safe NOW; still: one change-set at a time, node --check
