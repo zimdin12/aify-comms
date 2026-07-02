@@ -1951,6 +1951,11 @@ codex-aify --aify-agent coder --aify-role coder</pre>
         <div class="hint">Controls the one startup Enter used to accept Claude Code development-channel prompts for managed Claude PTY turns. Leave off to prevent surprise Console input.</div>
       </div>
       <div class="form-group">
+        <label>Claude compaction auto-confirm</label>
+        <select id="s-claude-compaction-confirm"><option value="true">On — resume from summary automatically</option><option value="false">Off — operator confirms in Console</option></select>
+        <div class="hint">Auto-confirms the "Resume from summary" dialog Claude Code shows after /compact or when usage limits recommend compacting. Off leaves managed agents waiting at the prompt. Default: on</div>
+      </div>
+      <div class="form-group">
         <label>Manual resident/managed switch</label>
         <select id="s-manual-session-mode"><option value="true">Show switch actions</option><option value="false">Hide switch actions</option></select>
         <div class="hint">Shows explicit Switch to resident / Switch to managed controls in Chat and Sessions. Default: shown.</div>
@@ -2032,6 +2037,11 @@ codex-aify --aify-agent coder --aify-role coder</pre>
         <label>Max Reminders Per Contract</label>
         <input type="number" id="s-reply-max" min="0" max="20">
         <div class="hint">Optional anti-spam cap. Set 0 for unlimited nudges so overdue work keeps reminding until answered, closed, or filtered. Default: 0</div>
+      </div>
+      <div class="form-group">
+        <label>Full Reminder Every Nth</label>
+        <input type="number" id="s-reply-full-every" min="0" max="20">
+        <div class="hint">Reminders are one-line (subject + message id); every Nth repeats the full message. 0 or 1 = every reminder is full. Default: 3</div>
       </div>
       <div class="form-group">
         <label>Contract History Window (hours)</label>
@@ -9107,6 +9117,7 @@ async function loadSettings() {
   document.getElementById('s-claude-model').value = s.managed_claude_model || '';
   document.getElementById('s-claude-effort').value = s.managed_claude_effort || 'high';
   document.getElementById('s-claude-auto-confirm').value = String(!!s.console_auto_confirm_claude_dev_channels);
+  document.getElementById('s-claude-compaction-confirm').value = String(s.console_auto_confirm_claude_compaction !== false);
   document.getElementById('s-manual-session-mode').value = String(s.manual_session_mode !== false);
   document.getElementById('s-managed-terminal-backing').value = String(s.managed_terminal_backing_enabled !== false);
   document.getElementById('s-managed-pty-eager').value = String(!!s.managed_pty_eager_spawn);
@@ -9123,6 +9134,7 @@ async function loadSettings() {
   document.getElementById('s-reply-minutes').value = s.reply_reminder_minutes;
   document.getElementById('s-reply-repeat').value = s.reply_reminder_repeat_minutes;
   document.getElementById('s-reply-max').value = s.reply_reminder_max_count;
+  document.getElementById('s-reply-full-every').value = Number(s.reply_reminder_full_every ?? 3);
   document.getElementById('s-contract-stale').value = s.contract_stale_hours;
   if (refreshInterval) clearInterval(refreshInterval);
   // Workstream C: the server now pushes status transitions over WS (agent_status)
@@ -9158,6 +9170,7 @@ async function saveSettings(e) {
       managed_claude_model: document.getElementById('s-claude-model').value.trim(),
       managed_claude_effort: document.getElementById('s-claude-effort').value || 'high',
       console_auto_confirm_claude_dev_channels: settingsBool('s-claude-auto-confirm'),
+      console_auto_confirm_claude_compaction: settingsBool('s-claude-compaction-confirm'),
       manual_session_mode: settingsBool('s-manual-session-mode'),
       managed_terminal_backing_enabled: settingsBool('s-managed-terminal-backing'),
       managed_pty_eager_spawn: settingsBool('s-managed-pty-eager'),
@@ -9174,6 +9187,7 @@ async function saveSettings(e) {
       reply_reminder_minutes: settingsNumber('s-reply-minutes', 10, {min: 1, max: 240}),
       reply_reminder_repeat_minutes: settingsNumber('s-reply-repeat', 10, {min: 1, max: 1440}),
       reply_reminder_max_count: settingsNumber('s-reply-max', 0, {min: 0, max: 20}),
+      reply_reminder_full_every: settingsNumber('s-reply-full-every', 3, {min: 0, max: 20}),
       contract_stale_hours: settingsNumber('s-contract-stale', 24, {min: 1, max: 720}),
     })});
   saveLocalDashboardPalette(palettePayload);
