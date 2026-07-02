@@ -163,3 +163,50 @@ assert.equal(
 );
 
 console.log("claude-console-prompts.test.js: all assertions passed");
+
+// COMPACTION-RECOMMENDATION dialog (2026-07-02 operator incident): the /compact flow's
+// one-option "Resume from summary (recommended)" dialog — with the usage-limits sentence
+// and NO live "Resume full session" option — auto-confirms with Enter (managed agents were
+// stalling here while managers waited on the compaction decision).
+const COMPACT_DIALOG =
+  "✻ Compacting conversation…\n" +
+  "This session is 1h 58m old and 329.6k tokens.\n" +
+  "Resuming the full session will consume a substantial portion of your usage limits. " +
+  "We recommend resuming from a summary.\n\n" +
+  "❯ 1. Resume from summary (recommended)\n" +
+  "Enter to confirm · Esc to cancel\n";
+const compactConfirm = matchConsolePrompt(COMPACT_DIALOG);
+assert.equal(compactConfirm?.name, "compaction-resume-summary-confirm");
+assert.deepEqual(compactConfirm?.answer, ["\r"], "confirm the highlighted recommended option");
+
+// Opt-out: autoConfirmCompaction:false disables the rule (server setting / env off-switch).
+assert.equal(matchConsolePrompt(COMPACT_DIALOG, { autoConfirmCompaction: false }), null);
+
+// Cursor NOT on the summary row → wait, never guess-press.
+assert.equal(
+  matchConsolePrompt(
+    "Resuming the full session will consume a substantial portion of your usage limits.\n" +
+    "  1. Resume from summary (recommended)\n❯ 2. Something else entirely\n",
+  ),
+  null,
+);
+
+// A live TWO-OPTION cold-start menu (options adjacent) still routes to the cursor-aware
+// full-session rule even when compaction prose is in the tail — full-context preservation
+// governs two-option menus.
+const twoOptionWithProse = matchConsolePrompt(
+  "We recommend resuming from a summary.\n\n" +
+  "❯ 1. Resume from summary (recommended)\n  2. Resume full session as-is\n",
+);
+assert.equal(twoOptionWithProse?.name, "resume-full-session");
+
+// A STALE full-session mention far above (scrollback) must NOT block the live one-option
+// compaction dialog from confirming.
+const staleFullAbove = matchConsolePrompt(
+  "earlier: chose Resume full session as-is\n" + "y\n".repeat(400) +
+  "Resuming the full session will consume a substantial portion of your usage limits.\n" +
+  "❯ 1. Resume from summary (recommended)\nEnter to confirm · Esc to cancel\n",
+);
+assert.equal(staleFullAbove?.name, "compaction-resume-summary-confirm");
+
+console.log("claude-console-prompts compaction-confirm tests passed");

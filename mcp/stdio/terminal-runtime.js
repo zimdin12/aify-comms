@@ -384,7 +384,11 @@ export class TerminalProcessManager {
       state.sessionMode === "managed" &&
       state.consoleClass !== "working"
     ) {
-      const rule = matchConsolePrompt(state.outputTail);
+      const rule = matchConsolePrompt(state.outputTail, {
+        // Operator-configurable compaction auto-confirm (default ON; server setting
+        // `console_auto_confirm_claude_compaction` mirrors this default). Host off-switch:
+        autoConfirmCompaction: process.env.AIFY_AUTO_CONFIRM_COMPACTION !== "0",
+      });
       if (rule && state.answeredPrompt !== rule.name) {
         state.answeredPrompt = rule.name;
         this._sendAnswer(id, rule.answer);

@@ -152,10 +152,56 @@ function lastIndexOf(text, re) {
 // (2026-06-10, the "random agent-selection screen" incident).
 const AGENTS_MANAGER_RE = /← for agents|↑\/↓ to select|↓ to manage/;
 
-export function matchConsolePrompt(rawTail = "") {
+// COMPACTION-RECOMMENDATION dialog (2026-07-02, operator incident: managed agents stalled
+// at "/compact → ❯ 1. Resume from summary (recommended) — Enter to confirm" while managers
+// waited). This is a DIFFERENT dialog from the cold-start resume menu: it renders during a
+// compaction flow, often with ONLY the summary option visible, plus the usage-limits
+// sentence — so the two-option cursor-aware resume rule can never fire on it. Confirming
+// the highlighted recommended option is the intended outcome here (the operator asked for
+// compaction to proceed unattended), unlike the cold-start menu where we deliberately
+// preserve the full session. Fires ONLY when the live cursor row IS the summary option and
+// the usage-limits/compacting sentence is present; disable via
+// matchConsolePrompt(tail, { autoConfirmCompaction: false }) (host env override:
+// AIFY_AUTO_CONFIRM_COMPACTION=0) or the `console_auto_confirm_claude_compaction` setting.
+const COMPACTION_FLOW_RE = /(substantial portion of your usage limits|Compacting conversation|We recommend resuming from a summary)/i;
+
+function computeCompactionConfirmAnswer(visible) {
+  const lines = visible.split(/\r?\n/);
+  let cursorIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (MENU_CURSOR_RE.test(lines[i])) { cursorIdx = i; break; }
+  }
+  if (cursorIdx < 0) return null;
+  // Only confirm when the LIVE cursor row is the recommended summary option itself.
+  if (!/Resume from summary/i.test(lines[cursorIdx])) return null;
+  return [ENTER];
+}
+
+export function matchConsolePrompt(rawTail = "", opts = {}) {
   const visible = stripAnsi(rawTail).slice(-2000);
   if (!MENU_CURSOR_RE.test(visible)) return null;
   if (AGENTS_MANAGER_RE.test(visible)) return null;
+  // Compaction-recommendation confirm — checked BEFORE the general loop because its own
+  // option line ("Resume from summary") is exactly what the resume-menu interlock keys on;
+  // the interlock exists to protect the COLD-START menu, not this flow. The cursor-row
+  // requirement in computeCompactionConfirmAnswer keeps it from firing on prose or on the
+  // two-option cold-start menu mid-navigation (there the usage sentence is absent anyway).
+  if (opts.autoConfirmCompaction !== false && COMPACTION_FLOW_RE.test(visible)) {
+    const compactIdx = lastIndexOf(visible, /Resume from summary/i);
+    const fullIdx = lastIndexOf(visible, RESUME_FULL_RE);
+    // Defer to the cursor-aware cold-start rule ONLY when a live TWO-OPTION menu is on
+    // screen — its options render adjacent (within a couple of lines), so byte proximity
+    // discriminates it from a stale "Resume full session" mention lingering in scrollback
+    // above a live one-option compaction dialog.
+    const twoOptionMenuLive = fullIdx >= 0 && compactIdx >= 0 && Math.abs(fullIdx - compactIdx) <= 200;
+    if (!twoOptionMenuLive && compactIdx >= 0) {
+      const answer = computeCompactionConfirmAnswer(visible);
+      if (answer != null) {
+        return { name: "compaction-resume-summary-confirm", match: COMPACTION_FLOW_RE, answer };
+      }
+      return null; // dialog present but cursor not on the option yet — wait, don't guess
+    }
+  }
   // RECENCY-FIRST (2026-06-12): the tail ACCUMULATES, so an already-answered dialog's
   // text lingers in scrollback while a NEW dialog renders below it. The live, focused
   // prompt is whichever dialog text appears LATEST in the byte stream — so among the
