@@ -162,6 +162,68 @@ hermes_cmd() {
   command -v hermes 2>/dev/null
 }
 
+resolve_hermes_real_bin() {
+  # Task #174: resolve the hermes launcher to its REAL file. `command -v`
+  # output may be a symlink (~/.local/bin/hermes -> .../venv/bin/hermes) or a
+  # pipx entry script; install-root detection needs the real location so the
+  # venv python next to it can be found. Chain: command -v -> readlink -f ->
+  # manual readlink loop (stock macOS readlink lacks -f). Never fails: prints
+  # the best-resolved path, or the input unchanged, so the plain-PATH
+  # executable case behaves exactly as before.
+  local candidate="${1:-}"
+  [ -z "$candidate" ] && return 0
+  local resolved
+  resolved="$(command -v "$candidate" 2>/dev/null || printf '%s\n' "$candidate")"
+  if command -v readlink >/dev/null 2>&1; then
+    local canonical=""
+    canonical="$(readlink -f "$resolved" 2>/dev/null || true)"
+    if [ -z "$canonical" ]; then
+      # readlink without -f support: follow the symlink chain manually.
+      canonical="$resolved"
+      local hops=0 target=""
+      while [ -L "$canonical" ] && [ "$hops" -lt 10 ]; do
+        target="$(readlink "$canonical" 2>/dev/null || true)"
+        [ -z "$target" ] && break
+        case "$target" in
+          /*) canonical="$target" ;;
+          *) canonical="$(dirname "$canonical")/$target" ;;
+        esac
+        hops=$((hops + 1))
+      done
+    fi
+    [ -n "$canonical" ] && [ -e "$canonical" ] && resolved="$canonical"
+  fi
+  printf '%s\n' "$resolved"
+}
+
+hermes_shebang_python() {
+  # Task #174: pipx / venv entry-point scripts carry the venv python in their
+  # shebang (e.g. #!/home/u/.local/pipx/venvs/hermes-agent/bin/python). That
+  # interpreter IS the hermes venv python, so surface it directly. Only
+  # accepts interpreter paths that are themselves a python (never
+  # /usr/bin/env — a bare `env python3` shebang points at the SYSTEM python,
+  # which does not have hermes_cli installed). Best-effort: prints nothing on
+  # any miss.
+  local script="${1:-}"
+  { [ -n "$script" ] && [ -f "$script" ]; } || return 0
+  local first_line=""
+  first_line="$(head -n 1 "$script" 2>/dev/null | tr -d '\r')"
+  case "$first_line" in
+    '#!'*)
+      local interp="${first_line#\#!}"
+      # Trim leading whitespace, then drop shebang args after the interpreter.
+      interp="${interp#"${interp%%[![:space:]]*}"}"
+      interp="${interp%% *}"
+      case "$interp" in
+        */python*)
+          [ -x "$interp" ] && printf '%s\n' "$interp"
+          ;;
+      esac
+      ;;
+  esac
+  return 0
+}
+
 require_hermes_cmd() {
   if ! hermes_cmd >/dev/null 2>&1; then
     echo "Missing required command: hermes"
@@ -1088,6 +1150,30 @@ detect_hermes_install_root() {
       exec_target="$(grep -oE '/[^"[:space:]]*/venv/bin/hermes' "$hermes_bin" 2>/dev/null | head -n 1 || true)"
       if [ -n "$exec_target" ] && [ -x "${exec_target%/hermes}/python" ]; then
         venv_py="${exec_target%/hermes}/python"
+      fi
+    fi
+    # Task #174 hardening: the launcher may instead be a SYMLINK into the venv
+    # (~/.local/bin/hermes -> ~/.hermes/hermes-agent/venv/bin/hermes) or a
+    # pipx-style entry script whose SHEBANG points at the venv python. Neither
+    # is a shell shim, so the shim-grep branch above misses both. Resolve the
+    # real file (command -v + readlink -f fallback chain) and re-probe for a
+    # python next to it; failing that, take the shebang interpreter itself.
+    # Runs strictly AFTER the original branches, so a plain PATH executable
+    # resolves exactly as before.
+    if [ -z "$venv_py" ]; then
+      local real_bin=""
+      real_bin="$(resolve_hermes_real_bin "$hermes_bin")"
+      if [ -n "$real_bin" ] && [ "$real_bin" != "$hermes_bin" ]; then
+        local real_dir
+        real_dir="$(dirname "$real_bin")"
+        if [ -x "$real_dir/python.exe" ]; then
+          venv_py="$real_dir/python.exe"
+        elif [ -x "$real_dir/python" ]; then
+          venv_py="$real_dir/python"
+        fi
+      fi
+      if [ -z "$venv_py" ]; then
+        venv_py="$(hermes_shebang_python "${real_bin:-$hermes_bin}")"
       fi
     fi
     if [ -n "$venv_py" ]; then
@@ -2543,7 +2629,10 @@ hermes_runtime_is_native_windows() {
   local hermes_bin resolved
   hermes_bin="$(hermes_cmd 2>/dev/null || true)"
   [ -z "$hermes_bin" ] && return 1
-  resolved="$(command -v "$hermes_bin" 2>/dev/null || printf '%s\n' "$hermes_bin")"
+  # Task #174: resolve through symlinks so a WSL symlink pointing at a
+  # Windows hermes.exe under /mnt/<drive>/ is classified correctly. For a
+  # plain PATH executable this resolves to the same path as before.
+  resolved="$(resolve_hermes_real_bin "$hermes_bin")"
   case "$resolved" in
     *.exe|*.EXE|*.cmd|*.CMD|*.bat|*.BAT) return 0 ;;
     /mnt/[a-zA-Z]/*) return 0 ;;

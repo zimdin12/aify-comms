@@ -11,12 +11,16 @@ const installer = fs.readFileSync(path.join(__dirname, "..", "..", "..", "instal
 
 for (const source of [server, channel]) {
   assert.match(source, /AIFY_SERVER_FALLBACK_URLS/);
-  assert.match(source, /host\.docker\.internal/);
-  assert.match(source, /192\.168\.100\.10/);
+  // Fallbacks are LOOPBACK-ONLY by design (a hardcoded LAN/docker fallback once silently
+  // failed a local bridge over to a remote host); non-loopback fallbacks are explicit
+  // opt-in via AIFY_SERVER_FALLBACK_URLS. Publish scrub (2026-07-02) also removed the
+  // personal LAN IP default from install.sh — assert the neutral defaults instead.
+  assert.match(source, /http:\/\/127\.0\.0\.1:8800/);
+  assert.doesNotMatch(source, /192\.168\.\d+\.\d+["'`]/, "no hardcoded LAN IP fallback literals");
 }
 
 assert.match(server, /logTransientOrError/);
 assert.match(server, /will retry on next poll/);
-assert.match(installer, /AIFY_DEFAULT_SERVER_URL:-http:\/\/192\.168\.100\.10:8800/);
+assert.match(installer, /AIFY_DEFAULT_SERVER_URL:-http:\/\/127\.0\.0\.1:8800/);
 
 console.log("server-url-fallback.test.js: all assertions passed");
