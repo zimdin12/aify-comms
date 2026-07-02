@@ -731,6 +731,12 @@ async def _has_live_managed_wrapper_child(db, agent_id: str) -> bool:
         if not last_seen:
             return False
         age = datetime.now(timezone.utc).timestamp() - last_seen
+        # NOTE (Bug D, 2026-07-02): a worker that crashed at boot leaves a fresh-but-dead
+        # heartbeat row that would satisfy this age check for the full stale window and
+        # suppress the send-path coldstart. That is fixed at the DEATH sites, not here
+        # (FIX B3 requires a fresh wrapper-child to count even when the terminal ROW
+        # transiently failed): report_terminal_dead and the ghost-console reconcile now
+        # supersede the agent's wrapper-child rows the moment the PTY is known dead.
         return age <= ACTIVE_RUN_BRIDGE_STALE_SECONDS
     except Exception:
         return False
@@ -7265,6 +7271,29 @@ async def _has_claimable_spawn_request(db, agent_id: str) -> bool:
     return bool(row)
 
 
+async def _has_pending_or_booting_spawn_request(db, agent_id: str) -> bool:
+    """Like _has_claimable_spawn_request, but ALSO counts a RECENT `running` request
+    (worker mid-boot, before it registers a session). Bug D fix (2026-07-02): a second
+    cold-start created while one worker was still booting produced a duplicate whose
+    kill-prior could murder the booting worker. Time-bound (5 min) so a stuck `running`
+    orphan never blocks future autostarts (the orphan reaper frees those anyway)."""
+    running_cutoff = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 300))
+    row = await (await db.execute(
+        """
+        SELECT id
+        FROM spawn_requests
+        WHERE agent_id = ?
+          AND (
+            status IN ('queued', 'claimed')
+            OR (status = 'running' AND COALESCE(NULLIF(updated_at, ''), created_at) >= ?)
+          )
+        LIMIT 1
+        """,
+        (agent_id, running_cutoff),
+    )).fetchone()
+    return bool(row)
+
+
 async def _has_claimable_steerable_run(
     db,
     *,
@@ -7378,18 +7407,11 @@ async def _coldstart_spawn_request_for_dispatch(
     if normalized_runtime not in {"claude-code", "codex", "hermes", "opencode", "pi"}:
         return False
 
-    # Don't pile up duplicate cold-starts — a queued/claimed spawn_request is
-    # already a claimable backing for this agent.
-    existing = await (await db.execute(
-        """
-        SELECT id
-        FROM spawn_requests
-        WHERE agent_id = ?
-          AND status IN ('queued', 'claimed')
-        LIMIT 1
-        """,
-        (agent_id,),
-    )).fetchone()
+    # Don't pile up duplicate cold-starts — a queued/claimed/recently-running spawn_request
+    # is already a (possibly mid-boot) backing for this agent. Bug D fix (2026-07-02): the
+    # live repro created a duplicate 41s after the first while the worker was still booting,
+    # and the duplicate's kill-prior can murder the booting worker.
+    existing = await _has_pending_or_booting_spawn_request(db, agent_id)
     if existing:
         return False
 
@@ -11755,6 +11777,20 @@ async def report_terminal_dead(terminal_id: str, req: TerminalDeadReport, reques
             (now, terminal["session_id"]),
         )
         await _clear_console_terminal_binding(db, terminal["agent_id"], terminal_id, now=now)
+        # Bug D fix (2026-07-02): the dead PTY's in-session wrapper-child bridge died with it,
+        # but its heartbeat row would otherwise look "live" for up to
+        # ACTIVE_RUN_BRIDGE_STALE_SECONDS and suppress the send-path coldstart. Supersede the
+        # rows now so the very next send cold-starts a fresh worker instead of queuing.
+        await db.execute(
+            """
+            UPDATE bridge_instances
+            SET superseded_by = 'terminal-dead:' || ?
+            WHERE agent_id = ?
+              AND bridge_kind = 'managed-wrapper-child'
+              AND COALESCE(superseded_by, '') = ''
+            """,
+            (terminal_id, terminal["agent_id"]),
+        )
         await _invalidate_agent_live_state(db, terminal["agent_id"])
         await _append_terminal_event(
             db,
@@ -18354,7 +18390,7 @@ async def _reap_undeliverable_queued_runs(db, *, backstop_seconds: Optional[int]
           AND NOT EXISTS (
             SELECT 1 FROM dispatch_events de
             WHERE de.run_id = r.id
-              AND de.event_type = 'requeued_orphaned_claim'
+              AND de.event_type IN ('requeued_orphaned_claim', 'coldstart_rescue')
               AND datetime(de.created_at) > datetime('now', ?)
           )
         ORDER BY r.requested_at ASC
@@ -18377,6 +18413,39 @@ async def _reap_undeliverable_queued_runs(db, *, backstop_seconds: Optional[int]
         if await _agent_has_live_claimer(db, agent_row, settings=settings):
             # Deliverable — a live claimer will pick it up on the next poll.
             continue
+        # Bug D fix (2026-07-02): SELF-HEAL before failing. The run may be queued because
+        # the send-path coldstart was suppressed (e.g. a fresh-but-dead wrapper-child row
+        # from a worker that crashed at boot) and no second send ever re-triggered it. Try
+        # ONE cold-start; if a worker spawn is now (or already) in flight, grant the run a
+        # fresh backstop window instead of failing it. One-shot per run — the
+        # 'coldstart_rescue' event both grants the window (query exclusion above) and
+        # disqualifies a second rescue here.
+        run_session_mode = str(agent_row["session_mode"] or "").strip().lower()
+        run_runtime = _normalize_runtime(str(agent_row["runtime"] or ""))
+        already_rescued = await (await db.execute(
+            "SELECT 1 FROM dispatch_events WHERE run_id = ? AND event_type = 'coldstart_rescue' LIMIT 1",
+            (run_id,),
+        )).fetchone()
+        if (
+            not already_rescued
+            and run_session_mode == "managed"
+            and run_runtime in {"claude-code", "codex", "hermes", "opencode", "pi"}
+        ):
+            rescued = await _coldstart_spawn_request_for_dispatch(
+                db,
+                target_agent,
+                runtime=run_runtime,
+                settings=settings,
+                requested_by="queued-run-backstop",
+            )
+            if rescued or await _has_pending_or_booting_spawn_request(db, target_agent):
+                await _append_dispatch_event(
+                    db,
+                    run_id,
+                    "coldstart_rescue",
+                    f"Backstop cold-started a managed worker for '{target_agent}' instead of failing the run; one fresh window granted.",
+                )
+                continue
         reason = (
             f"Queued for >{backstop_seconds}s with no live claimer for target "
             f'"{target_agent}" (no live channel sidecar / no claiming bridge). The '
