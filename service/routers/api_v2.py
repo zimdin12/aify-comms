@@ -21239,10 +21239,12 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
                 continue
             if f <= s:
                 continue  # negative/zero span (clock skew or late-backfilled claimed_at) → no work; parity with the per-agent MAX(0,...)
-            # Skip reaped/stuck runs (claimed-but-abandoned, force-closed ~24h later): their
-            # claimed→finished span is non-work and would otherwise add the whole window as
-            # "working". See WORKED_SPAN_CEILING_SECONDS.
-            if r["finished_at"] and (f - s) > WORKED_SPAN_CEILING_SECONDS:
+            # Skip reaped/stuck runs: their claimed→finished span is non-work and would
+            # otherwise add the whole window as "working". Applies to OPEN runs too
+            # (2026-07-02 screenshot incident): a `delivered` run whose worker died is a
+            # legitimately-open reply contract (reminders recover it), but its ever-growing
+            # span is not work. See WORKED_SPAN_CEILING_SECONDS.
+            if (f - s) > WORKED_SPAN_CEILING_SECONDS:
                 continue
             overlap = min(f, now_s) - max(s, win_s)
             if overlap > 0:
@@ -21252,17 +21254,14 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
         # COALESCE(started_at, claimed_at) work-start proxy as the working-minutes query —
         # gating on started_at IS NOT NULL hid every production run (started_at unpopulated).
         lw_c = await db.execute(
-            "SELECT target_agent, MAX(COALESCE(finished_at, ?)) AS lw, "
-            "SUM(CASE WHEN finished_at IS NULL AND status IN ('running','delivered','claimed') THEN 1 ELSE 0 END) AS active "
+            "SELECT target_agent, MAX(COALESCE(finished_at, ?)) AS lw "
             "FROM dispatch_runs WHERE COALESCE(started_at, claimed_at) IS NOT NULL GROUP BY target_agent",
             (now_iso,),
         )
         last_worked = {}
-        active_now = {}
         for r in await lw_c.fetchall():
             if r["target_agent"]:
                 last_worked[r["target_agent"]] = r["lw"]
-                active_now[r["target_agent"]] = int(r["active"] or 0) > 0
 
         # Online-agent board (exclude offline/stopped).
         agents_c = await db.execute("SELECT * FROM agents")
@@ -21278,7 +21277,11 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
                 continue
             online_count += 1
             aid = row["id"]
-            wm = round(working_min.get(aid, 0.0), 1)
+            # Cap at wall-clock: OVERLAPPING runs (e.g. several orphaned `delivered`
+            # contracts from a dead worker epoch) each accrue the full window and
+            # summed to absurd "240m work in 1h" (2026-07-02 screenshot incident).
+            # An agent cannot work more than the window's wall-clock.
+            wm = round(min(working_min.get(aid, 0.0), float(window_minutes)), 1)
             fleet_working += wm
             if status.startswith("working"):
                 working_now += 1
@@ -21289,7 +21292,11 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
                 "mode": row["session_mode"],
                 "status": status,
                 "lastWorkedAt": last_worked.get(aid),
-                "workingNow": active_now.get(aid, False),
+                # SINGLE SOURCE OF TRUTH (2026-07-02): the per-row label previously used
+                # open-runs (`active_now`) while the tile count + status dot use derive()
+                # — orphaned `delivered` contracts made three rows say "working now" under
+                # a "2 Working now" tile with online dots. derive() is the sole authority.
+                "workingNow": status.startswith("working"),
                 "messagesInWindow": msgs_by_agent.get(aid, 0),
                 "workingMinutesInWindow": wm,
             })
