@@ -97,7 +97,9 @@ Judgment rules (apply the test above, don't apply them mechanically):
   (see "Reply on the surface you received"), send that one and make it terminal — an
   explicit stop marker ("Proceeding, no reply needed", `[APPROVE]`, `[COMMIT]`) — then the
   recipient treats it as the end and does NOT write back "sounds good". Don't stack extra
-  confirmations on top of the one that closes the loop.
+  confirmations on top of the one that closes the loop. **An acknowledgment never earns a
+  reply: a "thanks" ENDS the thread.** (Real teams have burned full agent turns exchanging
+  "Re: standing down — thanks" → "Re: standing down" — 129 characters, two context re-reads.)
 - **Post a settled decision once, on a channel — then point at it instead of re-pasting.**
   When a contract/criteria/target is locked, `comms_channel_send` it once as the shared
   durable record; the re-confirmation loop is usually a symptom of there being no single
@@ -110,6 +112,13 @@ Judgment rules (apply the test above, don't apply them mechanically):
   to agents on a different repo/team just burns their context and earns a "wrong project,
   I can't run that" bounce (it has happened). If you genuinely need many owners, name each
   and what you want from them; if it's a shared record, put it on the team channel.
+- **Same text to 3+ teammates = a channel post, not N DMs.** Post ONCE to the team channel
+  and name who must act; DM only that person. Prefixing DMs with "#channel:" is channel
+  emulation at N× the cost — every copy wakes a full agent turn, and recipients who weren't
+  the owner burn further turns declining ("this landed in my inbox but per the review matrix
+  it's not mine"). A real team's ×4 review broadcasts turned 8 interactions into 26
+  deliveries plus 4 pure-misroute turns; the one team that posted matrix/READY/verdict to
+  the channel once each ran the same task shape with zero acks, zero misroutes.
 - **Delegate within your lane; route across lanes; keep the team aware via the record.**
   Inside your own lane, your runtime's native delegation (claude-code subagents, hermes
   `delegate_task`, codex multi-agent) is the cheap tool for fan-out research/edits/
@@ -158,6 +167,10 @@ creates them at kickoff; "we'll remember" is not a plan.
 ## Worker Discipline
 
 - Do not answer with "on it" repeatedly. Start work, send a short ack only when useful, then return evidence.
+- **A reply-overdue reminder asks you to CLOSE the contract, not to write a progress essay.**
+  If the owed reply is ready, send it. If work is genuinely still in flight, ONE line —
+  status + ETA — not a 2KB unrequested report. (Observed: a reminder fired mid-work
+  triggered a 2,066-char status essay nobody asked for.)
 - Self-continue only for a known next chunk. Do not create infinite self-wake loops.
 - If you cannot safely proceed, send `[HOLD]` with exact evidence checked and the narrow decision needed.
 - For long output, share an artifact and send a short summary.
