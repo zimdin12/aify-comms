@@ -1154,10 +1154,12 @@ small, .subtle { color: var(--muted); }
 .chat-rail-empty { padding: 4px 8px 8px; }
 .chat-rail-item { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; background: transparent; border: 1px solid transparent; border-radius: var(--radius-control); padding: 8px 9px; cursor: pointer; color: var(--text); }
 .chat-rail-item:hover { background: var(--panel-2); }
-.chat-rail-item.active { background: var(--accent-softer, var(--panel-2)); border-color: var(--accent); box-shadow: inset 4px 0 0 var(--secondary); }
+/* Selected DM: a richer/darker ACCENT tint (mixed into the dark panel), not the washed-out
+   10%-accent gray it was — reads as "our accent color, darker", which is prettier (operator). */
+.chat-rail-item.active { background: color-mix(in srgb, var(--accent) 26%, var(--panel-3)); border-color: var(--accent); box-shadow: inset 4px 0 0 var(--accent); color: var(--text); }
 /* Favorited rows carry their own gold left-bar (independent of selection), matching the old dashboard. */
 .chat-rail-item.fav { box-shadow: inset 3px 0 0 var(--tertiary, #f5c84c); }
-.chat-rail-item.fav.active { box-shadow: inset 4px 0 0 var(--secondary); }
+.chat-rail-item.fav.active { box-shadow: inset 4px 0 0 var(--accent); }
 .chat-draft-badge { font-size: var(--fs-xs); color: var(--amber); background: color-mix(in srgb, var(--amber) 16%, transparent); border-radius: var(--radius-sm); padding: 0 5px; margin-left: 4px; }
 .chat-rail-head { display: flex; align-items: center; gap: 7px; }
 .chat-rail-name { font-weight: 650; font-size: .88em; flex: 1; min-width: 0; }
@@ -1165,8 +1167,10 @@ small, .subtle { color: var(--muted); }
 .chat-rail-preview { font-size: var(--fs-xs); color: var(--muted); }
 /* Compact list density (parity with old dashboard): denser rows, hide the sub-line, narrower rail. */
 .chat-shell.compact { grid-template-columns: minmax(200px, 252px) minmax(0, 1fr); }
-.chat-shell.compact .chat-rail-item { padding: 4px 8px; gap: 0; }
+.chat-shell.compact .chat-rail-item { padding: 4px 8px; gap: 0; justify-content: center; min-height: 26px; }
 .chat-shell.compact .chat-rail-preview { display: none; }
+/* Keep the status dot from stretching/offsetting so name+dot sit on one centered line (compact). */
+.chat-rail-head .status-dot { flex: 0 0 auto; align-self: center; }
 .chat-shell.compact .chat-rail-name { font-size: .84em; }
 .chat-shell.compact .chat-rail-head { gap: 6px; }
 .chat-shell.compact .status-dot { width: 7px; height: 7px; }

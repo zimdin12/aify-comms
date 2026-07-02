@@ -132,7 +132,7 @@ function railItemHtml(item, selectedKey, drafts = {}) {
     : '';
   const sub = [meta, item.preview || ''].filter(Boolean).join(' · ');
   return `<button class="chat-rail-item${active}${favClass}" data-chat-open="${esc(item.key)}" title="${esc(item.id)}">
-    <span class="chat-rail-head">${dot}<span class="chat-rail-name clip">${esc(item.id)}</span>${draftBadge}${fav}${unread}</span>
+    <span class="chat-rail-head">${fav}${dot}<span class="chat-rail-name clip">${esc(item.id)}</span>${draftBadge}${unread}</span>
     <span class="chat-rail-preview clip">${esc(sub)}</span>
   </button>`;
 }
