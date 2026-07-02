@@ -113,6 +113,12 @@ Judgment rules (apply the test above, don't apply them mechanically):
 
 ## Manager Discipline
 
+- **A `[NOT DELIVERED] … up-but-deaf` bounce means the target's WORKER IS DEAD — resending
+  cannot revive it.** Send-to-wake needs a live claim path; a dead worker has none. Don't
+  retry the send: Restart that agent's session (dashboard Sessions → Restart, or ask the
+  operator), verify it's back (console shows the runtime banner), THEN resend the lane
+  once. If several teammates bounce at once, say so in one message to the operator — it's
+  usually one shared cause (bridge restart, runtime update), not N separate failures.
 - **Stuck? Peek before you re-spawn or remind.** When an agent looks stalled or owes an overdue reply, read what it is actually doing first — `comms_console_tail(agentId="...")` for a managed agent, or a focused `[STATUS]` probe for a resident — BEFORE you re-spawn it or fire a reminder. The console reveals mid-build vs waiting-at-a-prompt vs looping vs errored; reach for it as the reflex, not the filesystem.
 - **Right-size the rigor.** Scale review depth and teammate count to task complexity and risk. Do not run the full multi-reviewer gauntlet on trivial/low-risk work — more agents and more review rounds are a COST, not a virtue; spend them where they buy something. (See `references/building-software.md`.)
 - **Scope the context you hand down.** When you delegate, give each agent only the inputs that subtask needs — the specific file, the one prior result, the exact decision — not the whole thread. Broadcasting full history burns the delegate's context and tokens for no benefit, and a focused brief gets a sharper answer. If two agents don't need each other's output, don't cross-pollinate it; if one does, name the exact artifact (`comms_share` + a one-line pointer) rather than pasting it. Put shared DECISIONS everyone needs (frozen contracts, API shapes, integration order) on a team CHANNEL via `comms_channel_send`, not scattered across DMs — DMs are for owned 1:1 handoffs. (Context-scoping discipline — cf. the "Conductor" access-list idea, arXiv:2512.04388.)
