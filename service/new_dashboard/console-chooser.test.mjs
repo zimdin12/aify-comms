@@ -239,6 +239,34 @@ test("auto-attach: a stopped terminal is NOT auto-mounted (offers Start instead)
   assert.equal(r.kind, "none", "a stopped terminal must not auto-mount");
 });
 
+test("a DEAD session with stale runtime_state pointers offers Start, not a dead xterm", () => {
+  // graph-tech-lead incident (2026-07-02): runtime_state.terminalId still named a terminal
+  // stopped a day earlier; the session row carried NO terminalStatus, so the stale pointer
+  // auto-mounted a dead buffer with no Start affordance.
+  const r = chooseSessionConsoleWidget({
+    agent: { runtime: "claude-code", runtimeState: { terminalId: "term-stale-dead" } },
+    sessionId: "sess-dead", sessionMode: "managed", sessionStatus: "stopped", terminalStatus: "",
+    runtime: "claude-code", runtimeConfig: {}, cache: new Map(),
+    hermesGatewayHttp: "", codexAppServerUrl: "", codexThreadId: "", codexAttachable: false,
+    sessionTerminalId: "",
+  });
+  assert.equal(r.kind, "none", "a dead session must not trust leftover runtime_state pointers");
+});
+
+test("a previously-dead session with an explicitly LIVE terminal still mounts", () => {
+  // A console freshly started on a stopped session reports terminalStatus attached — the
+  // sessionDead guard must not block the live mount.
+  const r = chooseSessionConsoleWidget({
+    agent: { runtime: "claude-code", runtimeState: { terminalId: "term-fresh" } },
+    sessionId: "sess-revived", sessionMode: "managed", sessionStatus: "stopped", terminalStatus: "attached",
+    runtime: "claude-code", runtimeConfig: {}, cache: new Map(),
+    hermesGatewayHttp: "", codexAppServerUrl: "", codexThreadId: "", codexAttachable: false,
+    sessionTerminalId: "",
+  });
+  assert.equal(r.kind, "xterm");
+  assert.equal(r.terminalId, "term-fresh");
+});
+
 test("hermesGatewayUrlToHttp embeds loopback only, never a public host", () => {
   assert.equal(
     hermesGatewayUrlToHttp("ws://127.0.0.1:9119/api/ws?token=abc"),

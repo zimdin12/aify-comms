@@ -6631,10 +6631,23 @@ async def _clear_console_terminal_binding(db, agent_id: str, terminal_id: str, *
     if not row:
         return
     runtime_state = _json_loads_or(row["runtime_state"], {})
-    console_terminal = runtime_state.get("consoleTerminal") if isinstance(runtime_state, dict) else None
-    if not isinstance(console_terminal, dict) or str(console_terminal.get("terminalId") or "").strip() != terminal_id:
+    if not isinstance(runtime_state, dict):
         return
-    runtime_state.pop("consoleTerminal", None)
+    cleared = False
+    console_terminal = runtime_state.get("consoleTerminal")
+    if isinstance(console_terminal, dict) and str(console_terminal.get("terminalId") or "").strip() == terminal_id:
+        runtime_state.pop("consoleTerminal", None)
+        cleared = True
+    # The dashboard-start path writes the TOP-LEVEL runtime_state.terminalId (and the synth
+    # path virtualTerminalId); leaving either pointing at a dead terminal made the dashboard
+    # auto-mount an xterm over a stopped PTY's stale buffer with no Start affordance
+    # (graph-tech-lead incident, 2026-07-02).
+    for key in ("terminalId", "virtualTerminalId"):
+        if str(runtime_state.get(key) or "").strip() == terminal_id:
+            runtime_state.pop(key, None)
+            cleared = True
+    if not cleared:
+        return
     status_note = str(row["status_note"] or "").strip()
     if status_note == "Dashboard Console PTY attached.":
         status_note = ""

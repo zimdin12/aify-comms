@@ -39,10 +39,20 @@ export function hermesGatewayUrlToHttp(wsUrl) {
 // Plan 4 Task 18: prefer the wrapper PTY (runtimeState.terminalId) over the synth virtual-rpc
 // terminal (runtimeState.virtualTerminalId) — the wrapper PTY is the real operator-facing Ink
 // TUI; the synth is the lower-fidelity JSON-RPC shim.
-export function chooseSessionConsoleWidget({ agent, sessionId, sessionMode, terminalStatus, runtime, runtimeConfig, cache, hermesGatewayHttp, codexAppServerUrl, codexThreadId, codexAttachable, sessionTerminalId }) {
+export function chooseSessionConsoleWidget({ agent, sessionId, sessionMode, sessionStatus, terminalStatus, runtime, runtimeConfig, cache, hermesGatewayHttp, codexAppServerUrl, codexThreadId, codexAttachable, sessionTerminalId }) {
   const normalizedSessionMode = String(sessionMode || agent?.sessionMode || agent?.session_mode || '').trim().toLowerCase();
   const normalizedTerminalStatus = String(terminalStatus || agent?.terminalStatus || agent?.terminal_status || '').trim().toLowerCase();
-  const terminalCanRepresentCurrentOwner = normalizedSessionMode !== 'resident' && !['stopping', 'stopped', 'failed'].includes(normalizedTerminalStatus);
+  // A DEAD session with no explicit live terminal status must not mount an xterm from
+  // leftover runtime_state pointers (graph-tech-lead incident 2026-07-02: rs.terminalId
+  // still named a terminal stopped a day earlier — the dashboard rendered its stale 65KB
+  // buffer as if live, dead input, and never offered Start). An explicitly-live
+  // terminalStatus (attached/active/starting) still wins — a console freshly started on
+  // a previously-stopped session mounts as before.
+  const sessionDead = ['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled']
+    .includes(String(sessionStatus || '').trim().toLowerCase());
+  const terminalCanRepresentCurrentOwner = normalizedSessionMode !== 'resident'
+    && !['stopping', 'stopped', 'failed'].includes(normalizedTerminalStatus)
+    && !(sessionDead && !normalizedTerminalStatus);
   // AUTO-ATTACH FIX (2026-06-19): a terminal that went live via dispatch/register/bind lands in
   // runtime_state.consoleTerminal.terminalId (nested) or agent_sessions.terminal_id (session-bound),
   // NOT the top-level runtime_state.terminalId (only the dashboard-start path writes that). Reading

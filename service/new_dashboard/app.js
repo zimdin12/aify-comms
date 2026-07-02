@@ -2238,6 +2238,7 @@ function renderSessionConsole(session, targetEl, opts = {}) {
     agent,
     sessionId: id,
     sessionMode: agent?.sessionMode || session?.sessionMode || session?.session_mode,
+    sessionStatus: status,
     terminalStatus: session?.terminalStatus || session?.terminal_status || session?.terminal?.status,
     runtime,
     runtimeConfig,
@@ -2289,6 +2290,11 @@ function renderSessionConsole(session, targetEl, opts = {}) {
   // fresh start (and sending freshContext lets handle-required runtimes start without a 409).
   // With a handle, a plain start resumes it; the truly-discard-and-restart path is Reset.
   const noSavedHandle = !String(agent?.sessionHandle || runtimeConfig.handle || runtimeConfig.threadId || '').trim();
+  // A DEAD managed session previously showed NOTHING here (canStop false → no start offer,
+  // and before the chooser's sessionDead guard it showed a stale dead-terminal xterm instead)
+  // — the operator had no way to start the agent from the console view. Offer the session
+  // RESTART (teardown + fresh spawn) as an explicit "Start agent" (operator ask 2026-07-02).
+  const canStartDeadSession = widgetChoice.kind === 'none' && !canStop && runtime && !isResident;
   const startConsoleEmbed = canStartConsole
     ? `<div class="console-embed" data-kind="console-start">
          <div class="console-embed-label"><span>No live console for this session.</span></div>
@@ -2296,6 +2302,13 @@ function renderSessionConsole(session, targetEl, opts = {}) {
            ${noSavedHandle
              ? `<button class="primary" data-console-action="start-fresh" data-session-id="${esc(id)}" title="No saved native session — start a fresh console">Start fresh console</button>`
              : `<button class="primary" data-console-action="start" data-session-id="${esc(id)}" title="Resume this session's console">Start console</button>`}
+         </div>
+       </div>`
+    : canStartDeadSession
+    ? `<div class="console-embed" data-kind="console-start">
+         <div class="console-embed-label"><span>This session is ${esc(status || 'stopped')} — no live console. The agent stays <em>available</em>: a message wakes it, or start it now.</span></div>
+         <div class="console-start-actions">
+           <button class="primary" data-session-control="restart" data-session-id="${esc(id)}" title="Spawn a fresh worker for this agent (resumes its saved session when one exists)">Start agent</button>
          </div>
        </div>`
     : '';
