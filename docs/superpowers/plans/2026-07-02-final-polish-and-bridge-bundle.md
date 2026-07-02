@@ -15,7 +15,7 @@
 - Then: final docs/skills polish runs → commit+push → publish verdict.
 
 ## WS-A — Bridge bundle (mcp/stdio + install.sh; deploy = install.sh re-run + bridge restart)
-- [ ] A1 **Bug D root-cause + fix**: first queued send after env-bridge restart creates NO
+- [x] A1 **Bug D root-cause + fix**: first queued send after env-bridge restart creates NO
   spawn attempt for cold hermes targets (~3min late, kicked by a 2nd send, then loses the
   180s backstop race); duplicate concurrent spawn_requests for one agent aren't coalesced.
   Find the claim/lazy-autostart-on-claim path (bridge poll loop; server comment api_v2.py:200
@@ -24,14 +24,14 @@
   hermes targets never. Fix BOTH: (a) first-poll cold-spawn for queued runs to available managed
   hermes targets; (b) coalesce spawn requests per agent (second request while one is `running`
   for the same agent = attach, don't double-spawn). Unit-test in mcp/stdio/tests where feasible.
-- [ ] A2 **Compaction auto-confirm** (setting-gated): claude-console-prompts.js currently
+- [x] A2 **Compaction auto-confirm** (setting-gated): claude-console-prompts.js currently
   DELIBERATELY skips the `/compact → "Resume from summary"` prompt (comment: would summarize
   away the session) → managed agents stall there while managers wait (operator screenshot,
   lc-manager incident). Add setting `console_auto_confirm_claude_compaction` (default ON per
   operator pain; follow the existing `console_auto_confirm_claude_dev_channels` pattern:
   DEFAULT_SETTINGS + settings schema in new dashboard + bridge reads it) and auto-press Enter
   on that prompt when enabled. Keep the safety skip when the flag is off.
-- [ ] A3 **Real-cols reporting**: wrapper/bridge reports the PTY's ACTUAL cols/rows for
+- [x] A3 **Real-cols reporting**: wrapper/bridge reports the PTY's ACTUAL cols/rows for
   resident mirrors → store in terminal_sessions.cols/rows (columns exist, db.py:392, currently
   0/None for residents) → GET /terminals uses stored cols as the render width (preferred over
   the infer_source_width heuristic; keep heuristic as fallback) → dashboards size the xterm
@@ -48,19 +48,19 @@
   REMOVE throwaway agents after.
 
 ## WS-B — Server engineering slice (#236) (service/ only; container rebuild)
-- [ ] B1 **Light reminders + `reply_reminder_full_every` setting** (default 3): reminder
+- [x] B1 **Light reminders + `reply_reminder_full_every` setting** (default 3): reminder
   builder in api_v2 (search `reply_reminder`, "still needs an explicit reply"): non-Nth
   reminder body = one line "Reply owed to <message id>: <subject>" (no original body);
   every Nth = full current format. Count per contract (reminder_count exists —
   reply_reminder_max_count logic). Add to DEFAULT_SETTINGS + _SETTINGS_MIN(0) + new-dashboard
   settings schema (Contracts group). Tests: reminder body content per count.
-- [ ] B2 **queueIfBusy** ("don't steer"): trace send path for queueIfBusy=true to a busy
+- [x] B2 **queueIfBusy** ("don't steer"): trace send path for queueIfBusy=true to a busy
   steer-capable resident — server /messages/send handling (steer vs queue decision) + does
   the new-dashboard composer expose/send it (Options panel)? Operator saw immediate delivery.
   Also possible cause: status flap (target read `online` between turns). Fix whatever is
   actually broken; if composer lacks the toggle, add it (Queue button exists — verify it
   sends queueIfBusy=true).
-- [ ] B3 **Digest-wake for idle targets**: verify current behavior (steer-merge covers BUSY
+- [x] B3 **Digest-wake for idle targets**: verify current behavior (steer-merge covers BUSY
   via 'merged' events). For an idle/cold managed target with N pending queued runs, the
   worker boot should deliver them as ONE combined turn (or sequential-merge on claim).
   Check claim path: does the claimer take one run at a time per turn? Implement coalescing
@@ -68,10 +68,10 @@
   the steer-merge 'merged' event format). Tests for merge behavior.
 
 ## WS-C — Refactors
-- [ ] C1 **runtimes.js split (#123)**: mechanical per-concern extraction (e.g. codex-config,
+- [x] C1 **runtimes.js split (#123)**: mechanical per-concern extraction (e.g. codex-config,
   hermes-launch, claude-session, shared utils) with re-exports from runtimes.js so importers
   don't change. `node --check` all files + run mcp/stdio/tests/*.test.js. NO behavior change.
-- [ ] C2 **install.sh hermes detection (#174)**: handle symlinked/pipx/shebang hermes installs.
+- [x] C2 **install.sh hermes detection (#174)**: handle symlinked/pipx/shebang hermes installs.
   MUST keep the .ps1 hermes wrapper in parity with the bash one (memory: only hermes uses a
   ps1 wrapper). Test: `bash -n install.sh`.
 
