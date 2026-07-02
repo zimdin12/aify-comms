@@ -496,6 +496,18 @@ export function createChatController(deps) {
     try {
       const d = await loadPulse(w);
       if (state.chat.pulse.window === w) state.chat.pulse.data = d;
+      // Single source of truth (2026-07-02 screenshot incident): the pulse board carries
+      // freshly-derived per-agent statuses while the rail renders state.agents from an
+      // OLDER /agents poll — around a status flip the two views disagreed in the same
+      // frame (rail dot online vs pulse row "working now"). Patch the shared roster from
+      // the pulse payload so both repaint consistently; the next /agents poll agrees.
+      if (Array.isArray(d?.agents) && Array.isArray(state.agents)) {
+        for (const p of d.agents) {
+          const agent = state.agents.find((a) => a.id === p.id);
+          if (agent && p.status && agent.status !== p.status) agent.status = p.status;
+        }
+        renderRail();
+      }
     } catch (_) {
       state.chat.pulse.data = { ok: false };
     }
