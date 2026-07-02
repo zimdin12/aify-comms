@@ -1568,6 +1568,7 @@ function renderSessionRail() {
               <div class="item-title">
                 <strong class="clip">${esc(sessionAgentId(session) || id)}</strong>
                 ${renderStatusChip(status, statusWhyContext('session', session, status))}
+                ${String(agent.status || '').startsWith('blocked') ? '<span class="chat-await-badge" title="Agent is blocked on an interactive prompt — open its Console">⌛ input</span>' : ''}
               </div>
               <p class="preview">${esc(session.workspace || session.cwd || '')}</p>
               <span class="session-runtime-badge" data-runtime="${esc(sessionRuntime(session))}">${esc(sessionRuntime(session))}</span>
@@ -1948,16 +1949,25 @@ async function startConsoleForSession(sessionId, freshContext = false) {
 
 // Best-effort "waiting for input" detector on the console tail (ported pure helper). Drives
 // the ⌛ await-input pill so the operator notices a console blocked on a prompt.
+// Operator feedback 2026-07-02: the old pattern also matched a bare prompt cursor (`❯`,
+// trailing `>`), which the claude TUI shows PERMANENTLY — the pill was on almost all the
+// time and meant nothing. Only real interactive QUESTIONS count now; the steady "ready for
+// input" state is not an alert.
 function consoleAwaitingInputHint(text) {
   const tail = String(text || '').slice(-400).toLowerCase();
   if (!tail.trim()) return false;
-  return /\((y\/n|yes\/no)\)|press enter|are you sure|continue\?|\[y\/n\]|overwrite\?|proceed\?|❯|>\s*$/.test(tail);
+  return /\((y\/n|yes\/no)\)|press enter|are you sure|continue\?|\[y\/n\]|overwrite\?|proceed\?/.test(tail);
 }
 
 function updateAwaitPill() {
   const pill = byId('console-await-pill');
   if (!pill) return;
-  pill.hidden = !consoleAwaitingInputHint(state.activeXterm?.recentText || '');
+  // Server-derived `blocked` (a real prompt paused the agent's spinner) is the
+  // authoritative signal; the tail regex only catches generic y/n prompts the
+  // status engine doesn't classify (e.g. plain-bash consoles).
+  const agent = state.agents.find((a) => a.id === state.activeXterm?.agentId);
+  const blocked = String(agent?.status || '').startsWith('blocked');
+  pill.hidden = !blocked && !consoleAwaitingInputHint(state.activeXterm?.recentText || '');
 }
 
 // --- Codex live-console widget --------------------------------------

@@ -126,6 +126,11 @@ function railItemHtml(item, selectedKey, drafts = {}) {
     ? `<span class="status-dot ${esc(dotStatus.dotKind)}" role="img" title="${esc(dotStatus.label)}" aria-label="${esc(dotStatus.label)}"></span>`
     : '<span class="chat-rail-hash">#</span>';
   const unread = item.unread > 0 ? `<span class="chat-unread">${item.unread}</span>` : '';
+  // Loud awaiting-input marker (operator feedback 2026-07-02): a blocked agent (a real
+  // prompt paused its turn) needs the operator — a red dot alone was too easy to miss.
+  const awaitBadge = item.kind === 'dm' && dotStatus?.dotKind === 'blocked'
+    ? '<span class="chat-await-badge" title="Agent is blocked on an interactive prompt — open its Console">⌛ input</span>'
+    : '';
   // DMs get a clickable star (PATCH /agents/{id}/favorite); channels have no server favorite.
   const fav = item.kind === 'dm'
     ? `<span class="chat-fav-toggle${item.favorited ? ' on' : ''}" data-fav-toggle="${esc(item.id)}" role="button" tabindex="0" aria-label="${item.favorited ? 'Unfavorite' : 'Favorite'} ${esc(item.id)}" title="${item.favorited ? 'Unfavorite' : 'Favorite'}">${item.favorited ? '★' : '☆'}</span>`
@@ -137,7 +142,7 @@ function railItemHtml(item, selectedKey, drafts = {}) {
     : '';
   const sub = [meta, item.preview || ''].filter(Boolean).join(' · ');
   return `<button class="chat-rail-item${active}${favClass}" data-chat-open="${esc(item.key)}" title="${esc(item.id)}">
-    <span class="chat-rail-head">${fav}${dot}<span class="chat-rail-name clip">${esc(item.id)}</span>${draftBadge}${unread}</span>
+    <span class="chat-rail-head">${fav}${dot}<span class="chat-rail-name clip">${esc(item.id)}</span>${awaitBadge}${draftBadge}${unread}</span>
     <span class="chat-rail-preview clip">${esc(sub)}</span>
   </button>`;
 }
