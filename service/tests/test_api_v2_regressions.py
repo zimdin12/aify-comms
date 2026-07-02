@@ -228,6 +228,51 @@ class ApiV2RegressionTests(FastApiTestCase):
         listed = {item["name"]: item for item in channels.json()["channels"]}
         self.assertEqual(listed["room"]["messageCount"], 2)
 
+    def test_channel_send_coldstarts_cold_managed_member(self):
+        # 2026-07-02 live incident: a channel post to a COLD managed member created a
+        # queued run but no spawn_request — the wake waited on the 180s backstop rescue
+        # (and before that rescue existed, simply failed: #191). Channel send must now
+        # mirror the DM path's send-time coldstart.
+        self._heartbeat_environment(
+            runtimes=[{
+                "runtime": "hermes",
+                "modes": ["managed-warm"],
+                "capabilities": {"nativeResume": True, "bridgeResume": True, "interrupt": True},
+            }]
+        )
+        self._register("alice")
+        self._register(
+            "cold-worker",
+            runtime="hermes",
+            sessionMode="managed",
+            machineId="linux:test-host",
+        )
+        response = self.client.post(
+            "/api/v1/channels",
+            json={"name": "room", "description": "", "createdBy": "alice"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        response = self.client.post("/api/v1/channels/room/join", json={"agentId": "cold-worker"})
+        self.assertEqual(response.status_code, 200, response.text)
+
+        response = self.client.post(
+            "/api/v1/channels/room/send",
+            json={"from_agent": "alice", "channel": "room", "body": "roll call"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+
+        spawn = self._fetchone(
+            "SELECT agent_id, status FROM spawn_requests WHERE agent_id = ?",
+            ("cold-worker",),
+        )
+        self.assertIsNotNone(spawn, "channel send to a cold managed member must create a spawn_request")
+        self.assertEqual(spawn["status"], "queued")
+        run = self._fetchone(
+            "SELECT target_agent, status FROM dispatch_runs WHERE target_agent = ?",
+            ("cold-worker",),
+        )
+        self.assertIsNotNone(run, "channel send must still create the dispatch run")
+
     def test_channel_join_leave_are_idempotent_and_validate_channel(self):
         self._register("alice")
         self._register("bob")
