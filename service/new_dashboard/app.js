@@ -177,13 +177,18 @@ async function unsendMessage(messageId) {
   } catch (err) { toast(`Unsend failed: ${err?.message || err}`, 'error'); }
 }
 
-async function markConversationRead(agentId) {
-  const unread = state.messages.filter((m) => String(m.from || '') === agentId && m.read === false);
-  if (!unread.length) { toast('Nothing unread', 'ok'); return; }
+async function markConversationRead(agentId, { quiet = false } = {}) {
+  // Only messages addressed TO the viewing identity: state.messages is the fleet-wide feed, so
+  // filtering by sender alone also grabbed the agent's messages to OTHER agents — the server
+  // correctly 403s those (reader must be the recipient), spamming errors on every chat open.
+  const me = state.chat.identity;
+  const unread = state.messages.filter((m) =>
+    String(m.from || '') === agentId && m.read === false && String(m.to || '') === me);
+  if (!unread.length) { if (!quiet) toast('Nothing unread', 'ok'); return; }
   try {
-    await Promise.all(unread.map((m) => api(`/messages/${encodeURIComponent(messageIdOf(m))}/read`, { method: 'POST', body: JSON.stringify({ agentId: state.chat.identity, read: true }) })));
+    await Promise.all(unread.map((m) => api(`/messages/${encodeURIComponent(messageIdOf(m))}/read`, { method: 'POST', body: JSON.stringify({ agentId: me, read: true }) })));
     unread.forEach((m) => { m.read = true; });
-    toast(`Marked ${unread.length} read`, 'ok');
+    if (!quiet) toast(`Marked ${unread.length} read`, 'ok');
     chatController.render();
   } catch (err) { toast(`Mark-read failed: ${err?.message || err}`, 'error'); }
 }
@@ -3320,7 +3325,7 @@ function openAgentChat(agentId) {
   // "Message in Chat" must land on the messenger, not follow a stale open analytics panel.
   state.chat.analytics = { agent: '', data: null };
   chatController.open(`dm:${agentId}`);
-  if (!state.chat.peek) markConversationRead(agentId); // respect Peek mode on deep-link opens too
+  if (!state.chat.peek) markConversationRead(agentId, { quiet: true }); // respect Peek mode on deep-link opens too
   byId('chat-composer-body')?.focus();
 }
 
@@ -3589,7 +3594,7 @@ document.addEventListener('click', (event) => {
     } else {
       chatController.open(key);
       // Opening a DM marks its messages read — UNLESS Peek mode is on (watch without marking).
-      if (!state.chat.peek && key.startsWith('dm:')) markConversationRead(key.slice('dm:'.length));
+      if (!state.chat.peek && key.startsWith('dm:')) markConversationRead(key.slice('dm:'.length), { quiet: true });
     }
     return;
   }
