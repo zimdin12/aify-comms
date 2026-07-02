@@ -3320,6 +3320,7 @@ function openAgentChat(agentId) {
   // "Message in Chat" must land on the messenger, not follow a stale open analytics panel.
   state.chat.analytics = { agent: '', data: null };
   chatController.open(`dm:${agentId}`);
+  if (!state.chat.peek) markConversationRead(agentId); // respect Peek mode on deep-link opens too
   byId('chat-composer-body')?.focus();
 }
 
@@ -3587,6 +3588,8 @@ document.addEventListener('click', (event) => {
       chatController.close();
     } else {
       chatController.open(key);
+      // Opening a DM marks its messages read — UNLESS Peek mode is on (watch without marking).
+      if (!state.chat.peek && key.startsWith('dm:')) markConversationRead(key.slice('dm:'.length));
     }
     return;
   }
@@ -4026,7 +4029,7 @@ function persistChatPrefs() {
       liveOnly: state.chat.liveOnly, openOnly: state.chat.openOnly,
       workingUp: state.chat.workingUp, unreadOnly: state.chat.unreadOnly,
       scope: state.chat.scope, statusFilter: [...(state.chat.statusFilter || [])],
-      sortMode: state.chat.sortMode, compact: state.chat.compact,
+      sortMode: state.chat.sortMode, compact: state.chat.compact, peek: state.chat.peek,
     }));
   } catch { /* ignore */ }
 }
@@ -4039,6 +4042,7 @@ function syncChatChips() {
   document.querySelectorAll('[data-chat-scope]').forEach((el) => press(el, el.dataset.chatScope === (state.chat.scope || 'all')));
   document.querySelectorAll('[data-chat-toggle]').forEach((el) => press(el, !!state.chat[el.dataset.chatToggle]));
   document.querySelectorAll('[data-chat-compact-toggle]').forEach((el) => press(el, !!state.chat.compact));
+  document.querySelectorAll('[data-chat-peek-toggle]').forEach((el) => press(el, !!state.chat.peek));
   document.querySelector('.chat-shell')?.classList.toggle('compact', !!state.chat.compact);
   const sf = state.chat.statusFilter instanceof Set ? state.chat.statusFilter : new Set();
   document.querySelectorAll('[data-chat-status]').forEach((el) => press(el, sf.has(el.dataset.chatStatus)));
@@ -4067,6 +4071,14 @@ byId('page-chat')?.addEventListener('click', (event) => {
   if (compactBtn) {
     state.chat.compact = !state.chat.compact;
     persistChatPrefs(); syncChatChips(); // syncChatChips toggles the .chat-shell.compact class
+    return;
+  }
+  const peekBtn = event.target.closest('[data-chat-peek-toggle]');
+  if (peekBtn) {
+    // Peek mode: watch conversations without auto-marking their messages read on open.
+    state.chat.peek = !state.chat.peek;
+    persistChatPrefs(); syncChatChips();
+    toast(state.chat.peek ? 'Peek mode on — opening a chat won’t mark it read' : 'Peek mode off', 'ok');
     return;
   }
   const statusBtn = event.target.closest('[data-chat-status]');
@@ -4191,6 +4203,7 @@ try {
   if (Array.isArray(p.statusFilter)) state.chat.statusFilter = new Set(p.statusFilter);
   if (p.sortMode) state.chat.sortMode = p.sortMode;
   state.chat.compact = !!p.compact;
+  state.chat.peek = !!p.peek;
   const so = byId('chat-sort'); if (so) so.value = state.chat.sortMode;
   syncChatChips();
 } catch { /* ignore */ }
