@@ -8,6 +8,29 @@ The dashboard is the product surface. Messages are the work interface; runs, ses
 
 The intended team behavior is conversational but disciplined: dashboard direct chat is human/operator chat, every message is a small contract, direct agent requests should receive threaded replies, and channel discussion should happen when an agent is named, responsible, asked a question, or has evidence to contribute. Managed turns should not end silently: final text is captured as the current reply, and future work needs a real `comms_send` wake.
 
+## Quick start
+
+```bash
+git clone <this repo> && cd aify-comms
+./setup.sh                        # generates .env + config from the examples
+docker compose up -d --build      # service :8800 (API + classic dashboard), :8801 (new dashboard)
+curl http://localhost:8800/health # {"status":"healthy"}
+bash install.sh --client claude http://localhost:8800 --with-hook   # per coding-agent client
+aify-comms                        # start an environment bridge in each execution environment
+```
+
+Then open `http://localhost:8801` (dashboard), spawn a managed agent into a workspace, and message it. Details: [Setup](#setup) below and the per-client install guides.
+
+## Security — read before exposing beyond localhost
+
+By default the service runs **without authentication** (`api_key=""`), with **CORS `*`**, and binds **`0.0.0.0`** — a deliberate LAN-trust posture for a private network. Every mutating endpoint (including typing into live agent consoles) is open to anything that can reach the port, and the compose file mounts host agent credentials (e.g. `~/.claude`) into the container for the runtimes to use. Before running anywhere untrusted:
+
+- set a real `API_KEY` in `.env` (clients send it via `AIFY_API_KEY`),
+- bind the published ports to loopback in `docker-compose.yml` (`127.0.0.1:8800:8800`), and
+- scope `cors_origins` in `config/service.json` to your dashboard origin.
+
+The full audit notes live in [KNOWN_ISSUES.md](KNOWN_ISSUES.md) (security defaults section).
+
 ## Product Direction
 
 `aify-comms` keeps the original communication core:
@@ -108,8 +131,8 @@ Important starting docs:
 ```bash
 bash setup.sh
 docker compose up -d --build
-curl http://192.168.100.10:8800/health
-curl http://192.168.100.10:8801/health
+curl http://localhost:8800/health
+curl http://localhost:8801/health
 ```
 
 The API and the original dashboard remain on `8800`; the redesigned dashboard (a separate ES-module SPA) is served on `8801` when `docker compose` is up. The new dashboard reads and writes through the same `8800` API, and the original `8800` dashboard stays fully functional as a backup. Change `.env` only if another service already uses those ports (`SERVICE_PORT` for `8800`, `NEW_DASHBOARD_PORT` for `8801`).
@@ -117,9 +140,9 @@ The API and the original dashboard remain on `8800`; the redesigned dashboard (a
 Install the host-side CLI integration on every machine/runtime that should expose `aify-comms`, `codex-aify`, `claude-aify`, or `hermes-aify`. Pick the client you use on that host:
 
 ```bash
-bash install.sh --client codex http://192.168.100.10:8800 --with-hook
-bash install.sh --client claude http://192.168.100.10:8800 --with-hook
-bash install.sh --client hermes http://192.168.100.10:8800 --with-hook
+bash install.sh --client codex http://localhost:8800 --with-hook
+bash install.sh --client claude http://localhost:8800 --with-hook
+bash install.sh --client hermes http://localhost:8800 --with-hook
 # OpenCode wrapper/config install is intentionally disabled until it gets a
 # focused integration validation pass.
 # Pi/OMP wrapper install is intentionally disabled: managed Pi uses the
@@ -155,7 +178,7 @@ cd C:\path\to\workspace-or-workspace-parent
 aify-comms.cmd
 ```
 
-The service URL defaults to `http://192.168.100.10:8800`. The current directory is always advertised as an allowed workspace root. Extra root arguments are optional safety boundaries, for example `aify-comms ~/work`, `aify-comms /mnt/c/Docker`, or `aify-comms.cmd C:\Docker`. The exact project workspace is selected per agent in the dashboard spawn form. Ended sessions and historical failures stay available for debugging, but the dashboard hides them from the normal work queue by default.
+The service URL defaults to `http://localhost:8800`. The current directory is always advertised as an allowed workspace root. Extra root arguments are optional safety boundaries, for example `aify-comms ~/work`, `aify-comms /mnt/c/Docker`, or `aify-comms.cmd C:\Docker`. The exact project workspace is selected per agent in the dashboard spawn form. Ended sessions and historical failures stay available for debugging, but the dashboard hides them from the normal work queue by default.
 
 Managed runtime defaults are configured from Dashboard **Settings -> Runtime**. Managed model fields are blank by default; blank means Claude Code/Codex use their installed runtime default/latest model. Managed Claude Code and Codex both default to `high` effort/reasoning effort. Hermes and Oh My Pi keep their own runtime defaults unless options are supplied through runtime config. Runtime Settings also expose the delivery policy toggles that used to be API-only: manual resident/managed switch visibility, managed terminal backing, eager managed PTY spawn, wrapper-backed runtime list, and legacy console injection. The normal dashboard treats model, effort, and delivery policy as global runtime policy, not per-agent tuning.
 
@@ -166,3 +189,7 @@ Messaging remains the source of truth. A run is a delivery/execution attempt att
 Managed warm agents are also always backed: the system stores identity, spawn spec, workspace, runtime state, transcript/memory, and recovery policy. Native runtime session handles are used when available; otherwise the bridge emulates continuity from stored transcript and summaries. Operator handle repair updates the saved handle; it is not a context reset.
 
 The container hosts the control plane. Bridges execute. The service must not try to directly launch native Windows/WSL/Linux runtime processes unless a bridge for that environment claims the spawn request.
+
+## License & contributing
+
+MIT — see [LICENSE](LICENSE). Issues and questions welcome; for larger PRs please open an issue first to discuss direction.

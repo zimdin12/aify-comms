@@ -76,3 +76,8 @@ dispatch_runs.json
 Screenshot_*.png
 /_*.json
 /_dash_extracted.js
+
+# local debug screenshots (never publish)
+/.dash-shots/
+/Screenshot_*.png
+/*.png

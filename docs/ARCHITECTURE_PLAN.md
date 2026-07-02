@@ -46,7 +46,7 @@ An environment is a connected execution place.
 
 Examples:
 
-- `wsl:StevenZ-L`
+- `wsl:example-host`
 - `win32:STEVENZ-L`
 - `linux:buildbox-1`
 - `docker:aify-comms-service`

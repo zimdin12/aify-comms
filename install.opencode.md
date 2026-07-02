@@ -28,7 +28,7 @@ cd /path/to/workspace-or-workspace-parent
 aify-comms
 ```
 
-On Linux, macOS, or WSL use `aify-comms`. On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://192.168.100.10:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. `aify-comms --help` shows usage and unknown flag-like arguments are rejected instead of becoming roots. See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md). The OpenCode MCP/client install path is disabled by default; the environment bridge is still the process that would claim future managed OpenCode work when this integration is re-enabled.
+On Linux, macOS, or WSL use `aify-comms`. On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://localhost:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. `aify-comms --help` shows usage and unknown flag-like arguments are rejected instead of becoming roots. See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md). The OpenCode MCP/client install path is disabled by default; the environment bridge is still the process that would claim future managed OpenCode work when this integration is re-enabled.
 
 After every update:
 

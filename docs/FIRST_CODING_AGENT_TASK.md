@@ -63,9 +63,9 @@ Request body:
 
 ```json
 {
-  "id": "wsl:StevenZ-L:default",
-  "label": "WSL on StevenZ-L",
-  "machineId": "linux:StevenZ-L",
+  "id": "wsl:example-host:default",
+  "label": "WSL on example-host",
+  "machineId": "linux:example-host",
   "os": "linux",
   "kind": "wsl",
   "bridgeId": "bridge-uuid",

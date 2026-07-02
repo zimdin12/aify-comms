@@ -234,7 +234,7 @@ Examples:
 
 - Windows bridge: `C:/Users/Administrator/echoes_of_the_fallen`
 - WSL bridge: `/mnt/c/Users/Administrator/echoes_of_the_fallen`
-- Linux bridge: `/home/steven/projects/echoes`
+- Linux bridge: `/home/user/projects/echoes`
 
 The service container should not translate paths on behalf of the bridge. The bridge advertises allowed workspace roots and validates requested workspaces locally.
 

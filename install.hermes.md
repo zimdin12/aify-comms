@@ -46,7 +46,7 @@ Then install aify-comms into Hermes:
 ```bash
 git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
 cd ~/aify-comms
-bash install.sh --client hermes http://192.168.100.10:8800 --with-hook
+bash install.sh --client hermes http://localhost:8800 --with-hook
 ```
 
 If you are using local-only mode with no shared server:
@@ -74,7 +74,7 @@ that should run Hermes:
 
 ```bash
 cd /path/to/workspace-or-workspace-parent
-aify-comms http://192.168.100.10:8800
+aify-comms http://localhost:8800
 ```
 
 On Linux, macOS, or WSL use `aify-comms`. On native Windows from PowerShell/cmd
@@ -434,3 +434,7 @@ itself to use its own sandbox if you need tool-driven child processes.
 See [docs/HERMES_INTEGRATION.md](docs/HERMES_INTEGRATION.md) for the full
 integration guide, hooks details, MCP config shape, resident mode, and current
 limits.
+
+## How the install works (and updating)
+
+`install.sh` copies the bridge runtime (`mcp/stdio` + its `node_modules`) into a native folder at `~/.aify-comms` (override with `AIFY_HOME`) and points the wrappers and MCP config at that copy — not at this repo checkout. This keeps bridge startup fast on slow/bind-mounted filesystems. Consequence: after `git pull`, changes under `mcp/stdio/` only take effect once you **re-run `install.sh`** (refreshes the copy) and restart the wrapper/bridge. Updating the runtime CLI itself (e.g. a hermes or claude update) does not require reinstalling aify-comms — the two write disjoint files.

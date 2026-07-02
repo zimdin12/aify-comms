@@ -9,8 +9,8 @@
 # Usage:
 #   bash install.sh --client claude
 #   bash install.sh --client codex
-#   bash install.sh --client codex http://192.168.100.10:8800 --with-hook
-#   bash install.sh --client hermes http://192.168.100.10:8800 --with-hook
+#   bash install.sh --client codex http://localhost:8800 --with-hook
+#   bash install.sh --client hermes http://localhost:8800 --with-hook
 
 set -euo pipefail
 
@@ -45,7 +45,7 @@ EMIT_HERMES_WRAPPERS_DIR=""
 # be asserted deterministically and can't silently drop. Used by
 # mcp/stdio/tests/codex-wrapper-determinism.test.js.
 EMIT_CODEX_WRAPPERS_DIR=""
-DEFAULT_AIFY_SERVER_URL="${AIFY_DEFAULT_SERVER_URL:-http://192.168.100.10:8800}"
+DEFAULT_AIFY_SERVER_URL="${AIFY_DEFAULT_SERVER_URL:-http://127.0.0.1:8800}"
 
 usage() {
   cat <<EOF
@@ -54,9 +54,9 @@ Usage:
 
 Examples:
   bash install.sh --client claude
-  bash install.sh --client claude http://192.168.100.10:8800 --with-hook
-  bash install.sh --client codex http://192.168.100.10:8800
-  bash install.sh --client hermes http://192.168.100.10:8800 --with-hook
+  bash install.sh --client claude http://localhost:8800 --with-hook
+  bash install.sh --client codex http://localhost:8800
+  bash install.sh --client hermes http://localhost:8800 --with-hook
 
 Pi/OMP note:
   --client pi is intentionally disabled. Managed Pi works through the
