@@ -5,7 +5,33 @@ description: Use when comms_* MCP tools are available or an agent needs aify-com
 
 # aify-comms
 
-Use aify-comms as the team chat and work-loop control plane: direct messages for owned handoffs, channels for shared context, artifacts for long/binary content, and run audit/contract state as telemetry. Keep the context you load small; read `references/operations.md` only for setup, runtime policy, bridge/session repair, or dashboard operator details.
+## Operating model — read this first
+
+aify-comms is your team's operating system: persistent teammates (different
+models/harnesses/machines), work contracts, reviews, shared records, and a human
+operator watching the dashboard. Three facts to weigh — as judgment, not limits:
+
+1. **A message wakes the recipient into a full turn** (their whole context re-read).
+   Often that's exactly right — one sharp question to the teammate who knows can be
+   the cheapest move in the system, and a hard topic may deserve a long discussion
+   that no solo agent or subagent could replace. Spend turns deliberately: will this
+   message change what the recipient does or knows? Then send it. **Never sit blocked
+   to save tokens — ask.** What to skip is only the message that carries nothing new.
+2. **The record persists; working memory doesn't.** Messages stay stored and queryable
+   (`comms_search`, inbox, dashboard) — but your context fills, compacts, and forgets.
+   So put load-bearing decisions where the team re-reads them: a file in the repo, a
+   channel post, a `comms_share` artifact. Reference big content instead of pasting it —
+   by path when you share a workspace, via `comms_share` when you don't.
+3. **Respect the responsibility system.** Work inside YOUR lane: use your runtime's
+   native delegation when it has one (claude-code subagents, hermes `delegate_task`,
+   codex multi-agent) for fan-out research/edits/verification. Work that belongs to
+   ANOTHER role: route it to the responsible teammate — never shadow-spawn your own
+   worker for someone else's lane; that forks ownership and splits context.
+
+Direct messages = owned handoffs. Channels = shared/durable context. Artifacts = long
+or binary content. Run audit/contract state = telemetry. Keep the context you load
+small; read `references/operations.md` only for setup, runtime policy, bridge/session
+repair, or dashboard operator details.
 
 ## Core Contract
 

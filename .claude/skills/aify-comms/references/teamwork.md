@@ -110,6 +110,30 @@ Judgment rules (apply the test above, don't apply them mechanically):
   to agents on a different repo/team just burns their context and earns a "wrong project,
   I can't run that" bounce (it has happened). If you genuinely need many owners, name each
   and what you want from them; if it's a shared record, put it on the team channel.
+- **Delegate within your lane; route across lanes; keep the team aware via the record.**
+  Inside your own lane, your runtime's native delegation (claude-code subagents, hermes
+  `delegate_task`, codex multi-agent) is the cheap tool for fan-out research/edits/
+  verification. Work belonging to another ROLE goes to that teammate — a manager with a
+  coder on the team routes coding to the coder, never spawns a shadow one. And shared
+  awareness comes from the durable record (a channel post of the settled decision), not
+  from CCing everyone in DMs — teammates who need the context should be able to find it,
+  without each getting a wake-turn.
+
+## Source-of-truth docs
+
+Every team needs a small set of durable documents that outlive any one session: the plan,
+settled decisions/contracts, and task state. **One agent owns them** — usually the
+manager/driver (a dedicated docs role on bigger teams). If they don't exist, the owner
+creates them at kickoff; "we'll remember" is not a plan.
+
+- **Reference the doc instead of re-explaining.** When a teammate asks something the doc
+  answers, point at the section. If the doc couldn't answer it, that's a doc bug — the
+  owner fixes it when the answer lands.
+- **Updating the doc IS closing the loop.** When a decision settles, the owner writes it
+  into the doc (and drops one channel pointer); that beats N confirmation DMs.
+- **Right-size for agent browsing.** Split any doc growing past a few hundred lines —
+  same rule as code files: agents can't find things in a 1000-line monolith. Too thin is
+  the other failure: a doc that can't answer real questions just sends readers back to DMs.
 
 ## Manager Discipline
 
