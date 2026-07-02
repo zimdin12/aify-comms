@@ -50,11 +50,17 @@ test("wrapper-backed codex: main bridge leaves claims to the wrapper child", () 
     `wrapper-backed codex: main bridge must not advertise managed; got ${JSON.stringify(modes)}`);
 });
 
-test("wrapper-backed hermes child bridge still claims resident via its resident-run capability", () => {
-  // When *-aify spawns the wrapper, the wrapper's in-process bridge runs
-  // as a resident-mode session (AIFY_SESSION_MODE=resident is set by the
-  // wrapper for itself). The child bridge's supportedExecutionModes for
-  // its OWN agent still returns 'resident' so it can claim.
+test("resident hermes bridge must NOT claim resident — the channel-sidecar owns delivery", () => {
+  // de26a2e (2026-06-03, fabricated-reply fix): resident hermes delivery is
+  // owned by the per-agent `hermes-managed-host.js run <agent>` loop
+  // (bridgeKind="channel-sidecar"), exactly like managed hermes. If the
+  // resident hermes bridge claimed the run itself, it would route through
+  // launchRuntimeRun -> HermesController -> ChannelDelegatedController (a
+  // leftover no-op), server.js would mark the run completed, and the
+  // auto-mirror path would post the no-op summary as a FABRICATED reply —
+  // no real turn, nothing in the TUI. So supportedExecutionModes returns []
+  // for resident hermes; only CODEX residents claim 'resident' directly
+  // (codex's in-process bridge IS its delivery surface — no sidecar).
   const info = {
     sessionMode: "resident",
     runtime: "hermes",
@@ -64,8 +70,15 @@ test("wrapper-backed hermes child bridge still claims resident via its resident-
   const modes = supportedExecutionModes(info, {
     managedViaWrapperRuntimes: new Set(["hermes"]),
   });
-  assert.deepEqual(modes, ["resident"],
-    `wrapper child must still claim resident; got ${JSON.stringify(modes)}`);
+  assert.deepEqual(modes, [],
+    `resident hermes must not claim (sidecar owns delivery); got ${JSON.stringify(modes)}`);
+
+  // Codex residents keep claiming resident directly.
+  const codexModes = supportedExecutionModes({ ...info, runtime: "codex" }, {
+    managedViaWrapperRuntimes: new Set(["codex"]),
+  });
+  assert.deepEqual(codexModes, ["resident"],
+    `codex resident wrapper child still claims resident; got ${JSON.stringify(codexModes)}`);
 });
 
 test("wrapper-backed flag with array form (not Set) also works", () => {

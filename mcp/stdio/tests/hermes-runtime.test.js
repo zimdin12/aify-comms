@@ -20,17 +20,19 @@ assert.equal(normalizeRuntime("hermes-agent"), "hermes");
 assert.equal(normalizeRuntime("hermes_agent"), "hermes");
 
 assert.equal(canLaunchRuntime("hermes"), true);
-// 2026-05-30 (hermes-apiserver-delivery): HermesAdapter.supportsSteering is now
-// false — the api_server chat path has no mid-turn steer; /v1/runs/{id}/stop
-// gives interrupt only. So steer is false everywhere it derives from the adapter.
-assert.deepEqual(controlCapabilitiesForRuntime("hermes"), { interrupt: true, steer: false });
+// 89ad862 (2026-06-03, native-session-id rework review fixes): steer is back —
+// HermesAdapter.supportsSteering is true again because the gateway delivery
+// loop (hermes-managed-host.js) injects mid-turn via the gateway `session.steer`
+// RPC on a 4009-busy. Matches service/runtimes/hermes.py supports_steering=True.
+// (The 2026-05-30 api_server chat path that had no steer was retired.)
+assert.deepEqual(controlCapabilitiesForRuntime("hermes"), { interrupt: true, steer: true });
 // defaultCapabilitiesForRuntime derives from the HermesAdapter supports_*
-// flags. "steer" no longer appears (supportsSteering == false).
+// flags. "steer" appears again (supportsSteering == true since 89ad862).
 assert.deepEqual(
   defaultCapabilitiesForRuntime("hermes", "managed"),
-  ["managed-run", "resume", "interrupt", "spawn"],
+  ["managed-run", "resume", "interrupt", "steer", "spawn"],
 );
-assert.deepEqual(defaultCapabilitiesForRuntime("hermes", "resident", "session-123"), ["resume", "interrupt"]);
+assert.deepEqual(defaultCapabilitiesForRuntime("hermes", "resident", "session-123"), ["resume", "interrupt", "steer"]);
 assert.equal(defaultSessionHandleForRuntime("hermes"), "hermes-session-123");
 
 const availability = runtimeLaunchAvailability("hermes");

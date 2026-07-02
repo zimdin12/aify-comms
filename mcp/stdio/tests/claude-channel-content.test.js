@@ -32,8 +32,12 @@ test("Claude channel require_reply dispatch instructs a same-turn reply (no defe
   // The wake text MUST tell the agent to send its inReplyTo reply in THIS turn,
   // before ending — a managed session is not re-woken to finish a deferred reply
   // (root-caused 2026-06-02: split read+reply across two turns stranded the reply).
+  // 14aa4fc (2026-06-18, context-burn trim) shortened the replyLine to
+  // "Reply THIS turn before you end: ... A deferred reply strands — the session
+  // is not re-woken for it." — same contract, terser wording; the full rationale
+  // lives once in the MCP server instructions. Pin the contract, not the prose.
   assert.match(text, /this turn/i, "must direct a same-turn reply");
-  assert.match(text, /not be re-woken|won't be re-woken|will not be re-woken/i, "must warn the session is not re-woken to finish a deferred reply");
+  assert.match(text, /not re-woken|not be re-woken|won't be re-woken|will not be re-woken/i, "must warn the session is not re-woken to finish a deferred reply");
   assert.match(text, /inReplyTo="msg-1"/, "must reference the inReplyTo handle");
 });
 
@@ -47,6 +51,6 @@ test("Claude channel non-require_reply dispatch does NOT force a same-turn reply
     messageId: "msg-2",
     requireReply: false,
   });
-  assert.doesNotMatch(text, /not be re-woken|won't be re-woken|will not be re-woken/i,
+  assert.doesNotMatch(text, /re-woken/i,
     "delivery-only dispatch should not carry the same-turn-reply warning");
 });

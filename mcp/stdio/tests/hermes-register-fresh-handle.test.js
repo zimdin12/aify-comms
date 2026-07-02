@@ -28,9 +28,15 @@ assert.match(
   "Previous handle reuse should be gated by allowPreviousSessionHandle",
 );
 
+// 46f313b (2026-06-03, agent-keyed gateway marker): the first-choice source is
+// now the module-level AIFY_HERMES_GATEWAY_URL — the startup-validated env URL,
+// with a fallback to the AGENT-keyed gateway marker when the env is the literal
+// "${AIFY_HERMES_GATEWAY_URL}" placeholder. It still precedes the cwd runtime
+// marker, preserving this test's contract: the current MCP process's own gateway
+// wins over cwd-keyed markers (which collide for same-folder agents).
 assert.match(
   serverText,
-  /const rawGatewayUrl = String\(process\.env\.AIFY_HERMES_GATEWAY_URL \|\| marker\?\.gatewayUrl \|\| ""\)\.trim\(\)/,
+  /const rawGatewayUrl = String\(AIFY_HERMES_GATEWAY_URL \|\| process\.env\.AIFY_HERMES_GATEWAY_URL \|\| marker\?\.gatewayUrl \|\| ""\)\.trim\(\)/,
   "Hermes registration must prefer the current MCP process gateway over cwd runtime markers",
 );
 
