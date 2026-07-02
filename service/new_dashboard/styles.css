@@ -316,6 +316,8 @@ small, .subtle { color: var(--muted); }
   margin-bottom: 10px;
 }
 .button-row { display: flex; gap: 8px; flex-wrap: wrap; }
+/* The save-status live region renders as a visible empty pill when there is no message. */
+#settings-status:empty { display: none; }
 .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 10px; }
 /* Work page: collapse to a single pane (Work Loop OR Runs) while keeping a both-visible default. */
 .work-view-toggle { margin-bottom: 10px; }

@@ -3661,12 +3661,15 @@ document.addEventListener('click', (event) => {
     }
     return;
   }
-  const workView = event.target.closest('[data-work-view]');
+  // MUST stay scoped to button[...]: the grid section itself carries data-work-view as a
+  // CSS state attribute, so a bare [data-work-view] closest() matches EVERY click inside
+  // Work and swallows Inspect/Remind/Close (live regression 2026-07-02).
+  const workView = event.target.closest('button[data-work-view]');
   if (workView) {
     const v = workView.dataset.workView;
     const grid = document.querySelector('.diagnostics-grid');
     if (grid) grid.setAttribute('data-work-view', v);
-    document.querySelectorAll('[data-work-view]').forEach((b) => { const on = b.dataset.workView === v; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
+    document.querySelectorAll('button[data-work-view]').forEach((b) => { const on = b.dataset.workView === v; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
     try { localStorage.setItem('aifyWorkView', v); } catch { /* private mode */ }
     return;
   }
@@ -4275,7 +4278,7 @@ try {
   const wv = localStorage.getItem('aifyWorkView');
   if (wv && wv !== 'all') {
     document.querySelector('.diagnostics-grid')?.setAttribute('data-work-view', wv);
-    document.querySelectorAll('[data-work-view]').forEach((b) => b.classList.toggle('active', b.dataset.workView === wv));
+    document.querySelectorAll('button[data-work-view]').forEach((b) => b.classList.toggle('active', b.dataset.workView === wv));
   }
 } catch { /* private mode */ }
 

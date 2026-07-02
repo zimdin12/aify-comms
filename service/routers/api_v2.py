@@ -20299,6 +20299,32 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
                 require_reply=False,
             )
             dispatch_runs = await _finalize_dispatch_runs(db, dispatch_runs, launchable_recipients, not_started)
+            # Send-time coldstart for COLD managed members (2026-07-02). Channel posts
+            # previously created queued runs and relied entirely on the 180s queued-run
+            # backstop to spawn workers (and before the backstop's coldstart-rescue existed,
+            # those runs just FAILED — the "sc-manager's broadcasts left targets available,
+            # no answers" incident, #191). Mirror the direct-send path: spawn a managed-warm
+            # worker NOW for each launchable member with no live wrapper child, so a channel
+            # roll-call wakes a cold team in seconds, not minutes. The helper is idempotent
+            # (pending/booting spawn_request short-circuits; unresolvable env returns False,
+            # leaving the run queued for the backstop rescue as before).
+            coldstart_settings = await _load_settings(db)
+            for recipient_id, _exec_mode in launchable_recipients:
+                agent_cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))
+                agent_row = await agent_cursor.fetchone()
+                if not agent_row:
+                    continue
+                if _normalize_session_mode(agent_row["session_mode"] or "resident") != "managed":
+                    continue
+                if await _has_live_managed_wrapper_child(db, recipient_id):
+                    continue
+                await _coldstart_spawn_request_for_dispatch(
+                    db,
+                    recipient_id,
+                    runtime=_normalize_runtime(agent_row["runtime"] or ""),
+                    settings=coldstart_settings,
+                    requested_by=req.from_agent,
+                )
 
         recipient_info = {}
         for recipient_id in recipients:
