@@ -11382,7 +11382,15 @@ async def get_terminal(terminal_id: str, cols: Optional[int] = None, rows: Optio
                 # of it and the viewer width; the client widens its xterm to renderedCols so
                 # the wide mirror scrolls instead of re-wrapping. Managed terminals are drawn
                 # at the size we set, so inferred≈viewer and behaviour is unchanged.
-                src_w = await loop.run_in_executor(None, _infer_terminal_source_width, raw)
+                # A3 real-cols (2026-07-02): prefer the PTY's AUTHORITATIVE size (recorded
+                # when a resize control completes) over the heuristic — inference guesses
+                # from drawn cells and can mis-size a live redraw. Fall back to inference
+                # for rows that predate real-cols recording (stored cols 0/NULL).
+                stored_cols = int(term_dict.get("cols") or 0)
+                if stored_cols > 0:
+                    src_w = stored_cols
+                else:
+                    src_w = await loop.run_in_executor(None, _infer_terminal_source_width, raw)
                 eff_cols = max(20, min(max(int(cols), int(src_w or 0)), 500))
                 eff_rows = max(5, min(int(rows), 200))
                 term_dict["snapshot"] = await loop.run_in_executor(
@@ -11966,6 +11974,21 @@ async def update_terminal_control(control_id: str, req: TerminalControlUpdate, r
             await _clear_console_terminal_binding(db, terminal["agent_id"], terminal["id"], now=now)
         if terminal_status.strip().lower() in _TERMINAL_END_STATUSES:
             await _invalidate_agent_live_state(db, terminal["agent_id"])
+        # A3 real-cols (2026-07-02): a COMPLETED resize control means the bridge actually
+        # applied these dims to the PTY — record them as the terminal's authoritative size.
+        # GET /terminals prefers this over the infer_source_width heuristic, so the console
+        # snapshot renders at the PTY's true width (kills the live-redraw garble caused by
+        # inferred≠actual width).
+        if (
+            status == "completed"
+            and str(control["action"] or "").strip().lower() == "resize"
+            and int(control["cols"] or 0) > 0
+            and int(control["rows"] or 0) > 0
+        ):
+            await db.execute(
+                "UPDATE terminal_sessions SET cols = ?, rows = ? WHERE id = ?",
+                (int(control["cols"]), int(control["rows"]), terminal["id"]),
+            )
         if req.output:
             latest_terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal["id"],))).fetchone()
             await _append_terminal_output(db, latest_terminal or terminal, req.output, status=terminal_status)
