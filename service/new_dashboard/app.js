@@ -3818,6 +3818,7 @@ document.addEventListener('click', (event) => {
     setPage(page);
     // Lazy-load the analytics page the first time it's opened (and refresh on re-open).
     if (page === 'analytics') loadAnalytics(true);
+    return;
   }
   const diagnosticSelect = event.target.closest('[data-diagnostic-select]');
   if (diagnosticSelect) {
@@ -3928,8 +3929,6 @@ document.addEventListener('click', (event) => {
     toggleRunEventOrder();
     return;
   }
-  const inspectButton = event.target.closest('[data-inspect]');
-  if (inspectButton) inspect(inspectButton.dataset.inspect, inspectButton.dataset.id);
   const closeContractButton = event.target.closest('[data-close-contract]');
   if (closeContractButton) { closeWorkContract(closeContractButton.dataset.closeContract); return; }
   const remindContractButton = event.target.closest('[data-remind-contract]');

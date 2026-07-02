@@ -473,6 +473,79 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
         self.assertEqual(mirror["type"], "error")
         self.assertIn("[NOT DELIVERED]", mirror["subject"])
 
+    # ------------------------------------------------------------------
+    # Review fixes (2026-07-02): phantom `running` row + terminal-scoped supersede
+    # ------------------------------------------------------------------
+
+    def test_report_dead_stamps_running_spawn_requests_so_coldstart_proceeds(self):
+        # `running` is the terminal SUCCESS state of a spawn_request and its
+        # timestamps freeze at boot — so for 5 minutes after boot a now-DEAD
+        # worker would read as "mid-boot" and suppress the very respawn its
+        # death requires. report_terminal_dead must stamp the death.
+        agent_id = "bugd-phantom-running"
+        terminal_id = "term_bugd_phantom"
+        self._seed_managed_agent_with_terminal(agent_id, terminal_id, pid="4242")
+        self._seed_spawn_request("spawn_bugd_phantom", agent_id, status="running")
+
+        created = self._run_coldstart(agent_id)
+        self.assertFalse(created, "precondition: a fresh running row suppresses the coldstart")
+
+        resp = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/report-dead",
+            json={"bridgeId": "bridge-current", "processId": "4242", "reason": "host pid not alive"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        row = self._fetchone(
+            "SELECT finished_at FROM spawn_requests WHERE id = ?", ("spawn_bugd_phantom",)
+        )
+        self.assertTrue(row["finished_at"], "report-dead must stamp finished_at on running rows")
+        created = self._run_coldstart(agent_id)
+        self.assertTrue(
+            created,
+            "a known-dead worker's running row must not suppress the respawn its death requires",
+        )
+
+    def test_report_dead_supersede_is_scoped_to_the_dead_terminal(self):
+        # A stale dead-report for an OLD terminal must not kill the NEW live
+        # worker's wrapper-child row (that would coldstart a duplicate whose
+        # registration supersedes and fails the live worker's runs).
+        agent_id = "bugd-scoped-supersede"
+        dead_terminal = "term_bugd_old_dead"
+        self._seed_managed_agent_with_terminal(agent_id, dead_terminal, pid="4242")
+        # OLD worker's row, bound to the dead terminal; NEW live worker's row, bound
+        # to its own terminal; plus a legacy flag-only row with no terminal binding.
+        self._seed_wrapper_child_bridge("bugd-mwc-old", agent_id)
+        self._seed_wrapper_child_bridge("bugd-mwc-new", agent_id)
+        self._execute(
+            "UPDATE bridge_instances SET terminal_id = ? WHERE id = ?",
+            (dead_terminal, "bugd-mwc-old"),
+        )
+        self._execute(
+            "UPDATE bridge_instances SET terminal_id = ? WHERE id = ?",
+            ("term_bugd_new_live", "bugd-mwc-new"),
+        )
+        self._seed_wrapper_child_bridge("bugd-mwc-legacy", agent_id)
+
+        resp = self.client.post(
+            f"/api/v1/terminals/{dead_terminal}/report-dead",
+            json={"bridgeId": "bridge-current", "processId": "4242", "reason": "host pid not alive"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        rows = {
+            r["id"]: r["superseded_by"]
+            for r in self._fetchall(
+                "SELECT id, superseded_by FROM bridge_instances WHERE agent_id = ?", (agent_id,)
+            )
+        }
+        self.assertEqual(rows["bugd-mwc-old"], f"terminal-dead:{dead_terminal}")
+        self.assertEqual(rows["bugd-mwc-legacy"], f"terminal-dead:{dead_terminal}",
+                         "flag-only rows (no terminal binding) are still covered")
+        self.assertEqual(rows["bugd-mwc-new"], "",
+                         "the NEW live worker's row must survive a stale dead-report")
+        self.assertTrue(self._has_live_managed_wrapper_child(agent_id))
+
 
 if __name__ == "__main__":  # pragma: no cover
     import unittest

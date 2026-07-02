@@ -746,10 +746,12 @@ async def _has_live_managed_wrapper_child(db, agent_id: str) -> bool:
         age = datetime.now(timezone.utc).timestamp() - last_seen
         # NOTE (Bug D, 2026-07-02): a worker that crashed at boot leaves a fresh-but-dead
         # heartbeat row that would satisfy this age check for the full stale window and
-        # suppress the send-path coldstart. That is fixed at the DEATH sites, not here
+        # suppress the send-path coldstart. That is fixed at the DEATH site, not here
         # (FIX B3 requires a fresh wrapper-child to count even when the terminal ROW
-        # transiently failed): report_terminal_dead and the ghost-console reconcile now
-        # supersede the agent's wrapper-child rows the moment the PTY is known dead.
+        # transiently failed): report_terminal_dead supersedes the dead terminal's
+        # wrapper-child rows the moment the PTY is known dead. (The ghost-console
+        # reconcile does NOT supersede — by the time it fires the heartbeat is already
+        # past this stale window, so there is nothing left to mask.)
         return age <= ACTIVE_RUN_BRIDGE_STALE_SECONDS
     except Exception:
         return False
@@ -6101,6 +6103,8 @@ def _terminal_session_to_dict(row) -> dict[str, Any]:
         "command": row["command"] or "",
         "output": (row["output"] if "output" in keys else "") or "",
         "outputSeq": int((row["output_seq"] if "output_seq" in keys else 0) or 0),
+        "cols": int((row["cols"] if "cols" in keys else 0) or 0),
+        "rows": int((row["rows"] if "rows" in keys else 0) or 0),
         "status": row["status"] or "",
         "requestedBy": row["requested_by"] or "",
         "createdAt": row["created_at"] or "",
@@ -7291,6 +7295,10 @@ async def _has_pending_or_booting_spawn_request(db, agent_id: str) -> bool:
     kill-prior could murder the booting worker. Time-bound (5 min) so a stuck `running`
     orphan never blocks future autostarts (the orphan reaper frees those anyway)."""
     running_cutoff = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 300))
+    # `starting` is the bridge's pre-`running` PATCH — count it with the time-bounded
+    # arm so a concurrent coldstart in that sub-second window can't duplicate.
+    # `running` rows with finished_at set are KNOWN-DEAD workers (report_terminal_dead
+    # stamps them) — a dead worker must not suppress the respawn it just made necessary.
     row = await (await db.execute(
         """
         SELECT id
@@ -7298,7 +7306,11 @@ async def _has_pending_or_booting_spawn_request(db, agent_id: str) -> bool:
         WHERE agent_id = ?
           AND (
             status IN ('queued', 'claimed')
-            OR (status = 'running' AND COALESCE(NULLIF(updated_at, ''), created_at) >= ?)
+            OR (
+              status IN ('starting', 'running')
+              AND COALESCE(finished_at, '') = ''
+              AND COALESCE(NULLIF(updated_at, ''), created_at) >= ?
+            )
           )
         LIMIT 1
         """,
@@ -11802,15 +11814,36 @@ async def report_terminal_dead(terminal_id: str, req: TerminalDeadReport, reques
         # but its heartbeat row would otherwise look "live" for up to
         # ACTIVE_RUN_BRIDGE_STALE_SECONDS and suppress the send-path coldstart. Supersede the
         # rows now so the very next send cold-starts a fresh worker instead of queuing.
+        # SCOPED to this terminal (review 2026-07-02): a stale dead-report for an OLD
+        # terminal must not kill the NEW live worker's row. Rows with no terminal_id
+        # (flag-only wrapper children) are still covered — nothing else supersedes them
+        # at death, and a false-positive there only costs one redundant coldstart check.
         await db.execute(
             """
             UPDATE bridge_instances
-            SET superseded_by = 'terminal-dead:' || ?
+            SET superseded_by = 'terminal-dead:' || ?,
+                superseded_at = ?
             WHERE agent_id = ?
               AND bridge_kind = 'managed-wrapper-child'
               AND COALESCE(superseded_by, '') = ''
+              AND (COALESCE(terminal_id, '') = '' OR terminal_id = ?)
             """,
-            (terminal_id, terminal["agent_id"]),
+            (terminal_id, now, terminal["agent_id"], terminal_id),
+        )
+        # Phantom-pending fix (review 2026-07-02): a `running` spawn_request is the
+        # terminal SUCCESS state and its timestamps freeze at boot, so for 5 minutes
+        # after boot _has_pending_or_booting_spawn_request would treat this now-dead
+        # worker as "mid-boot" and suppress the very respawn its death requires (and
+        # burn the backstop's one-shot rescue on a phantom). Stamp the death.
+        await db.execute(
+            """
+            UPDATE spawn_requests
+            SET finished_at = ?
+            WHERE agent_id = ?
+              AND status = 'running'
+              AND COALESCE(finished_at, '') = ''
+            """,
+            (now, terminal["agent_id"]),
         )
         await _invalidate_agent_live_state(db, terminal["agent_id"])
         await _append_terminal_event(
@@ -20316,12 +20349,20 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
                     continue
                 if _normalize_session_mode(agent_row["session_mode"] or "resident") != "managed":
                     continue
+                member_runtime = _normalize_runtime(agent_row["runtime"] or "")
+                # Wrapper-child rows only exist for the channel-claim runtimes; for
+                # pi/opencode (native RPC controllers inside the env bridge) the gate
+                # below is permanently False, so coldstarting on it would duplicate-spawn
+                # a LIVE worker on every channel post. Those runtimes spawn on claim,
+                # same as the direct-send path.
+                if member_runtime not in _CHANNEL_CLAIM_RUNTIMES:
+                    continue
                 if await _has_live_managed_wrapper_child(db, recipient_id):
                     continue
                 await _coldstart_spawn_request_for_dispatch(
                     db,
                     recipient_id,
-                    runtime=_normalize_runtime(agent_row["runtime"] or ""),
+                    runtime=member_runtime,
                     settings=coldstart_settings,
                     requested_by=req.from_agent,
                 )

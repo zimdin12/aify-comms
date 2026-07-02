@@ -365,6 +365,8 @@ CREATE TABLE IF NOT EXISTS terminal_sessions (
     status TEXT DEFAULT 'starting',
     requested_by TEXT DEFAULT '',
     process_id TEXT DEFAULT '',
+    cols INTEGER DEFAULT 0,
+    rows INTEGER DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     stopped_at TEXT,
@@ -528,6 +530,11 @@ TERMINAL_SESSION_MIGRATIONS = {
     # restarted/died and no longer holds it in its in-memory terminals Map
     # (orphaned-console reap). Reported by the bridge on terminal attach.
     "process_id": "ALTER TABLE terminal_sessions ADD COLUMN process_id TEXT DEFAULT ''",
+    # A3 real-cols (2026-07-02): the LAST APPLIED PTY dims, persisted from a
+    # completed resize terminal_control so GET /terminals renders snapshots at
+    # the true width instead of inferring it.
+    "cols": "ALTER TABLE terminal_sessions ADD COLUMN cols INTEGER DEFAULT 0",
+    "rows": "ALTER TABLE terminal_sessions ADD COLUMN rows INTEGER DEFAULT 0",
 }
 
 # Plan 4 task 12 (2026-05-25): `ready` records that a worker process completed

@@ -4630,6 +4630,26 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual([row["action"] for row in controls], ["start", "input", "resize", "stop"])
         self.assertEqual(controls[-1]["status"], "pending")
 
+        # A3 real-cols (review 2026-07-02): completing the resize control must persist
+        # the applied dims into terminal_sessions and surface them on GET /terminals —
+        # this shipped once against columns that didn't exist (500 + txn rollback).
+        resize_control = self._fetchone(
+            "SELECT id FROM terminal_controls WHERE terminal_id = ? AND action = 'resize'",
+            (terminal_id,),
+        )
+        completed = self.client.patch(
+            f"/api/v1/terminals/controls/{resize_control['id']}",
+            json={"status": "completed", "cols": 120, "rows": 40},
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+        persisted = self._fetchone(
+            "SELECT cols, rows FROM terminal_sessions WHERE id = ?", (terminal_id,)
+        )
+        self.assertEqual((persisted["cols"], persisted["rows"]), (120, 40))
+        fetched = self.client.get(f"/api/v1/terminals/{terminal_id}")
+        self.assertEqual(fetched.json()["terminal"]["cols"], 120)
+        self.assertEqual(fetched.json()["terminal"]["rows"], 40)
+
     def test_terminal_stop_reconciles_stale_bridge_owner(self):
         session_id = self._create_running_session(terminal=True)
         started = self.client.post(
