@@ -100,6 +100,15 @@ Judgment rules (apply the test above, don't apply them mechanically):
   confirmations on top of the one that closes the loop. **An acknowledgment never earns a
   reply: a "thanks" ENDS the thread.** (Real teams have burned full agent turns exchanging
   "Re: standing down — thanks" → "Re: standing down" — 129 characters, two context re-reads.)
+- **A promise of future work does not close a contract.** A reply that ends with
+  "Next: <steps>... continuing" (or any I'll-do-it-later phrasing) answers nothing — the
+  promised work lives in nobody's ledger the moment the run closes, and nothing will wake
+  the promiser (live incident: a lead replied exactly that, created no wake, and the
+  top-priority lane sat silent ~25 minutes). Two duties: the PROMISER creates the next
+  wake BEFORE ending the turn (dispatch the follow-on to yourself or the owner — written
+  "Next:" text is not a wake); the MANAGER treats a promise-reply as a NON-answer — either
+  re-ask so the contract stays open until the work actually lands, or immediately send the
+  follow-on as its own contract. Never accept "continuing..." as closure of anything.
 - **Post a settled decision once, on a channel — then point at it instead of re-pasting.**
   When a contract/criteria/target is locked, `comms_channel_send` it once as the shared
   durable record; the re-confirmation loop is usually a symptom of there being no single
