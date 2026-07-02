@@ -2830,6 +2830,9 @@ function fitConsoleTerminal(terminalId, options = {}) {
   const id = String(terminalId || '').trim();
   const state = window._consoleTerms?.[id];
   if (!id || !state?.term) return;
+  // Wide mirror (resident wrapper wider than the pane): don't fit() — it would shrink the
+  // xterm back and re-wrap the source. The pane scrolls horizontally instead.
+  if (state.widened) return;
   if (state.fitAddon) {
     try { state.fitAddon.fit(); } catch {}
   }
@@ -3012,6 +3015,15 @@ function mountConsoleTerminal(terminalId, output, canInput) {
         .then(d => {
           const snap = d && d.terminal && d.terminal.snapshot;
           if (snap && window._consoleTerms[id] === state) {
+            // Widen the xterm to the server's rendered (source) width so a resident wrapper's
+            // wide console doesn't re-wrap; scroll the pane horizontally instead (parity with
+            // the new dashboard). The server returns renderedCols/renderedRows.
+            const rc = Number(d.terminal.renderedCols) || 0;
+            const rr = Number(d.terminal.renderedRows) || term.rows;
+            try {
+              if (rc && rc > term.cols) { term.resize(rc, Math.max(term.rows, rr)); state.widened = true; el.style.overflowX = 'auto'; }
+              else { state.widened = false; el.style.overflowX = ''; }
+            } catch {}
             try { term.reset(); term.write(snap); state.written = snap; } catch {}
           }
         })
