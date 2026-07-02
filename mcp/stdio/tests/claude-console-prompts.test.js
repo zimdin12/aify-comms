@@ -38,6 +38,22 @@ assert.equal(matchConsolePrompt(fx("compaction-prompt.txt"))?.name, "compaction-
 assert.equal(matchConsolePrompt(fx("perms-accept.txt"))?.name, "bypass-permissions-accept");
 assert.equal(matchConsolePrompt(fx("channel-enter.txt"))?.name, "channel-enter");
 
+// Dev-channels acknowledgment ("I am using this for local development") auto-confirms with
+// Enter — without it the worker sat at the menu forever, never claimed runs (up-but-deaf,
+// mc-vulkan-manager incident 2026-07-03). A bare boot-log mention of the flag does NOT fire.
+{
+  const devChannels = matchConsolePrompt(fx("dev-channels-accept.txt"));
+  assert.equal(devChannels?.name, "dev-channels-accept");
+  assert.deepEqual(devChannels?.answer, "\r");
+  assert.equal(
+    matchConsolePrompt(
+      "  --dangerously-load-development-channels server:aify-comms-channel\n  Loading plugin...\n  ❯ > \n",
+    ),
+    null,
+    "a boot-log line mentioning the flag (no acknowledgment question) must not fire",
+  );
+}
+
 // An idle screen / spinner matches no prompt rule.
 assert.equal(matchConsolePrompt("│ > │\n  ? for shortcuts"), null);
 assert.equal(matchConsolePrompt("✻ Crunched for 3m 12s (esc to interrupt)"), null);

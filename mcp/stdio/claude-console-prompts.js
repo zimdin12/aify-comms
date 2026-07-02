@@ -113,6 +113,24 @@ export const CONSOLE_PROMPT_RULES = [
     match: /enter channel to receive/i,
     answer: "\r",
   },
+  {
+    // Dev-channels ACKNOWLEDGMENT (2026-07-03, mc-vulkan-manager "up-but-deaf" incident):
+    // when the wrapper launches claude with `--dangerously-load-development-channels
+    // server:aify-comms-channel`, claude shows a first-run confirmation menu
+    //   ❯ 1. I am using this for local development
+    //     2. Exit
+    //   Enter to confirm · Esc to cancel
+    // The cursor defaults to the accept option, so a blind Enter confirms it. Without this
+    // rule the worker booted, sat at this menu forever, never started its in-process MCP,
+    // and never claimed dispatched runs (registered "online" but deaf). Distinct from
+    // `channel-enter` (that is the LATER "enter channel to receive" prompt). Matched on the
+    // acknowledgment's own question line so ordinary boot log lines mentioning
+    // `--dangerously-load-development-channels` can't trip it; the cursor gate + resume-menu
+    // interlock (blind-Enter rule) keep it from firing into a resume menu.
+    name: "dev-channels-accept",
+    match: /I am using this for local development/i,
+    answer: "\r",
+  },
 ];
 
 // RESUME-MENU INTERLOCK (2026-06-12): while a resume menu is on screen — even PARTIALLY
