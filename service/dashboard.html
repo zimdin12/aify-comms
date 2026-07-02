@@ -3021,7 +3021,10 @@ function mountConsoleTerminal(terminalId, output, canInput) {
             const rc = Number(d.terminal.renderedCols) || 0;
             const rr = Number(d.terminal.renderedRows) || term.rows;
             try {
-              if (rc && rc > term.cols) { term.resize(rc, Math.max(term.rows, rr)); state.widened = true; el.style.overflowX = 'auto'; }
+              // Widen ONLY read-only resident mirrors. A managed (canInput) console is sized BY
+              // the dashboard: widening it would latch state.widened and permanently gate
+              // fitConsoleTerminal → the PTY-resize path dies for that mount (review finding).
+              if (rc && rc > term.cols && !state.canInput) { term.resize(rc, Math.max(term.rows, rr)); state.widened = true; el.style.overflowX = 'auto'; }
               else { state.widened = false; el.style.overflowX = ''; }
             } catch {}
             try { term.reset(); term.write(snap); state.written = snap; } catch {}

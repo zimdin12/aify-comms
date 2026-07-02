@@ -240,7 +240,15 @@ function mountChatConsole(agentId, hostEl) {
        session.terminalId || session.terminal?.id || session.terminal_id || '',
        (state.sessionTerminals && state.sessionTerminals[sessionId(session)]) || ''].join('|')
     : 'none';
-  if (hostEl.dataset.consoleSig === sig) return; // unchanged → leave the mounted terminal alone
+  // Unchanged sig → leave the mounted widget alone — EXCEPT when the single global xterm now
+  // lives in another host (the Sessions page re-mounts it) and THIS host is visible: that's the
+  // "dead chat console after visiting Sessions" bug (review finding #2) — fall through so the
+  // inner renderSessionConsole guard re-mounts it here. The visibility check keeps a hidden
+  // chat host from stealing the xterm back while the operator is on the Sessions page, and
+  // non-xterm widgets (hermes iframe / codex synth) are flicker-safe via the inner consoleKey
+  // guard, which no-ops when nothing material changed.
+  const xtermElsewhere = state.activeXterm && !hostEl.contains(state.activeXterm.container);
+  if (hostEl.dataset.consoleSig === sig && !(xtermElsewhere && hostEl.offsetParent !== null)) return;
   hostEl.dataset.consoleSig = sig;
   if (!session) {
     disposeActiveXterm();
@@ -667,6 +675,12 @@ async function _refreshImpl() {
     armRefreshTimer(); // honor dashboard_refresh_seconds (no-op unless it changed)
   }
   try { await chatLoadChannels(); } catch (_) { /* keep prior channels */ }
+  // Keep an OPEN channel conversation live: channel messages are otherwise fetched only on
+  // open/send, so the rail badge ticked up while the open timeline stayed frozen (review
+  // finding #5). The conversation sig covers the re-render.
+  if (String(state.chat.selected || '').startsWith('channel:')) {
+    try { await chatLoadConversation(state.chat.selected.slice('channel:'.length)); } catch (_) { /* keep prior view */ }
+  }
   try { await loadFiles(); } catch (_) { /* keep prior files */ }
   state.loaded = true; // first refresh attempt complete — rail shows real empty states now
   evaluateFlowGates();

@@ -55,7 +55,12 @@ export function chatConversationItems(state) {
     .map((a) => {
       const msgs = buckets.get(a.id) || [];
       const last = msgs[msgs.length - 1];
-      const unread = msgs.filter((m) => m.read === false).length;
+      // Unread = messages addressed TO the viewing identity only. state.messages is the
+      // fleet-wide feed, so counting every read===false also counted third-party DMs and
+      // channel posts (whose read is always false — no recipient receipt) → permanently
+      // stuck badges that no mark-read could clear (review finding #1/#8).
+      const me = String(state.chat?.identity || 'dashboard');
+      const unread = msgs.filter((m) => m.read === false && String(m.to || m.targetAgentId || m.target_agent_id || '') === me).length;
       return {
         kind: 'dm', key: `dm:${a.id}`, id: a.id, status: a.status || 'unknown',
         statusNote: a.statusNote || a.status_note || '',
@@ -423,9 +428,11 @@ export function createChatController(deps) {
     const placeholder = byId('chat-composer-body');
     if (placeholder) {
       placeholder.placeholder = isChannel ? `Message #${id}` : `Message ${id}`;
-      // Draft preservation: restore any per-conversation draft when switching in.
-      const draft = state.chat.drafts?.[key];
-      if (draft != null && placeholder.value !== draft && document.activeElement !== placeholder) placeholder.value = draft;
+      // Draft preservation: restore THIS conversation's draft — and CLEAR the box when it has
+      // none. Leaving the previous conversation's text in place risked sending it to the wrong
+      // peer on Enter (review finding #3: draft leak → misdirected send).
+      const draft = state.chat.drafts?.[key] ?? '';
+      if (placeholder.value !== draft && document.activeElement !== placeholder) placeholder.value = draft;
     }
   }
 
