@@ -239,7 +239,7 @@ function mountChatConsole(agentId, hostEl) {
        agentForSession(session)?.runtimeState?.terminalId || '',
        agentForSession(session)?.runtimeState?.consoleTerminal?.terminalId || '',
        session.terminalId || session.terminal?.id || session.terminal_id || '',
-       (state.sessionTerminals && state.sessionTerminals[sessionId(session)]) || ''].join('|')
+       (state.sessionTerminals?.get?.(sessionId(session))) || ''].join('|')
     : 'none';
   // Unchanged sig → leave the mounted widget alone — EXCEPT when the single global xterm now
   // lives in another host (the Sessions page re-mounts it) and THIS host is visible: that's the
@@ -654,6 +654,14 @@ async function _refreshImpl() {
 
   if (ok(0)) state.agents = asAgentArray(val(0));
   if (ok(1)) { state.contracts = val(1).contracts || []; state.contractsBase = state.contracts; }
+  // Keep a non-default Work-loop State filter alive across polls: the base fetch is
+  // open-scope, so a terminal selection (Answered/Failed/Missing reply/…) emptied ~15s
+  // after choosing it when the poll overwrote state.contracts (review finding #4).
+  // contractsBase keeps the open set for the metrics; state.contracts follows the filter.
+  const contractStateSel = byId('contract-state')?.value || '';
+  if (ok(1) && contractStateSel && contractStateSel !== 'open') {
+    try { await loadContractsForState(contractStateSel, false); } catch (_) { /* keep base */ }
+  }
   // messages: prefer recent, fall back to inbox, then keep prior — only touch if either succeeded.
   if (ok(2) || ok(3)) {
     state.messages = (ok(3) && val(3).messages) || (ok(2) && val(2).messages) || state.messages || [];
@@ -682,8 +690,20 @@ async function _refreshImpl() {
   if (String(state.chat.selected || '').startsWith('channel:')) {
     try { await chatLoadConversation(state.chat.selected.slice('channel:'.length)); } catch (_) { /* keep prior view */ }
   }
+  // Stale-selection guard (review finding #10): if the open conversation's agent/channel was
+  // removed (here or by another client), close back to the overview — otherwise the header,
+  // timeline, and composer stay live against a dead entity and a send goes nowhere useful.
+  {
+    const sel = String(state.chat.selected || '');
+    if (sel.startsWith('dm:') && ok(0) && !(state.agents || []).some((a) => a.id === sel.slice(3))) chatController.close();
+    else if (sel.startsWith('channel:') && Array.isArray(state.chat.channels)
+      && !state.chat.channels.some((c) => c && c.name === sel.slice('channel:'.length))) chatController.close();
+  }
   try { await loadFiles(); } catch (_) { /* keep prior files */ }
-  state.loaded = true; // first refresh attempt complete — rail shows real empty states now
+  // Only flip to "loaded" once the roster actually arrived: with the server fully down all
+  // slices reject, and loaded=true made the rail show a misleading "No agents." while the
+  // chip said reconnecting (review finding #12). Until then the rail keeps its loading state.
+  if (ok(0)) state.loaded = true;
   evaluateFlowGates();
   renderAll();
   // Status chip: green while the CORE roster (agents) is fresh, even if a non-critical slice
@@ -2428,12 +2448,16 @@ function renderEnvironmentSpawnOptions(selectedEnvId = byId('env-spawn-environme
   const env = state.environments.find((item) => String(item.id) === currentEnv) || {};
   const runtimeOptions = environmentRuntimes(env);
   const available = runtimeOptions.filter((runtime) => runtime.available !== false);
+  // Preserve the operator's runtime pick across poll re-renders (review finding #9):
+  // the focus guard above only protects while focus is INSIDE the form — pick a runtime,
+  // click elsewhere, and the next poll silently reset it to available[0] right before Spawn.
+  const priorRuntime = runtimeSelect.value || '';
   runtimeSelect.innerHTML = '<option value="">Runtime</option>' + runtimeOptions.map((runtime) => {
     const disabled = runtime.available === false ? ' disabled' : '';
     const suffix = runtime.available === false ? ' (unavailable)' : '';
     return `<option value="${esc(runtime.runtime)}"${disabled}>${esc(runtime.runtime)}${suffix}</option>`;
   }).join('');
-  runtimeSelect.value = available[0]?.runtime || '';
+  runtimeSelect.value = available.some((r) => r.runtime === priorRuntime) ? priorRuntime : (available[0]?.runtime || '');
   const workspace = byId('env-spawn-workspace');
   if (workspace && !workspace.value) workspace.value = environmentRoots(env)[0] || '';
 }
@@ -2771,6 +2795,9 @@ async function openRunInspector({ runId, source = 'programmatic', sourceMessageI
       loadRunDetails(runId),
       loadRunEvents(runId, { limit: RUN_INSPECTOR_EVENT_LIMIT }),
     ]);
+    // Still-current check (review finding #7): clicking run B while run A's fetch is in
+    // flight let A's slower response overwrite B's inspector. Bail if superseded.
+    if (state.inspector?.kind !== 'run' || state.inspector.runId !== String(runId)) return;
     state.inspector.run = run;
     state.inspector.events = eventPage.events || [];
     state.inspector.hasMore = Boolean(eventPage.hasMore);

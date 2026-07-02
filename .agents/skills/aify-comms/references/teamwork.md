@@ -87,7 +87,7 @@ Judgment rules (apply the test above, don't apply them mechanically):
   content then lives in ONE place and the recipient pulls only the part it needs, instead
   of the whole payload being copied into every recipient's context (and the DB + envelope)
   on every send. If the recipient shares your workspace, cite the **path** (`tmp/brief.md`,
-  `LiveWorld.h:118`); if they're in a different folder/env, `comms_share` it once and send
+  `src/engine/World.h:118`); if they're in a different folder/env, `comms_share` it once and send
   the one-line pointer (an artifact is also an immutable snapshot — safer for "this exact
   state" than a live file). **But keep the decision, the ask, and the delta INLINE** —
   reference the detail, not the intent; a bare "see tmp/x.md" just forces a blind read.

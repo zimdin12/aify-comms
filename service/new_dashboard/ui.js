@@ -76,8 +76,10 @@ function openDialog({ title = '', message = '', kind = 'confirm', defaultValue =
     overlay.querySelector('.dialog-cancel').addEventListener('click', onCancel);
     overlay.addEventListener('click', (event) => { if (event.target === overlay) onCancel(); });
     const onKey = (event) => {
-      if (event.key === 'Escape') { event.preventDefault(); onCancel(); }
-      else if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); onConfirm(); }
+      // stopPropagation so Escape/Enter don't ALSO reach document-level handlers
+      // (Escape canceling a confirm was dismissing the inspector beneath it — review #14).
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onCancel(); }
+      else if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); onConfirm(); }
       else if (event.key === 'Tab') {
         const items = focusables();
         if (!items.length) return;
