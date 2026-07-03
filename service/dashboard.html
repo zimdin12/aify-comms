@@ -2932,7 +2932,12 @@ function streamConsoleDelta(terminalId, chunk, status, seq) {
   const text = String(chunk || '');
   if (text) {
     state.term.write(text);
-    state.written = `${state.written || ''}${text}`;
+    // Cap the retained buffer (bughunt 2026-07-03): state.written grew UNBOUNDED (unlike
+    // the 64KB-capped cached.terminal.output), and updateConsoleAwaitInput() runs 6-8
+    // chained regexes over the WHOLE thing on every WS chunk → O(n²) + tens-of-MB growth
+    // that janks the operator's tab on a long-open chatty console. Keep only the tail
+    // (the await-input hint only inspects the last ~600 chars anyway).
+    state.written = `${state.written || ''}${text}`.slice(-65536);
   }
   updateConsoleAwaitInput();
   return true;
@@ -9152,7 +9157,7 @@ async function saveSettings(e) {
     dashboard_secondary_color: document.getElementById('s-dashboard-secondary').value,
     dashboard_tertiary_color: document.getElementById('s-dashboard-tertiary').value,
   };
-  await apiFetch(API + '/settings', {method:'PUT', headers:{'Content-Type':'application/json'},
+  const resp = await apiFetch(API + '/settings', {method:'PUT', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
       dashboard_title: document.getElementById('s-dashboard-title').value.trim() || 'AIFY Comms',
       dashboard_theme: document.getElementById('s-dashboard-theme').value || 'default',
@@ -9190,6 +9195,14 @@ async function saveSettings(e) {
       reply_reminder_full_every: settingsNumber('s-reply-full-every', 3, {min: 0, max: 20}),
       contract_stale_hours: settingsNumber('s-contract-stale', 24, {min: 1, max: 720}),
     })});
+  // Check the result before claiming success (bughunt 2026-07-03): apiFetch degrades a
+  // non-JSON/5xx response to {ok:false}, and every other handler guards on it — under a
+  // write-lock 503 this silently dropped the edit while toasting green "Settings saved".
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok || body.ok === false) {
+    toast(body.error || `Save failed (HTTP ${resp.status})`, 'error');
+    return;
+  }
   saveLocalDashboardPalette(palettePayload);
   toast('Settings saved'); loadSettings();
 }
