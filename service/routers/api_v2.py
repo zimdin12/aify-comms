@@ -1821,6 +1821,11 @@ async def _remove_agent_record(
     )
     await _tombstone_agent(db, agent_id, removed_by=removed_by, bridge_id=bridge_id, reason=reason)
     await db.execute("DELETE FROM bridge_instances WHERE agent_id = ?", (agent_id,))
+    # channel_members has no FK on agent_id, so removing an agent left GHOST memberships
+    # (bughunt 2026-07-03): they permanently inflate memberCount AND every later channel
+    # send INSERTs an undeliverable inbox row for the deleted agent (unbounded per-post
+    # growth). Clean them up here.
+    await db.execute("DELETE FROM channel_members WHERE agent_id = ?", (agent_id,))
     cursor = await db.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
     # Evict the in-memory derived-status entry too (audit 2026-06-28): SQLite per-agent rows
     # cascade-delete, but _LIVE_STATE_CACHE is a process-global dict and would otherwise keep a
@@ -9180,7 +9185,7 @@ async def _sweep_unmirrored_failed_handoffs(db, *, window_hours: int = 6, limit:
           AND status IN ('failed', 'cancelled')
           AND COALESCE(result_message_id, '') = ''
           AND COALESCE(finished_at, '') != ''
-          AND finished_at > datetime('now', ?)
+          AND datetime(finished_at) > datetime('now', ?)
         ORDER BY finished_at DESC
         LIMIT ?
         """,
@@ -10470,15 +10475,37 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                     None,
                 ),
             )
+            # UPSERT, not INSERT OR REPLACE (bughunt 2026-07-03, HIGH): a duplicate/retried
+            # 'running' PATCH (routine on the slow 9p/WSL host, where the bridge marks all
+            # PATCHes retriable) re-ran this block. INSERT OR REPLACE DELETES the existing
+            # row on the reused session_id, and foreign_keys=ON then CASCADE-dropped the
+            # live terminal_sessions + terminal_events + pending terminal_controls — the
+            # dashboard showed "Console not started" for a live PTY and queued keystrokes/
+            # Stop were lost. ON CONFLICT DO UPDATE omits terminal_id/terminal_status so a
+            # console bound between PATCHes survives (mirrors the resident path ~15051).
             await db.execute(
                 """
-                INSERT OR REPLACE INTO agent_sessions (
+                INSERT INTO agent_sessions (
                     id, agent_id, environment_id, runtime, workspace, mode,
                     owner_mode, owner_bridge_id, terminal_id, terminal_status, terminal_command, terminal_workspace,
                     process_id, session_handle,
                     app_server_url, spawn_spec_id, spawn_request_id, capabilities, telemetry, status,
                     started_at, last_seen, ended_at
                 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(id) DO UPDATE SET
+                    runtime = excluded.runtime,
+                    workspace = excluded.workspace,
+                    mode = excluded.mode,
+                    owner_mode = excluded.owner_mode,
+                    owner_bridge_id = excluded.owner_bridge_id,
+                    process_id = excluded.process_id,
+                    session_handle = excluded.session_handle,
+                    app_server_url = excluded.app_server_url,
+                    capabilities = excluded.capabilities,
+                    telemetry = excluded.telemetry,
+                    status = 'running',
+                    last_seen = excluded.last_seen,
+                    ended_at = NULL
                 """,
                 (
                     session_id,
@@ -15874,7 +15901,7 @@ async def _adopt_live_resident_driver(db, agent_id: str) -> bool:
     row = await (await db.execute(
         "SELECT id FROM bridge_instances WHERE agent_id = ? "
         "AND (bridge_kind = 'resident' OR (COALESCE(bridge_kind, '') = '' AND session_mode = 'resident')) "
-        "AND COALESCE(superseded_by, '') = '' AND last_seen > datetime('now', '-150 seconds') "
+        "AND COALESCE(superseded_by, '') = '' AND datetime(last_seen) > datetime('now', '-150 seconds') "
         "LIMIT 1",
         (agent_id,),
     )).fetchone()
@@ -18957,13 +18984,13 @@ async def _prune_terminal_history(
 
     counts["terminal_events"] = await _chunked_delete(
         f"DELETE FROM terminal_events WHERE id IN ("
-        f"SELECT id FROM terminal_events WHERE created_at < datetime('now', ?) "
+        f"SELECT id FROM terminal_events WHERE datetime(created_at) < datetime('now', ?) "
         f"ORDER BY id ASC LIMIT {int(chunk)})",
         (f"-{max(1, int(terminal_event_ttl_hours))} hours",),
     )
     counts["dispatch_events"] = await _chunked_delete(
         f"DELETE FROM dispatch_events WHERE id IN ("
-        f"SELECT id FROM dispatch_events WHERE created_at < datetime('now', ?) "
+        f"SELECT id FROM dispatch_events WHERE datetime(created_at) < datetime('now', ?) "
         f"ORDER BY id ASC LIMIT {int(chunk)})",
         (f"-{max(1, int(dispatch_event_ttl_hours))} hours",),
     )
@@ -19001,7 +19028,7 @@ async def _prune_terminal_history(
         "UPDATE terminal_sessions SET output = '' "
         "WHERE status IN ('stopped', 'failed', 'ended', 'cancelled') "
         "AND COALESCE(output, '') != '' "
-        "AND updated_at < datetime('now', ?)",
+        "AND datetime(updated_at) < datetime('now', ?)",
         (f"-{max(1, int(ended_output_ttl_hours))} hours",),
     )
     await db.commit()
@@ -19017,7 +19044,7 @@ async def _prune_terminal_history(
     counts["terminal_controls"] = await _chunked_delete(
         f"DELETE FROM terminal_controls WHERE id IN ("
         f"SELECT id FROM terminal_controls "
-        f"WHERE handled_at IS NOT NULL AND handled_at < datetime('now', ?) "
+        f"WHERE handled_at IS NOT NULL AND datetime(handled_at) < datetime('now', ?) "
         f"ORDER BY id ASC LIMIT {int(chunk)})",
         (f"-{max(1, int(terminal_control_ttl_hours))} hours",),
     )
@@ -19949,7 +19976,14 @@ async def cleanup_orphan_unread_messages(request: Request):
 async def list_shared(request: Request):
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT * FROM shared_artifacts ORDER BY shared_at DESC")
+        # Project ONLY metadata (bughunt 2026-07-03): `SELECT *` pulled every row's inline
+        # `content` blob (text shares are stored inline, capped only at max_shared_size_mb =
+        # 500MB default) though the response uses none of it — a Files-tab / comms_files poll
+        # transiently allocated the sum of all blobs → OOM on the single-worker hub.
+        cursor = await db.execute(
+            "SELECT name, from_agent, description, size, shared_at "
+            "FROM shared_artifacts ORDER BY shared_at DESC LIMIT 2000"
+        )
         files = []
         for row in await cursor.fetchall():
             files.append({
@@ -19982,10 +20016,21 @@ async def share_artifact(
         if file:
             shared_dir = _shared_dir(request)
             file_path = shared_dir / name
-            data = await file.read()
-            size = len(data)
-            if max_bytes and size > max_bytes:
-                raise HTTPException(status_code=413, detail=f"File exceeds the {max_mb} MB shared-file limit ({size // (1024 * 1024)} MB).")
+            # Stream-read with an early cap (bughunt 2026-07-03): `await file.read()`
+            # materialized the ENTIRE multipart body in RAM before the 413 check, so a
+            # 5GB POST against a 500MB cap OOM-killed the single-worker hub for every
+            # agent. Read in chunks and abort the moment we exceed the limit.
+            chunks = []
+            size = 0
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if max_bytes and size > max_bytes:
+                    raise HTTPException(status_code=413, detail=f"File exceeds the {max_mb} MB shared-file limit.")
+                chunks.append(chunk)
+            data = b"".join(chunks)
             is_binary = True
             file_path.write_bytes(data)
             await db.execute(
@@ -19997,6 +20042,16 @@ async def share_artifact(
             size = len(text.encode("utf-8"))
             if max_bytes and size > max_bytes:
                 raise HTTPException(status_code=413, detail=f"Content exceeds the {max_mb} MB shared-file limit.")
+            # If a BINARY artifact with this name already exists, its on-disk file would be
+            # orphaned by this text overwrite (bughunt 2026-07-03): the row flips to
+            # is_binary=0, file_path=NULL, and both reclaim paths gate on is_binary=1, so
+            # the file leaks forever. Unlink the prior file first.
+            prior = await (await db.execute(
+                "SELECT file_path FROM shared_artifacts WHERE name = ? AND is_binary = 1", (name,)
+            )).fetchone()
+            if prior and prior["file_path"]:
+                try: Path(prior["file_path"]).unlink(missing_ok=True)
+                except Exception: pass
             await db.execute(
                 "INSERT OR REPLACE INTO shared_artifacts (name, from_agent, description, content, size, is_binary, shared_at) VALUES (?,?,?,?,?,?,?)",
                 (name, from_agent, description, text, size, 0, now)

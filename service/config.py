@@ -70,11 +70,15 @@ class ServiceConfig:
             try:
                 with open(stamp_path) as f:
                     stamp = json.load(f)
+                if not isinstance(stamp, dict):
+                    raise ValueError("build stamp is not a JSON object")
                 config.build_sha = str(stamp.get("sha", config.build_sha) or "unknown")
                 config.build_short = str(stamp.get("short", config.build_short) or "unknown")
                 config.build_branch = str(stamp.get("branch", config.build_branch) or "unknown")
                 config.built_at = str(stamp.get("built_at", config.built_at) or "")
-            except (json.JSONDecodeError, OSError) as e:
+            except (json.JSONDecodeError, OSError, ValueError, AttributeError) as e:
+                # Never raise at startup on a malformed stamp (bughunt 2026-07-03): a
+                # valid-but-non-object file (null/[]/…) previously raised uncaught.
                 import logging
                 logging.getLogger(__name__).warning(f"Invalid _build_stamp.json: {e}")
 
@@ -84,11 +88,15 @@ class ServiceConfig:
             try:
                 with open(json_path) as f:
                     data = json.load(f)
+                # A valid-but-non-object service.json (null/[]/"str") must not crash boot
+                # (bughunt 2026-07-03) — the README tells operators to hand-edit this file.
+                if not isinstance(data, dict):
+                    raise ValueError("service.json is not a JSON object")
                 config.custom = data.get("custom", {})
                 for key, value in data.items():
                     if key not in ("custom", "containers") and hasattr(config, key):
                         setattr(config, key, value)
-            except json.JSONDecodeError as e:
+            except (json.JSONDecodeError, ValueError, AttributeError) as e:
                 import logging
                 logging.getLogger(__name__).error(f"Invalid service.json: {e}")
 

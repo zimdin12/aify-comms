@@ -28,7 +28,11 @@ class ConnectionManager:
     async def broadcast(self, event: str, data: dict = None):
         msg = json.dumps({"event": event, "data": data or {}})
         dead = []
-        for ws in self._connections:
+        # Iterate a SNAPSHOT (bughunt 2026-07-03): a concurrent disconnect() does an
+        # in-place list.remove during our `await send_text`, shifting the list under an
+        # index-based iterator and silently SKIPPING a live client — for streamed
+        # terminal_output (~40/s) that's a sequence gap → transient scrambled console.
+        for ws in list(self._connections):
             try:
                 await ws.send_text(msg)
             except Exception:

@@ -535,6 +535,34 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
         self.assertEqual(live["status"], "running", "a different session's live spawn must be untouched")
         self.assertFalse(live["finished_at"] or "", "the live worker's spawn must not be finished")
 
+    def test_duplicate_running_patch_preserves_live_console(self):
+        # bughunt 2026-07-03 (HIGH): a duplicate/retried 'running' PATCH must NOT
+        # cascade-delete the live terminal. The old INSERT OR REPLACE deleted the
+        # agent_sessions row on the reused session_id and FK-cascaded away the live
+        # terminal_sessions + events + controls; the UPSERT must preserve them.
+        agent_id = "bugd-dup-running"
+        terminal_id = "term_bugd_dup"
+        self._seed_managed_agent_with_terminal(agent_id, terminal_id, pid="4242")
+        # Bind the spawn_request to the SAME session id the seeded terminal hangs off,
+        # so the 'running' PATCH's UPSERT conflicts on it (the real rotation shape).
+        self._seed_spawn_request("spawn_dup_running", agent_id, status="claimed",
+                                 session_id=f"sess_{agent_id}")
+
+        def patch_running():
+            return self.client.patch(
+                "/api/v1/spawn-requests/spawn_dup_running",
+                json={"status": "running", "processId": "4242", "bridgeId": "bridge-current"},
+            )
+
+        r1 = patch_running()
+        self.assertEqual(r1.status_code, 200, r1.text)
+        # The retried PATCH (routine on slow hosts) must not nuke the console.
+        r2 = patch_running()
+        self.assertEqual(r2.status_code, 200, r2.text)
+
+        term = self._fetchone("SELECT id FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertIsNotNone(term, "a duplicate 'running' PATCH must NOT cascade-delete the live terminal")
+
     def test_report_dead_supersede_is_scoped_to_the_dead_terminal(self):
         # A stale dead-report for an OLD terminal must not kill the NEW live
         # worker's wrapper-child row (that would coldstart a duplicate whose

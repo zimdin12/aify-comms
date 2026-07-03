@@ -41,8 +41,18 @@ async def proxy_request(request: Request, target_url: str) -> StreamingResponse:
     client = get_client()
 
     headers = dict(request.headers)
-    for h in ["host", "transfer-encoding", "connection"]:
+    # Strip hop-by-hop AND the hub's OWN credentials before forwarding (bughunt
+    # 2026-07-03): relaying X-API-Key/Authorization/Cookie verbatim to an operator-defined
+    # sub-container image would leak the master API key to that container (a
+    # logging/compromised image → full API incl. console keystroke injection). The
+    # sub-container authenticates with its own creds, not the hub's.
+    for h in ["host", "transfer-encoding", "connection", "x-api-key", "authorization", "cookie"]:
         headers.pop(h, None)
+        headers.pop(h.title(), None)
+        headers.pop(h.upper(), None)
+
+    # Drop the ?api_key= query param too (same leak via the URL).
+    query_params = {k: v for k, v in request.query_params.items() if k.lower() != "api_key"}
 
     body = await request.body()
 
@@ -51,7 +61,7 @@ async def proxy_request(request: Request, target_url: str) -> StreamingResponse:
         url=target_url,
         headers=headers,
         content=body if body else None,
-        params=dict(request.query_params),
+        params=query_params,
     )
 
     response = await client.send(req, stream=True)

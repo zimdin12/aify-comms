@@ -145,7 +145,14 @@ def render_snapshot(raw_output: str, cols: int, rows: int) -> str:
             prev: list[int] | None = None
             for x in range(last + 1):
                 ch = line.get(x)
-                data = (ch.data if ch is not None else " ") or " "
+                # A wide char (CJK/emoji) occupies TWO cells in pyte: the glyph in one
+                # cell + an EMPTY-STRING continuation cell in the next. Emitting a space
+                # for that continuation (the old `or " "`) shifted every following column
+                # one right per wide char (bughunt 2026-07-03) — mis-aligning exactly the
+                # TUIs this snapshot repaints. Skip the continuation cell entirely.
+                if ch is not None and ch.data == "":
+                    continue
+                data = ch.data if ch is not None else " "
                 sgr = _cell_sgr(ch) if ch is not None else [0, 39, 49]
                 if sgr != prev:
                     out.append("\x1b[" + ";".join(str(p) for p in sgr) + "m")

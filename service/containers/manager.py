@@ -239,6 +239,23 @@ class ContainerManager:
                 state.error_message = f"Image not found: {defn.image}. Run: docker pull {defn.image}"
                 self.gpu.release_with_fraction(name, defn.gpu)
                 raise
+            except asyncio.CancelledError:
+                # CancelledError is a BaseException — NOT caught by `except Exception`
+                # (bughunt 2026-07-03) — so a cancel during _wait_for_health leaked the
+                # running container + GPU allocation, stuck in STARTING and never reaped
+                # (the background loops skip non-RUNNING). Release + tear down, then re-raise.
+                if state.status == ContainerStatus.STARTING:
+                    state.status = ContainerStatus.FAILED
+                    state.error_message = "start cancelled"
+                self.gpu.release_with_fraction(name, defn.gpu)
+                if self.docker and state.container_id:
+                    try:
+                        c = self.docker.containers.get(state.container_id)
+                        c.stop(timeout=5)
+                        c.remove(force=True)
+                    except Exception:
+                        pass
+                raise
             except Exception as e:
                 if state.status == ContainerStatus.STARTING:
                     state.status = ContainerStatus.FAILED
