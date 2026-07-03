@@ -348,6 +348,61 @@ class ChatAnalyticsTests(FastApiTestCase):
             self.assertAlmostEqual(board["pulse-alpha"]["workingMinutesInWindow"], 6.0, delta=0.6)
             self.assertGreaterEqual(board["pulse-alpha"]["messagesInWindow"], 2)
 
+    def test_fleet_pulse_working_now_and_bounded_minutes(self):
+        """Regression for the 2026-07-02 screenshot incident (commit 1fb759e): the pulse
+        board showed rows labelled 'working now' with online dots under a lower 'Working now'
+        tile, and absurd '240m work in a 60m window'. Root causes fixed:
+          - per-row workingNow must derive from the agent's STATUS (not from open runs),
+          - per-agent working minutes must be capped at the window's wall-clock even when
+            several OPEN (orphaned 'delivered') runs each overlap the whole window.
+        """
+        from datetime import datetime, timezone, timedelta
+        self._register("pulse-online", runtime="claude-code", sessionMode="resident")
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            now = datetime.now(timezone.utc)
+            iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")
+            # Make the agent unambiguously ONLINE (not working): fresh, non-superseded
+            # channel-sidecar bridge is the resident proof-of-life the status engine trusts,
+            # and there is NO in-turn/turn-busy state → derive() = online.
+            conn.execute("UPDATE agents SET last_seen=? WHERE id=?", (iso(now), "pulse-online"))
+            conn.execute(
+                "INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode, "
+                "bridge_kind, registered_at, last_seen, superseded_by) VALUES (?,?,?,?,?,?,?,?,?)",
+                ("sidecar-pulse", "pulse-online", "test-host", "claude-code", "resident",
+                 "channel-sidecar", iso(now), iso(now), ""),
+            )
+            # THREE orphaned 'delivered' runs (worker died mid-turn; kept open so reminders can
+            # recover them), each STARTED before the window and never finished → each overlaps
+            # the ENTIRE 60-min window. Pre-fix these summed to ~180m of "work".
+            for i in range(3):
+                conn.execute(
+                    "INSERT INTO dispatch_runs (id, message_id, from_agent, target_agent, status, "
+                    "require_reply, requested_at, claimed_at, started_at, finished_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (f"orphan{i}", None, "peerA", "pulse-online", "delivered", 1,
+                     iso(now - timedelta(minutes=90)), iso(now - timedelta(minutes=90)),
+                     iso(now - timedelta(minutes=90)), None),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+        data = self.client.get("/api/v1/analytics/pulse?window_minutes=60").json()
+        self.assertTrue(data["ok"])
+        board = {a["id"]: a for a in data["agents"]}
+        self.assertIn("pulse-online", board, "a resident with a fresh sidecar must be on the online board")
+        row = board["pulse-online"]
+        # (1) online, not working → row must NOT claim working-now, and it must not be
+        # counted in the tile.
+        self.assertTrue(str(row["status"]).startswith("online"))
+        self.assertFalse(row["workingNow"], "an online agent must not show 'working now' from open runs")
+        # (2) minutes bounded by the window — three window-spanning orphans must not sum past 60.
+        self.assertLessEqual(row["workingMinutesInWindow"], 60.0)
+        # (3) the tile count agrees with the rows: it counts derive()=working agents only.
+        working_rows = sum(1 for a in data["agents"] if a["workingNow"])
+        self.assertEqual(data["workingNow"], working_rows)
+
     def test_fleet_pulse_rejects_out_of_range_window(self):
         # Query bounds: 5 .. 1440 minutes.
         self.assertEqual(self.client.get("/api/v1/analytics/pulse?window_minutes=1").status_code, 422)

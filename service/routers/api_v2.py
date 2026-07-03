@@ -11847,16 +11847,28 @@ async def report_terminal_dead(terminal_id: str, req: TerminalDeadReport, reques
         # terminal SUCCESS state and its timestamps freeze at boot, so for 5 minutes
         # after boot _has_pending_or_booting_spawn_request would treat this now-dead
         # worker as "mid-boot" and suppress the very respawn its death requires (and
-        # burn the backstop's one-shot rescue on a phantom). Stamp the death.
+        # burn the backstop's one-shot rescue on a phantom). Mark the death terminal.
+        # SCOPED to THIS terminal's session (review 2026-07-03): an unscoped agent-wide
+        # stamp would also finish a NEW live worker's still-booting spawn (bound to a
+        # different session) — a stale dead-report for an OLD terminal would then trigger a
+        # DUPLICATE spawn whose registration supersedes and fails the live worker, exactly
+        # what the terminal-scoped bridge supersede above exists to prevent. Set status too
+        # so the row reaches a terminal state (else it lingers `running`+finished forever,
+        # skipped by _fail_orphaned_running_spawn_requests). Empty-session_id arm covers
+        # legacy rows written before session binding.
         await db.execute(
             """
             UPDATE spawn_requests
-            SET finished_at = ?
+            SET status = 'failed',
+                finished_at = ?,
+                error = COALESCE(NULLIF(error, ''), 'Worker terminal died (report-dead); spawn finalized.'),
+                updated_at = ?
             WHERE agent_id = ?
               AND status = 'running'
               AND COALESCE(finished_at, '') = ''
+              AND (COALESCE(session_id, '') = '' OR session_id = ?)
             """,
-            (now, terminal["agent_id"]),
+            (now, now, terminal["agent_id"], terminal["session_id"]),
         )
         await _invalidate_agent_live_state(db, terminal["agent_id"])
         await _append_terminal_event(
@@ -21256,8 +21268,11 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
             # otherwise add the whole window as "working". Applies to OPEN runs too
             # (2026-07-02 screenshot incident): a `delivered` run whose worker died is a
             # legitimately-open reply contract (reminders recover it), but its ever-growing
-            # span is not work. See WORKED_SPAN_CEILING_SECONDS.
-            if (f - s) > WORKED_SPAN_CEILING_SECONDS:
+            # span is not work. The ceiling must never be SMALLER than the window, or a
+            # genuine long run (a 5h task viewed in the 12h/24h pulse) would be dropped as
+            # if it were a reaped orphan (review 2026-07-03). overlap already clamps the
+            # contribution to the in-window slice; this only discards spans that exceed both.
+            if (f - s) > max(WORKED_SPAN_CEILING_SECONDS, window_minutes * 60):
                 continue
             overlap = min(f, now_s) - max(s, win_s)
             if overlap > 0:

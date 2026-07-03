@@ -1567,8 +1567,7 @@ function renderSessionRail() {
             <div class="session-row-body">
               <div class="item-title">
                 <strong class="clip">${esc(sessionAgentId(session) || id)}</strong>
-                ${renderStatusChip(status, statusWhyContext('session', session, status))}
-                ${String(agent.status || '').startsWith('blocked') ? '<span class="chat-await-badge" title="Agent is blocked on an interactive prompt — open its Console">⌛ input</span>' : ''}
+                <span class="item-title-status">${renderStatusChip(status, statusWhyContext('session', session, status))}${String(agent.status || '').startsWith('blocked') ? '<span class="chat-await-badge" title="Agent is blocked on an interactive prompt — open its Console">⌛ input</span>' : ''}</span>
               </div>
               <p class="preview">${esc(session.workspace || session.cwd || '')}</p>
               <span class="session-runtime-badge" data-runtime="${esc(sessionRuntime(session))}">${esc(sessionRuntime(session))}</span>

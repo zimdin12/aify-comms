@@ -201,7 +201,7 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
         )
 
     def _seed_spawn_request(self, request_id: str, agent_id: str, *, status: str,
-                            created_at: str = "", updated_at: str = ""):
+                            created_at: str = "", updated_at: str = "", session_id: str = ""):
         now = api_v2._now()
         spec_id = f"spec_{request_id}"
         self._execute(
@@ -222,13 +222,13 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
             INSERT INTO spawn_requests (
                 id, spawn_spec_id, created_by, environment_id, agent_id, role, name, runtime,
                 workspace, workspace_root, initial_message, priority, subject, mode,
-                resume_policy, status, session_handle, created_at, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                resume_policy, status, session_handle, session_id, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 request_id, spec_id, "test", ENV_ID, agent_id, "coder", agent_id,
                 "codex", "/workspace", "", "", "normal", "seeded", "managed-warm",
-                "native_first", status, "", created_at or now, updated_at or now,
+                "native_first", status, "", session_id, created_at or now, updated_at or now,
             ),
         )
 
@@ -505,6 +505,35 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
             created,
             "a known-dead worker's running row must not suppress the respawn its death requires",
         )
+
+    def test_report_dead_finished_stamp_is_scoped_to_the_dead_session(self):
+        # A stale dead-report for an OLD terminal must NOT finish a NEW live worker's
+        # still-booting spawn (bound to a different session) — else the next send
+        # coldstarts a DUPLICATE whose registration supersedes and fails the live worker
+        # (review 2026-07-03). The dead terminal's OWN-session spawn IS finalized.
+        agent_id = "bugd-session-scope"
+        dead_terminal = "term_bugd_scope_dead"
+        self._seed_managed_agent_with_terminal(agent_id, dead_terminal, pid="4242")
+        # The dead terminal's session (seeded by _seed_managed_agent_with_terminal as
+        # sess_<agent_id>) + its running spawn; and a SECOND live worker on a different
+        # session with its own running spawn.
+        self._seed_spawn_request("spawn_scope_dead", agent_id, status="running",
+                                 session_id=f"sess_{agent_id}")
+        self._seed_spawn_request("spawn_scope_live", agent_id, status="running",
+                                 session_id="sess_new_live_worker")
+
+        resp = self.client.post(
+            f"/api/v1/terminals/{dead_terminal}/report-dead",
+            json={"bridgeId": "bridge-current", "processId": "4242", "reason": "host pid not alive"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        dead = self._fetchone("SELECT status, finished_at FROM spawn_requests WHERE id = ?", ("spawn_scope_dead",))
+        live = self._fetchone("SELECT status, finished_at FROM spawn_requests WHERE id = ?", ("spawn_scope_live",))
+        self.assertEqual(dead["status"], "failed", "the dead terminal's own spawn is finalized")
+        self.assertTrue(dead["finished_at"])
+        self.assertEqual(live["status"], "running", "a different session's live spawn must be untouched")
+        self.assertFalse(live["finished_at"] or "", "the live worker's spawn must not be finished")
 
     def test_report_dead_supersede_is_scoped_to_the_dead_terminal(self):
         # A stale dead-report for an OLD terminal must not kill the NEW live

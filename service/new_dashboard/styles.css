@@ -1628,9 +1628,11 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 /* WS-G7/G8 density: tighter session rows, small inline mode chip (not a full-width button),
    designed empty states. */
 .session-row { padding: 7px 8px; }
-.session-row-body .mode-switch-chip { width: fit-content; padding: 4px 11px; min-height: 28px; font-size: .82em; margin-top: 2px; }
 .session-row-body { gap: 6px; justify-items: start; }
 .session-row-body .item-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
+/* Group the status chip + optional ⌛input badge hard-right so the chip doesn't shift toward
+   center when the blocked badge appears (space-between with 3 direct children). */
+.item-title-status { display: inline-flex; align-items: center; gap: 6px; flex: none; }
 .session-row .session-runtime-badge { margin-top: 1px; }
 .empty-state {
   display: grid; justify-items: center; gap: 8px; text-align: center;

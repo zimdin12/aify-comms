@@ -508,7 +508,12 @@ If you see rows with `status='queued'`, `execution_mode='channel'`, and `claim_b
 
 **Symptom.** A freshly-spawned or restarted managed claude sits at an unanswered TUI prompt
 (the "Resume from summary / Resume full session" menu, a compaction question, the bypass-
-permissions accept, or a channel-enter prompt) and never reaches a usable turn.
+permissions accept, the dev-channels acknowledgment, or a channel-enter prompt) and never
+reaches a usable turn. The tell-tale downstream symptom is **"up-but-deaf"**: the agent
+registers `online`/`available` but never claims any dispatched run (sends bounce with "no live
+claimer", even the coldstart rescue re-hits the same stall) — because the worker never reached
+its in-process MCP to register a wrapper-child / channel-sidecar bridge. Read the console tail
+(`comms_console_tail`) to see which prompt it's stuck on.
 
 **Fix (2026-06-05).** The host bridge auto-answers these via a centralized rules layer
 (`claude-console-prompts.js`): resume → **full session** (↓+Enter), the rest → Enter. Gated
@@ -528,6 +533,19 @@ until the cursor-aware resume rule can answer; matching is recency-first (the la
 text in the stream wins, so a scrolled-away menu can never re-claim a live dialog). If a
 managed claude still loses context on restart, its PTY-hosting environment bridge predates
 this fix — restart the `aify-comms` wrapper.
+
+**Dev-channels acknowledgment (2026-07-03, `c1e1704`) — up-but-deaf on FIRST spawn.** The
+wrapper launches claude with `--dangerously-load-development-channels server:aify-comms-channel`,
+which triggers a first-run confirmation menu (`❯ 1. I am using this for local development / 2.
+Exit`). No rule matched it (the `channel-enter` rule is the LATER "enter channel to receive"
+prompt), so the worker booted, sat at the menu forever, and never registered a claimer =
+up-but-deaf. The `dev-channels-accept` rule now blind-Enters the highlighted accept option
+(matched on the acknowledgment's own question line, so a boot-log mention of the flag can't
+trip it; subject to the same cursor + resume-menu-interlock gates). **Deploy:** this is an
+`mcp/stdio/` change — re-run `install.sh` on each host (re-copies the bridge into
+`~/.aify-comms/`) AND restart the wrapper; until then newly-spawned workers keep stalling. To
+un-stick an already-stuck worker without redeploying, type a bare Enter into its console
+(dashboard Console, or `POST /terminals/{id}/input` with body `"\r"`).
 
 ## Resident relaunch goes offline + deaf (auto-register refused by the race guard)
 
