@@ -673,14 +673,22 @@ async function pollLoop() {
             count: batch.length,
             priority: highestPriority,
           });
-          for (const run of batch) {
-            await markDispatchDelivered(run);
-          }
         } catch (error) {
+          // The DELIVERY itself failed → none reached the agent → fail all.
           for (const run of batch) {
             await markDispatchDeliveryFailed(run.id, error);
           }
           throw error;
+        }
+        // Delivery succeeded — every run reached the agent. Mark each; a per-run PATCH
+        // failure must fail ONLY that run, not flip already-delivered siblings to
+        // [FAILED] and send the sender a spurious failure handoff (bughunt 2026-07-03).
+        for (const run of batch) {
+          try {
+            await markDispatchDelivered(run);
+          } catch (e) {
+            await markDispatchDeliveryFailed(run.id, e);
+          }
         }
       }
 

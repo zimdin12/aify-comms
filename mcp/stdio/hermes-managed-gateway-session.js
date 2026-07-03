@@ -59,16 +59,24 @@ function fetchToken(url) {
   });
 }
 
-function waitForReady(url, deadlineMs) {
+function waitForReady(url, deadlineMs, isDead) {
   return new Promise((resolve, reject) => {
     const deadline = Date.now() + deadlineMs;
     const tryOnce = () => {
+      // Fail FAST when the child already died (bughunt 2026-07-03): without this a
+      // spawn-then-die gateway child made us poll a never-binding port for the full
+      // deadline (60s) instead of aborting the moment the process exited.
+      if (typeof isDead === "function" && isDead()) {
+        reject(new Error(`gateway process exited before ${url} bound`));
+        return;
+      }
       const req = http.get(url, (res) => {
         res.resume();
         resolve();
       });
       req.on("error", () => {
-        if (Date.now() > deadline) reject(new Error(`dashboard at ${url} did not bind within ${deadlineMs}ms`));
+        if (typeof isDead === "function" && isDead()) reject(new Error(`gateway process exited before ${url} bound`));
+        else if (Date.now() > deadline) reject(new Error(`dashboard at ${url} did not bind within ${deadlineMs}ms`));
         else setTimeout(tryOnce, 250);
       });
     };
@@ -178,7 +186,9 @@ export class HermesManagedGatewaySession {
       });
 
       const dashboardUrl = `http://127.0.0.1:${this._port}`;
-      await waitForReady(dashboardUrl + "/", DEFAULT_STARTUP_TIMEOUT_MS);
+      // Pass a liveness probe so a spawn-then-die child aborts the wait immediately
+      // instead of polling for the full startup timeout (bughunt 2026-07-03).
+      await waitForReady(dashboardUrl + "/", DEFAULT_STARTUP_TIMEOUT_MS, () => this._state === "stopped" || this._state === "failed");
       this._token = await fetchToken(dashboardUrl + "/");
       this._gatewayUrl = `ws://127.0.0.1:${this._port}/api/ws?token=${this._token}`;
       await this._openSocket();
@@ -212,6 +222,14 @@ export class HermesManagedGatewaySession {
         // Reject any pending RPCs so callers don't hang.
         for (const [, pending] of this._pendingRpc) pending.reject(new Error("hermes gateway WS closed"));
         this._pendingRpc.clear();
+        // Force-settle the ACTIVE TURN too (bughunt 2026-07-03): the turn loop polls
+        // `while(!turn.settled)`, which is set only by agent.message.end events over this
+        // socket. A dropped socket mid-turn left it spinning until the 12h turn timeout,
+        // blocking the delivery queue. Settle it with an error like codex-session._onExit.
+        if (this._activeTurn && !this._activeTurn.settled) {
+          this._activeTurn.finalError = "hermes gateway WS closed mid-turn";
+          this._activeTurn.settled = true;
+        }
       });
       socket.on("message", (raw) => this._onSocketMessage(raw));
     });
