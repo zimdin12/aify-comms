@@ -76,6 +76,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _prune_superseded_bridges,
         _prune_terminal_history,
         _reap_undeliverable_queued_runs,
+        _replay_undelivered_channel_messages_on_env_recovery,
         _reconcile_dead_session_status,
         _reconcile_duplicate_resident_sessions,
         _reconcile_managed_worker_hygiene,
@@ -160,6 +161,15 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # first message". MUST run BEFORE _reap_undeliverable_queued_runs so the
         # re-routed run is claimed, not failed.
         rerouted_channel_runs = await _commit_step(await _reroute_orphaned_managed_channel_runs(db, limit=200))
+        # Task #238: replay channel posts to members whose managed env was OFFLINE at
+        # send time, now that it has recovered. The live send stores the inbox copy but
+        # creates NO dispatch_run for an offline member, and nothing else revisits it —
+        # so a recovered cold team stays silent. This mints the queued run the send would
+        # have made; the queued-run backstop below then claims / cold-start-rescues it.
+        # MUST run BEFORE _reap_undeliverable_queued_runs so the fresh run gets its full
+        # backstop window (it's created with requested_at=now, so it's outside the cutoff
+        # this pass regardless — belt-and-suspenders ordering).
+        replayed_channel_msgs = await _commit_step(await _replay_undelivered_channel_messages_on_env_recovery(db, limit=200))
         # BUG 1 (2026-06-03): clear a stuck turn_busy=1 whose owning bridge
         # (agent_turn_state.turn_bridge_id) is dead/stale. A managed delivery loop
         # or resident channel-sidecar that set turn_busy on submit fires NO
@@ -252,6 +262,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "orphaned_managed_runs_closed": len(closed_orphaned_managed),
             "orphaned_claims_requeued": len(requeued_orphaned_claims),
             "rerouted_channel_runs": rerouted_channel_runs,
+            "channel_msgs_replayed_on_env_recovery": len(replayed_channel_msgs),
             "deduped_resident_sessions": deduped_resident_sessions,
             "stuck_stopping_terminals_closed": stuck_rows.get("stuck_stopping_terminals_closed", 0),
             "ended_sessions_backfilled": stuck_rows.get("ended_sessions_backfilled", 0),
