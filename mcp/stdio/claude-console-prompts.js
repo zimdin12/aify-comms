@@ -182,6 +182,17 @@ const AGENTS_MANAGER_RE = /← for agents|↑\/↓ to select|↓ to manage/;
 // matchConsolePrompt(tail, { autoConfirmCompaction: false }) (host env override:
 // AIFY_AUTO_CONFIRM_COMPACTION=0) or the `console_auto_confirm_claude_compaction` setting.
 const COMPACTION_FLOW_RE = /(substantial portion of your usage limits|Compacting conversation|We recommend resuming from a summary)/i;
+// DATA-LOSS GUARD (bughunt 2026-07-03): the phrase "We recommend resuming from a
+// summary" ALSO appears in the COLD-START `--resume` menu (as the summary option's
+// blurb). On a large session that menu renders progressively — "Resume from summary"
+// paints before "Resume full session" — so mid-render the compaction-confirm branch
+// could press Enter on summary and silently compact away the session the operator
+// wanted preserved. Only an UNAMBIGUOUS in-session compaction marker (never present
+// in the cold-start resume menu) is allowed to auto-confirm; the ambiguous phrase
+// alone defers to the cursor-aware resume rule + interlock, which preserve the full
+// session. Worst case for a compaction flow that shows only the ambiguous phrase:
+// manual confirm needed (a stall) — acceptable vs. eating a session.
+const UNAMBIGUOUS_COMPACTION_RE = /(substantial portion of your usage limits|Compacting conversation)/i;
 
 function computeCompactionConfirmAnswer(visible) {
   const lines = visible.split(/\r?\n/);
@@ -204,13 +215,18 @@ export function matchConsolePrompt(rawTail = "", opts = {}) {
   // the interlock exists to protect the COLD-START menu, not this flow. The cursor-row
   // requirement in computeCompactionConfirmAnswer keeps it from firing on prose or on the
   // two-option cold-start menu mid-navigation (there the usage sentence is absent anyway).
-  if (opts.autoConfirmCompaction !== false && COMPACTION_FLOW_RE.test(visible)) {
+  // Auto-confirm ONLY on an unambiguous compaction marker — never on the cold-start
+  // resume menu (whose summary blurb also matches COMPACTION_FLOW_RE). See
+  // UNAMBIGUOUS_COMPACTION_RE above.
+  if (opts.autoConfirmCompaction !== false && UNAMBIGUOUS_COMPACTION_RE.test(visible)) {
     const compactIdx = lastIndexOf(visible, /Resume from summary/i);
     const fullIdx = lastIndexOf(visible, RESUME_FULL_RE);
-    // Defer to the cursor-aware cold-start rule ONLY when a live TWO-OPTION menu is on
-    // screen — its options render adjacent (within a couple of lines), so byte proximity
-    // discriminates it from a stale "Resume full session" mention lingering in scrollback
-    // above a live one-option compaction dialog.
+    // Defer to the cursor-aware cold-start rule when a live TWO-OPTION menu is on screen
+    // (options render adjacent), so byte proximity discriminates it from a stale
+    // "Resume full session" mention lingering in scrollback above a live one-option
+    // compaction dialog. (The unambiguous-marker gate above already prevents the
+    // cold-start menu's ambiguous "recommend resuming from a summary" blurb from ever
+    // entering this branch — that was the actual data-loss path.)
     const twoOptionMenuLive = fullIdx >= 0 && compactIdx >= 0 && Math.abs(fullIdx - compactIdx) <= 200;
     if (!twoOptionMenuLive && compactIdx >= 0) {
       const answer = computeCompactionConfirmAnswer(visible);

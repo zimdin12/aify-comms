@@ -1213,6 +1213,17 @@ export class PiSession {
       });
     }
     this._rejectAcks("all", new Error(`Pi runtime stopped (${reason})`));
+    // Settle the ACTIVE TURN too (bughunt 2026-07-03): stop() nulls _proc before
+    // killing, which suppresses _onChildExit, and _rejectAcks only settles the
+    // command-ack promises — the awaited turn promise itself was left to hang
+    // forever. Reject it explicitly so the caller unblocks (CodexSession settles
+    // unconditionally on exit; PiSession.stop was the gap).
+    const activeTurn = this._activeTurn;
+    if (activeTurn) {
+      this._activeTurn = null;
+      if (activeTurn.attemptTimer) { try { clearTimeout(activeTurn.attemptTimer); } catch {} }
+      try { activeTurn.reject(new Error(`Pi runtime stopped (${reason})`)); } catch {}
+    }
   }
 }
 

@@ -46,10 +46,14 @@ export function buildManagedClaudeUnlockPowerShell(sessionId, markerPids = []) {
     "$ownPid = $PID;",
     "$markerPids = " + markerPidLiteral + ";",
     "$all = @(Get-CimInstance Win32_Process);",
-    "function Stop-AifyTree($pid, $reason) {",
-    "  if (-not $pid -or $pid -eq $ownPid) { return }",
-    "  taskkill /pid $pid /t /f | Out-Null;",
-    "  Write-Output (\"{0}:{1}\" -f $reason, $pid)",
+    // $pid is an AUTOMATIC read-only PowerShell variable — assigning it as a param
+    // throws "Cannot overwrite variable pid because it is read-only" on every call,
+    // and under SilentlyContinue the taskkill body silently never runs (the unlock
+    // becomes a no-op). Use $targetPid (bughunt 2026-07-03).
+    "function Stop-AifyTree($targetPid, $reason) {",
+    "  if (-not $targetPid -or $targetPid -eq $ownPid) { return }",
+    "  taskkill /pid $targetPid /t /f | Out-Null;",
+    "  Write-Output (\"{0}:{1}\" -f $reason, $targetPid)",
     "}",
     "function Test-AifyProtected($process) {",
     "  if (-not $process) { return $true }",

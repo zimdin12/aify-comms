@@ -523,6 +523,17 @@ export async function ensureGatewayHost({
   if (typeof gwErrFd === "number") {
     try { fs.closeSync(gwErrFd); } catch {}
   }
+  // A detached spawn emits 'error' ASYNCHRONOUSLY (ENOENT when the hermes binary is
+  // missing/mis-resolved — happened live 2026-07-03 when a hermes update left no
+  // hermes.exe). With no listener Node re-throws it as an UNCAUGHT exception outside
+  // the awaited waitForIndexToken below, bypassing the caller's try/catch and killing
+  // the whole managed-host process (heartbeat + delivery loop + turn detector). Route
+  // it into the same "did not come up" failure path the readiness timeout uses.
+  if (child && typeof child.on === "function") {
+    child.on("error", (err) => {
+      try { console.error(`[hermes-managed-host] gateway spawn error on port ${port}: ${err?.message || err}`); } catch {}
+    });
+  }
   // Don't let the gateway host keep the helper alive on its own; we manage its
   // lifecycle explicitly via teardown.
   if (typeof child.unref === "function") child.unref();

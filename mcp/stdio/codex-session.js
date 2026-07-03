@@ -342,8 +342,21 @@ export class CodexSession {
       } catch {}
       return;
     }
-    turn.markActivity(message.method || "runtime notification");
     const params = message.params || {};
+    // STALE-TURN GUARD (bughunt 2026-07-03): a timed-out/stalled turn is left
+    // running app-server-side (see the interrupt added to the stall timers), so its
+    // late deltas / turn/completed can arrive AFTER a NEW dispatch became the active
+    // turn — routing purely off _activeTurn then settled the wrong turn with the old
+    // turn's output/status. Drop any notification stamped with a DIFFERENT turn id
+    // than the one currently active (notifications without a turn id pass through).
+    const msgTurnId = params.turn?.id;
+    if (msgTurnId && turn.activeTurnId && msgTurnId !== turn.activeTurnId) {
+      try {
+        this._emit("notification-stale-turn", { method: String(message?.method || "<unknown>"), msgTurnId, activeTurnId: turn.activeTurnId });
+      } catch {}
+      return;
+    }
+    turn.markActivity(message.method || "runtime notification");
     if (message.method === "turn/started" && params.turn?.id) {
       turn.activeTurnId = params.turn.id;
       turn.callbacks?.onRefs?.({ threadId: this.threadId, turnId: turn.activeTurnId });
@@ -582,11 +595,23 @@ export class CodexSession {
       clearInterval(poll);
     };
 
+    // Best-effort: tell the app-server to actually STOP the abandoned turn when a
+    // stall/timeout forces settlement (bughunt 2026-07-03). Without this the turn
+    // keeps running server-side and its late notifications contaminate the next
+    // dispatch (now also guarded by the stale-turn id check in _dispatchNotification).
+    const interruptAbandonedTurn = () => {
+      const id = turn.activeTurnId;
+      if (!id) return;
+      try {
+        Promise.resolve(this._rpc.request("turn/interrupt", { threadId: this.threadId, turnId: id }, 10000)).catch(() => {});
+      } catch {}
+    };
     timer = setTimeout(() => {
       if (!turn.settled) {
         turn.finalStatus = "failed";
         turn.finalError = `Codex run timed out after ${timeoutMs}ms`;
         turn.settled = true;
+        interruptAbandonedTurn();
       }
     }, timeoutMs);
     if (quietTimeoutMs > 0) {
@@ -605,6 +630,7 @@ export class CodexSession {
             ` The turn was treated as stalled and terminated. Retry the message, or restart the session if this repeats.`;
           turn.settled = true;
           try { callbacks.onEvent?.("stalled", turn.finalError); } catch {}
+          interruptAbandonedTurn();
         } catch {}
       }, Math.min(60 * 1000, Math.max(10 * 1000, Math.floor(quietTimeoutMs / 6))));
     }
@@ -623,6 +649,7 @@ export class CodexSession {
             `The turn was terminated before the general quiet-stall timeout.`;
           turn.settled = true;
           try { callbacks.onEvent?.("mcp_tool_stalled", turn.finalError); } catch {}
+          interruptAbandonedTurn();
         } catch {}
       }, Math.min(10 * 1000, Math.max(2 * 1000, Math.floor(aifyMcpToolTimeoutMs / 6))));
     }

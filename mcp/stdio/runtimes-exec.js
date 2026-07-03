@@ -197,7 +197,13 @@ export function resolveExecutable(command) {
       // in the resolution log so runtimeLaunchAvailability can report it.
     }
   }
-  RESOLVED_EXECUTABLE_CACHE.set(value, resolved);
+  // Only POSITIVE-cache a successful resolution. Caching a `null` permanently
+  // (bughunt 2026-07-03) meant a transient probe timeout — or a runtime installed
+  // AFTER the bridge started — pinned the runtime as unlaunchable for the whole
+  // bridge lifetime, falling back to a bare-name spawn that can't see the login
+  // PATH until restart. A miss re-probes next call (probes are cheap); the
+  // resolution LOG still records every attempt for describeExecutableResolution.
+  if (resolved) RESOLVED_EXECUTABLE_CACHE.set(value, resolved);
   EXECUTABLE_RESOLUTION_LOG.set(value, { resolved, attempts });
   return resolved;
 }

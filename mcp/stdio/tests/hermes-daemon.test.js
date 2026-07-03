@@ -395,6 +395,9 @@ test("ensureDaemon down + prior pid alive: kills prior, spawns, writes new pid",
       probe,
       killTree,
       isAlive: (pid) => pid === 4242,
+      // PID-reuse guard (bughunt 2026-07-03): kill-prior now also requires the pid to
+      // still be a hermes process. Return a hermes-looking cmdline so the kill fires.
+      getCmdline: (pid) => (pid === 4242 ? "python hermes gateway run --replace" : ""),
       healthTimeoutMs: 2000,
       pollMs: 10,
     });
@@ -403,6 +406,36 @@ test("ensureDaemon down + prior pid alive: kills prior, spawns, writes new pid",
     assert.equal(killTree.calls[0], 4242, "kill-prior must target the tracked prior pid");
     assert.equal(spawn.calls.length, 1, "a fresh daemon must be spawned");
     assert.equal(readDaemonPid("respawn", dir), 8001, "new child pid must be persisted");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("ensureDaemon PID-REUSE SAFETY: prior pid alive but NOT hermes → no kill (bughunt 2026-07-03)", async () => {
+  const dir = makeTempDir();
+  try {
+    writeDaemonPid("reuse", 4242, dir);
+    const child = fakeChild(8010);
+    const spawn = recordingSpawn(child);
+    const killTree = recordingKillTree();
+    const probe = sequencedProbe([
+      { available: false, reason: "down" },
+      { available: true, version: "0.15.1" },
+    ]);
+    await ensureDaemon({
+      agentId: "reuse",
+      tempDir: dir,
+      endpoint: agentEndpoint("reuse", { tempDir: dir }),
+      spawn,
+      probe,
+      killTree,
+      isAlive: (pid) => pid === 4242, // the OS recycled 4242 to something alive…
+      getCmdline: () => "C:\\Windows\\explorer.exe", // …but it's NOT a hermes process
+      healthTimeoutMs: 2000,
+      pollMs: 10,
+    });
+    assert.equal(killTree.calls.length, 0, "must NOT kill a reused pid that isn't a hermes process");
+    assert.equal(spawn.calls.length, 1, "still spawns the fresh daemon");
   } finally {
     cleanup(dir);
   }

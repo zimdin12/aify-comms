@@ -5156,7 +5156,11 @@ server.tool(
         const bodyParts = [Buffer.from(parts.join("\r\n") + "\r\n"), fileData, Buffer.from(`\r\n--${boundary}--\r\n`)];
         headers["Content-Type"] = `multipart/form-data; boundary=${boundary}`;
         const res = await fetch(`${SERVER_URL}/api/v1/shared`, { method: "POST", headers, body: Buffer.concat(bodyParts) });
-        const r = await res.json();
+        const r = await res.json().catch(() => ({}));
+        // A rejected upload (413/422/500) still returns a JSON body, so res.json()
+        // doesn't throw — report the FAILURE instead of a false success that leaves
+        // a downstream comms_read seeing "not found" (bughunt 2026-07-03).
+        if (!res.ok) return { content: [{ type: "text", text: `Share failed (HTTP ${res.status}): ${r.detail || r.error || "server rejected the upload"}` }], isError: true };
         return { content: [{ type: "text", text: `Shared "${name}" (${fileData.length} bytes, binary) on server.` }] };
       }
 
@@ -5166,7 +5170,8 @@ server.tool(
       if (filePath && !content) { try { body = fs.readFileSync(filePath, "utf-8"); } catch { return { content: [{ type: "text", text: `Cannot read file: ${filePath}` }], isError: true }; } }
       const formData = new URLSearchParams({ from_agent: from, name, description: description || "", content: body });
       const res = await fetch(`${SERVER_URL}/api/v1/shared`, { method: "POST", headers, body: formData });
-      const r = await res.json();
+      const r = await res.json().catch(() => ({}));
+      if (!res.ok) return { content: [{ type: "text", text: `Share failed (HTTP ${res.status}): ${r.detail || r.error || "server rejected the upload"}` }], isError: true };
       return { content: [{ type: "text", text: `Shared "${r.name || name}" on server.` }] };
     }
 

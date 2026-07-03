@@ -391,9 +391,13 @@ export function resolveCodexRequestCwd({ hostCwd, launcher, appServerUrl }) {
 
 export function codexSpawnCwd(launcher, cwd) {
   if (!isWslCodexLauncher(launcher)) return cwd;
-  return process.env.USERPROFILE || process.env.HOMEDRIVE && process.env.HOMEPATH
-    ? `${process.env.HOMEDRIVE || "C:"}${process.env.HOMEPATH || "\\Users\\Default"}`
-    : "C:\\";
+  // Precedence bug (bughunt 2026-07-03): the old ternary ALWAYS composed
+  // HOMEDRIVE+HOMEPATH in its truthy branch, ignoring USERPROFILE even when set —
+  // on a roaming/mapped-drive profile that yields an inaccessible H:\… and aborts
+  // the launch with AIFY_INVALID_RUNTIME_CWD. Prefer the real USERPROFILE.
+  if (process.env.USERPROFILE) return process.env.USERPROFILE;
+  if (process.env.HOMEDRIVE && process.env.HOMEPATH) return `${process.env.HOMEDRIVE}${process.env.HOMEPATH}`;
+  return "C:\\";
 }
 
 export function hasCodexLiveAppServer(runtimeConfig = {}) {

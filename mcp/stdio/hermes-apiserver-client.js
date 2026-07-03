@@ -115,6 +115,16 @@ export function createHermesApiServerClient() {
     sessionKey,
     text,
     onDelta,
+    // Turn bounding (bughunt 2026-07-03): this path had NO abort/timeout, so a
+    // mid-stream model/tool hang (with keepalive comments defeating undici's
+    // bodyTimeout) wedged the sidecar forever — one stuck turn stopped all further
+    // claims and re-pulsed turnBusy indefinitely. HARD cap mirrors the other hermes
+    // paths' PROMPT_TIMEOUT; the inactivity watchdog fires sooner when NO real SSE
+    // event (delta/completed/done) arrives for idleTimeoutMs (keepalive comments are
+    // not named events, so a genuinely-stalled stream trips it while a live turn
+    // emitting deltas keeps resetting it).
+    timeoutMs = 12 * 60 * 60 * 1000,
+    idleTimeoutMs = 10 * 60 * 1000,
   }) {
     if (!sessionId) throw new Error("chatStream requires a sessionId");
     const url = `${trimTrailingSlash(baseUrl)}/api/sessions/${encodeURIComponent(sessionId)}/chat/stream`;
@@ -124,49 +134,72 @@ export function createHermesApiServerClient() {
       "X-Hermes-Session-Id": sessionId,
     });
     if (sessionKey) headers["X-Hermes-Session-Key"] = sessionKey;
-    const res = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ message: text }),
-    });
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      if (res.status === 401) throw authError(res.status, errText);
-      throw new Error(`chatStream failed (HTTP ${res.status}): ${errText}`);
-    }
 
-    let completedContent = null;
-    let assembled = "";
-    let streamError = null;
-    let done = false;
+    const controller = new AbortController();
+    let abortReason = "";
+    const hardTimer = setTimeout(() => { abortReason = `turn exceeded ${timeoutMs}ms`; controller.abort(); }, timeoutMs);
+    let idleTimer = null;
+    const resetIdle = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => { abortReason = `no stream activity for ${idleTimeoutMs}ms`; controller.abort(); }, idleTimeoutMs);
+    };
+    resetIdle();
 
-    await parseSseStream(res, ({ event, data }) => {
-      switch (event) {
-        case "assistant.delta": {
-          const chunk = String(data?.delta ?? "");
-          if (chunk) {
-            assembled += chunk;
-            if (typeof onDelta === "function") onDelta(chunk);
-          }
-          break;
-        }
-        case "assistant.completed":
-          if (typeof data?.content === "string") completedContent = data.content;
-          break;
-        case "error":
-          streamError = new Error(String(data?.message || "hermes stream error"));
-          break;
-        case "done":
-          done = true;
-          break;
-        default:
-          break;
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ message: text }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        if (res.status === 401) throw authError(res.status, errText);
+        throw new Error(`chatStream failed (HTTP ${res.status}): ${errText}`);
       }
-    });
 
-    if (streamError) throw streamError;
-    if (!done) throw new Error("chatStream ended without terminal `done` event");
-    return completedContent != null ? completedContent : assembled;
+      let completedContent = null;
+      let assembled = "";
+      let streamError = null;
+      let done = false;
+
+      await parseSseStream(res, ({ event, data }) => {
+        resetIdle(); // a real named event = progress; keep the watchdog alive
+        switch (event) {
+          case "assistant.delta": {
+            const chunk = String(data?.delta ?? "");
+            if (chunk) {
+              assembled += chunk;
+              if (typeof onDelta === "function") onDelta(chunk);
+            }
+            break;
+          }
+          case "assistant.completed":
+            if (typeof data?.content === "string") completedContent = data.content;
+            break;
+          case "error":
+            streamError = new Error(String(data?.message || "hermes stream error"));
+            break;
+          case "done":
+            done = true;
+            break;
+          default:
+            break;
+        }
+      });
+
+      if (streamError) throw streamError;
+      if (!done) throw new Error("chatStream ended without terminal `done` event");
+      return completedContent != null ? completedContent : assembled;
+    } catch (err) {
+      if (err && err.name === "AbortError") {
+        throw new Error(`chatStream aborted: ${abortReason || "aborted"}`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(hardTimer);
+      if (idleTimer) clearTimeout(idleTimer);
+    }
   }
 
   // POST /v1/runs — start a run. Returns { runId, status }. 202 on success.

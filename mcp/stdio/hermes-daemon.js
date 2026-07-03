@@ -182,6 +182,7 @@ export async function ensureDaemon({
   // touching real processes. Defaults are the real fs / tree-killer / alive-probe.
   killTree = defaultKillTree,
   isAlive = defaultIsAlive,
+  getCmdline = defaultGetCmdline,
   readPid = readDaemonPid,
   writePid = writeDaemonPid,
 } = {}) {
@@ -215,7 +216,12 @@ export async function ensureDaemon({
   //    blocks the spawn.
   if (agentId) {
     const priorPid = readPid(agentId, tempDir);
-    if (priorPid && isAlive(priorPid)) {
+    // PID-REUSE SAFETY (bughunt 2026-07-03): a crashed daemon leaves a stale pid
+    // marker; the OS can recycle that PID to an UNRELATED operator process, and
+    // killTree would then SIGKILL that innocent tree. Verify the pid is actually a
+    // hermes process before killing — same guard every other kill site in this file
+    // uses (stopDaemon, reapDaemonsForAgent). Missing here was the only unguarded kill.
+    if (priorPid && isAlive(priorPid) && looksLikeHermesProcess(getCmdline(priorPid))) {
       killTree(priorPid);
     }
   }
@@ -235,6 +241,16 @@ export async function ensureDaemon({
     // empty cmd window. Hide it — the daemon is a background service.
     windowsHide: true,
   });
+  // A detached spawn emits 'error' ASYNCHRONOUSLY (e.g. ENOENT when hermes is
+  // missing/mis-resolved — which happened live 2026-07-03). With no listener Node
+  // re-throws it as an uncaught exception OUTSIDE the health-poll try/catch, killing
+  // the whole managed-host process. Swallow it here; the health poll below already
+  // handles "did not come up" by timing out and returning started:false.
+  if (child && typeof child.on === "function") {
+    child.on("error", (err) => {
+      try { console.error(`[hermes-daemon] spawn error for agent=${agentId || "?"}: ${err?.message || err}`); } catch {}
+    });
+  }
   if (child && typeof child.unref === "function") child.unref();
 
   // Persist the NEW daemon's pid so the next (re)spawn can kill-prior it.

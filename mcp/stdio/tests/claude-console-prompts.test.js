@@ -225,4 +225,22 @@ const staleFullAbove = matchConsolePrompt(
 );
 assert.equal(staleFullAbove?.name, "compaction-resume-summary-confirm");
 
+// DATA-LOSS REGRESSION (bughunt 2026-07-03): a large-session cold-start `--resume`
+// menu renders progressively — "Resume from summary" paints before "Resume full
+// session". Its summary blurb ("We recommend resuming from a summary") matches the
+// compaction phrase, but NOT the unambiguous in-session markers. Mid-render (summary
+// painted, full not yet, cursor on summary) it must NOT auto-press Enter and compact
+// the session away — the ambiguous phrase alone no longer auto-confirms.
+const halfPaintedColdStart = matchConsolePrompt(
+  "Resuming from your previous session.\n" +
+  "We recommend resuming from a summary.\n\n" +
+  "❯ 1. Resume from summary (recommended)\n" +
+  "Enter to confirm · Esc to cancel\n",
+);
+assert.equal(
+  halfPaintedColdStart?.name ?? null,
+  null,
+  "half-painted cold-start resume menu (ambiguous phrase, no unambiguous compaction marker) must NOT auto-confirm summary",
+);
+
 console.log("claude-console-prompts compaction-confirm tests passed");
