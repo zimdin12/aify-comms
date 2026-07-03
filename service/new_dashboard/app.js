@@ -478,9 +478,20 @@ function connectRealtimeSocket() {
     return;
   }
   dashboardSocket.onopen = () => {
+    const wasReconnect = state.realtimeConnected === false && _wsReconnectAttempts > 0;
     state.realtimeConnected = true;
     _wsReconnectAttempts = 0; // healthy connection → reset backoff to fast retry
     evaluateFlowGates();
+    // After a dropped-then-reconnected WS (deploy, network blip, laptop sleep), any live
+    // terminal_output frames emitted during the outage were missed — an IDLE agent emits no
+    // new frame to trip the sequence-gap resync, so the mounted console shows STALE canvas
+    // and typed keystrokes echo into a frame the tab never repaints ("can't write into the
+    // terminal"). Re-sync the mounted console on reconnect so it repaints the authoritative
+    // buffer immediately. Also pull fresh roster/session data.
+    if (wasReconnect) {
+      if (state.activeXterm && state.activeXterm.term) resyncActiveConsole().catch(() => {});
+      refreshSoon();
+    }
   };
   dashboardSocket.onmessage = (event) => {
     try {
