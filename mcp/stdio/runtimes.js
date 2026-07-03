@@ -20,6 +20,7 @@ export {
   launchCwdProblem,
   descendantPids,
   terminateProcessTree,
+  pidIsSelfProtected,
   runtimeChildEnv,
 } from "./runtimes-process.js";
 export {

@@ -26,6 +26,7 @@
 // Process listing + kill are injectable so tests never touch real processes.
 
 import { spawnSync as nodeSpawnSync } from "node:child_process";
+import { pidIsSelfProtected } from "./runtimes.js";
 
 // Enumerate running claude processes as [{ pid, ppid, commandLine }].
 //   - win32: PowerShell Get-CimInstance Win32_Process (ParentProcessId+CommandLine).
@@ -101,6 +102,14 @@ export function defaultGetCmdline(pid, spawnSync = nodeSpawnSync) {
 export function defaultKillPid(pid, spawnSync = nodeSpawnSync) {
   const n = Number(pid);
   if (!Number.isInteger(n) || n <= 0) return false;
+  // Never signal the bridge itself, its group, its launching shell, or init — a
+  // recycled tracked pid must not take the bridge (or the operator's session)
+  // down (2026-07-03; see the reaper self-protect guard in runtimes-process.js,
+  // and the 2026-05-31 cross-contamination incident above).
+  if (pidIsSelfProtected(n)) {
+    try { console.error(`[aify] reaper self-protect: refused to kill pid=${n} (bridge/parent/init)`); } catch { /* best effort */ }
+    return false;
+  }
   try {
     if (process.platform === "win32") {
       const res = spawnSync("taskkill", ["/pid", String(n), "/t", "/f"], {

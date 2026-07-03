@@ -159,7 +159,68 @@ export function descendantPids(pid) {
   return descendants;
 }
 
+// ── Reaper self-protection (2026-07-03) ──────────────────────────────────────
+// The boot survivor sweep + terminateProcessTree kill orphaned managed
+// processes by pid, by descendant pid, and — crucially — by NEGATIVE pid
+// (`process.kill(-pid)` = signal the whole process GROUP). None of these
+// validated that the target wasn't the bridge itself, its process group, or its
+// launching shell. Consequences observed on a busy host running the env bridge
+// from `/`: during a large boot sweep, a group-kill (`kill(-pid)`) whose pgid
+// collided with the bridge's session — or a recycled pid that now mapped to the
+// bridge/parent shell — delivered SIGTERM to the bridge, which then ran its
+// graceful teardown and exited (non-zero). It reproduced on the 1st/2nd launch
+// (big orphan backlog to kill through) and stopped once the backlog drained.
+//
+// Also lethal without a guard: `process.kill(0, sig)` signals the CALLER's
+// entire process group, and `process.kill(1, sig)` targets init. Capture our
+// identity ONCE at load — ppid at load is the launching shell, before any
+// reparenting to init hides it.
+const OWN_PID = process.pid;
+const OWN_PPID = typeof process.ppid === "number" ? process.ppid : 0;
+const OWN_PGID = readOwnProcessGroupId();
+
+// Linux: /proc/self/stat field 5 (pgrp). comm (field 2) may contain spaces and
+// parens, so parse the fields AFTER the last ')'. Returns null off-Linux (the
+// negative-pid group path is posix-only and win32 uses taskkill), where the
+// pid/ppid/0/1 guards still apply.
+function readOwnProcessGroupId() {
+  try {
+    const stat = fs.readFileSync("/proc/self/stat", "utf8");
+    const afterComm = stat.slice(stat.lastIndexOf(")") + 2).trim().split(/\s+/);
+    // afterComm: [state, ppid, pgrp, ...]
+    const pgrp = Number(afterComm[2]);
+    return Number.isInteger(pgrp) && pgrp > 0 ? pgrp : null;
+  } catch {
+    return null;
+  }
+}
+
+// True when signalling `pid` could hit the bridge itself, its process group,
+// its launching shell, or a system-critical target (0 = caller's whole group,
+// 1 = init). The reaper MUST skip these — killing a leaked agent is never worth
+// taking the bridge (or the operator's shell) down with it. Accepts negative
+// pids (group form) and compares on the magnitude.
+export function pidIsSelfProtected(pid) {
+  const n = Number(pid);
+  if (!Number.isInteger(n)) return true;            // never signal garbage
+  const pos = Math.abs(n);
+  if (pos <= 1) return true;                         // 0 = our group, 1 = init
+  if (pos === OWN_PID) return true;                  // ourselves (and -OWN_PID group)
+  if (OWN_PPID > 1 && pos === OWN_PPID) return true; // launching shell — killing it HUPs us
+  if (OWN_PGID && pos === OWN_PGID) return true;     // our process group — kill(-pgid) hits the bridge
+  return false;
+}
+
 function killPid(pid, signal) {
+  if (pidIsSelfProtected(pid)) {
+    try {
+      console.error(
+        `[aify] reaper self-protect: refused to signal pid=${pid} ` +
+        `(matches bridge pid/ppid/pgid or init) — not killing the bridge`,
+      );
+    } catch { /* best effort */ }
+    return false;
+  }
   try {
     process.kill(pid, signal);
     return true;
