@@ -459,6 +459,12 @@ TURN_BUSY_BACKSTOP_SECONDS = 30 * 60
 # still re-validates each offline agent ~every interval (env-return safety), and recovery is
 # immediate via invalidation. Tune via the agent_offline_revalidate_seconds setting.
 OFFLINE_CACHE_REVALIDATE_SECONDS = 180
+# A superseded env bridge polls env-control every ~3s, so it claims its stop
+# within seconds. A `server:superseded-bridge` stop still pending well past this
+# targets a bridge that never came back — drained on the next registration to
+# keep environment_controls from growing one-row-per-restart (see the 2026-07-03
+# accumulation that self-terminated fresh bridges).
+SUPERSEDE_STOP_STALE_SECONDS = 300
 # Runtimes with native managed adapters. Codex/Hermes may be promoted to the
 # wrapper-backed channel path by managed_via_wrapper; otherwise these runtimes
 # are claimed by the bridge's native controller. PTY-input is a legacy
@@ -9752,6 +9758,30 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
                 ),
             )
         if superseded_bridge_id:
+            # Bound accumulation: drain superseded-bridge stops for this env that have
+            # been pending well past the point a live superseded bridge would have
+            # claimed them (it polls every ~3s). Anything still pending after the TTL
+            # targets a bridge that never came back; left unbounded these accumulate
+            # one-per-restart (99 observed for a single env, 2026-07-03). The claim-side
+            # guard already prevents any of them from stopping a live bridge; this just
+            # keeps the table from growing without limit.
+            drain_cutoff = (
+                datetime.now(timezone.utc) - timedelta(seconds=SUPERSEDE_STOP_STALE_SECONDS)
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+            await db.execute(
+                """
+                UPDATE environment_controls
+                SET status = 'failed',
+                    handled_at = ?,
+                    error = 'stale superseded-bridge stop drained (target bridge never claimed)'
+                WHERE environment_id = ?
+                  AND action = 'stop'
+                  AND status = 'pending'
+                  AND requested_by = 'server:superseded-bridge'
+                  AND requested_at < ?
+                """,
+                (now, env_id, drain_cutoff),
+            )
             pending_cursor = await db.execute(
                 """
                 SELECT id
@@ -10104,19 +10134,42 @@ async def _claim_environment_control_once(req: EnvironmentControlClaim):
             env_bridge_id = str((env["bridge_id"] if env else "") or "").strip()
             metadata = _json_loads_or(env["metadata"], {}) if env else {}
             bridge_started_at = metadata.get("bridgeStartedAt") or ""
-            if (
+            claimer_is_current_owner = bool(env_bridge_id) and env_bridge_id == req.bridgeId
+            is_supersede_stop = (
                 candidate["action"] == "stop"
-                and env_bridge_id == req.bridgeId
-                and _iso_to_epoch(candidate["requested_at"]) > 0
+                and str(candidate["requested_by"] or "") == "server:superseded-bridge"
+            )
+            requested_before_bridge_start = (
+                _iso_to_epoch(candidate["requested_at"]) > 0
                 and _iso_to_epoch(bridge_started_at) > 0
                 and _iso_to_epoch(candidate["requested_at"]) < _iso_to_epoch(bridge_started_at)
+            )
+            # Void a stop the CURRENT env owner must never honor:
+            #   1. A `server:superseded-bridge` stop that targets the current owner is
+            #      self-contradictory — a bridge cannot be both the live owner AND a
+            #      superseded predecessor. This is the race that self-terminated
+            #      freshly-registered env bridges (2026-07-03): the supersede-stop was
+            #      created at/after the bridge became current, so the timestamp guard
+            #      (case 2) missed it and the current owner claimed its own stop and
+            #      exited. 99 such controls had accumulated for a single env.
+            #   2. Any stop requested BEFORE this bridge started — it predates this
+            #      incarnation (the original stale guard).
+            # An OPERATOR env-stop for the current owner (requested_by != superseded,
+            # fresh timestamp) matches neither and correctly stops the bridge.
+            if candidate["action"] == "stop" and claimer_is_current_owner and (
+                is_supersede_stop or requested_before_bridge_start
             ):
                 now = _now()
+                reason = (
+                    "superseded-bridge stop targeted the current live owner"
+                    if is_supersede_stop
+                    else f'requested before bridge "{req.bridgeId}" started'
+                )
                 await db.execute(
                     "UPDATE environment_controls SET status = 'failed', handled_at = ?, error = ? WHERE id = ? AND status = 'pending'",
                     (
                         now,
-                        f'Stale stop control ignored because bridge "{req.bridgeId}" started after the control was requested.',
+                        f"Stale stop control ignored: {reason}.",
                         candidate["id"],
                     ),
                 )
