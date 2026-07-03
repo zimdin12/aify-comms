@@ -4,6 +4,7 @@ Drop-in replacement for api.py with identical endpoint signatures.
 """
 import asyncio
 import json
+import math
 import sys
 import logging
 import sqlite3
@@ -1727,6 +1728,10 @@ async def _delete_messages_by_ids(db, message_ids: list[str], *, chunk_size: int
         await db.execute(f"UPDATE messages SET in_reply_to = NULL WHERE in_reply_to IN ({placeholders})", chunk)
         await db.execute(f"UPDATE dispatch_runs SET message_id = NULL WHERE message_id IN ({placeholders})", chunk)
         await db.execute(f"UPDATE dispatch_runs SET in_reply_to = NULL WHERE in_reply_to IN ({placeholders})", chunk)
+        # Also clear the reply LINK (bughunt 2026-07-03): if a deleted/unsent message was
+        # a run's recorded reply, leaving result_message_id pointing at the now-gone row
+        # kept the contract 'answered' with no reply behind it — it never re-opened.
+        await db.execute(f"UPDATE dispatch_runs SET result_message_id = NULL WHERE result_message_id IN ({placeholders})", chunk)
         await db.execute(f"UPDATE dispatch_controls SET source_message_id = '' WHERE source_message_id IN ({placeholders})", chunk)
         await db.execute(f"DELETE FROM read_receipts WHERE message_id IN ({placeholders})", chunk)
         cursor = await db.execute(f"DELETE FROM messages WHERE id IN ({placeholders})", chunk)
@@ -7031,7 +7036,7 @@ class TerminalOutputWriteQueue:
             terminal = await (await db.execute(
                 """
                 SELECT id, session_id, agent_id, environment_id, bridge_id, runtime,
-                       output, status, output_seq
+                       output, status, output_seq, created_at
                 FROM terminal_sessions WHERE id = ?
                 """,
                 (terminal_id,),
@@ -9778,7 +9783,14 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
         # changes too. Invalidate their live-status cache so the transition shows
         # immediately rather than after the ~90s env window / 60s sweep.
         prior_status = str((existing["status"] if existing else "") or "").strip().lower()
-        if existing and prior_status != requested_status:
+        # Env-down is DERIVED from staleness and never writes environments.status, so on
+        # recovery prior_status == requested_status == 'online' and the stored-column
+        # check below is skipped — leaving bound agents cached 'offline' up to the ~180s
+        # horizon (bughunt 2026-07-03). Also invalidate when the env was EFFECTIVELY
+        # offline (stale last_seen) before this heartbeat, regardless of the stored column.
+        _env_offline_seconds = max(30, int((await _load_settings(db)).get("environment_offline_seconds", 90) or 90))
+        prior_effective = _environment_effective_status(existing, offline_seconds=_env_offline_seconds) if existing else "offline"
+        if existing and (prior_status != requested_status or prior_effective == "offline"):
             bound_rows = await (await db.execute(
                 "SELECT DISTINCT agent_id FROM agent_sessions WHERE environment_id = ?",
                 (env_id,),
@@ -10627,12 +10639,19 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                     # The dispatch path's lazy spawn is our fallback.
                     pass
 
-        await db.execute(
+        # TOCTOU guard (bughunt 2026-07-03): the status check above read `current_status`
+        # ONCE; between that read and this write a concurrent operator Stop/CLI-takeover
+        # can commit status='cancelled'. Without a WHERE guard this write would clobber it
+        # back to 'running' AFTER the PTY was already spawned — silently losing the Stop and
+        # leaving a live zombie worker. Make the write CONDITIONAL on the row not already
+        # being terminal; a 0-rowcount means a concurrent finalize won, so we return that
+        # real state instead of the phantom success (and skip the running/registered casts).
+        upd = await db.execute(
             """
             UPDATE spawn_requests
             SET status = ?, process_id = ?, session_handle = ?, session_id = ?, error = ?,
                 updated_at = ?, started_at = ?, finished_at = ?
-            WHERE id = ?
+            WHERE id = ? AND status NOT IN ('cancelled', 'failed')
             """,
             (
                 status_value,
@@ -10647,6 +10666,15 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
             ),
         )
         await db.commit()
+        if (upd.rowcount or 0) == 0 and status_value not in {"cancelled", "failed"}:
+            # A concurrent Stop/fail finalized the row first — honor it, don't resurrect.
+            concurrent = await (await db.execute("SELECT * FROM spawn_requests WHERE id = ?", (spawn_request_id,))).fetchone()
+            concurrent_status = str((concurrent["status"] if concurrent else "") or "").strip().lower()
+            if concurrent_status in {"cancelled", "failed"}:
+                raise HTTPException(
+                    409,
+                    f'Spawn request "{spawn_request_id}" was concurrently {concurrent_status}; the "{status_value}" update was dropped to avoid resurrecting a stopped worker.',
+                )
         updated = await (await db.execute("SELECT * FROM spawn_requests WHERE id = ?", (spawn_request_id,))).fetchone()
         updated_spec = await (await db.execute("SELECT * FROM spawn_specs WHERE id = ?", (updated["spawn_spec_id"],))).fetchone()
         ws = await _get_ws(request)
@@ -17307,9 +17335,14 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
             """
             SELECT * FROM dispatch_runs
             WHERE target_agent = ? AND status = 'queued'
+              AND COALESCE(result_message_id, '') = ''
             ORDER BY requested_at ASC
             LIMIT 25
             """,
+            # Exclude runs already answered from the inbox before being claimed
+            # (bughunt 2026-07-03): a require_reply run answered while still 'queued'
+            # kept status='queued' (the answered-run reconcile only scans 'delivered'),
+            # so the claimer re-woke the target to redo already-answered work.
             (req.agentId,)
         )
         runs = await run_cursor.fetchall()
@@ -20478,13 +20511,25 @@ async def update_settings(request: Request):
             default = DEFAULT_SETTINGS[key]
             # Validate/clamp numeric settings (bool first — bool is a subclass of int).
             if isinstance(default, bool):
-                value = bool(value)
+                # Bughunt 2026-07-03: a raw API/MCP caller sending the STRING "false"
+                # got bool("false")==True (any non-empty string is truthy) — silently
+                # flipping a boolean setting on. Only accept an actual JSON bool; also
+                # accept the case-insensitive "true"/"false" strings a form might send.
+                if isinstance(value, bool):
+                    pass
+                elif isinstance(value, str) and value.strip().lower() in ("true", "false"):
+                    value = value.strip().lower() == "true"
+                else:
+                    continue  # reject anything ambiguous for a bool setting
             elif isinstance(default, (int, float)) and not isinstance(value, bool):
                 try:
                     num = float(value)
                 except (TypeError, ValueError):
                     continue  # reject non-numeric for a numeric setting
-                if num != num:  # NaN guard
+                # Reject NaN AND ±inf (bughunt 2026-07-03: a JSON `1e999` literal parses
+                # to float('inf'); the old `num != num` NaN guard missed it, and int(inf)
+                # then raised OverflowError → HTTP 500).
+                if not math.isfinite(num):
                     continue
                 num = max(num, float(_SETTINGS_MIN.get(key, 0)))
                 value = int(num) if isinstance(default, int) else num

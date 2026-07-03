@@ -35,7 +35,14 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             request.headers.get("X-API-Key")
             or request.query_params.get("api_key")
         )
-        if not provided_key or not hmac.compare_digest(provided_key, self.api_key):
+        # Compare as BYTES (bughunt 2026-07-03): hmac.compare_digest raises TypeError
+        # on a str containing non-ASCII code points, which was unhandled → HTTP 500 on
+        # every protected endpoint for a garbage key instead of a clean 401. Encoding
+        # both sides sidesteps it (compare_digest is still constant-time; it never
+        # false-positives, so this is not an auth weakening).
+        if not provided_key or not hmac.compare_digest(
+            provided_key.encode("utf-8", "ignore"), self.api_key.encode("utf-8", "ignore")
+        ):
             return Response(
                 content='{"error":"Invalid or missing API key. Use X-API-Key header or ?api_key= param."}',
                 status_code=401,
@@ -281,7 +288,11 @@ async def _authorize_websocket(ws: WebSocket, api_key: str) -> bool:
         ws.headers.get("X-API-Key")
         or ws.query_params.get("api_key")
     )
-    if provided_key and hmac.compare_digest(provided_key, api_key):
+    # Bytes comparison — a non-ASCII key would TypeError on the str form (see the
+    # middleware note); here it would bubble out of the WS handshake. (bughunt 2026-07-03)
+    if provided_key and hmac.compare_digest(
+        provided_key.encode("utf-8", "ignore"), (api_key or "").encode("utf-8", "ignore")
+    ):
         return True
     await ws.close(code=1008, reason="Invalid or missing API key")
     return False

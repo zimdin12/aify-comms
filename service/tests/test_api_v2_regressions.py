@@ -702,6 +702,31 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(updated.json()["active_managed_run_stale_minutes"], 6)
         self.assertEqual(updated.json()["resident_lease_seconds"], 180)
 
+    def test_settings_reject_bad_coercions(self):
+        # bughunt 2026-07-03: a bool setting must NOT accept the STRING "false" as True
+        # (bool("false") is truthy), and a numeric setting must reject a non-finite float.
+        base = self.client.get("/api/v1/settings").json()
+        # String "false" for a bool → coerced to False, never left True.
+        r = self.client.put("/api/v1/settings", json={"insert_messages_via_console": "false"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertFalse(r.json()["insert_messages_via_console"], "string 'false' must not set a bool True")
+        r = self.client.put("/api/v1/settings", json={"insert_messages_via_console": "true"})
+        self.assertTrue(r.json()["insert_messages_via_console"])
+        # A garbage string for a bool is rejected (setting unchanged), not coerced True.
+        r = self.client.put("/api/v1/settings", json={"manual_session_mode": "yes-please"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["manual_session_mode"], base["manual_session_mode"])
+        # A JSON infinity literal must NOT 500 (int(inf) OverflowError); it's rejected.
+        # Send the RAW body — Python's json can't serialize inf, but a real client sends
+        # the literal text "1e999" which the server's parser turns into float('inf').
+        r = self.client.put(
+            "/api/v1/settings",
+            content=b'{"dashboard_refresh_seconds": 1e999}',
+            headers={"Content-Type": "application/json"},
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(isinstance(r.json()["dashboard_refresh_seconds"], int))
+
     def test_analytics_range_filters_run_mix_and_all_time_series(self):
         self._register("lead")
         self._register("coder")

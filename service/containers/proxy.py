@@ -57,12 +57,18 @@ async def proxy_request(request: Request, target_url: str) -> StreamingResponse:
     response = await client.send(req, stream=True)
 
     resp_headers = dict(response.headers)
-    for h in ["transfer-encoding", "connection", "content-encoding"]:
+    # aiter_bytes() DECODES the body (gzip/br), so we must drop BOTH content-encoding
+    # AND content-length (the latter is the COMPRESSED size and would be wrong for the
+    # decoded stream). Bughunt 2026-07-03: the old code popped content-encoding but
+    # streamed aiter_raw() (still-encoded) while KEEPING content-length → the client
+    # decoded garbage for any compressed upstream response.
+    for h in ["transfer-encoding", "connection", "content-encoding", "content-length"]:
         resp_headers.pop(h, None)
+        resp_headers.pop(h.title(), None)
 
     async def stream_body():
         try:
-            async for chunk in response.aiter_raw():
+            async for chunk in response.aiter_bytes():
                 yield chunk
         finally:
             try:
