@@ -13,6 +13,12 @@ import { fleetPulseHtml } from './analytics.js';
 export function dmMessages(messages, agentId, identity = 'dashboard') {
   const peer = String(agentId || '');
   return (messages || []).filter((m) => {
+    // Exclude channel-broadcast rows (bughunt 2026-07-03): /messages/recent returns
+    // channel posts (source:'channel', to:null); without this guard a channel message
+    // rendered inside a DM timeline and got DM-only controls (Reply/Mark-read/Unsend)
+    // that misfire — Mark-read 403s on the NULL recipient, Unsend deletes the channel
+    // post from the wrong surface, and the DM rail preview/count is polluted.
+    if (String(m.source || '') === 'channel' || m.channel) return false;
     const from = String(m.from || '');
     const to = String(m.to || m.targetAgentId || m.target_agent_id || '');
     return from === peer || to === peer;

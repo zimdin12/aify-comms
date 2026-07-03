@@ -2183,7 +2183,7 @@ function renderSessionConsole(session, targetEl, opts = {}) {
   // auto-attach mounts terminals for far more sessions). A hidden host (its page/tab inactive →
   // display:none → offsetParent null) must be a no-op; only the visible host owns the mount.
   // setPage() re-renders on switch, so the console appears immediately when its page is shown.
-  if (host.offsetParent === null) return;
+  if (host.offsetParent === null) { host.__consoleWasHidden = true; return; }
   const id = sessionId(session);
   const status = String(session?.status || '').toLowerCase();
   const canStop = !['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled'].includes(status);
@@ -2375,9 +2375,24 @@ function renderSessionConsole(session, targetEl, opts = {}) {
     && host.contains(state.activeXterm.container);
   if (host.dataset.consoleKey === consoleKey && (!hasTerminal || xtermStillMounted)) {
     if (hasTerminal && state.activeXterm) state.activeXterm.canInput = canConsoleInput;
+    // Re-show resync (bughunt 2026-07-03): while this host was hidden (page switched
+    // away) terminal_output frames hit the offsetParent early-return before lastSeq
+    // advanced, so they were dropped — and an idle agent emits no new frame to trip the
+    // seq-gap resync. On return, repaint the authoritative buffer once (mirrors the
+    // WS-reconnect resync). Guard on the mounted xterm; clear the flag so it's one-shot.
+    if (host.__consoleWasHidden) {
+      host.__consoleWasHidden = false;
+      if (hasTerminal && state.activeXterm && state.activeXterm.term) resyncActiveConsole().catch(() => {});
+    }
     return;
   }
   host.dataset.consoleKey = consoleKey;
+  host.__consoleWasHidden = false;
+
+  // Close any live codex console WS before we rewrite innerHTML (bughunt 2026-07-03):
+  // the rewrite detaches the codex container from the DOM but left the WebSocket open
+  // with a stale map entry — one leaked socket per re-render / widget-kind change.
+  if (agentIdForCodex) { try { codexConsoleClose(agentIdForCodex); } catch {} }
 
   host.innerHTML = `${headerCard}${ptyEmbed}${startConsoleEmbed}${residentConsoleNote}${hermesIframe}${codexConsole}`;
 

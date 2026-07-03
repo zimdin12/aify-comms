@@ -20,6 +20,17 @@ test("dmMessages keeps only messages to/from the peer", () => {
   assert.deepEqual(got, ["1", "2", "4"]);
 });
 
+test("dmMessages excludes channel-broadcast rows (bughunt 2026-07-03)", () => {
+  const msgs = [
+    { id: "1", from: "alice", to: "dashboard" },
+    { id: "c", from: "alice", to: null, source: "channel", channel: "sand-castle" },
+    { id: "c2", from: "alice", channel: "status" },
+  ];
+  // A channel post from the same peer must NOT render in the DM timeline (it would
+  // get DM-only Reply/Mark-read/Unsend controls that misfire).
+  assert.deepEqual(dmMessages(msgs, "alice").map((m) => m.id), ["1"]);
+});
+
 test("chatConversationItems pins favorites, then sorts by activity (default)", () => {
   const state = {
     agents: [
