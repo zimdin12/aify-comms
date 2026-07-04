@@ -15515,6 +15515,28 @@ async def send_message(req: MessageSend, request: Request):
                                         )
                                     )
                                     channel_backing_failed.add(recipient_id)
+                    # Final safety (2026-07-04): a channel-managed claude dispatch must
+                    # never strand until the 180s queued-run backstop. If — after the
+                    # terminal reuse / PTY-ensure above — there is STILL no live
+                    # managed-wrapper-child to run claude-channel.js AND no claimable
+                    # spawn request, cold-start one now so a bridge spawns the wrapper
+                    # and claims this run on its next poll (the aicm-lc-manager
+                    # 'queued, never spawned' strand). Idempotent: a live claimer or a
+                    # pending spawn short-circuits it, so no duplicate workers.
+                    if recipient_id not in channel_backing_failed and (
+                        not await _has_live_managed_wrapper_child(db, recipient_id)
+                        and not await _has_claimable_spawn_request(db, recipient_id)
+                    ):
+                        try:
+                            await _coldstart_spawn_request_for_dispatch(
+                                db,
+                                recipient_id,
+                                runtime=runtime,
+                                settings=settings,
+                                requested_by=req.from_agent,
+                            )
+                        except Exception:
+                            pass
                     continue
                 console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                 if not console_terminal:
