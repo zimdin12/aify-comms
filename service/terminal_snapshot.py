@@ -19,11 +19,30 @@ so the console behaves exactly as before (never worse, never an error).
 
 from __future__ import annotations
 
+import re
+
 try:
     import pyte  # type: ignore
     _HAVE_PYTE = True
 except Exception:  # pragma: no cover - exercised only when the dep is absent
     _HAVE_PYTE = False
+
+
+# Balanced alternate-screen regions (DECSET 1049/1047/47 enter ... matching exit).
+# Claude/Codex draw transient full-screen overlays (compaction/resume dialog, menus)
+# on the ALT screen, then restore the main screen on exit. pyte does NOT swap buffers,
+# so it paints the overlay into its single buffer and never restores it — a dismissed
+# dialog stays "baked in" to every snapshot forever (operator-reported stuck compaction
+# prompt, 2026-07-06). Strip only BALANCED (enter...exit) regions before replay; an
+# UNCLOSED trailing enter means the overlay is CURRENTLY live and must be shown as-is.
+_BALANCED_ALT_SCREEN_RE = re.compile(
+    r"\x1b\[\?(?:1049|1047|47)h.*?\x1b\[\?(?:1049|1047|47)l",
+    re.DOTALL,
+)
+
+
+def _strip_balanced_alt_screens(raw_output: str) -> str:
+    return _BALANCED_ALT_SCREEN_RE.sub("", raw_output)
 
 # 16-color ANSI names → SGR foreground base (background = +10). pyte reports the
 # standard names; bright variants come through as the base name + the bold flag.
@@ -93,7 +112,7 @@ def infer_source_width(raw_output: str, probe: int = 400, rows: int = 120) -> in
     screen = pyte.Screen(probe, rows)
     stream = pyte.Stream(screen)
     try:
-        stream.feed(raw_output)
+        stream.feed(_strip_balanced_alt_screens(raw_output))
     except Exception:
         return 0
     max_col = 0
@@ -126,7 +145,7 @@ def render_snapshot(raw_output: str, cols: int, rows: int) -> str:
     screen = pyte.Screen(cols, rows)
     stream = pyte.Stream(screen)
     try:
-        stream.feed(raw_output)
+        stream.feed(_strip_balanced_alt_screens(raw_output))
     except Exception:
         # A corrupt/clipped byte log must never break replay — fall back to raw.
         return raw_output
