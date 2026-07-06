@@ -4204,26 +4204,59 @@ def _terminal_awaiting_input_hint(output: str) -> str:
     region = tail[footer_end:] if footer_end >= 0 else tail
     if not region.strip():
         return ""
-    if re.search(r"(\(y/n\)|\[y/n\]|\by/n\b|\[y/N\]|\[Y/n\]|yes/no|press\s+(enter|any key)|enter\s+to\s+confirm|are you sure|overwrite\?|\bpassword\s*:\s*$|passphrase\s*:\s*$)", region, re.I):
+    # A genuine interactive prompt is the CURRENT bottom-of-screen state. An auto-answered
+    # startup artifact \u2014 the claude/hermes "Resume session? \u2026 2. Resume full session as-is \u2026
+    # Enter to confirm" menu, or an old y/n echoed in tool output \u2014 lingers in the captured
+    # buffer as SCROLLBACK: the agent already answered it and emitted more output since. When
+    # substantial non-whitespace content follows a match, the prompt is NOT the live bottom of
+    # the screen, so suppress it. This killed the false "Awaiting console confirmation" on idle
+    # lca/mp that had long since answered the resume menu and were actively working
+    # (2026-07-06/07). A real prompt has only a cursor / short hint after it, so the small
+    # trailing budget never suppresses a genuine y/n or selection.
+    def _live_prompt(pattern: str, max_trailing: int = 120) -> bool:
+        last = None
+        for _pm in re.finditer(pattern, region, re.I):
+            last = _pm
+        if last is None:
+            return False
+        trailing = re.sub(r"\s+", "", region[last.end():])
+        return len(trailing) <= max_trailing
+
+    # The claude/hermes session-RESUME picker ("1. Resume most recent … 2. Resume full session
+    # as-is … 3. Don't ask me again … Enter to confirm") is an AUTO-answered startup screen that
+    # lingers in the pyte snapshot. It renders \r-heavy (carriage returns overwrite in place), so
+    # the trailing-length guard alone is unreliable — the stale menu can end up right at the
+    # bottom (operator-confirmed lca/mp showed a false "Awaiting console confirmation" while
+    # actively working, 2026-07-06/07). Its options are a distinctive signature no genuine y/n
+    # prompt carries, so use them to recognize the picker (space-insensitive: \r collapses spaces).
+    resume_picker = re.search(
+        r"(resume\s*full\s*session|resume\s*most\s*recent|don'?t\s*ask\s*me\s*again|resume\s*session\s*as[\s-]?is)",
+        region,
+        re.I,
+    )
+    # Hard confirmation prompts the resume picker never emits — always honored (near-bottom).
+    if _live_prompt(r"(\(y/n\)|\[y/n\]|\by/n\b|\[y/N\]|\[Y/n\]|yes/no|are you sure|overwrite\?|\bpassword\s*:\s*$|passphrase\s*:\s*$)"):
         return "Awaiting console confirmation."
-    if re.search(r"(use arrows|press enter to (select|confirm)|\(use arrow keys\))", region, re.I):
-        return "Awaiting console selection."
+    # "Enter to confirm" / "press enter" / arrow-select ARE the resume-picker's own chrome — only
+    # treat them as a live operator prompt when the picker signature is absent.
+    if not resume_picker:
+        if _live_prompt(r"(press\s+(enter|any key)|enter\s+to\s+confirm)"):
+            return "Awaiting console confirmation."
+        if _live_prompt(r"(use arrows|press enter to (select|confirm)|\(use arrow keys\))"):
+            return "Awaiting console selection."
     # Claude Code can stop at an interactive prompt without emitting a formal
     # dashboard reply. This keeps the run active but no useful work is moving.
     # Do not match the normal Claude footer ("bypass permissions on",
     # "shift+tab", "for agents") by itself; that footer is present at idle
-    # prompts after successful work too.
-    decision_prompt = re.search(
-        r"(tell me which|need (?:a )?decision|which (option|one)|choose (one|an option)|say the word)",
-        region,
-        re.I,
-    )
-    your_call_prompt = re.search(r"your call\s*(?:[:\u2014-]|\n|$)", region, re.I) and re.search(
+    # prompts after successful work too. Same near-bottom staleness guard applies \u2014
+    # a decision prompt the agent already moved past is stale scrollback.
+    if _live_prompt(r"(tell me which|need (?:a )?decision|which (option|one)|choose (one|an option)|say the word)"):
+        return "Awaiting console input."
+    if _live_prompt(r"your call\s*(?:[:\u2014-]|\n|$)") and re.search(
         r"(decision|option|choose|execute|continue|switch|revert|debug|drive|say the word)",
         region,
         re.I,
-    )
-    if decision_prompt or your_call_prompt:
+    ):
         return "Awaiting console input."
     return ""
 
@@ -15009,23 +15042,67 @@ async def resident_lost(agent_id: str, req: AgentResidentLostRequest, request: R
         )
 
         if not transition:
-            await db.execute(
-                """
-                UPDATE agents
-                SET status = 'stopped',
-                    status_note = ?,
-                    launch_mode = 'none',
-                    last_seen = ?
-                WHERE id = ?
-                """,
-                (
-                    str(req.reason or "Resident runtime bridge was lost and no managed backing was available.")[:500],
-                    now,
-                    agent_id,
-                ),
-            )
-            returned = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-            transition = "resident_to_stopped"
+            # A session_mode='managed' agent reaching here is NOT a resident that lost
+            # its runtime — it's a MANAGED worker whose backing died (the hermes
+            # managed-host reuses this signal via reportGatewayDead when its gateway
+            # port goes dead). The server can re-spawn a managed worker on the next
+            # message, so it must rest at a COLD-STARTABLE state, not 'stopped'.
+            #
+            # The old code stopped it (status='stopped', launch_mode='none'), which the
+            # send-gate rejects outright ("agent status is stopped") — so a dead-gateway
+            # hermes could NEVER wake; every send bounced and the only recovery was a
+            # manual hermes-aify restart (operator-reported: whole hermes team stuck
+            # 'stopped', 2026-07-06/07). Wake test proved status='stopped' hard-blocks
+            # delivery (dispatchRuns:[], reason "agent status is stopped").
+            #
+            # Fix: for a managed agent, mirror an idle-available managed worker
+            # (stored status='active' → _compute_agent_status derives 'available' with
+            # no live worker; launch_mode='detached') so the next send cold-starts a
+            # fresh session (new gateway). The bound env still gates via the send
+            # preflight, so an offline env yields a clean "env unavailable" wait rather
+            # than a permanent stop. Resident agents keep the stop fallback (a resident
+            # that lost its runtime with no managed backing is correctly stopped).
+            agent_is_managed = str(row["session_mode"] or "").strip().lower() == "managed"
+            if agent_is_managed:
+                await db.execute(
+                    """
+                    UPDATE agents
+                    SET status = 'active',
+                        status_note = ?,
+                        launch_mode = 'detached',
+                        last_seen = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        (
+                            "Managed worker backing ended ("
+                            + str(req.reason or "runtime/gateway lost").strip()[:200]
+                            + "); will cold-start a fresh session on the next message."
+                        )[:500],
+                        now,
+                        agent_id,
+                    ),
+                )
+                returned = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+                transition = "managed_worker_lost_available"
+            else:
+                await db.execute(
+                    """
+                    UPDATE agents
+                    SET status = 'stopped',
+                        status_note = ?,
+                        launch_mode = 'none',
+                        last_seen = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        str(req.reason or "Resident runtime bridge was lost and no managed backing was available.")[:500],
+                        now,
+                        agent_id,
+                    ),
+                )
+                returned = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+                transition = "resident_to_stopped"
 
         await db.commit()
         dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)

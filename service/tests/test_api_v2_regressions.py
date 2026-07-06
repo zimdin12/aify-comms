@@ -1246,6 +1246,46 @@ class ApiV2RegressionTests(FastApiTestCase):
         run = self._fetchone("SELECT execution_mode FROM dispatch_runs WHERE id = ?", (dispatched["runs"][0]["runId"],))
         self.assertEqual(run["execution_mode"], "managed")
 
+    def test_managed_worker_gateway_lost_rests_available_not_stopped(self):
+        # 2026-07-06/07: a MANAGED hermes worker whose gateway port died reports resident-lost
+        # (reportGatewayDead). The old fallback stopped it (status='stopped', launch_mode='none'),
+        # which the send-gate rejects outright — so the whole hermes team got stuck 'stopped' and
+        # could never wake (wake test proved dispatchRuns:[], "agent status is stopped"). A managed
+        # worker is re-spawnable, so it must rest COLD-STARTABLE (derives 'available', launch_mode
+        # preserved), NOT stopped. Contrast: test_lost_resident_bridge_stops_until_manual_switch
+        # pins that a RESIDENT loss still stops.
+        self._register(
+            "hermes-worker",
+            role="coder",
+            runtime="hermes",
+            machineId="wsl:test-host",
+            cwd="/workspace/project",
+            sessionMode="managed",
+            launchMode="detached",
+            capabilities=["managed-run", "native-managed-run", "resume", "interrupt", "steer", "spawn"],
+        )
+        before = self._fetchone("SELECT session_mode, launch_mode FROM agents WHERE id = ?", ("hermes-worker",))
+        self.assertEqual(before["session_mode"], "managed")
+
+        lost = self.client.post(
+            "/api/v1/agents/hermes-worker/resident-lost",
+            json={
+                "runtime": "hermes",
+                "reason": "Hermes gateway unreachable at ws://127.0.0.1:9470/api/ws (connection refused).",
+            },
+        )
+        self.assertEqual(lost.status_code, 200, lost.text)
+        self.assertEqual(lost.json()["transition"], "managed_worker_lost_available")
+
+        row = self._fetchone(
+            "SELECT status, launch_mode, status_note FROM agents WHERE id = ?", ("hermes-worker",)
+        )
+        # NOT stopped (send-gate would reject) and STILL cold-startable (launch_mode preserved).
+        self.assertNotEqual(row["status"], "stopped")
+        self.assertEqual(row["status"], "active")
+        self.assertEqual(row["launch_mode"], "detached")
+        self.assertIn("cold-start", (row["status_note"] or "").lower())
+
     def test_send_does_not_steer_into_offline_environment_active_run(self):
         self._heartbeat_environment(
             id="wsl:test-host:default",
