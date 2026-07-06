@@ -7461,19 +7461,23 @@ async def _coldstart_spawn_request_for_dispatch(
     if normalized_runtime not in {"claude-code", "codex", "hermes", "opencode", "pi"}:
         return False
 
-    # Resident-safety (2026-07-06): NEVER cold-start a MANAGED worker for an agent
-    # whose canonical mode is resident and whose resident bridge is still fresh. Both
-    # resident and managed claude agents deliver via claude-channel.js, so a `channel`
-    # dispatch to a resident claude agent must be claimed by the RESIDENT session's own
-    # sidecar — not spawn a managed DUPLICATE beside the live resident (operator-reported
-    # "2 aicm-lc-managers": lc's reply cold-started a managed worker next to the resident).
-    # A deliberate Switch-to-managed flips session_mode to 'managed' BEFORE cold-start, so
-    # this never blocks an intentional resident->managed transition.
-    _agent_row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+    # Resident-safety (2026-07-06): NEVER auto-cold-start a MANAGED worker for a
+    # session_mode='resident' agent — regardless of whether its resident bridge is
+    # fresh or disconnected. resident<->managed is OPERATOR-ONLY (manual ownership
+    # model); an automatic switch is wrong in both states:
+    #   * resident LIVE  → its own claude-channel.js sidecar claims the channel
+    #     dispatch; a managed worker would be a DUPLICATE beside the resident
+    #     (operator-reported "2 aicm-lc-managers": lc's reply spawned a managed twin).
+    #   * resident DISCONNECTED → auto-switching to managed SPLITS delivery: the
+    #     resident (on reconnect) still sends, but replies land on the managed twin,
+    #     so "none come back to the actual agent" (operator-rejected). The dispatch
+    #     should queue for the resident and deliver when it reconnects, not fork a
+    #     managed identity behind the operator's back.
+    # A deliberate Switch-to-managed flips session_mode to 'managed' BEFORE cold-start,
+    # so this never blocks an intentional resident->managed transition.
+    _agent_row = await (await db.execute("SELECT session_mode FROM agents WHERE id = ?", (agent_id,))).fetchone()
     if _agent_row is not None and str(_agent_row["session_mode"] or "").strip().lower() == "resident":
-        _lease = int((settings or {}).get("resident_lease_seconds", 150) or 150)
-        if await _resident_bridge_is_fresh(db, _agent_row, lease_seconds=_lease):
-            return False
+        return False
 
     # Don't pile up duplicate cold-starts — a queued/claimed/recently-running spawn_request
     # is already a (possibly mid-boot) backing for this agent. Bug D fix (2026-07-02): the
