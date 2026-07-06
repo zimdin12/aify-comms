@@ -2928,6 +2928,22 @@ function openIdentityDirectory() {
 // Agent-detail drawer (Phase 1.3): ONE drawer (the shared inspector) surfacing an agent's
 // session/runtime/status + the key lifecycle actions, reusing the existing control functions
 // — no duplicated action surface (the 8800 triplication the plan kills). Reachable from chat.
+// Continue-in-CLI: the command to resume this agent's pinned native session in the
+// operator's own terminal (mirror of the 8800 dashboard resume-command). Empty when
+// there's no saved handle or the runtime has no resident resume (pi/opencode are
+// managed-only). Linux/WSL shell form.
+function continueCliCommand(agent) {
+  const handle = String(agent?.sessionHandle || agent?.session_handle || '').trim();
+  if (!handle) return '';
+  const runtime = String(agent?.runtime || '').trim().toLowerCase();
+  const id = String(agent?.id || '').trim();
+  const agentFlag = id ? ` --aify-agent ${id}` : '';
+  if (runtime === 'claude-code') return `claude-aify${agentFlag} --dangerously-skip-permissions --resume ${handle}`;
+  if (runtime === 'hermes') return `hermes-aify${agentFlag} --resume ${handle}`;
+  if (runtime === 'codex') return `AIFY_RUNTIME=codex AIFY_AGENT_ID=${id} AIFY_SESSION_HANDLE=${handle} CODEX_THREAD_ID=${handle} CODEX_HOME="$HOME/.local/state/aify-comms/managed-codex-home" codex --no-alt-screen resume --include-non-interactive ${handle}`;
+  return '';
+}
+
 function openAgentDrawer(agentId) {
   const id = String(agentId || '').trim();
   if (!id) return;
@@ -2951,6 +2967,13 @@ function openAgentDrawer(agentId) {
     `<button class="ghost danger" data-agent-remove="${esc(id)}">Remove agent</button>`,
     `<button class="ghost" data-agent-open-sessions="${esc(sid)}">Open in Sessions</button>`,
   ].filter(Boolean).join('');
+  const cliCmd = continueCliCommand(agent);
+  const continueCliBlock = cliCmd ? `
+      <div class="agent-drawer-cli">
+        <div class="agent-drawer-subhead">Continue in CLI</div>
+        <p class="subtle">Resume this session in your own terminal — native ${esc(agent.runtime || 'runtime')} CLI.</p>
+        <div class="cli-cmd-row"><code class="cli-cmd">${esc(cliCmd)}</code><button class="ghost" data-copy-cli="${esc(cliCmd)}" title="Copy the resume command">Copy</button></div>
+      </div>` : '';
   const sessionChangedBanner = agent.sessionChanged ? `
       <div class="session-changed-banner" role="alert">
         <p>⚠ This agent reported a new session id <code>${esc(agent.pendingSessionId)}</code> that differs from its pinned handle <code>${esc(agent.sessionHandle || '—')}</code>. Delivery still targets the pinned handle until you resolve this.</p>
@@ -2971,6 +2994,7 @@ function openAgentDrawer(agentId) {
         ${row('Session', sid ? `${esc(sid)} · ${esc(session.status || 'unknown')}` : '<span class="subtle">no active session</span>')}
         ${row('Machine', esc(agent.machineId || '—'))}
       </dl>
+      ${continueCliBlock}
       <div class="agent-drawer-actions">${actions}</div>
     </div>`;
   state.inspector = { ...state.inspector, kind: 'agent', runId: '' };
@@ -3793,6 +3817,8 @@ document.addEventListener('click', (event) => {
   if (sessionConfirm) { resolveAgentSession(sessionConfirm.dataset.sessionConfirm, 'confirm'); return; }
   const sessionKeep = event.target.closest('[data-session-keep]');
   if (sessionKeep) { resolveAgentSession(sessionKeep.dataset.sessionKeep, 'keep'); return; }
+  const copyCli = event.target.closest('[data-copy-cli]');
+  if (copyCli) { copyText(copyCli.dataset.copyCli || '').then((ok) => toast(ok ? 'Resume command copied' : 'Copy failed', ok ? 'ok' : 'error')); return; }
   const agentDetails = event.target.closest('[data-agent-details]');
   if (agentDetails) { openAgentDrawer(agentDetails.dataset.agentDetails); return; }
   const agentRemove = event.target.closest('[data-agent-remove]');
