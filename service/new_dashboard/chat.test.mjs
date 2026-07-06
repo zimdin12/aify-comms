@@ -7,7 +7,32 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { dmMessages, chatConversationItems, deliveryToastFor } from "./chat.js";
+import { dmMessages, chatConversationItems, deliveryToastFor, sortChronological } from "./chat.js";
+
+test("sortChronological orders oldest→newest so the newest sits at the bottom (2026-07-06)", () => {
+  // /messages/recent returns DESCENDING (newest first). The timeline must show ascending.
+  const recentOrder = [
+    { id: "new", timestamp: 3000 },
+    { id: "mid", timestamp: 2000 },
+    { id: "old", timestamp: 1000 },
+  ];
+  const got = sortChronological(recentOrder).map((m) => m.id);
+  assert.deepEqual(got, ["old", "mid", "new"], "newest must end up last (rendered at the bottom)");
+});
+
+test("sortChronological is pure (does not mutate the input) and tolerates field-name/absent timestamps", () => {
+  const input = [
+    { id: "b", createdAt: 2000 },
+    { id: "a", time: 1000 },
+    { id: "z" }, // no timestamp → treated as 0, sorts first, never throws
+  ];
+  const snapshot = input.map((m) => m.id);
+  const got = sortChronological(input).map((m) => m.id);
+  assert.deepEqual(got, ["z", "a", "b"]);
+  assert.deepEqual(input.map((m) => m.id), snapshot, "input array order must be untouched");
+  assert.deepEqual(sortChronological(null), []);
+  assert.deepEqual(sortChronological(undefined), []);
+});
 
 test("dmMessages keeps only messages to/from the peer", () => {
   const msgs = [

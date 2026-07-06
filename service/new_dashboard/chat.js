@@ -25,6 +25,16 @@ export function dmMessages(messages, agentId, identity = 'dashboard') {
   });
 }
 
+// A chat timeline renders OLDEST→NEWEST (newest at the bottom), but DM rows arrive from
+// `/messages/recent` in DESCENDING order (newest first). Sorting ascending by timestamp here
+// is the single fix for the 2026-07-06 "my sent message never appears" bug: without it the
+// just-sent row landed at the top and the auto-scroll yanked the operator to old scrollback.
+// Pure + stable (returns a NEW array; falls back across timestamp/createdAt/time field names).
+export function sortChronological(messages) {
+  const ts = (m) => Number(m && (m.timestamp ?? m.createdAt ?? m.time) || 0) || 0;
+  return (messages || []).slice().sort((a, b) => ts(a) - ts(b));
+}
+
 // Rank for the "status" sort + working-first hoist: busy/blocked float up, dead sink.
 // 6-state proof-based model (idle/stale were removed 2026-06-18 and normalize away in status.js).
 const STATUS_SORT_RANK = { working: 0, blocked: 1, online: 2, available: 3, offline: 4, stopped: 5, unknown: 6 };
@@ -268,6 +278,14 @@ export function renderAnalyticsPanelHtml(agentId, data) {
 export function createChatController(deps) {
   const { state, byId, sendMessage, refresh, loadConversation, loadAgentAnalytics, mountChatConsole, loadPulse, persistDrafts } = deps;
 
+  // One-shot "pin to newest" flag. The timeline renders oldest→newest, so the
+  // newest message lives at the BOTTOM. On a fresh conversation open (or right
+  // after the operator sends), we must land on the bottom regardless of the
+  // current scroll position — otherwise open() would leave the operator staring
+  // at the OLDEST scrollback (2026-07-06 fix follow-up). Poll re-renders still
+  // use the gentler follow-bottom heuristic so we never yank someone reading up.
+  let forceScrollBottom = false;
+
   function renderRail() {
     const host = byId('chat-rail-list');
     if (!host) return;
@@ -383,9 +401,17 @@ export function createChatController(deps) {
       if (mountChatConsole && host) mountChatConsole(id, host);
       return;
     }
-    const allMsgs = isChannel
+    // Chat timelines render OLDEST→NEWEST (newest at the bottom) — every scroll
+    // behavior here assumes it: follow-bottom (line ~398), the post-send auto-scroll
+    // (`scrollTop = scrollHeight`), and the "scroll to newest" button all target the
+    // bottom. But DM rows come from `/messages/recent`, which is DESCENDING (newest
+    // first), so without this sort the just-sent message landed at the TOP and the
+    // auto-scroll yanked the operator down to 2-day-old scrollback → "my message
+    // never appears" (2026-07-06). Sort ascending by timestamp so newest is last;
+    // idempotent for channel rows (already roughly ordered), and stable across polls.
+    const allMsgs = sortChronological(isChannel
       ? (state.chat.channelMessages?.[id] || [])
-      : dmMessages(state.messages, id, state.chat.identity);
+      : dmMessages(state.messages, id, state.chat.identity));
     // Per-message search within the open conversation (WS-H2).
     const msgFilter = String(state.chat.msgFilter || '').trim().toLowerCase();
     const search = byId('chat-msg-search');
@@ -393,14 +419,26 @@ export function createChatController(deps) {
     const msgs = msgFilter
       ? allMsgs.filter((m) => `${m.from || ''} ${m.subject || ''} ${m.body || m.preview || ''}`.toLowerCase().includes(msgFilter))
       : allMsgs;
-    // Follow-bottom: only auto-scroll to the newest message if the operator was already near
-    // the bottom — don't yank them down while they're reading scrollback.
+    // Follow-bottom: on a fresh open/just-sent (forceScrollBottom) always pin to the newest;
+    // otherwise only auto-scroll if the operator was already near the bottom — don't yank them
+    // down while they're reading scrollback.
     const nearBottom = (timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight) < 80;
+    const pinBottom = forceScrollBottom;
+    forceScrollBottom = false; // one-shot: consumed by this render
     const searchBanner = msgFilter ? `<p class="chat-search-banner">${msgs.length} of ${allMsgs.length} message${allMsgs.length === 1 ? '' : 's'} match “${esc(msgFilter)}”</p>` : '';
     timeline.innerHTML = allMsgs.length
       ? searchBanner + (msgs.length ? msgs.map((m) => messageHtml(m, state.chat.identity, isChannel)).join('') : '<p class="chat-search-banner">No messages match.</p>')
       : '<div class="empty-state"><span class="empty-icon">✉️</span><strong>No messages yet</strong><p>Send the first message below to start this conversation.</p></div>';
-    if (nearBottom && !msgFilter) timeline.scrollTop = timeline.scrollHeight;
+    if (pinBottom || (nearBottom && !msgFilter)) {
+      timeline.scrollTop = timeline.scrollHeight;
+      // A forced pin (open/send) must land EXACTLY at the bottom. Setting scrollTop right after
+      // innerHTML can fall short once late reflow (font metrics, wrapped rows) grows scrollHeight —
+      // landing >80px short drops us out of the follow-bottom band, so subsequent polls no longer
+      // track and the newest message stays half-hidden. Re-pin after layout settles.
+      if (pinBottom && typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => { timeline.scrollTop = timeline.scrollHeight; });
+      }
+    }
     // Scroll-to-newest button: wire its scroll listener + click once, and refresh visibility now.
     const scrollBtn = byId('chat-scroll-bottom');
     if (scrollBtn) {
@@ -482,6 +520,7 @@ export function createChatController(deps) {
     //  - Console/Messenger: keep state.chat.view as-is (no reset to 'messenger'). Console only
     //    renders for agent DMs, so a channel naturally shows messages even when 'console' sticks.
     state.chat.selected = key;
+    forceScrollBottom = true; // opening a conversation lands on the newest message (bottom)
     if (isChannel) {
       const name = key.slice('channel:'.length);
       try { await loadConversation(name); } catch (_) { /* toast handled upstream */ }
@@ -583,6 +622,7 @@ export function createChatController(deps) {
       }
       await refresh();
       if (isChannel) { try { await loadConversation(id); } catch (_) {} }
+      forceScrollBottom = true; // reveal the just-sent message at the bottom
       render();
     } catch (error) {
       toast(`Send failed: ${error?.message || error}`, 'error');
