@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS messages (
     priority TEXT DEFAULT 'normal',
     dispatch_requested INTEGER DEFAULT 0,
     in_reply_to TEXT,
+    client_nonce TEXT DEFAULT '',
     timestamp INTEGER NOT NULL,
     FOREIGN KEY (in_reply_to) REFERENCES messages(id) ON DELETE SET NULL
 );
@@ -503,6 +504,7 @@ DISPATCH_RUN_MIGRATIONS = {
 
 MESSAGE_MIGRATIONS = {
     "dispatch_requested": "ALTER TABLE messages ADD COLUMN dispatch_requested INTEGER DEFAULT 0",
+    "client_nonce": "ALTER TABLE messages ADD COLUMN client_nonce TEXT DEFAULT ''",
 }
 
 DISPATCH_CONTROL_MIGRATIONS = {

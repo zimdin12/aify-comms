@@ -1153,7 +1153,7 @@ const RETRIABLE_POST_PATHS = new Set([
   "/channels/join",       // channel join is idempotent (SKIP suffix match below)
 ]);
 
-function isRetriableRequest(method, endpoint) {
+function isRetriableRequest(method, endpoint, body = null) {
   const m = String(method || "").toUpperCase();
   if (m === "GET" || m === "PATCH" || m === "DELETE") return true;
   if (m !== "POST") return false;
@@ -1164,6 +1164,10 @@ function isRetriableRequest(method, endpoint) {
   if (/^\/agents\/[^/]+\/heartbeat$/.test(path)) return true;
   if (path === "/environments/heartbeat") return true;
   if (/^\/channels\/[^/]+\/join$/.test(path)) return true;
+  // /messages/send is idempotent ONLY when the body carries a clientNonce (#240):
+  // the server collapses a retry to the original message. A nonce-less send is NOT
+  // retriable (it would double-send), so gate on the nonce actually being present.
+  if (path === "/messages/send" && body && typeof body === "object" && String(body.clientNonce || "").trim()) return true;
   return false;
 }
 
@@ -1199,7 +1203,7 @@ async function httpCall(method, endpoint, body = null, opts = {}) {
     baseOptions.headers["Content-Type"] = "application/json";
     baseOptions.body = JSON.stringify(body);
   }
-  const retriable = isRetriableRequest(method, endpoint);
+  const retriable = isRetriableRequest(method, endpoint, body);
   const maxAttempts = retriable ? HTTP_RETRY_ATTEMPTS : 1;
   let lastError;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -1671,6 +1675,11 @@ async function ensureRequiredReplyHandoff(agentId, run = {}, terminalStatus = "c
       body: autoReplyBodyForRun(run, terminalStatus, detailText),
       priority: run.priority || "normal",
       trigger: false,
+      // Deterministic idempotency key (#240): this owed-reply handoff is the highest-value
+      // victim of a dropped send — a transient socket error here strands the require_reply
+      // run. Keying the nonce on the run id lets httpCall retry the POST safely, and also
+      // dedups if the handoff fires more than once for the same run.
+      clientNonce: `handoff-${run.id}-${terminalStatus}`,
     };
     const replyParent = current.messageId || current.inReplyTo || "";
     if (replyParent) body.inReplyTo = replyParent;
@@ -4337,8 +4346,13 @@ server.tool(
 
     // -- Remote mode --
     if (IS_REMOTE) {
+      // Stable idempotency key (#240): minted once per logical send so httpCall can retry
+      // the POST safely on a transient socket error (the server collapses the retry to the
+      // original message) instead of dropping it. One nonce per tool call — a real second
+      // send is a new tool call with a fresh nonce.
+      const clientNonce = randomUUID();
       const r = await httpCall("POST", "/messages/send", {
-        from_agent: from, to, toRole, type, subject, body, priority: priority || "normal", inReplyTo, trigger: shouldTrigger, steer: forceQueue ? false : (steer ?? true), queueIfBusy: forceQueue, requireReply,
+        from_agent: from, to, toRole, type, subject, body, priority: priority || "normal", inReplyTo, trigger: shouldTrigger, steer: forceQueue ? false : (steer ?? true), queueIfBusy: forceQueue, requireReply, clientNonce,
       });
       if (!r.ok) {
         const skipped = (r.notStarted || []).map((x) => `${x.targetAgentId}: ${x.reason}${x.recipientStatus ? ` (${x.recipientStatus})` : ""}`);

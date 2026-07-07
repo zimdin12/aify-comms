@@ -15331,6 +15331,32 @@ async def send_message(req: MessageSend, request: Request):
         # hermes process exit, opencode SDK turn-complete). Resident
         # claude under claude-channel.js needs its Stop hook to call
         # the bridge — see install.sh's claude wrapper installation.
+        # Idempotency (#240): a bridge send that hit a transient socket error may have
+        # actually landed server-side. /messages/send is otherwise non-idempotent (a fresh
+        # msg_id per call), so a retry would DOUBLE-send — which is why the bridge excluded
+        # it from its retry list and instead DROPPED the send, stranding owed replies. With
+        # an optional clientNonce, a retry of the same logical send collapses to the original
+        # message: look it up by (from_agent, client_nonce) and short-circuit with the SAME
+        # messageId so the bridge can retry safely. Scoped per sender; absent nonce = today's
+        # behavior (old bridges omit it, so no dedup — fully backward compatible).
+        client_nonce = str(req.clientNonce or "").strip()
+        if client_nonce:
+            prior = await (await db.execute(
+                "SELECT id FROM messages WHERE from_agent = ? AND client_nonce = ? ORDER BY timestamp ASC LIMIT 1",
+                (req.from_agent, client_nonce),
+            )).fetchone()
+            if prior is not None:
+                return {
+                    "ok": True,
+                    "messageId": prior["id"],
+                    "replayed": True,
+                    "recipients": [],
+                    "recipientStatus": {},
+                    "dispatchRuns": [],
+                    "notStarted": [],
+                    "consoleDeliveries": [],
+                    "warnings": [],
+                }
         msg_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
         ts = int(time.time() * 1000)
         resolved_in_reply_to, reply_parent_found = await _resolve_reply_parent_message_id(db, req.inReplyTo)
@@ -15711,9 +15737,9 @@ async def send_message(req: MessageSend, request: Request):
             recipient_message_id = f"{msg_id}-{r}" if len(recipients) > 1 else msg_id
             dispatch_requested = 1 if req.trigger and r != "dashboard" else 0
             await db.execute(
-                "INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, client_nonce, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (recipient_message_id,
-                 req.from_agent, r, "direct", req.type, req.subject, req.body, req.priority, dispatch_requested, resolved_in_reply_to, ts)
+                 req.from_agent, r, "direct", req.type, req.subject, req.body, req.priority, dispatch_requested, resolved_in_reply_to, client_nonce, ts)
             )
 
         if resolved_in_reply_to:

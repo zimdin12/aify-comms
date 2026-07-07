@@ -92,6 +92,7 @@ class MessageSend(BaseModel):
     steer: Optional[bool] = None
     queueIfBusy: bool = False
     requireReply: Optional[bool] = None
+    clientNonce: Optional[str] = None
 
 
 class AgentRuntimeStateUpdate(BaseModel):
