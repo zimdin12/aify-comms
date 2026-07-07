@@ -54,7 +54,11 @@ import { writeLoopReady, clearLoopReady } from "./hermes-loop-ready.js";
 import { pinnedSessionId } from "./hermes-session-id.js";
 import { dispatchContent } from "./claude-channel.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
-import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
+import {
+  startGatewayLivenessProbe,
+  isTuiDepsBuildFailure,
+  tuiDepsBuildFailureMessage,
+} from "./hermes-gateway-liveness.js";
 import {
   startInFlightRepulse,
   shouldManagedHostRepulse,
@@ -378,7 +382,7 @@ async function scrapeToken(indexUrl, fetchImpl) {
 
 // Poll the dashboard index until it responds (and carries a token), or the
 // deadline elapses. Returns the token.
-async function waitForIndexToken(indexUrl, fetchImpl, { deadlineMs, intervalMs }) {
+async function waitForIndexToken(indexUrl, fetchImpl, { deadlineMs, intervalMs, detectFailure } = {}) {
   const deadline = Date.now() + deadlineMs;
   let lastErr = null;
   for (;;) {
@@ -386,6 +390,21 @@ async function waitForIndexToken(indexUrl, fetchImpl, { deadlineMs, intervalMs }
       return await scrapeToken(indexUrl, fetchImpl);
     } catch (err) {
       lastErr = err;
+      // FAIL FAST on a known-fatal boot signature (task #237 item e). The
+      // "Installing TUI dependencies" npm step runs OUTSIDE `--skip-build` and, on
+      // hermes upstream drift, dies `npm error Missing script: "build"` — the
+      // dashboard then NEVER binds, so without this check the launch limps to the
+      // opaque ~60s readiness timeout. `detectFailure` (injected by ensureGatewayHost)
+      // returns the CLEAR, distinct message the instant the signature is seen.
+      if (typeof detectFailure === "function") {
+        let sig = null;
+        try {
+          sig = await detectFailure();
+        } catch {
+          sig = null;
+        }
+        if (sig) throw new Error(sig);
+      }
       if (Date.now() > deadline) {
         throw new Error(
           `hermes dashboard at ${indexUrl} did not become ready within ${deadlineMs}ms: ` +
@@ -493,12 +512,15 @@ export async function ensureGatewayHost({
   // surface). stdin/stdout stay ignored; stderr → a per-port log so the next
   // gateway failure is one `tail` away.
   let gwErrFd = "ignore";
+  let gwErrPath = "";
   try {
     const logDir = path.join(os.homedir(), ".local", "state", "aify-comms");
     fs.mkdirSync(logDir, { recursive: true });
-    gwErrFd = fs.openSync(path.join(logDir, `hermes-gateway-host-${port}.log`), "a");
+    gwErrPath = path.join(logDir, `hermes-gateway-host-${port}.log`);
+    gwErrFd = fs.openSync(gwErrPath, "a");
   } catch {
     gwErrFd = "ignore";
+    gwErrPath = "";
   }
   const child = spawn(hermesCmd, args, {
     stdio: ["ignore", "ignore", gwErrFd],
@@ -516,8 +538,13 @@ export async function ensureGatewayHost({
     // the `/api/ws` WebSocket the bridge + visible TUI attach to (see the args comment
     // above). Without it `/api/ws` closes 4403 → "gateway websocket connection failed"
     // across all managed hermes agents → headless orphans. It is the crash-safe env
-    // equivalent of the `--tui` flag the dashboard subcommand rejects (verified:
-    // `/api/ws` OPENs with it, CLOSEs without).
+    // equivalent of the `--tui` flag the dashboard subcommand rejects.
+    // INERT on current hermes: the upstream 0.15.1 patch `cae6b5486` hardcodes
+    // `_DASHBOARD_EMBEDDED_CHAT_ENABLED = True` and removed the `--tui`/HERMES_DASHBOARD_TUI
+    // gate, so on that build (and later) plain `hermes dashboard` already serves `/api/ws`
+    // and this env is a harmless no-op. DO NOT REMOVE IT — it is retained as the crash-safe
+    // lever for PINNED-OLDER hermes 0.15.x builds (pre-`cae6b5486`), where `/api/ws` still
+    // closes 4403 without it. (See KNOWN_ISSUES.md and DECISIONS.md.)
     env: { ...process.env, HERMES_YOLO_MODE: "1", HERMES_DASHBOARD_TUI: "1" },
   });
   if (typeof gwErrFd === "number") {
@@ -538,13 +565,113 @@ export async function ensureGatewayHost({
   // lifecycle explicitly via teardown.
   if (typeof child.unref === "function") child.unref();
 
+  // TUI-deps / npm-build boot-failure FAST-FAIL (task #237 item e). The gateway
+  // child's stderr can carry the fatal `npm error Missing script: "build"` from the
+  // "Installing TUI dependencies" step (runs OUTSIDE `--skip-build`); when it does,
+  // the dashboard never binds and — without this — the launch limps to the opaque ~60s
+  // readiness timeout. We watch stderr TWO ways so both stdio shapes are covered:
+  //   (1) a readable child.stderr stream (the opt-in pipe path + injected test fakes),
+  //   (2) the per-port stderr LOG FILE (the LIVE path routes stderr to a file fd, so
+  //       child.stderr is null there) — read its tail during the readiness poll.
+  // Both are additive + best-effort and NEVER touch the happy-path launch. Reading the
+  // log file only happens DURING the readiness wait (this CLI/loop process is still
+  // alive), so it never risks the detached child's file fd.
+  let gwStderrBuf = "";
+  if (child && child.stderr && typeof child.stderr.on === "function") {
+    try {
+      child.stderr.on("data", (chunk) => {
+        try {
+          gwStderrBuf = (gwStderrBuf + String(chunk)).slice(-8192);
+        } catch {
+          /* ignore */
+        }
+      });
+      child.stderr.on("error", () => {});
+    } catch {
+      /* ignore — stderr scanning is best-effort */
+    }
+  }
+  const detectBootFailure = async () => {
+    if (isTuiDepsBuildFailure(gwStderrBuf)) return tuiDepsBuildFailureMessage(port, gwStderrBuf);
+    if (gwErrPath) {
+      try {
+        const tail = fs.readFileSync(gwErrPath, "utf8").slice(-8192);
+        if (isTuiDepsBuildFailure(tail)) return tuiDepsBuildFailureMessage(port, tail);
+      } catch {
+        /* log unreadable yet → nothing to detect */
+      }
+    }
+    return null;
+  };
+
   const token = await waitForIndexToken(indexUrl, fetchImpl, {
+    detectFailure: detectBootFailure,
     deadlineMs: readyTimeoutMs,
     intervalMs: readyIntervalMs,
   });
   // Index served — now confirm the /api/ws socket actually opens (see verifyWsOpen).
   await verifyWsOpen(token);
   return { port, token, wsUrl: wsUrlFor(token), child, reused: false };
+}
+
+// ---------------------------------------------------------------------------
+// Blast-radius isolation (task #237 item a): PROACTIVE gateway re-ensure.
+// ---------------------------------------------------------------------------
+//
+// Upstream `hermes update` and `hermes dashboard --stop` SIGTERM EVERY
+// `hermes dashboard`/`serve` process, so an operator running `hermes update` kills
+// ALL aify managed gateway hosts at once. Previously they only recovered on the next
+// env-bridge BOOT (a full bridge restart). This helper lets the normal periodic
+// delivery/heartbeat cycle DETECT a dead gateway host and RE-ENSURE (respawn) it
+// idempotently, so a single agent's host self-heals without waiting for a bridge
+// restart.
+//
+// SAFETY:
+//   - NEVER double-spawns: it re-ensures ONLY when `isAlive()` reports the gateway
+//     dead (dashboard index unreachable). A gateway that is bound but merely
+//     ws-broken stays `alive` here and is left to the reactive resident-lost path —
+//     so this never fights that behavior. On top of that, `ensureHost` is expected to
+//     be `ensureGatewayHost` (probeFirst), which itself reuses any live host.
+//   - NEVER fights a deliberate stop: `isStopping()` short-circuits before any probe
+//     or spawn, so a teardown-in-progress is never re-spawned.
+//
+// Pure/injected (isAlive, ensureHost, isStopping) so it is fully unit-testable with
+// no real sockets or processes.
+export async function maybeReEnsureGatewayHost({
+  isAlive,
+  ensureHost,
+  isStopping,
+  log = () => {},
+} = {}) {
+  if (typeof isStopping === "function" && isStopping()) {
+    return { reEnsured: false, reason: "stopping" };
+  }
+  if (typeof isAlive !== "function" || typeof ensureHost !== "function") {
+    return { reEnsured: false, reason: "not-configured" };
+  }
+  let alive = false;
+  try {
+    const r = await isAlive();
+    alive = r === true || (r && r.alive === true);
+  } catch {
+    // An unreachable/throwing probe counts as DEAD → proceed to re-ensure.
+    alive = false;
+  }
+  if (alive) return { reEnsured: false, reason: "already-live" };
+  try {
+    const host = await ensureHost();
+    try {
+      log(
+        "[hermes-managed-host] gateway host was found dead on the periodic cycle; " +
+          "re-ensured it (blast-radius recovery — likely an operator `hermes update`/`--stop`).",
+      );
+    } catch {
+      /* logging must never break recovery */
+    }
+    return { reEnsured: true, host };
+  } catch (err) {
+    return { reEnsured: false, reason: "ensure-failed", error: err };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2235,6 +2362,39 @@ export async function runDeliveryLoop(agentId, deps = {}) {
           // ONCE so the dispatcher stops accepting runs against the dead port,
           // rather than waiting out the ~150s heartbeat lease.
           if (isGatewayConnectRefused(connectErr)) {
+            // Blast-radius isolation (task #237 item a): before self-correcting off
+            // `available` (resident-lost, which only recovers on the next env-bridge
+            // BOOT), try to RE-ENSURE the gateway host proactively on this periodic
+            // cycle — an operator `hermes update` / `hermes dashboard --stop` SIGTERMs
+            // EVERY hermes dashboard process, so our per-agent host can die under a live
+            // loop. Idempotent + double-spawn-safe: it respawns ONLY when the dashboard
+            // index is truly unreachable (a bound-but-ws-broken gateway stays `alive`
+            // here → falls through to the reactive resident-lost path, preserving that
+            // behavior), never fights a teardown, and ensureGatewayHost's probeFirst
+            // reuses any live host.
+            const re = await maybeReEnsureGatewayHost({
+              isStopping: () => teardownState.done,
+              isAlive: makeGatewayReachabilityProbe({
+                indexUrl: gatewayIndexUrlFromWs(host.wsUrl),
+                fetchImpl,
+              }),
+              ensureHost: () =>
+                ensureGatewayHost({ agentId: id, port, spawn, fetchImpl, verifyWs: false }),
+              log: (m) => console.error(m),
+            }).catch(() => ({ reEnsured: false }));
+            if (re && re.reEnsured && re.host) {
+              host = re.host;
+              if (re.host.child) gatewayChild = re.host.child;
+              try {
+                wsClient?.close?.();
+              } catch {
+                /* ignore */
+              }
+              wsClient = null;
+              // Recovered — do NOT report resident-lost; retry delivery next tick.
+              await sleepImpl(POLL_MS);
+              continue;
+            }
             await reportGatewayDeadOnce(gatewayUnreachableMessage(host.wsUrl));
           }
           await sleepImpl(POLL_MS);

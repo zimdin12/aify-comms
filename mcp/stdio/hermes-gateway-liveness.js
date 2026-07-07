@@ -31,6 +31,42 @@
 export const DEFAULT_GATEWAY_PROBE_THRESHOLD = 3;
 export const DEFAULT_GATEWAY_PROBE_INTERVAL_MS = 30_000;
 
+// TUI-deps / npm-build boot-failure signature (task #237 item e). When the hidden
+// `hermes dashboard` gateway host boots it may run an "Installing TUI dependencies"
+// npm step that is NOT covered by `--skip-build`; on hermes upstream drift that step
+// fails with `npm error Missing script: "build"` (the 2026-07-03 incident), so the
+// dashboard never binds and the launch otherwise surfaces only as an OPAQUE ~60s
+// readiness timeout ("did not become ready within 60000ms"). Detect the signature in
+// the gateway child's stderr so a broken boot is INSTANTLY triageable and can fail
+// FAST instead of polling the full timeout. Pure + exported for unit tests.
+export function isTuiDepsBuildFailure(text) {
+  const s = String(text || "");
+  if (!s) return false;
+  // The canonical npm failure (with or without the `npm error`/`npm ERR!` prefix).
+  if (/npm (?:error|ERR!)\s+Missing script:\s*["']build["']/i.test(s)) return true;
+  if (/Missing script:\s*["']build["']/i.test(s)) return true;
+  // hermes' own wrapper message around the same failure.
+  if (/TUI build failed/i.test(s)) return true;
+  // The TUI-deps install banner paired with any npm error line.
+  if (/Installing TUI dependencies/i.test(s) && /npm (?:error|ERR!)/i.test(s)) return true;
+  return false;
+}
+
+// Build the CLEAR, distinct error message for the TUI-deps/npm-build boot failure so
+// triage is instant (vs the opaque readiness timeout). `detail` is an optional stderr
+// tail included for context.
+export function tuiDepsBuildFailureMessage(port, detail) {
+  const tail = String(detail || "").trim().slice(-400);
+  return (
+    `hermes gateway host on port ${port} FAILED its boot-time "Installing TUI dependencies" ` +
+    `npm step (\`npm error Missing script: "build"\`). This step runs OUTSIDE \`--skip-build\` and ` +
+    `breaks on hermes upstream drift (the 2026-07-03 incident); the dashboard never bound. ` +
+    `TRIAGE: repair/pin the hermes TUI build (see the aify-comms-debug skill's 10-second triage), ` +
+    `then relaunch hermes-aify.` +
+    (tail ? ` [stderr tail] ${tail}` : "")
+  );
+}
+
 // Pure decision: given the running count of CONSECUTIVE failed probes and a
 // threshold, should we declare the gateway dead? True only at/above the
 // threshold. A non-positive/NaN threshold disables the decision (never dead).

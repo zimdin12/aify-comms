@@ -24,6 +24,10 @@ import {
   isSessionBusyError,
 } from "./hermes-gateway-protocol.js";
 import { terminateProcessTree } from "./runtimes.js";
+import {
+  isTuiDepsBuildFailure,
+  tuiDepsBuildFailureMessage,
+} from "./hermes-gateway-liveness.js";
 
 const hermesGatewayPool = new Map();
 
@@ -168,6 +172,9 @@ export class HermesManagedGatewaySession {
         // HERMES_DASHBOARD_TUI=1 enables the embedded-chat feature that gates the
         // `/api/ws` WebSocket (else it closes 4403 → "gateway websocket connection
         // failed"). Mirrors the active hermes-managed-host.js ensureGatewayHost spawn.
+        // INERT on current hermes (upstream `cae6b5486` hardcodes embedded-chat on and
+        // removed the gate) — DO NOT REMOVE; retained as the crash-safe lever for
+        // pinned-older hermes 0.15.x builds. See hermes-managed-host.js for detail.
         env: { ...process.env, HERMES_YOLO_MODE: "1", HERMES_DASHBOARD_TUI: "1" },
         // HARD no-popup requirement (operator): hide the window even though this
         // opt-in gateway-session path (AIFY_HERMES_MANAGED_USE_GATEWAY=1, off by
@@ -184,6 +191,28 @@ export class HermesManagedGatewaySession {
         this._emit("spawn-error", { message: err?.message || String(err) });
         deferred.reject(err);
       });
+
+      // TUI-deps / npm-build boot-failure FAST-FAIL (task #237 item e). stderr is
+      // piped here, so watch it for the fatal `npm error Missing script: "build"` from
+      // the "Installing TUI dependencies" step and reject with the CLEAR, distinct
+      // message the instant it appears — instead of limping to the ~60s waitForReady
+      // timeout (or an opaque "gateway process exited"). Best-effort; never throws.
+      let _bootErrBuf = "";
+      if (this._proc.stderr && typeof this._proc.stderr.on === "function") {
+        this._proc.stderr.on("data", (chunk) => {
+          try {
+            _bootErrBuf = (_bootErrBuf + String(chunk)).slice(-8192);
+            if (this._state === "starting" && isTuiDepsBuildFailure(_bootErrBuf)) {
+              this._state = "failed";
+              const msg = tuiDepsBuildFailureMessage(this._port, _bootErrBuf);
+              this._emit("spawn-error", { message: msg });
+              deferred.reject(new Error(msg));
+            }
+          } catch {
+            /* stderr scanning must never break startup */
+          }
+        });
+      }
 
       const dashboardUrl = `http://127.0.0.1:${this._port}`;
       // Pass a liveness probe so a spawn-then-die child aborts the wait immediately

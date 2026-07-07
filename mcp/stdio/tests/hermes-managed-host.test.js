@@ -47,7 +47,12 @@ import {
   noTuiAttachedMessage,
   reportGatewayDead,
   makeTeardown,
+  maybeReEnsureGatewayHost,
 } from "../hermes-managed-host.js";
+import {
+  isTuiDepsBuildFailure,
+  tuiDepsBuildFailureMessage,
+} from "../hermes-gateway-liveness.js";
 import { writeSessionIdMarker, readSessionIdMarker } from "../hermes-endpoint.js";
 
 // Isolated temp dir for the native-session-id markers so tests never touch the
@@ -2729,4 +2734,151 @@ test("runEnsureHostCli: ensureSession:true still runs the pre-seed (explicit opt
     err: () => {},
   });
   assert.equal(preseedCalled, true, "explicit ensureSession:true opt-in still pre-seeds");
+});
+
+// ---------------------------------------------------------------------------
+// TUI-deps / npm-build boot-failure FAST-FAIL (task #237 item e).
+// The hidden `hermes dashboard` gateway host runs an "Installing TUI dependencies"
+// npm step OUTSIDE `--skip-build`; on upstream drift it dies `npm error Missing
+// script: "build"`, the dashboard never binds, and the launch otherwise limps to
+// an opaque ~60s readiness timeout. The bridge must detect that stderr signature
+// and fail FAST with a CLEAR, distinct error so triage is instant.
+// ---------------------------------------------------------------------------
+
+test("isTuiDepsBuildFailure: matches the npm build-script failure signature (both prefixes + TUI banner)", () => {
+  assert.equal(isTuiDepsBuildFailure(`npm error Missing script: "build"`), true);
+  assert.equal(isTuiDepsBuildFailure(`npm ERR! Missing script: "build"`), true);
+  assert.equal(isTuiDepsBuildFailure(`Missing script: 'build'`), true);
+  assert.equal(isTuiDepsBuildFailure("hermes: TUI build failed"), true);
+  assert.equal(
+    isTuiDepsBuildFailure("Installing TUI dependencies...\nnpm error code ELIFECYCLE"),
+    true,
+  );
+});
+
+test("isTuiDepsBuildFailure: FALSE for benign / unrelated stderr (no false fast-fail)", () => {
+  assert.equal(isTuiDepsBuildFailure(""), false);
+  assert.equal(isTuiDepsBuildFailure(null), false);
+  assert.equal(isTuiDepsBuildFailure("HERMES_DASHBOARD_READY on port 9342"), false);
+  assert.equal(isTuiDepsBuildFailure("Installing TUI dependencies... done"), false);
+  assert.equal(isTuiDepsBuildFailure("some unrelated warning: deprecated flag"), false);
+});
+
+test("tuiDepsBuildFailureMessage: distinct + actionable — names the port, the npm build failure, and the triage/relaunch", () => {
+  const msg = tuiDepsBuildFailureMessage(9342, `npm error Missing script: "build"`);
+  assert.match(msg, /9342/);
+  assert.match(msg, /Missing script: "build"/);
+  assert.match(msg, /Installing TUI dependencies/i);
+  assert.match(msg, /triage/i);
+  assert.match(msg, /hermes-aify/i);
+  // It must NOT read like the opaque readiness timeout.
+  assert.ok(!/did not become ready within/i.test(msg));
+});
+
+// A fake spawn whose child exposes a readable `.stderr` that emits the given text
+// asynchronously (after ensureGatewayHost attaches its listener).
+function makeFakeSpawnWithStderr(stderrText) {
+  const spawns = [];
+  function spawn(cmd, args, opts) {
+    const child = new EventEmitter();
+    child.pid = 4243;
+    child.stderr = new EventEmitter();
+    child.kill = () => { child._killed = true; };
+    child.unref = () => {};
+    spawns.push({ cmd, args, opts, child });
+    setImmediate(() => {
+      try { child.stderr.emit("data", Buffer.from(String(stderrText))); } catch { /* ignore */ }
+    });
+    return child;
+  }
+  return { spawn, spawns };
+}
+
+test("ensureGatewayHost: TUI-deps npm-build failure on stderr → rejects FAST with the distinct error (not the 60s timeout)", async () => {
+  const { spawn } = makeFakeSpawnWithStderr(`Installing TUI dependencies...\nnpm error Missing script: "build"\n`);
+  // The dashboard NEVER binds (fetch always throws) — so absent the fast-fail this
+  // would poll the full readyTimeout. A large timeout + tiny interval proves the
+  // rejection comes from the stderr signature, not the deadline.
+  const fetchImpl = async () => { throw new Error("ECONNREFUSED"); };
+
+  const started = Date.now();
+  let err = null;
+  try {
+    await ensureGatewayHost({
+      agentId: "sc-hermes",
+      port: 9342,
+      spawn,
+      fetchImpl,
+      probeFirst: false,
+      verifyWs: false,
+      readyTimeoutMs: 60000,
+      readyIntervalMs: 1,
+    });
+  } catch (e) {
+    err = e;
+  }
+  const elapsed = Date.now() - started;
+  assert.ok(err, "ensureGatewayHost must reject on the TUI-deps build failure");
+  assert.match(String(err.message), /Missing script: "build"/, "must surface the DISTINCT build-failure message");
+  assert.match(String(err.message), /triage/i, "must be actionable (triage guidance)");
+  assert.ok(!/did not become ready within/i.test(String(err.message)), "must NOT be the opaque readiness timeout");
+  assert.ok(elapsed < 5000, `must fail FAST (was ${elapsed}ms, not the ~60s readiness timeout)`);
+});
+
+// ---------------------------------------------------------------------------
+// Blast-radius isolation (task #237 item a): maybeReEnsureGatewayHost.
+// An operator `hermes update` / `hermes dashboard --stop` SIGTERMs every hermes
+// dashboard process, killing all aify gateway hosts. The periodic delivery cycle
+// must DETECT a dead host and re-ensure it — idempotently (never double-spawn a
+// live one; never fight a deliberate stop).
+// ---------------------------------------------------------------------------
+
+test("maybeReEnsureGatewayHost: DEAD gateway (index unreachable) → re-ensures (respawns) exactly once", async () => {
+  let ensureCalls = 0;
+  const fakeHost = { port: 9342, token: "t", wsUrl: "ws://127.0.0.1:9342/api/ws?token=t", child: {} };
+  const out = await maybeReEnsureGatewayHost({
+    isStopping: () => false,
+    isAlive: async () => ({ alive: false }),
+    ensureHost: async () => { ensureCalls += 1; return fakeHost; },
+  });
+  assert.equal(out.reEnsured, true, "a dead gateway must be re-ensured");
+  assert.equal(out.host, fakeHost, "returns the freshly-ensured host");
+  assert.equal(ensureCalls, 1, "must respawn exactly once");
+});
+
+test("maybeReEnsureGatewayHost: LIVE gateway → left untouched (NO double-spawn)", async () => {
+  let ensureCalls = 0;
+  const out = await maybeReEnsureGatewayHost({
+    isStopping: () => false,
+    isAlive: async () => ({ alive: true }),
+    ensureHost: async () => { ensureCalls += 1; return {}; },
+  });
+  assert.equal(out.reEnsured, false, "a live gateway must NOT be re-ensured");
+  assert.equal(out.reason, "already-live");
+  assert.equal(ensureCalls, 0, "must NOT spawn when the gateway is already live (no double-spawn)");
+});
+
+test("maybeReEnsureGatewayHost: a deliberate stop short-circuits — never probes or respawns", async () => {
+  let probed = false;
+  let ensureCalls = 0;
+  const out = await maybeReEnsureGatewayHost({
+    isStopping: () => true,
+    isAlive: async () => { probed = true; return { alive: false }; },
+    ensureHost: async () => { ensureCalls += 1; return {}; },
+  });
+  assert.equal(out.reEnsured, false);
+  assert.equal(out.reason, "stopping");
+  assert.equal(probed, false, "must not probe during a deliberate stop");
+  assert.equal(ensureCalls, 0, "must not respawn during a deliberate stop (never fight a stop)");
+});
+
+test("maybeReEnsureGatewayHost: a throwing/unreachable probe counts as DEAD → re-ensures", async () => {
+  let ensureCalls = 0;
+  const out = await maybeReEnsureGatewayHost({
+    isStopping: () => false,
+    isAlive: async () => { throw new Error("ECONNREFUSED"); },
+    ensureHost: async () => { ensureCalls += 1; return { child: null }; },
+  });
+  assert.equal(out.reEnsured, true, "an unreachable probe means the gateway is dead → re-ensure");
+  assert.equal(ensureCalls, 1);
 });
