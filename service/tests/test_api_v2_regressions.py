@@ -6441,7 +6441,14 @@ class ApiV2RegressionTests(FastApiTestCase):
             json={"newAgentId": "new-agent", "requestedBy": "dashboard"},
         )
         self.assertEqual(renamed.status_code, 200, renamed.text)
-        self.assertTrue(renamed.json()["changed"])
+        body = renamed.json()
+        self.assertTrue(body["changed"])
+        # Response must announce the operational truth so the operator doesn't rediscover it:
+        # the old id had a live (running) bridge, so it's now orphaned and the note says so.
+        self.assertTrue(body["hadLiveBridge"])
+        self.assertIn("new-agent", body["note"])
+        self.assertIn("orphaned", body["note"])
+        self.assertIn("tombstoned", body["note"])
 
         self.assertEqual(self.client.get("/api/v1/agents/new-agent").status_code, 200)
         self.assertEqual(self.client.get("/api/v1/agents/old-agent").status_code, 410)

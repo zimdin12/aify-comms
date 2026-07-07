@@ -13580,10 +13580,41 @@ async def rename_agent(agent_id: str, req: AgentRenameRequest, request: Request)
             (agent_id, now, req.requestedBy or "dashboard", "", f"renamed_to:{new_agent_id}"),
         )
         await db.commit()
+        # Rename is DB-only: a still-running session is bootstrapped under the OLD id (now
+        # tombstoned), so it is orphaned — its heartbeats bounce and it does NOT keep the new id
+        # live. Surface that + the recovery in the response so the caller/dashboard doesn't have to
+        # rediscover it by hand (2026-07-07: a rename silently orphaned the live session and notified
+        # nobody). We report facts + a plain note; the dashboard can format the exact relaunch command.
+        session_mode = str(agent["session_mode"] or "resident").strip().lower()
+        runtime = str(agent["runtime"] or "").strip()
+        had_live_bridge = bool(await (await db.execute(
+            "SELECT 1 FROM bridge_instances WHERE agent_id = ? AND COALESCE(superseded_by,'') = '' LIMIT 1",
+            (new_agent_id,),
+        )).fetchone())
+        note = (
+            f"History + session handle preserved under '{new_agent_id}'; old id '{agent_id}' is "
+            f"tombstoned (sends to it are now rejected). "
+            + (
+                (
+                    f"A live {session_mode} session is still running as '{agent_id}' and is now orphaned — "
+                    f"re-register/relaunch it as '{new_agent_id}' "
+                    + ("(dashboard Restart, or delete-session then send to cold-start a fresh worker) "
+                       if session_mode == "managed"
+                       else f"(relaunch the wrapper with the new id, e.g. --aify-agent {new_agent_id}) ")
+                    + "so the live identity matches. "
+                )
+                if had_live_bridge else ""
+            )
+            + "Notify teammates to address the new id."
+        )
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast("agent_renamed", {"oldAgentId": agent_id, "newAgentId": new_agent_id})
-        return {"ok": True, "agentId": agent_id, "newAgentId": new_agent_id, "changed": True}
+        return {
+            "ok": True, "agentId": agent_id, "newAgentId": new_agent_id, "changed": True,
+            "hadLiveBridge": had_live_bridge, "sessionMode": session_mode, "runtime": runtime,
+            "note": note,
+        }
     except Exception:
         try:
             await db.rollback()
