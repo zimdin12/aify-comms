@@ -154,10 +154,12 @@ terms are dropped-event liveness backstops (e.g. an `in_turn` ceiling to un-latc
 turn-END), not status decay. The served status reads from the in-memory `_LIVE_STATE_CACHE`
 (`derive()` over the cached `StatusInputs`); see CLAUDE.md's single-worker constraint.
 
-Managed lifecycle: `available` → `working` ⇄ `online` → (stop/offline). A resident bridge
-POSTs `/agents/{id}/resident-lost` on clean exit so it drops to `stopped`/`offline` in ~1.5s
-instead of waiting out the ~150s lease (crash closes self-heal when the lease goes silent →
-`offline`). See KNOWN_ISSUES.md (canonical status table) / DECISIONS.md ("Status is
+Managed lifecycle: `available` → `working` ⇄ `online` → (backing lost → back to `available`,
+cold-starts on next send; `stop`/`offline` otherwise). A resident bridge POSTs
+`/agents/{id}/resident-lost` on clean exit so it drops to `stopped`/`offline` in ~1.5s instead
+of waiting out the ~150s lease (crash closes self-heal when the lease goes silent → `offline`).
+A **managed** agent hitting that same endpoint (e.g. dead hermes gateway) returns to `available`
+(cold-startable), not `stopped`. See KNOWN_ISSUES.md (canonical status table) / DECISIONS.md ("Status is
 proof-based", 2026-06-18).
 
 ### Adding a new harness

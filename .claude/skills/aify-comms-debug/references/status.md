@@ -32,7 +32,7 @@ state from elapsed time instead of proving it. Canonical reference:
 | `available` | Managed agent, env reachable, but NO live worker. Auto-starts a worker on the next send. `available` ≠ `online`: no worker yet, it boots one on send. |
 | `blocked` | Wrapper reported the turn is awaiting operator input/a decision (a prompt/question, not healthy generation). Liveness-gated like `working`. |
 | `offline` | Heartbeat gone — instant on a clean wrapper disconnect, otherwise within the no-heartbeat liveness window (`agent_liveness_seconds`, default 90s = 3× the 30s beat). Covers both managed (env bridge down) and resident (bridge lease lapsed). `offline` ≠ `stopped`: offline is "we lost the signal", stopped is "operator disabled it". |
-| `stopped` | Operator hard-disabled the agent (wake-disabled, `launch_mode='none'`), or set by `resident-lost` on clean close. A deliberate down-state, not a lost signal. |
+| `stopped` | Operator hard-disabled the agent (wake-disabled, `launch_mode='none'`), or set by `resident-lost` on clean close of a **resident**. A deliberate down-state, not a lost signal. (A **managed** agent whose worker/gateway is lost is NOT stopped — it rests cold-startable → `available` and re-spawns on the next send.) |
 
 Managed lifecycle: `available` → `working` ⇄ `online` (+ `blocked` mid-turn, `offline` when
 the heartbeat lapses, `stopped` on hard-disable). Resident lifecycle: `working` ⇄ `online`
@@ -156,7 +156,11 @@ you're on pre-`5070c84` code; rebuild/restart the service.
 **Resident clean-exit drops `online` within ~1.5s (2026-06-03, `5070c84`).** The resident MCP
 bridge (`mcp/stdio/server.js`) now POSTs `/agents/{id}/resident-lost` on clean exit
 (best-effort, resident-only, idempotent, bounded ~1.5s); the server handler sets
-`status=stopped` (or auto-returns to managed if a managed backing exists). So a cleanly-closed
+`status=stopped` for a **resident** (or auto-returns to managed if a managed backing exists). A
+`session_mode='managed'` agent that hits this same endpoint (e.g. its hermes gateway port died)
+is instead rested **cold-startable** — stored `status='active'` → derives `available`,
+`launch_mode='detached'` — so the next send auto-spawns a fresh managed worker (new gateway),
+no manual `hermes-aify` restart (2026-07-07). So a cleanly-closed
 resident no longer lingers `online` for the full ~150s heartbeat lease. A **crash**-closed
 resident never runs that exit path, so it still self-heals at the lease — and a crash-closed
 **presence-only** (opencode/pi) or channel-stripped resident can read `online` until the lease
