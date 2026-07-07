@@ -123,7 +123,7 @@ event-driven path was built — read "new" as "the (now sole) `derive()` path".
   `derive()`. (4) Environment death never expired dependent agents' cached live statuses
   (no transition event exists) — the read-boundary `_enforce_env_reachable_gate` (sibling
   of the live-worker gate) recomputes when a cached live/available status outlives its env.
-  Known tolerated divergence: long-dead remote RESIDENTS read `stale` under the engine
+  Known tolerated divergence: long-dead remote residents read `offline` under the engine (older builds surfaced `stale`, removed 2026-06-18)
   where legacy said `offline` (spec accepts either); disagreement logs are de-duped per
   (agent, old→new) transition. `agent_status_state.status` is VESTIGIAL (written/read by
   nothing — don't trust its values when debugging; the real turn state is `in_turn` +
@@ -158,7 +158,7 @@ bridge (`mcp/stdio/server.js`) now POSTs `/agents/{id}/resident-lost` on clean e
 (best-effort, resident-only, idempotent, bounded ~1.5s); the server handler sets
 `status=stopped` for a **resident** (or auto-returns to managed if a managed backing exists). A
 `session_mode='managed'` agent that hits this same endpoint (e.g. its hermes gateway port died)
-is instead rested **cold-startable** — stored `status='active'` → derives `available`,
+is instead rested **cold-startable** — stored `status='active'` (the enabled flag) → derives `available`,
 `launch_mode='detached'` — so the next send auto-spawns a fresh managed worker (new gateway),
 no manual `hermes-aify` restart (2026-07-07). So a cleanly-closed
 resident no longer lingers `online` for the full ~150s heartbeat lease. A **crash**-closed

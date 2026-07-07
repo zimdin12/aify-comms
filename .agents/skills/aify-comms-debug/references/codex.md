@@ -41,7 +41,7 @@ managed-codex `approvalPolicy:never` — all behind a uniform `--safe`/`--no-aut
 
 **Auto-recovery (current build).** When managed Codex gets `no rollout found for thread id`, the bridge first searches the normal Codex homes (`CODEX_HOME`, then `~/.codex`), copies the matching `sessions/.../rollout-*.jsonl` and any `shell_snapshots/...` files into the managed Codex home, and retries `thread/resume` once. This preserves native chat memory when the thread exists but was stored under the resident/default Codex home.
 
-If the rollout is corrupt, oversized, or cannot be found in any Codex home, ordinary recover/restart fails loudly instead of silently discarding memory. Only an explicit Dashboard **Sessions -> Recreate** / `fresh_context` request creates a replacement thread. In that explicit mode the bridge:
+If the rollout is corrupt, oversized, or cannot be found in any Codex home, ordinary restart fails loudly instead of silently discarding memory. Only an explicit Dashboard **Sessions -> Reset (fresh context)** / `fresh_context` request creates a replacement thread. In that explicit mode the bridge:
 
 1. Calls `thread/start` to create a brand-new Codex thread.
 2. Fires `onSessionHandleChange(newHandle)`, which updates the cached agent state and POSTs `/agents` so the backend's stored `sessionHandle` points at the healed thread.
@@ -147,7 +147,7 @@ Add `sessionHandle="$CODEX_THREAD_ID"` only when it is non-empty in that same se
 
 **Fix (current build).** Resident Codex bridges now probe their app-server before heartbeating or claiming work. If the app-server is unreachable twice in a row, the bridge reports `resident-lost`, stops tracking the resident binding, and the backend immediately returns the identity to its saved managed environment when a spawn spec exists. Superseded/lost bridge heartbeats are ignored, so orphaned MCP child processes cannot keep the identity active.
 
-**Manual recovery on older builds.** Restart the relevant `aify-comms` environment bridge and stop the orphaned stdio process. Then use Dashboard **Sessions -> Restart** or **Recover** on the identity. If needed, inspect with `comms_agent_info(agentId="...")`; healthy fallback should show `sessionMode: managed` and `wakeMode: managed-worker`.
+**Manual recovery on older builds.** Restart the relevant `aify-comms` environment bridge and stop the orphaned stdio process. Then use Dashboard **Sessions -> Restart** on the identity. If needed, inspect with `comms_agent_info(agentId="...")`; healthy fallback should show `sessionMode: managed` and `wakeMode: managed-worker`.
 
 ## Codex native fallback persistent app-server session
 
@@ -186,4 +186,4 @@ The bridge spawned `codex app-server` but never got an `initialize` response wit
 
 The bridge tried to resume a previously-saved threadId but codex says no rollout exists. CodexSession does the same heal logic as the legacy controller: tries to import the rollout from other CODEX_HOME dirs, then (only if `resumePolicy='fresh_context'`) starts a fresh thread. The conservative default is to fail loudly — see DECISIONS.md.
 
-**Fix.** Either flip the agent to `resumePolicy=fresh_context` (Dashboard → Sessions → Recreate) or restore the rollout file in the active CODEX_HOME and retry.
+**Fix.** Either flip the agent to `resumePolicy=fresh_context` (Dashboard → Sessions → Reset (fresh context)) or restore the rollout file in the active CODEX_HOME and retry.

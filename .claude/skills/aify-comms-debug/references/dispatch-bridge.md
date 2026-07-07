@@ -133,7 +133,7 @@ On Windows, the installer creates both a Bash `claude-aify` and a `claude-aify.c
 
 **Cause.** For old data/old bridge builds, the common managed-run cause was using Claude Code's `--session-id` flag for a session that already had a transcript file; `--session-id` is for creating a specific new session, while `--resume <id>` continues an existing one. A less common Windows cause is a stale headless Claude process that still owns the backing session after a crash or duplicate restart. Current dashboard-managed Claude work is PTY/channel backed and no longer uses `claude -p`.
 
-**Fix (current build).** Managed Claude runs detect this exact failure and stop instead of silently creating a fresh session. Silent session replacement discards native Claude chat memory, so it is now an explicit operator choice. Close the duplicate Claude process that owns the session, or use Dashboard **Sessions -> Actions -> Recreate** when you intentionally want the next run to start with a fresh backing session. Restart the Windows `aify-comms` bridge after updating so it loads the fixed runtime adapter.
+**Fix (current build).** Managed Claude runs detect this exact failure and stop instead of silently creating a fresh session. Silent session replacement discards native Claude chat memory, so it is now an explicit operator choice. Close the duplicate Claude process that owns the session, or use Dashboard **Sessions -> Actions -> Reset (fresh context)** when you intentionally want the next run to start with a fresh backing session. Restart the Windows `aify-comms` bridge after updating so it loads the fixed runtime adapter.
 
 **Resume behavior.** Current bridge builds start interactive Claude Code through the managed PTY/channel path and pass `--resume <session-id>` when a saved handle exists. Pull latest, rerun the installer, and restart the Windows `aify-comms` bridge so it loads that path.
 
@@ -160,7 +160,7 @@ Get-CimInstance Win32_Process |
   Format-List
 ```
 
-Then restart the Windows `aify-comms` bridge and recover/restart the dashboard session. Use **Recreate** only when you accept losing that native Claude memory.
+Then restart the Windows `aify-comms` bridge and restart the dashboard session. Use **Reset (fresh context)** only when you accept losing that native Claude memory.
 
 **Visibility caveat.** Dashboard-managed Claude Code is now a managed `claude-aify` PTY backing. Browser Console can attach to that PTY, and a separate native CLI can still be opened with the dashboard's copyable resume command (`claude-aify --resume <session-id>`) after the backing has recorded a resume ID.
 
@@ -168,7 +168,7 @@ If you want the resumed CLI to match managed-agent permissions, use `--dangerous
 
 Prefer the dashboard resume command or `claude-aify --aify-agent <agentId> --resume <session-id>` when opening a managed Claude session directly. The wrapper auto-registers a resident candidate, but ownership does not move automatically. Use dashboard **Switch to resident** when the visible CLI should own delivery, and **Switch to managed** when dashboard sends should return to the managed backing. **Pause for CLI** remains an explicit safety control when you want dashboard sends to fail fast while the terminal owns the session.
 
-After opening the native CLI, re-register from that same session with the same `agentId`. That is how the dashboard learns the current native handle. If the agent forgets CLI conversation after returning to dashboard, check whether the session's stored handle changed or was recreated during adopt/restart. Current code should preserve handles across same-runtime adopt/recover/restart; a new handle should only appear after a new spawn or explicit **Recreate**.
+After opening the native CLI, re-register from that same session with the same `agentId`. That is how the dashboard learns the current native handle. If the agent forgets CLI conversation after returning to dashboard, check whether the session's stored handle changed or was recreated during adopt/restart. Current code should preserve handles across same-runtime adopt/restart; a new handle should only appear after a new spawn or explicit **Reset (fresh context)**.
 
 **Dashboard handle repair.** If you know the correct native Claude session ID / Codex thread ID / OpenCode or Pi handle, use Dashboard **Chat details -> Runtime Session -> Set handle** or **Sessions -> Actions -> Set handle**. This updates the identity's saved `sessionHandle`, runtime state (`sessionId` or `threadId`), and latest session record without creating a fresh context. Use it only when you know the handle belongs to the intended transcript/thread; a wrong handle binds the identity to the wrong native memory.
 
@@ -502,7 +502,7 @@ If you see rows with `status='queued'`, `execution_mode='channel'`, and `claim_b
 
 **Cause.** Old builds allowed a non-wrapper child bridge to claim wrapper-backed channel work. That bridge lacks the local app-server/gateway context and can only fail or fork hidden work.
 
-**Fix.** Current builds require `bridge_kind='managed-wrapper-child'` and the current active wrapper `terminal_id` before a wrapper-backed Codex/Hermes child can claim channel work. If you see this symptom, rebuild/redeploy the service, restart the environment bridge, then recover/restart the managed session so a fresh wrapper child registers.
+**Fix.** Current builds require `bridge_kind='managed-wrapper-child'` and the current active wrapper `terminal_id` before a wrapper-backed Codex/Hermes child can claim channel work. If you see this symptom, rebuild/redeploy the service, restart the environment bridge, then restart the managed session so a fresh wrapper child registers.
 
 ## Managed claude freezes on boot at a prompt (resume / compaction / permissions)
 

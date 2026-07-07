@@ -14,7 +14,7 @@
 
 **Cause.** The saved OMP/Pi `sessionHandle` belongs to a different project directory than the workspace where the bridge is trying to resume it. This can happen after workspace changes, resident-to-managed lease expiry, or an old session record being reused across projects.
 
-**Fix.** Current bridge builds treat this as a stale managed handle: they clear the saved Pi handle and retry once with a fresh managed session. Resident Pi sessions still fail loudly because auto-swapping a visible CLI session would hide native memory changes. Pull current `aify-comms`, restart the affected bridge, and retry. If it still fails, use Dashboard **Sessions -> Actions -> Recreate** for that Pi agent.
+**Fix.** Current bridge builds treat this as a stale managed handle: they clear the saved Pi handle and retry once with a fresh managed session. Resident Pi sessions still fail loudly because auto-swapping a visible CLI session would hide native memory changes. Pull current `aify-comms`, restart the affected bridge, and retry. If it still fails, use Dashboard **Sessions -> Actions -> Reset (fresh context)** for that Pi agent.
 
 ## Managed Oh My Pi / OMP fails with Cursor API key when model is `default`
 

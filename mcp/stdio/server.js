@@ -4246,13 +4246,13 @@ server.tool(
 
 server.tool(
   "comms_status",
-  "Update your short availability/focus note. Completion should be reported with a reply message, not by setting identity status to completed.",
+  "Set your freeform focus/availability NOTE (shown as your statusNote next to your name in comms_agents/comms_agent_info). Your LIVE status badge — working/online/available/blocked/offline/stopped — is DERIVED by the service from real signals (turn start/end, worker liveness, dispatch state) and cannot be set here: the `status` label below is only a coarse focus hint and does NOT override the derived badge (e.g. 'idle' just renders as online). The `note` is the part that reliably surfaces. Report task completion with a reply message, not by setting status.",
   {
     agentId: z.string().describe("Your agent ID"),
     status: z
       .enum(["idle", "working", "reviewing", "testing", "researching", "blocked", "focused"])
-      .describe("Current focus/availability label"),
-    note: z.string().optional().describe("What you're working on (e.g. 'NRD createPipelines')"),
+      .describe("Coarse focus hint — does NOT set your derived live badge; prefer the note"),
+    note: z.string().optional().describe("What you're working on (e.g. 'NRD createPipelines') — this is what actually shows"),
   },
   async ({ agentId, status, note }) => {
     try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
@@ -4309,7 +4309,7 @@ server.tool(
 server.tool(
   "comms_send",
   "Send a message to an agent by ID, or to all agents with a given role. " +
-    "This is live-delivery gated: if the target is offline, stale, stopped, or lacks a live wake path, the message is not written. If the target is busy and steer-capable, ordinary sends steer into the active run between tool calls. If the target is busy but cannot steer, ordinary sends queue or merge as next-turn work. Use queueIfBusy=true only when the message should run after the active turn even when steer is available; when queueIfBusy=true, the steer option is ignored. Agent-reported blocked/completed states are status notes, not delivery blockers. " +
+    "This is live-delivery gated: if the target is offline, stale, stopped, or lacks a live wake path, the message is not written. A MANAGED agent resting at `available` (no live worker yet — including a hermes whose gateway died) IS deliverable: the send cold-starts/wakes it. `available` and `blocked` are both deliverable. If the target is busy and steer-capable, ordinary sends steer into the active run between tool calls. If the target is busy but cannot steer, ordinary sends queue or merge as next-turn work. Use queueIfBusy=true only when the message should run after the active turn even when steer is available; when queueIfBusy=true, the steer option is ignored. Agent-reported blocked/completed states are status notes, not delivery blockers. " +
     "The special target dashboard stores a message for the human/operator without trying to start a runtime. " +
     "Resident sessions trigger only when that exact runtime/session handle supports resident execution; environment-managed sessions remain the persistent fallback. " +
     "Agents should answer aify-comms messages with a comms_send tool call: reply with comms_send(type=\"response\", inReplyTo=<the message id>) in BOTH resident/live CLI sessions AND dashboard-managed delivered runs. That tool call is the team/chat-visible reply and closes the run; your final plain text / stdout is your own working output, not the delivered reply. (Safety net: if managed_reply_capture_fallback is enabled, a delivered run that ends without an explicit reply has its summary auto-mirrored back; do not rely on it — send the comms_send.) Genuinely-direct terminal input you type yourself is answered with direct output, not comms_send. Keep messages scoped to one topic, state what you checked when truth matters, ask one clear question when blocked, and avoid reviving unrelated older context.",
@@ -5652,6 +5652,61 @@ server.tool(
       };
     } catch (error) {
       return { content: [{ type: "text", text: error?.message || "Failed to delete session." }], isError: true };
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 15b. comms_restart -- Gracefully restart a MANAGED agent's session (dashboard-equivalent)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+server.tool(
+  "comms_restart",
+  "Gracefully restart another agent's MANAGED session — the same safe path as the dashboard's Sessions -> Restart: it stops the live worker and re-spawns it via the environment bridge, keeping the agent's native session/context. Set freshContext=true for a Reset (discards the native session and starts clean, = the dashboard 'Reset' button). Only works on session_mode='managed' agents: RESIDENT sessions are operator-owned and CANNOT be restarted remotely (a session-restart on a live resident would fork a managed twin) — use comms_run_interrupt to stop its current run, or ask the operator to relaunch. Prefer this over delete_session+send: it is the graceful, dashboard-equivalent recreate.",
+  {
+    agentId: z.string().describe("Agent whose managed session to restart"),
+    freshContext: z.boolean().optional().describe("true = Reset (discard native session, fresh context); false/omitted = Restart (keep native session)"),
+  },
+  async ({ agentId, freshContext }) => {
+    const id = String(agentId || "").trim();
+    if (!id) return { content: [{ type: "text", text: "agentId is required." }], isError: true };
+    if (!IS_REMOTE) {
+      return { content: [{ type: "text", text: "comms_restart requires the HTTP-backed aify-comms service; there is no managed session to restart in local filesystem mode." }], isError: true };
+    }
+    try {
+      const info = await httpCall("GET", `/agents/${encodeURIComponent(id)}`);
+      const agent = info.agent || info;
+      const mode = String(agent.sessionMode || agent.session_mode || "").toLowerCase();
+      if (!mode) return { content: [{ type: "text", text: `Agent "${id}" not found or has no session.` }], isError: true };
+      if (mode !== "managed") {
+        return {
+          content: [{ type: "text", text: `Agent "${id}" is ${mode}, not managed. Resident sessions are operator-owned and can't be restarted remotely — ask the operator to relaunch it, or use comms_run_interrupt to stop its current run.` }],
+          isError: true,
+        };
+      }
+      const list = await httpCall("GET", `/sessions?agentId=${encodeURIComponent(id)}`);
+      const sessions = Array.isArray(list.sessions) ? list.sessions : [];
+      const live = new Set(["starting", "running", "recovering", "restarting", "cli-takeover"]);
+      const target = sessions.find((s) => live.has(String(s.status || "").toLowerCase())) || sessions[0];
+      if (!target || !target.id) {
+        return { content: [{ type: "text", text: `Agent "${id}" has no session to restart — send it a message instead; a managed agent cold-starts a fresh worker on send.` }], isError: true };
+      }
+      const action = freshContext ? "recreate" : "restart";
+      const r = await httpCall("POST", `/sessions/${encodeURIComponent(target.id)}/control`, {
+        action,
+        from_agent: process.env.AIFY_AGENT_ID || "agent",
+      });
+      const verb = freshContext ? "reset with a fresh context" : "restarted";
+      return {
+        content: [{
+          type: "text",
+          text: r && r.ok === false
+            ? `Restart of "${id}" was not accepted: ${r.error || "unknown reason"}.`
+            : `Managed session for "${id}" ${verb} (session ${target.id}, action=${action}); it re-spawns via the environment bridge.`,
+        }],
+      };
+    } catch (error) {
+      return { content: [{ type: "text", text: error?.message || "Failed to restart agent." }], isError: true };
     }
   }
 );
