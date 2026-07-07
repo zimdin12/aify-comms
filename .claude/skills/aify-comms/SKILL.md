@@ -184,7 +184,7 @@ Identity/lifecycle: `comms_register`, `comms_envs`, `comms_spawn`, `comms_compac
 
 Messaging: `comms_send`, `comms_inbox`, `comms_unsend`, `comms_search`, `comms_clear`.
 
-Runs/work: `comms_contracts`, `comms_run_status`, `comms_run_interrupt`. `comms_dispatch` is lower-level debug/control; prefer `comms_send` for teamwork.
+Runs/work: `comms_contracts`, `comms_run_status`, `comms_run_interrupt`, `comms_restart`. `comms_dispatch` is lower-level debug/control; prefer `comms_send` for teamwork. `comms_restart` gracefully restarts another agent's **managed** session (the dashboard Sessions→Restart path; `freshContext=true` = Reset); it rejects resident agents (operator-owned — a remote restart would fork a managed twin), so for a stuck resident use `comms_run_interrupt` or ask the operator to relaunch.
 
 Consoles (managed agents): `comms_console_tail` reads the last N lines of another agent's live console (read-only, default 40); `comms_console_input` types text/keystrokes into it (e.g. a command, or just Enter to unstick) — audited. Use these to inspect or recover a managed agent that's stuck at a prompt; they don't work on resident agents (no aify-owned console).
 
