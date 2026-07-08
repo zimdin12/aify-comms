@@ -406,11 +406,15 @@ unchanged — only the hidden gateway-host launch dropped `--tui` and gained the
 **Second cause of the SAME symptom (2026-07-02): hermes itself fails to boot after update
 drift.** A stale hermes checkout (operator's was 1959 commits behind, then a partial
 `hermes update`) crashed at launch — first `Installing TUI dependencies… TUI build failed /
-npm error Missing script: "build"`, then `[hermes-managed-host] fatal: hermes dashboard at
-http://127.0.0.1:<port>/ did not become ready within 60000ms` → wrapper exits → every managed
-hermes agent bounces `up-but-deaf` while claude teammates on the same bridge work fine
-(the hermes-only spread is the tell). The manager-side signature: `[NOT DELIVERED]` mirrors
-for ALL hermes teammates at once. **Triage FIRST, before blaming dispatch:** run the managed
+npm error Missing script: "build"` → wrapper exits → every managed hermes agent bounces
+`up-but-deaf` while claude teammates on the same bridge work fine (the hermes-only spread is
+the tell). The manager-side signature: `[NOT DELIVERED]` mirrors for ALL hermes teammates at
+once. **As of 2026-07-08 (`195357d`) the bridge fails FAST on this signature** with a distinct
+error ("hermes gateway host on port N FAILED its boot-time 'Installing TUI dependencies' npm
+step …") instead of the old opaque `did not become ready within 60000ms` — so the log now
+names the cause directly. (Older builds surfaced only the 60s readiness timeout.) The per-spawn
+gateway stderr log is truncated each boot, so a fixed relaunch is never false-aborted by the
+prior failure's signature lingering in the tail. **Triage FIRST, before blaming dispatch:** run the managed
 launch by hand — `HERMES_DASHBOARD_TUI=1 hermes dashboard --port 9199 --host 127.0.0.1
 --no-open --skip-build` — a healthy hermes prints `HERMES_DASHBOARD_READY port=9199` within
 seconds. **Recovery:** fix hermes itself (`hermes update` / force-update the checkout), verify
