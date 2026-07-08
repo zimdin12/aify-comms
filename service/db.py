@@ -569,6 +569,19 @@ async def _migrate_messages_table(db: aiosqlite.Connection):
     for column, statement in MESSAGE_MIGRATIONS.items():
         if column not in existing:
             await db.execute(statement)
+    # Atomic idempotency backstop (#240): a PARTIAL UNIQUE index on
+    # (from_agent, client_nonce, to_agent) is the DB-level guarantee that a retried
+    # send with the same nonce cannot double-insert — the upfront SELECT is only a
+    # fast path and races under concurrent retries (the client aborts+retries while
+    # the first request is still mid-handler). Scoped WHERE client_nonce != '' so the
+    # empty-nonce default (all legacy + nonce-less sends) is exempt, and keyed on
+    # to_agent too so a legit MULTI-recipient send (one row per recipient, same nonce)
+    # is not rejected. Created here — after the column migration above — so the column
+    # exists on both fresh and pre-existing DBs.
+    await db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_client_nonce "
+        "ON messages(from_agent, client_nonce, to_agent) WHERE client_nonce != ''"
+    )
 
 
 async def _migrate_dispatch_controls_table(db: aiosqlite.Connection):

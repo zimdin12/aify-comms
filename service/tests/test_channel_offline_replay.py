@@ -178,6 +178,38 @@ class ChannelOfflineReplayTests(FastApiTestCase):
         self.assertEqual(replayed2, [], "idempotent: no second replay")
         self.assertEqual(len(self._runs_for(fanout)), 1, "still exactly one run")
 
+    def test_replay_with_preexisting_queued_run_records_own_watermark(self):
+        # The review's HIGH #238: a cold member already has a queued run R1 from an EARLIER
+        # post (message fA). A new post fB arrives while the env is offline (stored, no run).
+        # On recovery the replay must NOT merge fB into R1 (a merge keeps R1's message_id=fA,
+        # so fB never lands on a run and re-replays every sweep, appending forever). It must
+        # insert a DEDICATED run keyed on fB so the watermark records it.
+        self._seed_managed_member("m-merge")
+        # R1: an existing queued run from the same sender (message_id left NULL — a queued
+        # run need not reference a stored message; the merge keeps whatever R1 already has,
+        # so the re-replay bug reproduces regardless of R1's message_id value).
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority, status, require_reply, requested_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            ("run_R1", None, "poster", "m-merge", "start_if_possible", "managed",
+             "message", "Earlier", "earlier body", "normal", "queued", 0, api_v2._now()),
+        )
+        # fB: a new channel post stored while env was offline (same sender 'poster').
+        fB = self._seed_channel_inbox_message("cmsg-new", "m-merge", from_agent="poster")
+
+        replayed = self._run_replay()
+        self.assertEqual(len(replayed), 1, "fB should replay once")
+        # A run must now carry message_id = fB (its own watermark), NOT be merged into R1.
+        runs_fB = self._runs_for(fB)
+        self.assertEqual(len(runs_fB), 1, "replay must create a dedicated run keyed on fB")
+        # Idempotency now holds: a second sweep creates nothing (the watermark is recorded).
+        replayed2 = self._run_replay()
+        self.assertEqual(replayed2, [], "no re-replay once fB has its own run")
+        self.assertEqual(len(self._runs_for(fB)), 1, "still exactly one fB run after a 2nd sweep")
+
     def test_existing_run_not_double_dispatched(self):
         self._seed_managed_member("m-dup")
         fanout = self._seed_channel_inbox_message("cmsg-3", "m-dup")

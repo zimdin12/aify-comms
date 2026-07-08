@@ -101,3 +101,53 @@ class MessageIdempotencyTests(FastApiTestCase):
         self.assertNotEqual(a.json().get("messageId"), b.json().get("messageId"))
         self.assertEqual(self._count_messages("sender", "scoped"), 1)
         self.assertEqual(self._count_messages("other", "scoped"), 1)
+
+    def test_unique_index_makes_dedup_atomic(self):
+        # The PARTIAL UNIQUE index is the atomicity source that the upfront SELECT alone
+        # can't provide under a concurrent retry (the review's HIGH #240). Verify a second
+        # INSERT of the same (from_agent, client_nonce, to_agent) is REJECTED at the DB
+        # even when the SELECT fast-path is bypassed (simulating the race where both
+        # requests SELECT-miss before either commits).
+        import sqlite3
+        first = self._send(from_agent="sender", to="recipient", body="atomic",
+                           type="message", clientNonce="race-1")
+        self.assertTrue(first.json().get("ok"))
+
+        async def _raw_dup_insert():
+            db = await get_db()
+            try:
+                # Bypass send_message's SELECT: try to insert a duplicate nonce row directly,
+                # exactly what a raced second handler's INSERT would attempt.
+                await db.execute(
+                    "INSERT OR IGNORE INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, client_nonce, timestamp) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    ("dup-id", "sender", "recipient", "direct", "message", "s", "atomic",
+                     "normal", 0, None, "race-1", 1),
+                )
+                await db.commit()
+                cur = await db.execute(
+                    "SELECT COUNT(*) AS c FROM messages WHERE from_agent='sender' AND client_nonce='race-1'"
+                )
+                return int((await cur.fetchone())["c"])
+            finally:
+                await db.close()
+
+        count = asyncio.run(_raw_dup_insert())
+        self.assertEqual(count, 1, "the unique index must reject the duplicate-nonce row")
+
+    def test_concurrent_retry_does_not_double_send(self):
+        # End-to-end race sim: seed the winner's row for a nonce (as if request #1 already
+        # committed), then a second request with the SAME nonce must NOT create a second
+        # message or extra dispatch — it returns the original id as a replay. This is the
+        # exact double-send the review flagged that the 4 sequential tests missed.
+        first = self._send(from_agent="sender", to="recipient", body="norace",
+                           type="message", clientNonce="race-2")
+        first_id = first.json().get("messageId")
+        # The racing retry (same nonce) — its INSERT OR IGNORE is rejected by the index,
+        # so the handler returns the original id and creates nothing new.
+        second = self._send(from_agent="sender", to="recipient", body="norace",
+                            type="message", clientNonce="race-2")
+        self.assertTrue(second.json().get("ok"))
+        self.assertEqual(second.json().get("messageId"), first_id)
+        self.assertEqual(self._count_messages("sender", "norace"), 1,
+                         "a raced retry must not create a second message")

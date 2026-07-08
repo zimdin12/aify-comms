@@ -2882,3 +2882,33 @@ test("maybeReEnsureGatewayHost: a throwing/unreachable probe counts as DEAD → 
   assert.equal(out.reEnsured, true, "an unreachable probe means the gateway is dead → re-ensure");
   assert.equal(ensureCalls, 1);
 });
+
+// #237 fix: the gateway stderr log is TRUNCATED per spawn ("w"), not appended ("a"), so
+// detectBootFailure never reads a PRIOR boot's failure signature and false-aborts a fixed
+// relaunch. Source-assertion (the spawn path is heavily mocked; this locks the file mode).
+test("#237: gateway stderr log is opened in TRUNCATE mode per spawn (not append)", () => {
+  const src = fs.readFileSync(new URL("../hermes-managed-host.js", import.meta.url), "utf8");
+  assert.match(
+    src,
+    /gwErrFd = fs\.openSync\(gwErrPath, "w"\)/,
+    'the gateway stderr log must be opened "w" (truncate per spawn), never "a" (append) — ' +
+      "an append log lets a prior failure's signature false-abort a fixed relaunch",
+  );
+  assert.doesNotMatch(
+    src,
+    /fs\.openSync\(gwErrPath, "a"\)/,
+    "no append-mode open of the gateway stderr log may remain",
+  );
+});
+
+// #237 low note: the dead-latch resets on a successful re-ensure so a LATER death re-reports.
+test("#237: gatewayDeadReported latch is reset after a successful re-ensure", () => {
+  const src = fs.readFileSync(new URL("../hermes-managed-host.js", import.meta.url), "utf8");
+  // Within the re-ensure success branch (re.reEnsured && re.host), the latch is cleared.
+  const branch = src.slice(src.indexOf("if (re && re.reEnsured && re.host)"));
+  assert.match(
+    branch.slice(0, 1200),
+    /gatewayDeadReported = false/,
+    "a successful re-ensure must reset gatewayDeadReported so a later death can report again",
+  );
+});

@@ -8431,6 +8431,7 @@ async def _create_dispatch_runs(
     source_message_ids: Optional[dict[str, str]] = None,
     steer: bool = False,
     require_reply: bool = False,
+    allow_merge: bool = True,
 ):
     runs = []
     requested_at = _now()
@@ -8512,11 +8513,20 @@ async def _create_dispatch_runs(
                 })
                 continue
 
-        mergeable_run = await _find_mergeable_queued_run(
-            db,
-            recipient_id=recipient_id,
-            from_agent=from_agent,
-        )
+        # allow_merge=False (channel offline-replay, #238): a merge folds this dispatch
+        # into an existing queued run but KEEPS that run's original message_id (see the
+        # "Keep message_id … pointing at the FIRST item" comment below), so the replayed
+        # message's fanout id would NEVER land on any run — the replay watermark
+        # (NOT EXISTS dispatch_runs WHERE message_id = fanout_id) would stay true and the
+        # reconciler would re-replay it every 60s sweep, appending the body forever. The
+        # replay must therefore insert a DEDICATED run keyed on its own message_id.
+        mergeable_run = None
+        if allow_merge:
+            mergeable_run = await _find_mergeable_queued_run(
+                db,
+                recipient_id=recipient_id,
+                from_agent=from_agent,
+            )
         if mergeable_run:
             merge_result = _append_pending_dispatch_body(
                 mergeable_run,
@@ -15733,14 +15743,42 @@ async def send_message(req: MessageSend, request: Request):
 
         linked_result_message_id = _primary_result_message_id(msg_id, recipients)
 
+        inserted_rows = 0
         for r in recipients:
             recipient_message_id = f"{msg_id}-{r}" if len(recipients) > 1 else msg_id
             dispatch_requested = 1 if req.trigger and r != "dashboard" else 0
-            await db.execute(
-                "INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, client_nonce, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            # INSERT OR IGNORE is the ATOMIC half of idempotency (#240): the upfront SELECT
+            # is only a fast path and races under concurrent retries; the partial UNIQUE
+            # index on (from_agent, client_nonce, to_agent) rejects a duplicate here, and
+            # rowcount tells us whether THIS request actually wrote the row. (Empty nonce =
+            # not in the index, so nonce-less sends always insert, exactly as before.)
+            cursor = await db.execute(
+                "INSERT OR IGNORE INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, client_nonce, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (recipient_message_id,
                  req.from_agent, r, "direct", req.type, req.subject, req.body, req.priority, dispatch_requested, resolved_in_reply_to, client_nonce, ts)
             )
+            inserted_rows += cursor.rowcount or 0
+
+        # Lost the concurrent race (#240): a nonce was supplied but every row was ignored as
+        # a duplicate → another (racing) request already committed this exact send. Return
+        # its ORIGINAL messageId with ok:true and create NO dispatch runs (the winner made
+        # them), so a retry that overlapped the first in-flight request never double-sends.
+        if client_nonce and inserted_rows == 0:
+            prior = await (await db.execute(
+                "SELECT id FROM messages WHERE from_agent = ? AND client_nonce = ? ORDER BY timestamp ASC LIMIT 1",
+                (req.from_agent, client_nonce),
+            )).fetchone()
+            return {
+                "ok": True,
+                "messageId": prior["id"] if prior is not None else msg_id,
+                "replayed": True,
+                "recipients": [],
+                "recipientStatus": {},
+                "dispatchRuns": [],
+                "notStarted": [],
+                "consoleDeliveries": [],
+                "warnings": [],
+            }
 
         if resolved_in_reply_to:
             await _link_reply_message_to_dispatch_run(
@@ -18824,6 +18862,11 @@ async def _replay_undelivered_channel_messages_on_env_recovery(
             source_message_ids={member: message_id},
             steer=False,
             require_reply=False,
+            # #238: never merge a replay into a pre-existing queued run — the merge keeps
+            # the OTHER run's message_id, so this replayed message's fanout id would never
+            # be recorded on a run and the sweep would re-replay it forever. Insert a
+            # dedicated run keyed on this message_id so the watermark records it.
+            allow_merge=False,
         )
         await _finalize_dispatch_runs(db, runs, [(member, "managed")], [])
         await _invalidate_agent_live_state(db, member)

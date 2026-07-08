@@ -517,7 +517,13 @@ export async function ensureGatewayHost({
     const logDir = path.join(os.homedir(), ".local", "state", "aify-comms");
     fs.mkdirSync(logDir, { recursive: true });
     gwErrPath = path.join(logDir, `hermes-gateway-host-${port}.log`);
-    gwErrFd = fs.openSync(gwErrPath, "a");
+    // TRUNCATE per spawn ("w", not "a") — #237 fix: detectBootFailure reads this log's
+    // tail to fail-fast on a TUI-deps/npm-build failure. In append mode a PRIOR boot's
+    // failure signature lingered in the tail, so after the operator fixed the build and
+    // relaunched (as the error tells them to), the healthy boot's early readiness polls
+    // re-read the stale signature and FALSE-ABORTED the fixed relaunch. Each spawn owns a
+    // fresh log so detection only ever sees the CURRENT boot.
+    gwErrFd = fs.openSync(gwErrPath, "w");
   } catch {
     gwErrFd = "ignore";
     gwErrPath = "";
@@ -2391,6 +2397,10 @@ export async function runDeliveryLoop(agentId, deps = {}) {
                 /* ignore */
               }
               wsClient = null;
+              // Reset the dead-latch (#237 low note): the host was re-ensured, so a LATER
+              // death must be free to report again. Without this, once reportGatewayDeadOnce
+              // had latched, a second gateway death after a recovery would never be reported.
+              gatewayDeadReported = false;
               // Recovered — do NOT report resident-lost; retry delivery next tick.
               await sleepImpl(POLL_MS);
               continue;
