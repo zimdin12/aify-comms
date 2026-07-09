@@ -1107,10 +1107,19 @@ function renderUsagePools() {
     const reset = w.resets_at ? usageResetLabel(w.resets_at) : '';
     const tags = (p.unknown ? '<span class="usage-tag">unknown</span>' : '') + (p.stale ? '<span class="usage-tag">stale</span>' : '');
     const name = LABELS[p.source_id] || p.source_id;
+    // Backend blanks the numbers (→ "—") when they can't be trusted; the note says why so agents
+    // treat it as unknown instead of a live value. `expired` = collector stopped (>24h); `reset_elapsed`
+    // = the window already reset after this snapshot (e.g. a stale codex/hermes rollout).
+    const staleMsg = p.expired ? 'No fresh quota data in 24h+'
+      : p.reset_elapsed ? 'Quota window already reset — awaiting a fresh reading'
+      : '';
+    const meta = staleMsg
+      ? `<div class="usage-pool-meta usage-pool-expired">⚠ ${staleMsg} — treat as unknown</div>`
+      : `<div class="usage-pool-meta">5h ${fleft} left${reset ? ' · ' + esc(reset) : ''}</div>`;
     return `<div class="usage-pool-card ${sev}"><div class="usage-pool-name"><span>${esc(name)}</span><span>${tags}</span></div>`
       + `<div class="usage-pool-weekly">${left}<span class="usage-pool-sub"> weekly left</span></div>`
       + `<div class="usage-pool-bar"><span style="width:${used}%"></span></div>`
-      + `<div class="usage-pool-meta">5h ${fleft} left${reset ? ' · ' + esc(reset) : ''}</div></div>`;
+      + meta + `</div>`;
   }).join('');
 }
 function renderUsageConsumption() {
