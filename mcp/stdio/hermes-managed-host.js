@@ -1463,6 +1463,10 @@ export async function deliverRun({
       // so a fresh submit must reset the flag (a stale true from a prior turn
       // could otherwise end the new turn on a momentary post-submit idle).
       inFlight.observedWorking = false;
+      // Grant the detector's turn-start credit: a dispatched turn is now open, so
+      // the gateway `working` this submit triggers IS a real turn (fire /turn-start).
+      // Revoked by the detector's turn-END wrapper. See the inFlight declaration.
+      inFlight.dispatchTurnOpen = true;
     }
   } catch (error) {
     // Gateway connect-refused (dead ephemeral port): fail the run with an
@@ -2217,7 +2221,15 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // TURN_BUSY_STALE_SECONDS keeps showing `working`. Anchored on the
   // bridge-owned submit timestamp + hard window cap — NEVER the server's
   // derived status (anti-feedback-loop; mirrors claude decideRepulse).
-  const inFlight = { submittedAt: 0, completed: false, runId: "", observedWorking: false };
+  // dispatchTurnOpen (2026-07-10 flap fix): TRUE from a successful delivery until
+  // the gateway turn detector observes this turn END. UNLIKE submittedAt/completed
+  // (maintained by the re-pulse probe, which STOPS at REPULSE_WINDOW_MS ~15min, so
+  // a >15min turn leaves them frozen), this credit is revoked by the CONTINUOUS
+  // detector's own turn-END, so it is accurate for turns of any length. The detector
+  // gates its /turn-start on it: hermes POST-TURN background model work (which also
+  // sets gateway session["running"]=True, but has no fresh delivery) then cannot
+  // re-fire `working` on an idle-to-the-user agent. See the detector's shouldFireTurnStart.
+  const inFlight = { submittedAt: 0, completed: false, runId: "", observedWorking: false, dispatchTurnOpen: false };
   // WS5 Task 5.2 (event-driven turn-END): read the gateway's OWN session status
   // (session.active_list → `status`, i.e. session["running"]) for this agent's
   // `aify-<agent>` session. This is the host-observable turn boundary the re-pulse
@@ -2332,8 +2344,19 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     // SET working on a gateway-running turn (edge-triggered). busy:true POSTs the
     // turn-start heartbeat; no runId because an autonomous turn has no aify run.
     postTurnStart: () => reportTurnBusy(httpCall, id, { busy: true }).catch(() => {}),
-    // CLEAR on sustained idle — authoritative /turn-end, only ever clears.
-    postTurnEnd: () => clearTurn(httpCall, id).catch(() => {}),
+    // CLEAR on sustained idle — authoritative /turn-end, only ever clears. Also
+    // REVOKES the dispatched-turn credit: this turn is over, so a subsequent gateway
+    // `working` (hermes POST-TURN background self-improvement/memory) is NOT a real
+    // turn and must not re-fire /turn-start (the 2026-07-10 working-while-idle flap).
+    postTurnEnd: () => {
+      inFlight.dispatchTurnOpen = false;
+      return clearTurn(httpCall, id).catch(() => {});
+    },
+    // GATE the detector's /turn-start (edge + keep-alive): fire only while a dispatched
+    // turn is open. The instant delivery pulse (makeInFlightPulse) remains the primary
+    // setter for a real turn; this detector start is the continuous backstop, now scoped
+    // to dispatched turns so post-turn background gateway "running" can't flap `working`.
+    shouldFireTurnStart: () => inFlight.dispatchTurnOpen === true,
     // Re-stamp turn-busy while the gateway stays WORKING so a turn longer than the
     // dispatch re-pulse window (~15min) never expires turn_busy → `online` while working.
     // Mirrors the re-pulse cadence (45s), comfortably under the 120s server stale window.

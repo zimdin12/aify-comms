@@ -108,6 +108,16 @@ export function startHermesGatewayTurnDetector({
   // Re-stamp turn-busy while the gateway reports WORKING, every workingRefreshMs.
   // MUST be < the server's TURN_BUSY_STALE_SECONDS (120s) so it can't go stale.
   workingRefreshMs = 45000,
+  // Gate for the turn-START post (edge-triggered start AND the working-refresh
+  // keep-alive). Returns false to SUPPRESS a turn-start. Turn-END is NEVER gated
+  // (it only ever CLEARS; a clear when turn_busy is already 0 is a harmless no-op).
+  // DEFAULT: always fire — the resident / back-compat contract where every gateway
+  // "working" is a real turn (incl. a human-typed one). MANAGED hermes passes a
+  // predicate that is true only while a DISPATCHED turn is open, so the gateway's
+  // POST-TURN background model work (self-improvement / memory), which also flips
+  // session["running"]=True, does NOT re-fire /turn-start and flap the agent to
+  // `working` while it is idle-to-the-user (2026-07-10 live-reproduced flap).
+  shouldFireTurnStart = () => true,
 }) {
   const noop = () => {};
   if (
@@ -143,7 +153,12 @@ export function startHermesGatewayTurnDetector({
     // holds; a non-working tick resets the accumulator so it never refreshes a finished turn.
     if (refreshMs && isGatewaySessionWorking(status)) {
       workingAccumMs += intervalMs;
-      if (workingAccumMs >= refreshMs && typeof postTurnStart === "function" && !stopped) {
+      if (
+        workingAccumMs >= refreshMs &&
+        typeof postTurnStart === "function" &&
+        !stopped &&
+        shouldFireTurnStart()
+      ) {
         workingAccumMs = 0;
         try {
           await postTurnStart();
@@ -162,7 +177,7 @@ export function startHermesGatewayTurnDetector({
     }
     if (!directive || stopped) return;
     if (directive === "start") {
-      if (typeof postTurnStart === "function") {
+      if (typeof postTurnStart === "function" && shouldFireTurnStart()) {
         try {
           await postTurnStart();
         } catch {

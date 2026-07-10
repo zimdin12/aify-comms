@@ -205,6 +205,101 @@ test("startHermesGatewayTurnDetector: workingRefreshMs=0 keeps edge-only turn-st
   assert.equal(starts, 1, "refresh disabled → exactly one edge /turn-start");
 });
 
+// ---------------------------------------------------------------------------
+// shouldFireTurnStart gate (2026-07-10 flap fix): managed hermes suppresses a
+// /turn-start when NO dispatched turn is open, so hermes POST-TURN background
+// model work (self-improvement / memory) — which also sets gateway working — does
+// not re-fire `working` on an idle-to-the-user agent. Default: always fire
+// (resident / back-compat). Turn-END is NEVER gated (it only clears).
+// ---------------------------------------------------------------------------
+
+test("shouldFireTurnStart=false SUPPRESSES the edge /turn-start (background gateway 'working' → no flap)", async () => {
+  let starts = 0, ends = 0;
+  const stop = startHermesGatewayTurnDetector({
+    intervalMs: 5,
+    idleDebounce: 2,
+    readGatewayStatus: async () => "working", // background self-improvement: gateway running, no dispatch
+    postTurnStart: async () => { starts++; },
+    postTurnEnd: async () => { ends++; },
+    shouldFireTurnStart: () => false, // no dispatched turn open
+  });
+  await new Promise((r) => setTimeout(r, 40));
+  stop();
+  assert.equal(starts, 0, "background working must NOT fire /turn-start when no dispatched turn is open");
+  assert.equal(ends, 0, "no /turn-end while working");
+});
+
+test("shouldFireTurnStart=false ALSO suppresses the working-refresh keep-alive", async () => {
+  let starts = 0;
+  const stop = startHermesGatewayTurnDetector({
+    intervalMs: 25,
+    idleDebounce: 3,
+    workingRefreshMs: 50, // would refresh every ~2 ticks if allowed
+    readGatewayStatus: async () => "working",
+    postTurnStart: async () => { starts++; },
+    postTurnEnd: async () => {},
+    shouldFireTurnStart: () => false,
+  });
+  await new Promise((r) => setTimeout(r, 300));
+  stop();
+  assert.equal(starts, 0, "the keep-alive must not re-stamp turn-busy for post-turn background work");
+});
+
+test("shouldFireTurnStart=true fires normally (dispatched turn open → real turn shows working)", async () => {
+  let starts = 0;
+  const stop = startHermesGatewayTurnDetector({
+    intervalMs: 5,
+    idleDebounce: 2,
+    readGatewayStatus: async () => "working",
+    postTurnStart: async () => { starts++; },
+    postTurnEnd: async () => {},
+    shouldFireTurnStart: () => true, // dispatched turn open
+  });
+  await new Promise((r) => setTimeout(r, 40));
+  stop();
+  assert.equal(starts, 1, "an open dispatched turn fires /turn-start exactly once on the working edge");
+});
+
+test("shouldFireTurnStart gate is dynamic: fires while open, then a NEW background 'working' after end is suppressed", async () => {
+  // Models the real lifecycle: dispatch open (fire), turn ends (credit revoked),
+  // then post-turn background working must NOT re-fire. The gate is read live each tick.
+  let open = true;
+  let starts = 0, ends = 0;
+  // working (turn) → idle,idle (end, revokes credit) → working (background, suppressed)
+  const statuses = ["working", "working", "idle", "idle", "working", "working", "working"];
+  let i = 0;
+  const stop = startHermesGatewayTurnDetector({
+    intervalMs: 5,
+    idleDebounce: 2,
+    readGatewayStatus: async () => statuses[Math.min(i++, statuses.length - 1)],
+    postTurnStart: async () => { starts++; },
+    // Mirror the managed-host wiring: turn-end revokes the credit.
+    postTurnEnd: async () => { ends++; open = false; },
+    shouldFireTurnStart: () => open,
+  });
+  await new Promise((r) => setTimeout(r, 90));
+  stop();
+  assert.equal(starts, 1, "exactly one /turn-start — for the dispatched turn; the post-end background working is suppressed");
+  assert.equal(ends, 1, "the dispatched turn still ends normally on sustained idle");
+});
+
+test("turn-END is NEVER gated by shouldFireTurnStart (a stuck turn_busy must always be clearable)", async () => {
+  let ends = 0;
+  const statuses = ["working", "idle", "idle", "idle"];
+  let i = 0;
+  const stop = startHermesGatewayTurnDetector({
+    intervalMs: 5,
+    idleDebounce: 2,
+    readGatewayStatus: async () => statuses[Math.min(i++, statuses.length - 1)],
+    postTurnStart: async () => {},
+    postTurnEnd: async () => { ends++; },
+    shouldFireTurnStart: () => false, // even fully suppressed starts...
+  });
+  await new Promise((r) => setTimeout(r, 60));
+  stop();
+  assert.equal(ends, 1, "...sustained idle still fires /turn-end (clear is never gated)");
+});
+
 test("startHermesGatewayTurnDetector: refresh does not cause a false turn-end, and still ends on sustained idle", async () => {
   // working (refreshing) then sustained idle → exactly one end; refresh must not interfere.
   let ends = 0, i = 0;
