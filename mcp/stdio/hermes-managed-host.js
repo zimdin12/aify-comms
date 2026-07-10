@@ -643,6 +643,25 @@ export async function ensureGatewayHost({
 //
 // Pure/injected (isAlive, ensureHost, isStopping) so it is fully unit-testable with
 // no real sockets or processes.
+// CRASH-LOOP GUARD (2026-07-11, from reading Traycer's host-health-monitor:
+// MAX_AUTO_RESPAWNS_WITHOUT_RECOVERY = 3, counter reset by a successful probe).
+// maybeReEnsureGatewayHost re-ensures a dead gateway host on EVERY delivery poll; for
+// a gateway that BINDS-THEN-DIES (TUI-build failure `Missing script: "build"`, an
+// operator `hermes update`/`--stop`, a hermes/GLM account with no API balance), that
+// respawns a fresh dashboard process every POLL_MS with no ceiling — each a hermes.exe
+// the reapers must then clean (the proliferation / headless-orphan class). This budget
+// caps consecutive no-recovery respawns; a live ws connect (real recovery) resets it.
+export const MAX_REENSURE_WITHOUT_RECOVERY = 3;
+
+// Pure budget arbiter so the guard is unit-testable without sockets/processes. Returns
+// the next budget: a live ws RESETS to max; a re-ensure DECREMENTS (floored at 0); a
+// steady tick is unchanged. Callers gate the respawn on `budget > 0`.
+export function nextReEnsureBudget(current, { reEnsured = false, recovered = false, max = MAX_REENSURE_WITHOUT_RECOVERY } = {}) {
+  if (recovered) return max;
+  if (reEnsured) return Math.max(0, (Number(current) || 0) - 1);
+  return Number(current) || 0;
+}
+
 export async function maybeReEnsureGatewayHost({
   isAlive,
   ensureHost,
@@ -2185,6 +2204,10 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // SHARED between the REACTIVE path (a run's connect-refusal, below) and the
   // PROACTIVE periodic probe (started further down) so the two never both fire.
   let gatewayDeadReported = false;
+  // Consecutive gateway re-ensures with no ws recovery (crash-loop guard). Reset to
+  // MAX on a successful ws connect below; exhausting it stops the respawn and falls to
+  // the resident-lost path instead of leaking another hermes.exe every poll.
+  let reEnsureBudget = MAX_REENSURE_WITHOUT_RECOVERY;
   const reportGatewayDeadOnce = async (reason) => {
     if (gatewayDeadReported) return;
     gatewayDeadReported = true;
@@ -2420,17 +2443,29 @@ export async function runDeliveryLoop(agentId, deps = {}) {
             // here → falls through to the reactive resident-lost path, preserving that
             // behavior), never fights a teardown, and ensureGatewayHost's probeFirst
             // reuses any live host.
-            const re = await maybeReEnsureGatewayHost({
-              isStopping: () => teardownState.done,
-              isAlive: makeGatewayReachabilityProbe({
-                indexUrl: gatewayIndexUrlFromWs(host.wsUrl),
-                fetchImpl,
-              }),
-              ensureHost: () =>
-                ensureGatewayHost({ agentId: id, port, spawn, fetchImpl, verifyWs: false }),
-              log: (m) => console.error(m),
-            }).catch(() => ({ reEnsured: false }));
+            // Crash-loop guard: only respawn while the budget holds. Once exhausted,
+            // skip the re-ensure so a binds-then-dies gateway falls to resident-lost
+            // instead of respawning forever (a fresh ws connect resets the budget below).
+            const re = reEnsureBudget > 0
+              ? await maybeReEnsureGatewayHost({
+                  isStopping: () => teardownState.done,
+                  isAlive: makeGatewayReachabilityProbe({
+                    indexUrl: gatewayIndexUrlFromWs(host.wsUrl),
+                    fetchImpl,
+                  }),
+                  ensureHost: () =>
+                    ensureGatewayHost({ agentId: id, port, spawn, fetchImpl, verifyWs: false }),
+                  log: (m) => console.error(m),
+                }).catch(() => ({ reEnsured: false }))
+              : { reEnsured: false, reason: "reensure-budget-exhausted" };
             if (re && re.reEnsured && re.host) {
+              reEnsureBudget = nextReEnsureBudget(reEnsureBudget, { reEnsured: true });
+              if (reEnsureBudget === 0) {
+                console.error(
+                  `[hermes-managed-host] '${id}': gateway re-ensured ${MAX_REENSURE_WITHOUT_RECOVERY}x without a ws recovery ` +
+                  `(binds-then-dies crash loop?) — this is the last respawn; further deaths fall to resident-lost until it stays up.`,
+                );
+              }
               host = re.host;
               if (re.host.child) gatewayChild = re.host.child;
               try {
@@ -2452,6 +2487,9 @@ export async function runDeliveryLoop(agentId, deps = {}) {
           await sleepImpl(POLL_MS);
           continue;
         }
+        // RECOVERY: the ws connected → the gateway is reachable. Reset the crash-loop
+        // respawn budget so a FUTURE binds-then-dies episode gets a fresh set of tries.
+        reEnsureBudget = nextReEnsureBudget(reEnsureBudget, { recovered: true });
         const result = await runPollCycle({
           agentId: id,
           httpCall,

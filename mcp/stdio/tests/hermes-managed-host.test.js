@@ -48,6 +48,8 @@ import {
   reportGatewayDead,
   makeTeardown,
   maybeReEnsureGatewayHost,
+  nextReEnsureBudget,
+  MAX_REENSURE_WITHOUT_RECOVERY,
 } from "../hermes-managed-host.js";
 import {
   isTuiDepsBuildFailure,
@@ -2911,4 +2913,30 @@ test("#237: gatewayDeadReported latch is reset after a successful re-ensure", ()
     /gatewayDeadReported = false/,
     "a successful re-ensure must reset gatewayDeadReported so a later death can report again",
   );
+});
+
+// Crash-loop guard (2026-07-11, Traycer host-health-monitor pattern): bounded gateway
+// re-ensures with reset-on-recovery, so a binds-then-dies gateway can't respawn forever.
+test("nextReEnsureBudget: decrements on re-ensure, floors at 0, resets on recovery", () => {
+  assert.equal(MAX_REENSURE_WITHOUT_RECOVERY, 3, "documented default budget");
+  let b = MAX_REENSURE_WITHOUT_RECOVERY;
+  b = nextReEnsureBudget(b, { reEnsured: true }); assert.equal(b, 2, "1st respawn");
+  b = nextReEnsureBudget(b, { reEnsured: true }); assert.equal(b, 1, "2nd respawn");
+  b = nextReEnsureBudget(b, { reEnsured: true }); assert.equal(b, 0, "3rd respawn exhausts it");
+  b = nextReEnsureBudget(b, { reEnsured: true }); assert.equal(b, 0, "floors at 0 — never negative");
+  // A steady tick (no respawn, no recovery) leaves it unchanged.
+  assert.equal(nextReEnsureBudget(0, {}), 0, "steady tick unchanged");
+  // A live ws connect is recovery → full budget again for a FUTURE crash-loop episode.
+  assert.equal(nextReEnsureBudget(0, { recovered: true }), MAX_REENSURE_WITHOUT_RECOVERY, "recovery resets");
+  assert.equal(nextReEnsureBudget(1, { recovered: true }), MAX_REENSURE_WITHOUT_RECOVERY, "recovery wins over a partial budget");
+});
+
+test("delivery loop: re-ensure is gated on the budget and reset on a live ws", () => {
+  const src = fs.readFileSync(new URL("../hermes-managed-host.js", import.meta.url), "utf8");
+  assert.match(src, /reEnsureBudget > 0\s*\?\s*await maybeReEnsureGatewayHost/,
+    "the respawn must be gated on a positive budget");
+  assert.match(src, /reEnsureBudget = nextReEnsureBudget\(reEnsureBudget, \{ reEnsured: true \}\)/,
+    "a successful re-ensure must spend budget");
+  assert.match(src, /reEnsureBudget = nextReEnsureBudget\(reEnsureBudget, \{ recovered: true \}\)/,
+    "a live ws connect must reset the budget");
 });
