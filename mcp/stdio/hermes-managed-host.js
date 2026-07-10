@@ -1499,6 +1499,7 @@ export async function deliverRun({
     if (inFlight) {
       inFlight.submittedAt = 0;
       inFlight.runId = "";
+      inFlight.dispatchTurnOpen = false; // symmetry with the other failure paths (2026-07-10 review F4)
     }
     await clearTurn(httpCall, agentId).catch(() => {});
   }
@@ -2349,15 +2350,25 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     intervalMs: GATEWAY_TURN_POLL_MS,
     idleDebounce: GATEWAY_TURN_IDLE_DEBOUNCE,
     readGatewayStatus: readManagedSessionStatus,
-    // SET working on a gateway-running turn (edge-triggered). busy:true POSTs the
-    // turn-start heartbeat; no runId because an autonomous turn has no aify run.
-    postTurnStart: () => reportTurnBusy(httpCall, id, { busy: true }).catch(() => {}),
+    // SET working on a gateway-running turn (edge-triggered). Thread the OPEN run
+    // id: shouldFireTurnStart gates this to dispatchTurnOpen===true, in which state
+    // inFlight.runId IS the open run — so the detector's busy beat can no longer
+    // overwrite agent_turn_state.turn_run_id with '' (the server does turn_run_id =
+    // excluded.turn_run_id on every busy beat), which had raced the makeInFlightPulse
+    // beat and dropped the run linkage → the reply-reminder deadlock (2026-07-10 review).
+    postTurnStart: () => reportTurnBusy(httpCall, id, { busy: true, runId: inFlight.runId || "" }).catch(() => {}),
     // CLEAR on sustained idle — authoritative /turn-end, only ever clears. Also
-    // REVOKES the dispatched-turn credit: this turn is over, so a subsequent gateway
-    // `working` (hermes POST-TURN background self-improvement/memory) is NOT a real
-    // turn and must not re-fire /turn-start (the 2026-07-10 working-while-idle flap).
+    // REVOKES the dispatched-turn credit AND closes the re-pulse probe window: this
+    // turn is over, so (a) a subsequent gateway `working` (hermes POST-TURN background
+    // self-improvement/memory) must not re-fire /turn-start (the flap), and (b) the
+    // SEPARATE makeInFlightProbe/makeInFlightPulse beat — which keeps re-pulsing a
+    // `delivered`+require_reply=1 run whose reply STRANDED, at its slow 45s×3=135s idle
+    // cadence — must stop re-asserting turn_busy on this fast (≈9s) detector turn-end.
+    // Setting inFlight.completed makes shouldManagedHostRepulse skip; a new delivery
+    // re-arms completed=false, so the next turn tracks normally (2026-07-10 review F1).
     postTurnEnd: () => {
       inFlight.dispatchTurnOpen = false;
+      inFlight.completed = true;
       return clearTurn(httpCall, id).catch(() => {});
     },
     // GATE the detector's /turn-start (edge + keep-alive): fire only while a dispatched

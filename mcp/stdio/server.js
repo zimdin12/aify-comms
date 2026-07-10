@@ -50,7 +50,7 @@ import { shutdownAllHermesSessions } from "./hermes-session.js";
 import { shutdownAllHermesGatewaySessions } from "./hermes-managed-gateway-session.js";
 import { createVirtualTerminalInputManager } from "./virtual-terminal-input.js";
 import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
-import { terminalControlFailurePatch, orphanPidToKill } from "./terminal-control.js";
+import { terminalControlFailurePatch, orphanPidToKill, orphanPidReapAllowed } from "./terminal-control.js";
 import { reportDeadOwnedSessions } from "./dead-pty-reporter.js";
 import { terminalChildEnv } from "./terminal-env.js";
 import { managedViaWrapperRuntimesFromSettingsResponse } from "./managed-wrapper-settings.js";
@@ -2766,7 +2766,21 @@ async function runTerminalControlLoop() {
           // Stop/Restart isn't silently dropped. Owned-in-memory path unchanged.
           const orphanPid = orphanPidToKill(stopResult, control);
           if (orphanPid) {
-            TERMINAL_MANAGER.killByPid(orphanPid);
+            // Identity guard (2026-07-10 bughunt HIGH): this pid is the PRIOR
+            // spawn's persisted PTY root and the fallback fires only on the
+            // owning-bridge-gone path — the window where Windows may have RECYCLED
+            // it onto a live sibling agent's worker. Refuse only when the cmdline
+            // positively names a DIFFERENT agent; fail-open otherwise so a real
+            // orphan Stop is never dropped. terminateProcessTree's pidIsSelfProtected
+            // still blocks the bridge/shell/init separately.
+            if (orphanPidReapAllowed(orphanPid, control, { getCmdline: hermesGetCmdline })) {
+              TERMINAL_MANAGER.killByPid(orphanPid);
+            } else {
+              console.error(
+                `[aify] orphan Stop: refused kill-by-pid ${orphanPid} for terminal ${terminalId} — ` +
+                `its command line identifies a different agent (recycled pid?); leaking rather than cross-killing`,
+              );
+            }
           }
           // fix/hermes-leak P2: a STOP/REMOVE of a MANAGED HERMES agent must tear
           // down the WHOLE triad (detached gateway host + delivery loop + daemon),

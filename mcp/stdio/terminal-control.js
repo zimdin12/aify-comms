@@ -13,6 +13,39 @@ export function orphanPidToKill(stopResult, control) {
   return pid;
 }
 
+// Identity guard for the kill-by-pid orphan fallback (2026-07-10 bughunt HIGH).
+// The Stop control carries the persisted PTY root pid (terminal_sessions.process_id)
+// from a PRIOR spawn. The fallback fires ONLY on the Map-miss path — i.e. exactly
+// when the owning env-bridge restarted/died, the highest-probability window for the
+// original PTY to be dead and its pid RECYCLED by Windows onto another live process.
+// pidIsSelfProtected (in terminateProcessTree) already blocks the bridge/shell/init;
+// this adds the SIBLING-AGENT protection it can't give: refuse the kill when the
+// pid's command line positively identifies a DIFFERENT agent's managed console
+// (its `--aify-agent <other>` wrapper marker).
+//
+// FAILS OPEN (returns true → proceed with the current kill) on EVERY uncertainty —
+// no agentId on the control, no getCmdline, an unreadable/empty cmdline, a cmdline
+// with no `--aify-agent` marker, or one that matches THIS agent. Rationale: the
+// whole purpose of this fallback is to not silently drop the operator's Stop, so we
+// only ever BLOCK when we can POSITIVELY prove the pid belongs to another agent.
+// Pure + injectable (getCmdline) for tests.
+export function orphanPidReapAllowed(pid, control, { getCmdline } = {}) {
+  const n = Number(pid);
+  if (!Number.isInteger(n) || n <= 0) return false;
+  const wantAgent = String((control && control.agentId) || "").trim();
+  if (!wantAgent || typeof getCmdline !== "function") return true;
+  let cmdline = "";
+  try {
+    cmdline = String(getCmdline(n) || "");
+  } catch {
+    return true; // cmdline unreadable → don't block a legitimate Stop
+  }
+  if (!cmdline) return true;
+  const m = cmdline.match(/--aify-agent[=\s]+([A-Za-z0-9_-]+)/);
+  if (m && m[1] && m[1] !== wantAgent) return false; // POSITIVELY a different agent → recycled pid, skip
+  return true;
+}
+
 export function terminalControlFailurePatch(action = "", error) {
   const normalizedAction = String(action || "").trim().toLowerCase();
   const message = error?.message || String(error || "");
