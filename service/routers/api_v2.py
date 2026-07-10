@@ -5214,7 +5214,18 @@ async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dic
     # PURE call on the byproduct _compute_live_status_cache already built — no second gather).
     if cache["status"] not in _MANUAL_STATUSES:
         try:
-            cache["status"] = derive(cache["status_inputs"])
+            _legacy_status = cache["status"]
+            _derived = derive(cache["status_inputs"])
+            # derive() is the ONE authority for the served status. `cache["reason"]`
+            # (served as statusNote) was computed by the legacy cascade for the
+            # legacy status; when derive() DISAGREES, that reason describes the
+            # superseded status and contradicts what the operator sees (e.g. a
+            # dead-worker-mid-turn: derive→"available" but reason="Active run: X").
+            # Drop the stale reason on disagreement so the note never mismatches the
+            # status. (Cosmetic-only: dispatch keys on worker_present, not reason.)
+            if _derived != _legacy_status:
+                cache["reason"] = ""
+            cache["status"] = _derived
         except Exception:
             logger.exception("status derive failed for agent=%s; keeping computed status", agent_id)
     # Store in the in-memory cache — NOT the DB (was the write-storm source). No lock possible.
