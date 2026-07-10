@@ -8911,6 +8911,26 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertIn(channel.json()["messageId"], ids)
         self.assertFalse(any(message["source"] == "channel" and message.get("to") for message in messages))
 
+    def test_recent_messages_returns_full_body_not_just_240_char_preview(self):
+        # Operator-reported 2026-07-10: the dashboard chat showed every message truncated
+        # to ~240 chars. Root cause: /messages/recent returned only a 240-char `preview`
+        # and no full `body`, and the chat bubble renders `m.body || m.preview`. The
+        # endpoint must return the FULL body so the conversation view is complete.
+        self._register("manager")
+        self._register("alice")
+        long_body = "PARA. " + ("x" * 600) + " END-OF-A-VERY-LONG-MESSAGE"
+        self.assertGreater(len(long_body), 240)
+        sent = self._send_message(from_agent="manager", to="alice", subject="long", body=long_body)
+
+        recent = self.client.get("/api/v1/messages/recent?limit=10")
+        self.assertEqual(recent.status_code, 200, recent.text)
+        msg = next(m for m in recent.json()["messages"] if m["id"] == sent["messageId"])
+        # Full body present and complete (ends with the tail, not clipped at 240).
+        self.assertEqual(msg.get("body"), long_body, "recent must return the FULL message body")
+        self.assertTrue(str(msg.get("body", "")).endswith("END-OF-A-VERY-LONG-MESSAGE"))
+        # The light one-line preview is still clipped (kept for the DM rail).
+        self.assertLessEqual(len(msg.get("preview", "")), 244)
+
     def test_clear_inbox_detaches_threaded_replies_before_delete(self):
         self._register("alice")
         self._register("bob")

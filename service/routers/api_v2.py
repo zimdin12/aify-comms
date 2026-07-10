@@ -16072,6 +16072,12 @@ async def recent_messages(
                 "source": row["source"],
                 "type": row["type"],
                 "subject": row["subject"],
+                # Full body so the dashboard chat renders complete messages — the bubble
+                # reads `m.body` and previously fell back to the 240-char `preview`, so
+                # EVERY message was truncated to 240 chars in the conversation view
+                # (operator-reported 2026-07-10). `preview` is kept for the light DM-rail
+                # one-liner; `body` carries the real content.
+                "body": row["body"] or "",
                 "preview": _clip_text(row["body"] or "", 240),
                 "priority": row["priority"],
                 "timestamp": row["timestamp"],
