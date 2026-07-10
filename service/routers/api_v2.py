@@ -19387,7 +19387,7 @@ async def _prune_superseded_bridges(
 BRIDGE_ORPHAN_STALE_SECONDS = 300
 
 
-async def _reap_stale_orphan_bridges(db, *, stale_seconds: int = BRIDGE_ORPHAN_STALE_SECONDS, limit: int = 500) -> int:
+async def _reap_stale_orphan_bridges(db, *, stale_seconds: Optional[int] = None, limit: int = 500) -> int:
     """Supersede bridge_instances rows whose owner died without a clean supersede.
 
     THE GAP (2026-07-11, other-PC perf report): supersession only happens on a clean
@@ -19403,6 +19403,17 @@ async def _reap_stale_orphan_bridges(db, *, stale_seconds: int = BRIDGE_ORPHAN_S
     window, so this can only match a dead process. Idempotent (a re-run re-selects nothing:
     superseded rows are excluded); LIMIT-bounded; single UPDATE; commit by the caller.
     """
+    if stale_seconds is None:
+        # Derive from settings so the window is ALWAYS beyond every configured freshness
+        # window (+60s margin), even if an operator raises resident_lease_seconds (≤3600)
+        # or agent_liveness_seconds (≤600) above the 300s floor — otherwise the reaper
+        # could supersede a bridge that `_resident_bridge_is_fresh`/the liveness gate still
+        # treats as live (2026-07-11 review). The non-configurable stale constants
+        # (channel-sidecar 180 / claimer 240 / active-run 120) all sit under the floor.
+        settings = await _load_settings(db)
+        lease = int(settings.get("resident_lease_seconds", 150) or 150)
+        liveness = int(settings.get("agent_liveness_seconds", 90) or 90)
+        stale_seconds = max(BRIDGE_ORPHAN_STALE_SECONDS, lease + 60, liveness + 60)
     stale_seconds = max(180, int(stale_seconds or BRIDGE_ORPHAN_STALE_SECONDS))
     cur = await db.execute(
         """

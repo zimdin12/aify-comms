@@ -105,6 +105,18 @@ class ReapStaleOrphanBridgesTests(FastApiTestCase):
         self.assertEqual(self._run_reaper(), 0, "an already-superseded row is not re-superseded")
         self.assertEqual(self._superseded_by("b-done"), "relaunch")
 
+    def test_raised_resident_lease_widens_the_window(self):
+        # 2026-07-11 review: the reaper must derive its window from settings so it never
+        # supersedes a bridge a raised liveness window still treats as fresh. With the lease
+        # at 600, a 400s-old bridge (past the 300s floor) is still inside lease+60 → spared.
+        self.client.put("/api/v1/settings", json={"resident_lease_seconds": 600})
+        self._seed_bridge("b-in-lease", "orphan-agent", seconds_ago=400)
+        self._seed_bridge("b-past-lease", "orphan-agent", seconds_ago=700)
+        n = self._run_reaper()  # no stale_seconds → derives from settings (max(300, 660, 150)=660)
+        self.assertEqual(n, 1, "only the bridge past the widened window is reaped")
+        self.assertEqual(self._superseded_by("b-in-lease"), "", "a bridge inside the raised lease must be spared")
+        self.assertEqual(self._superseded_by("b-past-lease"), "reaper:stale-orphan")
+
     def test_mixed_fleet_only_stale_live_orphans_reaped(self):
         self._seed_bridge("m-stale1", "orphan-agent", seconds_ago=700)
         self._seed_bridge("m-stale2", "orphan-agent", seconds_ago=400, kind="channel-sidecar")
