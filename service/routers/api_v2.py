@@ -1231,15 +1231,23 @@ async def _broadcast_agent_status(ws, db, agent_id: str) -> None:
         status = cache.get("status") or ""
         # PUSH/POLL PARITY: the WS push serves the SAME proof-engine value the polled read does
         # (derive of the assembled inputs), so a push never overwrites a correct polled status.
+        note = cache.get("reason") or ""
         if status not in _MANUAL_STATUSES:
             try:
-                status = derive(cache["status_inputs"])
+                _derived = derive(cache["status_inputs"])
+                # PUSH/POLL PARITY of the NOTE too (2026-07-10 review): the polled
+                # read blanks the legacy-cascade reason when derive() disagrees
+                # (the reason describes the superseded status). Mirror it here so the
+                # WS-pushed statusNote never contradicts the pushed status.
+                if _derived != status:
+                    note = ""
+                status = _derived
             except Exception:
                 pass
         await ws.broadcast("agent_status", {
             "agentId": agent_id,
             "status": status,
-            "statusNote": cache.get("reason") or "",
+            "statusNote": note,
         })
     except Exception:
         pass
@@ -18634,10 +18642,19 @@ async def _clear_turn_busy_for_dead_bridges(db, *, limit: int = 200) -> list[dic
     now = _now()
     for row in rows:
         agent_id = str(row["agent_id"] or "").strip()
-        dead_bridge = str(row["turn_bridge_id"] or "").strip() or "(none)"
+        raw_bridge = str(row["turn_bridge_id"] or "").strip()
+        dead_bridge = raw_bridge or "(none)"
         if not agent_id:
             continue
-        await db.execute(
+        # COMPARE-AND-SWAP (2026-07-10 review S2): scope the clear to the EXACT stale
+        # bridge id this row was selected for. Between the SELECT above and here (multiple
+        # awaits on the single loop) a POST /heartbeat {turnBusy:true} from a NEWLY-LIVE
+        # bridge can rewrite this row (turn_busy=1, turn_bridge_id=B_new). An unconditional
+        # clear would then blow away that fresh turn (last-writer-wins) → the just-resumed
+        # agent flaps to `online` for a pulse cycle. Guarding on the observed bridge id +
+        # turn_busy=1 makes the concurrent-rewrite case a no-op. Mirrors the heartbeat
+        # clear path, which already keys on the stored bridge id before clearing.
+        cur = await db.execute(
             """
             UPDATE agent_turn_state
             SET turn_busy = 0,
@@ -18646,9 +18663,15 @@ async def _clear_turn_busy_for_dead_bridges(db, *, limit: int = 200) -> list[dic
                 turn_runtime = '',
                 turn_updated_at = ?
             WHERE agent_id = ?
+              AND turn_busy = 1
+              AND COALESCE(turn_bridge_id, '') = ?
             """,
-            (now, agent_id),
+            (now, agent_id, raw_bridge),
         )
+        if not cur.rowcount:
+            # CAS miss: a fresh heartbeat from a new live bridge rewrote the row — the
+            # agent is legitimately busy again; do NOT clear its in_turn/cache.
+            continue
         # Keep the v2 engine in sync — the dead bridge's heartbeats are exactly what set
         # in_turn=1, and no turn_end will ever arrive from it (review M3, 2026-06-10).
         await _clear_status_state_in_turn(db, agent_id)
