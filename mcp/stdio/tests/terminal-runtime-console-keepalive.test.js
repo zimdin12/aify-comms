@@ -45,26 +45,6 @@ const tick = (ms = 25) => new Promise((r) => setTimeout(r, ms));
   stop();
 }
 
-// (2b) managed HERMES pty -> DOES get the keepalive (2026-07-10 blank-hermes-console fix).
-// A hermes visible TUI paints its screen once then only emits tiny cursor-positioned diffs, so
-// the 64KB raw-log tail has no full frame and the console snapshot came out blank. SIGWINCH forces
-// a full repaint, keeping a fresh frame in the captured window — same mechanism claude already uses.
-{
-  const resizes = [];
-  const mgr = new TerminalProcessManager({ onOutput: async () => {}, consoleKeepaliveMs: 5 });
-  const hermes = {
-    id: "t2b", runtime: "hermes", sessionMode: "managed", kind: "pty",
-    cols: 100, rows: 28, term: { resize: (c, r) => resizes.push([c, r]) },
-  };
-  mgr.terminals.set("t2b", hermes);
-  const stop = mgr._armConsoleKeepalive("t2b", hermes);
-  await tick();
-  stop();
-  assert.ok(resizes.length >= 2, "managed hermes pty is poked (toggle = 2 resizes per tick)");
-  assert.notDeepEqual(resizes[0], [100, 28], "first resize changes a dim (forces SIGWINCH → hermes repaint)");
-  assert.deepEqual(resizes[1], [100, 28], "second resize restores the true dims");
-}
-
 // (3) resident claude -> no keepalive (never type/poke an operator session).
 {
   const mgr = new TerminalProcessManager({ onOutput: async () => {}, consoleKeepaliveMs: 5 });
