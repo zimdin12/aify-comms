@@ -76,6 +76,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _prune_superseded_bridges,
         _prune_terminal_history,
         _reap_undeliverable_queued_runs,
+        _fail_stranded_delivered_reply_runs,
         _replay_undelivered_channel_messages_on_env_recovery,
         _reconcile_dead_session_status,
         _reconcile_duplicate_resident_sessions,
@@ -186,6 +187,12 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # _close_orphaned_managed_runs.
         reaped_queued = await _commit_step(await _reap_undeliverable_queued_runs(db, limit=200))
         closed_orphaned_managed = await _commit_step(await _close_orphaned_managed_runs(db, limit=200))
+        # A delivered require_reply run whose worker turn DIED without replying (model 429 /
+        # mid-turn interrupt / stall) sits `delivered` forever — looks idle, strands the
+        # contract (sc-manager live repro 2026-07-10). Past a staleness window well beyond the
+        # reminder cycle, FAIL it with a clear cause. MUST run BEFORE the failed-handoff sweep
+        # below so the SAME pass mirrors the failure notice to the sender.
+        failed_stranded_replies = await _commit_step(await _fail_stranded_delivered_reply_runs(db, limit=200))
         # Sender notices for runs the REAPERS failed (vs a bridge PATCH, which mirrors
         # inline): without this sweep a require_reply run failed by the orphan-closer /
         # claim auto-heal never told the sender (review, 2026-06-10). Idempotent.
@@ -269,6 +276,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "dead_sessions_stopped": dead_sessions_stopped,
             "dead_bridge_turn_busy_cleared": len(cleared_dead_turn_busy),
             "undeliverable_queued_runs_failed": len(reaped_queued),
+            "stranded_reply_runs_failed": len(failed_stranded_replies),
             "managed_ghost_rows_reaped": managed_hygiene.get("managed_ghost_rows_reaped", 0),
             "orphan_workers_reaped": managed_hygiene.get("orphan_workers_reaped", 0),
             "resurrected_consoles": resurrected_consoles,

@@ -180,6 +180,11 @@ DEFAULT_SETTINGS = {
     # still carries the reply anchor. With the default 3, reminders 1-2 are
     # light and 3 is full, 4-5 light, 6 full, ... 0 or 1 = every reminder full.
     "reply_reminder_full_every": 3,
+    # After a delivered require_reply run has sat this long with no reply — well past the
+    # reminder cycle (10/20/30 min) — its worker turn is presumed dead (model 429 / mid-turn
+    # interrupt / stall). Reconcile FAILS it with a clear cause so it doesn't strand as
+    # "delivered" forever (looking idle) and the sender gets a visible failure notice. 0 = off.
+    "stranded_reply_fail_minutes": 45,
     "contract_stale_hours": 24,
     "active_run_stale_minutes": 30,
     # Tighter cleanup window for managed dispatches. Default 5 min.
@@ -9233,6 +9238,80 @@ def _auto_handoff_body_for_run(row) -> str:
         detail = str((row["summary"] if row else "") or "Run completed.").strip()
         return detail
     return f"{intro}\n\n{detail}"
+
+
+async def _fail_stranded_delivered_reply_runs(db, *, stale_minutes: Optional[int] = None, limit: int = 200) -> list[dict[str, str]]:
+    """Fail a delivered require_reply run whose worker turn died without replying.
+
+    A managed hermes turn that dies to a model-429, a mid-turn interrupt, or a stall leaves
+    its dispatch run at `delivered, require_reply=1, result_message_id=''` FOREVER — the
+    turn-end→auto-mirror close never fires (that's the same hermes turn-end signal that
+    flaps the status), so the run looks like the agent is idle/ignoring it (sc-manager live
+    repro 2026-07-10: architect's 3 runs, all model-429'd before any work). This reaper
+    closes that gap: past a staleness window WELL beyond the reminder cycle, a still-delivered
+    rr=1 run with no reply is presumed dead and FAILED with a clear cause. The existing
+    `_sweep_unmirrored_failed_handoffs` (next in the reconcile loop) then mirrors the failure
+    to the sender — so instead of a silent `delivered`, the sender sees a visible FAILED.
+
+    Keyed on STALENESS (not turn_busy) so it is robust even while the hermes turn-status
+    flaps. SAFETY: a run the agent is CURRENTLY working (live turn on this exact run) is
+    skipped, and the UPDATE re-checks `status='delivered'` so a reply landing concurrently
+    wins the race. Idempotent (a failed run is never re-selected).
+    """
+    settings = await _load_settings(db)
+    if stale_minutes is None:
+        stale_minutes = int(settings.get("stranded_reply_fail_minutes", DEFAULT_SETTINGS["stranded_reply_fail_minutes"]) or 0)
+    if stale_minutes <= 0:
+        return []  # disabled
+    stale_minutes = max(10, int(stale_minutes))
+    cutoff = f"-{stale_minutes} minutes"
+    rows = await (await db.execute(
+        """
+        SELECT id, target_agent, from_agent, subject, requested_at
+        FROM dispatch_runs
+        WHERE status = 'delivered'
+          AND COALESCE(require_reply, 0) = 1
+          AND COALESCE(result_message_id, '') = ''
+          AND datetime(COALESCE(requested_at, '')) <= datetime('now', ?)
+        ORDER BY requested_at ASC
+        LIMIT ?
+        """,
+        (cutoff, max(1, int(limit or 200))),
+    )).fetchall()
+    failed: list[dict[str, str]] = []
+    now = _now()
+    reason = (
+        "Turn ended without a reply — the worker turn is presumed dead (model 429, mid-turn "
+        "interrupt, or stall). Failed by reconcile so the run isn't stranded as 'delivered'."
+    )
+    for row in (rows or []):
+        run_id = str(row["id"] or "").strip()
+        target = str(row["target_agent"] or "").strip()
+        if not run_id or not target:
+            continue
+        # SAFETY: never fail a run the agent is actively working RIGHT NOW (live turn on
+        # this exact run). A flap can transiently show turn_busy=1; skipping (not failing)
+        # is the conservative side — the run is retried next pass.
+        turn = await (await db.execute(
+            "SELECT turn_busy, turn_run_id FROM agent_turn_state WHERE agent_id = ?",
+            (target,),
+        )).fetchone()
+        if turn is not None and int(turn["turn_busy"] or 0) == 1 and str(turn["turn_run_id"] or "").strip() == run_id:
+            continue
+        cur = await db.execute(
+            """
+            UPDATE dispatch_runs
+            SET status = 'failed', finished_at = ?, summary = ?, error_text = ?
+            WHERE id = ? AND status = 'delivered' AND COALESCE(result_message_id, '') = ''
+            """,
+            (now, reason, reason, run_id),
+        )
+        if (cur.rowcount or 0) == 0:
+            continue  # a reply / other transition won the race
+        await _append_dispatch_event(db, run_id, "stranded_reply_failed", reason)
+        await _invalidate_agent_live_state(db, target)
+        failed.append({"runId": run_id, "agentId": target})
+    return failed
 
 
 async def _sweep_unmirrored_failed_handoffs(db, *, window_hours: int = 6, limit: int = 50) -> int:
