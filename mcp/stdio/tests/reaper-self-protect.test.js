@@ -18,7 +18,7 @@
 // forms) while still allowing an unrelated pid — and that calling the real kill
 // helper on our own pid is a no-op (this test process must survive it).
 import assert from "node:assert/strict";
-import { pidIsSelfProtected } from "../runtimes-process.js";
+import { pidIsSelfProtected, terminateProcessTree } from "../runtimes-process.js";
 import { defaultKillPid } from "../reap-managed-claude.js";
 
 // Our own process group id (Linux), used to assert the group-kill guard.
@@ -61,5 +61,18 @@ assert.equal(defaultKillPid(1), false, "defaultKillPid must refuse init");
 // If the guard regressed, the SIGTERM above would have killed this process and
 // we would never reach here.
 assert.ok(process.pid > 0, "test process survived the self-kill attempts");
+
+// ── terminateProcessTree honors the self-protect guard on BOTH platforms ──────
+// (2026-07-10 bughunt HIGH: the win32 taskkill path previously bypassed the guard,
+// so a stale/recycled DB pid could taskkill the bridge/operator-shell tree.) A
+// fake `proc` whose pid is our own (self-protected) must NOT be signalled — assert
+// the unconditional bottom-fallback `proc.kill` is never reached.
+let selfKillCalls = 0;
+terminateProcessTree({ pid: process.pid, kill: () => { selfKillCalls++; } }, "SIGTERM");
+assert.equal(selfKillCalls, 0, "terminateProcessTree must refuse a self-protected pid (no proc.kill)");
+terminateProcessTree({ pid: 1, kill: () => { selfKillCalls++; } }, "SIGKILL");
+assert.equal(selfKillCalls, 0, "terminateProcessTree must refuse init (pid 1)");
+terminateProcessTree({ pid: "garbage", kill: () => { selfKillCalls++; } });
+assert.equal(selfKillCalls, 0, "terminateProcessTree must refuse a non-numeric pid");
 
 console.log("reaper-self-protect.test.js: all assertions passed");

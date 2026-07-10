@@ -126,19 +126,26 @@ export function selectClaudeChannelMarkerForParent(markers, parentPid) {
 }
 
 export function writeRuntimeMarker(runtime, cwd, data = {}) {
-  const normalizedCwd = normalizeCwdForKey(cwd) || process.cwd();
-  const file = markerFilePath(runtime, normalizedCwd, data?.markerId || process.pid);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const payload = {
-    runtime: normalizeRuntime(runtime),
-    cwd: normalizedCwd,
-    markerId: normalizeMarkerId(data?.markerId || process.pid),
-    pid: process.pid,
-    createdAt: new Date().toISOString(),
-    ...data,
-  };
-  fs.writeFileSync(file, JSON.stringify(payload, null, 2) + "\n");
-  return file;
+  // Best-effort, mirroring every read helper in this module (2026-07-10 bughunt LOW):
+  // an EACCES/ENOSPC on mkdir/write must NOT propagate into the registration path
+  // (server.js) and abort startup. On failure, return null (marker simply absent).
+  try {
+    const normalizedCwd = normalizeCwdForKey(cwd) || process.cwd();
+    const file = markerFilePath(runtime, normalizedCwd, data?.markerId || process.pid);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const payload = {
+      runtime: normalizeRuntime(runtime),
+      cwd: normalizedCwd,
+      markerId: normalizeMarkerId(data?.markerId || process.pid),
+      pid: process.pid,
+      createdAt: new Date().toISOString(),
+      ...data,
+    };
+    fs.writeFileSync(file, JSON.stringify(payload, null, 2) + "\n");
+    return file;
+  } catch {
+    return null;
+  }
 }
 
 export function removeRuntimeMarker(runtime, cwd) {

@@ -50,6 +50,11 @@ export class HermesAdapter extends RuntimeAdapter {
 
   diagnosticEnv() {
     const env = super.diagnosticEnv();
+    // AIFY_HERMES_GATEWAY_URL is the LIVE delivery variable (the WS URL the
+    // managed/resident delivery loop connects to — server.js + hermes-managed-host.js).
+    // It was dropped from the diagnostic when the dead tui_gateway path was retired
+    // (11ba0cd); the later gateway rework made it authoritative again. Surface it.
+    env.AIFY_HERMES_GATEWAY_URL = String(process.env.AIFY_HERMES_GATEWAY_URL || "").trim() || "(unset)";
     env.AIFY_HERMES_APISERVER_URL = String(process.env.AIFY_HERMES_APISERVER_URL || "").trim() || "(unset)";
     env.AIFY_HERMES_APISERVER_KEY = process.env.AIFY_HERMES_APISERVER_KEY ? "(set)" : "(unset)";
     return env;

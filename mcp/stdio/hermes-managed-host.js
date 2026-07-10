@@ -1365,6 +1365,7 @@ export async function deliverRun({
         if (inFlight) {
           inFlight.submittedAt = 0;
           inFlight.runId = "";
+          inFlight.dispatchTurnOpen = false; // no delivered turn on this path → no detector turn-start credit
         }
         await clearTurn(httpCall, agentId).catch(() => {});
         return;
@@ -1386,6 +1387,7 @@ export async function deliverRun({
       if (inFlight) {
         inFlight.submittedAt = 0;
         inFlight.runId = "";
+        inFlight.dispatchTurnOpen = false; // no delivered turn on this path → no detector turn-start credit
       }
       await clearTurn(httpCall, agentId).catch(() => {});
       return;
@@ -1482,6 +1484,7 @@ export async function deliverRun({
       if (inFlight) {
         inFlight.submittedAt = 0;
         inFlight.runId = "";
+        inFlight.dispatchTurnOpen = false; // no delivered turn on this path → no detector turn-start credit
       }
       await clearTurn(httpCall, agentId).catch(() => {});
       return;
@@ -1586,6 +1589,11 @@ export function makeInFlightProbe({
           inFlight.runId = "";
           inFlight.observedWorking = false;
           inFlight.idleStreak = 0;
+          // Defense-in-depth (2026-07-10): revoke the detector's turn-start credit on
+          // THIS turn-end path too (the continuous detector also revokes it, usually
+          // sooner). Keeps dispatchTurnOpen false after ANY observed turn-end so post-
+          // turn background gateway "working" can never re-fire the flap.
+          inFlight.dispatchTurnOpen = false;
           if (typeof clearTurnImpl === "function") {
             // Authoritative /turn-end: clear turn_busy NOW, not on the 120s window.
             await clearTurnImpl();

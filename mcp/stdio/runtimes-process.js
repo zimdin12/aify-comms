@@ -240,6 +240,23 @@ function pidIsAlive(pid) {
 
 export function terminateProcessTree(proc, signal = "SIGTERM") {
   if (!proc || !proc.pid) return;
+  // Self-protect on BOTH platforms (2026-07-10 bughunt HIGH). The win32 `taskkill
+  // /t /f` path below previously bypassed this guard entirely, so a STALE/RECYCLED
+  // DB pid (e.g. a dashboard Stop routed through killByPid → _reapPtyTree) could
+  // taskkill the bridge, the operator's own shell, or a sibling agent's worker
+  // TREE on Windows — the production platform, exactly the cross-contamination
+  // incident class. pidIsSelfProtected covers self/ppid/pgid/init; the POSIX branch
+  // additionally guards every child via killPid. Guarding the top pid here also
+  // protects the unconditional proc.kill(signal) fallback at the bottom.
+  if (pidIsSelfProtected(proc.pid)) {
+    try {
+      console.error(
+        `[aify] reaper self-protect: refused to terminate process tree for pid=${proc.pid} ` +
+        `(matches bridge pid/ppid/pgid or init) — not killing the bridge`,
+      );
+    } catch { /* best effort */ }
+    return;
+  }
   if (process.platform === "win32") {
     try {
       const result = spawnSync("taskkill", ["/pid", String(proc.pid), "/t", "/f"], {
