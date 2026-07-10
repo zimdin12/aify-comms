@@ -584,15 +584,24 @@ export class TerminalProcessManager {
     sendNext();
   }
 
-  // Periodically SIGWINCH a managed claude PTY so claude re-emits its footer even when the
-  // dashboard Console is closed — keeping the console-working lease fresh. A same-dims resize
-  // sends NO SIGWINCH (the Linux kernel skips it when the winsize is unchanged — verified
-  // empirically), so each tick momentarily shrinks one column to FORCE the signal, then restores
-  // the true dims so the net terminal size is unchanged. The shrink/restore is synchronous, so
-  // the at-width-1-less window is sub-millisecond. claude-managed-only; best-effort; a noop for
-  // other runtimes / resident / when disabled.
+  // Periodically SIGWINCH a managed claude/hermes PTY so it re-emits a full frame even when the
+  // dashboard Console is closed. A same-dims resize sends NO SIGWINCH (the Linux kernel skips it
+  // when the winsize is unchanged — verified empirically), so each tick momentarily shrinks one
+  // column to FORCE the signal, then restores the true dims so the net terminal size is unchanged.
+  // The shrink/restore is synchronous, so the at-width-1-less window is sub-millisecond.
+  //
+  // TWO purposes: (claude) re-emit its footer to keep the console-working lease fresh; and
+  // (hermes, 2026-07-10 — the "blank hermes console" fix) force a FULL REPAINT. A hermes visible
+  // TUI (crossterm/ratatui) paints its whole screen ONCE, then only emits tiny cursor-positioned
+  // diffs (a ticking status counter) — so the stored 64KB raw-log tail contains NO full frame and
+  // the server-rendered snapshot came out blank (only the counter). SIGWINCH makes hermes redraw
+  // the entire screen, keeping a fresh full frame in the captured window. hermes has no claude-style
+  // consoleClass, so it never hits the idle-throttle below and simply toggles at the full 4s rate
+  // (harmless: sub-ms, and its status comes from the gateway WS, not this footer). managed-pty only;
+  // best-effort; a noop for other runtimes / resident / when disabled.
   _armConsoleKeepalive(id, state) {
-    if (!this.consoleKeepaliveMs || state.runtime !== "claude-code"
+    const keepaliveRuntime = state.runtime === "claude-code" || state.runtime === "hermes";
+    if (!this.consoleKeepaliveMs || !keepaliveRuntime
         || state.sessionMode !== "managed" || state.kind !== "pty") {
       return () => {};
     }
