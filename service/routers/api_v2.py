@@ -19378,6 +19378,50 @@ async def _prune_superseded_bridges(
     return removed
 
 
+# A bridge whose process died WITHOUT a graceful supersede (crash / host restart /
+# wrapper kill) is dead once its last_seen is this far past every liveness window.
+# The liveness beat (__HEARTBEAT_MS) fires unconditionally every ~60s while the bridge
+# process is alive, and the longest freshness window is the 150s resident lease, so
+# 300s = ~5 missed beats — a value only a dead process can reach. Kept generous on
+# purpose: superseding a still-live bridge would wrongly flip its agent offline.
+BRIDGE_ORPHAN_STALE_SECONDS = 300
+
+
+async def _reap_stale_orphan_bridges(db, *, stale_seconds: int = BRIDGE_ORPHAN_STALE_SECONDS, limit: int = 500) -> int:
+    """Supersede bridge_instances rows whose owner died without a clean supersede.
+
+    THE GAP (2026-07-11, other-PC perf report): supersession only happens on a clean
+    relaunch/register, and `_prune_superseded_bridges` only DELETEs rows that are ALREADY
+    superseded. So a bridge whose process crashed/was-killed lingers `superseded_by=''`
+    with an old last_seen FOREVER — counted as "live" by every status-derivation and
+    dispatch-claim scan (all keyed `WHERE superseded_by=''`), taxing idle CPU and never
+    reaped (observed re-accumulating to dozens of orphans across the fleet).
+
+    This marks such rows `superseded_by='reaper:stale-orphan'` so they drop out of the hot
+    scans immediately; `_prune_superseded_bridges` then DELETEs them after its TTL. NEVER
+    touches a row seen within `stale_seconds` — a live bridge always beats inside that
+    window, so this can only match a dead process. Idempotent (a re-run re-selects nothing:
+    superseded rows are excluded); LIMIT-bounded; single UPDATE; commit by the caller.
+    """
+    stale_seconds = max(180, int(stale_seconds or BRIDGE_ORPHAN_STALE_SECONDS))
+    cur = await db.execute(
+        """
+        UPDATE bridge_instances
+        SET superseded_by = 'reaper:stale-orphan',
+            superseded_at = ?
+        WHERE id IN (
+            SELECT id FROM bridge_instances
+            WHERE COALESCE(superseded_by, '') = ''
+              AND datetime(COALESCE(last_seen, '1970-01-01')) < datetime('now', ?)
+            ORDER BY datetime(COALESCE(last_seen, '1970-01-01')) ASC
+            LIMIT ?
+        )
+        """,
+        (_now(), f"-{stale_seconds} seconds", int(limit)),
+    )
+    return cur.rowcount if cur.rowcount is not None and cur.rowcount > 0 else 0
+
+
 async def _prune_orphaned_dispatch_runs(
     db,
     *,
