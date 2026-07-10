@@ -31,6 +31,9 @@ const state = {
                  // "Loading…" instead of "No agents." on a cold load.
   agents: [],
   contracts: [],
+  // Work Loop layout: 'list' (flat) or 'board' (status columns). Persisted; the flat
+  // list stays the default so nothing changes for anyone who doesn't opt in.
+  contractView: (() => { try { return localStorage.getItem('aifyContractView') === 'board' ? 'board' : 'list'; } catch { return 'list'; } })(),
   messages: [],
   runs: [],
   sessions: [],
@@ -2452,6 +2455,50 @@ function renderSessionWorkspace() {
 function contractCategory(c) {
   return String(c.category || c.kind || (c.channel ? 'channel' : c.selfWake || c.self_wake ? 'self_wake' : 'direct')).toLowerCase();
 }
+// Work Loop board columns, ordered needs-attention → done. Each contract lands in
+// the FIRST column whose match() is true (so `overdue` — a flag layered on any live
+// state — always wins its urgency slot). `always` columns render even when empty so
+// the board shape is stable in the default Open filter; terminal columns only appear
+// when they actually hold cards (or when the State filter loaded them).
+const CONTRACT_BOARD_COLUMNS = [
+  { key: 'overdue',  label: 'Overdue',  always: true,  match: (c) => !!c.overdue },
+  { key: 'working',  label: 'Working',  always: true,  match: (c) => c.state === 'working' },
+  { key: 'queued',   label: 'Queued',   always: true,  match: (c) => c.state === 'queued' },
+  { key: 'awaiting', label: 'Awaiting', always: true,  match: (c) => ['sent', 'seen', 'missing_reply'].includes(c.state) },
+  { key: 'answered', label: 'Answered', always: false, match: (c) => ['answered', 'closed'].includes(c.state) },
+  { key: 'failed',   label: 'Failed',   always: false, match: (c) => c.state === 'failed' },
+];
+
+function renderContractBoard(contracts) {
+  const buckets = new Map(CONTRACT_BOARD_COLUMNS.map((col) => [col.key, []]));
+  const other = [];
+  for (const contract of contracts) {
+    const col = CONTRACT_BOARD_COLUMNS.find((c) => c.match(contract));
+    (col ? buckets.get(col.key) : other).push(contract);
+  }
+  const columns = CONTRACT_BOARD_COLUMNS
+    .filter((col) => col.always || buckets.get(col.key).length)
+    .map((col) => {
+      const cards = buckets.get(col.key);
+      const body = cards.length
+        ? cards.map((c) => contractCard(c)).join('')
+        : '<p class="board-col-empty">Clear</p>';
+      return `<div class="contract-board-col c-${col.key}">
+        <div class="board-col-head"><span class="board-col-label">${esc(col.label)}</span><span class="board-col-count">${cards.length}</span></div>
+        <div class="board-col-body">${body}</div>
+      </div>`;
+    });
+  // Anything with an unrecognized state (forward-compat) gets its own trailing column
+  // rather than silently vanishing from the board.
+  if (other.length) {
+    columns.push(`<div class="contract-board-col c-other">
+      <div class="board-col-head"><span class="board-col-label">Other</span><span class="board-col-count">${other.length}</span></div>
+      <div class="board-col-body">${other.map((c) => contractCard(c)).join('')}</div>
+    </div>`);
+  }
+  return `<div class="contract-board">${columns.join('')}</div>`;
+}
+
 function renderContracts() {
   const selected = byId('contract-state')?.value || 'open';
   const category = byId('contract-category')?.value || '';
@@ -2460,8 +2507,21 @@ function renderContracts() {
       : selected === 'open' ? ['overdue', 'working', 'queued', 'sent', 'seen'].includes(contract.state)
       : contract.state === selected)
     .filter((contract) => !category || contractCategory(contract) === category);
-  byId('contract-list').innerHTML = contracts.map(contractCard).join('')
-    || '<div class="empty-state"><span class="empty-icon">✓</span><strong>No contracts match</strong><p>No reply obligations in this filter.</p></div>';
+  const host = byId('contract-list');
+  host.classList.toggle('is-board', state.contractView === 'board');
+  if (!contracts.length) {
+    host.innerHTML = '<div class="empty-state"><span class="empty-icon">✓</span><strong>No contracts match</strong><p>No reply obligations in this filter.</p></div>';
+  } else if (state.contractView === 'board') {
+    host.innerHTML = renderContractBoard(contracts);
+  } else {
+    host.innerHTML = contracts.map(contractCard).join('');
+  }
+  // Keep the toggle buttons in sync (also on first paint / cross-tab restore).
+  document.querySelectorAll('button[data-contract-view]').forEach((b) => {
+    const on = b.dataset.contractView === state.contractView;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
   renderDiagnosticsBulkToolbar();
 }
 
@@ -3751,6 +3811,16 @@ document.addEventListener('click', (event) => {
     if (grid) grid.setAttribute('data-work-view', v);
     document.querySelectorAll('button[data-work-view]').forEach((b) => { const on = b.dataset.workView === v; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
     try { localStorage.setItem('aifyWorkView', v); } catch { /* private mode */ }
+    return;
+  }
+  // Work Loop List ⇄ Board layout toggle. Scoped to button[data-contract-view] for
+  // the same reason as work-view above (avoid swallowing card actions).
+  const contractView = event.target.closest('button[data-contract-view]');
+  if (contractView) {
+    const v = contractView.dataset.contractView === 'board' ? 'board' : 'list';
+    state.contractView = v;
+    try { localStorage.setItem('aifyContractView', v); } catch { /* private mode */ }
+    renderContracts();
     return;
   }
   const diagJump = event.target.closest('[data-diag-jump]');

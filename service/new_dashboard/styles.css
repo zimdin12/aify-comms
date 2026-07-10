@@ -357,6 +357,45 @@ small, .subtle { color: var(--muted); }
 .item-title > :first-child { min-width: 0; }
 .clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .preview { color: var(--muted); margin-top: 5px; overflow-wrap: anywhere; }
+
+/* Work Loop board view — opt-in status columns (List/Board toggle). The flat list
+   stays default; .is-board switches the grid container to a horizontal board. */
+.contract-view-toggle { margin-left: auto; align-self: end; }
+.contract-list.is-board { display: block; overflow-x: auto; padding-bottom: 4px; }
+.contract-board { display: flex; gap: 12px; align-items: flex-start; min-height: 90px; }
+.contract-board-col {
+  flex: 0 0 clamp(224px, 23vw, 300px);
+  display: flex; flex-direction: column;
+  max-height: 66vh;
+  background: var(--panel-3);
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--muted);
+  border-radius: 10px;
+}
+.board-col-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 11px;
+  position: sticky; top: 0; z-index: 1;
+  background: var(--panel-2); border-radius: 9px 9px 0 0; border-bottom: 1px solid var(--line);
+}
+.board-col-label { font-weight: 600; font-size: .82em; letter-spacing: .02em; }
+.board-col-count {
+  font-size: .76em; color: var(--muted);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+  padding: 1px 8px; min-width: 22px; text-align: center;
+}
+.board-col-body { display: flex; flex-direction: column; gap: 8px; padding: 10px; overflow-y: auto; }
+.board-col-body .contract { display: flex; flex-direction: column; gap: 6px; }
+.board-col-body .contract .diagnostic-check { align-self: flex-start; }
+.board-col-body .contract .contract-actions { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+.board-col-empty { color: var(--muted); font-size: .8em; text-align: center; padding: 14px 0; opacity: .55; }
+/* Column accents mapped to our contract lifecycle vocabulary. */
+.contract-board-col.c-overdue { border-top-color: var(--red); }
+.contract-board-col.c-working { border-top-color: var(--tertiary, #dfb156); }
+.contract-board-col.c-queued { border-top-color: var(--violet); }
+.contract-board-col.c-awaiting { border-top-color: var(--available-blue); }
+.contract-board-col.c-answered { border-top-color: var(--green); }
+.contract-board-col.c-failed { border-top-color: var(--red); }
 .scroll-region {
   max-height: 32vh;
   min-height: 0;
