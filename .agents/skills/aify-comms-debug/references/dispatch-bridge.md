@@ -6,6 +6,7 @@
 - [Dispatches stay `queued`/`delivered`, never claimed (delivery silently stalls)](#dispatches-stay-queueddelivered-never-claimed-delivery-silently-stalls)
 - [Managed worker "launches then dies", stuck `available` — reaped mid-boot during a slow SessionStart hook](#managed-worker-launches-then-dies-stuck-available-reaped-mid-boot-during-a-slow-sessionstart-hook)
 - [Runs view: routine `delivered` runs show a blank summary (expected)](#runs-view-routine-delivered-runs-show-a-blank-summary-expected)
+- [Managed run FAILED with "turn is presumed dead (model 429 / interrupt / stall)"](#managed-run-failed-with-turn-is-presumed-dead-model-429--interrupt--stall)
 - [Claude: wake mode stuck at `claude-needs-channel`](#claude-wake-mode-stuck-at-claude-needs-channel)
 - [Claude managed run fails: `Session ID ... is already in use`](#claude-managed-run-fails-session-id-is-already-in-use)
 - [Managed spawned agent workspace is stored as `\home\dev\...`](#managed-spawned-agent-workspace-is-stored-as-homedev)
@@ -109,6 +110,24 @@ empty `summary`, so the Runs list looks quiet.
 notes. Failed/cancelled/noteworthy runs still carry their summary, so real
 problems remain visible. A blank summary on a `delivered` run is not a dropped
 result — the team-visible answer is still the message/reply flow.
+
+## Managed run FAILED with "turn is presumed dead (model 429 / interrupt / stall)"
+
+**Symptom.** A `require_reply` run to a managed agent (usually hermes) shows `failed`
+with that reason ~45 min after delivery, and the sender got a mirrored failure notice —
+but the agent's console looks fine / idle.
+
+**Cause.** Intentional backstop (2026-07-10, `_fail_stranded_delivered_reply_runs`). The
+worker's turn DIED without replying — a model-429 killed it before any work, or a mid-turn
+interrupt/stall ended it — so it never sent `comms_send` and never emitted a clean turn-end,
+leaving the run stuck `delivered` forever (which reads as "the agent is ignoring the
+contract"). Past `stranded_reply_fail_minutes` (default 45, well beyond the 10/20/30 reminder
+cycle) reconcile FAILS it with the cause so the strand is visible instead of silent. It is
+keyed on staleness (not `turn_busy`) so it's robust while the hermes turn-status flaps, and it
+SKIPS a run the agent is actively working. **Recovery:** re-dispatch the ask (the model
+pressure that killed the turn — often a per-session/per-key 429 limit distinct from the pool
+number, or a transient stall — has usually eased); resume-restart the agent if its session is
+wedged post-interrupt. Set `stranded_reply_fail_minutes=0` to disable the backstop.
 
 ## Claude: wake mode stuck at `claude-needs-channel`
 
