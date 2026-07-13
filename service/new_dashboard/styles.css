@@ -687,11 +687,18 @@ small, .subtle { color: var(--muted); }
 }
 .run-inspector { display: grid; gap: 12px; padding-bottom: 8px; }
 .run-inspector-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+  /* FLEX-WRAP, not a rigid 5-col grid (2026-07-13): in the narrow inspector drawer the fixed
+     grid overflowed — the run-id clipped to ~nothing ("r.") while Copy ID + the agent/runtime/
+     status badges spilled past the edge and overlapped. Flex-wrap lets the badges flow to a
+     second row and gives the run-id a real min width to ellipsize into. */
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
 }
+/* The run-id block grows and clips (min-width:0 lets the ellipsis engage instead of overflowing);
+   Copy ID + badges keep their content width and wrap when the row is full. */
+.run-inspector-header > div:first-child { flex: 1 1 140px; min-width: 0; }
 .run-why-line, .run-source-context {
   border: 1px solid var(--line);
   background: var(--panel-3);
@@ -709,8 +716,19 @@ small, .subtle { color: var(--muted); }
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
-  align-items: center;
+  align-items: start;
 }
+/* The message subject was `.clip` (one-line, nowrap) but on an inline <strong> the ellipsis never
+   engaged, so a long subject overflowed the drawer's right edge, cut mid-word (2026-07-13). In the
+   inspector we want the FULL subject: make it a block that WRAPS within its column instead of
+   clipping. `align-items:start` keeps "Open in thread" top-aligned beside a multi-line subject. */
+.run-source-context strong.clip {
+  display: block;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+.run-source-context > div { min-width: 0; }
 .run-event-list {
   display: grid;
   gap: 7px;
