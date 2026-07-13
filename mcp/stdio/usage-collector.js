@@ -239,8 +239,18 @@ function epochToIso(v) {
 const CHATGPT_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 
 function defaultHermesAuthPath() {
-  const localAppData = process.env.LOCALAPPDATA || join(homeDir(), "AppData", "Local");
-  return join(localAppData, "hermes", "auth.json");
+  // Hermes stores its OAuth token store at ~/.hermes/auth.json on Linux/macOS (incl. WSL) and
+  // %LOCALAPPDATA%\hermes\auth.json on Windows. The collector runs on the HOST, so pick by
+  // platform. BUG (2026-07-13): the old code used the Windows path UNCONDITIONALLY, so on a
+  // Linux/WSL host (LOCALAPPDATA empty) it read a non-existent ~/AppData/Local/hermes/auth.json →
+  // extractOpenAiToken never saw the real token → the live ChatGPT `wham/usage` fetch always
+  // failed → the openai-chatgpt-codex pool fell back to a STALE codex rollout and the quota never
+  // refreshed (operator: "ChatGPT/Codex/Hermes usage won't update").
+  if (process.platform === "win32") {
+    const localAppData = process.env.LOCALAPPDATA || join(homeDir(), "AppData", "Local");
+    return join(localAppData, "hermes", "auth.json");
+  }
+  return join(homeDir(), ".hermes", "auth.json");
 }
 function defaultReadHermesAuth() {
   return readFileSync(defaultHermesAuthPath(), "utf8");
