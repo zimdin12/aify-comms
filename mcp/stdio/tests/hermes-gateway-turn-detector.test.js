@@ -316,3 +316,73 @@ test("startHermesGatewayTurnDetector: refresh does not cause a false turn-end, a
   stop();
   assert.equal(ends, 1, "sustained idle after a refreshing working turn → exactly one /turn-end");
 });
+
+// ---------------------------------------------------------------------------
+// KEEP-CLEARED (2026-07-13): symmetric mirror of KEEP-FRESH. The edge clear only
+// fires after THIS detector observed working→idle, so a stray in_turn set outside
+// it (a hook/sidecar /turn-start whose end was lost) latched `working` until the
+// 30-min ceiling. While the gateway PROVES idle and we're not mid-turn, re-assert
+// /turn-end every idleRefreshMs. Gated on a real idle read; never on unknown.
+// ---------------------------------------------------------------------------
+
+test("KEEP-CLEARED: sustained gateway IDLE (never saw working) re-asserts /turn-end (stray clear)", async () => {
+  // The stray case: idle before ever observing working — the edge clear's submit-race guard
+  // never fires an "end", so ONLY keep-cleared can heal a stray in_turn here.
+  let ends = 0;
+  const stop = startHermesGatewayTurnDetector({
+    intervalMs: 25,
+    idleDebounce: 1,
+    idleRefreshMs: 50,
+    readGatewayStatus: async () => "idle",
+    postTurnStart: async () => {},
+    postTurnEnd: async () => { ends++; },
+  });
+  await new Promise((r) => setTimeout(r, 300));
+  stop();
+  assert.ok(ends >= 3, `sustained gateway idle must keep re-asserting turn-end (got ${ends})`);
+});
+
+test("KEEP-CLEARED (hermes): never fires while the gateway reports WORKING", async () => {
+  let ends = 0, starts = 0;
+  const stop = startHermesGatewayTurnDetector({
+    intervalMs: 25,
+    workingRefreshMs: 50,
+    idleRefreshMs: 50,
+    readGatewayStatus: async () => "working",
+    postTurnStart: async () => { starts++; },
+    postTurnEnd: async () => { ends++; },
+  });
+  await new Promise((r) => setTimeout(r, 300));
+  stop();
+  assert.equal(ends, 0, `keep-cleared must never fire while working; got ${ends}`);
+  assert.ok(starts >= 3, `keep-fresh still re-stamps working; got ${starts}`);
+});
+
+test("KEEP-CLEARED (hermes): unknown/'' status never re-asserts turn-end (false-clear safety)", async () => {
+  let ends = 0;
+  const stop = startHermesGatewayTurnDetector({
+    intervalMs: 25,
+    idleRefreshMs: 50,
+    readGatewayStatus: async () => "", // unknown/transient
+    postTurnStart: async () => {},
+    postTurnEnd: async () => { ends++; },
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  stop();
+  assert.equal(ends, 0, `unknown status is not proof of idle → never keep-clears; got ${ends}`);
+});
+
+test("KEEP-CLEARED (hermes): idleRefreshMs=0 disables the re-assert (back-compat)", async () => {
+  let ends = 0;
+  const stop = startHermesGatewayTurnDetector({
+    intervalMs: 5,
+    idleDebounce: 1,
+    idleRefreshMs: 0,
+    readGatewayStatus: async () => "idle", // idle-before-working: edge never ends it
+    postTurnStart: async () => {},
+    postTurnEnd: async () => { ends++; },
+  });
+  await new Promise((r) => setTimeout(r, 60));
+  stop();
+  assert.equal(ends, 0, `disabled keep-cleared + idle-before-working → no turn-end; got ${ends}`);
+});

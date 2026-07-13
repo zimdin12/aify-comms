@@ -34,9 +34,9 @@
 //
 // File budget per 500-line rule: tiny by design.
 
-import { makeTurnEndDetector } from "./turn-end-detector.js";
+import { makeTurnEndDetector, classify } from "./turn-end-detector.js";
 
-export function startClaudeTurnEndDetector({ intervalMs, readTranscript, postTurnStart, postTurnEnd, workingRefreshMs = 45000 }) {
+export function startClaudeTurnEndDetector({ intervalMs, readTranscript, postTurnStart, postTurnEnd, workingRefreshMs = 45000, idleRefreshMs = 45000 }) {
   const noop = () => {};
   if (typeof readTranscript !== "function" || typeof postTurnEnd !== "function"
       || !Number.isFinite(intervalMs) || intervalMs <= 0) {
@@ -55,8 +55,18 @@ export function startClaudeTurnEndDetector({ intervalMs, readTranscript, postTur
   // clear heals within one window. Mirrors hermes-gateway-turn-detector's re-stamp.
   // 0 disables (edge-only back-compat).
   const refreshMs = Math.max(0, Number(workingRefreshMs) || 0);
+  // KEEP-CLEARED (symmetric mirror of KEEP-FRESH, 2026-07-13): the SET direction re-asserts
+  // /turn-start from proof every refreshMs so a spurious server clear self-heals. The CLEAR
+  // direction was edge-ONLY, so a stray in_turn set OUTSIDE this detector's view — a hook /
+  // channel-sidecar /turn-start whose end-event was lost, which this edge-triggered clear never
+  // fired for — latched `working` until the 30-min ceiling (operator: general-manager stuck
+  // working infinitely). Mirror it: while the transcript PROVES ended, re-assert /turn-end every
+  // idleRefreshMs. Proof-driven (never time-decay of status): fires ONLY on classify "ended",
+  // never on a null/unknown tail, and never while in-flight. 0 disables (edge-only back-compat).
+  const clearMs = Math.max(0, Number(idleRefreshMs) || 0);
   let inFlight = false;
   let sinceRefresh = 0;
+  let sinceClear = 0;
 
   const tick = async () => {
     if (stopped) return;
@@ -68,6 +78,7 @@ export function startClaudeTurnEndDetector({ intervalMs, readTranscript, postTur
     if (directive === "start") {
       inFlight = true;
       sinceRefresh = 0;
+      sinceClear = 0;
       // Best-effort; back-compat: a caller that only wires the clear path simply
       // skips the set. The instant UserPromptSubmit hook covers typed turns.
       if (typeof postTurnStart === "function") {
@@ -78,15 +89,29 @@ export function startClaudeTurnEndDetector({ intervalMs, readTranscript, postTur
     if (directive === "end") {
       inFlight = false;
       sinceRefresh = 0;
+      sinceClear = 0;
       try { await postTurnEnd(); } catch { /* best-effort; the long ceiling still self-heals */ }
       return;
     }
-    // No directive: steady state. Re-stamp while in-flight (see KEEP-FRESH above).
-    if (inFlight && refreshMs > 0 && typeof postTurnStart === "function") {
-      sinceRefresh += intervalMs;
-      if (sinceRefresh >= refreshMs) {
-        sinceRefresh = 0;
-        try { await postTurnStart(); } catch { /* best-effort; next window retries */ }
+    // No directive: steady state.
+    if (inFlight) {
+      // KEEP-FRESH: re-stamp /turn-start while the transcript stays in-flight (see above).
+      if (refreshMs > 0 && typeof postTurnStart === "function") {
+        sinceRefresh += intervalMs;
+        if (sinceRefresh >= refreshMs) {
+          sinceRefresh = 0;
+          try { await postTurnStart(); } catch { /* best-effort; next window retries */ }
+        }
+      }
+    } else if (clearMs > 0 && classify(curr) === "ended") {
+      // KEEP-CLEARED: the transcript PROVES the turn ended. Re-assert /turn-end so a stray
+      // in_turn from a source this edge-detector never saw start clears within one window,
+      // not the 30-min ceiling. Gated on classify==="ended" (proven idle) — a null/unknown
+      // tail never false-clears; /turn-end is idempotent and can never re-arm working.
+      sinceClear += intervalMs;
+      if (sinceClear >= clearMs) {
+        sinceClear = 0;
+        try { await postTurnEnd(); } catch { /* best-effort; next window retries */ }
       }
     }
   };

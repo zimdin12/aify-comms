@@ -156,6 +156,68 @@ test("KEEP-FRESH: refresh never fires after the turn ENDS, and the next turn re-
   assert.ok(starts <= 2, `no re-stamp after turn-end (got ${starts} starts)`);
 });
 
+test("KEEP-CLEARED: a sustained ENDED transcript re-asserts /turn-end every idleRefreshMs (stray clear)", async () => {
+  // The stuck-working fix: a stray in_turn set OUTSIDE this detector (a hook/sidecar /turn-start
+  // whose end-event was lost) is invisible to the edge clear. While the transcript PROVES ended,
+  // the loop must keep re-asserting /turn-end so the stray heals within a window, not the 30-min
+  // ceiling (operator: general-manager stuck working infinitely, 2026-07-13).
+  let ends = 0;
+  const stop = startClaudeTurnEndDetector({
+    intervalMs: 25,
+    idleRefreshMs: 50, // re-assert ~every 2 ticks while ended
+    readTranscript: async () => END_TURN, // steadily idle/terminal
+    postTurnStart: async () => {},
+    postTurnEnd: async () => { ends++; },
+  });
+  await new Promise((r) => setTimeout(r, 300));
+  stop();
+  assert.ok(ends >= 3, `a proven-ended transcript must keep re-asserting turn-end (got ${ends})`);
+});
+
+test("KEEP-CLEARED: never fires while the transcript is IN-FLIGHT (only keep-fresh does)", async () => {
+  let ends = 0, starts = 0;
+  const stop = startClaudeTurnEndDetector({
+    intervalMs: 25,
+    workingRefreshMs: 50,
+    idleRefreshMs: 50,
+    readTranscript: async () => TOOL_USE, // sustained in-flight
+    postTurnStart: async () => { starts++; },
+    postTurnEnd: async () => { ends++; },
+  });
+  await new Promise((r) => setTimeout(r, 300));
+  stop();
+  assert.strictEqual(ends, 0, `keep-cleared must never fire during a live turn; got ${ends}`);
+  assert.ok(starts >= 3, `keep-fresh still re-stamps working while in-flight; got ${starts}`);
+});
+
+test("KEEP-CLEARED: a null/unknown tail never re-asserts /turn-end (false-clear safety)", async () => {
+  let ends = 0;
+  const stop = startClaudeTurnEndDetector({
+    intervalMs: 25,
+    idleRefreshMs: 50,
+    readTranscript: async () => null, // unreadable → UNKNOWN, not proven-ended
+    postTurnStart: async () => {},
+    postTurnEnd: async () => { ends++; },
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  stop();
+  assert.strictEqual(ends, 0, `an unknown tail is not proof of idle → never keep-clears; got ${ends}`);
+});
+
+test("KEEP-CLEARED: idleRefreshMs=0 keeps edge-only /turn-end (back-compat)", async () => {
+  let ends = 0;
+  const stop = startClaudeTurnEndDetector({
+    intervalMs: 5,
+    idleRefreshMs: 0,
+    readTranscript: async () => END_TURN,
+    postTurnStart: async () => {},
+    postTurnEnd: async () => { ends++; },
+  });
+  await new Promise((r) => setTimeout(r, 60));
+  stop();
+  assert.strictEqual(ends, 1, `clear-refresh disabled → exactly one edge /turn-end; got ${ends}`);
+});
+
 test("a loop with only postTurnEnd (no postTurnStart) still ENDs and never throws on START", async () => {
   // Back-compat: a caller that wires only the clear path must not crash when the
   // detector wants to START. It should simply skip the unwired START.

@@ -108,6 +108,11 @@ export function startHermesGatewayTurnDetector({
   // Re-stamp turn-busy while the gateway reports WORKING, every workingRefreshMs.
   // MUST be < the server's TURN_BUSY_STALE_SECONDS (120s) so it can't go stale.
   workingRefreshMs = 45000,
+  // KEEP-CLEARED (symmetric mirror of KEEP-FRESH, 2026-07-13): the CLEAR was edge-ONLY, so a
+  // stray in_turn set OUTSIDE this detector (a hook/sidecar /turn-start whose end-event was lost)
+  // latched `working` until the 30-min ceiling. While the gateway PROVES idle and we're not
+  // mid-turn, re-assert /turn-end every idleRefreshMs. 0 disables (edge-only back-compat).
+  idleRefreshMs = 45000,
   // Gate for the turn-START post (edge-triggered start AND the working-refresh
   // keep-alive). Returns false to SUPPRESS a turn-start. Turn-END is NEVER gated
   // (it only ever CLEARS; a clear when turn_busy is already 0 is a harmless no-op).
@@ -131,7 +136,12 @@ export function startHermesGatewayTurnDetector({
   let stopped = false;
   const detector = makeGatewayTurnDetector({ idleDebounce });
   const refreshMs = Math.max(0, Number(workingRefreshMs) || 0);
+  const clearMs = Math.max(0, Number(idleRefreshMs) || 0);
   let workingAccumMs = 0;
+  let clearAccumMs = 0;
+  // Loop-level mirror of the detector's internal in-flight, tracked off the directives so the
+  // keep-cleared below never fires mid-turn (only re-clears a PROVEN-idle, not-in-turn agent).
+  let inFlight = false;
 
   const tick = async () => {
     if (stopped) return;
@@ -169,6 +179,23 @@ export function startHermesGatewayTurnDetector({
     } else {
       workingAccumMs = 0;
     }
+    // KEEP-CLEARED: while the gateway PROVES idle and we are not mid-turn, re-assert /turn-end
+    // every clearMs so a stray in_turn this edge-detector never saw start clears within a window
+    // (not the 30-min ceiling). /turn-end is idempotent + can never re-arm; gated on a real idle
+    // read (isGatewaySessionIdle), never on unknown/"" → never false-clears a live turn.
+    if (clearMs && !inFlight && isGatewaySessionIdle(status)) {
+      clearAccumMs += intervalMs;
+      if (clearAccumMs >= clearMs && !stopped) {
+        clearAccumMs = 0;
+        try {
+          await postTurnEnd();
+        } catch {
+          /* best-effort; the next window retries */
+        }
+      }
+    } else if (!isGatewaySessionIdle(status)) {
+      clearAccumMs = 0;
+    }
     let directive = null;
     try {
       directive = detector.observe(status);
@@ -177,6 +204,8 @@ export function startHermesGatewayTurnDetector({
     }
     if (!directive || stopped) return;
     if (directive === "start") {
+      inFlight = true;
+      clearAccumMs = 0;
       if (typeof postTurnStart === "function" && shouldFireTurnStart()) {
         try {
           await postTurnStart();
@@ -188,6 +217,8 @@ export function startHermesGatewayTurnDetector({
       return;
     }
     // directive === "end"
+    inFlight = false;
+    clearAccumMs = 0;
     try {
       await postTurnEnd();
     } catch {
