@@ -22,8 +22,13 @@ class ClaudeAdapter(RuntimeAdapter):
     # Plan 3 additions
     wrapper_name = "claude-aify"
 
-    def resume_command(self, session_id) -> str:
-        # Mirror mcp/stdio/adapters/claude.js resumeCommand.
+    def resume_command(self, session_id, agent_id="") -> str:
+        # Mirror mcp/stdio/adapters/claude.js resumeCommand. The agent id is
+        # REQUIRED when known: without it the wrapper cannot export AIFY_AGENT_ID and every
+        # turn-state path (detector + hooks) silently no-ops, latching the agent's status.
+        aid = str(agent_id or "").strip()
+        if aid:
+            return f"claude-aify --aify-agent {aid} --resume {session_id}"
         return f"claude-aify --resume {session_id}"
 
     def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:

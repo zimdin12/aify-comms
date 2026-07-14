@@ -1307,7 +1307,11 @@ def _resume_command_for(runtime: Any, session_handle: Any, agent_id: Any = "") -
         return ""
     try:
         from service.runtimes import adapter_for
-        return adapter_for(normalized).resume_command(handle) or ""
+        # Pass the agent id: the wrapper needs `--aify-agent` to export AIFY_AGENT_ID,
+        # without which the resumed session's turn detector and turn hooks all silently
+        # no-op and its status latches (the general-manager incident). A resume command
+        # that omits it is a command that breaks the agent it resumes.
+        return adapter_for(normalized).resume_command(handle, str(agent_id or "").strip()) or ""
     except Exception:
         return ""
 

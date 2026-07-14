@@ -26,9 +26,13 @@ class OpencodeAdapter(RuntimeAdapter):
     # Plan 3 additions
     wrapper_name = "opencode"
 
-    def resume_command(self, session_id) -> str:
-        # Mirror mcp/stdio/adapters/opencode.js resumeCommand (presence-only
-        # until `opencode serve` is wired).
+    def resume_command(self, session_id, agent_id="") -> str:
+        # Mirror mcp/stdio/adapters/opencode.js resumeCommand. The agent id is
+        # REQUIRED when known: without it the wrapper cannot export AIFY_AGENT_ID and every
+        # turn-state path (detector + hooks) silently no-ops, latching the agent's status.
+        aid = str(agent_id or "").strip()
+        if aid:
+            return f"opencode-aify --aify-agent {aid} --resume {session_id}"
         return f"opencode-aify --resume {session_id}"
 
     def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:

@@ -95,12 +95,20 @@ class RuntimeAdapter:
 
     # ─────────────────── OPERATOR TAKEOVER (governance) ───────────────────
 
-    def resume_command(self, session_id: Any) -> str:
+    def resume_command(self, session_id: Any, agent_id: Any = "") -> str:
         """Operator takeover command for `session_id` — Python mirror of the
         JS adapter `resumeCommand(sessionId)`. Surfaced by the dashboard when an
         agent is resident or in a `session-changed` state so the operator can
         copy the exact command to attach to the SAME session. Subclasses
         override with their wrapper form (e.g. `claude-aify --resume <id>`).
+
+        MUST carry `--aify-agent <agent_id>` when known (2026-07-14). Every
+        turn-state path in a wrapper-launched session is gated on AIFY_AGENT_ID,
+        which the wrapper only exports when the agent id is passed. A resume
+        command WITHOUT it hands the operator a session that registers, messages
+        and heartbeats normally but whose status silently latches forever — the
+        general-manager "always working" incident. The command we hand out must
+        never be the one that breaks the agent.
         """
         raise NotImplementedError(
             f"abstract: {getattr(self, 'name', type(self).__name__)} adapter "

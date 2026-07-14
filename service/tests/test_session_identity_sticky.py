@@ -199,8 +199,14 @@ class SessionIdentityStickyTests(FastApiTestCase):
         # Persisted id is KEPT; pending cleared.
         self.assertEqual(body.get("sessionHandle"), "sess-AAA")
         self.assertEqual(body.get("pendingSessionId"), "")
-        # Resume command surfaced from the runtime adapter.
-        self.assertEqual(body.get("resumeCommand"), "claude-aify --resume sess-AAA")
+        # Resume command surfaced from the runtime adapter. It MUST carry --aify-agent:
+        # a resume without it leaves the wrapper unable to export AIFY_AGENT_ID, which
+        # silently disables the turn detector AND every turn hook, latching the agent's
+        # status forever (the general-manager incident, 2026-07-14).
+        self.assertEqual(
+            body.get("resumeCommand"),
+            "claude-aify --aify-agent claude-1 --resume sess-AAA",
+        )
         row = self._row("claude-1")
         self.assertEqual(str(row["session_handle"] or ""), "sess-AAA")
         self.assertEqual(str(row["pending_session_id"] or ""), "")

@@ -36,10 +36,13 @@ class HermesAdapter(RuntimeAdapter):
     # Plan 3 additions
     wrapper_name = "hermes-aify"
 
-    def resume_command(self, session_id) -> str:
+    def resume_command(self, session_id, agent_id="") -> str:
         # The aify-aware way to reopen an agent is the wrapper: hermes-aify's
         # --resume recovery maps the real session id back to its agent and
         # resumes that real session via the gateway-host.
+        aid = str(agent_id or "").strip()
+        if aid:
+            return f"hermes-aify --aify-agent {aid} --resume {session_id}"
         return f"hermes-aify --resume {session_id}"
 
     def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:

@@ -472,9 +472,25 @@ fi
 # (which carries the id in its own config) still SETS `working` on an inbound wake, and
 # nothing left alive can ever CLEAR it. That is a silent, total status failure that looks
 # healthy from every other angle; it cost days of "general-manager is always working" before
-# the missing env var was found. So: on a --resume, recover the id from the session store
-# (agentId<->sessionId, written by the session hook); if it is STILL unknown, say so out
-# loud rather than degrade in silence. Anonymous sessions remain legal — just not silent.
+# the missing env var was found. Claude's own /resume picker offers a SESSION, never an agent,
+# so an operator naturally resumes by session id — exactly the path that strips the identity.
+#
+# hermes has recovered its agent from a bare `--resume <handle>` since 2026-06-03 (see the
+# hermes block below); the comment there claimed "same idea is wired into claude/codex" — it
+# never was. This is that wiring, mirrored: ask the SERVICE which agent owns this session
+# handle (authoritative, and unlike the /tmp store it survives a reboot), then fall back to
+# the local session store (offline-robust when the service is down). If the id is STILL
+# unknown, say so out loud rather than degrade in silence. Anonymous sessions remain legal —
+# a plain claude+comms session is a real use case — they just can't be silent about it.
+if [ -z "\$CLAUDE_AIFY_AGENT_ID" ] && [ -n "\${CLAUDE_RESUME_ID:-}" ]; then
+  if command -v node >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
+    _aify_rec="\$(curl -sS --max-time 2 "\${AIFY_COMMS_URL:-http://localhost:8800}/api/v1/agents" 2>/dev/null | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const a=(JSON.parse(d).agents)||{};const h=process.argv[1];for(const k in a){const v=a[k]||{};const sh=String(v.sessionHandle||v.session_handle||"");if(sh&&sh===h&&String(v.runtime||"")==="claude-code"){process.stdout.write(k);break;}}}catch{}})' "\$CLAUDE_RESUME_ID" 2>/dev/null)"
+    if [ -n "\$_aify_rec" ]; then
+      CLAUDE_AIFY_AGENT_ID="\$_aify_rec"
+      echo "[claude-aify] resolved aify agent '\$CLAUDE_AIFY_AGENT_ID' from session handle '\$CLAUDE_RESUME_ID' (service lookup)." >&2
+    fi
+  fi
+fi
 if [ -z "\$CLAUDE_AIFY_AGENT_ID" ] && [ -n "\${CLAUDE_RESUME_ID:-}" ]; then
   for _aify_store in "\${TMPDIR:-/tmp}"/aify-claude-session-*.json; do
     [ -f "\$_aify_store" ] || continue
@@ -1512,7 +1528,11 @@ unset HERMES_TUI_GATEWAY_URL AIFY_HERMES_GATEWAY_URL AIFY_HERMES_GATEWAY_TOKEN 2
 #   1. the stable session is named \`aify-<agentId>\` → the id is the suffix (exact,
 #      offline-robust — this is what hermes' picker shows for an aify agent).
 #   2. otherwise ask the aify service which hermes agent owns this session handle.
-# Best-effort; never blocks the launch. (Same idea is wired into claude/codex.)
+# Best-effort; never blocks the launch. (Claude got the same wiring on 2026-07-14 — this
+# comment previously claimed claude/codex already had it, which was FALSE and is exactly how
+# general-manager ran for weeks with no agent id and a permanently latched status. CODEX
+# still has no such recovery: its operator path is covered by the resume command now carrying
+# --aify-agent, but a hand-typed `codex-aify --resume <id>` is still identity-less.)
 HERMES_RECOVER_HANDLE="\$HERMES_SESSION_HANDLE"
 if [ -z "\$HERMES_RECOVER_HANDLE" ]; then
   HERMES_RECOVER_HANDLE="\$HERMES_INHERITED_SESSION_HANDLE"

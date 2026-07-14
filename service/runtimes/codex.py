@@ -33,8 +33,13 @@ class CodexAdapter(RuntimeAdapter):
     # Plan 3 additions
     wrapper_name = "codex-aify"
 
-    def resume_command(self, session_id) -> str:
-        # Mirror mcp/stdio/adapters/codex.js resumeCommand.
+    def resume_command(self, session_id, agent_id="") -> str:
+        # Mirror mcp/stdio/adapters/codex.js resumeCommand. The agent id is
+        # REQUIRED when known: without it the wrapper cannot export AIFY_AGENT_ID and every
+        # turn-state path (detector + hooks) silently no-ops, latching the agent's status.
+        aid = str(agent_id or "").strip()
+        if aid:
+            return f"codex-aify --aify-agent {aid} --resume {session_id}"
         return f"codex-aify --resume {session_id}"
 
     def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:
