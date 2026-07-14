@@ -33,8 +33,17 @@ export function bridgeTerminalSupported() {
   return !!pty;
 }
 
-function appendTail(current = "", chunk = "", limit = 8192) {
-  const next = `${current || ""}${chunk || ""}`;
+// EVICTION (2026-07-14): the tail was 8192 bytes, and claude repaints a spinner + an OSC window
+// title continuously while ANY background work is alive. A dialog the agent is STUCK on is
+// therefore pushed out of the tail within seconds — measured on a real stuck console: 15.9KB of
+// pure repaint noise had accumulated after the compaction dialog, so by the time anything looked,
+// the prompt was gone. Two changes, both needed: drop the OSC title sequences (they carry no
+// screen text, only noise), and keep a window big enough to survive the flood. A fixed regex
+// alone would not have helped — it would have been matching a buffer the dialog had already left.
+const OSC_NOISE_RE = /\x1b\][^\x07]*(?:\x07|\x1b\\)/g;
+
+function appendTail(current = "", chunk = "", limit = 65536) {
+  const next = `${current || ""}${String(chunk || "").replace(OSC_NOISE_RE, "")}`;
   return next.length > limit ? next.slice(-limit) : next;
 }
 

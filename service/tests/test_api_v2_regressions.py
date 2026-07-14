@@ -2602,7 +2602,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(term["status"], "stopped", term)
         self.assertIn("host pid not alive", term["error"] or "")
         self.assertIsNone(
-            api_v2._live_state_get("dead-pty-hermes"),
+            api_v2._live_state_fresh("dead-pty-hermes"),
             "agent live-state must be invalidated on host-reported dead PTY",
         )
 
@@ -2763,7 +2763,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         rs = json.loads(agent["runtime_state"] or "{}")
         self.assertNotIn("consoleTerminal", rs, f"consoleTerminal pointer must be cleared; got {rs!r}")
         self.assertIsNone(
-            api_v2._live_state_get("orphan-claude"),
+            api_v2._live_state_fresh("orphan-claude"),
             "agent live-state must be invalidated (dropped)",
         )
         event = self._fetchone(
@@ -3398,8 +3398,8 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertIsNone(
-            api_v2._live_state_get("hb-turn-claude"),
-            "turnBusy heartbeat must invalidate (drop) the live_state cache entry",
+            api_v2._live_state_fresh("hb-turn-claude"),
+            "turnBusy heartbeat must invalidate the live_state cache entry (expire it, so the next read recomputes)",
         )
 
     def test_channel_pending_reply_online_only_when_live(self):
@@ -3527,8 +3527,8 @@ class ApiV2RegressionTests(FastApiTestCase):
             "precondition: virtualTerminalId must be set by the start path",
         )
         self.assertIsNone(
-            api_v2._live_state_get("vw-pi"),
-            "virtual worker start must invalidate (drop) the live_state cache entry",
+            api_v2._live_state_fresh("vw-pi"),
+            "virtual worker start must invalidate the live_state cache entry (expire it, so the next read recomputes)",
         )
 
     def test_console_stop_reconcile_invalidates_live_state(self):
@@ -3590,8 +3590,8 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertIsNotNone(event, "precondition: reconcile branch must have fired")
         self.assertIsNone(
-            api_v2._live_state_get("cs-pi"),
-            "console-stop reconcile must invalidate (drop) the live_state cache entry",
+            api_v2._live_state_fresh("cs-pi"),
+            "console-stop reconcile must invalidate the live_state cache entry (expire it, so the next read recomputes)",
         )
 
     def test_orphan_reason_says_no_console_not_no_sidecar(self):
@@ -3662,7 +3662,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         agent = self._fetchone("SELECT status FROM agents WHERE id = ?", ("envdis-pi",))
         self.assertEqual(agent["status"], "offline", agent)
         self.assertIsNone(
-            api_v2._live_state_get("envdis-pi"),
+            api_v2._live_state_fresh("envdis-pi"),
             "env-disable must invalidate (drop) bound agents' live_state cache entries",
         )
 
@@ -3733,7 +3733,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         fresh_row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_aged_fresh",))
         self.assertEqual(fresh_row["status"], "running")
         self.assertIsNone(
-            api_v2._live_state_get("aged-hermes"),
+            api_v2._live_state_fresh("aged-hermes"),
             "aging out a stale run must invalidate the agent's live_state cache entry",
         )
 
@@ -3797,7 +3797,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertIsNotNone(event, "requeued_orphaned_claim event must be appended")
         self.assertIn("dead-bridge", (event["body"] or ""), "event should note the dead bridge id")
         self.assertIsNone(
-            api_v2._live_state_get("orphan-claim-hermes"),
+            api_v2._live_state_fresh("orphan-claim-hermes"),
             "requeue must invalidate the agent's false-busy live_state cache entry",
         )
 
@@ -3913,7 +3913,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(row["turn_bridge_id"] or "", "")
         self.assertEqual(row["turn_run_id"] or "", "")
         self.assertIsNone(
-            api_v2._live_state_get("ci-senior-dev"),
+            api_v2._live_state_fresh("ci-senior-dev"),
             "clearing a stuck turn_busy must invalidate the false-working live_state cache entry",
         )
 
@@ -4006,7 +4006,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertIsNotNone(mirror, "an undeliverable queued run must mirror a reply to the sender")
         # Status cache invalidated so the agent stops showing false `online`.
         self.assertIsNone(
-            api_v2._live_state_get("deaf-hermes"),
+            api_v2._live_state_fresh("deaf-hermes"),
             "reaping must invalidate the target's live_state cache entry",
         )
 

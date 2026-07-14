@@ -134,7 +134,7 @@ class ReadyStatusEndpointTests(FastApiTestCase):
         """Ready changes must invalidate the cached live state; otherwise the
         dashboard can keep showing a future cached ready/online status after
         the bridge has explicitly changed readiness."""
-        from service.routers.api_v2 import _LIVE_STATE_CACHE, _live_state_get
+        from service.routers.api_v2 import _LIVE_STATE_CACHE, _live_state_fresh, _live_state_get
         self._register("ready-cache", runtime="codex", sessionMode="managed")
         _LIVE_STATE_CACHE["ready-cache"] = {
             "status": "ready", "reason": "future-cache", "environment_id": "",
@@ -150,8 +150,8 @@ class ReadyStatusEndpointTests(FastApiTestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
 
         self.assertIsNone(
-            _live_state_get("ready-cache"),
-            "ready PATCH must invalidate cached live state",
+            _live_state_fresh("ready-cache"),
+            "ready PATCH must invalidate cached live state (expire it: the next read recomputes)",
         )
 
 

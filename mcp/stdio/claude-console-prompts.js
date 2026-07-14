@@ -10,7 +10,7 @@
 // region. Rules are tried in order; the FIRST match wins. These patterns are claude-TUI
 // VERSION-DEPENDENT — when claude changes its prompts, re-capture a frame into
 // mcp/stdio/tests/fixtures/claude-console/ and re-tune the rule here (one place).
-import { stripAnsi } from "./claude-console-spinner.js";
+import { flattenConsoleText, stripAnsi } from "./claude-console-spinner.js";
 
 const DOWN = "\x1b[B";
 const UP = "\x1b[A";
@@ -207,9 +207,27 @@ function computeCompactionConfirmAnswer(visible) {
 }
 
 export function matchConsolePrompt(rawTail = "", opts = {}) {
-  const visible = stripAnsi(rawTail).slice(-2000);
-  if (!MENU_CURSOR_RE.test(visible)) return null;
-  if (AGENTS_MANAGER_RE.test(visible)) return null;
+  // flattenConsoleText, NOT stripAnsi: claude paints words with cursor-position escapes rather
+  // than emitting spaces, so stripAnsi jams the screen into `Resumingthefullsession…` and every
+  // multi-word rule below misses. That is the whole reason the compaction auto-confirm never
+  // fired in production. See flattenConsoleText in claude-console-spinner.js.
+  const flat = flattenConsoleText(rawTail);
+  // TWO views, deliberately.
+  //
+  // `visible` (narrow) is the LIVE TAIL, and the general rules below keep using ONLY it. Its
+  // narrowness IS a safety feature: a prompt that has scrolled far up is not the focused prompt,
+  // and answering it would type keystrokes into whatever is focused now. Widening it would break
+  // that guard (proven: the "resume menu far up in scrollback" case).
+  //
+  // `dialogView` (wide) exists for ONE caller: the compaction dialog. While an agent sits stuck at
+  // it, claude keeps repainting spinner/background chrome — on the real captured console ~4.5KB of
+  // it flattened out AFTER the dialog, pushing the prompt out of the narrow window even though the
+  // agent was still staring at it. So the compaction path may look further back — it can afford to,
+  // because it does not rely on proximity to decide liveness: it requires the cursor to be sitting
+  // on one of its own option rows (see compactionOwnsScreen). Proximity is a proxy for "focused";
+  // the cursor row is the real thing.
+  const visible = flat.slice(-2000);
+  const dialogView = flat.slice(-16000);
   // Compaction-recommendation confirm — checked BEFORE the general loop because its own
   // option line ("Resume from summary") is exactly what the resume-menu interlock keys on;
   // the interlock exists to protect the COLD-START menu, not this flow. The cursor-row
@@ -218,24 +236,66 @@ export function matchConsolePrompt(rawTail = "", opts = {}) {
   // Auto-confirm ONLY on an unambiguous compaction marker — never on the cold-start
   // resume menu (whose summary blurb also matches COMPACTION_FLOW_RE). See
   // UNAMBIGUOUS_COMPACTION_RE above.
-  if (opts.autoConfirmCompaction !== false && UNAMBIGUOUS_COMPACTION_RE.test(visible)) {
-    const compactIdx = lastIndexOf(visible, /Resume from summary/i);
-    const fullIdx = lastIndexOf(visible, RESUME_FULL_RE);
-    // Defer to the cursor-aware cold-start rule when a live TWO-OPTION menu is on screen
-    // (options render adjacent), so byte proximity discriminates it from a stale
-    // "Resume full session" mention lingering in scrollback above a live one-option
-    // compaction dialog. (The unambiguous-marker gate above already prevents the
-    // cold-start menu's ambiguous "recommend resuming from a summary" blurb from ever
-    // entering this branch — that was the actual data-loss path.)
-    const twoOptionMenuLive = fullIdx >= 0 && compactIdx >= 0 && Math.abs(fullIdx - compactIdx) <= 200;
-    if (!twoOptionMenuLive && compactIdx >= 0) {
-      const answer = computeCompactionConfirmAnswer(visible);
+  // Is the COMPACTION dialog the live menu? True when its unambiguous marker is on screen AND
+  // the cursor currently sits on one of ITS option rows. That ownership test matters twice over:
+  //  - the cold-start resume rule must NEVER answer this dialog. Its policy answer is "Resume
+  //    full session as-is" — precisely the option the dialog exists to warn you against. It used
+  //    to be handed the dialog by a byte-proximity deferral; with auto-confirm DISABLED it would
+  //    still grab it on the fall-through, which is worse than doing nothing.
+  //  - but a STALE compaction dialog (answered, scrolled up, cursor now on a different menu)
+  //    must NOT block that other menu from being answered — so ownership follows the cursor,
+  //    not the mere presence of the text.
+  const compactionOwnsScreen = (() => {
+    if (!UNAMBIGUOUS_COMPACTION_RE.test(dialogView)) return false;
+    const rows = dialogView.split(/\r?\n/);
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (MENU_CURSOR_RE.test(rows[i])) {
+        // The LAST cursor row is the focused one. If it is one of the compaction dialog's own
+        // options, that dialog is what the agent is staring at — regardless of how much repaint
+        // noise has piled up after it. If it is anything else (claude's idle `❯` input prompt, a
+        // different menu), the dialog is stale scrollback and we must not touch it.
+        return /(Resume from summary|Resume full session|Don'?t ask me again)/i.test(rows[i]);
+      }
+    }
+    return false;
+  })();
+  if (compactionOwnsScreen) {
+    // Operator disabled auto-confirm: touch NOTHING. Returning null here is the point — falling
+    // through would let another rule type into this dialog.
+    if (opts.autoConfirmCompaction === false) return null;
+    const compactIdx = lastIndexOf(dialogView, /Resume from summary/i);
+    // A byte-PROXIMITY deferral used to live here: if "Resume full session" sat within 200 bytes
+    // of "Resume from summary", this branch stood down and let the cold-start resume rule answer.
+    // It rested on the belief that only the COLD-START menu renders those two options adjacently.
+    // Against the real dialog that is simply false — compaction lists all three together:
+    //     ❯ 1. Resume from summary (recommended)
+    //       2. Resume full session as-is
+    //       3. Don't ask me again
+    // so the deferral fired every time and handed the dialog to the rule that presses "Resume
+    // full session as-is" — the one option that burns the usage limits the dialog is warning
+    // about. (It was never observed, because the words were jammed together and NOTHING matched.)
+    // Byte proximity cannot tell these menus apart. Two things can, and both are now real:
+    //   1. UNAMBIGUOUS_COMPACTION_RE — the usage-limits sentence the cold-start menu never emits;
+    //   2. the cursor ROW must literally be the "Resume from summary" option — which only became
+    //      meaningful once flattenConsoleText restored newlines (with the old stripper the whole
+    //      screen was ONE line, so "the cursor row" was everything and the check was vacuous).
+    // If a stale compaction marker lingers while a cold-start menu is live, its highlighted row
+    // is not "Resume from summary", so (2) refuses and we wait rather than guess.
+    if (compactIdx >= 0) {
+      const answer = computeCompactionConfirmAnswer(dialogView);
       if (answer != null) {
         return { name: "compaction-resume-summary-confirm", match: COMPACTION_FLOW_RE, answer };
       }
-      return null; // dialog present but cursor not on the option yet — wait, don't guess
     }
+    // It owns the screen and we could not answer it safely — stop here rather than fall through.
+    // Any rule below would be typing keystrokes into THIS dialog against a cursor it did not read.
+    return null;
   }
+  // Gates for the GENERAL rules, on the narrow live-tail view (unchanged semantics). A rule may
+  // only fire when a menu cursor is in the LIVE tail — prose that merely mentions a prompt phrase,
+  // or a menu that has scrolled far away, must never draw keystrokes.
+  if (!MENU_CURSOR_RE.test(visible)) return null;
+  if (AGENTS_MANAGER_RE.test(visible)) return null;
   // RECENCY-FIRST (2026-06-12): the tail ACCUMULATES, so an already-answered dialog's
   // text lingers in scrollback while a NEW dialog renders below it. The live, focused
   // prompt is whichever dialog text appears LATEST in the byte stream — so among the

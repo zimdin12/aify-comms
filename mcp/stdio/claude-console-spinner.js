@@ -12,6 +12,33 @@ export function stripAnsi(s = "") {
   return String(s || "").replace(ANSI_RE, "");
 }
 
+// Flatten a raw PTY stream into the TEXT THE SCREEN SHOWS (2026-07-14).
+//
+// stripAnsi() DELETES every escape — which is wrong for claude's TUI, because claude does not
+// separate words with spaces or lines with newlines: it PAINTS each word at an absolute column
+// with a CHA move (`ESC[nG`) and steps down with `ESC[nB`. Delete those and the screen collapses
+// into one space-less line:
+//     Resuming\x1b[12Gthe\x1b[16Gfull\x1b[21Gsession…   ->   Resumingthefullsession…
+// Every multi-word regex then misses. That is why the compaction-dialog auto-confirm NEVER once
+// fired in production (the agent sat at the dialog forever), and why the unit tests did not
+// catch it: their fixture was hand-written WITH real spaces, so it bore no resemblance to what
+// claude actually emits. It also left `computeCompactionConfirmAnswer`'s cursor-ROW check
+// vacuous — with zero newlines, "the cursor line" was the entire screen.
+//
+// So treat the cursor moves as what they actually are: horizontal moves are SPACES, vertical
+// moves are NEWLINES. On the real captured dialog this turns 0 newlines into 264 and flips
+// `substantial portion of your usage limits` / `Resume full session` from MISS to HIT.
+export function flattenConsoleText(s = "") {
+  return String(s || "")
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")   // OSC (window title) — pure noise, drop it
+    .replace(/\x1b\[\d*[BE]/g, "\n")                 // cursor-down / next-line  = line break
+    .replace(/\x1b\[\d*[GC]/g, " ")                  // absolute-column / forward = word gap
+    .replace(ANSI_RE, "")                            // everything else (SGR, erase, …)
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{2,}/g, "\n");
+}
+
 // Spinner-shaped line: a spinner glyph + a verb + "for <N><unit>". The shape alone does
 // NOT mean working — claude renders it in TWO states and only the interrupt hint on the
 // SAME line tells them apart:

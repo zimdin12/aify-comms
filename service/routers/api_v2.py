@@ -4239,28 +4239,28 @@ def _terminal_awaiting_input_hint(output: str) -> str:
         trailing = re.sub(r"\s+", "", region[last.end():])
         return len(trailing) <= max_trailing
 
-    # The claude/hermes session-RESUME picker ("1. Resume most recent … 2. Resume full session
-    # as-is … 3. Don't ask me again … Enter to confirm") is an AUTO-answered startup screen that
-    # lingers in the pyte snapshot. It renders \r-heavy (carriage returns overwrite in place), so
-    # the trailing-length guard alone is unreliable — the stale menu can end up right at the
-    # bottom (operator-confirmed lca/mp showed a false "Awaiting console confirmation" while
-    # actively working, 2026-07-06/07). Its options are a distinctive signature no genuine y/n
-    # prompt carries, so use them to recognize the picker (space-insensitive: \r collapses spaces).
-    resume_picker = re.search(
-        r"(resume\s*full\s*session|resume\s*most\s*recent|don'?t\s*ask\s*me\s*again|resume\s*session\s*as[\s-]?is)",
-        region,
-        re.I,
-    )
-    # Hard confirmation prompts the resume picker never emits — always honored (near-bottom).
+    # NOTE (2026-07-14): the old `resume_picker` SUPPRESSION lived here — if the text contained
+    # "resume full session" / "don't ask me again" etc., the "Enter to confirm" branch below was
+    # skipped, on the theory that the picker is an auto-answered startup screen lingering as
+    # scrollback. It is DELETED, because it silenced the real thing: the claude COMPACTION dialog
+    # offers the very same options ("Resume from summary / Resume full session as-is / Don't ask
+    # me again"), so an agent genuinely stuck on it matched the picker signature and was
+    # suppressed — it rendered as `working` while doing nothing, with no way for an operator to
+    # see why (live: lc-manager, awaiting_input=0, sitting at the dialog).
+    #
+    # The suppression existed only to compensate for reading the raw byte LOG, where answered
+    # scrollback is indistinguishable from a live dialog. Status callers now pass the
+    # RECONSTRUCTED SCREEN (`_terminal_prompt_hint_from_raw`), where a dismissed dialog is simply
+    # not present — so the heuristic is both unnecessary and harmful. Deleting it is what makes
+    # `blocked` reachable for the case that actually blocks agents in practice.
+    #
+    # Hard confirmation prompts — always honored (near-bottom).
     if _live_prompt(r"(\(y/n\)|\[y/n\]|\by/n\b|\[y/N\]|\[Y/n\]|yes/no|are you sure|overwrite\?|\bpassword\s*:\s*$|passphrase\s*:\s*$)"):
         return "Awaiting console confirmation."
-    # "Enter to confirm" / "press enter" / arrow-select ARE the resume-picker's own chrome — only
-    # treat them as a live operator prompt when the picker signature is absent.
-    if not resume_picker:
-        if _live_prompt(r"(press\s+(enter|any key)|enter\s+to\s+confirm)"):
-            return "Awaiting console confirmation."
-        if _live_prompt(r"(use arrows|press enter to (select|confirm)|\(use arrow keys\))"):
-            return "Awaiting console selection."
+    if _live_prompt(r"(press\s+(enter|any key)|enter\s+to\s+confirm)"):
+        return "Awaiting console confirmation."
+    if _live_prompt(r"(use arrows|press enter to (select|confirm)|\(use arrow keys\))"):
+        return "Awaiting console selection."
     # Claude Code can stop at an interactive prompt without emitting a formal
     # dashboard reply. This keeps the run active but no useful work is moving.
     # Do not match the normal Claude footer ("bypass permissions on",
@@ -4298,6 +4298,66 @@ async def _console_working_lease_fresh(db, agent_id: str) -> bool:
     return bool(seen and datetime.now(timezone.utc).timestamp() - seen <= CONSOLE_WORKING_LEASE_SECONDS)
 
 
+# ── Prompt detection reads the SCREEN, not the byte log (2026-07-14) ────────────────────
+#
+# Claude's TUI does not emit words separated by spaces — it paints each one with cursor-
+# positioning escapes (`ESC[nG`). Strip the ANSI from the raw PTY log and the screen collapses
+# into `Resumingthefullsessionwillconsumeasubstantialportionofyourusagelimits.` — so every
+# multi-word regex below missed, and an agent STUCK on the compaction dialog produced no hint
+# at all. It rendered as `working`: not merely "no blocked badge", but actively busy-looking
+# while doing nothing. (Live: `lc-manager` sat at the dialog with awaiting_input=0.)
+#
+# The byte log also cannot distinguish a LIVE bottom-of-screen dialog from ANSWERED scrollback.
+# That forced the old `resume_picker` / trailing-budget heuristics — which then suppressed the
+# real thing, because the compaction dialog IS a resume picker (same three options). A fix for
+# false positives had created a false negative.
+#
+# pyte reconstructs the ACTUAL screen: words have real spaces, and a dismissed dialog simply
+# isn't there (`render_snapshot` already strips dismissed alt-screen dialogs). Rendering costs
+# ~55-95ms on a 64KB log, so it is gated three ways: callers only ask for agents that are
+# in_turn, a cheap space-collapsed pre-gate skips the render when no prompt marker exists
+# anywhere in the buffer (the overwhelmingly common case), and the result is memoized per
+# unchanged buffer for a few seconds.
+# The pre-gate must be a SUPERSET of every phrase _terminal_awaiting_input_hint can fire on —
+# it is only allowed to skip the render when NO prompt of any kind could possibly match. Written
+# space-collapsed, because that is the form it is tested against (and because claude's TUI emits
+# no spaces anyway). Miss a family here and you silently reintroduce the invisible-blocked bug for
+# it: a "…I need a decision… Say the word" prompt has no menu cursor and no "Enter to confirm".
+_PROMPT_MARKER_RE = re.compile(
+    r"(\(y/n\)|\[y/n\]|\by/n\b|yes/no|areyousure|overwrite\?|password:|passphrase:"
+    r"|entertoconfirm|pressenter|pressanykey|usearrow"
+    r"|tellmewhich|needadecision|needdecision|whichoption|whichone|chooseone|chooseanoption|saytheword"
+    r"|❯|›|▶)",
+    re.I,
+)
+_PROMPT_HINT_TTL_SECONDS = 5.0
+_PROMPT_HINT_CACHE: dict[str, tuple[str, float, str]] = {}
+
+
+def _terminal_prompt_hint_from_raw(cache_key: str, raw: Any, cols: Any = 0) -> str:
+    """Awaiting-input hint derived from the reconstructed SCREEN of a raw PTY log."""
+    text = str(raw or "")
+    if not text:
+        return ""
+    # Cheap pre-gate: collapse whitespace the way the escape-painted screen already is, and
+    # look for ANY prompt marker. No marker anywhere -> the agent cannot be at a prompt -> skip
+    # the expensive reconstruction entirely.
+    if not _PROMPT_MARKER_RE.search(re.sub(r"\s+", "", _ANSI_RE.sub("", text))):
+        return ""
+    now = time.monotonic()
+    digest = str(len(text)) + ":" + str(hash(text[-8192:]))
+    cached = _PROMPT_HINT_CACHE.get(cache_key)
+    if cached and cached[0] == digest and cached[1] > now:
+        return cached[2]
+    try:
+        screen = _render_terminal_snapshot(text, int(cols or 0) or 100, 40)
+    except Exception:
+        screen = text  # pyte absent/failed: degrade to the old behaviour rather than lie
+    hint = _terminal_awaiting_input_hint(screen)
+    _PROMPT_HINT_CACHE[cache_key] = (digest, now + _PROMPT_HINT_TTL_SECONDS, hint)
+    return hint
+
+
 async def _agent_awaiting_input(db, agent_id: str) -> bool:
     """WS-5 (2026-06-17): True when the agent's live console tail looks like it is
     awaiting operator input/a decision (the `_terminal_awaiting_input_hint` signal).
@@ -4313,7 +4373,7 @@ async def _agent_awaiting_input(db, agent_id: str) -> bool:
     try:
         row = await (await db.execute(
             """
-            SELECT output FROM terminal_sessions
+            SELECT output, cols FROM terminal_sessions
             WHERE agent_id = ?
               AND status IN ('starting','attached','running','active','idle','recovering')
               AND id NOT LIKE 'vterm_%'
@@ -4325,7 +4385,12 @@ async def _agent_awaiting_input(db, agent_id: str) -> bool:
         return False
     if not row:
         return False
-    return bool(_terminal_awaiting_input_hint(row["output"] if "output" in row.keys() else ""))
+    keys = row.keys()
+    return bool(_terminal_prompt_hint_from_raw(
+        f"agent:{agent_id}",
+        row["output"] if "output" in keys else "",
+        row["cols"] if "cols" in keys else 0,
+    ))
 
 
 def _terminal_idle_prompt_hint(output: str) -> str:
@@ -4868,10 +4933,14 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     if terminal_id and (active_run or (agent_session_mode == "managed" and has_live_worker)):
         try:
             terminal_row = await (await db.execute(
-                "SELECT output FROM terminal_sessions WHERE id = ?",
+                "SELECT output, cols FROM terminal_sessions WHERE id = ?",
                 (terminal_id,),
             )).fetchone()
-            terminal_input_hint = _terminal_awaiting_input_hint(terminal_row["output"] if terminal_row else "")
+            terminal_input_hint = _terminal_prompt_hint_from_raw(
+                f"term:{terminal_id}",
+                terminal_row["output"] if terminal_row else "",
+                (terminal_row["cols"] if terminal_row and "cols" in terminal_row.keys() else 0),
+            )
         except Exception:
             terminal_input_hint = ""
     active_run_runtime = _normalize_runtime(str(active_run["runtime"] or "")) if active_run else ""
@@ -5207,6 +5276,31 @@ def _live_state_drop(agent_id: str) -> None:
     _LIVE_STATE_CACHE.pop(str(agent_id or "").strip(), None)
 
 
+def _live_state_expire(agent_id: str) -> None:
+    """Mark a cached entry STALE without dropping it (2026-07-14, the status-flicker fix).
+
+    A DROPPED entry is a cache MISS, and the `list_agents` miss-path falls back to the raw
+    `agents.status` column — which every heartbeat stamps to 'active', and which
+    `_LEGACY_RAW_STATUS_TO_CANONICAL` coerces to **`online`**. That value never passes through
+    `derive()`, so it can contradict `in_turn=1`: a genuinely WORKING agent is served `online`
+    for one poll, and a status-sorted dashboard yanks the row down the list and back. Operator
+    report: "all working agents turn online for a second and then back to working".
+
+    The race is real because `GET /agents` takes seconds (per-agent liveness/env gates inside
+    the row loop) while the event loop is single-threaded: a heartbeat landing mid-request
+    invalidates AFTER the top-of-request refresh pass and BEFORE the per-agent read. Working
+    agents heartbeat the most, so they lose that race the most — hence *all* of them flicker.
+
+    Expiring instead keeps the last DERIVED value readable while forcing a recompute on the
+    next refresh (`_live_state_fresh` gates on `refresh_after`). Worst case becomes a slightly
+    stale but TRUE status rather than a fresh falsehood. Real eviction (agent deleted) still
+    calls `_live_state_drop` directly.
+    """
+    entry = _LIVE_STATE_CACHE.get(str(agent_id or "").strip())
+    if entry is not None:
+        entry["refresh_after"] = ""
+
+
 async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dict[str, Any]] = None, now: Optional[str] = None):
     row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
     if not row:
@@ -5246,9 +5340,12 @@ async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dic
 
 
 async def _invalidate_agent_live_state(db, agent_id: str) -> None:
-    # Drop from the in-memory cache (db kept in the signature for the ~45 existing call sites;
-    # no DB write happens). The next read recomputes; the reconcile keeps it warm.
-    _live_state_drop(agent_id)
+    # EXPIRE, don't drop (see _live_state_expire): a dropped entry is a cache MISS, and the
+    # miss-path serves the raw `agents.status` column coerced 'active' -> 'online', flickering
+    # a working agent to `online` for one poll. Expiring forces the same recompute while keeping
+    # the last DERIVED status readable in the meantime. (db kept in the signature for the ~45
+    # existing call sites; no DB write happens.)
+    _live_state_expire(agent_id)
 
 
 async def _fail_pending_terminal_controls(db, terminal_id: str, *, handled_at: str, response_text: str) -> int:
