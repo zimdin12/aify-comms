@@ -321,14 +321,22 @@ class _LiveScreen:
         return _screen_to_ansi(self.screen, self.cols, self.rows, history=history)
 
     def resize(self, cols: int, rows: int) -> None:
+        """Resize in place, keeping the stream.
+
+        REVERTED (2026-07-14) from "rebuild the screen clean on every size change". That looked
+        right — content painted for 100 columns is meaningless on 94 — but it made the console
+        WORSE, verified in a real browser: wiping the screen left it BLANK, because the app does
+        not necessarily repaint its whole frame just because SIGWINCH arrived, and rebuilding the
+        pyte Stream mid-flight also cut an escape sequence in half, leaking `[38;5;178m4` into the
+        screen as literal text. Reflowing is imperfect for an absolutely-positioned TUI, but the
+        app's next repaint overwrites it — a briefly-imperfect screen beats an empty one."""
         self.cols, self.rows = cols, rows
         try:
             self.screen.resize(rows, cols)  # pyte takes (lines, columns)
             if self.alt_screen is not None:
                 self.alt_screen.resize(rows, cols)
         except Exception:
-            # Rebuild rather than carry a corrupt screen.
-            self.__init__(cols, rows)  # type: ignore[misc]
+            self.__init__(cols, rows)  # type: ignore[misc]  # never carry a corrupt screen
 
 
 def _clamp_grid(cols: Any, rows: Any) -> tuple[int, int]:

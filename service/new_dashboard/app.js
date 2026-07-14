@@ -1877,9 +1877,38 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
     const cols = Math.max(20, term.cols || 80), rows = Math.max(5, term.rows || 24);
     if (state.activeXterm) { state.activeXterm.renderedCols = term.cols; state.activeXterm.fitCols = term.cols; }
     const data = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${cols}&rows=${rows}`);
-    // Widen the xterm to the server's rendered width (resident mirrors are wider than the pane)
-    // BEFORE writing, so the snapshot lands in a grid that matches its render and never re-wraps.
-    applyRenderedWidth(state.activeXterm, term, container, data);
+    // We OWN a managed PTY: fit it to the pane instead of stretching the pane to it. Only a
+    // RESIDENT console is a mirror of a terminal we must not resize.
+    const ownsPty = String(agentForTerminal(terminalId)?.sessionMode || '').toLowerCase() !== 'resident';
+    applyRenderedWidth(state.activeXterm, term, container, data, ownsPty);
+    if (state.activeXterm) state.activeXterm.ownsPty = ownsPty;
+
+    // ALWAYS push the pane's size to a PTY we own — do not wait for xterm's onResize.
+    //
+    // This is what actually un-garbles a console, and it took a browser to see it. These TUIs
+    // paint by ABSOLUTE cursor position and never scroll (measured: zero newlines, 1160 CUP moves
+    // per 64KB), and they repaint only what CHANGED. So a screen we started tracking mid-stream
+    // keeps its wrong rows FOREVER — the operator's "gibberish", with two lines woven together
+    // character by character. Nothing we do server-side can fix it, because the app will never
+    // redraw those rows on its own.
+    //
+    // A genuine RESIZE does force a full repaint (verified live: the app emitted 23 chunks and
+    // the screen came back clean). But `term.onResize` only fires when xterm's own size CHANGES —
+    // and once the xterm already fits the pane it never does, so no resize was ever sent and the
+    // console stayed broken forever. Send it explicitly on every attach, then re-pull the
+    // snapshot so the freshly-repainted screen is what lands.
+    if (ownsPty) {
+      const c = Math.max(20, term.cols), r2 = Math.max(5, term.rows);
+      try {
+        await api(`/terminals/${encodeURIComponent(terminalId)}/resize`, {
+          method: 'POST',
+          body: JSON.stringify({ cols: c, rows: r2, requestedBy: 'dashboard-attach' }),
+        });
+        await new Promise((res) => setTimeout(res, 700));   // let the app repaint
+        const fresh = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${c}&rows=${r2}`);
+        if (fresh?.terminal?.snapshot) data.terminal = fresh.terminal;
+      } catch { /* best-effort: fall back to the snapshot we already have */ }
+    }
     const snapshot = data?.terminal?.snapshot;
     const output = data?.terminal?.output;
     // reset() BEFORE seeding, exactly as the Refresh path does. The snapshot's own prefix only
@@ -1899,12 +1928,37 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
   term.focus();
 }
 
-// Apply the server's rendered width to the xterm. A resident wrapper mirrors the operator's
-// real (often wider) terminal; the server renders the snapshot at that source width and reports
-// it as `renderedCols`. If that exceeds the pane-fitted cols, widen the xterm to it and let the
-// pane scroll horizontally (class `console-wide-mirror`) — otherwise the wide lines re-wrap and
-// mangle ("gappy / bugged console"). When renderedCols fits (managed terminals), this is a no-op.
-function applyRenderedWidth(entry, term, container, data) {
+
+// Which agent owns this terminal? (Used to decide whether the PTY is OURS to resize.)
+function agentForTerminal(terminalId) {
+  const tid = String(terminalId || '');
+  const sess = (state.sessions || []).find((x) => String(x?.terminalId || x?.terminal?.id || x?.terminal_id || '') === tid);
+  if (sess) return agentForSession(sess);
+  return (state.agents || []).find((a) => String(a?.runtimeState?.terminalId || a?.terminalId || '') === tid) || null;
+}
+
+// Apply the server's rendered width to the xterm.
+//
+// MANAGED PTYs are OURS — resize THEM to the pane, never the pane to them (2026-07-14).
+// This used to widen the xterm to the PTY's width unconditionally. For a managed terminal that is
+// exactly backwards, and it could never converge: the PTY is 100 cols, so we widened the xterm to
+// 100 cols (700px) inside a 660px box — the console visibly failed to fill its box and scrolled
+// sideways — and that widening fired `term.onResize`, which pushed the PTY back to 100 cols. The
+// two chased each other forever. Operator: "now it is not even from side to side (wide as the
+// console box)". Measured: host 660px, xterm screen 700px.
+//
+// So: if we own the PTY (managed), keep the xterm at the pane's fitted size and let `onResize`
+// push that size down to the PTY — the app then re-renders to fit the box exactly (and that full
+// re-render also clears any garbage the screen had inherited). The wide-mirror path stays ONLY for
+// a RESIDENT console, where the terminal belongs to the operator and we must not resize it.
+function applyRenderedWidth(entry, term, container, data, ownsPty = false) {
+  if (ownsPty) {
+    const base = (entry && entry.fitCols) || term.cols;
+    if (container) container.classList.remove('console-wide-mirror');
+    try { if (term.cols !== base) term.resize(base, term.rows); } catch { /* xterm handles it */ }
+    if (entry) { entry.widened = false; entry.renderedCols = base; }
+    return;
+  }
   // Compare against the pane's FITTED width (entry.fitCols), not the current term.cols —
   // term may already be widened from a prior snapshot, and we must be able to shrink back.
   const base = (entry && entry.fitCols) || term.cols;
@@ -1930,11 +1984,29 @@ async function resyncActiveConsole() {
     // Fetch at the pane's FITTED width (not the possibly-widened current width) so the server
     // can re-infer the source width and hand back the correct renderedCols.
     const fetchCols = Math.max(20, entry.fitCols || entry.term.cols);
+    // REFRESH MUST ACTUALLY FIX IT. The operator's complaint was "refresh does not actually fix
+    // it" — and they were right: it re-rendered the SAME poisoned screen. These TUIs repaint only
+    // what changed, so a screen with wrong rows keeps them forever; the ONLY thing that forces a
+    // full repaint is a genuine PTY resize (verified live). So Refresh now nudges the size (-1
+    // col, then back), which makes the app redraw everything, and THEN pulls the clean snapshot.
+    if (entry.ownsPty) {
+      try {
+        await api(`/terminals/${encodeURIComponent(entry.terminalId)}/resize`, {
+          method: 'POST',
+          body: JSON.stringify({ cols: Math.max(20, fetchCols - 1), rows: entry.term.rows, requestedBy: 'dashboard-refresh' }),
+        });
+        await api(`/terminals/${encodeURIComponent(entry.terminalId)}/resize`, {
+          method: 'POST',
+          body: JSON.stringify({ cols: fetchCols, rows: entry.term.rows, requestedBy: 'dashboard-refresh' }),
+        });
+        await new Promise((res) => setTimeout(res, 700));
+      } catch { /* best-effort */ }
+    }
     const data = await api(`/terminals/${encodeURIComponent(entry.terminalId)}?cols=${fetchCols}&rows=${entry.term.rows}`);
     // reset() (not clear()) wipes any scrambled scrollback/alt-screen state before we
     // repaint the clean server-rendered snapshot — so Refresh actually un-scrambles.
     entry.term.reset();
-    applyRenderedWidth(entry, entry.term, entry.container, data);
+    applyRenderedWidth(entry, entry.term, entry.container, data, Boolean(entry.ownsPty));
     const snapshot = data?.terminal?.snapshot;
     entry.term.write(String(snapshot || data?.terminal?.output || ''));
     entry.lastSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? entry.lastSeq);
