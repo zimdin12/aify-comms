@@ -195,9 +195,32 @@ export async function fetchAnthropicUsage({ readCreds = defaultReadCreds, fetchI
   }
 }
 
-// Read the tail of the newest codex rollout file (defaults).
+// WHERE A TOOL KEEPS ITS FILES — searched, never guessed by platform (2026-07-14).
+//
+// Every previous bug here was a WRONG GUESS about a path: the Windows path used unconditionally
+// on Linux; then the right OS but the wrong tool (hermes' auth.json is a POINTER —
+// {"active_provider":"openai-codex"} — because it delegates to the codex CLI's store). Guessing
+// by `process.platform` is the anti-pattern: it fails silently and looks healthy. So don't guess.
+// Enumerate every location the tool is known to use on ANY platform and take the first that
+// actually exists / carries what we need. A missing path costs one failed read.
+//
+// Honours each tool's OWN override env var first, so a non-default install just works.
+export function toolHomeCandidates(tool) {
+  const home = homeDir();
+  const out = [];
+  const push = (p) => { if (p && !out.includes(p)) out.push(p); };
+  const override = process.env[`${tool.toUpperCase()}_HOME`];
+  if (override) push(override);
+  push(join(home, `.${tool}`));                                            // POSIX default (and codex on Windows)
+  const localAppData = process.env.LOCALAPPDATA || join(home, "AppData", "Local");
+  push(join(localAppData, tool));                                          // Windows
+  push(join(process.env.XDG_CONFIG_HOME || join(home, ".config"), tool));  // XDG
+  push(join(home, "Library", "Application Support", tool));                // macOS
+  return out;
+}
+
+// Read the tail of the newest codex rollout file (searched across every codex home).
 function defaultReadLatestRollout() {
-  const dir = join(homeDir(), ".codex", "sessions");
   let newest = null;
   let newestMtime = -1;
   const walk = (d) => {
@@ -211,7 +234,7 @@ function defaultReadLatestRollout() {
       }
     }
   };
-  walk(dir);
+  for (const codexHome of toolHomeCandidates("codex")) walk(join(codexHome, "sessions"));
   if (!newest) return "";
   const fd = openSync(newest, "r");
   try {
@@ -245,37 +268,23 @@ function epochToIso(v) {
 // This is the authoritative fresh source; the rollout reader is the fallback.
 const CHATGPT_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 
-function defaultHermesAuthPath() {
-  // Hermes stores its OAuth token store at ~/.hermes/auth.json on Linux/macOS (incl. WSL) and
-  // %LOCALAPPDATA%\hermes\auth.json on Windows. The collector runs on the HOST, so pick by
-  // platform. BUG (2026-07-13): the old code used the Windows path UNCONDITIONALLY, so on a
-  // Linux/WSL host (LOCALAPPDATA empty) it read a non-existent ~/AppData/Local/hermes/auth.json →
-  // extractOpenAiToken never saw the real token → the live ChatGPT `wham/usage` fetch always
-  // failed → the openai-chatgpt-codex pool fell back to a STALE codex rollout and the quota never
-  // refreshed (operator: "ChatGPT/Codex/Hermes usage won't update").
-  if (process.platform === "win32") {
-    const localAppData = process.env.LOCALAPPDATA || join(homeDir(), "AppData", "Local");
-    return join(localAppData, "hermes", "auth.json");
+// WHERE THE OPENAI TOKEN ACTUALLY LIVES — searched across BOTH tools, on ANY OS (2026-07-14).
+//
+// Two separate bugs were caused by "knowing" this path:
+//   * the Windows path used unconditionally, so a Linux/WSL host read a file that didn't exist;
+//   * then the right OS but the wrong TOOL — hermes' auth.json is a POINTER on a default install
+//     (`{"version":1,"active_provider":"openai-codex"}`, no tokens at all) because it delegates
+//     its OpenAI auth to the CODEX CLI's store, which is where the JWT really is.
+// Both failed SILENTLY: no token -> fall back to the stale rollout -> the quota simply never
+// updates and nothing looks broken. So stop guessing: enumerate every auth.json either tool is
+// known to use on any platform, and take the first that actually carries an OpenAI token.
+export function openAiAuthCandidates() {
+  const out = [];
+  // Codex first: hermes DELEGATES to it, so on a default pair of installs that is the live store.
+  for (const tool of ["codex", "hermes"]) {
+    for (const dir of toolHomeCandidates(tool)) out.push(join(dir, "auth.json"));
   }
-  return join(homeDir(), ".hermes", "auth.json");
-}
-// WHERE THE OPENAI TOKEN ACTUALLY LIVES (2026-07-14). Hermes does not necessarily hold it:
-// its auth.json can be a pointer — `{"active_provider": "openai-codex"}` with NO tokens at all —
-// because it DELEGATES to the codex CLI's store. On the operator's box that is exactly the case,
-// so the live fetch found no token, silently fell back to the stale codex rollout, and the
-// dashboard's OpenAI quota never updated. Try every store we know of and take the first that
-// actually carries an OpenAI token, rather than trusting one path.
-function openAiAuthCandidates() {
-  const home = homeDir();
-  if (process.platform === "win32") {
-    const localAppData = process.env.LOCALAPPDATA || join(home, "AppData", "Local");
-    return [
-      join(localAppData, "hermes", "auth.json"),
-      join(home, ".codex", "auth.json"),
-      join(localAppData, "codex", "auth.json"),
-    ];
-  }
-  return [join(home, ".hermes", "auth.json"), join(home, ".codex", "auth.json")];
+  return out;
 }
 
 function defaultReadHermesAuth() {
@@ -397,4 +406,55 @@ export async function fetchCodexUsage({ readLatestRollout = defaultReadLatestRol
   } catch {
     return unknown;
   }
+}
+
+// ── OpenAI usage PREFLIGHT (2026-07-14) ──────────────────────────────────────────────
+//
+// The OpenAI quota pool fails SILENTLY by design: no token -> fall back to a rollout -> show a
+// stale number. Nothing errors, so an operator (or an installing agent) has no way to know the
+// dashboard's ChatGPT figure is dead. This turns that silence into a verdict, and it PROVES the
+// connection rather than merely finding a file — a present-but-expired token is exactly the case
+// a file check would call healthy.
+//
+// Returns { ok, code, message, detail }. Codes:
+//   ok                 - token found AND the usage API accepted it
+//   no-token           - no OpenAI token in any codex/hermes store (codex not installed / not logged in)
+//   rejected           - a token was found but the API refused it (expired -> `codex login` again)
+//   unreachable        - could not reach the API (offline / blocked); says nothing about the token
+export async function checkOpenAiUsageAccess({ readHermesAuth = defaultReadHermesAuth, fetchImpl = globalThis.fetch } = {}) {
+  let token = null;
+  try { token = extractOpenAiToken(readHermesAuth()); } catch { token = null; }
+  if (!token) {
+    return {
+      ok: false,
+      code: "no-token",
+      message: "OpenAI/ChatGPT usage will NOT appear in the dashboard: no OpenAI token found.",
+      detail:
+        "Install the codex CLI and sign in (`codex login`). Hermes delegates its OpenAI auth to the " +
+        "codex store, so codex is what actually holds the token — a hermes-only install has none. " +
+        "Searched: " + openAiAuthCandidates().join(", "),
+    };
+  }
+  let res;
+  try {
+    res = await fetchImpl(CHATGPT_USAGE_URL, {
+      headers: { authorization: `Bearer ${token}`, accept: "application/json", "user-agent": "codex-cli" },
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      code: "unreachable",
+      message: "Found an OpenAI token, but could not reach the ChatGPT usage API.",
+      detail: `Network/offline? ${String(err && err.message ? err.message : err)}`,
+    };
+  }
+  if (!res || !res.ok) {
+    return {
+      ok: false,
+      code: "rejected",
+      message: `Found an OpenAI token, but the ChatGPT usage API rejected it (HTTP ${res ? res.status : "?"}).`,
+      detail: "The token is likely expired. Re-authenticate with `codex login`.",
+    };
+  }
+  return { ok: true, code: "ok", message: "OpenAI/ChatGPT usage is connected.", detail: "" };
 }

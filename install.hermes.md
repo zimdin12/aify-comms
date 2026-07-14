@@ -16,6 +16,34 @@ agent spawn, browser Console, and environment control.
     or NodeSource (`curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs`).
   - Native Windows: install from [nodejs.org](https://nodejs.org/) or via `winget install OpenJS.NodeJS.LTS`.
 - **Hermes Agent** itself, installed and on `PATH` as `hermes`.
+- **The `codex` CLI, signed in — REQUIRED for the OpenAI/ChatGPT quota panel** (optional for everything else).
+  Hermes does **not** hold its own OpenAI token: on a default install its `auth.json` is a *pointer*
+  (`{"active_provider": "openai-codex"}`, no tokens) because it **delegates OpenAI auth to the codex CLI's
+  store**. So without codex installed and logged in (`codex login`), there is no token to read anywhere and
+  the dashboard's *OpenAI · ChatGPT (Codex + Hermes)* card cannot show live usage. Messaging, dispatch and
+  status are unaffected.
+
+  `install.sh` now checks this for you and prints a verdict — it does not just look for the file, it
+  **proves the connection** (an expired token passes a file check and fails for real):
+
+  ```
+  [usage] OK — OpenAI/ChatGPT usage is connected.
+  ```
+  ```
+  [usage] WARNING — OpenAI/ChatGPT usage will NOT appear in the dashboard: no OpenAI token found.
+  [usage] Install the codex CLI and sign in (`codex login`). Hermes delegates its OpenAI auth to the
+          codex store, so codex is what actually holds the token — a hermes-only install has none.
+  [usage] Everything else works; only the OpenAI quota panel is affected.
+  ```
+
+  A found-but-expired token reports `WARNING … the ChatGPT usage API rejected it (HTTP 401) … re-authenticate
+  with codex login`. The check never fails the install (usage is advisory). For scripted/agent installs, run
+  `node ~/.aify-comms/mcp/stdio/usage-preflight.js --json` for a machine-readable
+  `{ok, code, message, detail}` — `code` is one of `ok` / `no-token` / `rejected` / `unreachable`.
+
+  Token discovery is **not** OS- or layout-dependent: every known codex/hermes store is searched
+  (`~/.codex`, `~/.hermes`, `%LOCALAPPDATA%\…`, `~/.config/…`, macOS *Application Support*), and
+  `CODEX_HOME` / `HERMES_HOME` win if you use a non-default location.
 
 > **Path style is decided at install time.** `install.sh` detects whether the
 > `hermes` it wraps is a Linux binary (WSL/native Linux) or a native Windows

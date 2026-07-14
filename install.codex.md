@@ -143,6 +143,16 @@ Important:
 - Managed runtime hard timeout is **12 hours** by default (`runtimeConfig.timeoutMs`). Managed Codex uses Codex's unattended bypass sandbox profile by default (`danger-full-access`, equivalent to `--dangerously-bypass-approvals-and-sandbox`) so managed agents can call MCP tools without hidden approval cancellation; set `runtimeConfig.sandboxMode="workspace-write"` only for permission debugging. Managed Codex also has a quiet-stall watchdog of **30 minutes** without Codex runtime notifications/stderr after the last observed activity (`runtimeConfig.quietTimeoutMs` or `runtimeConfig.silenceTimeoutMs`). A narrower aify-comms MCP tool-call watchdog fails stuck `mcpToolCall aify-comms` turns after **90 seconds** by default (`runtimeConfig.mcpToolTimeoutMs` or `runtimeConfig.commsToolTimeoutMs`; set to `0` only for debugging). Current WSL/Linux bridge builds terminate the whole managed Codex process tree on timeout/interrupt/stop so orphan MCP tool servers do not keep stale state alive. Set the quiet timeout to `0` only for agents expected to run very long silent commands.
 - If another agent says you are a resident Codex session without a bound session handle, restart Codex and re-register from the live session.
 
+### OpenAI/ChatGPT quota panel needs the `codex` CLI signed in
+
+The dashboard's *OpenAI · ChatGPT (Codex + Hermes)* card reads an OpenAI token from the **codex CLI's**
+store (`codex login`). Hermes does not hold one — on a default install its `auth.json` is only a pointer
+(`{"active_provider": "openai-codex"}`) that delegates to codex. Without codex installed and signed in,
+that one card cannot show live usage; nothing else is affected. `install.sh` prints a `[usage] OK` /
+`[usage] WARNING` verdict (it proves the connection, so an expired token is reported too), and
+`node ~/.aify-comms/mcp/stdio/usage-preflight.js --json` gives an installing agent a machine-readable
+`{ok, code}` where `code` is `ok` / `no-token` / `rejected` / `unreachable`.
+
 ## What This Installs
 
 - The `aify-comms` stdio MCP server for Codex (tool namespace retained for compatibility)

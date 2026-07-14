@@ -121,6 +121,16 @@ By default the wrapper loads the operator's full `~/.claude.json` MCP list (whic
 
 **Windows-specific note.** The wrapper emits `http://127.0.0.1:8800` (not `http://localhost:8800`) in the generated MCP env block, and both `claude-channel.js` and `server.js` defensively coerce `http://localhost` to `http://127.0.0.1` at fetch time. Reason: Docker Desktop's IPv6 port forwarding is unreliable on Windows, and `localhost` resolves to IPv6 `::1` first — connections hang silently and no channel dispatches get claimed. The coercion is a no-op on Linux/macOS where loopback is IPv4 by default.
 
+### OpenAI/ChatGPT quota panel needs the `codex` CLI signed in
+
+The dashboard's *OpenAI · ChatGPT (Codex + Hermes)* card reads an OpenAI token from the **codex CLI's**
+store (`codex login`). Hermes does not hold one — on a default install its `auth.json` is only a pointer
+(`{"active_provider": "openai-codex"}`) that delegates to codex. Without codex installed and signed in,
+that one card cannot show live usage; nothing else is affected. `install.sh` prints a `[usage] OK` /
+`[usage] WARNING` verdict (it proves the connection, so an expired token is reported too), and
+`node ~/.aify-comms/mcp/stdio/usage-preflight.js --json` gives an installing agent a machine-readable
+`{ok, code}` where `code` is `ok` / `no-token` / `rejected` / `unreachable`.
+
 ## What This Installs
 
 - The `aify-comms` stdio MCP server, registered in Claude user scope (tool namespace retained for compatibility)

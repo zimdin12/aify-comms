@@ -4028,6 +4028,19 @@ elif [ "$CLIENT" = "pi" ]; then
 fi
 
 echo ""
+# OPENAI USAGE PREFLIGHT. The ChatGPT/Codex quota pool fails SILENTLY — no token means the
+# collector quietly falls back to a stale codex rollout and the dashboard shows a number that
+# never updates. Nothing errors, so the panel can be dead for weeks and look healthy (it was).
+# Say it out loud at install time, and PROVE the connection rather than just finding a file (an
+# expired token passes a file check and fails for real). Advisory only: never fails the install.
+#
+# Note WHY codex matters even for a hermes-only user: hermes DELEGATES its OpenAI auth to the
+# codex CLI's store, so without codex installed + logged in there is no token to read anywhere.
+if command -v node >/dev/null 2>&1 && [ -f "$AIFY_BRIDGE_DIR/usage-preflight.js" ]; then
+  node "$AIFY_BRIDGE_DIR/usage-preflight.js" 2>/dev/null || true
+fi
+
+echo ""
 echo "=== Installation complete ==="
 echo "Environment bridge launcher installed: aify-comms"
 echo "  Run it on each host/runtime environment you want visible in the dashboard."
