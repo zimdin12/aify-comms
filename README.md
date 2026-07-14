@@ -21,6 +21,39 @@ aify-comms                        # start an environment bridge in each executio
 
 Then open `http://localhost:8801` (dashboard), spawn a managed agent into a workspace, and message it. Details: [Setup](#setup) below and the per-client install guides.
 
+## Agent playbooks — install / update, and how to VERIFY it took effect
+
+If you are an agent doing this work, read this section first. **Every flow here fails silently.** Nothing errors, everything looks installed, and the thing you changed is not the thing that is running:
+
+- the container keeps serving the build from *before* your rebuild;
+- `~/.aify-comms` holds your new bridge code, but every **running** wrapper still executes the copy it loaded at boot — so a fix "ships" and changes nothing;
+- an agent launched without `--aify-agent` registers and messages perfectly while its status is structurally dead;
+- the OpenAI quota panel reads a token from a file nobody has.
+
+So **do not report success from the absence of an error.** Every flow ends the same way:
+
+```bash
+aify-doctor            # human-readable
+aify-doctor --json     # {ok, checks:[{id, ok, code, detail, fix}]} — parse this
+aify-doctor --strict   # exit 1 if anything failed (use in scripts/CI)
+```
+
+`aify-doctor` proves each claim against the running system (build stamps, process start times, process environments, a live API call). It is installed by `install.sh`. **Done means `ok: true`** — or a check whose `fix` you have deliberately deferred and reported.
+
+| Flow | Do | Then |
+|---|---|---|
+| **1. Install the client integration** (bridge + wrapper for a runtime) | `bash install.sh --client <claude\|codex\|hermes> http://<service>:8800 --with-hook` | `aify-doctor` → `wrappers`, `bridge-installed` green. Restart the client so it loads the new bridge. |
+| **2. Install / run the service** (container) | `./setup.sh` (first time), then `scripts/stamp.sh && docker compose up -d --build` | `aify-doctor` → `service` must read **`build <sha> == repo HEAD`**. `curl :8800/health` alone is NOT enough — a healthy container can be serving last week's code. |
+| **3. Update local integrations** (after `git pull`) | `bash install.sh --client <runtime>` — this re-copies `mcp/stdio/` into `~/.aify-comms`. **Editing the checkout does nothing on its own.** | `aify-doctor` → `bridge-installed` must equal repo HEAD, **and `bridge-running` must be green**. If it lists agents, they are still executing the old code and must be restarted before your change is real. |
+| **4. Update the container** | `git pull && scripts/stamp.sh && docker compose up -d --build` | `aify-doctor` → `service` == repo HEAD. Skipping `stamp.sh` makes `/version` lie about what is deployed. |
+
+Two rules that cost real hours to learn:
+
+1. **Installing does not reload a running bridge.** A process keeps the code it loaded at startup. After any bridge change, the agents using it must restart — `aify-doctor`'s `bridge-running` check tells you exactly which ones haven't. (`--resume <handle>` preserves an agent's conversation, so the restart is cheap.)
+2. **Always launch a registered agent with its id** (`--aify-agent <id>`). Without it the agent works in every visible way but has no status at all. `aify-doctor`'s `agent-identity` check catches it; a plain, unregistered `claude-aify` session is legitimately id-less and is not flagged.
+
+The OpenAI quota panel additionally needs the **`codex` CLI signed in** (`codex login`) — hermes holds no OpenAI token of its own, it delegates to codex's store. `install.sh` prints a `[usage] OK` / `[usage] WARNING` verdict, and `aify-doctor` re-checks it by actually calling the API (an expired token passes a file check and fails for real).
+
 ## Security — read before exposing beyond localhost
 
 By default the service runs **without authentication** (`api_key=""`), with **CORS `*`**, and binds **`0.0.0.0`** — a deliberate LAN-trust posture for a private network. Every mutating endpoint (including typing into live agent consoles) is open to anything that can reach the port, and the compose file mounts host agent credentials (e.g. `~/.claude`) into the container for the runtimes to use. Before running anywhere untrusted:

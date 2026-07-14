@@ -4040,6 +4040,21 @@ if command -v node >/dev/null 2>&1 && [ -f "$AIFY_BRIDGE_DIR/usage-preflight.js"
   node "$AIFY_BRIDGE_DIR/usage-preflight.js" 2>/dev/null || true
 fi
 
+# `aify-doctor` — the one command that verifies an install/update actually TOOK EFFECT.
+# Installed as a launcher so an operator (or an installing AGENT, via --json) can check the
+# things that otherwise fail silently: a container still serving the previous build, a bridge
+# copy older than the checkout, RUNNING wrappers still executing the code they loaded at boot,
+# a registered agent with no identity in its process, a dead OpenAI token.
+DOCTOR_BIN_DIR="$HOME/.local/bin"
+mkdir -p "$DOCTOR_BIN_DIR"
+DOCTOR_PATH="$DOCTOR_BIN_DIR/aify-doctor"
+{
+  echo "#!/usr/bin/env bash"
+  echo "exec node \"$AIFY_BRIDGE_DIR/doctor.js\" \"\$@\""
+} > "$DOCTOR_PATH"
+chmod +x "$DOCTOR_PATH" 2>/dev/null || true
+echo "Verifier installed: aify-doctor   (\`aify-doctor --json\` for scripted/agent checks)"
+
 echo ""
 echo "=== Installation complete ==="
 echo "Environment bridge launcher installed: aify-comms"
