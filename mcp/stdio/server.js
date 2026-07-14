@@ -23,6 +23,11 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { loadSettingsEnv } from "./load-env.js";
 import { removeAgentBindingFile, writeAgentBindingFile } from "./binding-file.js";
+import {
+  readCapturedClaudeSessionIdForPid,
+  readClaudeSessionId,
+  writeClaudeSessionId,
+} from "./claude-session-store.js";
 import { supportedExecutionModes, wrapperChildExecutionModes } from "./dispatch-execution.js";
 import { activeTurnHeartbeatPayload, agentHeartbeatPayload } from "./turn-busy.js";
 import { advertisedEnvironmentRuntimes, advertisedTerminalRuntimes } from "./environment-runtimes.js";
@@ -385,13 +390,29 @@ const __stopLivenessHeartbeat = startLivenessHeartbeat({
 // on transcript STRUCTURE (process truth), never on the server's computed status,
 // and only ever POSTs /turn-end (a CLEAR) — it can never re-arm turn_busy. A
 // null/unreadable tail is treated as NOT-ended (never false-clear).
+// LATE IDENTITY (2026-07-14). This detector used to be armed ONCE, at module load, from the
+// AIFY_AGENT_ID env var — so a session launched without `--aify-agent` never armed it, and
+// NOTHING later could. But `comms_register` is precisely the moment the bridge LEARNS its
+// agent id (it writes the binding file from it). Registering therefore *should* turn status
+// on, and operators reasonably expect it to. It didn't, silently — the general-manager
+// incident. So: the effective agent id is a variable, not a constant, and the detector can be
+// armed late by `armClaudeTurnEndDetector(agentId)` from the register handler.
+let __effectiveAgentId = AIFY_AGENT_ID;
+let __claudeTurnDetectorArmed = false;
 let __stopClaudeTurnEndDetector = () => {};
-if (
-  AIFY_AGENT_ID &&
-  __runtimeAdapter &&
-  __runtimeAdapter.name === "claude-code" &&
-  typeof __runtimeAdapter.transcriptTail === "function"
-) {
+
+function armClaudeTurnEndDetector(agentId) {
+  const id = String(agentId || "").trim();
+  if (__claudeTurnDetectorArmed || !id) return false;
+  if (
+    !__runtimeAdapter ||
+    __runtimeAdapter.name !== "claude-code" ||
+    typeof __runtimeAdapter.transcriptTail !== "function"
+  ) {
+    return false;
+  }
+  __effectiveAgentId = id;
+  __claudeTurnDetectorArmed = true;
   __stopClaudeTurnEndDetector = startClaudeTurnEndDetector({
     // PURE-EVENT (2026-06-19): 30s→5s. With the server-side turn-end GRACE removed, this
     // structural detector IS the flap fix for a managed claude's premature/duplicate Stop
@@ -405,7 +426,7 @@ if (
     // turn_busy (steered message lands mid-turn → no reply-owing run → clear), and
     // an edge-triggered start never re-fires. Same value as the hermes detector.
     workingRefreshMs: 45_000,
-    readTranscript: async () => __runtimeAdapter.transcriptTail({ agentId: AIFY_AGENT_ID }),
+    readTranscript: async () => __runtimeAdapter.transcriptTail({ agentId: __effectiveAgentId }),
     // SET working when the transcript tail transitions into in-flight. RESIDENT
     // under-report fix (2026-06-02): a channel-woken / scheduled claude turn never
     // fires UserPromptSubmit→/turn-start, so turn_busy stays 0 and the dashboard
@@ -413,22 +434,44 @@ if (
     // typed, channel-woken, AND scheduled turns — the robust replacement for the
     // removed PostToolUse re-pulse. Idempotent (edge-triggered in the detector).
     postTurnStart: async () => {
-      if (!AIFY_AGENT_ID || !__serverUrl) return;
-      await httpCall("POST", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/turn-start`, {
+      if (!__effectiveAgentId || !__serverUrl) return;
+      await httpCall("POST", `/agents/${encodeURIComponent(__effectiveAgentId)}/turn-start`, {
         bridgeId: BRIDGE_INSTANCE_ID,
         turnRuntime: "claude-code",
         source: "bridge-transcript-detector",
       });
     },
     postTurnEnd: async () => {
-      if (!AIFY_AGENT_ID || !__serverUrl) return;
-      await httpCall("POST", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/turn-end`, {
+      if (!__effectiveAgentId || !__serverUrl) return;
+      await httpCall("POST", `/agents/${encodeURIComponent(__effectiveAgentId)}/turn-end`, {
         bridgeId: BRIDGE_INSTANCE_ID,
         turnRuntime: "claude-code",
         source: "bridge-transcript-detector",
       });
     },
   });
+  return true;
+}
+
+// Boot-time arm: the normal path (wrapper exported AIFY_AGENT_ID). When it did NOT,
+// this no-ops and the register handler arms us late — see armClaudeTurnEndDetector.
+armClaudeTurnEndDetector(AIFY_AGENT_ID);
+
+// Claim the session id the hook captured before we knew who we were, so the
+// late-armed detector can resolve this session's transcript immediately (rather
+// than waiting for the next hook fire — a channel-woken agent may never get one).
+function claimCapturedClaudeSession(agentId) {
+  const id = String(agentId || "").trim();
+  if (!id) return false;
+  try {
+    if (readClaudeSessionId({ agentId: id })) return false; // already keyed to us
+    const sid = readCapturedClaudeSessionIdForPid({ pid: process.ppid || process.pid });
+    if (!sid) return false;
+    writeClaudeSessionId({ sessionId: sid, agentId: id });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // CODEX turn-STATE via the rollout-tail detector (WS-4b, 2026-06-17). Resident codex
@@ -3768,6 +3811,24 @@ server.tool(
       try {
         writeAgentBindingFile({ pid: process.ppid || process.pid, agentId, bridgeId: BRIDGE_INSTANCE_ID });
       } catch { /* best effort */ }
+    }
+
+    // REGISTERING TURNS STATUS ON (2026-07-14). If the wrapper never exported
+    // AIFY_AGENT_ID (session launched without `--aify-agent`), the turn detector could not
+    // arm at boot and this bridge had NO way to ever report turn state — the agent would
+    // register, message and heartbeat perfectly while its status latched forever. But THIS
+    // call is the bridge learning who it is, so use it: claim the session id the hook
+    // captured before we had an identity, then arm the detector. Registering now does what
+    // an operator always assumed it did.
+    if (!__claudeTurnDetectorArmed && agentId) {
+      const claimed = claimCapturedClaudeSession(agentId);
+      if (armClaudeTurnEndDetector(agentId)) {
+        console.error(
+          `[aify] turn detection armed late for '${agentId}' via comms_register ` +
+          `(session started without --aify-agent${claimed ? "; session id claimed from the pid capture" : ""}). ` +
+          `Status will work from now on; relaunch with --aify-agent to arm it at boot.`,
+        );
+      }
     }
 
     if (IS_REMOTE) {

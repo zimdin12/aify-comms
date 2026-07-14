@@ -42,6 +42,55 @@ export function writeClaudeSessionId({ sessionId, agentId, dir = "" } = {}) {
   }
 }
 
+// ── PID-keyed capture: the session id we know BEFORE we know who we are ──────
+//
+// A session launched without `--aify-agent` has no AIFY_AGENT_ID, so the hook above
+// has nothing to key by and used to DROP the session id entirely. The bridge then
+// couldn't resolve its own transcript even after `comms_register` told it its agent
+// id — which is why registering did not turn status on (a genuinely bad UX, and the
+// general-manager incident). So capture the session id keyed by the CLAUDE PROCESS
+// (the hook's ppid == the bridge's ppid — both are children of the same claude), and
+// let `comms_register` PROMOTE it to the agent-keyed store the moment identity arrives.
+//
+// Deliberately a DIFFERENT filename prefix from the agent-keyed store: `claude-aify`'s
+// handle->agent recovery globs `aify-claude-session-*.json` and must never match one of
+// these and "recover" an agent id of `pid-1234`.
+//
+// Windows caveat: the hook there can run via a shell, making its ppid the shell rather
+// than claude — the capture then keys on the wrong pid and simply misses (we fall back
+// to today's behaviour + the wrapper's loud warning). Correct on Linux/macOS/WSL.
+export function claudeSessionPidCapturePath(pid, dir = "") {
+  const key = Number(pid) || 0;
+  return path.join(storeBaseDir(dir), `aify-claude-pidsession-${key}.json`);
+}
+
+export function writeCapturedClaudeSessionIdForPid({ sessionId, pid, dir = "" } = {}) {
+  const sid = String(sessionId || "").trim();
+  const key = Number(pid) || 0;
+  if (!sid || !key) return false;
+  try {
+    const file = claudeSessionPidCapturePath(key, dir);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ sessionId: sid, pid: key, updatedAt: new Date().toISOString() }));
+    return file;
+  } catch {
+    return false;
+  }
+}
+
+export function readCapturedClaudeSessionIdForPid({ pid, dir = "" } = {}) {
+  const key = Number(pid) || 0;
+  if (!key) return null;
+  try {
+    const raw = fs.readFileSync(claudeSessionPidCapturePath(key, dir), "utf-8").trim();
+    if (!raw) return null;
+    const sessionId = String(JSON.parse(raw)?.sessionId || "").trim();
+    return sessionId || null;
+  } catch {
+    return null;
+  }
+}
+
 export function readClaudeSessionId({ agentId, dir = "" } = {}) {
   const id = String(agentId || "").trim();
   if (!id) return null;
