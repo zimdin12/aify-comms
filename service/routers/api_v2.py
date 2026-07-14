@@ -28,7 +28,13 @@ _listen_events: dict[str, asyncio.Event] = {}
 from pydantic import BaseModel
 from service.db import get_db, SQLITE_CLAIM_BUSY_TIMEOUT_MS
 from service import longpoll
-from service.terminal_snapshot import render_snapshot as _render_terminal_snapshot, infer_source_width as _infer_terminal_source_width
+from service.terminal_snapshot import (
+    render_snapshot as _render_terminal_snapshot,
+    infer_source_width as _infer_terminal_source_width,
+    feed_live_screen as _feed_live_terminal_screen,
+    render_live_screen as _render_live_terminal_screen,
+    drop_live_screen as _drop_live_terminal_screen,
+)
 from service.status_engine import apply_event, derive, StatusInputs, VALID_STATUSES
 from service.usage_cache import usage_set, usage_all, usage_get, derive_usage_source, consumption_set, consumption_summary
 from service.models import (
@@ -6890,6 +6896,27 @@ async def _append_terminal_output(db, terminal, output: str, *, status: str = ""
         return
     current = terminal["output"] if "output" in terminal.keys() else ""
     next_output = _trim_terminal_output(f"{current or ''}{chunk}")
+
+    # LIVE SCREEN (2026-07-14). Feed this chunk into the terminal's persistent screen, the way a
+    # real terminal consumes bytes. The console renders from THAT, not from a replay of the
+    # stored log — because the stored log is a 64KB TAIL and claude never clears the screen (zero
+    # ESC[2J fleet-wide; it paints one line per frame), so replaying a suffix into a blank screen
+    # can only ever rebuild part of it. That is the scrambled / half-empty / "old state stuck on
+    # screen" console, and why Refresh did not help: it re-rendered the same broken buffer.
+    # Best-effort and non-fatal: on any failure the screen is dropped and the reader falls back to
+    # the replay path, i.e. exactly today's behaviour. Never worse.
+    if chunk:
+        try:
+            keys = terminal.keys()
+            _feed_live_terminal_screen(
+                str(terminal["id"]),
+                chunk,
+                cols=(terminal["cols"] if "cols" in keys else 0),
+                rows=(terminal["rows"] if "rows" in keys else 0),
+                seed=str(current or ""),  # only used when the screen does not exist yet
+            )
+        except Exception:
+            logger.debug("live screen feed failed for terminal=%s", terminal["id"], exc_info=True)
     updates = ["output = ?", "updated_at = ?"]
     params: list[Any] = [next_output, _now()]
     if seq is not None:
@@ -11764,7 +11791,23 @@ async def get_terminal(terminal_id: str, cols: Optional[int] = None, rows: Optio
         # xterm fixes the full-screen-TUI scramble in BOTH dashboards. One-shot per attach,
         # offloaded to a thread so the parse never blocks the event loop; falls back to the
         # raw output on any error / when pyte is absent. See service/terminal_snapshot.py.
-        if cols and rows and term_dict.get("output"):
+        # LIVE SCREEN FIRST (2026-07-14). If we have been feeding this terminal's screen, IT is
+        # the truth — render it directly. Replaying the stored log (below) cannot reconstruct a
+        # differential painter's screen from a 64KB tail, which is the scrambled/half-missing
+        # console. The live screen is rendered at the PTY's OWN geometry; the client already
+        # widens its xterm to `renderedCols` (applyRenderedWidth), so a wide mirror still fits.
+        live = None
+        if term_dict.get("id"):
+            try:
+                live = _render_live_terminal_screen(str(term_dict["id"]))
+            except Exception:
+                live = None
+        if live:
+            snap, live_cols, live_rows = live
+            term_dict["snapshot"] = snap
+            term_dict["renderedCols"] = live_cols
+            term_dict["renderedRows"] = live_rows
+        elif cols and rows and term_dict.get("output"):
             try:
                 loop = asyncio.get_event_loop()
                 raw = term_dict["output"]
@@ -12744,6 +12787,13 @@ async def delete_session(session_id: str, request: Request):
         ]
 
         for terminal in terminal_rows:
+            # Release the live screen with the terminal it belongs to. (A merely STOPPED console
+            # keeps its screen on purpose — you can still read the last thing it showed, e.g. an
+            # agent that stopped sitting at a dialog. The registry is bounded regardless.)
+            try:
+                _drop_live_terminal_screen(str(terminal["id"]))
+            except Exception:
+                pass
             await db.execute("DELETE FROM terminal_controls WHERE terminal_id = ?", (terminal["id"],))
             await db.execute("DELETE FROM terminal_events WHERE terminal_id = ?", (terminal["id"],))
         await db.execute("DELETE FROM terminal_sessions WHERE session_id = ?", (session_id,))

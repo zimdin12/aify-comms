@@ -1864,6 +1864,12 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
     applyRenderedWidth(state.activeXterm, term, container, data);
     const snapshot = data?.terminal?.snapshot;
     const output = data?.terminal?.output;
+    // reset() BEFORE seeding, exactly as the Refresh path does. The snapshot's own prefix only
+    // clears the visible screen (ESC[2J) — it does not reset scrollback, charset, scroll region
+    // or alt-screen state, so writing it into a REUSED xterm can leave stale rows and a stuck
+    // line-drawing charset underneath ("____ everywhere"). A full reset makes the seed
+    // self-contained no matter what the pane was showing before.
+    try { term.reset(); } catch { /* xterm always has reset(); never block the seed */ }
     if (snapshot) term.write(String(snapshot));
     else if (output) term.write(String(output));
     // GET /terminals/{id} returns the buffer sequence as `outputSeq` (only the WS frame uses `seq`).

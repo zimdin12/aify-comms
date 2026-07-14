@@ -20,6 +20,7 @@ so the console behaves exactly as before (never worse, never an error).
 from __future__ import annotations
 
 import re
+from typing import Any, Optional
 
 try:
     import pyte  # type: ignore
@@ -134,6 +135,22 @@ def render_snapshot(raw_output: str, cols: int, rows: int) -> str:
     `raw_output` is the stored raw PTY byte log; `cols`/`rows` are the VIEWER's grid.
     The result begins by resetting + clearing, so it is safe to write into a fresh
     xterm (or after term.reset()). Falls back to the raw log if pyte is unavailable.
+
+    NOTE (2026-07-14): replaying the STORED log is a fundamentally lossy way to learn the
+    screen, and it is why consoles render scrambled / half-empty. The stored log is a 64KB
+    TAIL, and claude's TUI never clears the screen (measured: ZERO `ESC[2J` across the live
+    fleet) — it paints differentially, one line at a time, homing the cursor between frames.
+    Replaying a suffix into a BLANK screen therefore leaves every row last painted before the
+    window blank or half-written, and a suffix can even begin mid-escape-sequence. Measured on
+    a live console: a full 64KB replay reconstructed 11 of 30 rows, with text from different
+    frames overlapping; replaying just the last frame reconstructed ONE row. No amount of
+    buffer is enough, and no repaint nudge helps (claude re-renders only its small footer on
+    SIGWINCH, which the keepalive proves every 4s).
+
+    The fix is `feed_live_screen` below: keep ONE screen per terminal and feed it every chunk
+    as it arrives, exactly as a real terminal does. This function remains the FALLBACK for
+    terminals with no live screen yet (and when pyte is unavailable), so behaviour never
+    regresses below what it is today.
     """
     if not raw_output:
         return ""
@@ -149,7 +166,10 @@ def render_snapshot(raw_output: str, cols: int, rows: int) -> str:
     except Exception:
         # A corrupt/clipped byte log must never break replay — fall back to raw.
         return raw_output
+    return _screen_to_ansi(screen, cols, rows)
 
+
+def _screen_to_ansi(screen: Any, cols: int, rows: int) -> str:
     out: list[str] = ["\x1b[0m\x1b[2J\x1b[H"]  # reset attrs, clear, cursor home
     buffer = screen.buffer
     for y in range(rows):
@@ -189,3 +209,148 @@ def render_snapshot(raw_output: str, cols: int, rows: int) -> str:
     except Exception:
         pass
     return "".join(out)
+
+
+# ─────────────────────────── LIVE SCREENS (2026-07-14) ───────────────────────────
+#
+# One persistent screen per terminal, fed every chunk as it arrives — i.e. what a real
+# terminal does. This exists because reconstructing the screen by REPLAYING the stored byte
+# log cannot work (see render_snapshot's note): the log is a truncated tail, claude never
+# clears the screen, and a suffix can start mid-escape. A live pyte Stream is also stateful,
+# so an escape sequence SPLIT ACROSS CHUNKS is handled correctly — replay-from-offset can cut
+# one in half and emit garbage (the "____ everywhere" class).
+#
+# Cost is small and was measured before building this: across the live fleet only 2 of 160
+# terminals emit at any moment (~261 small chunks / 30s), and pyte feeds at ~0.9 MB/s.
+#
+# Single-worker only, like _LIVE_STATE_CACHE (see DECISIONS.md): this is process-global
+# in-memory state and is only correct with ONE uvicorn process.
+_LIVE_SCREENS: dict[str, "_LiveScreen"] = {}
+_MAX_LIVE_SCREENS = 256
+
+# Alt-screen enter/leave. pyte has no alt-screen buffer, so a dialog drawn in one would be
+# painted onto the MAIN screen and still be there after it was dismissed — the "stuck dialog"
+# the replay path works around by stripping balanced alt regions. Emulate it properly instead:
+# while in the alt screen we paint a THROWAWAY screen (so the dialog is visible while it is up)
+# and simply drop it on leave, restoring the untouched main screen.
+_ALT_ENTER_RE = re.compile(r"\x1b\[\?(?:1049|1047|47)h")
+_ALT_LEAVE_RE = re.compile(r"\x1b\[\?(?:1049|1047|47)l")
+
+
+class _LiveScreen:
+    __slots__ = ("cols", "rows", "screen", "stream", "alt_screen", "alt_stream", "in_alt")
+
+    def __init__(self, cols: int, rows: int) -> None:
+        self.cols = cols
+        self.rows = rows
+        self.screen = pyte.Screen(cols, rows)
+        self.stream = pyte.Stream(self.screen)
+        self.alt_screen = None
+        self.alt_stream = None
+        self.in_alt = False
+
+    def _enter_alt(self) -> None:
+        self.alt_screen = pyte.Screen(self.cols, self.rows)
+        self.alt_stream = pyte.Stream(self.alt_screen)
+        self.in_alt = True
+
+    def _leave_alt(self) -> None:
+        self.alt_screen = None
+        self.alt_stream = None
+        self.in_alt = False
+
+    def feed(self, chunk: str) -> None:
+        # Route bytes to the main or alt screen, splitting exactly at the switch sequences.
+        while chunk:
+            if self.in_alt:
+                m = _ALT_LEAVE_RE.search(chunk)
+                if not m:
+                    self.alt_stream.feed(chunk)
+                    return
+                self.alt_stream.feed(chunk[: m.start()])
+                self._leave_alt()
+                chunk = chunk[m.end():]
+            else:
+                m = _ALT_ENTER_RE.search(chunk)
+                if not m:
+                    self.stream.feed(chunk)
+                    return
+                self.stream.feed(chunk[: m.start()])
+                self._enter_alt()
+                chunk = chunk[m.end():]
+
+    def render(self) -> str:
+        scr = self.alt_screen if (self.in_alt and self.alt_screen is not None) else self.screen
+        return _screen_to_ansi(scr, self.cols, self.rows)
+
+    def resize(self, cols: int, rows: int) -> None:
+        self.cols, self.rows = cols, rows
+        try:
+            self.screen.resize(rows, cols)  # pyte takes (lines, columns)
+            if self.alt_screen is not None:
+                self.alt_screen.resize(rows, cols)
+        except Exception:
+            # Rebuild rather than carry a corrupt screen.
+            self.__init__(cols, rows)  # type: ignore[misc]
+
+
+def _clamp_grid(cols: Any, rows: Any) -> tuple[int, int]:
+    return (
+        max(20, min(int(cols or 100), 500)),
+        max(5, min(int(rows or 28), 200)),
+    )
+
+
+def feed_live_screen(terminal_id: str, chunk: str, *, cols: Any = 0, rows: Any = 0, seed: str = "") -> bool:
+    """Feed one live PTY chunk into this terminal's persistent screen.
+
+    `seed` is used ONLY when creating the screen for a terminal we have not been tracking
+    (service restart, or a PTY that predates this code): we replay the stored log into it so
+    the console is never WORSE than the old behaviour, and it then self-heals as new output
+    scrolls the imperfect rows away. A PTY started after this code is correct from byte 0.
+    Best-effort throughout: any failure drops the live screen and the caller falls back to the
+    replay path. Returns True when the chunk was accepted.
+    """
+    if not _HAVE_PYTE or not terminal_id:
+        return False
+    tid = str(terminal_id)
+    c, r = _clamp_grid(cols, rows)
+    try:
+        live = _LIVE_SCREENS.get(tid)
+        if live is None:
+            if len(_LIVE_SCREENS) >= _MAX_LIVE_SCREENS:
+                return False  # bounded: never grow without limit
+            live = _LiveScreen(c, r)
+            if seed:
+                live.feed(_strip_balanced_alt_screens(seed))
+            _LIVE_SCREENS[tid] = live
+        elif (c, r) != (live.cols, live.rows):
+            live.resize(c, r)
+        if chunk:
+            live.feed(chunk)
+        return True
+    except Exception:
+        _LIVE_SCREENS.pop(tid, None)  # never serve a corrupt screen
+        return False
+
+
+def render_live_screen(terminal_id: str) -> Optional[tuple[str, int, int]]:
+    """(ansi, cols, rows) for a tracked terminal, or None when we have no live screen."""
+    if not _HAVE_PYTE or not terminal_id:
+        return None
+    live = _LIVE_SCREENS.get(str(terminal_id))
+    if live is None:
+        return None
+    try:
+        return live.render(), live.cols, live.rows
+    except Exception:
+        _LIVE_SCREENS.pop(str(terminal_id), None)
+        return None
+
+
+def drop_live_screen(terminal_id: str) -> None:
+    _LIVE_SCREENS.pop(str(terminal_id or ""), None)
+
+
+def live_screen_count() -> int:
+    return len(_LIVE_SCREENS)
