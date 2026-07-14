@@ -81,21 +81,25 @@ export function chooseSessionConsoleWidget({ agent, sessionId, sessionMode, sess
       codexThreadId: '',
     };
   }
-  // Hermes (resident OR managed) with no PTY terminal: embed the loopback gateway INLINE so the
-  // TUI shows IN our dashboard rather than forcing an "Open in new tab" out to the hermes web UI.
-  // Managed hermes runs in the tui_gateway (no node-pty wrapper to xterm), so the gateway iframe is
-  // its real in-dashboard surface. Only reached when there's no effectiveTerminalId (xterm wins
-  // above), and hermesGatewayHttp is loopback-only (hermesGatewayUrlToHttp gates non-loopback).
-  if (runtime === 'hermes' && hermesGatewayHttp) {
-    return {
-      kind: 'hermes-iframe',
-      terminalId: '',
-      isLive: false,
-      hermesGatewayHttp,
-      codexAppServerUrl: '',
-      codexThreadId: '',
-    };
-  }
+  // The Console tab NEVER embeds the hermes web UI (2026-07-14, operator: "it should never show
+  // hermes local webpage.. cmon. we have button for that").
+  //
+  // ON THE RECORD: this embed was previously attributed in-tree to an operator request
+  // ("policy change, operator, 2026-06-18"). The operator says they never asked for it — they
+  // asked for hermes' in-browser TUI to be STUDIED (it renders a terminal in a browser very well
+  // and we have things to learn from it), and it was built as "embed the page" instead.
+  //
+  // A hermes agent with no PTY fell through to an inline iframe of the loopback gateway. The
+  // intent was "show something rather than nothing", but it is the wrong something —
+  // the operator opened Console to read the agent's CONSOLE, and got a web page they did not ask
+  // for, with no way to start the console they wanted (the start buttons were skipped because the
+  // iframe counted as a live widget). The gateway already has its own explicit "Open in new tab"
+  // action in the session header; that is where it belongs.
+  //
+  // So: hermes with a live PTY shows its xterm (handled above — hermes DOES get a real console;
+  // cms-tech-lead came up with 19KB of PTY output). Hermes with no PTY now falls through to
+  // `kind: 'none'`, which offers "Start console" / "Start agent" — the thing that was being
+  // silently withheld.
   if (normalizedSessionMode === 'resident' && runtime === 'codex' && codexAttachable) {
     return {
       kind: 'codex-synth',

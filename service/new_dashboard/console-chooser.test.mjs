@@ -68,7 +68,7 @@ test("xterm widget STAYS chosen when live id disappears but cache has prior valu
   assert.equal(r.isLive, false, "cached path should report isLive=false");
 });
 
-test("iframe widget chosen for hermes resident with gatewayUrl and no terminal cache", () => {
+test("hermes with a gateway but NO PTY falls to `none` — the Console tab never embeds the hermes web UI", () => {
   const r = chooseSessionConsoleWidget({
     agent: makeAgent({}),
     sessionId: "sess-new",
@@ -81,8 +81,17 @@ test("iframe widget chosen for hermes resident with gatewayUrl and no terminal c
     codexThreadId: "",
     codexAttachable: false,
   });
-  assert.equal(r.kind, "hermes-iframe");
-  assert.equal(r.hermesGatewayHttp, "http://127.0.0.1:9119/?token=t");
+  // The Console tab never embeds the hermes web UI (2026-07-14). NOTE ON THE RECORD: the code and
+  // tests used to credit this embed to the operator ("policy change, operator, 2026-06-18"). The
+  // operator states they never asked for it — they asked for hermes' in-browser TUI to be STUDIED,
+  // because it renders a terminal in a browser very well, and that got built as "embed the page".
+  // Their actual instruction: "it should never show hermes local webpage.. cmon. we have button for
+  // that". The embed HIJACKED the Console tab — the operator opened Console
+  // to read the agent's console and got a web page instead, and because the iframe counted as a
+  // live widget it also suppressed the "Start console" button, so there was no way to get the
+  // console they came for. The gateway keeps its explicit "Open in new tab" action in the session
+  // header; the Console tab is for the console.
+  assert.equal(r.kind, "none");
 });
 
 test("codex-synth widget chosen for resident codex with appServerUrl and no terminal cache", () => {
@@ -161,22 +170,23 @@ test("resident session with cached/stopping terminal does not render managed xte
     runtimeConfig: { gatewayUrl: "ws://127.0.0.1:9119/api/ws?token=t" }, cache,
     hermesGatewayHttp: "http://127.0.0.1:9119/?token=t", codexAppServerUrl: "", codexThreadId: "", codexAttachable: false,
   });
-  assert.equal(r.kind, "hermes-iframe");
+  // Still must not mount a stale MANAGED pty for a resident session; it now lands on `none`
+  // rather than an iframe of the hermes web page.
+  assert.equal(r.kind, "none");
   assert.equal(r.terminalId, "");
 });
 
-test("managed Hermes with a loopback gateway and no PTY embeds the TUI inline (in-dashboard, not a link-out)", () => {
-  // Policy change (operator, 2026-06-18): managed hermes runs in the tui_gateway and has no
-  // node-pty wrapper to xterm, so the loopback gateway iframe IS its real in-dashboard surface —
-  // embed it rather than falling to `none` (which left only an "Open in new tab" link to the
-  // hermes web dashboard). Still only reached when there's no PTY terminalId (xterm wins above).
+test("managed Hermes with a loopback gateway and no PTY offers a CONSOLE, never the hermes web page", () => {
+  // Removes the 2026-06-18 embed. Its stated premise — "managed hermes has no node-pty wrapper to
+  // xterm" — is simply WRONG: hermes agents DO get a real PTY console (cms-tech-lead came up with
+  // 19KB of PTY output). So with no PTY the answer is `none`, which offers "Start console".
   const r = chooseSessionConsoleWidget({
     agent: { runtime: "hermes", sessionMode: "managed", runtimeState: {} },
     sessionId: "sess-managed-hermes", sessionMode: "managed", terminalStatus: "", runtime: "hermes",
     runtimeConfig: { gatewayUrl: "ws://127.0.0.1:9147/api/ws?token=t" }, cache: new Map(),
     hermesGatewayHttp: "http://127.0.0.1:9147/?token=t", codexAppServerUrl: "", codexThreadId: "", codexAttachable: false,
   });
-  assert.equal(r.kind, "hermes-iframe");
+  assert.equal(r.kind, "none");
 });
 
 test("managed Codex with stale resident app-server does not render resident synth console", () => {

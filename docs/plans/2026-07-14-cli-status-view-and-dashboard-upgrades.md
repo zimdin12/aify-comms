@@ -80,6 +80,12 @@ Ordering matters: do the HistoryScreen work first — un-hiding the scrollbar wi
 
 ---
 
+## 5. Learn from hermes' in-browser TUI (operator ask, mis-implemented once already)
+
+The operator asked for hermes' in-browser TUI to be **studied** — it renders a terminal in a browser and, in their words, *"actually works perfectly"*. That request was previously implemented as *"embed the hermes page in our Console tab"*, which is not what was asked and actively hijacked the tab (removed 2026-07-14). The in-tree comments even credited that embed to an operator request; the operator states they never made it. Attribution corrected.
+
+The actual work: look at how hermes renders a live terminal in a browser (transport, redraw model, scrollback, resize) and take what makes ours better. Our console has needed three separate fixes in one day — a truncated-log replay that could not reconstruct the screen, no scrollback, and a reset that wiped what scrollback there was. Theirs reportedly has none of these problems. Read it before designing more of ours.
+
 ## Sequencing
 
 1. **(4)** — smallest, unblocks the operator immediately.

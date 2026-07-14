@@ -2317,7 +2317,10 @@ function renderSessionConsole(session, targetEl, opts = {}) {
   // (audit finding C3); for those we show a switch-to-managed note instead. "Start fresh" is
   // only meaningful for pi without a saved handle (audit findings C1/C2), so we show a single
   // button otherwise — the truly-fresh path is the Reset (recreate) lifecycle action.
-  const canStartConsole = widgetChoice.kind === 'none' && canStop && runtime && !isResident && !hermesGatewayHttp && !codexAttachable;
+  // `!hermesGatewayHttp` was in this gate, so a hermes agent could NEVER be offered a console —
+  // it got an iframe of the hermes web page instead. Hermes gets a real PTY console like any
+  // other runtime (cms-tech-lead came up with 19KB of PTY output), so it may be started here too.
+  const canStartConsole = widgetChoice.kind === 'none' && canStop && runtime && !isResident && !codexAttachable;
   // Runtime-agnostic: with no saved native handle there's nothing to resume, so starting IS a
   // fresh start (and sending freshContext lets handle-required runtimes start without a 409).
   // With a handle, a plain start resumes it; the truly-discard-and-restart path is Reset.
@@ -2354,15 +2357,13 @@ function renderSessionConsole(session, targetEl, opts = {}) {
        </div>`
     : '';
 
-  const hermesIframe = (widgetChoice.kind === 'hermes-iframe')
-    ? `<div class="console-embed" data-kind="hermes-gateway">
-         <div class="console-embed-label">Hermes TUI — embedded live from <code>${esc(hermesGatewayHttp.split('?')[0])}</code>
-           <a class="ghost console-embed-open" href="${esc(hermesGatewayHttp)}" target="_blank" rel="noopener">Open in new tab ↗</a>
-         </div>
-         <iframe src="${esc(hermesGatewayHttp)}" title="Hermes live chat" allow="clipboard-read; clipboard-write"></iframe>
-         <p class="console-embed-hint subtle">If the panel above is blank or shows a load error, this agent's hermes gateway is offline — restart the session, or open it in a new tab.</p>
-       </div>`
-    : '';
+  // The hermes gateway is NEVER embedded in the Console tab (operator, 2026-07-14: "it should
+  // never show hermes local webpage.. cmon. we have button for that"). It hijacked the tab — you
+  // opened Console to read the agent's console and got a web page — and because the iframe counted
+  // as a live widget it suppressed the Start-console button too, so there was no way to reach the
+  // console you came for. The gateway keeps its explicit "Open in new tab" action in the session
+  // header (see connectActions). The chooser can no longer return `hermes-iframe`.
+  const hermesIframe = '';
 
   // Codex doesn't have an upstream web UI to iframe, so we render the
   // JSON-RPC event stream ourselves. Operator clicks "Connect live
