@@ -2,6 +2,7 @@
 
 ## Contents
 
+- [**CHECK THIS FIRST** — agent latches `working` forever, or never shows `working`: its bridge has NO agent id (2026-07-14)](#check-this-first--agent-latches-working-forever-or-never-shows-working-its-bridge-has-no-agent-id-2026-07-14)
 - [Status labels (proof-based 6-state model, 2026-06-18)](#status-labels-proof-based-6-state-model-2026-06-18)
 - [`derive()` is the SOLE status authority — the `status_engine` flag is GONE (2026-06-18)](#derive-is-the-sole-status-authority--the-status_engine-flag-is-gone-2026-06-18)
 - [`available→online` is prompt now (and unrelated to auto-close); resident clean-exit drops `online` fast](#availableonline-is-prompt-now-and-unrelated-to-auto-close-resident-clean-exit-drops-online-fast)
@@ -13,6 +14,68 @@
 - [Managed claude shows `online` while it is clearly thinking](#managed-claude-shows-online-while-it-is-clearly-thinking)
 - [Managed claude flaps to `online` while working — but only when the Console is CLOSED](#managed-claude-flaps-to-online-while-working-but-only-when-the-console-is-closed)
 - [Managed claude showed `blocked` mid-generation (2026-06-07)](#managed-claude-showed-blocked-mid-generation-2026-06-07)
+
+## CHECK THIS FIRST — agent latches `working` forever, or never shows `working`: its bridge has NO agent id (2026-07-14)
+
+**Symptom (either half, or both in sequence).** One agent is permanently `working` while idle and
+never self-heals — it survives every bridge fix, every restart of *other* agents, and even a
+manual `/turn-end` (after which it flips to the mirror symptom: it stays `online` while clearly
+working and can never show `working` again). Everything ELSE about the agent is healthy: it
+registers, sends and receives messages, appears in `comms_agents`, and heartbeats.
+
+**Root cause.** Its wrapper was launched **without an agent id**, so `AIFY_AGENT_ID` is not in the
+bridge's process env. EVERY turn-state path is gated on that one variable:
+
+| Path | Gate | Effect when unset |
+|------|------|-------------------|
+| bridge turn detector | `server.js` — `if (AIFY_AGENT_ID && …)` | never arms (no KEEP-FRESH, no KEEP-CLEARED, no turn-start/turn-end) |
+| `Stop` hook → `/turn-end` | `if [ -n "$AIFY_AGENT_ID" ]` | dead — nothing can CLEAR |
+| `UserPromptSubmit` / `PostToolUse` → `/turn-start` | `if [ -n "$AIFY_AGENT_ID" ]` | dead — a typed turn never SETS |
+| session-store capture hook | keyed by agent id | dead — the detector couldn't resolve the transcript even if it armed |
+
+The **channel-sidecar** carries the agent id in its own config, so it survives and still POSTs
+`/turn-start` on an inbound wake. That leaves the agent **SET-only, never CLEAR** → latched
+`working`. Once the in-turn backstop ages the stale flag out, it derives to `online` and — since
+the turn-start paths are dead too — can never read `working` again. Both symptoms, one cause.
+
+It degrades **invisibly**: comms, messaging and heartbeats all keep working, so nothing looks
+broken from any other angle. (Live incident: `general-manager` ran this way for weeks.)
+
+**Diagnose (30 seconds).** The DB cannot tell you this — check the PROCESS env:
+
+```bash
+# Every claude bridge + whether it has an identity. <ANONYMOUS> on a REGISTERED agent = this bug.
+for p in $(pgrep -f "aify-comms/mcp/stdio/server.js"); do
+  aid=$(tr '\0' '\n' < /proc/$p/environ | grep -m1 '^AIFY_AGENT_ID=' | cut -d= -f2)
+  ppid=$(awk '{print $4}' /proc/$p/stat)
+  echo "${aid:-<ANONYMOUS>}  pid=$p  cwd=$(readlink /proc/$ppid/cwd)"
+done
+```
+
+Corroborating evidence: the agent's `agent_status_state.last_event` is **frozen at `turn_start`**
+for far longer than any real turn (a live detector emits KEEP-FRESH or KEEP-CLEARED every 45s, so
+silence = no detector), while its `bridge_instances.last_seen` stays fresh. And
+`/tmp/aify-claude-session-<agent>.json` is **absent** while every healthy agent has one.
+
+**Anonymous bridges that are NOT this bug:** the environment bridge (`--environment-bridge`) and
+a plain unregistered `claude` session with the comms MCP attached. Both are legitimately id-less.
+
+**Fix.** You cannot repair a running process — re-registering does NOT help (`comms_register`
+writes DB rows; `AIFY_AGENT_ID` is read once at bridge boot), and neither does Claude Code's
+in-app `/resume` picker (it swaps the conversation *inside* the same process, keeping its env).
+The session must be **relaunched** with an identity. `--resume` preserves the full conversation:
+
+```bash
+claude-aify --aify-agent <agent-id> --resume <session-handle>
+```
+
+**Prevention (shipped 2026-07-14).** `claude-aify` now recovers the agent id from a bare
+`--resume <handle>` — it asks the service which agent owns that handle (authoritative; survives a
+`/tmp` wipe), falls back to the local session store, and if the id is still unknown prints
+`NO AGENT ID: aify turn/status detection is DISABLED` instead of degrading in silence. The
+operator-facing resume command (`resume_command`, surfaced by the dashboard) now carries
+`--aify-agent`; it previously did not, which is how the identity got dropped in the first place —
+the product was handing out the command that broke the agent.
 
 ## Status labels (proof-based 6-state model, 2026-06-18)
 
@@ -300,6 +363,28 @@ gateway-less resident hermes leans on the 30-min ceiling (and, lacking a usable 
 derives `offline`) (KNOWN_ISSUES.md #172). A send to a busy channel-capable target (managed/resident
 claude) now STEERS in immediately instead of deferring behind `turn_busy`, and an
 `rr=0` channel/resident delivery clears the recipient's `turn_busy`.
+
+**KEEP-FRESH + KEEP-CLEARED — the detector re-asserts BOTH directions (2026-07-13, `a0c8ad9`).**
+The edges above are necessary but not sufficient, because turn state can also be written by
+paths the detector never observed (a hook, the channel sidecar). Both directions are therefore
+re-asserted on a cadence while the PROCESS TRUTH still says so — this is a re-assertion of a
+proven fact, **not** a time-based heuristic (nothing here decides anything from elapsed time;
+elapsed time only sets how often the same proof is restated):
+
+- **KEEP-FRESH** (existing): while the transcript/gateway proves IN-FLIGHT, re-POST `/turn-start`
+  every 45s (< the 120s `TURN_BUSY_STALE_SECONDS`), so a server-side clear of a LIVE turn can't
+  make a working agent read `online`.
+- **KEEP-CLEARED** (new, the symmetric mirror): while the transcript/gateway proves ENDED **and**
+  the detector is not mid-turn, re-POST `/turn-end` every 45s. Before this, the CLEAR was
+  edge-ONLY: a stray `in_turn` set OUTSIDE the detector (a hook/sidecar `/turn-start` whose
+  end-event was lost) had no edge to fire on and latched `working` until the 30-min ceiling.
+
+Both are gated on process truth and can never false-clear a live turn: claude requires
+`classify(tail) === "ended"` (a live turn is never structurally *ended*), hermes requires a
+sustained `isGatewaySessionIdle` read plus `!inFlight`; an unknown/unreadable read is a no-op.
+`/turn-end` is idempotent and can never re-arm `working`. Applies to claude, codex (same loop)
+and hermes. **This does NOT rescue an agent-id-less bridge** — the detector never arms at all
+there; see *CHECK THIS FIRST* at the top.
 
 ## Agent shows `online`/`Console ready` but messages stay queued (status lied)
 

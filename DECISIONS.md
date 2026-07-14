@@ -2,6 +2,30 @@
 
 Short rationale log for non-obvious choices, plus the current runtime limits. If you're wondering *why* the service behaves a certain way, this file beats guessing from the code.
 
+## An agent session must never start without an identity — and the command we hand out must carry one (2026-07-14)
+
+**`AIFY_AGENT_ID` is the single point of failure for ALL turn state.** Every path that can set or clear `working` is gated on it: the bridge's turn detector (`server.js` — `if (AIFY_AGENT_ID && …)`), the `Stop` / `UserPromptSubmit` / `PostToolUse` hooks (`if [ -n "$AIFY_AGENT_ID" ]`), and the session-store capture hook (keyed by agent id). The wrapper exports it only when the agent id is passed. So a session launched without one is a session whose status is **structurally unfixable**: the channel sidecar (which carries the id in its own config) still SETS `working` on an inbound wake, and nothing left alive can ever CLEAR it → latched `working`; once the backstop ages that flag out it reads `online` and can never show `working` again. Both halves, one cause.
+
+**Why it hid for weeks.** The degradation is *invisible from every other angle* — the agent registers, messages, appears in `comms_agents`, and heartbeats normally. Nothing errors. `general-manager` ran this way for weeks; the DB cannot reveal it (you must read the bridge's **process env**), and it survives every bridge fix because the detector carrying those fixes never arms.
+
+**The trigger was our own UI.** `resume_command` — surfaced by the dashboard as the operator's resume/takeover command — emitted `claude-aify --resume <id>` with **no `--aify-agent`**. Copying the command the product handed you produced an identity-less session. Meanwhile hermes had recovered its agent from a bare `--resume <handle>` since 2026-06-03, and its comment claimed *"same idea is wired into claude/codex"* — which was **false**, and that false comment is why nobody looked.
+
+**Decisions.**
+1. `resume_command` carries `--aify-agent <id>` for every wrapper runtime. A command we hand the operator must never be the command that breaks the agent. (It is a display-only string — no exec path — so this is safe to change.)
+2. `claude-aify` mirrors hermes' recovery: on `--resume <handle>` with no agent id, ask the service which agent owns that handle (authoritative, and unlike the `/tmp` session store it survives a reboot), then fall back to the local store.
+3. If the id is **still** unknown, the wrapper says so loudly (`NO AGENT ID: aify turn/status detection is DISABLED`). Anonymous sessions stay legal — a plain claude+comms session is a real use case — they just may never be *silent* again.
+4. **Not fixable at runtime.** `comms_register` writes DB rows; `AIFY_AGENT_ID` is read once at bridge boot. Claude Code's in-app `/resume` picker swaps the conversation *inside* the same process and keeps its env. Only a relaunch repairs identity — `--resume` preserves the conversation, so the cost is a relaunch, not context.
+
+**Still open:** codex has no wrapper-side recovery. Its operator path is covered by (1), but a hand-typed `codex-aify --resume <id>` is still identity-less.
+
+## Turn state is re-asserted from process truth in BOTH directions — KEEP-FRESH and KEEP-CLEARED (2026-07-13)
+
+Edge-triggered turn events are necessary but not sufficient: turn state can also be written by paths the detector never observed (a hook, the channel sidecar), and an event can be lost. So the detector **re-asserts** what the process truth currently proves, on a cadence, in both directions: while the transcript/gateway proves IN-FLIGHT it re-POSTs `/turn-start` every 45s (KEEP-FRESH, so a server-side clear can't make a working agent read `online`); while it proves ENDED and the detector is not mid-turn it re-POSTs `/turn-end` every 45s (KEEP-CLEARED, so a stray `in_turn` the detector never saw start cannot latch `working` until the 30-min ceiling).
+
+**This is not a time-based rule, and the distinction matters.** Nothing here infers a state from elapsed time — the *proof* (transcript tail structure / gateway session status) decides, and elapsed time only governs how often that same proof is restated. The rejected alternative was lowering the in-turn backstop, which would have been a genuine time-assumption (guessing a turn is over because it is old) and would have false-cleared long turns. Consistent with the project-wide rule: status is **PROVEN, not time-assumed**.
+
+Safety: KEEP-CLEARED cannot false-clear a live turn (claude requires `classify(tail) === "ended"` — a live turn is never structurally *ended*; hermes requires a sustained gateway-idle read plus `!inFlight`; unknown/unreadable reads are no-ops), and `/turn-end` is idempotent and can never re-arm `working`. It does **not** rescue an agent-id-less bridge — that detector never arms at all (see the decision above).
+
 ## Live-status cache is in-memory, not SQLite — and the service MUST stay single-worker (2026-06-18)
 
 The recurring `database is locked` 503s are RESOLVED (commit `97a497a`, verified live: 0 locks, down from ~18/min steady-state and 137/min in the post-restart storm). The non-obvious choices:

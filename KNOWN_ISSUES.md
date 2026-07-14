@@ -1,6 +1,21 @@
 # Known Issues & Concerns — aify-comms
 
-Living list of known limitations, deferred work, and things to watch. Complements [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Last reviewed 2026-07-01.
+Living list of known limitations, deferred work, and things to watch. Complements [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Last reviewed 2026-07-14.
+
+## Status identity (2026-07-14) — the "always working" class, ROOT-CAUSED + FIXED
+
+- **An agent launched without `--aify-agent` has NO working status, permanently — FIXED (`224d50e`, `0cba79a`).** `AIFY_AGENT_ID` gates *every* turn-state path (bridge turn detector, `Stop`/`UserPromptSubmit`/`PostToolUse` hooks, session-store capture). Launched without it, the agent still registers, messages and heartbeats — but only the channel sidecar can touch its turn state, and it only ever SETS `working` on a wake → latched `working` forever; after the backstop ages the flag out it reads `online` and can never show `working` again. **Our own resume command caused it:** `resume_command` emitted `claude-aify --resume <id>` with no `--aify-agent`, so copying the dashboard's takeover command produced an identity-less session. Fixed both ways: the resume command now carries `--aify-agent` for every runtime, and `claude-aify` now recovers the id from a bare `--resume <handle>` (service lookup → session-store fallback → loud warning). Live incident: `general-manager` ran this way for weeks and survived every bridge fix, because the detector carrying those fixes never armed. **Detection is process-level, not DB-level** — see *CHECK THIS FIRST* in the debug skill's `status.md`.
+- **Open: codex has no wrapper-side identity recovery.** Its operator path is covered by the fixed resume command, but a hand-typed `codex-aify --resume <id>` is still identity-less and will reproduce the whole class. Low urgency (no codex agents in the live fleet), cheap to mirror from the claude/hermes blocks.
+- **Not fixable at runtime.** Re-registering does not repair identity (`comms_register` writes DB rows; `AIFY_AGENT_ID` is read once at bridge boot), and Claude Code's in-app `/resume` picker swaps the conversation inside the same process, keeping its env. Only a relaunch works — and `--resume` preserves the conversation, so it costs a relaunch, not context.
+
+## Usage / quota (2026-07-13)
+
+- **Live ChatGPT quota was dead on Linux/WSL — FIXED (`d418ffd`).** `defaultHermesAuthPath()` used the Windows path (`%LOCALAPPDATA%\hermes\auth.json`) *unconditionally*, so on any non-Windows host it read a path that doesn't exist, the live fetch always failed, and the pool silently fell back to a stale codex rollout (quota that never refreshed). Now OS-aware: `~/.hermes/auth.json` on non-Windows, `%LOCALAPPDATA%` on Windows — matching what `install.hermes.md` already documented.
+- **Watch: `weekly` comes back `null` from the live `wham/usage` endpoint.** The 5-hour window populates correctly; the weekly one parses to null. The live path reads `rl.primary_window`/`rl.secondary_window`, while the codex-rollout path uses `rl.primary`/`rl.secondary` — the two sources have divergent shapes and the live names were reverse-engineered separately. Needs a captured `wham/usage` response body to resolve; cannot be settled from the code.
+
+## Test suite (2026-07-14) — watch
+
+- **The service suite is substantially red on `main`, and it is NOT new.** Baseline on HEAD: 23 failures + 10 errors of 666. The 10 "errors" are collection failures (`import pytest` — pytest isn't installed in the service image). The failures cluster in dispatch/PTY/hermes-console/orphan/stranded-run tests and in `test_session_identity_sticky` (its "park pending" expectation no longer matches behaviour). Nobody has triaged whether these are stale expectations or real regressions — until someone does, the suite cannot gate a change, which is itself the risk worth recording.
 
 ## Open watch-items (2026-07-01 — teams benchmark + live-DB analysis)
 

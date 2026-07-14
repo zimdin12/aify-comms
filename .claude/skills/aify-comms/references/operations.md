@@ -123,6 +123,14 @@ vocabulary is `working`/`online`/`available`/`blocked`/`offline`/`stopped` — t
 minute thresholds** and the old time-decay states `idle` and `stale` were removed (2026-06-18).
 Use `comms_agent_info` for the authoritative state.
 
+> **If ONE agent's status is permanently wrong** — stuck `working` while idle, or stuck `online`
+> while clearly working, surviving restarts and self-heals — suspect its wrapper was launched
+> **without `--aify-agent`**. `AIFY_AGENT_ID` gates the turn detector AND every turn hook, so an
+> id-less session registers, messages and heartbeats perfectly while having no working status at
+> all. It is not repairable by re-registering (that only writes DB rows) — the session must be
+> relaunched with its id (`--resume <handle>` keeps the conversation). Full diagnosis:
+> *CHECK THIS FIRST* in the `aify-comms-debug` skill's `references/status.md`.
+
 | Status | Meaning |
 |---|---|
 | `working` | An open turn: the wrapper reported a turn in progress (turn-start, not yet turn-end), a tracked run is claimed/running, **or** a fresh bridge `turnBusy` heartbeat says the runtime is mid-turn. Managed Claude PTY turns are tracked as running until their reply closes the run; if Claude visibly returns to an idle prompt without a chat reply, reconcile closes the turn as completed-without-reply so it becomes audit debt instead of live work. **Liveness-gated:** `working`/`blocked` require a LIVE worker — a dead managed worker (no heartbeat past `agent_liveness_seconds`, default 90s) or an expired resident bridge (lease lapsed past `resident_lease_seconds`, default 150s) no longer latches `working`; it falls to `available`/`offline`. **Real-time:** turn start/end/`turnBusy`-flip/console-working transitions push the new status to BOTH dashboards immediately (no poll lag). **Hermes caveat:** both **managed** AND **resident** hermes `working` are driven by the continuous bidirectional gateway-status turn detector — `startHermesGatewayTurnDetector` arms for managed hermes (delivery-loop lifetime) and for resident hermes whenever `AIFY_HERMES_GATEWAY_URL` is set (`server.js`), covering long + autonomous/direct-TUI turns (#172). Only a **gateway-less** resident hermes (no `AIFY_HERMES_GATEWAY_URL`, no upstream turn-end hook) lacks a turn detector and self-heals off `working` at the `TURN_BUSY_BACKSTOP_SECONDS` ceiling — but with no usable wake handle it derives `offline` anyway (see KNOWN_ISSUES.md). |

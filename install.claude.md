@@ -52,6 +52,17 @@ claude-aify
 
 Unlike hermes/codex/pi (which query a live runtime), Claude has no probe endpoint — but its session id maps 1:1 to a JSONL transcript at `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`. `claude-aify` now validates `CLAUDE_SESSION_ID` against the on-disk transcript: if no `<id>.jsonl` exists anywhere under `~/.claude/projects/`, the env value is stale (prior session GC'd, operator cd'd into a different project, etc.) and the wrapper unsets both `CLAUDE_SESSION_ID` and `CLAUDE_RESUME_ID` so Claude creates a fresh session — the bridge's discover (Plan 4) picks up the truthful id on the first heartbeat (Plan 6 A1). The scan is filename-based, so the Windows-native vs git-bash cwd-encoding mismatch doesn't trip the validator. Failures are non-fatal: a missing transcript triggers a single `[claude-aify] CLAUDE_SESSION_ID '<id>' has no transcript ... clearing` log line and the wrapper continues normally.
 
+### Agent identity is MANDATORY for status — and now self-recovering (2026-07-14)
+
+**Always launch a registered agent with its id** (`claude-aify --aify-agent <agent-id> …`, or `AIFY_AGENT_ID` exported). `AIFY_AGENT_ID` gates EVERY turn-state path — the bridge's turn detector, the `Stop`/`UserPromptSubmit`/`PostToolUse` hooks, and the session-store capture hook. Launched without it, the agent still registers, sends/receives messages and heartbeats perfectly, but its status is structurally broken: only the channel sidecar can touch turn state, and it only ever SETS `working` on an inbound wake — so the agent latches `working` forever, then (once the backstop ages that flag out) reads `online` and can never show `working` again. Nothing errors; it just silently has no working status.
+
+Two guards now make this hard to hit:
+
+- **Handle → agent recovery.** On `claude-aify --resume <session-handle>` with no agent id, the wrapper asks the service which agent owns that handle (authoritative; survives a `/tmp` wipe), falling back to the local session store (`/tmp/aify-claude-session-<agent>.json`). It logs `resolved aify agent '<id>' from session handle '<handle>'` when it recovers. Same design hermes has had since 2026-06-03.
+- **Loud refusal to degrade silently.** If the id is still unknown, the wrapper prints `NO AGENT ID: aify turn/status detection is DISABLED for this session (status will latch)`. Anonymous sessions remain legal (a plain claude + comms session is a real use case) — they just aren't silent.
+
+The dashboard's resume/takeover command now carries `--aify-agent` too; it previously did not, which is how identity got dropped in the first place. **A running session cannot be repaired** — re-registering only writes DB rows, and Claude Code's in-app `/resume` picker swaps the conversation inside the same process (same env). Relaunch with `--resume <handle>`; the conversation is preserved.
+
 ### Wrapper MCP isolation (opt-in strict-mcp-config)
 
 By default `claude-aify` loads your FULL `~/.claude.json` MCP server list (browsermcp, github, aify-project-graph, etc.) — the installer merges `aify-comms` + `aify-comms-channel` into that list at install time, so they are present without isolation. Setting `AIFY_CLAUDE_STRICT_MCP=1` in the launching shell opts into strict mode: the wrapper then launches Claude with `--strict-mcp-config` and a minimal MCP config containing ONLY `aify-comms` + `aify-comms-channel`, and your other MCP servers are NOT loaded inside that wrapper session (they still work in plain `claude` sessions outside the wrapper).
