@@ -465,6 +465,30 @@ if [ -n "\${CLAUDE_RESUME_ID:-}" ]; then
     CLAUDE_ARGS+=("\${CLAUDE_RESUME_FLAG:---resume}" "\$CLAUDE_RESUME_ID")
   fi
 fi
+# IDENTITY RECOVERY (2026-07-14). EVERY turn-state path is gated on AIFY_AGENT_ID: the
+# bridge's turn detector (server.js), the Stop / UserPromptSubmit / PostToolUse hooks, and
+# the session-store capture hook. So a session started WITHOUT an agent id registers,
+# messages and heartbeats normally — but its status LATCHES FOREVER: the channel sidecar
+# (which carries the id in its own config) still SETS `working` on an inbound wake, and
+# nothing left alive can ever CLEAR it. That is a silent, total status failure that looks
+# healthy from every other angle; it cost days of "general-manager is always working" before
+# the missing env var was found. So: on a --resume, recover the id from the session store
+# (agentId<->sessionId, written by the session hook); if it is STILL unknown, say so out
+# loud rather than degrade in silence. Anonymous sessions remain legal — just not silent.
+if [ -z "\$CLAUDE_AIFY_AGENT_ID" ] && [ -n "\${CLAUDE_RESUME_ID:-}" ]; then
+  for _aify_store in "\${TMPDIR:-/tmp}"/aify-claude-session-*.json; do
+    [ -f "\$_aify_store" ] || continue
+    if grep -q "\"sessionId\":\"\$CLAUDE_RESUME_ID\"" "\$_aify_store" 2>/dev/null; then
+      _aify_recovered="\$(basename "\$_aify_store" .json)"
+      CLAUDE_AIFY_AGENT_ID="\${_aify_recovered#aify-claude-session-}"
+      echo "[claude-aify] recovered agent id '\$CLAUDE_AIFY_AGENT_ID' from the session store for --resume \$CLAUDE_RESUME_ID" >&2
+      break
+    fi
+  done
+fi
+if [ -z "\$CLAUDE_AIFY_AGENT_ID" ]; then
+  echo "[claude-aify] NO AGENT ID: aify turn/status detection is DISABLED for this session (status will latch). Pass --aify-agent <id> if this is a registered agent." >&2
+fi
 export AIFY_RUNTIME="claude-code"
 if [ -n "\$CLAUDE_AIFY_AGENT_ID" ]; then
   export AIFY_AGENT_ID="\$CLAUDE_AIFY_AGENT_ID"
