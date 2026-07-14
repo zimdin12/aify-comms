@@ -22,6 +22,13 @@ services:
       # Mount Claude Code auth from host — enables trigger/dispatch inside container
       # Uses your Max subscription, no API key needed
       - ${CLAUDE_CONFIG_DIR:-~/.claude}:/home/service/.claude:ro
+      # Codex/hermes auth, READ-ONLY — lets the SERVICE collect OpenAI quota itself instead of
+      # depending on the environment bridge. The collector used to live only in the bridge, so
+      # every quota fix meant restarting it — which cycles the operator's managed agents
+      # ("I cannot restart the team after every 5 minutes"). Quota is a file read plus one HTTP
+      # GET; it has no business costing an agent restart. Read-only: we only ever read a token.
+      - ${CODEX_CONFIG_DIR:-~/.codex}:/home/service/.codex:ro
+      - ${HERMES_CONFIG_DIR:-~/.hermes}:/home/service/.hermes:ro
     env_file:
       - .env
     environment:

@@ -1109,20 +1109,33 @@ function renderUsagePools() {
   host.innerHTML = staleNote + pools.map((p) => {
     const w = p.weekly || {}, f = p.five_hour || {};
     const sev = (p.severity && p.severity !== 'normal') ? p.severity : '';
-    const left = (w.left_pct == null) ? '—' : w.left_pct + '%';
+    const left = (p.verified === false || w.left_pct == null) ? '—' : w.left_pct + '%';
     const fleft = (f.left_pct == null) ? '—' : f.left_pct + '%';
-    const used = (w.used_pct == null) ? 0 : Math.max(0, Math.min(100, w.used_pct));
+    const used = (p.verified === false || w.used_pct == null) ? 0 : Math.max(0, Math.min(100, w.used_pct));
     const reset = w.resets_at ? usageResetLabel(w.resets_at) : '';
     const tags = (p.unknown ? '<span class="usage-tag">unknown</span>' : '') + (p.stale ? '<span class="usage-tag">stale</span>' : '');
     const name = LABELS[p.source_id] || p.source_id;
     // Backend blanks the numbers (→ "—") when they can't be trusted; the note says why so agents
     // treat it as unknown instead of a live value. `expired` = collector stopped (>24h); `reset_elapsed`
     // = the window already reset after this snapshot (e.g. a stale codex/hermes rollout).
+    // NEVER publish a number we cannot stand behind. The OpenAI card showed "100% left" while the
+    // operator was actually at ~64% used — it faithfully echoed an endpoint that turned out to be
+    // metering something else. Their verdict, and it is the right rule: "it lies... it is worse
+    // than not showing". So an UNVERIFIED pool renders "—" and says why, and its raw readings are
+    // shown as EVIDENCE below, never as the headline.
     const staleMsg = p.expired ? 'No fresh quota data in 24h+'
       : p.reset_elapsed ? 'Quota window already reset — awaiting a fresh reading'
-      : '';
+      : (p.verified === false ? (p.unverified_reason || 'Source not trusted for this account') : '');
+    // Evidence line: what the source actually returned, labelled as such, so it informs without
+    // pretending to be the operator's quota.
+    const ev = [];
+    if (f.used_pct != null) ev.push(`5h ${f.used_pct}% used`);
+    if (w.used_pct != null) ev.push(`weekly ${w.used_pct}% used`);
+    if (p.credits && p.credits.messages_left != null) ev.push(`~${p.credits.messages_left} msgs credit`);
+    if (p.limit_reached) ev.push('limit reached');
+    const evidence = ev.length ? `<div class="usage-pool-meta subtle">source says: ${esc(ev.join(' · '))}</div>` : '';
     const meta = staleMsg
-      ? `<div class="usage-pool-meta usage-pool-expired">⚠ ${staleMsg} — treat as unknown</div>`
+      ? `<div class="usage-pool-meta usage-pool-expired">⚠ ${esc(staleMsg)}</div>${evidence}`
       : `<div class="usage-pool-meta">5h ${fleft} left${reset ? ' · ' + esc(reset) : ''}</div>`;
     return `<div class="usage-pool-card ${sev}"><div class="usage-pool-name"><span>${esc(name)}</span><span>${tags}</span></div>`
       + `<div class="usage-pool-weekly">${left}<span class="usage-pool-sub"> weekly left</span></div>`

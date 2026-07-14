@@ -28,6 +28,7 @@ _listen_events: dict[str, asyncio.Event] = {}
 from pydantic import BaseModel
 from service.db import get_db, SQLITE_CLAIM_BUSY_TIMEOUT_MS
 from service import longpoll
+from service.usage_openai import collect_openai_pool
 from service.terminal_snapshot import (
     render_snapshot as _render_terminal_snapshot,
     infer_source_width as _infer_terminal_source_width,
@@ -10198,9 +10199,35 @@ async def post_usage(request: Request):
     return {"ok": True, "source_id": source_id}
 
 
+_OPENAI_POOL_TTL_SECONDS = 120.0
+_OPENAI_POOL_CACHE: dict[str, Any] = {"at": 0.0, "pool": None}
+
+
 @router.get("/usage")
 async def get_usage():
-    return {"pools": usage_all()}
+    """Usage pools — collected BY THE SERVICE for OpenAI, so a fix costs no agent restart.
+
+    The collector used to live only in the environment bridge, so every quota fix required
+    restarting it — which cycles the operator's managed agents. Quota is a file read plus one HTTP
+    GET; it has no business costing a restart. Bridge posts are still accepted (other hosts), but
+    a fresh service-side reading wins.
+    """
+    pools = usage_all()
+    try:
+        now = time.monotonic()
+        if now - float(_OPENAI_POOL_CACHE["at"] or 0) > _OPENAI_POOL_TTL_SECONDS:
+            fresh = await collect_openai_pool()
+            _OPENAI_POOL_CACHE["at"] = now
+            _OPENAI_POOL_CACHE["pool"] = fresh
+        fresh = _OPENAI_POOL_CACHE["pool"]
+        if fresh:
+            fresh = dict(fresh)
+            fresh["updated_at"] = _now()
+            fresh["stale"] = False
+            pools = [p for p in pools if p.get("source_id") != fresh["source_id"]] + [fresh]
+    except Exception:
+        logger.debug("service-side OpenAI usage collection failed; keeping bridge-posted pool", exc_info=True)
+    return {"pools": pools}
 
 
 @router.post("/usage/consumption")
