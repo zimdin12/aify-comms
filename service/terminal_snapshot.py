@@ -169,39 +169,58 @@ def render_snapshot(raw_output: str, cols: int, rows: int) -> str:
     return _screen_to_ansi(screen, cols, rows)
 
 
-def _screen_to_ansi(screen: Any, cols: int, rows: int) -> str:
+def _line_to_ansi(line: Any, cols: int) -> str:
+    """One screen row as a self-contained SGR-encoded string (trailing blanks trimmed)."""
+    out: list[str] = []
+    last = -1
+    for x in range(cols):
+        ch = line.get(x)
+        if ch is not None and (ch.data not in ("", " ") or _cell_sgr(ch) != [0, 39, 49]):
+            last = x
+    if last < 0:
+        return ""
+    prev: list[int] | None = None
+    for x in range(last + 1):
+        ch = line.get(x)
+        # A wide char (CJK/emoji) occupies TWO cells in pyte: the glyph in one cell + an
+        # EMPTY-STRING continuation cell in the next. Emitting a space for that continuation
+        # (the old `or " "`) shifted every following column one right per wide char (bughunt
+        # 2026-07-03) — mis-aligning exactly the TUIs this snapshot repaints. Skip it.
+        if ch is not None and ch.data == "":
+            continue
+        data = ch.data if ch is not None else " "
+        sgr = _cell_sgr(ch) if ch is not None else [0, 39, 49]
+        if sgr != prev:
+            out.append("\x1b[" + ";".join(str(p) for p in sgr) + "m")
+            prev = sgr
+        out.append(data)
+    out.append("\x1b[0m")
+    return "".join(out)
+
+
+def _screen_to_ansi(screen: Any, cols: int, rows: int, history: Any = ()) -> str:
+    """Paint `history` (scrolled-off lines, oldest first) followed by the current screen.
+
+    SCROLLBACK (2026-07-14). The snapshot used to be the current screen and NOTHING else, so an
+    operator could not scroll back — and worse, attach/refresh call `term.reset()` (needed to
+    un-scramble a reused pane), which WIPES whatever scrollback xterm had accumulated live. So
+    the console had history while you watched it and lost it the moment you refreshed.
+    Emitting the history lines ABOVE the screen fixes both: xterm scrolls them into its own
+    scrollback exactly as a real terminal would, and a reset no longer costs you anything
+    because the snapshot carries the history with it.
+    """
     out: list[str] = ["\x1b[0m\x1b[2J\x1b[H"]  # reset attrs, clear, cursor home
+    for line in history:
+        out.append(_line_to_ansi(line, cols))
+        out.append("\r\n")
     buffer = screen.buffer
     for y in range(rows):
-        line = buffer.get(y, {})
-        # Trailing-blank trim: find the last non-empty, default-styled cell.
-        last = -1
-        for x in range(cols):
-            ch = line.get(x)
-            if ch is not None and (ch.data not in ("", " ") or _cell_sgr(ch) != [0, 39, 49]):
-                last = x
-        if last >= 0:
-            prev: list[int] | None = None
-            for x in range(last + 1):
-                ch = line.get(x)
-                # A wide char (CJK/emoji) occupies TWO cells in pyte: the glyph in one
-                # cell + an EMPTY-STRING continuation cell in the next. Emitting a space
-                # for that continuation (the old `or " "`) shifted every following column
-                # one right per wide char (bughunt 2026-07-03) — mis-aligning exactly the
-                # TUIs this snapshot repaints. Skip the continuation cell entirely.
-                if ch is not None and ch.data == "":
-                    continue
-                data = ch.data if ch is not None else " "
-                sgr = _cell_sgr(ch) if ch is not None else [0, 39, 49]
-                if sgr != prev:
-                    out.append("\x1b[" + ";".join(str(p) for p in sgr) + "m")
-                    prev = sgr
-                out.append(data)
-            out.append("\x1b[0m")
+        out.append(_line_to_ansi(buffer.get(y, {}), cols))
         if y < rows - 1:
             out.append("\r\n")
 
-    # Leave the cursor where the app left it (1-based for the CUP sequence).
+    # Leave the cursor where the app left it (1-based CUP, relative to the VIEWPORT — after the
+    # history has scrolled up, the viewport's first row IS screen row 0).
     try:
         cy = max(0, min(int(screen.cursor.y), rows - 1)) + 1
         cx = max(0, min(int(screen.cursor.x), cols - 1)) + 1
@@ -228,6 +247,14 @@ def _screen_to_ansi(screen: Any, cols: int, rows: int) -> str:
 _LIVE_SCREENS: dict[str, "_LiveScreen"] = {}
 _MAX_LIVE_SCREENS = 256
 
+# Lines of SCROLLBACK kept per terminal. The operator could not scroll the console at all: the
+# snapshot carried only the current screen, and the term.reset() that attach/refresh need (to
+# un-scramble a reused pane) wiped whatever xterm had accumulated live. pyte.HistoryScreen keeps
+# the scrolled-off lines server-side, so the snapshot can ship them and a reset costs nothing.
+# 400 is ~14 screens — deliberately bounded: pyte stores history as Char objects, so this is the
+# memory knob (roughly a few MB per BUSY terminal, and only terminals that emit are tracked).
+_HISTORY_LINES = 400
+
 # Alt-screen enter/leave. pyte has no alt-screen buffer, so a dialog drawn in one would be
 # painted onto the MAIN screen and still be there after it was dismissed — the "stuck dialog"
 # the replay path works around by stripping balanced alt regions. Emulate it properly instead:
@@ -243,7 +270,9 @@ class _LiveScreen:
     def __init__(self, cols: int, rows: int) -> None:
         self.cols = cols
         self.rows = rows
-        self.screen = pyte.Screen(cols, rows)
+        # HistoryScreen (not Screen): keeps the lines that scroll off the top, which IS the
+        # console's scrollback. Without it there is nothing to scroll back to after a reset.
+        self.screen = pyte.HistoryScreen(cols, rows, history=_HISTORY_LINES, ratio=0.5)
         self.stream = pyte.Stream(self.screen)
         self.alt_screen = None
         self.alt_stream = None
@@ -280,8 +309,16 @@ class _LiveScreen:
                 chunk = chunk[m.end():]
 
     def render(self) -> str:
-        scr = self.alt_screen if (self.in_alt and self.alt_screen is not None) else self.screen
-        return _screen_to_ansi(scr, self.cols, self.rows)
+        # While a full-screen dialog is up, show IT (no history — an alt screen has none, and a
+        # real terminal shows no scrollback behind one either).
+        if self.in_alt and self.alt_screen is not None:
+            return _screen_to_ansi(self.alt_screen, self.cols, self.rows)
+        history = []
+        try:
+            history = list(getattr(self.screen, "history").top)  # oldest first
+        except Exception:
+            history = []
+        return _screen_to_ansi(self.screen, self.cols, self.rows, history=history)
 
     def resize(self, cols: int, rows: int) -> None:
         self.cols, self.rows = cols, rows

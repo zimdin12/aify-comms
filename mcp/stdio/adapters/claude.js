@@ -213,6 +213,35 @@ const NON_MESSAGE_TYPES = new Set([
 // line, and returns the first parseable MESSAGE line's structure. When the tail
 // holds no message line, returns lastRole:null so the caller treats it as
 // "unknown / not-ended".
+// Harness-injected wrappers that carry no human prompt. `<system-reminder>` is claude's own
+// injection channel (session rename, hook output, context notes); the command wrappers are what a
+// client-side slash command (/rename, /clear, /help) leaves behind. None of them will ever be
+// answered by an assistant turn.
+const BOOKKEEPING_BLOCK_RE = /<system-reminder>[\s\S]*?<\/system-reminder>|<command-(?:name|message|args)>[\s\S]*?<\/command-(?:name|message|args)>|<local-command-(?:stdout|stderr)>[\s\S]*?<\/local-command-(?:stdout|stderr)>/g;
+
+// True when a user-role entry is PURE bookkeeping — i.e. once the injected wrappers are removed,
+// no actual prompt text remains. A real prompt that merely carries a system-reminder alongside it
+// still has its own text and is NOT bookkeeping.
+export function isBookkeepingUserMessage(msg) {
+  if (!msg) return false;
+  const content = msg.content;
+  let text = "";
+  if (typeof content === "string") {
+    text = content;
+  } else if (Array.isArray(content)) {
+    for (const b of content) {
+      if (!b) continue;
+      // A tool_result is real turn content — never bookkeeping.
+      if (b.type === "tool_result") return false;
+      if (typeof b === "string") text += b;
+      else if (typeof b.text === "string") text += b.text;
+    }
+  } else {
+    return false;
+  }
+  return text.replace(BOOKKEEPING_BLOCK_RE, "").trim() === "";
+}
+
 export function summarizeTranscriptTail(text) {
   const empty = { lastRole: null, lastStopReason: null, pendingToolUse: false, pendingToolNames: [] };
   if (!text) return empty;
@@ -228,6 +257,21 @@ export function summarizeTranscriptTail(text) {
     const msg = obj.message;
     const role = msg && msg.role ? msg.role : (obj.type === "assistant" || obj.type === "user" ? obj.type : null);
     if (!role) continue; // not a message line
+    // A trailing USER message is normally "the human spoke, the assistant is about to answer" —
+    // i.e. IN-FLIGHT. But claude also writes user-role entries that are pure BOOKKEEPING and
+    // that nothing will ever answer: a `<system-reminder>` injection, or a client-side slash
+    // command's wrapper. Treating one as a pending turn latches the agent at `working` FOREVER —
+    // KEEP-FRESH keeps re-arming it, and no assistant reply is ever coming to end it.
+    //
+    // Live case (2026-07-14): the operator ran `/rename General Manager`. Claude appended a
+    // user message whose entire content was
+    //     <system-reminder>The user named this session "General Manager"...</system-reminder>
+    // and general-manager was stuck `working` from that moment on. This is the same class as
+    // NON_MESSAGE_TYPES above (bookkeeping appended after the last real message) — it just
+    // arrives wearing a user role, so it slipped through. Skip it and keep scanning back to the
+    // last REAL message. A genuine prompt that merely CARRIES a system-reminder still has its
+    // own text, so it is untouched.
+    if (role === "user" && isBookkeepingUserMessage(msg)) continue;
     const stopReason = msg && typeof msg.stop_reason !== "undefined" ? msg.stop_reason : null;
     let pendingToolUse = false;
     const pendingToolNames = [];

@@ -907,7 +907,11 @@ small, .subtle { color: var(--muted); }
 /* Wide resident-terminal mirror: the xterm is deliberately rendered at the operator's real
    (wider) terminal width so full-screen-TUI lines don't wrap — scroll the pane horizontally
    instead of shrinking/re-wrapping ("gappy / bugged console", 2026-07-01 terminal-fit fix). */
-.console-wide-mirror { overflow-x: auto; overflow-y: hidden; }
+/* overflow-y was `hidden`, which CLIPPED xterm's own scrollable viewport — so even once the
+   console had scrollback, the operator could not reach it ("why is the TUI not scrollable").
+   The wide mirror still scrolls HORIZONTALLY here (that is this wrapper's whole job); vertical
+   scrolling belongs to xterm's viewport inside it, so simply stop clipping it. */
+.console-wide-mirror { overflow-x: auto; overflow-y: visible; }
 .console-embed-label {
   padding: 6px 10px;
   background: var(--panel-2);

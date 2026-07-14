@@ -122,5 +122,58 @@ class LiveTerminalScreenTests(unittest.TestCase):
         self.assertIsNone(render_live_screen("t1"))
 
 
+@unittest.skipUnless(_HAVE_PYTE, "pyte not installed")
+class ConsoleScrollbackTests(unittest.TestCase):
+    """The console must be SCROLLABLE — and stay scrollable across a refresh.
+
+    Operator: "I am sure it has something to scroll to.. it has run for over an hour."
+    They were right, and the earlier explanation ("nothing to scroll to") was wrong. Three
+    things destroyed it together:
+      1. the snapshot carried ONLY the current screen — no history;
+      2. attach/refresh call term.reset() (needed to un-scramble a reused pane), which WIPES
+         whatever scrollback xterm had accumulated live — so the console had history while you
+         watched it and lost it the moment you refreshed;
+      3. `.console-wide-mirror { overflow-y: hidden }` clipped xterm's own scrollable viewport.
+    Fix: keep the scrolled-off lines server-side (pyte.HistoryScreen) and SHIP them above the
+    screen, so a reset costs nothing and there is real history to scroll into.
+    """
+
+    def setUp(self):
+        drop_live_screen("scroll")
+
+    def tearDown(self):
+        drop_live_screen("scroll")
+
+    def test_snapshot_carries_scrollback_above_the_current_screen(self):
+        # 60 lines through a 10-row screen: 50 must survive as scrollback.
+        for i in range(1, 61):
+            feed_live_screen("scroll", f"line-{i}\r\n", cols=COLS, rows=10)
+        snap, _, _ = render_live_screen("scroll")
+        text = visible(snap)
+
+        self.assertIn("line-1", text, "the OLDEST line must be in the snapshot (this IS the scrollback)")
+        self.assertIn("line-60", text, "the newest line must be there too")
+        self.assertGreater(len(text), 10, "snapshot must be TALLER than the screen (history + screen)")
+
+    def test_history_is_bounded_not_unbounded_memory(self):
+        for i in range(1, 1201):
+            feed_live_screen("scroll", f"line-{i}\r\n", cols=COLS, rows=10)
+        snap, _, _ = render_live_screen("scroll")
+        lines = [l for l in visible(snap) if l.strip()]
+        self.assertLessEqual(len(lines), 460, "history must stay bounded (~400 lines + screen)")
+        self.assertIn("line-1200", lines, "the newest content must always be present")
+
+    def test_a_refresh_no_longer_costs_the_operator_their_history(self):
+        # The client resets the xterm before writing the snapshot. That is what made refresh
+        # DESTROY scrollback. Now the snapshot itself carries the history, so a reset is free:
+        # rendering twice must yield the same history both times.
+        for i in range(1, 41):
+            feed_live_screen("scroll", f"line-{i}\r\n", cols=COLS, rows=10)
+        first = visible(render_live_screen("scroll")[0])
+        second = visible(render_live_screen("scroll")[0])
+        self.assertEqual(first, second)
+        self.assertIn("line-1", first, "history must survive the reset the client does on refresh")
+
+
 if __name__ == "__main__":
     unittest.main()
