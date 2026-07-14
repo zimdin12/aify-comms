@@ -261,8 +261,13 @@ function mountChatConsole(agentId, hostEl) {
     hostEl.innerHTML = resident
       ? '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>Resident agent</strong>'
         + `<p>${esc(agentId)} runs in its own CLI (a <code>${esc(agent?.runtime || 'runtime')}-aify</code> terminal you launched) — there's no dashboard-owned console to show here. Switch it to managed from <strong>Details</strong> to get one.</p></div>`
+      // A managed agent with NO session row used to dead-end here: the start buttons all live
+      // further down the session path, which this early return never reaches, so the ONLY way to
+      // bring a cold agent up was to send it a message ("why can't I start hermes models?").
+      // Cold-start itself was never broken — there was simply no button. Give it one.
       : '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No live console</strong>'
-        + `<p>${esc(agentId)} has no active session. Most managed agents lazy-start a console when you send the first message — send one from the Messenger tab, then reopen Console.</p></div>`;
+        + `<p>${esc(agentId)} has no worker running. Start one now — it resumes the agent's saved session if it has one, so its conversation is kept. (Sending a message also starts it.)</p>`
+        + `<div class="console-start-actions"><button class="primary" data-agent-action="start" data-agent-id="${esc(agentId)}">Start agent</button></div></div>`;
     return;
   }
   renderSessionConsole(session, hostEl, { source: 'chat' });
@@ -3963,6 +3968,26 @@ document.addEventListener('click', (event) => {
     else if (action === 'stop') stopConsoleTerminal(consoleAction.dataset.terminalId);
     else if (action === 'start') startConsoleForSession(consoleAction.dataset.sessionId, false);
     else if (action === 'start-fresh') startConsoleForSession(consoleAction.dataset.sessionId, true);
+    return;
+  }
+  // Start a managed agent that has NO session at all (the cold-agent case — there was no way to
+  // do this from the dashboard before). Spawns a worker through the same path a send uses, so a
+  // saved session handle is RESUMED, not discarded.
+  const agentAction = event.target.closest('[data-agent-action="start"]');
+  if (agentAction) {
+    const id = agentAction.dataset.agentId;
+    agentAction.disabled = true;
+    agentAction.textContent = 'Starting…';
+    api(`/agents/${encodeURIComponent(id)}/control`, { method: 'POST', body: JSON.stringify({ action: 'start', from_agent: 'dashboard' }) })
+      .then((r) => {
+        toast(r?.alreadyRunning ? `${id} is already running` : `Starting ${id} — the console appears once its worker is up`, 'ok');
+        refreshSoon();
+      })
+      .catch((err) => {
+        toast(`Start agent failed: ${err?.message || err}`, 'error');
+        agentAction.disabled = false;
+        agentAction.textContent = 'Start agent';
+      });
     return;
   }
   const analyticsRange = event.target.closest('[data-analytics-range]');

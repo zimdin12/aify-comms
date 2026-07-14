@@ -14228,7 +14228,7 @@ async def _request_stop_agent_terminals(
 @router.post("/agents/{agent_id}/control")
 async def control_agent(agent_id: str, req: AgentControlRequest, request: Request):
     action = str(req.action or "").strip().lower()
-    if action not in {"interrupt", "stop", "resume"}:
+    if action not in {"interrupt", "stop", "resume", "start"}:
         raise HTTPException(400, f'Unsupported agent control action "{req.action}"')
 
     db = await get_db()
@@ -14239,6 +14239,53 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
             raise HTTPException(404, f"Agent '{agent_id}' not found")
 
         now = _now()
+
+        # START (2026-07-14). A managed agent with NO session row could not be started from the
+        # dashboard at all: the Console tab returns early on "no session" (above the start
+        # buttons, which all need a session id), so the only way to bring one up was to send it a
+        # message and hope. Operator: "why can't I start hermes models?" — the cold-start itself
+        # was never broken; there was simply no button.
+        #
+        # This is the SAME mechanism the send path uses (_coldstart_spawn_request_for_dispatch):
+        # create a spawn request, a bridge claims it, registers a session and brings the worker
+        # up — resuming the agent's saved session handle when it has one, which for the hermes
+        # coders means their existing conversation (lc-coder alone is 12,780 messages).
+        if action == "start":
+            if _normalize_session_mode(agent["session_mode"] or "resident") == "resident":
+                raise HTTPException(
+                    409,
+                    f'Agent "{agent_id}" is resident — its terminal is the CLI you launched, '
+                    "not a dashboard-owned worker. Switch it to managed to start one from here.",
+                )
+            live = await (await db.execute(
+                """
+                SELECT id FROM agent_sessions
+                WHERE agent_id = ?
+                  AND LOWER(COALESCE(status,'')) NOT IN ('stopped','failed','ended','cancelled')
+                LIMIT 1
+                """,
+                (agent_id,),
+            )).fetchone()
+            if live:
+                # Already running — starting again would spawn a duplicate worker.
+                return {"ok": True, "agentId": agent_id, "action": "start", "alreadyRunning": True}
+            settings = await _load_settings(db)
+            started = await _coldstart_spawn_request_for_dispatch(
+                db,
+                agent_id,
+                runtime=_normalize_runtime(agent["runtime"] or ""),
+                settings=settings,
+                requested_by=req.from_agent or "dashboard",
+            )
+            await db.commit()
+            if not started:
+                raise HTTPException(
+                    409,
+                    f'Could not start "{agent_id}" — no environment bridge is available to run it. '
+                    "Start one on its host with `aify-comms`.",
+                )
+            await _invalidate_agent_live_state(db, agent_id)
+            return {"ok": True, "agentId": agent_id, "action": "start", "spawnRequested": True}
         active_run = await _get_blocking_active_run(db, agent_id)
         control_id = ""
         if action in {"interrupt", "stop"}:
