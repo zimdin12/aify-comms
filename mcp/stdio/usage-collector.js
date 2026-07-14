@@ -129,11 +129,18 @@ export function normalizeUsage({
   sourceId, fiveHourUsed, weeklyUsed, fiveHourResetsAt, weeklyResetsAt,
   providerSeverity, planType, warn, critical,
 } = {}) {
-  const win = (used, resets) => ({
-    used_pct: Number.isFinite(Number(used)) ? Number(used) : null,
-    left_pct: pctLeft(used),
-    resets_at: resets || null,
-  });
+  // An ABSENT window must stay unknown — never 0. `Number(null)` is 0, so the old check
+  // ("is Number(used) finite?") turned a MISSING window into "0% used / 100% left": a
+  // confident, fabricated all-clear for a limit we know nothing about. Real case: a plan that
+  // publishes only a weekly window was shown as having a fully-free 5-hour window.
+  const win = (used, resets) => {
+    const known = used !== null && used !== undefined && used !== "" && Number.isFinite(Number(used));
+    return {
+      used_pct: known ? Number(used) : null,
+      left_pct: known ? pctLeft(used) : null,
+      resets_at: resets || null,
+    };
+  };
   // Severity is the WORST of either window (a fully-consumed 5-hour window rate-limits
   // the agent for hours and is the binding limit on Claude Max — it must not be hidden
   // behind a low weekly %). providerSeverity (pool-wide, e.g. limit_reached) escalates too.
@@ -252,8 +259,34 @@ function defaultHermesAuthPath() {
   }
   return join(homeDir(), ".hermes", "auth.json");
 }
+// WHERE THE OPENAI TOKEN ACTUALLY LIVES (2026-07-14). Hermes does not necessarily hold it:
+// its auth.json can be a pointer — `{"active_provider": "openai-codex"}` with NO tokens at all —
+// because it DELEGATES to the codex CLI's store. On the operator's box that is exactly the case,
+// so the live fetch found no token, silently fell back to the stale codex rollout, and the
+// dashboard's OpenAI quota never updated. Try every store we know of and take the first that
+// actually carries an OpenAI token, rather than trusting one path.
+function openAiAuthCandidates() {
+  const home = homeDir();
+  if (process.platform === "win32") {
+    const localAppData = process.env.LOCALAPPDATA || join(home, "AppData", "Local");
+    return [
+      join(localAppData, "hermes", "auth.json"),
+      join(home, ".codex", "auth.json"),
+      join(localAppData, "codex", "auth.json"),
+    ];
+  }
+  return [join(home, ".hermes", "auth.json"), join(home, ".codex", "auth.json")];
+}
+
 function defaultReadHermesAuth() {
-  return readFileSync(defaultHermesAuthPath(), "utf8");
+  let firstReadable = "";
+  for (const path of openAiAuthCandidates()) {
+    let text;
+    try { text = readFileSync(path, "utf8"); } catch { continue; }
+    if (!firstReadable) firstReadable = text;
+    try { if (extractOpenAiToken(text)) return text; } catch { /* try the next store */ }
+  }
+  return firstReadable; // nothing carried a token — caller gets null, exactly as before
 }
 
 // Pull an OpenAI (auth.openai.com) access_token out of the hermes auth store, ignoring
@@ -280,6 +313,38 @@ export function extractOpenAiToken(authJsonText) {
   return found;
 }
 
+// Which window is the 5-hour one and which is the weekly one? Read `limit_window_seconds` —
+// do NOT assume primary=5h / secondary=weekly (2026-07-14).
+//
+// That positional assumption was wrong on a real account. The operator's `prolite` plan returns
+// ONE window, and it is the WEEKLY one:
+//     primary_window:   { used_percent: 29, limit_window_seconds: 604800 }   // 7 days
+//     secondary_window: null
+// So the weekly figure was published as "5h" (a "5-hour" window whose reset was six days out)
+// and `weekly` came out null — which is why the dashboard's OpenAI card showed "—" for its
+// headline number and an empty bar. Classify by DURATION, and keep the old positional mapping
+// only as a fallback for a response that carries no duration at all.
+export function classifyUsageWindows(rateLimit) {
+  const rl = rateLimit || {};
+  const list = [rl.primary_window, rl.secondary_window].filter((w) => w && typeof w === "object");
+  let five = null;
+  let week = null;
+  for (const w of list) {
+    const secs = Number(w.limit_window_seconds || w.window_seconds || 0);
+    if (!(secs > 0)) continue;
+    // A day is a clean divide: 5h = 18000s, weekly = 604800s. Anything short is the burst
+    // window, anything long is the rolling one — no exact-value matching, so a plan with a
+    // 3h or 30-day window still lands sensibly.
+    if (secs <= 86400) five = five || w;
+    else week = week || w;
+  }
+  if (!five && !week && list.length) {
+    five = list[0] || null;
+    week = list[1] || null;
+  }
+  return { five, week };
+}
+
 export async function fetchChatGptUsageLive({ readHermesAuth = defaultReadHermesAuth, fetchImpl = globalThis.fetch } = {}) {
   let tok;
   try { tok = extractOpenAiToken(readHermesAuth()); } catch { return null; }
@@ -291,15 +356,14 @@ export async function fetchChatGptUsageLive({ readHermesAuth = defaultReadHermes
     if (!res || !res.ok) return null;
     const j = await res.json();
     const rl = j.rate_limit || {};
-    const prim = rl.primary_window || {};
-    const sec = rl.secondary_window || {};
-    if (prim.used_percent == null && sec.used_percent == null) return null;
+    const { five, week } = classifyUsageWindows(rl);
+    if (five?.used_percent == null && week?.used_percent == null) return null;
     return normalizeUsage({
       sourceId: SOURCE_CODEX,
-      fiveHourUsed: prim.used_percent,
-      weeklyUsed: sec.used_percent,
-      fiveHourResetsAt: epochToIso(prim.reset_at),
-      weeklyResetsAt: epochToIso(sec.reset_at),
+      fiveHourUsed: five ? five.used_percent : null,
+      weeklyUsed: week ? week.used_percent : null,
+      fiveHourResetsAt: five ? epochToIso(five.reset_at) : null,
+      weeklyResetsAt: week ? epochToIso(week.reset_at) : null,
       providerSeverity: rl.limit_reached ? "critical" : undefined,
       planType: j.plan_type,
     });
