@@ -115,8 +115,8 @@ the proof-based rewrite. There is now ONE derivation: `service/status_engine.py`
 `idle` or `stale` (both removed as time-decay states): a long-quiet live agent stays `online`,
 and a resident whose bridge lease lapsed reads `offline`, not `stale`. `working` is a pure,
 **liveness-gated** `in_turn` flag (a dead worker / gone heartbeat can't latch `working`), queued
-delivery is gated on the liveness-aware engine status, and turn transitions PUSH to both
-dashboards in real time. Liveness uses TWO windows (no `idle_minutes`/`offline_minutes` any
+delivery is gated on the liveness-aware engine status, and turn transitions PUSH to Dashboard
+Next in real time. Liveness uses TWO windows (no `idle_minutes`/`offline_minutes` any
 more): `agent_liveness_seconds` (default 90s = 3× the uniform 30s wrapper heartbeat) governs the
 managed offline gate + the live-state cache refresh horizon, and `resident_lease_seconds`
 (default 150s) governs resident bridge freshness (`_resident_bridge_is_fresh`) — the longer
@@ -328,6 +328,12 @@ bridge **BIDIRECTIONAL transcript turn-state detector** as the hook-independent 
 (it both SETs working on an in-flight tail and CLEARs on an ended tail); codex hooks
 + app-server `turn/completed`; hermes `pre_llm_call`/managed delivery-loop idle event;
 pi `agent_end`.
+
+`delivered` proves only that a bridge/channel accepted the dispatch. It does not
+prove the model ran or could reply. For a load-bearing delivery check, require the
+linked reply and inspect the rendered console when it is absent; provider quota
+errors can leave the agent correctly `online` and idle with an awaiting-reply note
+even though the message visibly reached the channel.
 
 **Note: the claude `PostToolUse` re-pulse was REMOVED (pure-event #4).** Earlier
 builds re-asserted `turn_busy` on every tool call to hold `working` past a short

@@ -1,9 +1,29 @@
 import assert from "assert";
-import test from "node:test";
+import test, { afterEach, beforeEach } from "node:test";
 import os from "node:os";
 import path from "node:path";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { HermesAdapter } from "../../adapters/hermes.js";
+
+const sessionDiscoveryEnv = [
+  "AIFY_HERMES_ACTIVE_SESSION_FILE",
+  "HERMES_TUI_ACTIVE_SESSION_FILE",
+  "AIFY_AGENT_ID",
+  "AIFY_COMMS_AGENT_ID",
+];
+const inheritedSessionDiscoveryEnv = Object.fromEntries(sessionDiscoveryEnv.map((key) => [key, process.env[key]]));
+
+beforeEach(() => {
+  for (const key of sessionDiscoveryEnv) delete process.env[key];
+});
+
+afterEach(() => {
+  for (const key of sessionDiscoveryEnv) {
+    const value = inheritedSessionDiscoveryEnv[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+});
 
 test("HermesAdapter identity", () => {
   const a = new HermesAdapter();
@@ -30,19 +50,16 @@ test("HermesAdapter falls back to HERMES_SESSION when HERMES_SESSION_ID empty", 
 });
 
 test("HermesAdapter.discoverSessionId prefers durable env session over gateway sid", async () => {
-  const previousSessionId = process.env.HERMES_SESSION_ID;
-  const previousGatewayUrl = process.env.AIFY_HERMES_GATEWAY_URL;
-  try {
-    process.env.HERMES_SESSION_ID = "20260526_190639_eebd50";
-    process.env.AIFY_HERMES_GATEWAY_URL = "ws://127.0.0.1:1/api/ws?token=x";
-    const a = new HermesAdapter();
-    assert.strictEqual(await a.discoverSessionId(), "20260526_190639_eebd50");
-  } finally {
-    if (previousSessionId === undefined) delete process.env.HERMES_SESSION_ID;
-    else process.env.HERMES_SESSION_ID = previousSessionId;
-    if (previousGatewayUrl === undefined) delete process.env.AIFY_HERMES_GATEWAY_URL;
-    else process.env.AIFY_HERMES_GATEWAY_URL = previousGatewayUrl;
-  }
+  const a = new HermesAdapter();
+  assert.strictEqual(
+    await a.discoverSessionId({
+      env: {
+        HERMES_SESSION_ID: "20260526_190639_eebd50",
+        AIFY_HERMES_GATEWAY_URL: "ws://127.0.0.1:1/api/ws?token=x",
+      },
+    }),
+    "20260526_190639_eebd50",
+  );
 });
 
 test("HermesAdapter.discoverSessionId does not use gateway history for fresh live sessions", async () => {
@@ -57,7 +74,12 @@ test("HermesAdapter.discoverSessionId does not use gateway history for fresh liv
     process.env.AIFY_HERMES_GATEWAY_URL = "ws://127.0.0.1:1/api/ws?token=x";
     const a = new HermesAdapter();
     a._queryGatewayMostRecent = async () => "historical-db-session";
-    assert.strictEqual(await a.discoverSessionId(), null);
+    assert.strictEqual(
+      await a.discoverSessionId({
+        env: { AIFY_HERMES_GATEWAY_URL: "ws://127.0.0.1:1/api/ws?token=x" },
+      }),
+      null,
+    );
   } finally {
     if (previousSessionId === undefined) delete process.env.HERMES_SESSION_ID;
     else process.env.HERMES_SESSION_ID = previousSessionId;

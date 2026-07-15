@@ -148,13 +148,24 @@ crash. Two hooks enforce it:
   hosts, reaps detached delivery loops/daemons.
 - **Boot survivor sweep** — on the next start, before the spawn loop, it reaps any
   managed-triad survivors of a crashed/SIGKILL'd predecessor whose owning bridge is
-  no longer live in `bridge_instances`.
+  no longer live in `bridge_instances`. Replacement startup is serialized as
+  register replacement → sweep predecessor survivors → adopt managed ownership →
+  start spawning. Do not sync/adopt before the sweep: that can make the old bridge
+  target nothing while the new bridge mistakes the predecessor's processes for its
+  own fresh workers.
 
 Both are **scoped to the agents this env bridge owns** (its `cwdRoots`) and **never
-touch resident sessions or another env's agents**. Managed sessions are re-spawned
-fresh from their spec by the dashboard/spawn loop — they are not inherited across a
-restart. If you need a session to persist a restart with its terminal intact, run it
-**resident** (`*-aify`), which the teardown explicitly excludes.
+touch resident sessions or another env's agents**. For graceful shutdown, “owns”
+must come from a fresh service snapshot, not cached `REMOTE_AGENT_STATE`: the cache
+can retain a stale managed row after managed→resident takeover, while resident and
+managed Hermes delivery loops have the same command shape. If ownership cannot be
+read because the service is already offline, shutdown reaps nothing; the next boot
+sweep is the safe backstop. If registration or the ownership sweep is unavailable,
+the replacement does not adopt managed ownership or start spawning; it retries from
+the heartbeat loop. Managed sessions are re-spawned fresh from their spec by
+the dashboard/spawn loop — they are not inherited across a restart. If you need a
+session to persist a restart with its terminal intact, run it **resident**
+(`*-aify`), which teardown explicitly excludes.
 
 ## Managed agent finished but its reply never landed
 

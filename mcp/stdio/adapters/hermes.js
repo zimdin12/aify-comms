@@ -35,6 +35,13 @@ export class HermesAdapter extends RuntimeAdapter {
   // synthetic `aify-<agentId>` pinned id has been retired.
   get sessionIdSource() { return "captured"; }
 
+  // comms_register uses the synchronous adapter seam. Include the active-file
+  // source here so a plain visible Hermes TUI can bind its real native session
+  // even though Hermes does not export HERMES_SESSION_ID.
+  getCurrentSessionId() {
+    return this._readActiveSessionFile(process.env) || super.getCurrentSessionId();
+  }
+
   // Operator takeover: the command an operator runs to attach a resident TUI to
   // the agent's pinned session.
   // ASYMMETRY(hermes): resident TUI attaches to the per-agent daemon via
@@ -98,8 +105,10 @@ export class HermesAdapter extends RuntimeAdapter {
       if (explicitId) return explicitId;
     }
 
-    const envSession = this.getCurrentSessionId();
-    if (envSession) return envSession;
+    for (const variable of this.sessionEnvVars) {
+      const envSession = this.normalizeSessionHandle(env[variable]);
+      if (envSession) return envSession;
+    }
 
     const resolvedAgentId = String(
       agentId || env.AIFY_AGENT_ID || env.AIFY_COMMS_AGENT_ID || "",

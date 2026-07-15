@@ -106,6 +106,16 @@ class NewDashboardSessionModeSwitchTests(unittest.TestCase):
             self.script,
             "Plan 6 C4: PATCH method required",
         )
+        self.assertIn(
+            "Object.assign(existingAgent, body.agent)",
+            self.script,
+            "A successful switch must apply the returned mode/status immediately instead of waiting for polling",
+        )
+        self.assertIn(
+            "renderSessionWorkspace()",
+            self.script,
+            "A successful switch must repaint the selected session immediately",
+        )
 
     def test_chip_is_inserted_into_session_header_card_actions(self):
         # The Details panel chip lives inside the runtime-card .contract-actions

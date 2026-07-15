@@ -51,7 +51,7 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertNotIn("http://localhost:8800", html + script)
         self.assertNotIn("//localhost:8800", html + script)
 
-    def test_compose_keeps_legacy_dashboard_and_adds_8801_preview(self):
+    def test_compose_exposes_service_and_dashboard_next(self):
         compose_path = ROOT / "docker-compose.yml"
         if not compose_path.exists():
             self.skipTest("docker-compose.yml is not copied into the service image")
@@ -94,6 +94,14 @@ class NewDashboardAppTest(unittest.TestCase):
         # duplicate and was removed). Type/priority/queue + paste-to-share live in chat now.
         self.assertIn('id="chat-expects-reply"', html)
         self.assertIn('id="chat-queue"', html)
+        self.assertIn("const finalType = type || (expectsReply ? 'request' : 'info');", script)
+        self.assertIn("requireReply: !!expectsReply", script)
+        self.assertNotRegex(html, r'id="chat-expects-reply"[^>]*\schecked(?:\s|=|>)')
+        self.assertNotIn(
+            "console_auto_confirm_claude_compaction",
+            script,
+            "the bridge reads AIFY_AUTO_CONFIRM_COMPACTION at boot; do not expose a no-op service toggle",
+        )
         self.assertIn("sendMessageWithTimeout", script)
         self.assertIn("uploadPastedImage", script)
         self.assertIn("document.addEventListener('paste'", script)
@@ -105,7 +113,9 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn("Closed from Work Loop by dashboard operator.", script)
         self.assertIn('data-page-jump="environments"', html)
         self.assertIn('data-page-jump="settings"', html)
-        self.assertIn("openClassic", script)
+        self.assertNotIn("openClassic", script)
+        self.assertNotIn("Old dashboard", html)
+        self.assertNotIn("Classic Settings", html)
         self.assertIn("requestSessionControl", script)
         self.assertIn('data-session-control="restart"', script)
         self.assertIn('data-session-control="stop"', script)
@@ -194,6 +204,8 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn(".session-rail", styles)
         self.assertIn(".session-bulk-toolbar", styles)
         self.assertRegex(styles, r"@media \(max-width: 414px\)[\s\S]*\.session-shell\s*\{[^}]*grid-template-columns:\s*1fr")
+        self.assertIn("Open Hermes UI", script)
+        self.assertIn("window.open(url, '_blank', 'noopener,noreferrer')", script)
 
     def test_universal_run_inspector_contract(self):
         script = _dashboard_js()

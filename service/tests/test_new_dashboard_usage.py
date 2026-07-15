@@ -25,6 +25,13 @@ def test_render_fns_and_fetch():
     assert "state.analytics.usage" in APP
 
 
+def test_five_hour_label_uses_five_hour_reset():
+    # A weekly reset must not be rendered beside the 5h label when the 5h
+    # window is absent (the live OpenAI response currently has that shape).
+    assert "const fiveHourReset = f.resets_at" in APP
+    assert "fiveHourReset ? ' · ' + esc(fiveHourReset)" in APP
+
+
 def test_css_present():
     assert ".usage-pool-card" in CSS
     assert ".usage-consumption-table" in CSS

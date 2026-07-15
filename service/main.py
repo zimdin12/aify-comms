@@ -487,15 +487,14 @@ def create_app() -> FastAPI:
         except WebSocketDisconnect:
             manager.disconnect(ws)
 
-    # Two dashboards, both live: the legacy monolith is served by the API at :8800
-    # (root redirects to it); the new SPA is served by the dashboard-next container at
-    # :8801. The console snapshot fix is server-side (GET /terminals/{id}?cols=&rows=)
-    # so BOTH consume it. Do not retire either without the operator asking.
+    # Dashboard Next is the only operator UI. Keep the API root as a compatibility
+    # redirect so old bookmarks and tooling converge on it instead of breaking.
     from fastapi.responses import RedirectResponse
+    from service.dashboard_redirect import dashboard_url
 
     @app.get("/", include_in_schema=False)
-    async def root_redirect():
-        return RedirectResponse(url="/api/v1/dashboard")
+    async def root_redirect(request: Request):
+        return RedirectResponse(url=dashboard_url(request))
 
     @app.get("/favicon.svg", include_in_schema=False)
     async def favicon_svg():

@@ -89,7 +89,27 @@ import { reportResidentLost } from "../server.js";
 }
 
 // ---------------------------------------------------------------------------
-// 4. Best-effort: a throwing httpCall is swallowed (never throws out of the
+// 4. A short-lived MCP child does not own the resident lifecycle. Hermes' visible
+//    TUI is owned by its wrapper + managed-host loop, so an MCP child exit must
+//    not mark the still-open operator TUI stopped.
+// ---------------------------------------------------------------------------
+{
+  const calls = [];
+  const posted = await reportResidentLost({
+    httpCall: async (...args) => { calls.push(args); },
+    agentId: "operator-hermes",
+    bridgeId: "bridge-per-turn-child",
+    sessionMode: "resident",
+    lifecycleOwner: "managed-host",
+    runtime: "hermes",
+  });
+
+  assert.equal(posted, false, "non-owning MCP child exit reports NO POST");
+  assert.equal(calls.length, 0, "non-owning MCP child never marks the resident stopped");
+}
+
+// ---------------------------------------------------------------------------
+// 5. Best-effort: a throwing httpCall is swallowed (never throws out of the
 //    exit path) and reports false.
 // ---------------------------------------------------------------------------
 {

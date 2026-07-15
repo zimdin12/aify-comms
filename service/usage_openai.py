@@ -1,4 +1,4 @@
-"""OpenAI/ChatGPT quota — collected BY THE SERVICE, and reporting every constraint.
+"""OpenAI/ChatGPT Codex quota — collected by the service.
 
 WHY THIS LIVES IN THE SERVICE (2026-07-14). The collector used to run only in the environment
 bridge, so every fix to it required restarting the bridge — which cycles the operator's managed
@@ -7,16 +7,10 @@ READ of a host file plus one HTTP GET; there is no reason it needs an agent-cycl
 service mounts the codex/hermes auth stores read-only and does it itself, so a usage fix is now a
 container rebuild and nothing else. Bridge posts are still accepted (other hosts, back-compat).
 
-WHY IT REPORTS EVERYTHING, NOT ONE NUMBER. The dashboard showed "100% left" while the operator had
-nothing left — worse than showing nothing, and they said so. It was not inventing that figure: it
-faithfully echoed `rate_limit.primary_window.used_percent = 0`. But the SAME response said
-`credits.balance = "0"`, `has_credits = false`, and `approx_local_messages = [0, 0]` — OpenAI's own
-estimate of how many messages the account can actually send: ZERO. We published the one metric that
-looked healthy and dropped the ones that contradicted it.
-
-So this returns every constraint the endpoint exposes, and the pool carries a `disagreement` flag
-whenever the window says "free" while another signal says "empty". A number we cannot stand behind
-must never be shown as if we can.
+`wham/usage` is the endpoint the Codex CLI itself uses for account rate limits. Its rate-limit
+windows are the subscription quota. The sibling `credits` object describes optional purchased /
+overage credits; an empty credit balance does not mean the subscription window is blocked. Keep the
+credit evidence, but never use it to invalidate an allowed subscription window.
 """
 
 from __future__ import annotations
@@ -171,37 +165,23 @@ def build_pool(payload: dict[str, Any]) -> dict[str, Any]:
         },
     }
 
-    # NOT AUTHORITATIVE FOR THE USAGE THE OPERATOR ACTUALLY BURNS (2026-07-14).
-    #
-    # `wham/usage` reports ONE window and, for this account, `used_percent: 0`. Codex's OWN meter —
-    # the `rate_limits` object that comes back with every API response and is recorded in its
-    # rollouts — reports TWO windows and real consumption (46% on a 300-minute window, 70% on a
-    # 10080-minute one). The operator confirms the truth is ~64% weekly, not 0%. So this endpoint
-    # is metering something else (Codex cloud), NOT the API usage their hermes agents burn.
-    #
-    # Publishing its number produced exactly the failure the operator called out: "says 100% left
-    # but I actually have [64% used] ... it lies. it is worse than not showing." They are right —
-    # a confident wrong number is worse than a blank. So the pool is marked UNVERIFIED: the
-    # dashboard renders "—" and says why, instead of a reassuring figure nobody can stand behind.
-    # The raw readings are still carried, so the panel can show them as evidence rather than truth.
-    pool["verified"] = False
-    pool["unknown"] = True
-    pool["source"] = "chatgpt wham/usage"
-    pool["unverified_reason"] = (
-        "This endpoint reports account-level Codex limits and disagrees with codex's own meter "
-        "(which tracks a 5-hour AND a weekly window). It is not the meter your hermes/codex agents "
-        "consume, so its numbers are shown as evidence, not as your quota."
+    # This is the same account-rate-limit endpoint used by the Codex CLI. A window is publishable
+    # only when the provider supplied an actual percentage. An absent window stays unknown rather
+    # than becoming a reassuring zero.
+    has_window = any(
+        window["used_pct"] is not None
+        for window in (pool["five_hour"], pool["weekly"])
     )
+    pool["verified"] = has_window
+    pool["unknown"] = not has_window
+    pool["source"] = "Codex account rate limits (wham/usage)"
+    if not has_window:
+        pool["unverified_reason"] = "The Codex account endpoint returned no rate-limit windows."
 
-    # THE DISAGREEMENT FLAG — the whole point of this module.
-    # The window can read "0% used / 100% left" while the account can send ZERO messages. Publishing
-    # only the window is how the dashboard came to claim "100% left" to an operator who had nothing.
-    window_says_free = (pool["weekly"]["used_pct"] is not None and pool["weekly"]["used_pct"] < 100) or (
-        pool["five_hour"]["used_pct"] is not None and pool["five_hour"]["used_pct"] < 100
-    )
-    credits_say_empty = (not unlimited) and (not has_credits) and (messages_left == 0)
-    pool["disagreement"] = bool(window_says_free and credits_say_empty)
-    pool["blocked"] = bool(pool["limit_reached"] or not pool["allowed"] or credits_say_empty)
+    # `credits` are optional purchased/overage credits. No extra credits is normal for a
+    # subscription and must not override `allowed=true` or a healthy rate-limit window.
+    pool["disagreement"] = False
+    pool["blocked"] = bool(pool["limit_reached"] or not pool["allowed"])
 
     if pool["blocked"]:
         pool["severity"] = "critical"

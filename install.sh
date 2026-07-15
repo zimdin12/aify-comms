@@ -469,13 +469,13 @@ fi
 # bridge's turn detector (server.js), the Stop / UserPromptSubmit / PostToolUse hooks, and
 # the session-store capture hook. So a session started WITHOUT an agent id registers,
 # messages and heartbeats normally — but its status LATCHES FOREVER: the channel sidecar
-# (which carries the id in its own config) still SETS `working` on an inbound wake, and
+# (which carries the id in its own config) still SETS \`working\` on an inbound wake, and
 # nothing left alive can ever CLEAR it. That is a silent, total status failure that looks
 # healthy from every other angle; it cost days of "general-manager is always working" before
 # the missing env var was found. Claude's own /resume picker offers a SESSION, never an agent,
 # so an operator naturally resumes by session id — exactly the path that strips the identity.
 #
-# hermes has recovered its agent from a bare `--resume <handle>` since 2026-06-03 (see the
+# hermes has recovered its agent from a bare \`--resume <handle>\` since 2026-06-03 (see the
 # hermes block below); the comment there claimed "same idea is wired into claude/codex" — it
 # never was. This is that wiring, mirrored: ask the SERVICE which agent owns this session
 # handle (authoritative, and unlike the /tmp store it survives a reboot), then fall back to
@@ -1532,7 +1532,7 @@ unset HERMES_TUI_GATEWAY_URL AIFY_HERMES_GATEWAY_URL AIFY_HERMES_GATEWAY_TOKEN 2
 # comment previously claimed claude/codex already had it, which was FALSE and is exactly how
 # general-manager ran for weeks with no agent id and a permanently latched status. CODEX
 # still has no such recovery: its operator path is covered by the resume command now carrying
-# --aify-agent, but a hand-typed `codex-aify --resume <id>` is still identity-less.)
+# --aify-agent, but a hand-typed \`codex-aify --resume <id>\` is still identity-less.)
 HERMES_RECOVER_HANDLE="\$HERMES_SESSION_HANDLE"
 if [ -z "\$HERMES_RECOVER_HANDLE" ]; then
   HERMES_RECOVER_HANDLE="\$HERMES_INHERITED_SESSION_HANDLE"
@@ -1831,6 +1831,10 @@ if [ \${#HERMES_ARGS[@]} -eq 0 ]; then aify_hermes_warm_bridge; fi
 if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
   aify_hermes_kill_prior "\$HERMES_AIFY_AGENT_ID"
   export AIFY_AGENT_ID="\$HERMES_AIFY_AGENT_ID"
+  # Hermes launches its MCP server as a short-lived child of individual turns.
+  # The persistent managed-host loop + wrapper own the visible TUI lifecycle, so
+  # an MCP child exit must never POST resident-lost for the still-open TUI.
+  export AIFY_RESIDENT_LIFECYCLE_OWNER=managed-host
   export AIFY_CHANNELS_ENABLED=1
   # Per-agent TUI active-session file: the visible hermes session writes its REAL
   # native session id here, and the in-session MCP bridge (adapters/hermes.js
@@ -3628,17 +3632,23 @@ install_claude_turn_end_hook() {
     }
     if (!settings || typeof settings !== 'object') settings = {};
     if (!settings.hooks) settings.hooks = {};
-    if (!Array.isArray(settings.hooks.Stop)) settings.hooks.Stop = [];
-    settings.hooks.Stop = settings.hooks.Stop.filter(
-      h => !JSON.stringify(h).includes('aify-comms/api/v1/agents') && !JSON.stringify(h).includes('/api/v1/agents/\${AIFY_AGENT_ID}/turn-end')
-    );
-    settings.hooks.Stop.push({
-      hooks: [{
-        type: 'command',
-        command,
-        timeout: 3
-      }]
-    });
+    const wireTurnEnd = (eventKey, matcher = '') => {
+      if (!Array.isArray(settings.hooks[eventKey])) settings.hooks[eventKey] = [];
+      settings.hooks[eventKey] = settings.hooks[eventKey].filter(
+        h => !JSON.stringify(h).includes('/api/v1/agents/\${AIFY_AGENT_ID}/turn-end')
+      );
+      const group = {
+        hooks: [{ type: 'command', command, timeout: 3 }]
+      };
+      if (matcher) group.matcher = matcher;
+      settings.hooks[eventKey].push(group);
+    };
+    wireTurnEnd('Stop');
+    // Claude does not reliably emit Stop when a turn ends at compaction. Its
+    // post-compaction lifecycle event is SessionStart with source/matcher
+    // "compact". Clear the old turn there; if Claude continues the same logical
+    // turn, the next real PostToolUse re-asserts /turn-start immediately.
+    wireTurnEnd('SessionStart', 'compact');
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
   " "$node_settings_file" "$hook_command"
 }

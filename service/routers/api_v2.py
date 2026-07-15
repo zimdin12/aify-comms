@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Optional
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.routing import APIRoute
 from fastapi.exceptions import RequestValidationError
 
@@ -37,6 +37,7 @@ from service.terminal_snapshot import (
     drop_live_screen as _drop_live_terminal_screen,
 )
 from service.status_engine import apply_event, derive, StatusInputs, VALID_STATUSES
+from service.dashboard_redirect import dashboard_url
 from service.usage_cache import usage_set, usage_all, usage_get, derive_usage_source, consumption_set, consumption_summary
 from service.models import (
     AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
@@ -232,12 +233,9 @@ DEFAULT_SETTINGS = {
     # already asked for by launching a managed-channel claude wrapper.
     # Operators who want manual approval can flip false.
     "console_auto_confirm_claude_dev_channels": True,
-    # Auto-confirm the Claude compaction prompt in managed/console PTYs.
-    # Setting plumbing only (2026-07-02): the behavior lives in the bridge
-    # (mcp/stdio/), which reads this key off GET /settings like it does
-    # console_auto_confirm_claude_dev_channels. Default true for the same
-    # reason as dev-channels: the prompt confirms behavior the operator
-    # already opted into by running a managed claude.
+    # Retained for settings-response compatibility only. The bridge decides at
+    # process start from AIFY_AUTO_CONFIRM_COMPACTION; it does not poll this
+    # service setting. Dashboard Next therefore does not expose a no-op toggle.
     "console_auto_confirm_claude_compaction": True,
     "managed_terminal_backing_enabled": True,
     # Universal delivery-mode flag (operator's design):
@@ -373,7 +371,7 @@ _LIVE_SESSION_STATUSES = {"starting", "running", "recovering", "restarting", "cl
 # (not-yet-terminal) session row, used by the session reconcilers
 # (_reconcile_dead_session_status / _reconcile_duplicate_resident_sessions),
 # the new on-read deriver (_compute_session_display_status), and embedded into
-# the dashboard bootstrap config so dashboard.html reads the SAME set instead
+# the dashboard bootstrap config so Dashboard Next reads the SAME set instead
 # of its own wider hardcode. It is a SUPERSET of _LIVE_SESSION_STATUSES above:
 # _LIVE_SESSION_STATUSES is the narrower "live agent-status engine" gate used by
 # _compute_live_status_cache (which treats attached/active/idle as worker-detail
@@ -5109,7 +5107,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # test_managed_codex_online_from_fresh_wrapper_child_bridge). The originally-reported
     # "stopped · Console attached" was a TRANSIENT teardown race during a hermes resume error,
     # removed at the root by the DB-validated resume fix (5c1617a); the dashboard console label
-    # is the honest surface (never "attached" for a dead session — dashboard.html).
+    # is the honest surface (never "attached" for a dead session — Dashboard Next).
     refresh_after = _status_refresh_after(
         agent_last_seen,
         env_last_seen,
@@ -9050,7 +9048,7 @@ async def _mark_dispatch_run_answered(
     target_agent = str((target_row["target_agent"] if target_row else "") or "").strip()
     dispatch_mode = str((target_row["dispatch_mode"] if target_row and "dispatch_mode" in target_row.keys() else "") or "").strip().lower()
     if (
-        status == "delivered"
+        status in {"queued", "delivered"}
         or (mode in {"channel", "resident"} and status in {"claimed", "running"})
         or (dispatch_mode == "terminal" and status in {"claimed", "running"})
     ):
@@ -14797,7 +14795,7 @@ async def keep_agent_session(agent_id: str, req: AgentSessionResolveRequest, req
         resume_command = ""
         try:
             from service.runtimes import adapter_for
-            resume_command = adapter_for(runtime).resume_command(persisted_handle)
+            resume_command = adapter_for(runtime).resume_command(persisted_handle, agent_id=agent_id)
         except Exception:
             resume_command = ""
         await db.execute(
@@ -15237,6 +15235,9 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                 "agent_session_mode_updated",
                 {"agentId": agent_id, "mode": new_mode, "previousMode": current_mode},
             )
+        updated_agent = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        updated_status = await _compute_agent_status(updated_agent, db)
+        updated_dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
         response_payload = {
             "ok": True,
             "agentId": agent_id,
@@ -15245,6 +15246,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             "changed": True,
             "resumeCommand": resume_command,
             "sideEffects": side_effects,
+            "agent": _agent_record_to_dict(updated_agent, updated_status, 0, updated_dispatch_state),
         }
         if forced_resident_warning:
             switch_warnings.insert(0, forced_resident_warning)
@@ -16785,6 +16787,11 @@ async def stop_agent_worker(agent_id: str, request: Request):
     """
     db = await get_db()
     try:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        requested_by = str(body.get("requestedBy") or "dashboard").strip() or "dashboard"
         agent_row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
         if not agent_row:
             raise HTTPException(404, f'Agent "{agent_id}" not found')
@@ -16792,12 +16799,25 @@ async def stop_agent_worker(agent_id: str, request: Request):
         runtime_state = _json_loads_or(agent_row["runtime_state"], {}) or {}
         virtual_terminal_id = str(runtime_state.get("virtualTerminalId") or "").strip()
         terminal_payload = None
+        terminal_control_id = ""
         if virtual_terminal_id:
             row = await (await db.execute(
                 "SELECT * FROM terminal_sessions WHERE id = ?",
                 (virtual_terminal_id,),
             )).fetchone()
             if row:
+                # Database state cannot stop a process on the owning host. Queue
+                # the bridge-side stop before marking the row stopped. For managed
+                # Hermes, server.js also uses this control to reap the detached
+                # gateway/loop/daemon triad for this agent only.
+                terminal_control_id = await _append_terminal_control(
+                    db,
+                    terminal_id=virtual_terminal_id,
+                    environment_id=str(row["environment_id"] or ""),
+                    bridge_id=str(row["bridge_id"] or ""),
+                    action="stop",
+                    requested_by=requested_by,
+                )
                 await db.execute(
                     """
                     UPDATE terminal_sessions
@@ -16860,6 +16880,7 @@ async def stop_agent_worker(agent_id: str, request: Request):
             "ok": True,
             "agentId": agent_id,
             "virtualTerminalId": virtual_terminal_id,
+            "terminalControlId": terminal_control_id,
             "terminal": terminal_payload,
         }
     finally:
@@ -20238,7 +20259,7 @@ async def _run_contract_reminders_once(
             """,
             (
                 message_id,
-                "dashboard",
+                row["from_agent"],
                 row["target_agent"],
                 "direct",
                 "info",
@@ -20253,7 +20274,7 @@ async def _run_contract_reminders_once(
         runs = await _create_dispatch_runs(
             db,
             [target for target, _ in launchable],
-            from_agent="dashboard",
+            from_agent=row["from_agent"],
             message_type="info",
             subject=subject,
             body=body,
@@ -22368,20 +22389,16 @@ async def rotate(request: Request):
         await db.close()
 
 
-# ─── Dashboard ───────────────────────────────────────────────────────────────
+# ─── Dashboard compatibility redirects ──────────────────────────────────────
 
-@router.get("/dashboard", response_class=HTMLResponse)
-async def dashboard():
-    html_path = Path(__file__).parent.parent / "dashboard.html"
-    return HTMLResponse(
-        html_path.read_text(encoding="utf-8"),
-        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
-    )
+@router.get("/dashboard", response_class=RedirectResponse)
+async def dashboard(request: Request):
+    return RedirectResponse(url=dashboard_url(request))
 
 
-@router.get("/dashboard/dispatches", response_class=HTMLResponse)
-async def dashboard_dispatches():
-    return await dashboard()
+@router.get("/dashboard/dispatches", response_class=RedirectResponse)
+async def dashboard_dispatches(request: Request):
+    return RedirectResponse(url=dashboard_url(request))
 
 
 @router.get("/favicon.svg", include_in_schema=False)

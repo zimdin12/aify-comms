@@ -38,8 +38,13 @@ if [ "$HTTP_CODE" = "200" ]; then echo "OK (${HTTP_CODE})"; else echo "FAIL (${H
 
 # MCP SSE (just check if endpoint exists)
 echo -n "GET /mcp    ... "
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 "${BASE_URL}/mcp/sse" 2>/dev/null || echo "timeout")
-if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "timeout" ]; then echo "OK (SSE endpoint exists)"; else echo "FAIL (${HTTP_CODE})"; fi
+CURL_STATUS=0
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 "${BASE_URL}/mcp/sse" 2>/dev/null) || CURL_STATUS=$?
+if [ "$HTTP_CODE" = "200" ]; then
+  echo "OK (SSE endpoint accepted; streaming timeout expected)"
+else
+  echo "FAIL (${HTTP_CODE:-no response}, curl=${CURL_STATUS})"
+fi
 
 echo ""
 echo "Service info:"

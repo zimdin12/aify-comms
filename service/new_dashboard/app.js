@@ -102,7 +102,7 @@ const pages = {
   diagnostics: ['Work', 'Work-loop contracts and run/dispatch evidence.'],
   analytics: ['Analytics', 'Fleet-wide message traffic, run outcomes, and live capacity.'],
   files: ['Files', 'Shared artifacts (comms_share). Upload, download, and remove files.'],
-  settings: ['Settings', 'Curated service + dashboard configuration. Save writes to the live settings; rare knobs stay on classic.'],
+  settings: ['Settings', 'Curated service and dashboard configuration. Saves apply to the live service.'],
 };
 
 const byId = (id) => document.getElementById(id);
@@ -851,7 +851,6 @@ const SETTINGS_SCHEMA = [
     { key: 'insert_messages_via_console', label: 'Legacy PTY-input delivery', type: 'toggle', hint: 'Default off — scrambles concurrent typing. Channel delivery is preferred.' },
     { key: 'managed_pty_eager_spawn', label: 'Eager-spawn managed PTY', type: 'toggle' },
     { key: 'console_auto_confirm_claude_dev_channels', label: 'Auto-confirm claude dev-channels prompt', type: 'toggle' },
-    { key: 'console_auto_confirm_claude_compaction', label: 'Auto-confirm claude compaction prompt', type: 'toggle' },
     { key: 'managed_via_wrapper', label: 'Wrapper-backed managed runtimes', type: 'csv', hint: 'Comma-separated, e.g. codex, hermes.' },
     { key: 'managed_claude_model', label: 'Managed claude model', type: 'text' },
     { key: 'managed_claude_effort', label: 'Managed claude effort', type: 'select', options: EFFORT_OPTS },
@@ -1112,7 +1111,7 @@ function renderUsagePools() {
     const left = (p.verified === false || w.left_pct == null) ? '—' : w.left_pct + '%';
     const fleft = (f.left_pct == null) ? '—' : f.left_pct + '%';
     const used = (p.verified === false || w.used_pct == null) ? 0 : Math.max(0, Math.min(100, w.used_pct));
-    const reset = w.resets_at ? usageResetLabel(w.resets_at) : '';
+    const fiveHourReset = f.resets_at ? usageResetLabel(f.resets_at) : '';
     const tags = (p.unknown ? '<span class="usage-tag">unknown</span>' : '') + (p.stale ? '<span class="usage-tag">stale</span>' : '');
     const name = LABELS[p.source_id] || p.source_id;
     // Backend blanks the numbers (→ "—") when they can't be trusted; the note says why so agents
@@ -1136,7 +1135,7 @@ function renderUsagePools() {
     const evidence = ev.length ? `<div class="usage-pool-meta subtle">source says: ${esc(ev.join(' · '))}</div>` : '';
     const meta = staleMsg
       ? `<div class="usage-pool-meta usage-pool-expired">⚠ ${esc(staleMsg)}</div>${evidence}`
-      : `<div class="usage-pool-meta">5h ${fleft} left${reset ? ' · ' + esc(reset) : ''}</div>`;
+      : `<div class="usage-pool-meta">5h ${fleft} left${fiveHourReset ? ' · ' + esc(fiveHourReset) : ''}</div>`;
     return `<div class="usage-pool-card ${sev}"><div class="usage-pool-name"><span>${esc(name)}</span><span>${tags}</span></div>`
       + `<div class="usage-pool-weekly">${left}<span class="usage-pool-sub"> weekly left</span></div>`
       + `<div class="usage-pool-bar"><span style="width:${used}%"></span></div>`
@@ -1977,9 +1976,15 @@ function applyRenderedWidth(entry, term, container, data, ownsPty = false) {
 
 // Re-fetch the authoritative buffer and repaint (used by the Refresh button and on a
 // detected seq gap, mirroring the old dashboard's resync path).
-async function resyncActiveConsole() {
+async function resyncActiveConsole({ forceRepaint = false } = {}) {
   const entry = state.activeXterm;
   if (!entry || !entry.term) return;
+  // A PTY resize produces a burst of repaint frames. Those frames can themselves
+  // expose a transient seq gap, which used to start another resync and another
+  // -1/+1 resize pair. Coalesce recovery so one gap cannot fan out into the
+  // observed 153↔154-cols resize/flicker loop.
+  if (entry.resyncing) return;
+  entry.resyncing = true;
   try {
     // Fetch at the pane's FITTED width (not the possibly-widened current width) so the server
     // can re-infer the source width and hand back the correct renderedCols.
@@ -1989,7 +1994,7 @@ async function resyncActiveConsole() {
     // what changed, so a screen with wrong rows keeps them forever; the ONLY thing that forces a
     // full repaint is a genuine PTY resize (verified live). So Refresh now nudges the size (-1
     // col, then back), which makes the app redraw everything, and THEN pulls the clean snapshot.
-    if (entry.ownsPty) {
+    if (forceRepaint && entry.ownsPty) {
       try {
         await api(`/terminals/${encodeURIComponent(entry.terminalId)}/resize`, {
           method: 'POST',
@@ -2009,8 +2014,10 @@ async function resyncActiveConsole() {
     applyRenderedWidth(entry, entry.term, entry.container, data, Boolean(entry.ownsPty));
     const snapshot = data?.terminal?.snapshot;
     entry.term.write(String(snapshot || data?.terminal?.output || ''));
-    entry.lastSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? entry.lastSeq);
+    const snapshotSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? entry.lastSeq);
+    entry.lastSeq = Math.max(Number(entry.lastSeq) || -1, Number.isFinite(snapshotSeq) ? snapshotSeq : -1);
   } catch { /* keep current buffer */ }
+  finally { entry.resyncing = false; }
 }
 
 // Clipboard copy that works on the http loopback origin (navigator.clipboard is undefined
@@ -2272,7 +2279,17 @@ async function switchAgentSessionMode(agentId, targetMode, { force = false } = {
     inspect('Mode switch failed', { agentId, targetMode, status: res.status, body });
     return null;
   }
-  toast(`Switched ${agentId} to ${body?.mode || targetMode}`, 'ok');
+  const updatedMode = String(body?.mode || targetMode);
+  const existingAgent = state.agents.find((agent) => String(agent.id || '') === String(agentId));
+  if (existingAgent && body?.agent) Object.assign(existingAgent, body.agent);
+  else if (existingAgent) existingAgent.sessionMode = updatedMode;
+  state.sessions.forEach((session) => {
+    if (sessionAgentId(session) === String(agentId)) session.sessionMode = updatedMode;
+  });
+  renderSessionRail();
+  renderSessionWorkspace();
+  chatController.render();
+  toast(`Switched ${agentId} to ${updatedMode}`, 'ok');
   refreshSoon();
   return body;
 }
@@ -2317,7 +2334,7 @@ function renderSessionConsole(session, targetEl, opts = {}) {
   // (Restart/Reset/Stop/Switch/Message-in-Chat) already live in the chat header + Details
   // drawer — so we don't duplicate them here (audit finding C5). Sessions page keeps the full set.
   const isChatSource = opts.source === 'chat';
-  const connectActions = `${hermesGatewayHttp ? `<button class="ghost" data-action="open-hermes-tab" data-url="${esc(hermesGatewayHttp)}">Open in new tab</button>` : ''}`
+  const connectActions = `${hermesGatewayHttp ? `<button class="ghost" data-action="open-hermes-tab" data-url="${esc(hermesGatewayHttp)}" title="Open the upstream Hermes browser UI in a separate tab">Open Hermes UI</button>` : ''}`
     + `${codexAttachable ? `<button class="ghost" data-action="codex-console-connect" data-agent-id="${esc(agentIdForCodex)}" data-app-server-url="${esc(codexAppServerUrl)}" data-thread-id="${esc(codexThreadId)}">Connect live console</button>` : ''}`;
   const _drawerAgentId = agent?.id || agentIdForCodex || '';
   const lifecycleActions = `${_drawerAgentId ? `<button class="ghost" data-agent-details="${esc(_drawerAgentId)}" title="Open the full lifecycle drawer (edit, handle, env, history, remove…)">Details</button>` : ''}`
@@ -3721,11 +3738,6 @@ async function toggleRunEventOrder() {
   renderRunInspector();
 }
 
-function openClassic(anchor = '') {
-  const suffix = anchor ? `#${encodeURIComponent(anchor)}` : '';
-  window.open(`${apiOrigin}/api/v1/dashboard${suffix}`, '_blank', 'noopener');
-}
-
 async function sendMessageWithTimeout(payload, timeoutMs = 20000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -4050,7 +4062,7 @@ document.addEventListener('click', (event) => {
   if (consoleAction) {
     const action = consoleAction.dataset.consoleAction;
     if (action === 'copy') copyActiveConsole();
-    else if (action === 'refresh') resyncActiveConsole().then(() => toast('Console refreshed', 'ok')).catch(() => {});
+    else if (action === 'refresh') resyncActiveConsole({ forceRepaint: true }).then(() => toast('Console refreshed', 'ok')).catch(() => {});
     else if (action === 'stop') stopConsoleTerminal(consoleAction.dataset.terminalId);
     else if (action === 'start') startConsoleForSession(consoleAction.dataset.sessionId, false);
     else if (action === 'start-fresh') startConsoleForSession(consoleAction.dataset.sessionId, true);
@@ -4569,7 +4581,6 @@ byId('attention-collapse')?.addEventListener('click', () => {
   const collapsed = strip.classList.toggle('collapsed');
   try { localStorage.setItem('aify.next.attentionCollapsed', collapsed ? '1' : '0'); } catch { /* ignore */ }
 });
-byId('open-classic-settings')?.addEventListener('click', () => openClassic('settings'));
 byId('settings-save')?.addEventListener('click', () => {
   saveSettings().catch((err) => toast(`Save failed: ${err?.message || err}`, 'error'));
 });

@@ -64,7 +64,7 @@ If either is missing, set `AIFY_CLAUDE_COMMAND` to the absolute path of the real
 - **Ctrl+Shift+C** — copies the current xterm selection (now routed through the same robust copy path, not the old "use browser menu" dead end).
 - **Shift+drag** — hold Shift while dragging to select text even while the TUI captures the mouse, then use the Copy button or Ctrl+Shift+C.
 
-Paste and interactive input are unchanged. If copy still fails after updating, the running container predates the fix — rebuild the service (`docker compose up -d --build`), since `dashboard.html` is COPY'd into the image.
+Paste and interactive input are unchanged. If copy still fails after updating, the running Dashboard Next container predates the fix — rebuild with `docker compose up -d --build`.
 
 ## Console opens a second time for an already-running wrapper
 
@@ -88,5 +88,5 @@ truncated escape's leftover bytes as literal output → the garbage at the top o
 **Fix (`4a0bfb8`, 2026-06-07).** The 64KB buffer now trims at a clean LINE boundary (it drops to the
 next newline rather than cutting mid-byte), so the seed always starts at the beginning of a line and
 never mid-escape — a fresh xterm seed no longer renders broken-ANSI garbage. Cosmetic only (it never
-affected delivery or the live stream). `dashboard.html` and the service buffer are COPY'd into the
-image — rebuild the service if you still see seed garbage after updating.
+affected delivery or the live stream). Rebuild the service and Dashboard Next containers if you
+still see seed garbage after updating.

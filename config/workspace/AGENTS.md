@@ -11,7 +11,7 @@ This is `aify-comms`: a FastAPI service and dashboard for agent communication, l
 | `GET /health` | Health check |
 | `GET /ready` | Readiness check |
 | `GET /info` | Service discovery |
-| `GET /api/v1/dashboard` | Dashboard |
+| `GET /api/v1/dashboard` | Compatibility redirect to Dashboard Next (`:8801`) |
 | `GET /api/v1/environments` | Connected environment bridges |
 | `POST /api/v1/environments/heartbeat` | Bridge heartbeat |
 | `POST /api/v1/spawn-requests` | Queue a managed agent spawn |
@@ -26,7 +26,7 @@ This is `aify-comms`: a FastAPI service and dashboard for agent communication, l
 |---|---|
 | `service/routers/api_v2.py` | Dashboard/API behavior |
 | `service/models.py`, `service/db.py` | Persistent schema and migrations |
-| `service/dashboard.html` | Single-page dashboard |
+| `service/new_dashboard/` | Dashboard Next ES-module app |
 | `mcp/stdio/server.js` | MCP tools, live wake, environment bridge loops |
 | `mcp/stdio/runtimes.js` | Runtime adapters |
 | `.agents/skills`, `.claude/skills` | Agent-facing instructions |

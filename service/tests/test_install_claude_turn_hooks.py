@@ -42,11 +42,14 @@ def test_turn_start_hook_wires_userpromptsubmit_and_posttooluse(install_text: st
     assert "/api/v1/agents/${AIFY_AGENT_ID}/turn-start" in install_text
 
 
-def test_turn_end_hook_wires_stop(install_text: str):
-    # Stop is the authoritative turn-end → clears turn_busy immediately instead of
-    # waiting out the 120s stale window.
+def test_turn_end_hook_wires_stop_and_post_compaction_session_start(install_text: str):
+    # Stop is the normal turn-end. Claude can finish a turn by compacting without
+    # firing Stop; SessionStart(matcher=compact) is the first authoritative event
+    # after that boundary and must clear the otherwise latched working state.
     assert "install_claude_turn_end_hook()" in install_text
     assert "/api/v1/agents/${AIFY_AGENT_ID}/turn-end" in install_text
+    assert "wireTurnEnd('Stop')" in install_text
+    assert "wireTurnEnd('SessionStart', 'compact')" in install_text
 
 
 def test_turn_hooks_are_installed_for_claude(install_text: str):

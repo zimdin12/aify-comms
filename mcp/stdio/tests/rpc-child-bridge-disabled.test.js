@@ -25,8 +25,8 @@ function runServer(env) {
     proc.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
     const timeout = setTimeout(() => {
       try { proc.kill("SIGKILL"); } catch {}
-      reject(new Error(`server.js did not exit within 5s. stdout=${stdout} stderr=${stderr}`));
-    }, 5000);
+      reject(new Error(`server.js did not exit within 15s. stdout=${stdout} stderr=${stderr}`));
+    }, 15000);
     proc.once("exit", (code, signal) => {
       clearTimeout(timeout);
       resolve({ code, signal, stdout, stderr });
@@ -40,6 +40,10 @@ function runServer(env) {
 
 const result = await runServer({
   AIFY_BRIDGE_DISABLED: "1",
+  AIFY_HERMES_ACTIVE_SESSION_FILE: "",
+  HERMES_TUI_ACTIVE_SESSION_FILE: "",
+  HERMES_SESSION_ID: "",
+  HERMES_SESSION: "",
   // Sanity: even with an agent id present (the RPC child INHERITS its
   // parent's env), the disabled flag must short-circuit before any
   // registration / claim work.

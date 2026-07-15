@@ -48,17 +48,10 @@ test("discoverSessionId accepts a bare (non-JSON) active-session file", async ()
 
 test("discoverSessionId falls back to HERMES_SESSION_ID env (the real visible id)", async () => {
   const adapter = new HermesAdapter();
-  // No active-session file → durable env handle wins. getCurrentSessionId reads
-  // process.env, so set it there for this assertion.
-  const prev = process.env.HERMES_SESSION_ID;
-  try {
-    process.env.HERMES_SESSION_ID = "20260601_real_env";
-    const id = await adapter.discoverSessionId({ env: {} });
-    assert.equal(id, "20260601_real_env");
-  } finally {
-    if (prev === undefined) delete process.env.HERMES_SESSION_ID;
-    else process.env.HERMES_SESSION_ID = prev;
-  }
+  const id = await adapter.discoverSessionId({
+    env: { HERMES_SESSION_ID: "20260601_real_env" },
+  });
+  assert.equal(id, "20260601_real_env");
 });
 
 test("discoverSessionId falls back to the per-agent session-id marker", async () => {

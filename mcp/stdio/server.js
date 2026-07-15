@@ -59,6 +59,14 @@ import { terminalControlFailurePatch, orphanPidToKill, orphanPidReapAllowed } fr
 import { reportDeadOwnedSessions } from "./dead-pty-reporter.js";
 import { terminalChildEnv } from "./terminal-env.js";
 import { managedViaWrapperRuntimesFromSettingsResponse } from "./managed-wrapper-settings.js";
+import { claimFailureDecision, claimRecoveryDecision } from "./claim-failure-policy.js";
+import {
+  bootstrapManagedEnvironmentBridge,
+  localAgentNeedsDispatchHosting,
+  managedAgentNeedsDispatchHosting,
+  reconcileManagedStateWithSnapshot,
+  resolveFreshManagedTeardownTargets,
+} from "./managed-teardown-ownership.js";
 import { adapterFor } from "./adapters/index.js";
 import { fillSessionHandleFromAdapter } from "./register-helpers.js";
 import { startSessionHandleHeartbeat, makeDefaultHandlePoster } from "./session-handle-heartbeat.js";
@@ -740,6 +748,12 @@ if (AIFY_HERMES_GATEWAY_URL) {
 
 let shutdownStarted = false;
 let reportEnvironmentOffline = async () => {};
+// The synchronous process.on('exit') cleanup may only act on agent ids that the
+// graceful path confirmed from a fresh service snapshot. A cached managed entry
+// can be stale after managed→resident takeover; using it can kill the resident
+// delivery loop and its gateway host while leaving the visible TUI attached to a
+// dead websocket. Unexpected exits leave this null and rely on the boot sweep.
+let confirmedManagedTeardownAgentIds = null;
 
 async function interruptActiveRuns(reason = "Bridge shutdown") {
   const active = Array.from(ACTIVE_RUNS.values());
@@ -777,9 +791,9 @@ function cleanupOnExit() {
     terminalControlTimer = null;
   }
   TERMINAL_MANAGER.stopAll("bridge process exiting").catch(() => {});
-  // WS2: synchronous best-effort triad reap for the non-graceful process.on('exit')
-  // path (no async work can run here). Kills the detached delivery-loop + daemon
-  // trees this env bridge owns. Scoped identically to the graceful path.
+  // Synchronous best-effort triad reap may only reuse targets freshly confirmed
+  // by runManagedTeardownForBridge. An unexpected exit has no safe ownership
+  // snapshot, so it reaps nothing and the next boot sweep is the backstop.
   try { runManagedTeardownSync("bridge exit"); } catch { /* best effort */ }
   // Remove codex runtime marker
   if (codexMarkerCwd) {
@@ -807,6 +821,16 @@ async function shutdownWithStatus(code) {
           agentId: AIFY_AGENT_ID,
           bridgeId: BRIDGE_INSTANCE_ID,
           sessionMode: process.env.AIFY_SESSION_MODE,
+          lifecycleOwner: process.env.AIFY_RESIDENT_LIFECYCLE_OWNER || (
+            // ASYMMETRY(hermes): Hermes spawns the MCP bridge per turn; the
+            // gateway-host wrapper owns the persistent resident lifecycle.
+            // Infer this for already-open TUIs launched before the explicit
+            // owner marker was added, so installing the fix needs no restart.
+            normalizeRuntime(process.env.AIFY_RUNTIME || AGENT_RUNTIME) === "hermes"
+              && String(process.env.AIFY_HERMES_GATEWAY_URL || "").trim()
+              ? "managed-host"
+              : "bridge"
+          ),
           runtime: process.env.AIFY_RUNTIME || "generic",
         }),
         new Promise((resolve) => setTimeout(resolve, 1500).unref?.()),
@@ -883,6 +907,8 @@ const TERMINAL_CONTROL_POLL_MS = Math.max(
 let dispatchLoopTimer = null;
 let dispatchLoopBusy = false;
 let environmentHeartbeatTimer = null;
+let environmentBridgeBootstrapped = false;
+let environmentBridgeBootstrapPromise = null;
 let usageCollectorTimer = null;
 let environmentControlTimer = null;
 let environmentControlBusy = false;
@@ -1954,6 +1980,7 @@ export async function reportResidentLost({
   agentId,
   bridgeId,
   sessionMode,
+  lifecycleOwner = "bridge",
   machineId = MACHINE_ID,
   runtime = "generic",
   reason = "Resident *-aify session closed cleanly; self-correcting off 'available' (resident-lost).",
@@ -1961,6 +1988,10 @@ export async function reportResidentLost({
   const id = String(agentId || "").trim();
   // Resident gate: managed sessions must NOT POST resident-lost.
   if (normalizeSessionMode(sessionMode) !== "resident") return false;
+  // Some harnesses spawn this MCP bridge as a short-lived per-turn child. Their
+  // wrapper/sidecar owns the actual resident TUI lifecycle and reports the real
+  // close; a child exit is not evidence that the operator's TUI disappeared.
+  if (String(lifecycleOwner || "bridge").trim().toLowerCase() !== "bridge") return false;
   if (!call || !id) return false;
   try {
     await call("POST", `/agents/${encodeURIComponent(id)}/resident-lost`, {
@@ -2034,32 +2065,28 @@ function cwdRootsForEnvironment() {
   return dedupePreserveOrder([DEFAULT_CWD]);
 }
 
-// The managed agent ids THIS environment bridge owns. REMOTE_AGENT_STATE is
-// populated by syncManagedEnvironmentAgents only with agents whose sessionMode
-// is "managed", whose runtime this env advertises, and whose workspace is
-// within this env's cwdRoots — i.e. exactly the bridge's owned managed agents.
-// Scoping the survivor reap to this set is the safety invariant: another env's
-// children, another team's agents, and resident operator sessions are never in
-// REMOTE_AGENT_STATE, so they can never be enumerated for kill.
-function ownedManagedAgentIds() {
-  const ids = [];
-  for (const [agentId, state] of REMOTE_AGENT_STATE.entries()) {
-    const info = state?.info || {};
-    if (String(info.sessionMode || "") !== "managed") continue;
-    if (!agentId) continue;
-    ids.push(agentId);
-  }
-  return dedupePreserveOrder(ids);
-}
-
 // Tear down every managed-hermes triad survivor (gateway host, delivery loop,
-// daemon, console PTY) this env bridge owns. Scoped strictly to
-// ownedManagedAgentIds() — NEVER a resident session or another bridge's child.
+// daemon, console PTY) this env bridge owns. Targets come from a FRESH service
+// ownership read — NEVER the long-lived REMOTE_AGENT_STATE cache, because a
+// managed→resident switch can make that cache stale until the next heartbeat.
 // async: awaits the port-kill/stopDaemon promises so the kills land before
-// process.exit. Best-effort; never throws.
+// process.exit. If the service is unavailable, fail safe and reap nothing; the
+// next boot sweep handles genuine managed survivors after ownership is readable.
 async function runManagedTeardownForBridge(reason = "bridge teardown") {
   if (!IS_ENVIRONMENT_BRIDGE) return;
-  const ownedAgentIds = ownedManagedAgentIds();
+  const resolved = await resolveFreshManagedTeardownTargets({
+    selfBridgeId: BRIDGE_INSTANCE_ID,
+    fetchOwnership: fetchManagedOwnershipForEnv,
+  });
+  const ownedAgentIds = resolved.agentIds;
+  confirmedManagedTeardownAgentIds = ownedAgentIds;
+  if (resolved.skipped === "ownership-unavailable") {
+    console.error(
+      `[aify] managed teardown (${reason}): fresh ownership unavailable — reaping nothing (fail-safe):`,
+      resolved.error?.message || resolved.error,
+    );
+    return;
+  }
   if (!ownedAgentIds.length) return;
   try {
     const result = runManagedTeardown({
@@ -2153,7 +2180,9 @@ async function runSingleAgentManagedTeardown(agentId, reason = "agent stop") {
 // gateway survivors on the next bridge start, so this gap is self-healing.
 function runManagedTeardownSync(reason = "bridge exit") {
   if (!IS_ENVIRONMENT_BRIDGE) return;
-  const ownedAgentIds = ownedManagedAgentIds();
+  const ownedAgentIds = Array.isArray(confirmedManagedTeardownAgentIds)
+    ? confirmedManagedTeardownAgentIds
+    : [];
   if (!ownedAgentIds.length) return;
   try {
     const found = enumerateManagedSurvivors({
@@ -2239,7 +2268,7 @@ async function fetchManagedOwnershipForEnv() {
 // even after SIGKILL — while NEVER touching an agent owned by a currently-live
 // different bridge. Fail-safe: if ownership can't be fetched, reaps nothing.
 async function runBootSurvivorSweep() {
-  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE) return;
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE) return true;
   let records = null;
   try {
     records = await fetchManagedOwnershipForEnv();
@@ -2247,7 +2276,7 @@ async function runBootSurvivorSweep() {
     if (error?.status !== 404) {
       console.error("[aify] boot survivor sweep: ownership query failed — reaping nothing (fail-safe):", error?.message || error);
     }
-    return;
+    return false;
   }
   try {
     const result = reapOrphanedManagedSurvivors({
@@ -2267,7 +2296,7 @@ async function runBootSurvivorSweep() {
       // DIFFERENT bridge's agents are still skipped (owner !== self && ownerLive).
       treatSelfAsOrphan: true,
     });
-    if (result?.skipped === "ownership-unavailable") return;
+    if (result?.skipped === "ownership-unavailable") return false;
     if (Array.isArray(result?.pending) && result.pending.length) {
       await Promise.allSettled(result.pending);
     }
@@ -2282,8 +2311,10 @@ async function runBootSurvivorSweep() {
     if (result?.errors?.length) {
       console.error(`[aify] boot survivor sweep had ${result.errors.length} error(s):`, JSON.stringify(result.errors));
     }
+    return true;
   } catch (error) {
     console.error("[aify] boot survivor sweep failed:", error?.message || error);
+    return false;
   }
 }
 
@@ -2472,19 +2503,50 @@ function workspaceWithinRoots(workspace, roots = []) {
   return normalizedRoots.some((root) => value === root || value.startsWith(`${root}/`));
 }
 
-async function heartbeatEnvironment() {
-  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE) return;
+async function heartbeatEnvironment({ syncManaged = true } = {}) {
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE) return false;
   try {
     const response = await httpCall("POST", "/environments/heartbeat", environmentHeartbeatPayload());
     const roots = response?.environment?.cwdRoots;
     if (Array.isArray(roots)) {
       remoteEffectiveCwdRoots = roots.map((root) => String(root || "").trim()).filter(Boolean);
     }
-    await syncManagedEnvironmentAgents();
+    if (syncManaged) await syncManagedEnvironmentAgents();
+    return true;
   } catch (error) {
-    // Environment heartbeat is presence-only in this slice. Keep existing
-    // messaging/dispatch paths working even if an older server lacks the endpoint.
+    // Bootstrap must fail closed: without registration there is no authoritative
+    // handover snapshot, so managed adoption/spawn waits for the next retry.
+    return false;
   }
+}
+
+async function bootstrapEnvironmentBridge() {
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE) return { started: false, skipped: "not-environment-bridge" };
+  if (environmentBridgeBootstrapped) return { started: true };
+  if (environmentBridgeBootstrapPromise) return environmentBridgeBootstrapPromise;
+
+  environmentBridgeBootstrapPromise = bootstrapManagedEnvironmentBridge({
+    // Publish this bridge as the environment's current owner first. That makes a
+    // superseded predecessor non-live in the ownership snapshot while leaving the
+    // managed agents bound to the predecessor until the sweep has reaped them.
+    registerEnvironment: () => heartbeatEnvironment({ syncManaged: false }),
+    sweepSurvivors: runBootSurvivorSweep,
+    sweepTombstones: runBootTombstonedMarkerSweep,
+    syncManagedAgents: syncManagedEnvironmentAgents,
+    startSpawnLoop: ensureSpawnLoop,
+  })
+    .then((result) => {
+      if (result?.started) environmentBridgeBootstrapped = true;
+      return result;
+    })
+    .catch((error) => {
+      console.error("[aify] environment bridge bootstrap failed:", error?.message || error);
+      return { started: false, skipped: "bootstrap-error", error };
+    })
+    .finally(() => {
+      environmentBridgeBootstrapPromise = null;
+    });
+  return environmentBridgeBootstrapPromise;
 }
 
 reportEnvironmentOffline = async () => {
@@ -2503,9 +2565,13 @@ reportEnvironmentOffline = async () => {
 
 function ensureEnvironmentHeartbeat() {
   if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || environmentHeartbeatTimer) return;
-  heartbeatEnvironment();
+  bootstrapEnvironmentBridge().catch((error) => console.error("[aify] environment bridge bootstrap error:", error));
   const intervalMs = Math.max(5000, Number(process.env.AIFY_ENVIRONMENT_HEARTBEAT_MS || 30000));
   environmentHeartbeatTimer = setInterval(() => {
+    if (!environmentBridgeBootstrapped) {
+      bootstrapEnvironmentBridge().catch((error) => console.error("[aify] environment bridge bootstrap error:", error));
+      return;
+    }
     heartbeatEnvironment();
   }, intervalMs);
 }
@@ -2859,10 +2925,18 @@ async function runTerminalControlLoop() {
 function noteSpawnClaimFailure(error) {
   spawnClaimFailureCount += 1;
   const now = Date.now();
-  if (spawnClaimFailureCount === 1 || now - spawnClaimLastLogAt > 30000) {
-    spawnClaimLastLogAt = now;
-    const detail = error?.message || String(error || "unknown error");
-    const target = error?.serverUrl || ACTIVE_SERVER_URL || SERVER_URL;
+  const decision = claimFailureDecision({
+    count: spawnClaimFailureCount,
+    lastLogAt: spawnClaimLastLogAt,
+    now,
+  });
+  spawnClaimLastLogAt = decision.nextLastLogAt;
+  const detail = error?.message || String(error || "unknown error");
+  const target = error?.serverUrl || ACTIVE_SERVER_URL || SERVER_URL;
+  if (decision.debug && String(process.env.AIFY_DEBUG || "").trim() === "1") {
+    console.debug(`[aify] spawn claim transient failure against ${target}: ${detail}; retrying`);
+  }
+  if (decision.warn) {
     const fallbacks = SERVER_URLS.length > 1 ? `; configured URLs: ${SERVER_URLS.join(", ")}` : "";
     console.error(
       `[aify] spawn claim failed (${spawnClaimFailureCount} consecutive) against ${target}: ${detail}${fallbacks}. ` +
@@ -2873,7 +2947,9 @@ function noteSpawnClaimFailure(error) {
 
 function noteSpawnClaimSuccess() {
   if (spawnClaimFailureCount > 0) {
-    console.error(`[aify] spawn claim recovered after ${spawnClaimFailureCount} failure(s)`);
+    if (claimRecoveryDecision(spawnClaimFailureCount).log) {
+      console.error(`[aify] spawn claim recovered after ${spawnClaimFailureCount} failure(s)`);
+    }
     spawnClaimFailureCount = 0;
     spawnClaimLastLogAt = 0;
   }
@@ -2892,6 +2968,12 @@ async function syncManagedEnvironmentAgents() {
       httpCall("GET", "/agents"),
       httpCall("GET", `/sessions?environmentId=${encodeURIComponent(environment.id)}&limit=500`),
     ]);
+    // A managed agent can be taken over by an operator as resident while this
+    // environment bridge remains alive. Drop that now-stale cached managed row
+    // as soon as a successful full snapshot proves the mode changed. Without
+    // this reconciliation, graceful shutdown can target the resident's
+    // identical hermes-managed-host delivery loop and kill its gateway.
+    reconcileManagedStateWithSnapshot(REMOTE_AGENT_STATE, agentsRes.agents || {});
     const availableRuntimes = new Set((environment.runtimes || []).filter((item) => item?.available !== false).map((item) => normalizeRuntime(item.runtime)));
     const activeSessionsByAgent = new Map();
     for (const session of sessionsRes.sessions || []) {
@@ -2911,6 +2993,14 @@ async function syncManagedEnvironmentAgents() {
         session ||
         String(runtimeState.environmentId || "") === environment.id;
       if (!belongsToEnvironment) continue;
+
+      // `available` means this environment can cold-start the agent, not that a
+      // worker exists to host. The spawn loop owns that wake path. Adopting every
+      // historical available agent here made the 3s dispatch loop GET + heartbeat
+      // each one forever. An active session remains authoritative even if its
+      // derived status is briefly stale during bridge handover; runSpawnLoop adds
+      // newly spawned workers to REMOTE_AGENT_STATE itself.
+      if (!session && !managedAgentNeedsDispatchHosting(managedInfo)) continue;
 
       const runtime = normalizeRuntime((session?.runtime || managedInfo.runtime || "generic"));
       if (!availableRuntimes.has(runtime)) continue;
@@ -3069,6 +3159,10 @@ async function runSpawnLoop() {
 
 function ensureDispatchLoop() {
   if (!IS_REMOTE || dispatchLoopTimer) return;
+  if (!localAgentNeedsDispatchHosting({
+    agentId: AIFY_AGENT_ID,
+    channelsEnabled: String(process.env.AIFY_CHANNELS_ENABLED || "").trim() === "1",
+  })) return;
   dispatchLoopTimer = setInterval(() => {
     runDispatchLoop().catch((error) => console.error("[aify] dispatch loop error:", error));
   }, DISPATCH_POLL_MS);
@@ -3076,28 +3170,11 @@ function ensureDispatchLoop() {
 
 ensureEnvironmentControlLoop();
 ensureUsageCollector();
-// WS2: reap crash/SIGKILL managed-triad survivors of a dead predecessor BEFORE
-// the spawn loop brings fresh managed agents up AND before the environment
-// heartbeat's syncManagedEnvironmentAgents() can re-bind those agents'
-// runtimeState.bridgeInstanceId to THIS fresh bridge — so "restart = zero
-// survivors" holds. If the heartbeat/sync ran first, the survivor's agent record
-// would already read self as its owner and the sweep would skip exactly the
-// orphans it exists to kill (the sync-before-sweep race). We therefore run the
-// sweep to completion FIRST (it reads ownership while the agents still point at
-// the dead predecessor), THEN start the heartbeat loop. Async + best-effort;
-// errors never block boot. Skips agents owned by a currently-live different bridge.
-runBootSurvivorSweep()
-  .catch((error) => console.error("[aify] boot survivor sweep error:", error?.message || error))
-  .finally(() => {
-    // fix/hermes-leak P4: clear stale marker FILES for removed agents alongside
-    // the process survivor sweep (best-effort; never blocks boot/heartbeat).
-    runBootTombstonedMarkerSweep()
-      .catch((error) => console.error("[aify] boot tombstoned-marker sweep error:", error?.message || error))
-      .finally(() => {
-        ensureEnvironmentHeartbeat();
-      });
-  });
-ensureSpawnLoop();
+// Register the replacement bridge, reap the predecessor's managed survivors,
+// then adopt managed ownership and start spawning. The serialized bootstrap
+// closes the live-old-bridge handover gap and retries on later heartbeats when
+// the service or ownership snapshot is unavailable.
+ensureEnvironmentHeartbeat();
 ensureTerminalControlLoop();
 
 async function clearLocalActiveRun(agentId, state, active, reason) {

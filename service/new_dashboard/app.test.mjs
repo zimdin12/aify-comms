@@ -80,3 +80,15 @@ test("xterm remount guard checks container identity, not just terminal id", () =
     /state\.activeXterm\.container === container[\s\S]*container\.isConnected !== false/,
     "mountXtermForTerminal must remount when render recreated the host container");
 });
+
+test("automatic console resync never self-excites a PTY resize loop", () => {
+  const source = read("app.js");
+  assert.match(source, /async function resyncActiveConsole\(\{ forceRepaint = false \} = \{\}\)/,
+    "resync must distinguish passive recovery from an explicit operator repaint");
+  assert.match(source, /if \(forceRepaint && entry\.ownsPty\)/,
+    "only the explicit Refresh action may nudge the PTY width");
+  assert.match(source, /resyncActiveConsole\(\{ forceRepaint: true \}\)/,
+    "the visible Refresh action must retain the one-shot full repaint escape hatch");
+  assert.match(source, /entry\.lastSeq = Math\.max\(/,
+    "a snapshot fetched during live output must not roll the sequence watermark backwards");
+});

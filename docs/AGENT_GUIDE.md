@@ -19,7 +19,7 @@ This guide is for coding agents working on `aify-comms`.
 |---|---|---|
 | Backend API | `service/routers/api_v2.py` | Dashboard, environments, spawn requests, sessions, analytics, message actions |
 | Data model | `service/models.py`, `service/db.py` | Persistent SQLite schema and migrations |
-| Dashboard | `service/dashboard.html` | Single-page app for control, chat, agents, analytics, environments, sessions, runs, artifacts, help, settings |
+| Dashboard | `service/new_dashboard/` | ES-module app for control, chat, agents, analytics, environments, sessions, runs, artifacts, help, settings |
 | Stdio bridge | `mcp/stdio/server.js` | MCP tools, resident wake, environment-backed managed sessions, environment heartbeat/control loops |
 | Runtime adapters | `mcp/stdio/adapters/<rt>.js` | Per-runtime capability flags, session-id discovery, resume command |
 | Runtime controllers | `mcp/stdio/controllers/<rt>-*.js`, `mcp/stdio/runtimes.js` | Runtime-specific launch/resume/interrupt/delivery behavior |
@@ -41,15 +41,14 @@ Useful checks:
 ```bash
 node --check mcp/stdio/server.js
 npm --prefix mcp/stdio test
-python3 -m py_compile service/models.py service/db.py service/routers/api_v2.py
+python3 -m py_compile service/models.py service/db.py service/routers/api_v2.py service/new_dashboard_app.py
 docker compose exec -T service python -m unittest service.tests.test_api_v2_regressions service.tests.test_main_websocket_auth -q
 ```
 
-For dashboard edits, extract and syntax-check the inline script:
+For Dashboard Next edits, syntax-check the maintained ES-module client directly:
 
 ```bash
-awk '/<script>/{flag=1;next}/<\/script>/{flag=0}flag' service/dashboard.html > /tmp/aify-dashboard-script.js
-node --check /tmp/aify-dashboard-script.js
+node --check service/new_dashboard/app.js
 ```
 
 ## Bridge Setup Model
