@@ -8,7 +8,15 @@ import assert from "node:assert/strict";
 process.env.AIFY_SERVER_URL = process.env.AIFY_SERVER_URL || "http://127.0.0.1:8800";
 process.env.AIFY_AGENT_ID = "manager-bot";
 
-const { commsConsoleTailHandler, commsConsoleInputHandler } = await import("../server.js");
+const {
+  commsConsoleTailHandler,
+  commsConsoleInputHandler,
+  CONSOLE_INPUT_TOOL_DESCRIPTION,
+} = await import("../server.js");
+
+assert.match(CONSOLE_INPUT_TOOL_DESCRIPTION, /recovery-only/i);
+assert.match(CONSOLE_INPUT_TOOL_DESCRIPTION, /read the console first/i);
+assert.match(CONSOLE_INPUT_TOOL_DESCRIPTION, /do not inject normal work messages/i);
 
 // --- comms_console_tail: GET the console endpoint with capped lines ---
 {

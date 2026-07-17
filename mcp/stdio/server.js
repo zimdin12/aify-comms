@@ -4473,7 +4473,7 @@ server.tool(
     "This is live-delivery gated: if the target is offline, stale, stopped, or lacks a live wake path, the message is not written. A MANAGED agent resting at `available` (no live worker yet — including a hermes whose gateway died) IS deliverable: the send cold-starts/wakes it. `available` and `blocked` are both deliverable. If the target is busy and steer-capable, ordinary sends steer into the active run between tool calls. If the target is busy but cannot steer, ordinary sends queue or merge as next-turn work. Use queueIfBusy=true only when the message should run after the active turn even when steer is available; when queueIfBusy=true, the steer option is ignored. Agent-reported blocked/completed states are status notes, not delivery blockers. " +
     "The special target dashboard stores a message for the human/operator without trying to start a runtime. " +
     "Resident sessions trigger only when that exact runtime/session handle supports resident execution; environment-managed sessions remain the persistent fallback. " +
-    "Agents should answer aify-comms messages with a comms_send tool call: reply with comms_send(type=\"response\", inReplyTo=<the message id>) in BOTH resident/live CLI sessions AND dashboard-managed delivered runs. That tool call is the team/chat-visible reply and closes the run; your final plain text / stdout is your own working output, not the delivered reply. (Safety net: if managed_reply_capture_fallback is enabled, a delivered run that ends without an explicit reply has its summary auto-mirrored back; do not rely on it — send the comms_send.) Genuinely-direct terminal input you type yourself is answered with direct output, not comms_send. Keep messages scoped to one topic, state what you checked when truth matters, ask one clear question when blocked, and avoid reviving unrelated older context.",
+    "Agents should answer messages that owe a reply with a comms_send tool call: use comms_send(type=\"response\", inReplyTo=<the message id>) in BOTH resident/live CLI sessions AND dashboard-managed delivered runs. Requests, reviews, errors, dashboard asks, and explicit reply contracts normally owe replies. A completion response, approval, info, or acknowledgement with no new question/work is read context: do not send a courtesy acknowledgement. That tool call is the team/chat-visible reply and closes the run; your final plain text / stdout is your own working output, not the delivered reply. (Safety net: if managed_reply_capture_fallback is enabled, a delivered run that ends without an explicit reply has its summary auto-mirrored back; do not rely on it for messages that owe replies.) Genuinely-direct terminal input you type yourself is answered with direct output, not comms_send. Keep messages scoped to one topic, state what you checked when truth matters, ask one clear question when blocked, and avoid reviving unrelated older context.",
   {
     from: z.string().describe("Your agent ID"),
     to: z.string().optional().describe("Target agent ID"),
@@ -4831,6 +4831,11 @@ export async function commsConsoleInputHandler({ agentId, text, enter, from }, {
   }
 }
 
+export const CONSOLE_INPUT_TOOL_DESCRIPTION =
+  "Recovery-only: send keystrokes/text into another managed agent's live console. " +
+  "Read the console first with comms_console_tail and use this only for a proven interactive prompt or operator recovery. " +
+  "Do not inject normal work messages, reminders, or duplicate comms_send delivery through the console. Audited.";
+
 server.tool(
   "comms_console_tail",
   "Read the last N lines of another agent's live console (read-only; managed agents).",
@@ -4843,7 +4848,7 @@ server.tool(
 
 server.tool(
   "comms_console_input",
-  "Send keystrokes/text into another agent's live console (e.g. a command, or Enter to unstick). Managed agents; audited.",
+  CONSOLE_INPUT_TOOL_DESCRIPTION,
   {
     agentId: z.string().describe("Agent whose console to send input to"),
     text: z.string().optional().describe("Text/command to type. Empty string + enter=true sends just Enter."),

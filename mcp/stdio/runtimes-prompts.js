@@ -7,14 +7,15 @@ export function buildSystemPrompt(agentId, agentInfo, run) {
   const isDashboardSender = fromAgent === "dashboard";
   const subject = String(run?.subject || "").trim();
   const isChannelMessage = /^#[-A-Za-z0-9_.]+:/.test(subject);
+  const replyOptional = !isDashboardSender && run?.requireReply === false;
   const replyParent = String(run?.messageId || run?.inReplyTo || "").trim();
   const replyVerb = replyParent
     ? `comms_send(type="response", inReplyTo="${replyParent}", to="${isDashboardSender ? "dashboard" : fromAgent}")`
     : `comms_send(type="response", to="${isDashboardSender ? "dashboard" : fromAgent}")`;
   const replyRule = isDashboardSender
     ? `The dashboard sender is the human/operator. Reply with ${replyVerb} so it threads into dashboard chat. Your final plain text is your own working output, not the team/chat reply.`
-    : run?.requireReply === false
-    ? `No required handoff is tracked. If this asks a question, assigns work, names you, or you have useful evidence, reply with ${replyVerb}; otherwise treat it as read context. Final plain text is your working output, not the reply.`
+    : replyOptional
+    ? `No required handoff is tracked. If this asks a question, assigns work, names you, or you have useful evidence, reply with ${replyVerb}; otherwise treat it as read context. Do not send an acknowledgement-only reply. Final plain text is your working output, not the reply.`
     : `Before you finish, send the reply with ${replyVerb} — that tool call is the team reply and closes the run. Your final plain text is your own working output, not the reply.`;
   const channelRule = isChannelMessage
     ? "This appears to be a channel/group message. Reply in the channel only when you are named, responsible, asked for evidence, or can unblock the group. Otherwise avoid broad automatic acks. Use a direct message for owner-specific follow-up."
@@ -24,6 +25,8 @@ export function buildSystemPrompt(agentId, agentInfo, run) {
     `This is a message delivered through aify-comms for agent "${agentId}" (${agentInfo.role || "agent"}).`,
     isDashboardSender
       ? "This run was started by the dashboard human/operator. Reply to it with a comms_send tool call (see reply rule below); your final plain text is your own working output."
+      : replyOptional
+      ? "This is a managed background run delivered through aify-comms. It does not owe an acknowledgement: reply only when the reply rule below says the message needs a useful answer."
       : "This is a managed background run delivered through aify-comms. Reply to it with a comms_send tool call (see reply rule below) — that is the team-visible reply; your final plain text is your own working output, not the reply.",
     `Your aify-comms agentId is "${agentId}". Use that exact ID when checking your own inbox or conversation state.`,
     `From: ${run.from}.`,
@@ -47,6 +50,7 @@ export function buildUserPrompt(run) {
   const isDashboardSender = fromAgent === "dashboard";
   const subject = String(run?.subject || "").trim();
   const isChannelMessage = /^#[-A-Za-z0-9_.]+:/.test(subject);
+  const replyOptional = !isDashboardSender && run?.requireReply === false;
   const replyParent = String(run?.messageId || run?.inReplyTo || "").trim();
   const replyTo = isDashboardSender ? "dashboard" : fromAgent;
   const replyVerb = replyParent
@@ -54,8 +58,8 @@ export function buildUserPrompt(run) {
     : `comms_send(type="response", to="${replyTo}")`;
   const replyRule = isDashboardSender
     ? `Reply to the dashboard user with ${replyVerb}.`
-    : run?.requireReply === false
-    ? `If this asks a question, assigns you work, names you, or you have useful evidence, reply with ${replyVerb}; otherwise keep it as read context.`
+    : replyOptional
+    ? `If this asks a question, assigns you work, names you, or you have useful evidence, reply with ${replyVerb}; otherwise keep it as read context. Do not send an acknowledgement-only reply.`
     : `Required handoff: reply with ${replyVerb} before you finish.`;
   const context = formatConversationContext(run?.conversationContext || []);
   return [
@@ -67,13 +71,17 @@ export function buildUserPrompt(run) {
     "",
     run.body || "",
     "",
-    "Reply delivery: send your answer as a comms_send tool call (rule below). Your final plain text / stdout is your own working output, not the delivered reply.",
+    replyOptional
+      ? "Reply delivery: send your answer as a comms_send tool call only when the rule below says a useful reply is warranted; this message does not automatically owe one. Final plain text / stdout is your own working output."
+      : "Reply delivery: send your answer as a comms_send tool call (rule below). Your final plain text / stdout is your own working output, not the delivered reply.",
     replyRule,
     isChannelMessage
       ? "Channel discipline: respond only when your reply is useful to the group or sender. Do not create broad acknowledgement loops."
       : "",
     "Keep this turn scoped to the message above and its direct context. Do not carry unrelated older topics forward unless the sender explicitly asks for them.",
-    "Do not end silently. Answer the sender with comms_send (rule above). If you owe a separate update or future wake, create it with comms_send too.",
+    replyOptional
+      ? "Do not send a courtesy ack merely to close this turn. End without comms_send when the message is already a completion/ack and adds no new work."
+      : "Do not end silently. Answer the sender with comms_send (rule above). If you owe a separate update or future wake, create it with comms_send too.",
     "Parallel coordination is allowed. Self-continuation is allowed: send yourself a request with queueIfBusy=true. A written 'next action' in final text is not a wake.",
     isDashboardSender
       ? "Keep the final answer brief and directly useful."

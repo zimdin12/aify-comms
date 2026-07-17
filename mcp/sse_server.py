@@ -397,7 +397,12 @@ async def comms_console_tail(agentId: str, lines: int = 40) -> str:
 
 @mcp_server.tool()
 async def comms_console_input(agentId: str, text: str = "", enter: bool = True, from_agent: str = "") -> str:
-    """Send keystrokes/text into another agent's live console (e.g. a command, or Enter to unstick). Managed agents; audited."""
+    """Recovery-only console input for managed agents; audited.
+
+    Read the console first with comms_console_tail and use this only for a proven
+    interactive prompt or operator recovery. Do not inject normal work messages,
+    reminders, or duplicate comms_send delivery through the console.
+    """
     r = await _api("POST", f"/agents/{agentId}/console/input", {
         "text": text or "",
         "enter": bool(enter),

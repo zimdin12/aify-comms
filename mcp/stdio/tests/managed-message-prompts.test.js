@@ -66,4 +66,20 @@ assert.match(directSystem, /Before you finish, send the reply with comms_send\(t
 assert.match(directSystem, /that tool call is the team reply and closes the run/);
 assert.match(directSystem, /Your final plain text is your own working output, not the reply/);
 
+const nonReplyResponseRun = {
+  from: "sc-manager",
+  type: "response",
+  subject: "Ack",
+  body: "Round-trip confirmed; nothing owed.",
+  messageId: "msg-response-1",
+  requireReply: false,
+};
+const nonReplyResponseSystem = buildSystemPrompt("sc-coder", agentInfo, nonReplyResponseRun);
+const nonReplyResponseUser = buildUserPrompt(nonReplyResponseRun);
+for (const prompt of [nonReplyResponseSystem, nonReplyResponseUser]) {
+  assert.match(prompt, /Do not send an acknowledgement-only reply/);
+  assert.doesNotMatch(prompt, /Do not end silently/);
+  assert.doesNotMatch(prompt, /Answer the sender with comms_send/);
+}
+
 console.log("managed-message-prompts.test.js: all assertions passed");
