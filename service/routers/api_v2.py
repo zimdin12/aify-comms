@@ -4378,7 +4378,7 @@ async def _agent_awaiting_input(db, agent_id: str) -> bool:
     try:
         row = await (await db.execute(
             """
-            SELECT output, cols FROM terminal_sessions
+            SELECT output, cols, runtime FROM terminal_sessions
             WHERE agent_id = ?
               AND status IN ('starting','attached','running','active','idle','recovering')
               AND id NOT LIKE 'vterm_%'
@@ -4389,6 +4389,13 @@ async def _agent_awaiting_input(db, agent_id: str) -> bool:
     except Exception:
         return False
     if not row:
+        return False
+    # The screen patterns below model Claude Code's interactive permission,
+    # resume, and compaction prompts. Hermes/Codex/Pi terminal output includes
+    # the model's own prose; phrases such as "which option" or "say the word"
+    # there are ordinary output, not proof that the harness is waiting for an
+    # operator. Their controllers report turn state through native events.
+    if _normalize_runtime(str(row["runtime"] or "")) != "claude-code":
         return False
     keys = row.keys()
     return bool(_terminal_prompt_hint_from_raw(
@@ -4935,7 +4942,11 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     reason = ""
     awaiting_reply = False  # set True when the agent is idle but owes a channel reply
     terminal_input_hint = ""
-    if terminal_id and (active_run or (agent_session_mode == "managed" and has_live_worker)):
+    if (
+        _normalize_runtime(str(agent_row["runtime"] or "")) == "claude-code"
+        and terminal_id
+        and (active_run or (agent_session_mode == "managed" and has_live_worker))
+    ):
         try:
             terminal_row = await (await db.execute(
                 "SELECT output, cols FROM terminal_sessions WHERE id = ?",

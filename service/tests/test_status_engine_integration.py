@@ -596,6 +596,48 @@ class HeartbeatTurnBusyFeedsEngineTests(FastApiTestCase):
         self.assertEqual(asyncio.run(run()), "working",
                          "managed agent mid-turn (fresh turnBusy heartbeat) must serve `working` under new")
 
+    def test_hermes_prose_that_mentions_a_choice_does_not_report_blocked(self):
+        """Hermes runs yolo-managed and its PTY contains model/tool prose.
+
+        Claude's prompt-screen heuristics must not interpret that prose as an
+        operator prompt while Hermes is actively executing a turn.
+        """
+        self._heartbeat_environment("hermes")
+        self._register("hb-hermes-prose", mode="managed", runtime="hermes")
+        _seed_live_channel_worker(
+            self._db_path, self.ENV_ID, "hb-hermes-prose", runtime="hermes"
+        )
+        c = sqlite3.connect(str(self._db_path))
+        try:
+            c.execute(
+                "UPDATE terminal_sessions SET output=? WHERE agent_id=?",
+                ("Investigating which option should we choose next. Say the word after the checks.",
+                 "hb-hermes-prose"),
+            )
+            c.commit()
+        finally:
+            c.close()
+        self.client.post(
+            "/api/v1/agents/hb-hermes-prose/heartbeat",
+            json={"bridgeId": "sidecar_hb-hermes-prose", "turnBusy": True,
+                  "turnRunId": "run-prose", "turnRuntime": "hermes"},
+        )
+        import asyncio
+        from service.db import get_db
+        from service.routers import api_v2
+
+        async def run():
+            db = await get_db()
+            try:
+                row = await (await db.execute(
+                    "SELECT * FROM agents WHERE id='hb-hermes-prose'"
+                )).fetchone()
+                return await api_v2.engine_status(db, row)
+            finally:
+                await db.close()
+
+        self.assertEqual(asyncio.run(run()), "working")
+
     # 4. in_turn staleness backstop ──────────────────────────────────────────
     def test_in_turn_backstop_treats_stale_turn_as_ended(self):
         from datetime import datetime, timezone, timedelta

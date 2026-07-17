@@ -17,6 +17,7 @@ setup:
 	bash setup.sh
 
 build:
+	bash scripts/stamp.sh
 	docker compose build
 
 up:
@@ -26,6 +27,7 @@ down:
 	docker compose down
 
 restart:
+	bash scripts/stamp.sh
 	docker compose up -d --build --force-recreate
 
 logs:

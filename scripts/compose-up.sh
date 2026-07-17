@@ -11,6 +11,12 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_DIR"
 
+# Containers do not receive .git, so stamp the source tree before any build. Without this the
+# running /version endpoint can truthfully serve an older commit after a successful rebuild.
+if [[ " $* " == *" --build "* ]]; then
+    bash scripts/stamp.sh
+fi
+
 # Load .env if exists
 if [ -f .env ]; then
     export $(grep -v '^#' .env | grep -v '^$' | xargs)

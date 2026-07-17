@@ -1710,7 +1710,9 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
   container.innerHTML = '';
 
   const term = new window.Terminal({
-    convertEol: true,
+    // This is a real PTY byte stream. Rewriting LF to CRLF changes cursor semantics and is one
+    // reason this mirror diverged from Hermes' direct xterm attachment.
+    convertEol: false,
     cursorBlink: true,
     fontFamily: '"Cascadia Code", ui-monospace, "Consolas", monospace',
     fontSize: 13,
@@ -1738,7 +1740,10 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
 
   // Keystroke forwarding back to the bridge PTY via /terminals/<id>/input.
   // Service request shape (TerminalControlRequest in api_v2.py): {body, requestedBy}.
-  term.onData(async (data) => {
+  // Hermes uses one ordered WebSocket. We still cross the service API, so serialize requests:
+  // parallel fetches can otherwise deliver consecutive keystroke chunks out of order.
+  let inputPost = Promise.resolve();
+  term.onData((data) => {
     // Blocked-input guard (WS-D): don't silently POST into a console that can't accept input —
     // warn the operator (debounced) so their keystrokes aren't lost into the void.
     if (state.activeXterm && state.activeXterm.canInput === false) {
@@ -1749,14 +1754,12 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
       }
       return;
     }
-    try {
-      await api(`/terminals/${encodeURIComponent(terminalId)}/input`, {
+    inputPost = inputPost.then(() => api(`/terminals/${encodeURIComponent(terminalId)}/input`, {
         method: 'POST',
         body: JSON.stringify({ body: data, requestedBy: 'dashboard' }),
-      });
-    } catch (err) {
+      })).catch((err) => {
       term.write(`\r\n\x1b[31m[input post failed: ${String(err?.message || err).replace(/\x1b/g, '')}]\x1b[0m\r\n`);
-    }
+    });
   });
   // Emit-resize-only-on-change (hermes parity): xterm fires onResize on every fit even when the
   // grid dims didn't actually change — debounce AND dedupe so we don't spam the PTY with no-ops.

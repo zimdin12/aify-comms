@@ -92,3 +92,11 @@ test("automatic console resync never self-excites a PTY resize loop", () => {
   assert.match(source, /entry\.lastSeq = Math\.max\(/,
     "a snapshot fetched during live output must not roll the sequence watermark backwards");
 });
+
+test("managed PTY keeps raw terminal semantics and ordered input", () => {
+  const source = read("app.js");
+  assert.match(source, /convertEol:\s*false/,
+    "real PTY output must not rewrite LF into CRLF");
+  assert.match(source, /let inputPost = Promise\.resolve\(\)/,
+    "terminal input posts must be serialized so keystrokes cannot arrive out of order");
+});
