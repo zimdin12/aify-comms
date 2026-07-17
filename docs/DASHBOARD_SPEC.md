@@ -46,7 +46,7 @@ Primary cards:
 
 ## Work Loop
 
-Work Loop is the operations view over chat obligations. It should not introduce a second message concept. It computes contracts from direct requests, reviews, errors, high/urgent messages, required handoff runs, and self-wakes.
+Work Loop is the operations view over chat obligations. It should not introduce a second message concept. It computes contracts from the normalized reply contract stored on direct requests, reviews, errors, explicit `requireReply` messages, required handoff runs, and self-wakes. Priority affects attention and delivery urgency; it does not by itself create reply debt.
 
 It should show:
 
@@ -101,7 +101,7 @@ Chat should feel like a real team messenger:
 - compact mode: the chat rail can hide row metadata and narrow itself when the operator wants more timeline space
 - message badges: `live`, `not sent`, `handoff pending`, `handoff done`; legacy stored-only messages may appear in history/debug views
 - mention support: `@agent`, `@group`, `@channel`
-- quick actions: reply/follow-up, mark read, clear DM/delete channel, share artifact
+- quick actions: **Write reply**, **Mark read**/**Mark unread**, clear DM/delete channel, share artifact. Use verb phrases for actions so they cannot be mistaken for current message state or reply debt.
 - message and run IDs shown in chat should be clickable where dashboard state can open the related message or run details
 - thread drawer for run details, artifacts, and handoff state
 - conversation details should use operator-readable labels: current viewing identity, unread in this conversation, live wake path, runtime session, environment, workspace, and supported controls. Raw IDs are useful only where they identify a session/resume handle.
@@ -109,7 +109,7 @@ Chat should feel like a real team messenger:
 - peek mode: watch a selected conversation without automatically marking incoming messages read; explicit Mark read remains available for direct messages and selected channels
 - channel details: show current members and allow adding/removing known agents from the right-side Members panel; the current viewing identity uses a clear **Leave** action and can be re-added later; add selection must be stable across realtime refreshes
 - artifact uploads store bytes in the aify-comms shared artifact service and inserted chat text should tell agents to use `comms_read(name="...")`
-- reply expectations are inferred from message type: requests/reviews/errors should get explicit replies; routine info is non-contractual unless `requireReply` is explicitly set
+- reply expectations are inferred from message type: requests/reviews/errors should get explicit replies; routine info, responses, approvals, finals, and acknowledgements are non-contractual unless `requireReply=true`. A non-actionable acknowledgement must not trigger another acknowledgement.
 - normal dashboard chat has one send path; strict dispatch remains an advanced API/debug path, not a primary composer option
 - conversation context should stay focused: managed prompts should include only compact recent direct context, tell agents not to revive unrelated topics, and require evidence checks before status/history claims
 - dashboard-origin direct messages are human/operator chat (over the aify-comms transport): agents reply with `comms_send(type="response", inReplyTo=..., to="dashboard")`, which threads into dashboard chat and closes the run; final plain text is the agent's working output, not the reply

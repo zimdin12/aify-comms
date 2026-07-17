@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import fs from "node:fs";
 import path from "node:path";
+import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -95,8 +96,28 @@ test("automatic console resync never self-excites a PTY resize loop", () => {
 
 test("managed PTY keeps raw terminal semantics and ordered input", () => {
   const source = read("app.js");
+  const html = read("index.html");
   assert.match(source, /convertEol:\s*false/,
     "real PTY output must not rewrite LF into CRLF");
   assert.match(source, /let inputPost = Promise\.resolve\(\)/,
     "terminal input posts must be serialized so keystrokes cannot arrive out of order");
+  assert.match(html, /addon-unicode11\.js/,
+    "the managed console should use the same Unicode width tables as Hermes dashboard");
+  assert.match(html, /addon-web-links\.js/,
+    "terminal links should be clickable like Hermes dashboard");
+  assert.match(source, /Unicode11Addon/,
+    "the Unicode 11 addon must be activated, not only loaded");
+  assert.match(source, /WebLinksAddon/,
+    "the web-links addon must be activated, not only loaded");
+});
+
+test("vendored PTY fidelity addons expose the browser globals app.js loads", () => {
+  const context = {};
+  context.self = context;
+  vm.createContext(context);
+  for (const asset of ["addon-unicode11.js", "addon-web-links.js"]) {
+    vm.runInContext(read(`vendor/${asset}`), context, { filename: asset });
+  }
+  assert.equal(typeof context.Unicode11Addon?.Unicode11Addon, "function");
+  assert.equal(typeof context.WebLinksAddon?.WebLinksAddon, "function");
 });

@@ -10282,6 +10282,34 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(contract["category"], "direct")
         self.assertEqual(payload["summary"]["overdue"], 1)
 
+    def test_explicit_fire_and_forget_request_does_not_create_reply_debt(self):
+        self._register_live_codex_resident(
+            "lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1
+        )
+        self._register_live_codex_resident(
+            "coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2
+        )
+
+        created = self._dispatch(
+            from_agent="lead",
+            to="coder",
+            type="request",
+            subject="fire and forget",
+            body="context only; no answer or action requested",
+            priority="urgent",
+            mode="start_if_possible",
+            createMessage=True,
+            requireReply=False,
+        )
+        run_id = created["runs"][0]["runId"]
+
+        response = self.client.get("/api/v1/contracts?limit=20&includeClosed=true")
+        self.assertEqual(response.status_code, 200, response.text)
+        contract = next(item for item in response.json()["contracts"] if item["id"] == run_id)
+        self.assertFalse(contract["requireReply"])
+        self.assertFalse(contract["replyExpected"])
+        self.assertFalse(contract["actionable"])
+
     def test_contract_reminder_sends_notice_and_records_event(self):
         self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
         self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
@@ -13745,6 +13773,13 @@ class ApiV2RegressionTests(FastApiTestCase):
         self._seed_managed_claude_with_attached_terminal("console-inputee", "term_console_in")
         # The caller must be a registered agent.
         self._register("console-manager", runtime="claude-code", sessionMode="managed")
+        # Explicit console control is the recovery path when semantic delivery breaks. It is
+        # deliberately independent from the legacy automatic PTY-delivery setting.
+        setting = self.client.put(
+            "/api/v1/settings", json={"insert_messages_via_console": False}
+        )
+        self.assertEqual(setting.status_code, 200, setting.text)
+        self.assertFalse(setting.json()["insert_messages_via_console"])
         resp = self.client.post(
             "/api/v1/agents/console-inputee/console/input",
             json={"text": "/status", "enter": True, "from": "console-manager"},

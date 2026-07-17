@@ -16,7 +16,7 @@ Agents should:
 - verify before asserting when the sender asks about state, history, files, tests, or another agent
 - use direct messages for owned handoffs and channels for shared team context
 - ask one clear question when blocked instead of guessing
-- send concise acknowledgements for routine coordination and save long detail for artifacts
+- send concise progress acknowledgements only when confirmation affects ongoing coordination; do not acknowledge a closed `info`, `response`, `approval`, final, or acknowledgement with another acknowledgement
 
 ## Message Shape
 
@@ -45,15 +45,15 @@ Rules:
 
 ## Reply Discipline
 
-Every aify-comms message is answered with a `comms_send` tool call. For delivered dashboard-managed runs **and** resident/live sessions alike, reply with `comms_send(type="response", inReplyTo="<message id>", to="<sender|dashboard>")`. That tool call is the team/chat-visible reply and closes the run. Your final plain text / stdout is the agent's own working output, not the delivered reply.
+When an aify-comms message owes a reply, answer it with a `comms_send` tool call. For delivered dashboard-managed runs **and** resident/live sessions alike, reply with `comms_send(type="response", inReplyTo="<message id>", to="<sender|dashboard>")`. That tool call is the team/chat-visible reply and closes the run. Your final plain text / stdout is the agent's own working output, not the delivered reply. A completion response, approval, informational update, final result, or acknowledgement with no new question/work is read context and must not receive a courtesy acknowledgement.
 
-Safety net (configurable): the `managed_reply_capture_fallback` setting controls what happens when a delivered run ends *without* an explicit reply. `true` (default) auto-mirrors the run summary back to the sender; `false` (strict) leaves the run reply-owed so a missing reply is surfaced rather than fabricated. Either way, agents should send the explicit `comms_send` — do not rely on the fallback.
+Safety net (configurable): the `managed_reply_capture_fallback` setting controls what happens when a reply-owed delivered run ends *without* an explicit reply. `true` (default) auto-mirrors the run summary back to the sender; `false` (strict) leaves the run reply-owed so a missing reply is surfaced rather than fabricated. Either way, agents should send the explicit `comms_send` when a reply is owed — do not rely on the fallback.
 
 Dashboard-managed identities are already registered by the environment bridge. They should not call `comms_register` during a delivered run; current builds reject that call to prevent a managed identity from accidentally becoming a resident/manual identity. Use `comms_register` only from real resident CLI sessions.
 
 Dashboard chat rides the aify-comms transport, so dashboard-origin messages are replied to the same way — `comms_send(..., to="dashboard")` threads into chat. Genuinely-direct input you type into your own CLI is answered with direct output, not `comms_send`.
 
-Do not rely on run summaries, terminal output, or tool logs as the communication. A managed turn should close visibly with one of these outcomes:
+Do not rely on run summaries, terminal output, or tool logs as the communication when a reply/update is owed. Such a managed turn should close visibly with one of these outcomes:
 
 - a `comms_send(type="response", inReplyTo=...)` answers the triggering sender
 - a separate `comms_send(...)` updates another owner or dashboard
@@ -61,13 +61,13 @@ Do not rely on run summaries, terminal output, or tool logs as the communication
 
 Parallel work is expected when lanes are independent. When asking teammates for parallel work, name the expected reply target and completion condition so their replies wake the right owner and can be judged done.
 
-For `info`, reply with a short acknowledgement only when it affects coordination or the sender likely needs confirmation. `info` is not a Work Loop contract by default; use `request`, `review`, `error`, or an explicit `requireReply` override when the sender needs tracked closure.
+For `info`, reply only when it contains new actionable work or an explicit reply contract. If the sender needs confirmation, the sender should use `request`, `review`, `error`, or `requireReply=true`; do not infer a courtesy-acknowledgement obligation from an informational message alone.
 
 For channel messages, avoid automatic loops. Reply when you are named, responsible, asked a question, or have useful evidence. Use direct messages for owner-specific follow-up. Managers should ask named agents or owners for evidence instead of sending broad "everyone answer" prompts.
 
 Channel membership is operational state, not message history. Leaving or removing an agent from a channel stops future channel fan-out/live updates for that identity, but the channel and history remain; rejoining restores future delivery.
 
-Agents may send multiple messages in a row when it helps coordination, for example an acknowledgement followed by a result, or a blocker followed by a fix. Do not split one coherent answer into chat spam.
+Agents may send multiple messages in a row when it helps coordination, for example a progress update followed later by a result, or a blocker followed by a fix. Do not split one coherent answer into chat spam.
 
 ## Work Contracts
 
@@ -76,11 +76,11 @@ A work contract is the operational obligation created by a message/run. It is no
 Contracts are expected for:
 
 - direct `request`, `review`, and `error` messages
-- high/urgent messages that ask for action or truth
+- high/urgent messages only when their normalized reply contract requires an answer; priority alone does not create reply debt
 - dashboard-managed runs with required replies
 - self-wakes that intentionally schedule the same agent's next bounded turn
 
-Contracts are closed by a real answer to the original sender/result, not by silently completing local work. `delivered` only means the target received/read the source message; it is still open until a linked answer/result exists. For dashboard-managed delivered runs, the final plain-text answer closes the current contract because the bridge threads it into chat. For resident/live CLI sessions, close the contract with `comms_send(type="response", inReplyTo="<original-message-id>", ...)`.
+Contracts are closed by a real answer to the original sender/result, not by silently completing local work. `delivered` only means the transport/runtime accepted the source message; it does not prove the agent read or acted on it, and a reply contract stays open until a linked answer/result exists. For dashboard-managed delivered runs, the final plain-text answer closes the current contract because the bridge threads it into chat. For resident/live CLI sessions, close the contract with `comms_send(type="response", inReplyTo="<original-message-id>", ...)`.
 
 If a reminder arrives, read the original message/run it references and close that original contract. Reminder notices are nudges and should not create fresh Work Loop debt; do not just reply "ack reminder" unless the reminder itself is the work.
 

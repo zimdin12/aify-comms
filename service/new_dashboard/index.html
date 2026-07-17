@@ -13,10 +13,13 @@
   <!-- xterm.js for real PTY rendering (TerminalProcessManager-backed managed agents:
        codex-aify / hermes-aify / claude-aify in node-pty). VENDORED (Phase 0.3) under
        /assets/vendor so the console works offline / on an air-gapped LAN — no CDN
-       dependency. Pinned: @xterm/xterm@5.5.0, @xterm/addon-fit@0.10.0. -->
+       dependency. Pinned: @xterm/xterm@5.5.0, @xterm/addon-fit@0.10.0,
+       @xterm/addon-unicode11@0.8.0, @xterm/addon-web-links@0.11.0. -->
   <link rel="stylesheet" href="/assets/vendor/xterm.css">
   <script src="/assets/vendor/xterm.js"></script>
   <script src="/assets/vendor/addon-fit.js"></script>
+  <script src="/assets/vendor/addon-unicode11.js"></script>
+  <script src="/assets/vendor/addon-web-links.js"></script>
   <!-- WebGL renderer (WS-D) — vendored @xterm/addon-webgl@0.18.0. The DOM renderer was the
        main source of console lag under heavy TUI output; WebGL is activated after open() with
        an onContextLoss fallback to DOM. -->

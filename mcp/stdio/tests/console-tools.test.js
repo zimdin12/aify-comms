@@ -12,11 +12,19 @@ const {
   commsConsoleTailHandler,
   commsConsoleInputHandler,
   CONSOLE_INPUT_TOOL_DESCRIPTION,
+  COMMS_SEND_TOOL_DESCRIPTION,
 } = await import("../server.js");
 
 assert.match(CONSOLE_INPUT_TOOL_DESCRIPTION, /recovery-only/i);
 assert.match(CONSOLE_INPUT_TOOL_DESCRIPTION, /read the console first/i);
 assert.match(CONSOLE_INPUT_TOOL_DESCRIPTION, /do not inject normal work messages/i);
+
+assert.match(COMMS_SEND_TOOL_DESCRIPTION, /omit requireReply/i,
+  "normal type defaults should not require a reply override");
+assert.match(COMMS_SEND_TOOL_DESCRIPTION, /set requireReply=true/i,
+  "the exceptional opt-in must be explicit");
+assert.match(COMMS_SEND_TOOL_DESCRIPTION, /set requireReply=false/i,
+  "the intentional fire-and-forget override must be explicit");
 
 // --- comms_console_tail: GET the console endpoint with capped lines ---
 {

@@ -1724,6 +1724,18 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
     fitAddon = new window.FitAddon.FitAddon();
     term.loadAddon(fitAddon);
   }
+  // Match Hermes dashboard's terminal fidelity: Unicode 11 supplies current wide-character
+  // cell widths (important for Ink/TUI cursor alignment) and web-links makes rendered URLs
+  // clickable without changing the underlying PTY bytes.
+  if (window.Unicode11Addon && window.Unicode11Addon.Unicode11Addon) {
+    try {
+      term.loadAddon(new window.Unicode11Addon.Unicode11Addon());
+      term.unicode.activeVersion = '11';
+    } catch { /* core Unicode provider remains active */ }
+  }
+  if (window.WebLinksAddon && window.WebLinksAddon.WebLinksAddon) {
+    try { term.loadAddon(new window.WebLinksAddon.WebLinksAddon()); } catch {}
+  }
   term.open(container);
   // WebGL renderer (WS-D) — big perf win under heavy TUI output; fall back to the DOM
   // renderer if the GL context is lost or the addon throws.

@@ -1519,24 +1519,10 @@ def _contract_reply_expected(row) -> bool:
         return False
     if _is_operator_closed_contract(row):
         return False
-    if _row_require_reply(row):
-        return True
-    message_type = str((row["message_type"] if "message_type" in row.keys() else "") or "").strip().lower()
-    if message_type in {"info", "response", "approval"}:
-        return False
-    # System-generated failure mirrors (auto-handoff / undeliverable notices) are rr=0
-    # type='error' notifications, NOT asks — without this exclusion they read as open
-    # "reply expected" contracts and the reminder loop nags the ORIGINAL sender to reply
-    # to an automated failure notice, repeatedly (review must-fix, 2026-06-10).
-    body = str((row["body"] if "body" in row.keys() else "") or "")
-    if message_type == "error" and not _row_require_reply(row) and (
-        body.startswith("Auto-mirrored dispatch")
-        or body.startswith("⚠️")
-        or "[NOT DELIVERED]" in str((row["subject"] if "subject" in row.keys() else "") or "")
-    ):
-        return False
-    priority = str((row["priority"] if "priority" in row.keys() else "") or "").strip().lower()
-    return message_type in {"request", "review", "error"} or priority in {"high", "urgent"}
+    # Send creation has already normalized type defaults plus the explicit requireReply
+    # override into this field. Re-inferring from type/priority here made an explicit
+    # requireReply=false request actionable again and recreated reminder/reply debt.
+    return _row_require_reply(row)
 
 
 def _contract_state(row, *, settings: dict[str, Any], now_s: Optional[float] = None) -> dict[str, Any]:
@@ -13723,7 +13709,10 @@ async def post_agent_console_input(agent_id: str, req: AgentConsoleInputRequest,
     recorded against that caller in both the terminal control's requested_by
     and an `agent_console_input` audit event. Callers can only target the
     agent's own resolved console terminal — never an arbitrary terminal id.
-    Managed agents only (v1).
+    Managed agents only (v1). This explicit recovery/control path is intentionally
+    independent of `insert_messages_via_console`, which gates only legacy automatic
+    message delivery through a PTY. Disabling that legacy path must never disable
+    deliberate console control.
     """
     db = await get_db()
     try:

@@ -165,7 +165,7 @@ function railItemHtml(item, selectedKey, drafts = {}) {
 
 // Wake-vs-stored badge: a message that triggered a dispatch run "woke" the agent; otherwise
 // it was stored to the inbox. read/unread shown alongside.
-function messageHtml(m, identity = 'dashboard', isChannel = false) {
+export function messageHtml(m, identity = 'dashboard', isChannel = false) {
   const id = String(m.id || m.messageId || '');
   const runId = String(m.dispatchRunId || m.dispatch_run_id || m.runId || m.run_id || '');
   const woke = !!runId || m.dispatchRequested || m.dispatch_requested;
@@ -182,8 +182,10 @@ function messageHtml(m, identity = 'dashboard', isChannel = false) {
   // Reply / read-toggle / unsend all operate on state.messages (DM store); channel messages
   // live in state.chat.channelMessages and use fan-out read ids, so those controls would be
   // dead/incorrect on channel rows — only show them for DMs.
-  const reply = !isChannel ? `<button class="chat-msg-reply" data-chat-reply="${esc(id)}" title="Reply to this message">Reply</button>` : '';
-  const readToggle = (!mine && !isChannel) ? `<button class="chat-msg-act" data-msg-read="${esc(id)}" data-read="${m.read === false ? '0' : '1'}" title="Mark ${m.read === false ? 'read' : 'unread'}">${m.read === false ? 'Mark read' : 'Unread'}</button>` : '';
+  // These are optional actions, not reply/read-contract state. Use verb phrases so a read
+  // non-reply-owing response does not render the contradictory-looking "read · Reply · Unread".
+  const reply = !isChannel ? `<button class="chat-msg-reply" data-chat-reply="${esc(id)}" title="Compose an optional reply to this message">Write reply</button>` : '';
+  const readToggle = (!mine && !isChannel) ? `<button class="chat-msg-act" data-msg-read="${esc(id)}" data-read="${m.read === false ? '0' : '1'}" title="Mark ${m.read === false ? 'read' : 'unread'}">Mark ${m.read === false ? 'read' : 'unread'}</button>` : '';
   const unsendBtn = (mine && !isChannel) ? `<button class="chat-msg-act danger" data-msg-unsend="${esc(id)}" title="Unsend this message">Unsend</button>` : '';
   // The ⋯ detail lookup only searches the DM store, so it's dead on channel rows — DMs only.
   const detail = !isChannel ? `<button class="chat-msg-detail" data-message-detail="${esc(id)}" aria-label="Message details" title="Message details">⋯</button>` : '';

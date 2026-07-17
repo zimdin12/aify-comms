@@ -82,7 +82,7 @@ Daily workflow target:
 - Agent identities are lifecycle-managed records, not just self-registered inbox owners.
 - Messaging is the source of truth. Dispatch/run state remains attached to messages.
 - Dashboard spawn is the normal path. Manual `comms_register` is compatibility/debug.
-- Dashboard chat is live-delivery gated for offline/stale/stopped/no-wake targets; those messages are not stored for future delivery. Busy steer-capable targets receive normal sends as steer into the active run between tool calls; busy non-steer targets queue or merge as next-turn work. Queue is an explicit next-turn action even when steer is available.
+- Dashboard chat is live-delivery gated for offline/stopped/no-wake targets; those messages are not stored for future delivery. Busy steer-capable targets receive normal sends as steer into the active run between tool calls; busy non-steer targets queue or merge as next-turn work. Queue is an explicit next-turn action even when steer is available.
 - Headless adapters hide CLI details. The rest of the system asks for `runtime=codex`, not for raw shell flags.
 - Managed warm sessions are always backed by durable state: agent identity, spawn spec, workspace, transcript/memory, runtime handles when available, and recovery policy.
 - Native CLI attach is optional. A session can be recoverable through the dashboard even when it cannot be opened in the native runtime CLI later.

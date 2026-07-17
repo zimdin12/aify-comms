@@ -7,7 +7,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { dmMessages, chatConversationItems, deliveryToastFor, sortChronological } from "./chat.js";
+import { dmMessages, chatConversationItems, deliveryToastFor, messageHtml, sortChronological } from "./chat.js";
 
 test("sortChronological orders oldest→newest so the newest sits at the bottom (2026-07-06)", () => {
   // /messages/recent returns DESCENDING (newest first). The timeline must show ascending.
@@ -54,6 +54,18 @@ test("dmMessages excludes channel-broadcast rows (bughunt 2026-07-03)", () => {
   // A channel post from the same peer must NOT render in the DM timeline (it would
   // get DM-only Reply/Mark-read/Unsend controls that misfire).
   assert.deepEqual(dmMessages(msgs, "alice").map((m) => m.id), ["1"]);
+});
+
+test("read DM actions are labelled as actions, not contradictory message state", () => {
+  const html = messageHtml({
+    id: "m-read", from: "alice", to: "dashboard", type: "response",
+    subject: "ack", body: "nothing owed", read: true, dispatchRequested: true,
+  }, "dashboard");
+  assert.match(html, />read<\/span>/, "the badge reports current read state");
+  assert.match(html, />Write reply<\/button>/, "reply is clearly an optional compose action");
+  assert.match(html, />Mark unread<\/button>/, "read toggle says what clicking it will do");
+  assert.doesNotMatch(html, />Reply<\/button>/, "a bare Reply label looked like a reply obligation");
+  assert.doesNotMatch(html, />Unread<\/button>/, "a bare Unread action contradicted the read badge");
 });
 
 test("chatConversationItems pins favorites, then sorts by activity (default)", () => {

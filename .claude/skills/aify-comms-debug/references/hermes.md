@@ -277,12 +277,24 @@ too, matched to the agent's stored native session id (from the
 **pre-spawn only** so the post-spawn self-reap-race call can't kill the
 gateway/daemon/TUI the current launch just started.
 
-**STOP reaps the whole triad; restart reaps the pile (2026-06-02, `f0bdaef`).** You
+**STOP reaps the whole triad; restart reaps the pile (2026-06-02, `f0bdaef`,
+shutdown ownership hardened 2026-07-15).** You
 no longer hand-kill stray `hermes.exe`. A dashboard **Stop** on a managed-hermes
 agent now reaps the entire triad (gateway host + delivery loop + daemon),
 agent-scoped — not just the console PTY (a resident/claude/other-runtime stop is
-never touched). The environment bridge also owns the triad and tears it down on
-shutdown; on the next boot it sweeps for survivors of a crashed/killed predecessor
+never touched). The environment bridge tears down only agents confirmed by a
+**fresh service ownership snapshot**. It must never use its long-lived
+`REMOTE_AGENT_STATE` cache as kill authority: after managed→resident takeover that
+cache can still say `managed`, and the resident uses the same
+`hermes-managed-host.js run <agent>` command shape. If the service is unavailable
+during shutdown, teardown fails safe (kills nothing); the next boot sweep is the
+backstop. A successful environment snapshot also prunes cached managed rows whose
+current mode is resident. On replacement boot it first registers the new bridge,
+then sweeps predecessor survivors, then adopts managed ownership and starts the
+spawn loop. Never adopt/spawn before that sweep: a live predecessor handover can
+otherwise leave the old triad owned by neither bridge. If registration or ownership
+is unavailable, bootstrap retries without adopting or spawning. It sweeps survivors of a
+crashed/killed predecessor
 (plus a tombstoned-marker sweep that deletes `aify-hermes-{port,daemon-pid,key}-<agent>`
 for agents absent from the live `/agents` keyset) and reaps any whose owning bridge is
 no longer live. All scoped to the agents this env bridge owns; resident/other-env

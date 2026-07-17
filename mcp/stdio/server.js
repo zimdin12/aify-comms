@@ -4467,13 +4467,18 @@ server.tool(
 // 3. comms_send -- Send message to agent by ID or role
 // ═══════════════════════════════════════════════════════════════════════════════
 
+export const COMMS_SEND_TOOL_DESCRIPTION =
+  "Send a message to an agent by ID, or to all agents with a given role. " +
+  "This is live-delivery gated: if the target is offline, stopped, or lacks a live wake path, the message is not written. A MANAGED agent resting at `available` (no live worker yet — including a hermes whose gateway died) IS deliverable: the send cold-starts/wakes it. `available` and `blocked` are both deliverable. If the target is busy and steer-capable, ordinary sends steer into the active run between tool calls. If the target is busy but cannot steer, ordinary sends queue or merge as next-turn work. Use queueIfBusy=true only when the message should run after the active turn even when steer is available; when queueIfBusy=true, the steer option is ignored. Agent-reported blocked/completed states are status notes, not delivery blockers. " +
+  "The special target dashboard stores a message for the human/operator without trying to start a runtime. " +
+  "Resident sessions trigger only when that exact runtime/session handle supports resident execution; environment-managed sessions remain the persistent fallback. " +
+  "Agents should answer messages that owe a reply with a comms_send tool call: use comms_send(type=\"response\", inReplyTo=<the message id>) in BOTH resident/live CLI sessions AND dashboard-managed delivered runs. Requests, reviews, errors, dashboard asks, and explicit reply contracts normally owe replies. A completion response, approval, info, or acknowledgement with no new question/work is read context: do not send a courtesy acknowledgement. That tool call is the team/chat-visible reply and closes the run; your final plain text / stdout is your own working output, not the delivered reply. (Safety net: if managed_reply_capture_fallback is enabled, a delivered run that ends without an explicit reply has its summary auto-mirrored back; do not rely on it for messages that owe replies.) Genuinely-direct terminal input you type yourself is answered with direct output, not comms_send. " +
+  "Reply tracking: omit requireReply for normal type-based behavior (`request`, `review`, and `error` owe replies; `info`, `response`, and `approval` do not). Set requireReply=true only when a normally optional message needs a tracked response. Set requireReply=false only for an intentionally fire-and-forget request/review/error whose body asks no question or action. requireReply changes the reply contract, not whether the target is woken. " +
+  "Keep messages scoped to one topic, state what you checked when truth matters, ask one clear question when blocked, and avoid reviving unrelated older context.";
+
 server.tool(
   "comms_send",
-  "Send a message to an agent by ID, or to all agents with a given role. " +
-    "This is live-delivery gated: if the target is offline, stale, stopped, or lacks a live wake path, the message is not written. A MANAGED agent resting at `available` (no live worker yet — including a hermes whose gateway died) IS deliverable: the send cold-starts/wakes it. `available` and `blocked` are both deliverable. If the target is busy and steer-capable, ordinary sends steer into the active run between tool calls. If the target is busy but cannot steer, ordinary sends queue or merge as next-turn work. Use queueIfBusy=true only when the message should run after the active turn even when steer is available; when queueIfBusy=true, the steer option is ignored. Agent-reported blocked/completed states are status notes, not delivery blockers. " +
-    "The special target dashboard stores a message for the human/operator without trying to start a runtime. " +
-    "Resident sessions trigger only when that exact runtime/session handle supports resident execution; environment-managed sessions remain the persistent fallback. " +
-    "Agents should answer messages that owe a reply with a comms_send tool call: use comms_send(type=\"response\", inReplyTo=<the message id>) in BOTH resident/live CLI sessions AND dashboard-managed delivered runs. Requests, reviews, errors, dashboard asks, and explicit reply contracts normally owe replies. A completion response, approval, info, or acknowledgement with no new question/work is read context: do not send a courtesy acknowledgement. That tool call is the team/chat-visible reply and closes the run; your final plain text / stdout is your own working output, not the delivered reply. (Safety net: if managed_reply_capture_fallback is enabled, a delivered run that ends without an explicit reply has its summary auto-mirrored back; do not rely on it for messages that owe replies.) Genuinely-direct terminal input you type yourself is answered with direct output, not comms_send. Keep messages scoped to one topic, state what you checked when truth matters, ask one clear question when blocked, and avoid reviving unrelated older context.",
+  COMMS_SEND_TOOL_DESCRIPTION,
   {
     from: z.string().describe("Your agent ID"),
     to: z.string().optional().describe("Target agent ID"),
@@ -4487,7 +4492,7 @@ server.tool(
     inReplyTo: z.string().optional().describe("Message ID this replies to"),
     steer: z.boolean().optional().describe("When true and target is busy, deliver between tool calls when supported; otherwise queue/merge as next-turn work. Defaults to true. Ignored when queueIfBusy=true."),
     queueIfBusy: z.boolean().optional().describe("When true, force next-turn queue/merge behind the target's active/queued work instead of steering the active turn."),
-    requireReply: z.boolean().optional().describe("Advanced override for reply tracking; requests/reviews/errors should normally be answered without setting this"),
+    requireReply: z.boolean().optional().describe("Reply-contract override. Omit for type defaults (request/review/error=true; info/response/approval=false). Set true only to track a response to a normally optional message; set false only for intentional fire-and-forget."),
   },
   async ({ from, to, toRole, type, subject, body, priority, inReplyTo, steer, queueIfBusy, requireReply }) => {
     if (!to && !toRole) {

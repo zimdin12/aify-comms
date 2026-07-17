@@ -99,11 +99,13 @@ def test_stale_resume_menu_followed_by_work_is_suppressed():
     assert _terminal_awaiting_input_hint(_STALE_RESUME_MENU_THEN_WORK) == ""
 
 
-def test_resume_picker_at_bottom_is_suppressed_by_signature():
-    # The auto-answered session-resume picker must NEVER read as an operator prompt, even when its
-    # "Enter to confirm" chrome lands at the very bottom of the \r-collapsed snapshot. Its
-    # distinctive options ("Resume full session as-is" / "Don't ask me again") identify it.
-    assert _terminal_awaiting_input_hint(_RESUME_MENU_AT_BOTTOM_COLLAPSED) == ""
+def test_live_resume_picker_is_reported_when_auto_answer_did_not_clear_it():
+    # Auto-answer is the first line of defence, not a reason to hide a dialog that is still the
+    # current bottom-of-screen state. The same picker signature is also used by compaction; a
+    # signature-only suppression made genuinely stuck agents look working.
+    assert _terminal_awaiting_input_hint(_RESUME_MENU_AT_BOTTOM_COLLAPSED) == (
+        "Awaiting console confirmation."
+    )
 
 
 def test_real_confirm_prompt_at_bottom_without_picker_signature_still_flagged():

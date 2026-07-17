@@ -795,6 +795,71 @@ class ConsoleLeaseAndStalenessByproductTests(FastApiTestCase):
         self.assertEqual(self._byproduct_status("clb"), "blocked",
                          "in-turn agent whose console awaits input must derive blocked")
 
+    def test_blocked_reachable_from_real_claude_compaction_pty_capture(self):
+        """The authoritative detector must survive real Ink cursor-painting bytes, not only
+        a clean synthetic prompt. This fixture was captured from the managed Claude PTY."""
+        import base64
+        from pathlib import Path
+
+        self._heartbeat_environment(); self._register("clb-real"); self._seed_live_worker("clb-real")
+        self.client.post(
+            "/api/v1/agents/clb-real/status-event",
+            json={"kind": "turn_start", "runId": "r-real"},
+        )
+        fixture = (
+            Path(__file__).resolve().parents[2]
+            / "mcp/stdio/tests/fixtures/claude-compaction-dialog.pty.b64"
+        )
+        captured = base64.b64decode(fixture.read_bytes()).decode("utf-8", "replace")
+        # The shared fixture includes later spinner repaint noise for the bridge's eviction
+        # regression. Blocked status asks about the current screen, so stop at the captured
+        # dialog frame; the full fixture correctly reconstructs to the later working screen.
+        dialog_end = captured.index("Esc to cancel") + len("Esc to cancel") + 40
+        captured = captured[:dialog_end]
+        c = sqlite3.connect(str(self._db_path))
+        try:
+            c.execute(
+                "UPDATE terminal_sessions SET output=? WHERE agent_id=?",
+                (captured, "clb-real"),
+            )
+            c.commit()
+        finally:
+            c.close()
+        self.assertEqual(
+            self._byproduct_status("clb-real"), "blocked",
+            "a real Claude compaction dialog must derive blocked",
+        )
+
+    def test_real_claude_capture_after_dialog_repaint_is_not_stale_blocked(self):
+        """Nearby negative control: the same real capture continues with a working spinner.
+        Once the screen has moved on, stale dialog bytes must not keep the agent blocked."""
+        import base64
+        from pathlib import Path
+
+        self._heartbeat_environment(); self._register("clb-after"); self._seed_live_worker("clb-after")
+        self.client.post(
+            "/api/v1/agents/clb-after/status-event",
+            json={"kind": "turn_start", "runId": "r-after"},
+        )
+        fixture = (
+            Path(__file__).resolve().parents[2]
+            / "mcp/stdio/tests/fixtures/claude-compaction-dialog.pty.b64"
+        )
+        captured = base64.b64decode(fixture.read_bytes()).decode("utf-8", "replace")
+        c = sqlite3.connect(str(self._db_path))
+        try:
+            c.execute(
+                "UPDATE terminal_sessions SET output=? WHERE agent_id=?",
+                (captured, "clb-after"),
+            )
+            c.commit()
+        finally:
+            c.close()
+        self.assertEqual(
+            self._byproduct_status("clb-after"), "working",
+            "later repaint/output must clear a stale dialog from the reconstructed screen",
+        )
+
     def test_booting_console_displays_online(self):  # WS-12
         # A managed console that is up but whose channel-sidecar hasn't registered since the
         # console started is BOOTING → display `online` (not `available`).

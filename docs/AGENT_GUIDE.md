@@ -12,6 +12,8 @@ This guide is for coding agents working on `aify-comms`.
 - A dashboard-spawned agent must be auditable: environment, workspace, runtime, spawn spec, session handle/process handle when available, lifecycle status, and owner.
 - Manual `comms_register` remains useful for human-open resident CLI sessions, but it is not the normal dashboard spawn path.
 - Prefer runtime adapters over hardcoded CLI assumptions. Codex, Claude Code, Hermes, OpenCode, and Oh My Pi flags can change.
+- Routine messages use the runtime's semantic delivery channel. Explicit console input is an audited, recovery-only control after the operator has inspected the live console; it is intentionally independent of the legacy `insert_messages_via_console` delivery toggle and must never duplicate `comms_send` traffic.
+- Reply contracts follow message intent: requests, reviews, and errors owe replies by default; info, responses, approvals, finals, and acknowledgements do not unless `requireReply=true`. Do not answer a non-actionable acknowledgement with another acknowledgement.
 
 ## Main Surfaces
 
@@ -76,7 +78,7 @@ Only the `aify-comms` launcher should pass `--environment-bridge` to the stdio s
 The dashboard should feel like a real work console, not a raw admin table:
 
 - Home/Control should show current activity, recent messages, live issues, and running work.
-- Chat should support reading/sending as the selected identity, unread state, delete/clear actions, channels, and useful conversation inspection.
+- Chat should support reading/sending as the selected identity, unread state, delete/clear actions, channels, and useful conversation inspection. State badges and controls must remain visually unambiguous: action labels describe what clicking does (for example, **Write reply** and **Mark unread**) rather than looking like current state or reply debt.
 - The dashboard should focus on active sessions and keep manual/resident identities available from the on-demand Identity Directory, not as a primary navigation page.
 - Environments should show only real connected spawn targets, with stop/forget controls.
 - Sessions and Runs should expose lifecycle details without duplicating Chat as a second messaging UI.

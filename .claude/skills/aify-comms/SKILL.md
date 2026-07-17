@@ -149,6 +149,12 @@ Use `comms_send` for normal teamwork:
 | Continue your own lane later | `comms_send(to="<your-id>", type="request", queueIfBusy=true, subject="Continue: ...", body="...")` |
 | Force next-turn delivery instead of steer | add `queueIfBusy=true` |
 
+`requireReply` controls the tracked reply contract; it does **not** control delivery or waking:
+
+- Omit it for normal type defaults: `request`, `review`, and `error` owe replies; `info`, `response`, and `approval` do not.
+- Set `requireReply=true` only when a normally optional message genuinely needs a tracked response.
+- Set `requireReply=false` only for an intentionally fire-and-forget request/review/error whose body asks no question or action. Do not use it to hide unfinished delegated work.
+
 Ordinary sends are live-delivery gated, but an `available` managed agent AUTO-STARTS on send (the service cold-starts a bridge-claimed worker) — so you don't pre-spawn idle agents. Only `offline`/no-online-env targets and explicitly-disabled `stopped` agents fail. (Known caveat: auto-start can occasionally fail right after a bridge restart, when the prior session binding has gone stale — bug D in KNOWN_ISSUES; if a warm/`available` agent stays dormant after a restart, **Restart** it rather than relying on send-to-wake. See the `aify-comms-debug` skill.) Busy steer-capable targets receive ordinary sends as steer into the active run; busy non-steer targets queue/merge as next-turn work (`queueIfBusy=true` to force that path). Requests, reviews, and errors are reply contracts by default; routine `info` is not unless `requireReply` is set. For the full send-gating rules (auto-start binding, the `stopped`/disable path, per-runtime delivery surfaces, the orange-pulse hint, `blocked` vs completed-without-reply, and the reply-contract reminder loop), see `references/operations.md` (Send Gating & Delivery).
 
 Use `priority="high"` or `"urgent"` only for real blockers or time-sensitive coordination. Waking is not the same as urgency.
