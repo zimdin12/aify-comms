@@ -17146,6 +17146,22 @@ async def agent_turn_end(agent_id: str, request: Request):
             )).fetchone()
             if _sup and str((_sup["superseded_by"] if "superseded_by" in _sup.keys() else "") or "").strip():
                 return {"ok": True, "agentId": agent_id, "ignored": "superseded_bridge"}
+        # No-op fast path (2026-07-19): a KEEP-CLEARED detector re-assert fires every ~45s for the
+        # WHOLE idle life of every agent. When there is genuinely nothing to clear — turn_busy already 0
+        # AND the engine's in_turn already 0 — the full write+commit+broadcast is pure waste (the
+        # periodic-write anti-pattern the _LIVE_STATE_CACHE redesign removed). Skip it. A real stray
+        # (either bit set) still takes the full clear below, preserving KEEP-CLEARED's healing purpose.
+        # last_seen refresh is safe to skip here: the unconditional liveness beat owns liveness.
+        _tb = await (await db.execute(
+            "SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", (agent_id,)
+        )).fetchone()
+        _st = await (await db.execute(
+            "SELECT in_turn FROM agent_status_state WHERE agent_id = ?", (agent_id,)
+        )).fetchone()
+        _turn_busy = int((_tb["turn_busy"] if _tb and "turn_busy" in _tb.keys() else 0) or 0)
+        _in_turn = int((_st["in_turn"] if _st and "in_turn" in _st.keys() else 0) or 0)
+        if _turn_busy == 0 and _in_turn == 0:
+            return {"ok": True, "agentId": agent_id, "noop": "already-cleared"}
         now = _now()
         await db.execute(
             """
