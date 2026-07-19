@@ -1893,7 +1893,19 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
     const data = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${cols}&rows=${rows}`);
     // We OWN a managed PTY: fit it to the pane instead of stretching the pane to it. Only a
     // RESIDENT console is a mirror of a terminal we must not resize.
-    const ownsPty = String(agentForTerminal(terminalId)?.sessionMode || '').toLowerCase() !== 'resident';
+    //
+    // Own the PTY ONLY when POSITIVELY managed (2026-07-19). Unknown / missing-agent / empty-mode
+    // must fall through to false → we do NOT resize (a resident console mirrors the operator's real
+    // terminal; SIGWINCHing it is the exact harm this guard prevents). The old `!== 'resident'`
+    // failed OPEN: a not-yet-populated state.agents made an unknown mode read as owned. Fall back to
+    // the session row's own mode so an absent agent object can't flip a resident console to "owned".
+    const _tid = String(terminalId || '');
+    const _sess = (state.sessions || []).find(
+      (x) => String(x?.terminalId || x?.terminal?.id || x?.terminal_id || '') === _tid);
+    const _mode = String(
+      agentForTerminal(terminalId)?.sessionMode || _sess?.sessionMode || _sess?.session_mode || ''
+    ).toLowerCase();
+    const ownsPty = _mode === 'managed';
     applyRenderedWidth(state.activeXterm, term, container, data, ownsPty);
     if (state.activeXterm) state.activeXterm.ownsPty = ownsPty;
 

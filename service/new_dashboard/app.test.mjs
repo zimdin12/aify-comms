@@ -121,3 +121,18 @@ test("vendored PTY fidelity addons expose the browser globals app.js loads", () 
   assert.equal(typeof context.Unicode11Addon?.Unicode11Addon, "function");
   assert.equal(typeof context.WebLinksAddon?.WebLinksAddon, "function");
 });
+
+test("ownsPty is positively-managed (fails closed), not !== 'resident' (fails open)", () => {
+  const source = read("app.js");
+  // The resize decision must OWN the PTY only when the mode is POSITIVELY 'managed'. The old
+  // `!== 'resident'` failed open: an unknown / missing-agent / empty mode read as owned and the
+  // dashboard would SIGWINCH the operator's own resident terminal.
+  assert.match(source, /const ownsPty = _mode === 'managed'/,
+    "ownsPty must derive from _mode === 'managed'");
+  assert.ok(!/ownsPty = String\(agentForTerminal\(terminalId\)\?\.sessionMode \|\| ''\)\.toLowerCase\(\) !== 'resident'/.test(source),
+    "the fail-open `!== 'resident'` derivation must be gone");
+  // ...and it must fall back to the session row's own mode so a not-yet-populated state.agents
+  // can't flip a resident console to owned.
+  assert.match(source, /_sess\?\.sessionMode \|\| _sess\?\.session_mode/,
+    "ownsPty must fall back to the session row's sessionMode/session_mode");
+});
