@@ -476,6 +476,8 @@ function refreshSoon() {
 }
 
 let _wsReconnectAttempts = 0;
+let _wsConnectingWatchdog = 0;
+const WS_CONNECTING_TIMEOUT_MS = 8000;
 function connectRealtimeSocket() {
   if (dashboardSocket && [WebSocket.OPEN, WebSocket.CONNECTING].includes(dashboardSocket.readyState)) return;
   const wsOrigin = apiOrigin.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:');
@@ -485,7 +487,18 @@ function connectRealtimeSocket() {
     state.realtimeConnected = false;
     return;
   }
+  // Half-open-socket watchdog (Hermes parity, their NS-591). After a laptop sleep or a mobile
+  // radio handoff a socket can sit in CONNECTING forever — neither onopen nor onclose ever fires,
+  // so the CONNECTING guard above wedges reconnect permanently. If we're still CONNECTING after
+  // the timeout, force-close it so onclose → backoff reconnect can recover.
+  clearTimeout(_wsConnectingWatchdog);
+  _wsConnectingWatchdog = setTimeout(() => {
+    if (dashboardSocket && dashboardSocket.readyState === WebSocket.CONNECTING) {
+      try { dashboardSocket.close(); } catch {}
+    }
+  }, WS_CONNECTING_TIMEOUT_MS);
   dashboardSocket.onopen = () => {
+    clearTimeout(_wsConnectingWatchdog);
     const wasReconnect = state.realtimeConnected === false && _wsReconnectAttempts > 0;
     state.realtimeConnected = true;
     _wsReconnectAttempts = 0; // healthy connection → reset backoff to fast retry
@@ -508,6 +521,7 @@ function connectRealtimeSocket() {
     } catch {}
   };
   dashboardSocket.onclose = () => {
+    clearTimeout(_wsConnectingWatchdog);
     state.realtimeConnected = false;
     // Exponential backoff (capped) instead of hammering /ws every 2.5s. The single-worker
     // service restarts on every deploy; a flat retry from every open tab piles load on exactly
@@ -516,6 +530,32 @@ function connectRealtimeSocket() {
     const delay = Math.min(30000, 1500 * 2 ** _wsReconnectAttempts);
     setTimeout(connectRealtimeSocket, delay);
   };
+}
+
+// Reconnect on page-resume (Hermes parity). When a backgrounded/slept tab wakes, its socket is
+// often CLOSED with a long backoff timer still pending (up to 30s away) — the operator stares at a
+// stale console. On any resume signal, if we're not OPEN, reconnect NOW (short-circuiting the
+// backoff). A stuck-CONNECTING socket is force-closed first so the CONNECTING guard can't block the
+// fresh connect. Throttled so a burst of resume events (focus+visibilitychange+online together)
+// fires one reconnect.
+let _wsResumeNudgeAt = 0;
+function nudgeRealtimeSocketOnResume() {
+  const now = Date.now();
+  if (now - _wsResumeNudgeAt < 1000) return;
+  _wsResumeNudgeAt = now;
+  const rs = dashboardSocket ? dashboardSocket.readyState : WebSocket.CLOSED;
+  if (rs === WebSocket.OPEN) return;
+  if (rs === WebSocket.CONNECTING && dashboardSocket) { try { dashboardSocket.close(); } catch {} }
+  connectRealtimeSocket();
+}
+function wireRealtimeResumeReconnect() {
+  const onResume = (ev) => {
+    if (ev && ev.type === 'visibilitychange' && document.visibilityState !== 'visible') return;
+    nudgeRealtimeSocketOnResume();
+  };
+  for (const [target, ev] of [[document, 'visibilitychange'], [window, 'pageshow'], [window, 'focus'], [window, 'online']]) {
+    try { target.addEventListener(ev, onResume); } catch {}
+  }
 }
 
 function applyRealtimeEvent(event, data = {}) {
@@ -1736,6 +1776,15 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
     fitAddon = new window.FitAddon.FitAddon();
     term.loadAddon(fitAddon);
   }
+  // Guarded fit (Hermes parity). Never run fit() on a detached or zero-sized host: fit()
+  // triggers a WebGL texture-atlas rebuild, and doing that while a sibling pane is mid-transition
+  // at 0px crashes the GL renderer (their comment, learned the hard way). Guard on connected +
+  // measurable box so a hidden/collapsing pane simply skips the fit and re-fits when visible.
+  const safeFit = () => {
+    if (!fitAddon || !container.isConnected) return;
+    if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
+    try { fitAddon.fit(); } catch {}
+  };
   // Match Hermes dashboard's terminal fidelity: Unicode 11 supplies current wide-character
   // cell widths (important for Ink/TUI cursor alignment) and web-links makes rendered URLs
   // clickable without changing the underlying PTY bytes.
@@ -1748,6 +1797,21 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
   if (window.WebLinksAddon && window.WebLinksAddon.WebLinksAddon) {
     try { term.loadAddon(new window.WebLinksAddon.WebLinksAddon()); } catch {}
   }
+  // Font warm-up before first open/fit (Hermes parity). fit() converts the pane's pixel box into
+  // cols/rows using the FONT's cell metrics. If the terminal font hasn't loaded yet, fit measures
+  // FALLBACK metrics → wrong row count → the shell boots at the wrong size → an extra SIGWINCH and
+  // a stretch of stale/blank rows. Worse, the WebGL renderer would bake the fallback face into its
+  // glyph atlas. Wait for the weights we render (regular/bold/italic) before opening. allSettled +
+  // a font the host lacks (Cascadia Code absent → Consolas fallback) simply resolves empty — no-op.
+  if (document.fonts && typeof document.fonts.load === 'function') {
+    try {
+      await Promise.allSettled([
+        document.fonts.load('13px "Cascadia Code"'),
+        document.fonts.load('bold 13px "Cascadia Code"'),
+        document.fonts.load('italic 13px "Cascadia Code"'),
+      ]);
+    } catch { /* fonts API hiccup: proceed; fit re-runs on the ResizeObserver anyway */ }
+  }
   term.open(container);
   // WebGL renderer (WS-D) — big perf win under heavy TUI output; fall back to the DOM
   // renderer if the GL context is lost or the addon throws.
@@ -1758,9 +1822,7 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
       term.loadAddon(webgl);
     } catch { /* DOM renderer remains active */ }
   }
-  if (fitAddon) {
-    try { fitAddon.fit(); } catch {}
-  }
+  safeFit();
 
   // Keystroke forwarding back to the bridge PTY via /terminals/<id>/input.
   // Service request shape (TerminalControlRequest in api_v2.py): {body, requestedBy}.
@@ -1861,32 +1923,41 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
   let resizeObserver = null;
   if (window.ResizeObserver && fitAddon) {
     let resyncTimer = null;
+    // Coalesce observer bursts to a SINGLE rAF (Hermes parity). A ResizeObserver fires many times
+    // during a layout transition; running fit() synchronously on each — especially through a 0px
+    // frame — is what crashes the WebGL atlas. One rAF per burst also lets the box settle before
+    // we measure. `roFrame` guards against stacking frames; safeFit() no-ops on a 0/detached box.
+    let roFrame = 0;
     resizeObserver = new ResizeObserver(() => {
-      const entry = state.activeXterm;
-      // Wide mirror (resident terminal wider than the pane): fit() would shrink the xterm back
-      // to the pane and re-wrap the source lines. Instead recompute the pane width WITHOUT
-      // applying it; only if it changed materially do we resync (which re-fits + re-widens).
-      if (entry && entry.widened) {
-        let paneCols = entry.fitCols || 0;
-        try { const d = fitAddon.proposeDimensions && fitAddon.proposeDimensions(); if (d && d.cols) paneCols = d.cols; } catch {}
-        if (paneCols && Math.abs(paneCols - (entry.fitCols || 0)) >= 2) {
-          entry.fitCols = paneCols;
+      if (roFrame) return;
+      roFrame = requestAnimationFrame(() => {
+        roFrame = 0;
+        const entry = state.activeXterm;
+        // Wide mirror (resident terminal wider than the pane): fit() would shrink the xterm back
+        // to the pane and re-wrap the source lines. Instead recompute the pane width WITHOUT
+        // applying it; only if it changed materially do we resync (which re-fits + re-widens).
+        if (entry && entry.widened) {
+          let paneCols = entry.fitCols || 0;
+          try { const d = fitAddon.proposeDimensions && fitAddon.proposeDimensions(); if (d && d.cols) paneCols = d.cols; } catch {}
+          if (paneCols && Math.abs(paneCols - (entry.fitCols || 0)) >= 2) {
+            entry.fitCols = paneCols;
+            clearTimeout(resyncTimer);
+            resyncTimer = setTimeout(() => { resyncActiveConsole(); }, 220);
+          }
+          return;
+        }
+        safeFit();
+        // The snapshot was server-rendered at a fixed column count. If a late layout settle (page
+        // switch / flex-fill) changes the column count after that, the rendered snapshot is now the
+        // wrong width ("narrow and bugged"). Re-fetch + repaint at the new size, debounced, so the
+        // console self-heals instead of staying stuck at the mount-time width.
+        if (entry && entry.term && entry.term.cols !== entry.renderedCols) {
+          entry.renderedCols = entry.term.cols;
+          entry.fitCols = entry.term.cols;
           clearTimeout(resyncTimer);
           resyncTimer = setTimeout(() => { resyncActiveConsole(); }, 220);
         }
-        return;
-      }
-      try { fitAddon.fit(); } catch {}
-      // The snapshot was server-rendered at a fixed column count. If a late layout settle (page
-      // switch / flex-fill) changes the column count after that, the rendered snapshot is now the
-      // wrong width ("narrow and bugged"). Re-fetch + repaint at the new size, debounced, so the
-      // console self-heals instead of staying stuck at the mount-time width.
-      if (entry && entry.term && entry.term.cols !== entry.renderedCols) {
-        entry.renderedCols = entry.term.cols;
-        entry.fitCols = entry.term.cols;
-        clearTimeout(resyncTimer);
-        resyncTimer = setTimeout(() => { resyncActiveConsole(); }, 220);
-      }
+      });
     });
     try { resizeObserver.observe(container); } catch {}
   }
@@ -1901,7 +1972,7 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
   // Double rAF: one frame to apply layout, a second so the flex-fill width is final before fit()
   // measures cols (a single frame can still read a transient narrow width on a fresh page switch).
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-  if (fitAddon) { try { fitAddon.fit(); } catch {} }
+  safeFit();
   try {
     // Pass our (settled) grid size so the server renders a CLEAN current-screen snapshot (via the
     // headless VT emulator) instead of the raw byte log — replaying the raw log scrambles
@@ -4608,6 +4679,7 @@ try {
 } catch { /* private mode */ }
 
 connectRealtimeSocket();
+wireRealtimeResumeReconnect();
 refresh();
 // Poll fallback interval, honoring the `dashboard_refresh_seconds` setting (was hardcoded
 // to 15s — the setting silently did nothing). Re-armed when the setting changes.

@@ -148,3 +148,36 @@ test("xterm setup imitates Hermes terminal-fidelity settings", () => {
   assert.ok(source.includes("SGR mouse-report suppression"), "SGR mouse-report suppression guard present");
   assert.ok(source.includes(".test(data)) return;"), "onData drops SGR mouse reports before forwarding");
 });
+
+test("Batch 2: terminal fit is guarded and ResizeObserver is rAF-coalesced", () => {
+  const source = read("app.js");
+  // safeFit refuses a detached/zero-sized host (fit() during a 0px transition crashes WebGL).
+  assert.match(source, /const safeFit = \(\) =>/);
+  assert.match(source, /!container\.isConnected/);
+  assert.match(source, /container\.clientWidth <= 0 \|\| container\.clientHeight <= 0/);
+  // Observer bursts collapse to one rAF.
+  assert.match(source, /let roFrame = 0;/);
+  assert.match(source, /roFrame = requestAnimationFrame\(/);
+  // No raw unguarded fitAddon.fit() outside the safeFit helper / read-only proposeDimensions.
+  const rawFits = (source.match(/fitAddon\.fit\(\)/g) || []).length;
+  assert.equal(rawFits, 1, "only the single fitAddon.fit() inside safeFit should remain");
+});
+
+test("Batch 2: font warm-up runs before term.open", () => {
+  const source = read("app.js");
+  assert.match(source, /document\.fonts\.load\('13px "Cascadia Code"'\)/);
+  const warm = source.indexOf("document.fonts.load('13px");
+  const open = source.indexOf("term.open(container)");
+  assert.ok(warm > 0 && open > warm, "font warm-up must precede term.open");
+});
+
+test("Batch 2: WS half-open watchdog + resume-reconnect wired", () => {
+  const source = read("app.js");
+  assert.match(source, /WS_CONNECTING_TIMEOUT_MS = 8000/);
+  assert.match(source, /readyState === WebSocket\.CONNECTING/, "watchdog force-closes a stuck CONNECTING socket");
+  assert.match(source, /function wireRealtimeResumeReconnect\(\)/);
+  for (const ev of ['visibilitychange', 'pageshow', 'focus', 'online']) {
+    assert.ok(source.includes(`'${ev}'`), `resume reconnect must listen to ${ev}`);
+  }
+  assert.match(source, /\nwireRealtimeResumeReconnect\(\);/, "resume reconnect must be wired at boot");
+});
