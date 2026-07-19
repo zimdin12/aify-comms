@@ -181,3 +181,20 @@ test("Batch 2: WS half-open watchdog + resume-reconnect wired", () => {
   }
   assert.match(source, /\nwireRealtimeResumeReconnect\(\);/, "resume reconnect must be wired at boot");
 });
+
+test("terminal theme follows the dashboard accent + clears WebGL atlas on change", () => {
+  const source = read("app.js");
+  // Theme is derived (not a hardcoded literal) and stays dark for TUI legibility.
+  assert.match(source, /function terminalThemeFromDashboard\(\)/);
+  assert.match(source, /theme: terminalThemeFromDashboard\(\)/, "ctor must use the derived theme");
+  assert.ok(!/theme: \{ background: '#0b0e13', foreground: '#cdd6f4', cursor: '#51c5b0' \}/.test(source),
+    "the hardcoded fixed terminal theme must be gone");
+  // Live re-theme clears the WebGL glyph-color atlas (else stale-colored cells).
+  assert.match(source, /function refreshActiveTerminalTheme\(\)/);
+  assert.match(source, /entry\.webgl\?\.clearTextureAtlas\?\.\(\)/);
+  // The webgl addon is stored on the entry so the atlas can be cleared.
+  assert.match(source, /webgl: webglAddon/);
+  // And the re-theme is wired into the appearance apply/preview paths.
+  assert.ok((source.match(/refreshActiveTerminalTheme\(\);/g) || []).length >= 3,
+    "re-theme must be wired into save/preview/undo appearance paths");
+});

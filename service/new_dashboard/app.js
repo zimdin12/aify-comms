@@ -740,6 +740,7 @@ async function _refreshImpl() {
   if (ok(9) && val(9) && typeof val(9) === 'object') {
     state.settings = val(9);
     applyTheme(state.settings); // apply the server-stored appearance (theme/palette/title)
+    refreshActiveTerminalTheme(); // keep a mounted console's accent in sync
     armRefreshTimer(); // honor dashboard_refresh_seconds (no-op unless it changed)
   }
   try { await chatLoadChannels(); } catch (_) { /* keep prior channels */ }
@@ -1033,6 +1034,7 @@ function readAppearanceInputs() {
 function previewAppearance() {
   const a = readAppearanceInputs();
   previewTheme({ theme: a.dashboard_theme, primary: a.dashboard_primary_color, secondary: a.dashboard_secondary_color, tertiary: a.dashboard_tertiary_color });
+  refreshActiveTerminalTheme(); // live-preview the console accent as the operator edits the palette
   const title = String(a.dashboard_title || 'AIFY Comms').trim() || 'AIFY Comms';
   document.title = title;
   const brand = document.querySelector('.brand-copy strong');
@@ -1072,6 +1074,7 @@ async function saveSettings() {
     const res = await api('/settings', { method: 'PUT', body: JSON.stringify(payload) });
     state.settings = res && typeof res === 'object' ? res : { ...state.settings, ...payload };
     applyTheme(state.settings); // persist + paint the saved appearance
+    refreshActiveTerminalTheme();
     armRefreshTimer(); // a changed dashboard_refresh_seconds takes effect immediately, not next poll
     if (statusEl) statusEl.textContent = 'Saved';
     toast('Settings saved', 'ok');
@@ -1723,6 +1726,40 @@ function disposeActiveXterm() {
 
 let consoleInputBlockedToastAt = 0;
 
+// Terminal theme derived from the active dashboard theme/palette (Hermes-style live theming).
+// The console keeps a DARK background+foreground on purpose — the agent TUIs (Ink, etc.) are
+// designed for dark terminals and a light background would misrender them — but the cursor and
+// selection follow the dashboard's accent so the console reads as part of the themed UI. Accent
+// comes from the live `--accent` CSS var (honors a CUSTOM palette), falling back to the preset.
+function terminalAccentColor() {
+  try {
+    const v = getComputedStyle(document.body).getPropertyValue('--accent').trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) return v;
+  } catch {}
+  const preset = THEMES[String(document.body.dataset.theme || 'default')] || THEMES.default;
+  return preset.accent || '#51c5b0';
+}
+function terminalThemeFromDashboard() {
+  const accent = terminalAccentColor();
+  return {
+    background: '#0b0e13',
+    foreground: '#cdd6f4',
+    cursor: accent,
+    cursorAccent: '#0b0e13',
+    selectionBackground: `${accent}55`, // ~33% alpha tint of the accent
+  };
+}
+// Re-theme the mounted console on a live theme/palette change. Updating term.options.theme alone
+// leaves STALE colors on screen under the WebGL renderer, which caches glyph colors in its texture
+// atlas — so we clear the atlas too (exactly what Hermes does on a theme switch). No-op when no
+// console is mounted or when the DOM renderer is active (no atlas to clear).
+function refreshActiveTerminalTheme() {
+  const entry = state.activeXterm;
+  if (!entry || !entry.term) return;
+  try { entry.term.options.theme = terminalThemeFromDashboard(); } catch {}
+  try { entry.webgl?.clearTextureAtlas?.(); } catch {}
+}
+
 async function mountXtermForTerminal(terminalId, agentId, container, { canInput = true } = {}) {
   if (!container || !terminalId) return;
   if (typeof window.Terminal === 'undefined') {
@@ -1756,7 +1793,7 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
     cursorBlink: true,
     fontFamily: '"Cascadia Code", ui-monospace, "Consolas", monospace',
     fontSize: 13,
-    theme: { background: '#0b0e13', foreground: '#cdd6f4', cursor: '#51c5b0' },
+    theme: terminalThemeFromDashboard(),
     scrollback: 5000,
     // Hermes terminal-setup parity (studied from their dashboard ChatPage + desktop shell):
     //  - allowProposedApi: REQUIRED for the Unicode11 addon we activate below (without it xterm
@@ -1814,12 +1851,15 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
   }
   term.open(container);
   // WebGL renderer (WS-D) — big perf win under heavy TUI output; fall back to the DOM
-  // renderer if the GL context is lost or the addon throws.
+  // renderer if the GL context is lost or the addon throws. Kept referenceable so a live theme
+  // change can clear its glyph-color texture atlas (refreshActiveTerminalTheme).
+  let webglAddon = null;
   if (window.WebglAddon && window.WebglAddon.WebglAddon) {
     try {
       const webgl = new window.WebglAddon.WebglAddon();
-      webgl.onContextLoss(() => { try { webgl.dispose(); } catch {} });
+      webgl.onContextLoss(() => { try { webgl.dispose(); } catch {} webglAddon = null; });
       term.loadAddon(webgl);
+      webglAddon = webgl;
     } catch { /* DOM renderer remains active */ }
   }
   safeFit();
@@ -1962,7 +2002,7 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
     try { resizeObserver.observe(container); } catch {}
   }
 
-  state.activeXterm = { terminalId, agentId, term, fitAddon, container, resizeObserver, wheelHandler: onWheel, lastSeq: -1, canInput };
+  state.activeXterm = { terminalId, agentId, term, fitAddon, container, resizeObserver, wheelHandler: onWheel, lastSeq: -1, canInput, webgl: webglAddon };
 
   // Replay existing buffered output so the operator sees history when they open the Console
   // pane mid-session (instead of waiting for the next byte to arrive).
@@ -4704,6 +4744,7 @@ byId('settings-save')?.addEventListener('click', () => {
 byId('settings-reset')?.addEventListener('click', () => {
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); // clear the edit-guard
   applyTheme(state.settings); // undo any live appearance preview
+  refreshActiveTerminalTheme();
   renderSettings();           // repaint inputs from the last-saved settings
   toast('Reverted unsaved changes', 'ok');
 });
