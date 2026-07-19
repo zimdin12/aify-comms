@@ -271,8 +271,8 @@ export class TerminalProcessManager {
     }
     const term = pty.spawn(shell, args, {
       name: "xterm-256color",
-      cols: Math.max(20, Number(cols || 100)),
-      rows: Math.max(6, Number(rows || 28)),
+      cols: Math.min(2000, Math.max(20, Number(cols || 100))),
+      rows: Math.min(1000, Math.max(6, Number(rows || 28))),
       cwd: resolvedCwd,
       env,
     });
@@ -285,8 +285,8 @@ export class TerminalProcessManager {
       command,
       cwd,
       env,
-      cols: Math.max(20, Number(cols || 100)),
-      rows: Math.max(6, Number(rows || 28)),
+      cols: Math.min(2000, Math.max(20, Number(cols || 100))),
+      rows: Math.min(1000, Math.max(6, Number(rows || 28))),
       runtime: normalizeRuntime(runtime),
       sessionHandle: String(sessionHandle || "").trim(),
       healAttempted: !!healAttempted,

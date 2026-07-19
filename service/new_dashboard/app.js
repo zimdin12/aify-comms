@@ -115,6 +115,7 @@ let refreshTimer = null;
 let _refreshInFlight = false;
 let _refreshQueued = false;
 let dashboardSocket = null;
+let _consoleMountGen = 0; // bumped per mount so a font-await-parked mount can detect supersession
 
 // Chat-first landing controller (chat.js). Adapters bridge the pure module to app state:
 // sendMessage routes DM→/messages/send (trigger+toast ladder) vs channel→/channels/{n}/send;
@@ -476,7 +477,6 @@ function refreshSoon() {
 }
 
 let _wsReconnectAttempts = 0;
-let _wsConnectingWatchdog = 0;
 const WS_CONNECTING_TIMEOUT_MS = 8000;
 function connectRealtimeSocket() {
   if (dashboardSocket && [WebSocket.OPEN, WebSocket.CONNECTING].includes(dashboardSocket.readyState)) return;
@@ -487,18 +487,18 @@ function connectRealtimeSocket() {
     state.realtimeConnected = false;
     return;
   }
+  const sock = dashboardSocket;
   // Half-open-socket watchdog (Hermes parity, their NS-591). After a laptop sleep or a mobile
   // radio handoff a socket can sit in CONNECTING forever — neither onopen nor onclose ever fires,
-  // so the CONNECTING guard above wedges reconnect permanently. If we're still CONNECTING after
-  // the timeout, force-close it so onclose → backoff reconnect can recover.
-  clearTimeout(_wsConnectingWatchdog);
-  _wsConnectingWatchdog = setTimeout(() => {
-    if (dashboardSocket && dashboardSocket.readyState === WebSocket.CONNECTING) {
-      try { dashboardSocket.close(); } catch {}
-    }
+  // so the CONNECTING guard above wedges reconnect permanently. If THIS socket is still CONNECTING
+  // after the timeout, force-close it so onclose → backoff reconnect can recover. The timer is
+  // scoped PER SOCKET (via `sock` + a local id): a shared global id could be cleared by a different
+  // socket's onclose during a resume-overlap and leave a half-open successor unwatched.
+  const watchdog = setTimeout(() => {
+    if (sock.readyState === WebSocket.CONNECTING) { try { sock.close(); } catch {} }
   }, WS_CONNECTING_TIMEOUT_MS);
-  dashboardSocket.onopen = () => {
-    clearTimeout(_wsConnectingWatchdog);
+  sock.onopen = () => {
+    clearTimeout(watchdog);
     const wasReconnect = state.realtimeConnected === false && _wsReconnectAttempts > 0;
     state.realtimeConnected = true;
     _wsReconnectAttempts = 0; // healthy connection → reset backoff to fast retry
@@ -514,14 +514,14 @@ function connectRealtimeSocket() {
       refreshSoon();
     }
   };
-  dashboardSocket.onmessage = (event) => {
+  sock.onmessage = (event) => {
     try {
       const payload = JSON.parse(event.data || '{}');
       applyRealtimeEvent(payload.event, payload.data || {});
     } catch {}
   };
-  dashboardSocket.onclose = () => {
-    clearTimeout(_wsConnectingWatchdog);
+  sock.onclose = () => {
+    clearTimeout(watchdog);
     state.realtimeConnected = false;
     // Exponential backoff (capped) instead of hammering /ws every 2.5s. The single-worker
     // service restarts on every deploy; a flat retry from every open tab piles load on exactly
@@ -544,8 +544,10 @@ function nudgeRealtimeSocketOnResume() {
   if (now - _wsResumeNudgeAt < 1000) return;
   _wsResumeNudgeAt = now;
   const rs = dashboardSocket ? dashboardSocket.readyState : WebSocket.CLOSED;
-  if (rs === WebSocket.OPEN) return;
-  if (rs === WebSocket.CONNECTING && dashboardSocket) { try { dashboardSocket.close(); } catch {} }
+  // OPEN → nothing to do. CONNECTING → leave it: it's either progressing (aborting a healthy slow
+  // connect just churns) or genuinely stuck, in which case the per-socket watchdog kills it within
+  // 8s. Only a CLOSED/CLOSING socket needs an immediate reconnect (short-circuiting the backoff).
+  if (rs === WebSocket.OPEN || rs === WebSocket.CONNECTING) return;
   connectRealtimeSocket();
 }
 function wireRealtimeResumeReconnect() {
@@ -1753,9 +1755,16 @@ function terminalThemeFromDashboard() {
 // leaves STALE colors on screen under the WebGL renderer, which caches glyph colors in its texture
 // atlas — so we clear the atlas too (exactly what Hermes does on a theme switch). No-op when no
 // console is mounted or when the DOM renderer is active (no atlas to clear).
+//
+// CHANGE-GATED: this is called from the ~15s poll (_refreshImpl applies settings every tick), not
+// only on real theme edits. clearTextureAtlas() forces a full glyph re-rasterization, so calling it
+// every poll would flicker an open console. Only act when the accent actually changed.
 function refreshActiveTerminalTheme() {
   const entry = state.activeXterm;
   if (!entry || !entry.term) return;
+  const accent = terminalAccentColor();
+  if (entry._themeAccent === accent) return;
+  entry._themeAccent = accent;
   try { entry.term.options.theme = terminalThemeFromDashboard(); } catch {}
   try { entry.webgl?.clearTextureAtlas?.(); } catch {}
 }
@@ -1785,6 +1794,11 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
   }
   disposeActiveXterm();
   container.innerHTML = '';
+  // Mount generation: state.activeXterm is null from here until we assign it below, and the font
+  // warm-up awaits in between. A rapid session switch can start a newer mount during that gap; this
+  // token lets the older (superseded) mount bail before it creates a WebGL context / claims
+  // state.activeXterm — otherwise it leaks an xterm + GL context nothing will dispose.
+  const _mountGen = ++_consoleMountGen;
 
   const term = new window.Terminal({
     // This is a real PTY byte stream. Rewriting LF to CRLF changes cursor semantics and is one
@@ -1848,6 +1862,12 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
         document.fonts.load('italic 13px "Cascadia Code"'),
       ]);
     } catch { /* fonts API hiccup: proceed; fit re-runs on the ResizeObserver anyway */ }
+  }
+  // Superseded during the font await (or the pane was detached)? Drop THIS term before opening it /
+  // creating a GL context / claiming state.activeXterm, so a newer mount is the only live console.
+  if (_mountGen !== _consoleMountGen || !container.isConnected) {
+    try { term.dispose(); } catch {}
+    return;
   }
   term.open(container);
   // WebGL renderer (WS-D) — big perf win under heavy TUI output; fall back to the DOM
@@ -1973,6 +1993,10 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
       roFrame = requestAnimationFrame(() => {
         roFrame = 0;
         const entry = state.activeXterm;
+        // Stale-observer guard: this frame may have been scheduled just before dispose. If the
+        // active console is no longer THIS container's, bail — otherwise a disposed terminal's
+        // observer would mutate the new entry (spurious resync/flicker).
+        if (!entry || entry.container !== container) return;
         // Wide mirror (resident terminal wider than the pane): fit() would shrink the xterm back
         // to the pane and re-wrap the source lines. Instead recompute the pane width WITHOUT
         // applying it; only if it changed materially do we resync (which re-fits + re-widens).
@@ -2002,7 +2026,7 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
     try { resizeObserver.observe(container); } catch {}
   }
 
-  state.activeXterm = { terminalId, agentId, term, fitAddon, container, resizeObserver, wheelHandler: onWheel, lastSeq: -1, canInput, webgl: webglAddon };
+  state.activeXterm = { terminalId, agentId, term, fitAddon, container, resizeObserver, wheelHandler: onWheel, lastSeq: -1, canInput, webgl: webglAddon, _themeAccent: terminalAccentColor() };
 
   // Replay existing buffered output so the operator sees history when they open the Console
   // pane mid-session (instead of waiting for the next byte to arrive).

@@ -192,9 +192,32 @@ test("terminal theme follows the dashboard accent + clears WebGL atlas on change
   // Live re-theme clears the WebGL glyph-color atlas (else stale-colored cells).
   assert.match(source, /function refreshActiveTerminalTheme\(\)/);
   assert.match(source, /entry\.webgl\?\.clearTextureAtlas\?\.\(\)/);
+  // ...but MUST be change-gated: it runs on the ~15s poll, and an unconditional atlas clear would
+  // flicker an open console every tick.
+  assert.match(source, /if \(entry\._themeAccent === accent\) return;/,
+    "refreshActiveTerminalTheme must no-op when the accent is unchanged (poll-safety)");
   // The webgl addon is stored on the entry so the atlas can be cleared.
   assert.match(source, /webgl: webglAddon/);
   // And the re-theme is wired into the appearance apply/preview paths.
   assert.ok((source.match(/refreshActiveTerminalTheme\(\);/g) || []).length >= 3,
     "re-theme must be wired into save/preview/undo appearance paths");
+});
+
+test("mount is supersession-guarded across the font await (no leaked xterm/GL context)", () => {
+  const source = read("app.js");
+  // A generation token is captured before the font await and re-checked before term.open, so a
+  // rapid session switch during an uncached-font load can't leave two live consoles.
+  assert.match(source, /const _mountGen = \+\+_consoleMountGen;/);
+  assert.match(source, /if \(_mountGen !== _consoleMountGen \|\| !container\.isConnected\)/,
+    "mount must bail (disposing its term) if superseded during the font await");
+});
+
+test("WS half-open watchdog is per-socket (not a shared global id)", () => {
+  const source = read("app.js");
+  assert.match(source, /const sock = dashboardSocket;/);
+  assert.match(source, /const watchdog = setTimeout\(\(\) => \{\s*if \(sock\.readyState === WebSocket\.CONNECTING\)/,
+    "watchdog must act on its own captured socket");
+  assert.ok(!/_wsConnectingWatchdog/.test(source), "the shared global watchdog id must be gone");
+  // Resume nudge leaves a CONNECTING socket to the watchdog instead of aborting it.
+  assert.match(source, /if \(rs === WebSocket\.OPEN \|\| rs === WebSocket\.CONNECTING\) return;/);
 });
