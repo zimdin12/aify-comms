@@ -136,3 +136,15 @@ test("ownsPty is positively-managed (fails closed), not !== 'resident' (fails op
   assert.match(source, /_sess\?\.sessionMode \|\| _sess\?\.session_mode/,
     "ownsPty must fall back to the session row's sessionMode/session_mode");
 });
+
+test("xterm setup imitates Hermes terminal-fidelity settings", () => {
+  const source = read("app.js");
+  // Legibility + Unicode11 correctness + selection ergonomics, studied from Hermes' dashboard.
+  assert.match(source, /allowProposedApi: true/, "Unicode11 needs allowProposedApi");
+  assert.match(source, /minimumContrastRatio: 4\.5/, "clamp low-contrast ANSI (Hermes 'VS Code secret sauce')");
+  assert.match(source, /macOptionClickForcesSelection: true/);
+  assert.match(source, /rightClickSelectsWord: true/);
+  // Mouse-report bytes must be dropped, not forwarded into the PTY input line.
+  assert.ok(source.includes("SGR mouse-report suppression"), "SGR mouse-report suppression guard present");
+  assert.ok(source.includes(".test(data)) return;"), "onData drops SGR mouse reports before forwarding");
+});

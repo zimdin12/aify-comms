@@ -1718,6 +1718,18 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
     fontSize: 13,
     theme: { background: '#0b0e13', foreground: '#cdd6f4', cursor: '#51c5b0' },
     scrollback: 5000,
+    // Hermes terminal-setup parity (studied from their dashboard ChatPage + desktop shell):
+    //  - allowProposedApi: REQUIRED for the Unicode11 addon we activate below (without it xterm
+    //    warns and the width provider silently stays on the core tables → CJK/emoji misalign).
+    //  - minimumContrastRatio: xterm's default is 1 (OFF), which paints raw saturated ANSI —
+    //    dark-blue-on-black is unreadable. 4.5:1 (WCAG AA) is Hermes' "VS Code secret sauce":
+    //    it clamps fg against bg at render time so low-contrast ANSI stays legible.
+    //  - selection ergonomics: force native selection under mouse-tracking TUIs and select-word
+    //    on right-click, matching their gnome-terminal-parity behavior.
+    allowProposedApi: true,
+    minimumContrastRatio: 4.5,
+    macOptionClickForcesSelection: true,
+    rightClickSelectsWord: true,
   });
   let fitAddon = null;
   if (window.FitAddon && window.FitAddon.FitAddon) {
@@ -1756,6 +1768,12 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
   // parallel fetches can otherwise deliver consecutive keystroke chunks out of order.
   let inputPost = Promise.resolve();
   term.onData((data) => {
+    // SGR mouse-report suppression (Hermes ChatPage parity). When a TUI enables mouse tracking,
+    // xterm reports clicks/drags to onData as SGR sequences like `\x1b[<0;12;34M`. We forward
+    // onData straight to the PTY input line, so an accidental click would inject those bytes as
+    // literal keystrokes into the prompt. The upstream app never sees our synthetic pane mouse,
+    // so drop the report entirely instead of forwarding it.
+    if (/^\x1b\[<\d+;\d+;\d+[Mm]$/.test(data)) return;
     // Blocked-input guard (WS-D): don't silently POST into a console that can't accept input —
     // warn the operator (debounced) so their keystrokes aren't lost into the void.
     if (state.activeXterm && state.activeXterm.canInput === false) {
