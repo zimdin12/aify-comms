@@ -12040,6 +12040,14 @@ async def resize_terminal(terminal_id: str, req: TerminalControlRequest, request
         if not terminal:
             raise HTTPException(404, f'Terminal "{terminal_id}" not found')
         requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
+        # Clamp the resize to sane maxima before it is ever recorded or forwarded to the bridge
+        # (Hermes parity). An absurd winsize crashes node-pty's TIOCSWINSZ ioctl (their WSL2
+        # `columns=131072` incident); clamping at the service means a bad value can never reach any
+        # bridge, even one running older code. 0 stays 0 (the bridge substitutes its own default).
+        _cols = int(req.cols or 0)
+        _rows = int(req.rows or 0)
+        _cols = 0 if _cols <= 0 else min(_cols, 2000)
+        _rows = 0 if _rows <= 0 else min(_rows, 1000)
         control_id = await _append_terminal_control(
             db,
             terminal_id=terminal_id,
@@ -12047,10 +12055,10 @@ async def resize_terminal(terminal_id: str, req: TerminalControlRequest, request
             bridge_id=terminal["bridge_id"] or "",
             action="resize",
             requested_by=requested_by,
-            cols=int(req.cols or 0),
-            rows=int(req.rows or 0),
+            cols=_cols,
+            rows=_rows,
         )
-        await _append_terminal_event(db, terminal_id, "terminal_resize_requested", json.dumps({"requestedBy": requested_by, "cols": req.cols or 0, "rows": req.rows or 0}))
+        await _append_terminal_event(db, terminal_id, "terminal_resize_requested", json.dumps({"requestedBy": requested_by, "cols": _cols, "rows": _rows}))
         await db.commit()
         control = await (await db.execute("SELECT * FROM terminal_controls WHERE id = ?", (control_id,))).fetchone()
         ws = await _get_ws(request)

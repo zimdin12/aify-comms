@@ -644,8 +644,12 @@ export class TerminalProcessManager {
     const terminal = this.terminals.get(id);
     if (!terminal) throw new Error(`Terminal "${id}" is not running`);
     if (terminal.kind === "pty") {
-      const nextCols = Math.max(20, Number(cols || 100));
-      const nextRows = Math.max(6, Number(rows || 28));
+      // Clamp BOTH bounds (Hermes parity). The lower floor keeps a usable grid; the UPPER cap
+      // guards node-pty's TIOCSWINSZ ioctl, which throws on an absurd winsize — Hermes hit this
+      // when WSL2 reported `columns=131072, rows=1` and the resize crashed the PTY. We run heavily
+      // on WSL2, so cap cols/rows to sane maxima before handing them to term.resize().
+      const nextCols = Math.min(2000, Math.max(20, Number(cols || 100)));
+      const nextRows = Math.min(1000, Math.max(6, Number(rows || 28)));
       // Persist the new dims on state — the console keepalive restores state.cols/rows after
       // its SIGWINCH toggle, so stale dims here made it snap a dashboard-resized console back
       // to the SPAWN-time size every 4s (review must-fix, 2026-06-10).
