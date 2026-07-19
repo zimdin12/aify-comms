@@ -14304,6 +14304,11 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
             )
             await db.commit()
             if not started:
+                # _coldstart returns False for an already-pending/booting spawn too (idempotent
+                # success, not a failure). Clicking Start twice during a slow boot — before the
+                # session row exists — must not surface a false "no environment bridge" error.
+                if await _has_pending_or_booting_spawn_request(db, agent_id):
+                    return {"ok": True, "agentId": agent_id, "action": "start", "spawnPending": True}
                 raise HTTPException(
                     409,
                     f'Could not start "{agent_id}" — no environment bridge is available to run it. '
