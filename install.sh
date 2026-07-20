@@ -2062,7 +2062,6 @@ install_hermes_windows_tui_shim() {
   local windows_wrapper_dir=""
   local ps_path=""
   local cmd_path=""
-  local windows_ps_path=""
 
   windows_wrapper_dir="$(path_for_windows_runtime "$wrapper_dir")"
   case "$windows_wrapper_dir" in
@@ -2072,7 +2071,6 @@ install_hermes_windows_tui_shim() {
 
   ps_path="$wrapper_dir/hermes-aify.ps1"
   cmd_path="$wrapper_dir/hermes-aify.cmd"
-  windows_ps_path="$windows_wrapper_dir\\hermes-aify.ps1"
 
   # Windows PowerShell 5.1 (powershell.exe) decodes a BOM-less .ps1 as the system
   # ANSI codepage (e.g. Windows-1252), which mangles any non-ASCII byte and breaks
@@ -2534,13 +2532,16 @@ Invoke-HermesRuntime \$HermesArgs
 exit \$script:HermesRuntimeExitCode
 EOF
 
-  cat > "$cmd_path" <<EOF
-@echo off
-setlocal
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$windows_ps_path" %*
-set "AIFY_EXIT=%ERRORLEVEL%"
-endlocal & exit /b %AIFY_EXIT%
-EOF
+  # CRLF + %~dp0 for the same reasons as install_windows_cmd_shim: cmd.exe
+  # reads this file in the OEM codepage (a non-ASCII profile path baked in as
+  # UTF-8 comes back mangled) and misparses LF-only batch files.
+  {
+    printf '%s\r\n' '@echo off'
+    printf '%s\r\n' 'setlocal'
+    printf '%s\r\n' 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0hermes-aify.ps1" %*'
+    printf '%s\r\n' 'set "AIFY_EXIT=%ERRORLEVEL%"'
+    printf '%s\r\n' 'endlocal & exit /b %AIFY_EXIT%'
+  } > "$cmd_path"
 }
 
 install_bridge_launcher() {
@@ -2758,10 +2759,8 @@ hook_command_for_node_script() {
 install_windows_cmd_shim() {
   local wrapper_name="$1"
   local wrapper_dir="$2"
-  local wrapper_path="$wrapper_dir/$wrapper_name"
   local shim_path="$wrapper_dir/$wrapper_name.cmd"
   local bash_path=""
-  local windows_wrapper_path=""
   local windows_wrapper_dir=""
 
   if ! is_git_bash_windows; then
@@ -2772,17 +2771,28 @@ install_windows_cmd_shim() {
   fi
 
   bash_path="$(cygpath -w "$(command -v bash)")"
-  windows_wrapper_path="$(cygpath -w "$wrapper_path")"
   windows_wrapper_dir="$(cygpath -w "$wrapper_dir")"
 
-  cat > "$shim_path" <<EOF
-@echo off
-setlocal
-for %%I in ("$bash_path") do set "AIFY_BASH_DIR=%%~dpI"
-set "PATH=%AIFY_BASH_DIR%;%AIFY_BASH_DIR%..\usr\bin;%AIFY_BASH_DIR%..\..\bin;%PATH%"
-"$bash_path" "$windows_wrapper_path" %*
-endlocal
-EOF
+  # .cmd files are parsed by cmd.exe in the console's OEM codepage and require
+  # CRLF line endings. Two hard rules follow (both bit real users):
+  #   1. No absolute paths in the file body — a UTF-8 "õ" saved in the shim is
+  #      read back as OEM mojibake (├╡) and the shim execs a path that does not
+  #      exist ("bash: C:\Users\KertM├╡ttus\...: No such file or directory").
+  #      %~dp0 (the shim's own directory) is expanded by cmd.exe at runtime
+  #      from its native Unicode state, so the profile path never crosses an
+  #      encoding boundary. ($bash_path stays literal: "C:\Program Files\..."
+  #      is ASCII on virtually every install, unlike the per-user wrapper dir.)
+  #   2. Emit CRLF explicitly — a heredoc inherits THIS script's checkout line
+  #      endings, and an LF-only batch file makes cmd.exe swallow the first
+  #      character of each line ("'etlocal' is not recognized ...").
+  {
+    printf '%s\r\n' '@echo off'
+    printf '%s\r\n' 'setlocal'
+    printf '%s\r\n' "for %%I in (\"$bash_path\") do set \"AIFY_BASH_DIR=%%~dpI\""
+    printf '%s\r\n' 'set "PATH=%AIFY_BASH_DIR%;%AIFY_BASH_DIR%..\usr\bin;%AIFY_BASH_DIR%..\..\bin;%PATH%"'
+    printf '%s\r\n' "\"$bash_path\" \"%~dp0$wrapper_name\" %*"
+    printf '%s\r\n' 'endlocal'
+  } > "$shim_path"
 
   if command -v powershell.exe >/dev/null 2>&1; then
     powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '
