@@ -1924,6 +1924,17 @@ def _row_capabilities(row) -> list[str]:
         return [cap for cap in capabilities if cap not in {"resident-run", "interrupt", "steer"}]
     if runtime == "hermes":
         if session_mode == "managed":
+            # Managed hermes does NOT safely accept a mid-turn inject. Unlike claude (which queues
+            # injects in order), a submission delivered to hermes WHILE it is waiting on the model is
+            # treated as an INTERRUPT and cancels the in-flight turn (conversation_loop.py:2294,
+            # "Operation interrupted: waiting for model response"). Advertising `steer` made BOTH
+            # injection points fire for hermes — the send-time steer branch (~6783) and the
+            # /dispatch/claim turn-busy bypass (_has_claimable_steerable_run) — so every message to a
+            # busy hermes interrupted its turn, stranded the reply, and drove cold-start churn
+            # (mc-senior-dev proliferation, 2026-07-20). Strip `steer` (even if the bridge registered
+            # it) so a message to a busy hermes ENQUEUES and delivers at turn-end instead. The
+            # explicit `interrupt` (stop) capability is unaffected; claude keeps `steer`.
+            capabilities = [cap for cap in capabilities if cap != "steer"]
             for cap in ("managed-run", "resume", "interrupt", "spawn"):
                 if cap not in capabilities:
                     capabilities = [*capabilities, cap]
