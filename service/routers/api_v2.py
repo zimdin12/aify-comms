@@ -5692,6 +5692,77 @@ async def _managed_environment_status(db, row) -> tuple[str, str, str]:
 
 
 SPAWN_ORPHAN_GRACE_SECONDS = 180  # matches the dispatch queued-run backstop window
+# A worker is "live now" if it has a bound terminal that beat within this window. The console
+# keepalive/heartbeat refreshes terminal_sessions.updated_at every few seconds, so 180s is a
+# generous "definitely alive" bar — we only reap redundant spawns when a worker is unambiguously up.
+LIVE_WORKER_TERMINAL_STALE_SECONDS = 180
+
+
+async def _fail_running_spawns_superseded_by_live_worker(db) -> int:
+    """Fail spawn_requests stuck 'running' when the agent ALREADY has a live worker.
+
+    Complements `_fail_orphaned_running_spawn_requests`, which reaps a spawn ONLY when its
+    CLAIMING BRIDGE is dead. This covers the opposite, more damaging case (mc-senior-dev
+    proliferation incident, 2026-07-20): a managed worker boots, registers a LIVE terminal, and
+    starts delivering — but the bridge never PATCHes the spawn_request to completed (a turn
+    interrupted mid-model-call leaves the boot's lifecycle unclosed). The record then lingers
+    'running' FOREVER on a LIVE bridge, so the dead-bridge reaper skips it; and once it ages past
+    the coldstart booting window it stops suppressing autostarts, so every later message
+    cold-starts ANOTHER worker for the same agent. Observed: one agent accrued 20 'running' spawns
+    (+ a stack of orphaned harness processes).
+
+    SAFETY — DB-only, never a process:
+    - Targets ONLY status='running' with empty finished_at, aged past SPAWN_ORPHAN_GRACE_SECONDS.
+    - Fails a spawn ONLY when its agent has a genuinely LIVE bound terminal (active state, beat
+      within LIVE_WORKER_TERMINAL_STALE_SECONDS) — i.e. a worker is already up. A worker still
+      mid-boot has no live terminal yet, so its spawn is untouched (conservative, like the sibling).
+    - 'failed' only frees the stale DB record; the live worker keeps delivering via its own bridge,
+      and coldstart stops double-spawning because the running record is now closed.
+    """
+    now_epoch = datetime.now(timezone.utc).timestamp()
+    now = _now()
+    live_cutoff = time.strftime(
+        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - LIVE_WORKER_TERMINAL_STALE_SECONDS)
+    )
+    live_rows = await (await db.execute(
+        """
+        SELECT DISTINCT agent_id FROM terminal_sessions
+        WHERE status IN ('starting','attached','running','active','idle','recovering')
+          AND id NOT LIKE 'vterm_%'
+          AND COALESCE(NULLIF(updated_at, ''), '') >= ?
+        """,
+        (live_cutoff,),
+    )).fetchall()
+    live_agents = {str(r["agent_id"]).strip() for r in (live_rows or []) if str(r["agent_id"] or "").strip()}
+    if not live_agents:
+        return 0
+    cursor = await db.execute(
+        "SELECT id, agent_id, claimed_at, created_at FROM spawn_requests "
+        "WHERE status = 'running' AND COALESCE(finished_at, '') = ''"
+    )
+    failed = 0
+    for row in await cursor.fetchall():
+        aid = str(row["agent_id"] or "").strip()
+        if aid not in live_agents:
+            continue
+        age_epoch = _iso_to_epoch(str(row["claimed_at"] or row["created_at"] or ""))
+        if not age_epoch or (now_epoch - age_epoch) < SPAWN_ORPHAN_GRACE_SECONDS:
+            continue
+        await db.execute(
+            """
+            UPDATE spawn_requests
+            SET status = 'failed',
+                error = COALESCE(NULLIF(error, ''), 'Superseded: agent already has a live worker; redundant boot never closed by its bridge. Failed by reconcile.'),
+                finished_at = COALESCE(finished_at, ?),
+                updated_at = ?
+            WHERE id = ? AND status = 'running'
+            """,
+            (now, now, row["id"]),
+        )
+        failed += 1
+    if failed:
+        await db.commit()
+    return failed
 
 
 async def _fail_orphaned_running_spawn_requests(db) -> int:

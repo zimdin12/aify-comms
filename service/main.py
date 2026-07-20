@@ -92,6 +92,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _run_contract_reminders_once,
         _repair_spawn_requests_from_initial_dispatch_failures,
         _fail_orphaned_running_spawn_requests,
+        _fail_running_spawns_superseded_by_live_worker,
     )
 
     db = await _get_db()
@@ -112,6 +113,10 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # ~15s dashboard poll, contending with all reads. Run them here in the 60s sweep instead.
         await _commit_step(await _repair_spawn_requests_from_initial_dispatch_failures(db))
         await _commit_step(await _fail_orphaned_running_spawn_requests(db))
+        # Reap 'running' spawns the agent already outgrew: a live worker exists, but the boot
+        # record was never closed (turn-interrupt churn) → it lingered 'running' and, past the
+        # booting window, stopped suppressing autostarts → duplicate cold-starts + orphan harnesses.
+        await _commit_step(await _fail_running_spawns_superseded_by_live_worker(db))
         closed_delivered_total = 0
         for _ in range(10):  # hard cap: <= 10 * 500 = 5k runs per pass
             batch = await _close_reconcilable_delivered_runs(db, limit=500)
