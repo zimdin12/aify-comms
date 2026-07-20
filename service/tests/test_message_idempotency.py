@@ -102,6 +102,37 @@ class MessageIdempotencyTests(FastApiTestCase):
         self.assertEqual(self._count_messages("sender", "scoped"), 1)
         self.assertEqual(self._count_messages("other", "scoped"), 1)
 
+    def test_rejects_sender_truncated_body_instead_of_silently_losing_content(self):
+        direct_response = self._send(
+            from_agent="sender",
+            to="recipient",
+            body="Full operational report starts here...[truncated]",
+            type="info",
+        )
+        dispatch_response = self.client.post(
+            "/api/v1/dispatch",
+            json={
+                "from_agent": "sender",
+                "to": "recipient",
+                "subject": "truncated dispatch",
+                "body": "Full operational report starts here...[truncated]",
+                "createMessage": True,
+            },
+        )
+        channel_response = self.client.post(
+            "/api/v1/channels/reports/send",
+            json={
+                "from_agent": "sender",
+                "channel": "reports",
+                "body": "Full operational report starts here...[truncated]",
+            },
+        )
+
+        for response in (direct_response, dispatch_response, channel_response):
+            self.assertEqual(response.status_code, 422, response.text)
+            self.assertIn("resend", response.text.lower())
+        self.assertEqual(self._count_messages("sender", "Full operational report starts here...[truncated]"), 0)
+
     def test_unique_index_makes_dedup_atomic(self):
         # The PARTIAL UNIQUE index is the atomicity source that the upfront SELECT alone
         # can't provide under a concurrent retry (the review's HIGH #240). Verify a second

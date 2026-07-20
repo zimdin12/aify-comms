@@ -22,10 +22,7 @@ class HermesAdapter(RuntimeAdapter):
     session_env_vars = ["HERMES_SESSION_ID", "HERMES_SESSION"]
     supports_resident = True
     supports_managed = True
-    # ASYMMETRY(hermes): managed submissions made while the model is active interrupt the current
-    # turn. Queue until turn-end instead of advertising safe mid-turn steering. Interrupt remains
-    # independently supported through the gateway.
-    supports_steering = False
+    supports_steering = True
     supports_interrupt = True
     supports_multi_client = True
     preferred_delivery_mode = "managed-via-wrapper"

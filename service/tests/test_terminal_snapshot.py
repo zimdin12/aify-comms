@@ -3,7 +3,7 @@
 import re
 import unittest
 
-from service.terminal_snapshot import render_snapshot
+from service.terminal_snapshot import drop_live_screen, feed_live_screen, render_live_screen, render_snapshot
 
 
 def _visible(s: str) -> str:
@@ -11,6 +11,12 @@ def _visible(s: str) -> str:
 
 
 class TerminalSnapshotTests(unittest.TestCase):
+    def test_plain_log_does_not_create_wrapping_live_screen(self):
+        terminal_id = "plain-log"
+        drop_live_screen(terminal_id)
+        self.assertFalse(feed_live_screen(terminal_id, "abcdefghijklmnopqrstuvwxyz", cols=20, rows=5))
+        self.assertIsNone(render_live_screen(terminal_id))
+
     def test_renders_current_screen_and_drops_stale_frames(self):
         raw = (
             "\x1b[2J\x1b[Hgarbage old frame\x1b[5;1Hmore noise"

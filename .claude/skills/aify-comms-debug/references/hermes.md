@@ -339,8 +339,8 @@ single-idle-read clear false-cleared `turn_busy` mid-turn → a `working`↔`onl
 Requiring N consecutive idle reads (any `working` read resets the streak) means a momentary
 mid-turn idle blip can never clear the turn; the same debounce was applied to the in-flight
 re-pulse probe. STATUS is pure-event (the seconds window no longer decides `working`); the
-staleness window is the 30-min `TURN_BUSY_BACKSTOP_SECONDS` ceiling for a DROPPED end-event,
-while the claim-gate keeps the short 120s `TURN_BUSY_STALE_SECONDS`. This is BRIDGE code: it
+staleness window is the 30-min `TURN_BUSY_BACKSTOP_SECONDS` ceiling for a DROPPED end-event.
+Explicit `queueIfBusy` instead holds on raw `turn_busy=1` until the authoritative end-event. This is BRIDGE code: it
 activates when the managed hermes agent's delivery loop respawns (relaunch its
 `hermes-aify`, which kill-priors the old loop and loads the new bridge file). A loop
 still claiming under the machine-global `hermes-managed-host-<machine>` id (no

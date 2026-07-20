@@ -4023,8 +4023,8 @@ elif [ "$CLIENT" = "hermes" ]; then
   install_hermes_wrapper
   # Symmetric turn-start hook for hermes-aify direct typing via the
   # pre_llm_call shell-hook event. No matching turn-end hook because
-  # upstream hermes shell-hooks don't expose one; the 120s server-side
-  # turn_busy stale window handles cleanup.
+  # upstream hermes shell-hooks don't expose one; the gateway-status detector
+  # supplies turn-end and the long server backstop covers a dropped end-event.
   install_hermes_turn_hooks
   # Post-install LOUD probe (Plan 1.4 Step 4): there is no silent success path.
   # We cannot ensure a real per-agent daemon at install time without an agent

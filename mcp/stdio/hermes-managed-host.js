@@ -21,7 +21,7 @@
 //      `aify-<agentId>` key. Then `prompt.submit {session_id, text}`. Events route
 //      to the TUI's transport
 //      (owner) so the TUI renders; aify's submit does NOT displace it. A 4009
-//      busy response requeues the run until turn-end; Hermes is not steer-safe.
+//      explicit queue waits for turn-end; ordinary busy sends use session.steer.
 //
 // WAKE-ONLY (symmetric with claude-channel.js): this helper authors NO reply.
 // The in-session hermes agent has the aify-comms comms_* tools loaded and
@@ -69,6 +69,7 @@ import {
   buildSessionActiveListFrame,
   buildSessionListFrame,
   buildPromptSubmitFrame,
+  buildSessionSteerFrame,
   buildRenderNoticeFrame,
   pickSessionById,
   pickMostRecentSession,
@@ -1297,7 +1298,7 @@ export async function waitForActiveSession({
 
 // Drive ONE claimed run end-to-end (WAKE-ONLY). NEVER throws.
 //   reportTurnBusy(true) → WAIT for active session (cold-start race) →
-//   prompt.submit{session_id, text} → (4009 busy → requeue until turn-end) →
+//   session.steer for an ordinary busy send, otherwise prompt.submit →
 //   markRunDelivered → clearTurn. If the visible TUI never attaches within the
 //   bounded window, REQUEUE the run (claimable) — NOT markRunFailed — so the
 //   next poll delivers once the TUI resumes. On real failure: markRunFailed.
@@ -1449,8 +1450,24 @@ export async function deliverRun({
       /* plugin-less gateway or transient render failure — never block delivery */
     }
 
+    let steered = false;
+    if (run?.steerIfBusy) {
+      try {
+        const active = await wsClient.request(buildSessionActiveListFrame({ id: id++ }));
+        const status = pickSessionStatusById(active, sessionId);
+        if (isGatewaySessionWorking(status)) {
+          const result = await wsClient.request(buildSessionSteerFrame({ id: id++, sessionId, text }));
+          steered = String(result?.status || result?.result?.status || "").toLowerCase() === "queued";
+        }
+      } catch {
+        steered = false;
+      }
+    }
+
     try {
-      await wsClient.request(buildPromptSubmitFrame({ id: id++, sessionId, text }));
+      if (!steered) {
+        await wsClient.request(buildPromptSubmitFrame({ id: id++, sessionId, text }));
+      }
     } catch (err) {
       if (isSessionBusyError(err)) {
         await markRunRequeued(httpCall, run, "Hermes session became busy before prompt.submit; retry after turn-end");
@@ -1467,6 +1484,7 @@ export async function deliverRun({
     }
 
     await markRunDelivered(httpCall, run);
+    if (steered) return;
     // SUCCESS: do NOT clear turn_busy. prompt.submit is FIRE-AND-FORGET (it
     // returns on accept, not turn completion), so the visible-TUI turn is only
     // just STARTING — clearing here loses the "working" signal for the entire

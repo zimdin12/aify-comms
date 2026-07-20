@@ -34,6 +34,7 @@ from service.terminal_snapshot import (
     infer_source_width as _infer_terminal_source_width,
     feed_live_screen as _feed_live_terminal_screen,
     render_live_screen as _render_live_terminal_screen,
+    resize_live_screen as _resize_live_terminal_screen,
     drop_live_screen as _drop_live_terminal_screen,
 )
 from service.status_engine import apply_event, derive, StatusInputs, VALID_STATUSES
@@ -1636,6 +1637,8 @@ def _serialize_dispatch_run_row(row, *, blocked_by=None, include_body: bool = Fa
         "error": row["error_text"] or "",
         "resultMessageId": row["result_message_id"] or "",
         "requireReply": _row_require_reply(row),
+        "queueIfBusy": bool(row["queue_if_busy"]),
+        "steerIfBusy": bool(row["steer_if_busy"]),
         "replyState": _dispatch_reply_state(row),
         "replyPending": _dispatch_reply_pending(row),
         "requestedAt": row["requested_at"],
@@ -1884,7 +1887,12 @@ def _default_capabilities_for(
         caps.append("resume")
     if adapter.supports_interrupt:
         caps.append("interrupt")
-    if adapter.supports_steering:
+    supports_steering = adapter.supports_steering
+    # ASYMMETRY(hermes): wrapper/gateway delivery supports native steer. The
+    # advanced single-client ACP fallback rejects concurrent session/prompt.
+    if runtime_n == "hermes" and session_mode_n == "managed" and not bool((runtime_config or {}).get("channelEnabled")):
+        supports_steering = False
+    if supports_steering:
         caps.append("steer")
 
     # `spawn` capability is independent — every aify-comms managed-capable
@@ -1923,25 +1931,17 @@ def _row_capabilities(row) -> list[str]:
     if runtime == "opencode" and session_mode == "resident":
         return [cap for cap in capabilities if cap not in {"resident-run", "interrupt", "steer"}]
     if runtime == "hermes":
-        # Hermes cannot safely accept an injected prompt while any turn is active. Strip stale
-        # bridge registrations in BOTH modes; busy delivery is requeued until turn-end.
-        capabilities = [cap for cap in capabilities if cap != "steer"]
         if session_mode == "managed":
-            # Managed hermes does NOT safely accept a mid-turn inject. Unlike claude (which queues
-            # injects in order), a submission delivered to hermes WHILE it is waiting on the model is
-            # treated as an INTERRUPT and cancels the in-flight turn (conversation_loop.py:2294,
-            # "Operation interrupted: waiting for model response"). Advertising `steer` made BOTH
-            # injection points fire for hermes — the send-time steer branch (~6783) and the
-            # /dispatch/claim turn-busy bypass (_has_claimable_steerable_run) — so every message to a
-            # busy hermes interrupted its turn, stranded the reply, and drove cold-start churn
-            # (mc-senior-dev proliferation, 2026-07-20). Strip `steer` (even if the bridge registered
-            # it) so a message to a busy hermes ENQUEUES and delivers at turn-end instead. The
-            # explicit `interrupt` (stop) capability is unaffected; claude keeps `steer`.
-            for cap in ("managed-run", "resume", "interrupt", "spawn"):
+            managed_caps = ["managed-run", "resume", "interrupt", "spawn"]
+            if bool(runtime_config.get("channelEnabled")):
+                managed_caps.append("steer")
+            else:
+                capabilities = [cap for cap in capabilities if cap != "steer"]
+            for cap in managed_caps:
                 if cap not in capabilities:
                     capabilities = [*capabilities, cap]
         elif _has_hermes_gateway_url(runtime_config):
-            for cap in ("resident-run", "resume", "interrupt"):
+            for cap in ("resident-run", "resume", "interrupt", "steer"):
                 if cap not in capabilities:
                     capabilities = [*capabilities, cap]
         else:
@@ -2572,25 +2572,6 @@ async def _is_turn_busy_fresh(db, agent_id: str) -> bool:
     Finding 2, 2026-05-31.)"""
     fresh, _run_id = await _turn_busy_state(db, agent_id)
     return fresh
-
-
-async def _agent_engine_busy_for_queue(db, agent_id: str) -> bool:
-    """WS-3 (2026-06-17): True when the agent is GENUINELY mid-turn per the
-    liveness-aware engine status — the same value the dashboard shows. Used to
-    gate explicitly-queued delivery (queueIfBusy) so it (a) holds exactly while
-    the target is working/blocked and releases the instant it returns to ready
-    (online), and (b) never holds behind a DEAD worker's stale turn_busy=1 (the
-    engine resolves that to available/offline, not working — status-F2/WS-2).
-
-    Reads the cached agent_live_state.status, kept real-time by the
-    turn-transition pushes (WS-1) and self-healed by the 60s reconcile. Falls
-    back to the raw turn-busy freshness signal only when the cache row is absent
-    (cold start), preserving the prior behavior in that window."""
-    entry = _live_state_get(agent_id)
-    if entry and entry.get("status"):
-        return str(entry["status"]).strip().lower() in {"working", "blocked"}
-    # Cache cold: fall back to the raw turn-busy freshness (prior gate behavior).
-    return await _is_turn_busy_fresh(db, agent_id)
 
 
 async def _fresh_same_mode_bridge_conflict(
@@ -7719,7 +7700,7 @@ async def _has_claimable_steerable_run(
         return False
     cursor = await db.execute(
         """
-        SELECT execution_mode, requested_runtime
+        SELECT execution_mode, requested_runtime, queue_if_busy, steer_if_busy
         FROM dispatch_runs
         WHERE target_agent = ? AND status = 'queued'
         ORDER BY requested_at ASC
@@ -7728,6 +7709,8 @@ async def _has_claimable_steerable_run(
         (target_agent,),
     )
     for run in await cursor.fetchall():
+        if bool(run["queue_if_busy"]) or not bool(run["steer_if_busy"]):
+            continue
         run_execution_mode = str((run["execution_mode"] or "managed")).strip().lower()
         if run_execution_mode not in {"channel", "resident"}:
             continue
@@ -8734,6 +8717,7 @@ async def _create_dispatch_runs(
     message_id: Optional[str] = None,
     source_message_ids: Optional[dict[str, str]] = None,
     steer: bool = False,
+    queue_if_busy: bool = False,
     require_reply: bool = False,
     allow_merge: bool = True,
 ):
@@ -8757,7 +8741,12 @@ async def _create_dispatch_runs(
             if active_run and await _discard_unusable_active_run(db, recipient_id, active_run):
                 active_state = await _get_dispatch_state_for_agent(db, recipient_id)
                 active_run = active_state.get("activeRun")
-            if active_run and "steer" in capabilities:
+            active_execution_mode = str((active_run.get("executionMode") if active_run else "") or "").strip().lower()
+            recipient_runtime = _normalize_runtime((recipient_row["runtime"] if recipient_row else "") or requested_runtime)
+            # ASYMMETRY(hermes): its gateway sidecar does not consume dispatch_controls;
+            # route channel/resident steer through its claim loop and native session.steer.
+            steer_via_claim = recipient_runtime == "hermes" and active_execution_mode in {"channel", "resident"}
+            if steer and active_run and "steer" in capabilities and not steer_via_claim:
                 steer_body = f"[Message from {from_agent}]\nSubject: {subject}\n\n{body}"
                 control_id = await _append_dispatch_control(
                     db,
@@ -8893,7 +8882,8 @@ async def _create_dispatch_runs(
             merge_cursor = await db.execute(
                 """
                 UPDATE dispatch_runs
-                SET subject = ?, body = ?, priority = ?, dispatch_mode = ?, message_type = ?, require_reply = ?
+                SET subject = ?, body = ?, priority = ?, dispatch_mode = ?, message_type = ?, require_reply = ?,
+                    queue_if_busy = ?, steer_if_busy = ?
                 WHERE id = ? AND status = 'queued'
                 """,
                 (
@@ -8903,6 +8893,8 @@ async def _create_dispatch_runs(
                     "require_start" if mergeable_run["dispatch_mode"] == "require_start" or dispatch_mode == "require_start" else mergeable_run["dispatch_mode"],
                     message_type,
                     1 if (bool(mergeable_run["require_reply"]) or require_reply) else 0,
+                    1 if (bool(mergeable_run["queue_if_busy"]) or queue_if_busy) else 0,
+                    1 if (bool(mergeable_run["steer_if_busy"]) or steer) else 0,
                     mergeable_run["id"],
                 ),
             )
@@ -8929,12 +8921,14 @@ async def _create_dispatch_runs(
             """
             INSERT INTO dispatch_runs (
                 id, message_id, from_agent, target_agent, dispatch_mode, execution_mode, requested_runtime,
-                message_type, subject, body, priority, in_reply_to, status, require_reply, requested_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                message_type, subject, body, priority, in_reply_to, status, require_reply,
+                queue_if_busy, steer_if_busy, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 run_id, source_message_id or None, from_agent, recipient_id, dispatch_mode, execution_mode, requested_runtime or "",
-                message_type, subject, body, priority, in_reply_to, "queued", 1 if require_reply else 0, requested_at
+                message_type, subject, body, priority, in_reply_to, "queued", 1 if require_reply else 0,
+                1 if queue_if_busy else 0, 1 if steer else 0, requested_at
             )
         )
         await _append_dispatch_event(db, run_id, "queued", f"{message_type}: {subject}")
@@ -12649,6 +12643,7 @@ async def update_terminal_control(control_id: str, req: TerminalControlUpdate, r
                 "UPDATE terminal_sessions SET cols = ?, rows = ? WHERE id = ?",
                 (int(control["cols"]), int(control["rows"]), terminal["id"]),
             )
+            _resize_live_terminal_screen(terminal["id"], control["cols"], control["rows"])
         if req.output:
             latest_terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal["id"],))).fetchone()
             await _append_terminal_output(db, latest_terminal or terminal, req.output, status=terminal_status)
@@ -13853,8 +13848,30 @@ async def get_agent_console(agent_id: str, lines: int = 40):
             await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal["id"],))
         ).fetchone()
         tail_lines = max(1, min(int(lines or 40), _CONSOLE_TAIL_MAX_LINES))
-        full_output = (terminal["output"] if "output" in terminal.keys() else "") or ""
-        selected = full_output.splitlines()[-tail_lines:]
+        keys = terminal.keys()
+        full_output = (terminal["output"] if "output" in keys else "") or ""
+        screen_output = full_output
+        terminal_id = str(terminal["id"] or "")
+        if terminal_id and not terminal_id.startswith("vterm_"):
+            try:
+                live = _render_live_terminal_screen(terminal_id)
+                if live:
+                    screen_output = live[0]
+                elif "\x1b" in full_output:
+                    screen_output = await asyncio.to_thread(
+                        _render_terminal_snapshot,
+                        full_output,
+                        int(terminal["cols"] or 0) if "cols" in keys else 100,
+                        int(terminal["rows"] or 0) if "rows" in keys else 40,
+                    )
+            except Exception:
+                screen_output = full_output
+        clean = _ANSI_RE.sub("", screen_output)
+        clean = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", clean)
+        screen_lines = clean.splitlines()
+        while screen_lines and not screen_lines[-1].strip():
+            screen_lines.pop()
+        selected = screen_lines[-tail_lines:]
         output = "\n".join(selected)
         if len(output.encode("utf-8", "ignore")) > _CONSOLE_TAIL_MAX_BYTES:
             output = output.encode("utf-8", "ignore")[-_CONSOLE_TAIL_MAX_BYTES:].decode("utf-8", "ignore")
@@ -15824,10 +15841,19 @@ async def _upsert_resident_agent_session(
 
 # ─── Messages ────────────────────────────────────────────────────────────────
 
+def _reject_sender_truncated_body(body):
+    if re.search(r"(?:\.\.\.|…)\[truncated\](?:\s*```)?\s*$", str(body or ""), re.I):
+        raise HTTPException(
+            422,
+            "Message body was already truncated by the sender; resend a complete concise body or link a durable artifact.",
+        )
+
+
 @router.post("/messages/send")
 async def send_message(req: MessageSend, request: Request):
     if not req.to and not req.toRole:
         raise HTTPException(400, "Need 'to' or 'toRole'")
+    _reject_sender_truncated_body(req.body)
     db = await get_db()
     try:
         await _touch_agent(db, req.from_agent)
@@ -15947,7 +15973,7 @@ async def send_message(req: MessageSend, request: Request):
                     # Three signals of "currently busy":
                     # 1. hasActiveRun: tracked dispatch_run in claimed/running
                     # 2. queuedRuns > 0: prior queue already pending
-                    # 3. turn_busy=1 (fresh): the agent is mid-turn even if
+                    # 3. raw turn_busy=1: the agent is mid-turn even if
                     #    no tracked dispatch_run is in flight. Operator-
                     #    reported 2026-05-22: queue button sent immediately
                     #    because require_reply=0 info messages auto-complete
@@ -15959,19 +15985,10 @@ async def send_message(req: MessageSend, request: Request):
                     is_turn_busy = False
                     try:
                         tb_row = await (await db.execute(
-                            "SELECT turn_busy, turn_updated_at FROM agent_turn_state WHERE agent_id = ?",
+                            "SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?",
                             (recipient_id,),
                         )).fetchone()
-                        if tb_row and int(tb_row["turn_busy"] or 0) == 1:
-                            tb_epoch = _iso_to_epoch(str(tb_row["turn_updated_at"] or ""))
-                            # 120s freshness = anti-strand bound (same as the claim gate).
-                            if tb_epoch and (datetime.now(timezone.utc).timestamp() - tb_epoch) <= TURN_BUSY_STALE_SECONDS:
-                                # WS-3 (2026-06-17): within the window, queue only when the
-                                # liveness-aware engine status (working/blocked) — the value
-                                # the dashboard shows — agrees, so the send releases the
-                                # instant the target returns to ready and never queues
-                                # behind a dead worker's stale turn_busy.
-                                is_turn_busy = await _agent_engine_busy_for_queue(db, recipient_id)
+                        is_turn_busy = bool(tb_row and int(tb_row["turn_busy"] or 0) == 1)
                     except Exception:
                         is_turn_busy = False
                     if (
@@ -16324,6 +16341,7 @@ async def send_message(req: MessageSend, request: Request):
                 message_id=msg_id if len(recipients) == 1 else None,
                 source_message_ids=source_message_ids,
                 steer=prefer_steer,
+                queue_if_busy=bool(req.queueIfBusy),
                 require_reply=require_reply,
             )
             dispatch_runs = await _finalize_dispatch_runs(db, dispatch_runs, launchable_recipients, not_started)
@@ -17512,6 +17530,7 @@ def _wake_agent(agent_id: str):
 async def create_dispatch(req: DispatchRequest, request: Request):
     if not req.to and not req.toRole:
         raise HTTPException(400, "Need 'to' or 'toRole'")
+    _reject_sender_truncated_body(req.body)
     if req.mode == "message_only":
         raise HTTPException(400, "Dispatch no longer supports mode='message_only'. Use comms_send for normal live messaging or comms_dispatch without message_only for tracked work.")
 
@@ -18108,59 +18127,47 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
                     "run": None,
                     "blockedBy": blocked_by_console,
                 }
-        # Turn-busy claim gate: if the agent is currently mid-turn
-        # (turn_busy=1, fresh, within TURN_BUSY_STALE_SECONDS),
+        # Turn-busy claim gate: if the raw harness state says the agent is mid-turn
+        # (turn_busy=1),
         # don't return queued runs. Operator-asked 2026-05-22:
         # "queue should wait until agent stops working" — without this
         # gate, the SENDER's queueIfBusy=true correctly held the run
         # in 'queued' state, but the bridge's next claim cycle picked
         # it up and delivered immediately because the claim endpoint
-        # didn't respect turn_busy. Stop hook (or 120s stale window)
-        # is the authoritative clear; once that fires, next claim
+        # didn't respect turn_busy. The turn-end event is the authoritative clear;
+        # once that fires, next claim
         # picks up the queued run as designed.
         #
         # CHANNEL/RESIDENT STEER CARVE-OUT (2026-06-02, send-deadlock fix):
         # a channel/resident-mode run to a STEER-capable target (a managed or
-        # channelEnabled resident claude — `steer` in _row_capabilities, the
+        # channelEnabled Claude/Hermes — `steer` in _row_capabilities, the
         # same signal used by the send-time steer path) is INJECTED into the
-        # agent's input mid-turn; claude queues multiple injects safely and in
-        # order. Deferring such a run behind turn_busy was the deadlock: every
-        # delivery re-pulses the recipient's turn_busy (claude-channel.js), so a
-        # queued rr=0 send never found a 120s gap and waited minutes. So when the
+        # agent's native mid-turn input path; these harnesses accept multiple injects
+        # in order. Deferring an ordinary send behind turn_busy was the deadlock, so when the
         # target can steer AND a claimable channel/resident run is queued, do NOT
         # defer — fall through and let it claim + inject immediately. The gate is
         # PRESERVED for every other case (non-steer-capable runtimes, managed
         # headless runs) so a genuinely-uninjectable target still waits for the
         # turn to end.
+        hold_explicit_queue = False
         try:
             tb_row = await (await db.execute(
-                "SELECT turn_busy, turn_updated_at FROM agent_turn_state WHERE agent_id = ?",
+                "SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?",
                 (req.agentId,),
             )).fetchone()
             if tb_row and int(tb_row["turn_busy"] or 0) == 1:
-                tb_epoch = _iso_to_epoch(str(tb_row["turn_updated_at"] or ""))
-                # The 120s freshness bound is the ANTI-STRAND backstop: the gate opens
-                # once the turn signal goes stale so a missed turn-end can't hold a
-                # queued run for the long status ceiling (#5).
-                if tb_epoch and (datetime.now(timezone.utc).timestamp() - tb_epoch) <= TURN_BUSY_STALE_SECONDS:
-                    # WS-3 (2026-06-17): within that window, HOLD only when the
-                    # liveness-aware engine ALSO says the target is genuinely working/
-                    # blocked — the same value the dashboard shows. So (a) the queue
-                    # releases the instant the agent returns to ready (online) instead
-                    # of waiting out the raw window, and (b) a DEAD worker's stale-but-
-                    # fresh turn_busy (engine → available/offline) never strands a run.
-                    # The channel/resident STEER bypass is PRESERVED unchanged: an
-                    # ordinary (non-queued) comms_send still injects mid-turn into a
-                    # steer-capable target; only explicitly-queued sends wait for ready.
-                    if await _agent_engine_busy_for_queue(db, req.agentId):
-                        if not await _has_claimable_steerable_run(
-                            db,
-                            agent_row=agent,
-                            supported_modes=supported_modes,
-                            agent_runtime=agent_runtime,
-                        ):
-                            await db.commit()
-                            return {"ok": True, "run": None}
+                # Explicit queue means exactly "after this turn". Do not reinterpret an aged
+                # raw busy signal through derived status or a timeout. Ordinary sends can still
+                # bypass through a row explicitly marked steer_if_busy.
+                hold_explicit_queue = True
+                if not await _has_claimable_steerable_run(
+                    db,
+                    agent_row=agent,
+                    supported_modes=supported_modes,
+                    agent_runtime=agent_runtime,
+                ):
+                    await db.commit()
+                    return {"ok": True, "run": None}
         except Exception:
             # If turn state is unreadable, fall through and let the normal claim
             # flow proceed — better to deliver than block.
@@ -18183,6 +18190,10 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
         runs = await run_cursor.fetchall()
         selected_run = None
         for run in runs:
+            if hold_explicit_queue and (
+                bool(run["queue_if_busy"]) or not bool(run["steer_if_busy"])
+            ):
+                continue
             run_execution_mode = (run["execution_mode"] or "managed").strip().lower()
             if supported_modes and run_execution_mode not in supported_modes:
                 continue
@@ -18279,6 +18290,8 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
                 "status": "claimed",
                 "mode": selected_run["dispatch_mode"],
                 "executionMode": selected_run["execution_mode"] or "managed",
+                "queueIfBusy": bool(selected_run["queue_if_busy"]),
+                "steerIfBusy": bool(selected_run["steer_if_busy"]),
                 "runtime": agent_runtime,
                 "requireReply": _row_require_reply(selected_run),
                 "conversationContext": await _dispatch_conversation_context(db, selected_run),
@@ -21325,6 +21338,7 @@ async def mark_channel_read(name: str, request: Request):
 @router.post("/channels/{name}/send")
 async def send_channel_message(name: str, req: ChannelMessage, request: Request):
     validate_name(name, "channel name")
+    _reject_sender_truncated_body(req.body)
     db = await get_db()
     try:
         await _touch_agent(db, req.from_agent)
@@ -21421,6 +21435,7 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
                 message_id=inbox_message_ids.get(recipients[0]) if len(recipients) == 1 else None,
                 source_message_ids=inbox_message_ids,
                 steer=prefer_steer,
+                queue_if_busy=bool(req.queueIfBusy),
                 require_reply=False,
             )
             dispatch_runs = await _finalize_dispatch_runs(db, dispatch_runs, launchable_recipients, not_started)

@@ -407,7 +407,7 @@ session.
 - The shared `aify-comms` local MCP server for Hermes.
 - A Hermes MCP config entry in the active Hermes config file (`hermes config path`).
 - The resident wrapper `hermes-aify`, which exports `AIFY_COMMS_URL` so shell hooks know which aify service to call and loads `integrations/hermes-aify-plugin` for Hermes runtime compatibility.
-- A `pre_llm_call` shell hook (`~/.hermes/agent-hooks/aify-turn-start.sh`) that POSTs `/api/v1/agents/{id}/turn-start` to the aify service before each LLM call. Closest equivalent to claude-aify's `UserPromptSubmit` hook — flips the dashboard to `working` when the operator submits a prompt to hermes-aify. STATUS is now **pure event-driven** (2026-06-02): the turn-START event sets `working` and a turn-END event clears it instantly; **no seconds-window decides `working`**. For managed hermes, turn-state is driven by a **continuous, bidirectional gateway-status detector** (`mcp/stdio/hermes-gateway-turn-detector.js`, wired into `runDeliveryLoop`, commit `2216c44`) — the hermes counterpart to the claude transcript detector. It polls the gateway session status (`session.active_list` → `status`) every ~3s for the **whole delivery-loop lifetime**, not just inside a dispatch's in-flight window: a gateway-`working` session refreshes `/turn-start` only while `inFlight.dispatchTurnOpen` proves a dispatched turn is open, and a **sustained** gateway-`idle` read (≥3 consecutive ticks, ~9s; env-tunable via `AIFY_HERMES_GATEWAY_TURN_IDLE_DEBOUNCE`) POSTs `/turn-end` (CLEAR). The dispatch credit remains open until the detector's own turn-end, so a real dispatched turn can stay `working` beyond the 15-minute in-flight re-pulse window. Autonomous or direct-typed managed-console work has no dispatch credit and is intentionally not reported as dispatched `working`. The debounce stops the working↔online flap (a momentary mid-turn `running=False` gap no longer false-clears), and a submit-race guard never ends a turn before first observing `working`. It keys ONLY on the gateway's own session truth (anti-feedback-loop), never the aify server's derived status; the dispatch delivery pulse + in-flight re-pulse remain the instant path, this is the continuous backstop in both directions. **Resident hermes has NO upstream turn-end hook** — Hermes does not expose one for shell hooks, and the bridge's transcript turn-END detector keys on the *claude* transcript, so it does not cover resident hermes. A resident hermes turn therefore self-heals off `working` only at the single LONG status ceiling (`TURN_BUSY_BACKSTOP_SECONDS`, ~30m) for a dropped end-event; the short 120s claim-gate (`TURN_BUSY_STALE_SECONDS`) still keeps a queued send from being stranded behind it. (Documented caveat, not a regression.)
+- A `pre_llm_call` shell hook (`~/.hermes/agent-hooks/aify-turn-start.sh`) that POSTs `/api/v1/agents/{id}/turn-start` before each LLM call. Hermes has no matching upstream turn-end hook, so managed Hermes and gateway-bound resident Hermes use the continuous bidirectional gateway-status detector: gateway `working` sets turn-start and sustained gateway `idle` clears it. Explicit `queueIfBusy` holds on raw `turn_busy=1` until that authoritative end-event; the 30-minute status ceiling only backstops a dropped end-event.
 - With `--with-hook`, a non-blocking Hermes `post_tool_call` notification hook (separate from the turn-start hook above; this one is for incoming-message notifications).
 
 Resident Hermes is terminal-first — `hermes-aify` opens an interactive Hermes
@@ -423,9 +423,10 @@ wrapper-backed delivery is disabled or unavailable.
 Current managed Hermes defaults to wrapper-backed `hermes-aify` PTY delivery
 (`managed_via_wrapper=["codex","hermes"]`). The bridge owns the wrapper PTY, the
 wrapper starts the local dashboard gateway, and the delivery loop delivers into
-the agent's real session via gateway-WS `prompt.submit` (busy races requeue; see
-the "Delivery path" section above — the old `aify.session.bind_transport`
-negotiation is retired). The rest of this section describes the native
+the agent's real session via gateway WS. Ordinary busy sends use `session.steer`;
+explicit `queueIfBusy` waits for turn-end before `prompt.submit` (a submit-time
+busy race requeues). See the "Delivery path" section above — the old `aify.session.bind_transport`
+negotiation is retired. The rest of this section describes the native
 controller fallback used only when wrapper-backed delivery is disabled or
 unavailable.
 

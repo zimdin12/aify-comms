@@ -1,10 +1,8 @@
 """OpencodeAdapter — Python mirror of mcp/stdio/adapters/opencode.js.
 
 aify-comms currently spawns the opencode CLI directly without using
-`opencode serve` (the multi-client HTTP+ACP server). Capability flags
-reflect aify-comms's current delivery surface, not what opencode supports
-in principle. Wiring opencode through `serve` is tracked as a separate
-follow-up.
+`opencode serve` as a persistent resident surface. The managed controller's
+per-run server supports native promptAsync injection while a turn is active.
 """
 
 from __future__ import annotations
@@ -18,7 +16,7 @@ class OpencodeAdapter(RuntimeAdapter):
     session_env_vars = ["OPENCODE_SESSION_ID", "OPENCODE_SESSION"]
     supports_resident = False
     supports_managed = True
-    supports_steering = False
+    supports_steering = True
     supports_interrupt = True
     supports_multi_client = False
     preferred_delivery_mode = "managed"

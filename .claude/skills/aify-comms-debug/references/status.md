@@ -360,8 +360,8 @@ scheduled), at ≤ ~30s latency. A long blocking tool call or a Task sub-agent d
 a pending `tool_use` (or a static parent transcript — sub-agents write a separate
 `subagents/*.jsonl`) and correctly STAYS `working` (the earlier growth-based detector
 false-cleared on those — fixed `8efbbaf`). Backstop only: a still-alive agent with both end-paths missed
-self-heals at the single 30-min ceiling (`TURN_BUSY_BACKSTOP_SECONDS`); the claim-gate
-keeps the 120s (`TURN_BUSY_STALE_SECONDS`) so a queued send isn't stranded. Resident
+self-heals at the single 30-min ceiling (`TURN_BUSY_BACKSTOP_SECONDS`). Explicit
+`queueIfBusy` holds on raw `turn_busy=1` until the authoritative turn-end. Resident
 hermes has no upstream turn-end HOOK, but it DOES arm the continuous gateway turn detector
 (`startHermesGatewayTurnDetector`, `server.js`) whenever `AIFY_HERMES_GATEWAY_URL` is set —
 same as managed — so a gateway-bound resident hermes reports turn-end normally; only a

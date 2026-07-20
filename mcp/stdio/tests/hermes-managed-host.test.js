@@ -195,6 +195,39 @@ test("deliverRun: active_list resolves the live TUI sid, prompt.submit targets i
   );
 });
 
+test("deliverRun: an ordinary busy send uses native session.steer without starting another turn", async () => {
+  const { httpCall, calls } = makeAifyHttp();
+  const working = {
+    result: {
+      sessions: [
+        { id: "live-sid-ab12", session_key: "aify-sc-hermes", status: "working", started_at: "2099-01-01T00:00:00Z" },
+      ],
+    },
+  };
+  const ws = makeFakeWsClient({
+    "session.active_list": working,
+    "session.steer": { status: "queued" },
+  });
+  const inFlight = { submittedAt: 123, completed: false, runId: "active-run", dispatchTurnOpen: true };
+
+  await deliverRun({
+    run: { ...SAMPLE_RUN, steerIfBusy: true },
+    agentId: "sc-hermes",
+    httpCall,
+    wsClient: ws,
+    tempDir: MARKER_DIR,
+    inFlight,
+  });
+
+  const steer = ws.sent.find((frame) => frame.method === "session.steer");
+  assert.ok(steer, "expected native session.steer");
+  assert.equal(steer.params.session_id, "live-sid-ab12");
+  assert.ok(!ws.sent.find((frame) => frame.method === "prompt.submit"), "steer must not start or interrupt a turn");
+  const delivered = findCall(calls, "PATCH", (endpoint) => endpoint.startsWith("/dispatch/runs/"));
+  assert.equal(delivered?.body?.status, "delivered");
+  assert.deepEqual(inFlight, { submittedAt: 123, completed: false, runId: "active-run", dispatchTurnOpen: true });
+});
+
 test("deliverRun: renders the inbound notice box (#3) BEFORE prompt.submit, same sid, carries sender + body", async () => {
   const { httpCall } = makeAifyHttp();
   const ws = makeFakeWsClient({

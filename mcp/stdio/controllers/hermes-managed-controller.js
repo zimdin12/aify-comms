@@ -122,7 +122,7 @@ export class HermesManagedController extends BaseController {
     return {
       capabilities: this._capabilities,
       interrupt: async () => this.interrupt(),
-      steer: async () => this.steer(),
+      steer: async (text) => this.steer(text),
       promise: this._promise,
     };
   }
@@ -135,7 +135,10 @@ export class HermesManagedController extends BaseController {
     try { if (this._session) await this._session.cancelActiveTurn(); } catch {}
   }
 
-  async steer(_opts) {
-    throw new Error("Hermes managed runs do not support mid-turn steer; send a follow-up dispatch instead.");
+  async steer(text) {
+    if (!this._useGateway || !this._session) {
+      throw new Error("Hermes ACP fallback does not support mid-turn steer; use wrapper/gateway delivery.");
+    }
+    await this._session.steer(text);
   }
 }

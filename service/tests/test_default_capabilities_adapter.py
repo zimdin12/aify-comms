@@ -40,9 +40,16 @@ def test_codex_managed_has_full_set():
     assert "steer" in caps
 
 
-def test_opencode_managed_no_steer():
-    # OpencodeAdapter.supports_steering == False
+def test_opencode_managed_has_prompt_async_steer():
+    # The managed controller injects through OpenCode's promptAsync endpoint.
     caps = _default_capabilities_for("opencode", "managed", "", {})
     assert "managed-run" in caps
     assert "interrupt" in caps
-    assert "steer" not in caps
+    assert "steer" in caps
+
+
+def test_hermes_managed_steer_requires_wrapper_gateway_channel():
+    assert "steer" not in _default_capabilities_for("hermes", "managed", "", {})
+    assert "steer" in _default_capabilities_for(
+        "hermes", "managed", "", {"channelEnabled": True},
+    )

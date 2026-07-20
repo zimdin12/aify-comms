@@ -16,8 +16,8 @@ assert.deepEqual(
 
 assert.deepEqual(
   defaultCapabilitiesForRuntime("opencode", "managed"),
-  ["managed-run", "resume", "interrupt", "spawn"],
-  "managed OpenCode should advertise managed dispatch without steer",
+  ["managed-run", "resume", "interrupt", "steer", "spawn"],
+  "managed OpenCode should advertise promptAsync steer",
 );
 
 assert.deepEqual(

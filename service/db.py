@@ -153,6 +153,8 @@ CREATE TABLE IF NOT EXISTS dispatch_runs (
     error_text TEXT DEFAULT '',
     result_message_id TEXT DEFAULT '',
     require_reply INTEGER NOT NULL DEFAULT 0,
+    queue_if_busy INTEGER NOT NULL DEFAULT 0,
+    steer_if_busy INTEGER NOT NULL DEFAULT 0,
     external_thread_id TEXT DEFAULT '',
     external_turn_id TEXT DEFAULT '',
     requested_at TEXT NOT NULL,
@@ -500,6 +502,8 @@ DISPATCH_RUN_MIGRATIONS = {
     "execution_mode": "ALTER TABLE dispatch_runs ADD COLUMN execution_mode TEXT DEFAULT 'managed'",
     "claim_bridge_id": "ALTER TABLE dispatch_runs ADD COLUMN claim_bridge_id TEXT DEFAULT ''",
     "require_reply": "ALTER TABLE dispatch_runs ADD COLUMN require_reply INTEGER NOT NULL DEFAULT 0",
+    "queue_if_busy": "ALTER TABLE dispatch_runs ADD COLUMN queue_if_busy INTEGER NOT NULL DEFAULT 0",
+    "steer_if_busy": "ALTER TABLE dispatch_runs ADD COLUMN steer_if_busy INTEGER NOT NULL DEFAULT 0",
 }
 
 MESSAGE_MIGRATIONS = {

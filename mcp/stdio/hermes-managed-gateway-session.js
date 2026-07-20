@@ -18,6 +18,7 @@ import net from "node:net";
 import WebSocket from "ws";
 import {
   buildPromptSubmitFrame,
+  buildSessionSteerFrame,
   buildSessionMostRecentFrame,
   translateGatewayEvent,
 } from "./hermes-gateway-protocol.js";
@@ -417,6 +418,13 @@ export class HermesManagedGatewaySession {
       this.stop().catch(() => {});
     }, ms);
     if (typeof this._idleTimer.unref === "function") this._idleTimer.unref();
+  }
+
+  async steer(text) {
+    await this.ensureStarted();
+    const sessionId = await this._resolveSessionId();
+    if (!sessionId) throw new Error("could not resolve hermes session id");
+    return this._sendRpc(buildSessionSteerFrame({ sessionId, text: String(text ?? "") }));
   }
 
   async cancelActiveTurn() {

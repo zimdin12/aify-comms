@@ -218,7 +218,7 @@ export class OpencodeController extends BaseController {
     return {
       capabilities: this._capabilities,
       interrupt: () => this.interrupt(),
-      steer: () => this.steer(),
+      steer: (text) => this.steer(text),
       promise: this._promise,
     };
   }
@@ -237,7 +237,17 @@ export class OpencodeController extends BaseController {
     });
   }
 
-  async steer(_opts) {
-    throw new Error('Runtime "opencode" does not support steer');
+  async steer(text) {
+    if (!this._open?.client || !this._sessionId) {
+      throw new Error("No active OpenCode session to steer");
+    }
+    const result = await this._open.client.session.promptAsync({
+      path: { id: this._sessionId },
+      query: { directory: this._cwd },
+      body: { parts: [{ type: "text", text: String(text ?? "") }] },
+    });
+    if (result?.error) {
+      throw new Error(result.error?.data?.message || result.error?.message || "OpenCode steer failed");
+    }
   }
 }

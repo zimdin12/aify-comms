@@ -19,10 +19,7 @@ export class HermesAdapter extends RuntimeAdapter {
   // (aify.session.bind_transport) are no longer in any live path.
   get supportsResident() { return true; }
   get supportsManaged() { return true; }
-  // ASYMMETRY(hermes): a managed Hermes submission while the model is active interrupts the
-  // current turn. Dispatch therefore queues until turn-end instead of advertising safe mid-turn
-  // steering.
-  get supportsSteering() { return false; }
+  get supportsSteering() { return true; }
   get supportsInterrupt() { return true; }
   get supportsMultiClient() { return true; }
   get preferredDeliveryMode() { return "managed-via-wrapper"; }

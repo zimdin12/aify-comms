@@ -84,6 +84,18 @@ test("xterm remount guard checks container identity, not just terminal id", () =
     "mountXtermForTerminal must remount when render recreated the host container");
 });
 
+test("chat agent details builds Continue in CLI from the linked session", () => {
+  const source = read("app.js");
+  assert.match(source, /function continueCliCommand\(agent, session\)/,
+    "the details drawer must accept linked session metadata");
+  assert.match(source, /session\?\.sessionHandle \|\| session\?\.session_handle/,
+    "a session handle must not disappear just because the agent list omits it");
+  assert.match(source, /continueCliCommand\(agent, session\)/,
+    "the chat details drawer must pass its linked session to the command builder");
+  assert.ok(!source.includes("aify-comms.cmd"),
+    "copyable dashboard commands should be shell-neutral; PowerShell resolves the shim itself");
+});
+
 test("automatic console resync never self-excites a PTY resize loop", () => {
   const source = read("app.js");
   assert.match(source, /async function resyncActiveConsole\(\{ forceRepaint = false \} = \{\}\)/,

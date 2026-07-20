@@ -21,16 +21,15 @@ assert.equal(normalizeRuntime("hermes-agent"), "hermes");
 assert.equal(normalizeRuntime("hermes_agent"), "hermes");
 
 assert.equal(canLaunchRuntime("hermes"), true);
-// Managed Hermes does not advertise safe mid-turn steering: active-turn submissions interrupt
-// the current turn, so dispatch queues them until turn-end. Interrupt remains supported.
-assert.deepEqual(controlCapabilitiesForRuntime("hermes"), { steer: false, interrupt: true });
+// Managed Hermes advertises its native non-interrupting session.steer path.
+assert.deepEqual(controlCapabilitiesForRuntime("hermes"), { steer: true, interrupt: true });
 // defaultCapabilitiesForRuntime derives from the HermesAdapter supports_*
-// flags, so managed and resident Hermes both omit "steer".
+// flags, so managed and resident Hermes both expose "steer".
 assert.deepEqual(
   defaultCapabilitiesForRuntime("hermes", "managed"),
-  ["managed-run", "resume", "interrupt", "spawn"],
+  ["managed-run", "resume", "interrupt", "steer", "spawn"],
 );
-assert.deepEqual(defaultCapabilitiesForRuntime("hermes", "resident", "session-123"), ["resume", "interrupt"]);
+assert.deepEqual(defaultCapabilitiesForRuntime("hermes", "resident", "session-123"), ["resume", "interrupt", "steer"]);
 assert.equal(defaultSessionHandleForRuntime("hermes"), "hermes-session-123");
 
 // A 4009 race in the native-gateway fallback must not turn the follow-up into an
@@ -50,6 +49,17 @@ await assert.rejects(
   /session busy/,
 );
 assert.deepEqual(busyMethods, ["prompt.submit"]);
+
+const steerGateway = new HermesManagedGatewaySession({ agentId: "steer-hermes" });
+steerGateway._state = "ready";
+steerGateway.ensureStarted = async () => {};
+steerGateway._resolveSessionId = async () => "steer-session";
+const steerFrames = [];
+steerGateway._sendRpc = async (frame) => { steerFrames.push(frame); return { status: "queued" }; };
+await steerGateway.steer("new information");
+assert.equal(steerFrames[0].method, "session.steer");
+assert.equal(steerFrames[0].params.session_id, "steer-session");
+assert.equal(steerFrames[0].params.text, "new information");
 
 const availability = runtimeLaunchAvailability("hermes");
 assert.equal(availability.available, true);

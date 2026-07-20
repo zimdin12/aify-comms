@@ -193,9 +193,15 @@ class ReplyReminderTests(FastApiTestCase):
                     reminded = [r for r in result["reminded"] if r["runId"] == run_id]
                     self.assertEqual(len(reminded), 1, result)
                     message_id = reminded[0]["messageId"]
-                    row = self._fetchall("SELECT body FROM messages WHERE id = ?", (message_id,))
+                    row = self._fetchall(
+                        "SELECT from_agent, to_agent, in_reply_to, body FROM messages WHERE id = ?",
+                        (message_id,),
+                    )
                     self.assertEqual(len(row), 1)
                     body = row[0]["body"]
+                    self.assertEqual(row[0]["from_agent"], "lead", f"{runtime}: reminder keeps original sender")
+                    self.assertEqual(row[0]["to_agent"], "coder", f"{runtime}: reminder goes to owing agent")
+                    self.assertIn('to="lead"', body, f"{runtime}: reply must go to original sender")
                     self.assertIn("comms_send", body, f"{runtime}: body must teach comms_send")
                     self.assertIn("inReplyTo", body, f"{runtime}: body must teach inReplyTo anchor")
                     self.assertIn('type="response"', body, f"{runtime}: body must show the response type")

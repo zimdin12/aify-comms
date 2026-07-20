@@ -2945,7 +2945,7 @@ function environmentStartCommand(env) {
   if (os.includes('win')) {
     const cd = firstRoot ? `cd /d ${quote(firstRoot)}` : 'cd /d C:\\Docker';
     const args = extras.map(quote).join(' ');
-    return `${cd}\naify-comms.cmd${args ? ' ' + args : ''}`;
+    return `${cd}\naify-comms${args ? ' ' + args : ''}`;
   }
   const cd = firstRoot ? `cd ${quote(firstRoot)}` : (os.includes('mac') || os.includes('darwin') ? 'cd "$HOME"' : 'cd /mnt/c/Docker');
   const args = extras.map(quote).join(' ');
@@ -3289,11 +3289,11 @@ function openIdentityDirectory() {
 // operator's own terminal (mirror of the 8800 dashboard resume-command). Empty when
 // there's no saved handle or the runtime has no resident resume (pi/opencode are
 // managed-only). Linux/WSL shell form.
-function continueCliCommand(agent) {
-  const handle = String(agent?.sessionHandle || agent?.session_handle || '').trim();
+function continueCliCommand(agent, session) {
+  const handle = String(agent?.sessionHandle || agent?.session_handle || session?.sessionHandle || session?.session_handle || '').trim();
   if (!handle) return '';
-  const runtime = String(agent?.runtime || '').trim().toLowerCase();
-  const id = String(agent?.id || '').trim();
+  const runtime = String(agent?.runtime || sessionRuntime(session) || '').trim().toLowerCase();
+  const id = String(agent?.id || sessionAgentId(session) || '').trim();
   const agentFlag = id ? ` --aify-agent ${id}` : '';
   if (runtime === 'claude-code') return `claude-aify${agentFlag} --dangerously-skip-permissions --resume ${handle}`;
   if (runtime === 'hermes') return `hermes-aify${agentFlag} --resume ${handle}`;
@@ -3324,7 +3324,7 @@ function openAgentDrawer(agentId) {
     `<button class="ghost danger" data-agent-remove="${esc(id)}">Remove agent</button>`,
     `<button class="ghost" data-agent-open-sessions="${esc(sid)}">Open in Sessions</button>`,
   ].filter(Boolean).join('');
-  const cliCmd = continueCliCommand(agent);
+  const cliCmd = continueCliCommand(agent, session);
   const continueCliBlock = cliCmd ? `
       <div class="agent-drawer-cli">
         <div class="agent-drawer-subhead">Continue in CLI</div>

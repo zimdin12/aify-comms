@@ -89,8 +89,8 @@ def test_hermes_adapter():
     assert a.session_env_vars == ["HERMES_SESSION_ID", "HERMES_SESSION"]
     assert a.supports_resident is True
     assert a.supports_managed is True
-    # An active-turn Hermes submission interrupts that turn; queue until turn-end instead.
-    assert a.supports_steering is False
+    # Gateway-backed Hermes uses native session.steer; ACP fallback strips it per session.
+    assert a.supports_steering is True
     assert a.supports_interrupt is True
     assert a.supports_multi_client is True
     assert a.preferred_delivery_mode == "managed-via-wrapper"
@@ -211,12 +211,10 @@ def test_opencode_adapter():
     assert a.name == "opencode"
     assert a.display_name == "OpenCode"
     assert a.session_env_vars == ["OPENCODE_SESSION_ID", "OPENCODE_SESSION"]
-    # aify-comms doesn't wire `opencode serve` today — tracked as separate
-    # follow-up. Capability flags reflect aify-comms's current delivery
-    # surface, not what opencode CAN do in principle.
+    # Managed OpenCode steers through the per-run server's promptAsync endpoint.
     assert a.supports_resident is False
     assert a.supports_managed is True
-    assert a.supports_steering is False
+    assert a.supports_steering is True
     assert a.supports_interrupt is True
     assert a.supports_multi_client is False
     assert a.preferred_delivery_mode == "managed"
