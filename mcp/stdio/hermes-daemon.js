@@ -19,6 +19,7 @@
 // docs/superpowers/specs/2026-05-30-hermes-apiserver-contract.md.
 
 import { spawn as nodeSpawn, execFile as nodeExecFile, spawnSync as nodeSpawnSync } from "node:child_process";
+import { PS_UTF8_PRELUDE } from "./win32-text.js";
 import { promisify } from "node:util";
 import fs from "node:fs";
 import os from "node:os";
@@ -47,7 +48,10 @@ export function defaultGetCmdline(pid, spawnSync = nodeSpawnSync) {
   if (!Number.isInteger(n) || n <= 0) return "";
   try {
     if (process.platform === "win32") {
+      // PS_UTF8_PRELUDE: cmdline/path fields feed parentBelongsToAgent path
+      // matching; OEM-encoded output mangles non-ASCII profile paths.
       const ps =
+        PS_UTF8_PRELUDE +
         `$p = Get-CimInstance Win32_Process -Filter "ProcessId=${n}" -ErrorAction SilentlyContinue;` +
         `if ($p) { "$($p.CommandLine)\`t$($p.ExecutablePath)\`t$($p.Name)" }`;
       const res = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps], {

@@ -566,6 +566,33 @@ trip it; subject to the same cursor + resume-menu-interlock gates). **Deploy:** 
 un-stick an already-stuck worker without redeploying, type a bare Enter into its console
 (dashboard Console, or `POST /terminals/{id}/input` with body `"\r"`).
 
+## Runtime "not launchable" / up-but-deaf on a Windows host with a non-ASCII profile path
+
+**Symptom (fixed 2026-07-20, fix-non-ascii-paths).** On a Windows host whose user profile
+contains a non-ASCII character (`C:\Users\KertMõttus`), every managed spawn dies before a
+worker launches: the agent goes up-but-deaf, runs fail at the 180s backstop, and the
+environments API shows the runtime as not launchable with a diagnostic like
+`[where: stdout="C:\Users\KertMottus\..."] [rejected C:\Users\KertMottus\...: not a real
+executable file]` — note the missing `õ`.
+
+**Cause.** The bridge resolved wrappers by shelling `cmd /c where claude-aify` and decoding
+stdout as UTF-8. `where.exe` writes the console's OEM codepage, which lossily transcodes
+non-ASCII path characters (`õ` → `o`, or mojibake `├╡`), so the "resolved" path did not
+exist on disk. The same OEM-vs-UTF-8 mismatch affected the PowerShell `Win32_Process`
+inspectors used by the orphan reapers — command lines containing non-ASCII workspace or
+wrapper paths were mangled before matching.
+
+**Fix.** `resolveExecutable` now walks PATH+PATHEXT in-process (`resolveOnWindowsPath`,
+plain `fs` — no codepage round-trip), prefers the `.cmd` shim over the extension-less
+Git-Bash wrapper script (`where` listed the script first and the old code blindly took line
+one — broken even on ASCII-only hosts), and treats `where` output as a fallback hint that
+must exist on disk. The PowerShell inspectors now lead with `PS_UTF8_PRELUDE`
+(`win32-text.js`) forcing UTF-8 stdout. **Deploy:** `mcp/stdio/` change — re-run
+`install.sh` on each host AND restart bridges/wrappers. **Workaround on an old bridge:**
+set `AIFY_CLAUDE_COMMAND` (or `AIFY_CODEX_AIFY_COMMAND` / `AIFY_HERMES_AIFY_COMMAND`) to
+the ABSOLUTE wrapper path (`C:/Users/<user>/.local/bin/claude-aify.cmd`) and restart the
+bridge — absolute paths skip `where` entirely.
+
 ## Resident relaunch goes offline + deaf (auto-register refused by the race guard)
 
 **Symptom.** Close a resident wrapper and relaunch it quickly. The session works for

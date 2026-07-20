@@ -27,6 +27,7 @@
 // processes, ports, or files.
 
 import { spawnSync as nodeSpawnSync } from "node:child_process";
+import { PS_UTF8_PRELUDE } from "./win32-text.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -68,7 +69,11 @@ export function cmdlineResidentAgent(commandLine) {
 export function defaultListProcesses(spawnSync = nodeSpawnSync) {
   try {
     if (process.platform === "win32") {
+      // PS_UTF8_PRELUDE: survivor matching compares command lines against
+      // workspace/wrapper paths; OEM-encoded output mangles non-ASCII profile
+      // paths and the match silently misses.
       const ps =
+        PS_UTF8_PRELUDE +
         "Get-CimInstance Win32_Process | " +
         "ForEach-Object { \"$($_.ProcessId)`t$($_.ParentProcessId)`t$($_.CommandLine)\" }";
       const res = spawnSync(

@@ -59,6 +59,70 @@ function findOnProcessPath(name) {
   return null;
 }
 
+// Splits PATH into candidate directories. cmd.exe tolerates quoted entries
+// ("C:\Program Files\x"); strip the quotes so path.join doesn't embed them.
+function windowsPathDirs(pathString) {
+  return String(pathString || "")
+    .split(";")
+    .map((dir) => dir.trim().replace(/^"(.*)"$/, "$1"))
+    .filter(Boolean);
+}
+
+function windowsPathExts(pathExtString) {
+  const raw = String(pathExtString || "").trim() || ".COM;.EXE;.BAT;.CMD";
+  return raw.split(";").map((ext) => ext.trim()).filter(Boolean);
+}
+
+// In-process Windows PATH resolution. `where` is NOT consulted here: its
+// stdout arrives in the console's OEM codepage, so any non-ASCII character in
+// a path (a profile like C:\Users\KertMõttus) is lossily transcoded before
+// Node can read it — the "path" it prints may not exist on disk (õ -> o).
+// An fs walk sees real Unicode filenames and cannot mangle.
+//
+// Semantics follow cmd.exe: first PATH directory containing a match wins;
+// within a directory PATHEXT order decides. A bare extension-less file (the
+// Git-Bash wrapper script that sits next to its .cmd shim) is only spawnable
+// through a POSIX shell, so it is the LAST resort within each directory —
+// this also fixes ASCII-only hosts, where `where` listed the bash script
+// first and the old code blindly took line one. The current directory is
+// deliberately NOT searched (unlike `where`): resolving a runtime wrapper
+// from whatever cwd the bridge happens to run in would let any repo checkout
+// plant a claude-aify.cmd and have the bridge execute it.
+export function resolveOnWindowsPath(name, options = {}) {
+  const value = String(name || "").trim();
+  if (!value || /[\\/]/.test(value)) return null;
+  const {
+    pathString = process.env.PATH,
+    pathExtString = process.env.PATHEXT,
+    isExecutable = isReallyExecutable,
+  } = options;
+  const exts = windowsPathExts(pathExtString);
+  const lower = value.toLowerCase();
+  const hasWinExt = exts.some((ext) => lower.endsWith(ext.toLowerCase()));
+  for (const dir of windowsPathDirs(pathString)) {
+    const base = path.join(dir, value);
+    // PATHEXT entries are conventionally UPPERCASE while files on disk are
+    // conventionally lowercase; NTFS doesn't care but returning the on-disk
+    // casing keeps results deterministic (and lets the test suite assert the
+    // same behavior on case-sensitive CI filesystems). Lowercase first.
+    const candidates = [];
+    const push = (candidate) => { if (!candidates.includes(candidate)) candidates.push(candidate); };
+    if (hasWinExt) {
+      push(base);
+    } else {
+      for (const ext of exts) {
+        push(base + ext.toLowerCase());
+        push(base + ext);
+      }
+      push(base);
+    }
+    for (const candidate of candidates) {
+      if (isExecutable(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
 // Inspects a script's #! line. Returns { interpreter, args, valid, missing }
 // or null if the file is not a script. valid=false means we can prove the
 // interpreter is unreachable from THIS PROCESS's PATH (which is what the
@@ -128,16 +192,32 @@ export function resolveExecutable(command) {
   const attempts = [];
   try {
     if (process.platform === "win32") {
-      const comspec = process.env.ComSpec || process.env.COMSPEC || "cmd.exe";
-      const result = spawnSync(comspec, ["/d", "/s", "/c", `where ${value}`], {
-        windowsHide: true,
-        timeout: 3000,
-        encoding: "utf-8",
+      // Primary: in-process PATH+PATHEXT walk — codepage-proof (see
+      // resolveOnWindowsPath) and already fs-verified.
+      resolved = resolveOnWindowsPath(value);
+      attempts.push({
+        method: "path-walk",
+        status: resolved ? 0 : 1,
+        stdout: resolved || `no PATH/PATHEXT match for "${value}"`,
       });
-      attempts.push({ method: "where", status: result.status, stdout: (result.stdout || "").trim().slice(0, 400) });
-      if (result.status === 0) {
-        const lines = String(result.stdout || "").split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-        if (lines.length) resolved = lines[0];
+      if (!resolved) {
+        // Last-resort probe for exotic setups. Every line `where` prints may
+        // be OEM-mangled (õ -> o), so a line is only a HINT: accept it iff it
+        // exists on disk, preferring real Windows executables (PATHEXT) over
+        // extension-less scripts Node cannot spawn directly.
+        const comspec = process.env.ComSpec || process.env.COMSPEC || "cmd.exe";
+        const result = spawnSync(comspec, ["/d", "/s", "/c", `where ${value}`], {
+          windowsHide: true,
+          timeout: 3000,
+          encoding: "utf-8",
+        });
+        attempts.push({ method: "where", status: result.status, stdout: (result.stdout || "").trim().slice(0, 400) });
+        if (result.status === 0) {
+          const lines = String(result.stdout || "").split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+          const existing = lines.filter((line) => isReallyExecutable(line));
+          const exts = windowsPathExts(process.env.PATHEXT).map((ext) => ext.toLowerCase());
+          resolved = existing.find((line) => exts.some((ext) => line.toLowerCase().endsWith(ext))) || existing[0] || null;
+        }
       }
     } else {
       const quoted = value.replace(/'/g, "'\\''");
