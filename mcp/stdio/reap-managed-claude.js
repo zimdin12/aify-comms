@@ -26,6 +26,7 @@
 // Process listing + kill are injectable so tests never touch real processes.
 
 import { spawnSync as nodeSpawnSync } from "node:child_process";
+import { PS_UTF8_PRELUDE } from "./win32-text.js";
 import { pidIsSelfProtected } from "./runtimes.js";
 
 // Enumerate running claude processes as [{ pid, ppid, commandLine }].
@@ -34,7 +35,11 @@ import { pidIsSelfProtected } from "./runtimes.js";
 export function defaultListClaudeProcs(spawnSync = nodeSpawnSync) {
   try {
     if (process.platform === "win32") {
+      // PS_UTF8_PRELUDE: command lines are matched against workspace/wrapper
+      // paths — OEM-encoded output would mangle non-ASCII profile paths
+      // (C:\Users\KertMõttus) and the reaper's safety matching would miss.
       const ps =
+        PS_UTF8_PRELUDE +
         "Get-CimInstance Win32_Process -Filter \"Name='claude.exe'\" | " +
         "ForEach-Object { \"$($_.ProcessId)`t$($_.ParentProcessId)`t$($_.CommandLine)\" }";
       const res = spawnSync(
@@ -85,6 +90,7 @@ export function defaultGetCmdline(pid, spawnSync = nodeSpawnSync) {
   try {
     if (process.platform === "win32") {
       const ps =
+        PS_UTF8_PRELUDE +
         `(Get-CimInstance Win32_Process -Filter "ProcessId=${n}" -ErrorAction SilentlyContinue).CommandLine`;
       const res = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps], {
         encoding: "utf8", windowsHide: true, timeout: 5000,
