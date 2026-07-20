@@ -5,7 +5,7 @@
 - [Lifecycle verbs: what is Spawn / Stop / Restart / Reset / Resume-wake](#lifecycle-verbs-what-is-spawn-stop-restart-reset-resume-wake)
 - [resident↔managed switch is now safe (handle carries; pi/opencode managed-only)](#residentmanaged-switch-is-now-safe-handle-carries-piopencode-managed-only)
 - [Resident send rejected: `resident bridge heartbeat is gone`](#resident-send-rejected-resident-bridge-heartbeat-is-gone)
-- [Send to a managed agent with no live claimer (always queues; backstop reaper is the net)](#send-to-a-managed-agent-with-no-live-claimer-always-queues-backstop-reaper-is-the-net)
+- [Send to a managed agent with no live claimer](#send-to-a-managed-agent-with-no-live-claimer)
 - [Restarting aify-comms kills all managed sessions (by design — clean slate)](#restarting-aify-comms-kills-all-managed-sessions-by-design-clean-slate)
 - [Managed agent finished but its reply never landed](#managed-agent-finished-but-its-reply-never-landed)
 - [Send rejected because target has queued work](#send-rejected-because-target-has-queued-work)
@@ -103,40 +103,30 @@ mcp_aify_comms_comms_agent_info(agentId="target")
 
 For Hermes, use the prefixed callable names that Hermes assigns to MCP tools (`mcp_aify_comms_comms_register`, `mcp_aify_comms_comms_agent_info`, `mcp_aify_comms_comms_send`). Missing unprefixed names like `comms_register` is not an exposure failure if the prefixed tools are available. For Claude/Codex use the matching runtime and handle fields documented in the main skill. Prefer launching with `--aify-agent <id>` so the wrapper's MCP child auto-registers with its real bridge id. Do not repair this by posting to `/api/v1/agents` manually; use dashboard **Switch to managed** if the open resident terminal should not own delivery.
 
-## Send to a managed agent with no live claimer (always queues; backstop reaper is the net)
+## Send to a managed agent with no live claimer
 
-**Symptom / question.** You send to a managed claude/hermes agent whose delivery
-loop is down or mid-restart. The send **does not fail fast** — it queues a dispatch
-run. If the worker never comes back, that run is later failed by the queued-run
-backstop reaper (`queued_run_backstop_seconds`, default ~180s) and the failure is
-mirrored to the sender.
+**Current behavior.** Sends are live-delivery gated. An `available` managed agent with
+an online capable environment is cold-started and gets a claimable queued run. A busy
+live agent receives steering when supported or queued/merged next-turn work when not.
+An `offline`, `stopped`, or otherwise non-startable target fails visibly and the
+message is not stored for a future surprise. The queued-run backstop
+(`queued_run_backstop_seconds`, default ~180s) remains a crash/leak safety net for a
+run that was validly created but later lost its claimer; it is not a substitute for
+the send gate.
 
-**Behavior (current — operator-reversed 2026-06-02, `a89a0d2`).** An earlier build
-**failed fast** ("no live delivery-loop claimer ... a message would never be
-delivered", and wrote no `dispatch_runs` row) when a managed agent's claimer lease
-was released/stale. That was **reversed**: in live use it lost messages to an agent
-that was merely mid-restart (lease released, then re-acquired moments later). A send
-to a managed agent now **always queues a run**. The **queued-run backstop reaper is
-the sole safety net** — it fails a queued run only after it has been genuinely
-undeliverable for the backstop window. Lazy-autostart-on-send still works; the lease
-helpers / deaf-detection are retained for status/deliverability reporting only, no
-longer as a send gate.
-
-**If you expected immediate delivery and it queued instead.** The target's delivery
-loop is not currently a live claimer. Respawn its managed worker (relaunch
-`hermes-aify`, or restart from dashboard **Sessions**), confirm it comes back
-`online`, and the queued run delivers on the next claim. If it never recovers, the
-backstop reaper closes the run within its window and tells the sender. Check why the
-loop exited (its stderr / dashboard Console).
+**If you expected immediate delivery and it queued instead.** Confirm whether the
+target is `working` (next-turn queue is expected) or its cold-start spawn is still
+being claimed. If neither is true, inspect the environment bridge and backing from
+Sessions/Console rather than creating another message.
 
 ## Restarting aify-comms kills all managed sessions (by design — clean slate)
 
 **Symptom / question.** After restarting the `aify-comms` environment bridge, every
 managed agent's Console is gone and its worker processes (gateway hosts, delivery
-loops, daemons, PTYs) are no longer running. Agents read `offline` immediately (a
-managed agent's status is gated on its owning env bridge as of `3ca464a`, so a down
-env bridge forces `offline` even if a detached loop is briefly still heartbeating)
-and stay so until re-spawned.
+loops, daemons, PTYs) are no longer running. Agents read `offline` while the owning
+environment bridge is down. After the bridge re-registers, managed identities with
+a usable spec read `available` until lazy-started by a send (or eagerly respawned by
+the configured spawn loop).
 
 **This is intended (2026-06-02).** Restarting `aify-comms` is a guaranteed **clean
 slate** for managed sessions, so a restart can never leave dead claimers holding busy
@@ -210,7 +200,7 @@ run, but the correct behavior is the same-turn reply.
 
 **Fix.**
 - Start/restore an environment bridge that advertises the runtime (`comms_envs()` to see what each env offers), then retry.
-- If the target is `stopped`/disabled, **Resume** it in the dashboard (or `POST /agents/{id}/control` action=`resume`) — that re-enables auto-start.
+- If the target is `stopped`/disabled, use **Restart** for a managed session or **Resume wake** for a resident agent.
 - `comms_agent_info(agentId=<target>)` to confirm the runtime, env binding, and `wakeMode`.
 
 ## Registration refused (409): another live wrapper owns this session
@@ -221,7 +211,7 @@ run, but the correct behavior is the same-turn reply.
 
 **Fix.**
 - If a second wrapper is genuinely running for the same identity, stop one — they were racing.
-- If YOU restarted the prior wrapper and want the new one to take over, relaunch with `AIFY_FORCE_REGISTER=1` (or wait out the lease window). Managed agents are unaffected (latest-launch-wins); the visible-TUI sidecar + wrapper-child pair is also exempt.
+- If YOU restarted the prior wrapper and want the new one to take over, relaunch with `AIFY_FORCE_REGISTER=1` (or wait out the lease window). Managed agents are unaffected (latest-launch-wins); the visible-TUI delivery-owner registrations are also exempt.
 
 ## Superseded or stale bridge: claim blocked
 
@@ -337,9 +327,3 @@ stopped" / "Console failed"), never "attached". NOTE: a managed agent whose last
 correctly stays **`available`** (not `blocked`/`errored`) — it lazy-respawns on the next send, so
 it is genuinely available-to-retry (a `failed → blocked` status change was tried and rejected; see
 DECISIONS.md 2026-06-05). Requires the container rebuild to deploy the dashboard.
-
-## `available` managed agent did not auto-start on send after a bridge restart (bug D — workaround: Restart)
-
-Symptom: an `available` managed agent that should cold-start on the next send stays dormant — `comms_send` returns `dispatchRuns: []` and the agent never wakes ("no live sidecar heartbeat"). Seen specifically AFTER a bridge restart, when the agent's prior session/env binding has gone stale and the send-path deliverability check classifies it as "no live wake path." This contradicts the "`available` auto-starts on send" rule (it's an open bug, tracked in KNOWN_ISSUES.md "Open watch-items (2026-07-01)" / the plan `docs/superpowers/plans/2026-07-01-team-guidance-and-infra.md`).
-
-**Workaround until fixed:** don't rely on send-to-wake for a warm/available agent right after a bridge restart — **Restart** it (dashboard Restart, or `comms_spawn`/relaunch) to re-establish the backing, then send. If you're a manager sweeping a stalled team, `comms_console_tail` first to confirm it's dormant (no live console) rather than mid-build.

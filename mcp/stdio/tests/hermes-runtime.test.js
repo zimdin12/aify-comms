@@ -14,26 +14,42 @@ const {
   normalizeRuntime,
   runtimeLaunchAvailability,
 } = await import("../runtimes.js");
+const { HermesManagedGatewaySession } = await import("../hermes-managed-gateway-session.js");
 
 assert.equal(normalizeRuntime("hermes"), "hermes");
 assert.equal(normalizeRuntime("hermes-agent"), "hermes");
 assert.equal(normalizeRuntime("hermes_agent"), "hermes");
 
 assert.equal(canLaunchRuntime("hermes"), true);
-// 89ad862 (2026-06-03, native-session-id rework review fixes): steer is back —
-// HermesAdapter.supportsSteering is true again because the gateway delivery
-// loop (hermes-managed-host.js) injects mid-turn via the gateway `session.steer`
-// RPC on a 4009-busy. Matches service/runtimes/hermes.py supports_steering=True.
-// (The 2026-05-30 api_server chat path that had no steer was retired.)
-assert.deepEqual(controlCapabilitiesForRuntime("hermes"), { interrupt: true, steer: true });
+// Managed Hermes does not advertise safe mid-turn steering: active-turn submissions interrupt
+// the current turn, so dispatch queues them until turn-end. Interrupt remains supported.
+assert.deepEqual(controlCapabilitiesForRuntime("hermes"), { steer: false, interrupt: true });
 // defaultCapabilitiesForRuntime derives from the HermesAdapter supports_*
-// flags. "steer" appears again (supportsSteering == true since 89ad862).
+// flags, so managed and resident Hermes both omit "steer".
 assert.deepEqual(
   defaultCapabilitiesForRuntime("hermes", "managed"),
-  ["managed-run", "resume", "interrupt", "steer", "spawn"],
+  ["managed-run", "resume", "interrupt", "spawn"],
 );
-assert.deepEqual(defaultCapabilitiesForRuntime("hermes", "resident", "session-123"), ["resume", "interrupt", "steer"]);
+assert.deepEqual(defaultCapabilitiesForRuntime("hermes", "resident", "session-123"), ["resume", "interrupt"]);
 assert.equal(defaultSessionHandleForRuntime("hermes"), "hermes-session-123");
+
+// A 4009 race in the native-gateway fallback must not turn the follow-up into an
+// interrupting session.steer. The main managed-host path handles busy requeueing;
+// this fallback rejects the race without interrupting the live turn.
+const busyGateway = new HermesManagedGatewaySession({ agentId: "busy-hermes" });
+busyGateway._state = "ready";
+busyGateway.ensureStarted = async () => {};
+busyGateway._resolveSessionId = async () => "busy-session";
+const busyMethods = [];
+busyGateway._sendRpc = async (frame) => {
+  busyMethods.push(frame.method);
+  throw Object.assign(new Error("session busy"), { code: 4009 });
+};
+await assert.rejects(
+  busyGateway.runTurn({ promptText: "wait for the current turn", run: {}, callbacks: {} }),
+  /session busy/,
+);
+assert.deepEqual(busyMethods, ["prompt.submit"]);
 
 const availability = runtimeLaunchAvailability("hermes");
 assert.equal(availability.available, true);

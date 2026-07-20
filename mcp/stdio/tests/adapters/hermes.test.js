@@ -131,7 +131,7 @@ test("HermesAdapter Plan 2 capabilities", () => {
   const a = new HermesAdapter();
   assert.strictEqual(a.supportsResident, true);
   assert.strictEqual(a.supportsManaged, true);
-  assert.strictEqual(a.supportsSteering, true);
+  assert.strictEqual(a.supportsSteering, false);
   assert.strictEqual(a.supportsInterrupt, true);
   assert.strictEqual(a.supportsMultiClient, true);
   assert.strictEqual(a.preferredDeliveryMode, "managed-via-wrapper");

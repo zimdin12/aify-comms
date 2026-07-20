@@ -22,13 +22,10 @@ class HermesAdapter(RuntimeAdapter):
     session_env_vars = ["HERMES_SESSION_ID", "HERMES_SESSION"]
     supports_resident = True
     supports_managed = True
-    # ASYMMETRY(hermes): resident/managed hermes delivers via the WebSocket
-    # gateway host, so steering IS supported — the gateway delivery loop
-    # (mcp/stdio/hermes-managed-host.js) steers via `session.steer` on a
-    # 4009-busy, and interrupt routes through that SAME gateway (the retired
-    # api_server `/v1/runs/{id}/stop` path is no longer used). Matches
-    # mcp/stdio/adapters/hermes.js. So interrupt stays True.
-    supports_steering = True
+    # ASYMMETRY(hermes): managed submissions made while the model is active interrupt the current
+    # turn. Queue until turn-end instead of advertising safe mid-turn steering. Interrupt remains
+    # independently supported through the gateway.
+    supports_steering = False
     supports_interrupt = True
     supports_multi_client = True
     preferred_delivery_mode = "managed-via-wrapper"

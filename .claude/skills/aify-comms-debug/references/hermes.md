@@ -1,5 +1,11 @@
 # aify-comms troubleshooting: Hermes (gateway, sessions, TUI, delivery)
 
+> **Current path:** a hidden `hermes dashboard` gateway host, a visible
+> `hermes-aify` TUI, and a per-agent `hermes-managed-host.js` channel-sidecar
+> that delivers with `prompt.submit` and queues while a turn is busy. Sections
+> explicitly labeled native fallback or legacy daemon describe retained
+> recovery/debug code, not the normal managed delivery path.
+
 ## Contents
 
 - [Resident Hermes wakes, but dashboard shows no session evidence](#resident-hermes-wakes-but-dashboard-shows-no-session-evidence)
@@ -53,20 +59,20 @@ boxed `aify-comms message` notice appears in the target
 
 **Cause.** The run was queued correctly as channel-mode wrapper-backed work,
 but either an old bridge build let the environment bridge claim it before the
-`hermes-aify` wrapper child bridge, or the wrapper child claimed while its
-Console was still stuck at `resuming...` for a stale saved handle. The
+per-agent Hermes channel-sidecar, or the sidecar claimed while its Console was
+still stuck at `resuming...` for a stale saved handle. The
 environment bridge only has stored `runtimeConfig.gatewayUrl` / `sessionHandle`,
 and a not-ready wrapper has no bindable active visible session, so stale
 records can point at an old gateway/session and fail visible-session binding.
 
 **Fix.** Rebuild/restart the service and restart the host `aify-comms` bridge
 so the environment bridge no longer advertises channel claim modes for
-wrapper-backed Codex/Hermes. The service also rejects such claims unless the
-claimant bridge is registered as `bridge_kind='managed-wrapper-child'`, and it
-blocks Hermes wrapper-child claims while the active Console still shows
+wrapper-backed Codex/Hermes. The service also rejects Hermes claims unless the
+claimant bridge is registered as `bridge_kind='channel-sidecar'`, and it
+blocks sidecar claims while the active Console still shows
 `resuming...` rather than `ready`. Current terminal managers heal a long-stuck
-Hermes resume by restarting once without `--resume`. Then restart/recover the
-managed Hermes session or send again; the wrapper PTY child bridge should claim
+Hermes resume by restarting once without `--resume`. Then **Restart** the
+managed Hermes session or send again; the channel-sidecar should claim
 after readiness and the visible Console should render the compact wake notice.
 If the saved Hermes session key is stale but the wrapper gateway has a current
 visible session, current bridges retry visible binding against that active

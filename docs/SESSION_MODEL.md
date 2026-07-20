@@ -78,14 +78,14 @@ A warm managed session is backed by four layers:
 
 The bridge should prefer native runtime state when it is reliable, but it must still keep conversation state so the system can recover when native resume is unavailable or unsafe.
 
-Native runtime handles must not be silently discarded. If a Claude session ID is locked or a user wants a fresh backing thread/session, that should be an explicit operator action such as **Recreate**. Restart should preserve the stored handle and use the saved spawn spec. It must not erase native memory unless the operator explicitly chooses Recreate.
+Native runtime handles must not be silently discarded. If a Claude session ID is locked or a user wants a fresh backing thread/session, that should be an explicit operator action such as **Reset**. Restart should preserve the stored handle and use the saved spawn spec. It must not erase native memory unless the operator explicitly chooses Reset.
 
 Native runtime handles also must not be silently invented during ordinary recovery. A new Claude session ID, Codex thread ID, OpenCode session ID, or Pi session handle is expected only when:
 
 - the operator creates a new managed identity through spawn
 - the operator resumes/starts directly in the native CLI and re-registers that exact live session
 - the operator explicitly repairs a known native ID with **Set handle**
-- the operator explicitly chooses **Recreate**
+- the operator explicitly chooses **Reset**
 
 When a managed session is taken over in CLI, the CLI should re-register with the same `agentId` and its real runtime handle. The backend records that handle on the latest session. Later **Adopt env** and **Restart** should carry that stored handle forward when the runtime is unchanged. If the handle is missing or locked, the system should surface the problem instead of quietly creating a contextless replacement. **Set handle** is an operator repair for a known native ID; it updates saved state but must not start a fresh context by itself.
 
@@ -172,7 +172,7 @@ Current/fallback model:
 
 Bridge-emulated warmth is still persistent because the bridge can recreate the agent from stored state. It may not be CLI-attachable.
 
-Current implementation note: managed Claude, Codex, Hermes, OpenCode, and Pi prefer native runtime handles or managed PTY backing when available. Ordinary Restart/Recover should preserve those handles and surface lock/resume failures instead of silently falling back to a contextless reconstructed prompt. Fresh backing context belongs behind the explicit **Recreate** or handoff **Compact** paths.
+Current implementation note: managed Claude, Codex, Hermes, OpenCode, and Pi prefer native runtime handles or managed PTY backing when available. Ordinary Restart should preserve those handles and surface lock/resume failures instead of silently falling back to a contextless reconstructed prompt. Fresh backing context belongs behind the explicit **Reset** or handoff **Compact** paths.
 
 ## Resident Visible
 
@@ -221,7 +221,7 @@ Dashboard rule:
 - Prefer wrapper auto-registration with `--aify-agent <agentId>` when opening the native CLI. Manual `comms_register(...)` remains the fallback and is still required for a new ID when the wrapper was launched without an ID.
 - Resident/managed ownership is manual. A resident wrapper registration against an existing managed identity records a `manualResidentCandidate` for later use, but does not take over the identity or stop the managed PTY.
 - Operators switch ownership from **Sessions -> Actions -> Switch to resident/managed** or the Chat details switch. Active runs block the switch unless the operator explicitly forces it. Stale resident bridges do not silently return to managed; dashboard sends fail visibly until the operator switches to managed or restarts the resident wrapper.
-- Show **Set handle** in session/identity details when a saved native handle may need operator repair. The action updates the saved handle and runtime state; it is not a compact or recreate path.
+- Show **Set handle** in session/identity details when a saved native handle may need operator repair. The action updates the saved handle and runtime state; it is not a compact or reset path.
 - **Stop wake** / session **Stop** on a resident identity sets `launch_mode=none`; the live resident bridge observes that state and terminates its host CLI/app process where the OS allows it.
 - Show **View transcript/logs** for all persistent sessions.
 - Dashboard chat and terminal input must not drive the same active turn concurrently.
@@ -248,7 +248,7 @@ When a warm managed session dies:
 4. Spawn request targets the previous environment unless changed.
 5. Bridge validates workspace and runtime capability.
 6. Bridge tries native resume if `nativeResume=true`.
-7. If native resume fails or is unavailable, bridge reports the failure or uses bridge-resume only when the runtime adapter can do so without silently discarding native memory. Fresh backing handles require the explicit dashboard **Recreate** action.
+7. If native resume fails or is unavailable, bridge reports the failure or uses bridge-resume only when the runtime adapter can do so without silently discarding native memory. Fresh backing handles require the explicit dashboard **Reset** action.
 8. New session row is created and linked to the same agent identity.
 
 ## Continue From Previous Session

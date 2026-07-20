@@ -1,6 +1,6 @@
 # aify-comms — Codex project notes
 
-This repo is `aify-comms`. The product is a dashboard-driven headless agent control plane: connect Windows/WSL/Linux environment bridges, spawn persistent managed agents into selected workspaces, chat with agents and channels, monitor tracked work, and stop/restart/recover sessions without requiring manual `comms_register` from dashboard-spawned agents.
+This repo is `aify-comms`. The product is a dashboard-driven headless agent control plane: connect Windows/WSL/Linux environment bridges, spawn persistent managed agents into selected workspaces, chat with agents and channels, monitor tracked work, and stop/restart/reset sessions without requiring manual `comms_register` from dashboard-spawned agents.
 
 ## Primary Documents
 
@@ -85,7 +85,8 @@ principles. Full rationale + per-runtime detail:
 | Delivery shape | sidecar-channel | gateway-host (WS tui_gateway) | controller (PTY/native) | controller (PTY) |
 | Reply author | agent self (`comms_send` + `inReplyTo`) | agent self (`comms_send`) | agent self | agent self |
 | Owns its own process | process per agent | `ASYMMETRY(hermes)`: hidden `hermes dashboard` gateway host (no `--tui` — rejected by the subcommand since hermes 0.15.1; embedded-chat/`/api/ws` enabled via the `HERMES_DASHBOARD_TUI=1` env instead, + `HERMES_YOLO_MODE=1` so gateway-hosted turns never prompt) + a visible `hermes --tui` PTY resuming the agent's REAL native session (rendered in the dashboard console); its equivalent of one-process-per-agent | process per agent | process per agent |
-| Wake mechanism | in-process MCP server-push | `ASYMMETRY(hermes)`: `hermes-managed-host.js` channel-sidecar finds the agent's real session in `session.active_list` (by the stored id / `aify-hermes-session-<agentId>` marker, most-recent fallback) and delivers via WS `prompt.submit` / `session.steer`; agent then self-replies | controller inject | controller inject |
+| Wake mechanism | in-process MCP server-push | `ASYMMETRY(hermes)`: `hermes-managed-host.js` channel-sidecar finds the agent's real session in `session.active_list` (by the stored id / `aify-hermes-session-<agentId>` marker, most-recent fallback) and delivers via WS `prompt.submit`; a 4009-busy race requeues until turn-end, then the agent self-replies | controller inject | controller inject |
+| Advertised mid-turn steering | yes | `ASYMMETRY(hermes)`: **no** — an active-turn submission interrupts the turn, so dispatch queues until turn-end and never falls back to `session.steer` | yes | yes |
 | Can be force-pinned | `ASYMMETRY(claude)`: mints its own id → `captured` not `pinned`; we capture+resume+guard | no — `captured` like claude: hermes uses its OWN native session id (no synthetic `aify-<id>`) | partial (resume id) | partial |
 
 Shrink the asymmetry column over time. What remains for hermes (per-agent daemon;

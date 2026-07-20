@@ -8,7 +8,7 @@ General coordination pattern:
 - Use `comms_send(...)` or `comms_channel_send(...)` as the default wake paths
 - Use `comms_dispatch` only when you need explicit run-control/debug state
 - Use `comms_spawn(...)` or dashboard **Environments -> Spawn Agent** when you need a separate persistent managed teammate
-- If an agent is offline, busy, queued, stopped, or not live-wakeable, normal `comms_send(...)` is not written. Wait, use `comms_run_interrupt`, recover/restart the session, or inspect with `comms_agent_info` before retrying
+- An `available` managed agent auto-starts on normal send. Busy steer-capable agents receive a mid-turn update; busy non-steer agents queue/merge for the next turn. Only offline/stopped/no-wake targets reject the send; inspect with `comms_agent_info` and recover those before retrying
 - Use `comms_describe(...)` to set a short team-facing description of what you're working on — visible to teammates in `comms_agents`
 - Use `comms_run_status` to watch active work
 - Use `comms_send(..., steer=true)` or `comms_run_interrupt` when an active run needs correction

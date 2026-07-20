@@ -1,5 +1,10 @@
 # Dashboard Spec
 
+> **CURRENT PRODUCT SEMANTICS, HISTORICAL SCREEN INVENTORY.** The replacement dashboard on
+> `8801` is now the only operator UI; `8800` serves the API and redirects dashboard entry
+> points. Use `AGENTS.md` for the canonical six-state status and lifecycle vocabulary, and
+> `service/new_dashboard/` for the shipped screen structure.
+
 ## Navigation
 
 Initial dashboard sections:
@@ -22,7 +27,7 @@ Current implementation note: dashboard-spawned managed identities are managed pr
 
 Product mode note: the dashboard UX is live-wake-only. Non-live/message-only compatibility can remain in MCP/API paths for older clients and migration, but normal dashboard views should hide it.
 
-Implementation note: the legacy dashboard remains served by the main API service on `8800`. The replacement dashboard is introduced as a separate preview surface on `8801`; it must use the existing message, run, session, environment, and Work Loop APIs rather than creating forked frontend state or duplicate concepts. Early `8801` slices should prioritize Needs Attention, live status, Work Loop visibility, Chat, Runtime views, and an inspector drawer while keeping destructive controls limited to already-audited endpoints.
+Implementation note: the main API remains on `8800`; the replacement dashboard is the operator surface on `8801`, and legacy dashboard entry points redirect there. It uses the existing message, run, session, environment, and Work Loop APIs rather than creating forked frontend state or duplicate concepts.
 
 ## Home
 
@@ -59,7 +64,7 @@ It should show:
 
 `delivered` means the bridge delivered/read the source message into the target's live or managed context. It is not a completed work contract by itself. A delivered contract remains open or overdue until a linked reply/result is recorded.
 
-Reminder policy belongs in Settings: enabled/disabled, first overdue threshold, repeat interval, optional maximum reminders, and history window. Recent due reminders are sent by the periodic service loop and can also be previewed or sent manually from Work Loop. Automatic reminders should not inject text into a busy or blocked turn; they should defer while the target is working and retry when the agent returns idle/available. Reminders should be explicit automated messages, not hidden state changes, and reminder messages must not create new reply debt. A reminder should tell the target which original message/run to open and should instruct the agent to close the original contract rather than merely acknowledging the reminder. Maximum reminder count is an optional anti-spam cap, not resolution; the default is unlimited reminders. Work Loop should show both count and last reminder time, and unresolved contracts stay visible until answered, closed by the operator, or filtered into audit views.
+Reminder policy belongs in Settings: enabled/disabled, first overdue threshold, repeat interval, optional maximum reminders, and history window. Recent due reminders are sent by the periodic service loop and can also be previewed or sent manually from Work Loop. Automatic reminders should not inject text into a busy or blocked turn; they should defer while the target is working and retry when the agent returns online/available. Reminders should be explicit automated messages, not hidden state changes, and reminder messages must not create new reply debt. A reminder should tell the target which original message/run to open and should instruct the agent to close the original contract rather than merely acknowledging the reminder. Maximum reminder count is an optional anti-spam cap, not resolution; the default is unlimited reminders. Work Loop should show both count and last reminder time, and unresolved contracts stay visible until answered, closed by the operator, or filtered into audit views.
 
 Agents can inspect the same view through `comms_contracts(...)` when they need to audit outstanding work. The dashboard remains the primary place for batch repair actions.
 
@@ -245,9 +250,9 @@ Actions:
 
 - stop
 - restart
-- resume/attach when supported
+- resume/attach when supported by the runtime
 - set handle when the operator knows the correct native runtime ID
-- recover from backing
+- restart from saved backing
 - continue from this session
 - reset context
 - open logs
@@ -268,9 +273,9 @@ Do not show stop/kill-style actions for rows that only represent offline identit
 
 Ended/completed/cancelled sessions are debug history. The normal Sessions page should hide them by default and expose a **Show ended/debug sessions** toggle for lifecycle investigation.
 
-Manual/resident identities may expose **Edit** and **Adopt env** when at least one environment is online. Adoption creates managed backing for future dashboard work without changing the current live CLI turn. If the resident bridge later goes stale, the next dashboard send can return the identity to managed mode automatically. If a CLI registers while a managed run is active, takeover must be deferred until the active run ends.
+Manual/resident identities may expose **Edit** and **Adopt env** when at least one environment is online. Adoption creates managed backing for future dashboard work without changing the current live CLI turn. Ownership changes remain explicit: a stale resident send fails visibly until the operator switches to managed or restarts the resident wrapper. If a CLI registers while a managed run is active, takeover must be deferred until the active run ends.
 
-Current browser Console mode attaches to the runtime's bridge-owned backing through xterm-style streaming. Opening Console does not convert the identity to `cli-takeover`; Messenger remains the contract surface. Managed Claude Code starts/reuses `claude-aify` as a visible channel host. Managed Codex/Hermes default to bridge-owned `codex-aify` / `hermes-aify` wrapper PTYs, but delivery is claimed by the wrapper child bridge through app-server/gateway APIs, not by raw PTY typing. Pi and OpenCode use native managed controllers with synthesized Console streams. Queueing waits behind real active/queued work; if an idle managed wrapper-backed agent has no pending run, Queue still uses live delivery rather than an orphan queued row. Separate native CLI ownership still uses the explicit resident/Pause-for-CLI path and only changes ownership at turn boundaries.
+Current browser Console mode attaches to the runtime's bridge-owned backing through xterm-style streaming. Opening Console does not convert the identity to `cli-takeover`; Messenger remains the contract surface. Managed Claude Code starts/reuses `claude-aify` as a visible channel host. Managed Codex/Hermes default to bridge-owned `codex-aify` / `hermes-aify` wrapper PTYs, but delivery uses runtime APIs rather than raw PTY typing: Codex is claimed by its wrapper child bridge, while Hermes is claimed by its per-agent `hermes-managed-host.js` channel-sidecar. Pi uses a native managed controller with a synthesized Console stream. OpenCode controller code is retained but its install path is disabled pending focused validation. Queueing waits behind real active/queued work; if an idle managed wrapper-backed agent has no pending run, Queue still uses live delivery rather than an orphan queued row. Separate native CLI ownership still uses the explicit resident/Pause-for-CLI path and only changes ownership at turn boundaries.
 
 ## Continue From Session Flow
 
@@ -355,9 +360,9 @@ Actions:
 - view sessions
 - archive/remove identity
 
-If an agent has no live session but has a spawn spec, show **Restart** to restore it with the saved handle. Show **Set handle** when the saved native ID needs operator repair and the correct value is known. Show **Recreate** only as the explicit fresh-context reset.
+If an agent has no live session but has a spawn spec, show **Restart** to restore it with the saved handle. Show **Set handle** when the saved native ID needs operator repair and the correct value is known. Show **Reset** only as the explicit fresh-context reset.
 
-Use **Recreate** for the explicit fresh-context reset. It must be clear that messages, files, dispatch history, and the agent identity remain, but the native Claude session ID / Codex thread ID is intentionally left behind.
+Use **Reset** for the explicit fresh-context reset. It must be clear that messages, files, dispatch history, and the agent identity remain, but the native Claude session ID / Codex thread ID is intentionally left behind.
 
 ## Visual Design Direction
 

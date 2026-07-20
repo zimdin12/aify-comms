@@ -136,9 +136,6 @@ export class HermesManagedController extends BaseController {
   }
 
   async steer(_opts) {
-    if (this._useGateway) {
-      throw new Error("Direct steer not implemented; send another comms_send and the controller will route via session.steer if the turn is still running.");
-    }
     throw new Error("Hermes managed runs do not support mid-turn steer; send a follow-up dispatch instead.");
   }
 }

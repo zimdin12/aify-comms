@@ -28,8 +28,8 @@ export class BaseController {
     throw new Error("BaseController.interrupt is abstract - subclass must override");
   }
 
-  // Mid-turn append. Some runtimes (codex turn/steer, hermes session.steer)
-  // support this; others don't (subclass throws or returns rejected promise).
+  // Mid-turn append. Some runtimes (for example Codex turn/steer) implement
+  // this as a first-class RPC; unsupported runtime subclasses throw.
   async steer(_opts) {
     throw new Error("BaseController.steer is abstract - subclass must override");
   }

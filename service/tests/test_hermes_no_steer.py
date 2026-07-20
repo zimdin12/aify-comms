@@ -1,4 +1,4 @@
-"""Managed hermes must NOT be advertised as `steer`-capable (mc-senior-dev interrupt/churn, 2026-07-20).
+"""Hermes must NOT be advertised as `steer`-capable (mc-senior-dev interrupt/churn, 2026-07-20).
 
 `steer` means "safely accepts a mid-turn inject." Claude queues injects in order; hermes treats a
 submission delivered while it is waiting on the model as an INTERRUPT and cancels the turn. So a
@@ -12,6 +12,7 @@ import json
 import unittest
 
 from service.routers import api_v2
+from service.runtimes import adapter_for
 
 
 def _row(*, runtime, session_mode, capabilities, runtime_config=None):
@@ -26,6 +27,9 @@ def _row(*, runtime, session_mode, capabilities, runtime_config=None):
 
 
 class HermesNoSteerTests(unittest.TestCase):
+    def test_runtime_adapter_declares_managed_hermes_non_steerable(self):
+        self.assertFalse(adapter_for("hermes").supports_steering)
+
     def test_managed_hermes_strips_steer_even_when_registered(self):
         caps = api_v2._row_capabilities(_row(
             runtime="hermes", session_mode="managed",
@@ -34,6 +38,16 @@ class HermesNoSteerTests(unittest.TestCase):
         self.assertNotIn("steer", caps, "managed hermes must not advertise steer")
         # ...but the legitimate managed caps remain.
         for cap in ("managed-run", "resume", "interrupt", "spawn"):
+            self.assertIn(cap, caps)
+
+    def test_resident_hermes_strips_legacy_steer_even_with_live_gateway(self):
+        caps = api_v2._row_capabilities(_row(
+            runtime="hermes", session_mode="resident",
+            capabilities=["resident-run", "resume", "interrupt", "steer"],
+            runtime_config={"gatewayUrl": "ws://127.0.0.1:9000/api/ws"},
+        ))
+        self.assertNotIn("steer", caps)
+        for cap in ("resident-run", "resume", "interrupt"):
             self.assertIn(cap, caps)
 
     def test_managed_claude_keeps_steer(self):

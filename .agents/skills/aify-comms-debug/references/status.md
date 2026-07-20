@@ -200,8 +200,8 @@ event-driven path was built — read "new" as "the (now sole) `derive()` path".
 
 **Deploy.** Service-side (rebuild the container) + bridge-side (`/heartbeat` turnBusy + the
 console spinner/lease are sent by the wrappers' delivery loops, so re-run `install.sh` and
-relaunch the affected wrapper). If a managed/channel agent still reads `online`/`idle` mid-turn
-while `status_engine=new`, the service is pre-`4d52571`.
+relaunch the affected wrapper). If a managed/channel agent still reads `online` mid-turn on
+the sole `derive()` path, the service or bridge predates these fixes.
 
 ## `available→online` is prompt now (and unrelated to auto-close); resident clean-exit drops `online` fast
 
@@ -219,7 +219,7 @@ you're on pre-`5070c84` code; rebuild/restart the service.
 **Resident clean-exit drops `online` within ~1.5s (2026-06-03, `5070c84`).** The resident MCP
 bridge (`mcp/stdio/server.js`) now POSTs `/agents/{id}/resident-lost` on clean exit
 (best-effort, resident-only, idempotent, bounded ~1.5s); the server handler sets
-`status=stopped` for a **resident** (or auto-returns to managed if a managed backing exists). A
+`status=stopped` for a **resident**. Ownership never auto-switches to managed. A
 `session_mode='managed'` agent that hits this same endpoint (e.g. its hermes gateway port died)
 is instead rested **cold-startable** — stored `status='active'` (the enabled flag) → derives `available`,
 `launch_mode='detached'` — so the next send auto-spawns a fresh managed worker (new gateway),

@@ -1,5 +1,8 @@
 # Status + Console fixes (from the 2026-07-18 pulled-commits review)
 
+> **Status:** Historical implementation plan — not current operational guidance. Verify the
+> current source and tests before treating any task below as unimplemented.
+
 > **For the executor:** each task is self-contained with traced PROOF, the exact minimal
 > change, blast-radius reasoning, and the test. Follow in order. Commit per task.
 > Everything here is SERVER-SIDE or DASHBOARD (container rebuild) — **no bridge/wrapper

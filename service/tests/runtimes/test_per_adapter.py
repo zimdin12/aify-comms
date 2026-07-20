@@ -89,9 +89,8 @@ def test_hermes_adapter():
     assert a.session_env_vars == ["HERMES_SESSION_ID", "HERMES_SESSION"]
     assert a.supports_resident is True
     assert a.supports_managed is True
-    # supports_steering=True since 5c2ea67 (Task 5): channel/managed delivery
-    # steers past turn_busy. Interrupt remains via api_server /v1/runs/{id}/stop.
-    assert a.supports_steering is True
+    # An active-turn Hermes submission interrupts that turn; queue until turn-end instead.
+    assert a.supports_steering is False
     assert a.supports_interrupt is True
     assert a.supports_multi_client is True
     assert a.preferred_delivery_mode == "managed-via-wrapper"

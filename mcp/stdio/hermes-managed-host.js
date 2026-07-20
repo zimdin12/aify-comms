@@ -18,9 +18,10 @@
 //      (2026-06-03): target the agent's bound REAL session id (the marker
 //      written at launch/register), with a most-recent-live-session fallback
 //      (symmetric with claude UUID / codex thread id). NOT the retired synthetic
-//      `aify-<agentId>` key. Then `prompt.submit {session_id, text}` (fallback
-//      `session.steer` on 4009 busy). Events route to the TUI's transport
-//      (owner) so the TUI renders; aify's submit does NOT displace it.
+//      `aify-<agentId>` key. Then `prompt.submit {session_id, text}`. Events route
+//      to the TUI's transport
+//      (owner) so the TUI renders; aify's submit does NOT displace it. A 4009
+//      busy response requeues the run until turn-end; Hermes is not steer-safe.
 //
 // WAKE-ONLY (symmetric with claude-channel.js): this helper authors NO reply.
 // The in-session hermes agent has the aify-comms comms_* tools loaded and
@@ -68,7 +69,6 @@ import {
   buildSessionActiveListFrame,
   buildSessionListFrame,
   buildPromptSubmitFrame,
-  buildSessionSteerFrame,
   buildRenderNoticeFrame,
   pickSessionById,
   pickMostRecentSession,
@@ -1128,7 +1128,7 @@ async function markRunRequeued(httpCall, run, reason) {
 }
 
 // ---------------------------------------------------------------------------
-// 3. DELIVERY — claim → active_list → prompt.submit (steer on busy) → delivered.
+// 3. DELIVERY — claim → active_list → prompt.submit (requeue on busy) → delivered.
 // ---------------------------------------------------------------------------
 
 // Native-session-id delivery (2026-06-03): poll session.active_list until the
@@ -1297,7 +1297,7 @@ export async function waitForActiveSession({
 
 // Drive ONE claimed run end-to-end (WAKE-ONLY). NEVER throws.
 //   reportTurnBusy(true) → WAIT for active session (cold-start race) →
-//   prompt.submit{session_id, text} → (4009 busy → session.steer) →
+//   prompt.submit{session_id, text} → (4009 busy → requeue until turn-end) →
 //   markRunDelivered → clearTurn. If the visible TUI never attaches within the
 //   bounded window, REQUEUE the run (claimable) — NOT markRunFailed — so the
 //   next poll delivers once the TUI resumes. On real failure: markRunFailed.
@@ -1453,8 +1453,14 @@ export async function deliverRun({
       await wsClient.request(buildPromptSubmitFrame({ id: id++, sessionId, text }));
     } catch (err) {
       if (isSessionBusyError(err)) {
-        // Mid-run: steer into the running turn instead of submitting a new one.
-        await wsClient.request(buildSessionSteerFrame({ id: id++, sessionId, text }));
+        await markRunRequeued(httpCall, run, "Hermes session became busy before prompt.submit; retry after turn-end");
+        // 4009 proves another turn is active. Keep turn_busy latched so claim cannot race it again.
+        if (inFlight) {
+          inFlight.submittedAt = 0;
+          inFlight.runId = "";
+          inFlight.dispatchTurnOpen = false;
+        }
+        return;
       } else {
         throw err;
       }

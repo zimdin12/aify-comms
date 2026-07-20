@@ -1,5 +1,8 @@
 # Final polish + bridge bundle — one big finishing round (2026-07-02)
 
+> **Status:** Historical execution record; the dashboard and bridge bundle shipped. The
+> team-down/restart window below was time-bound and is not a current restart runbook.
+
 > Operator go-ahead: teams are DOWN → bridge-change window is OPEN. Goal: everything done,
 > reviewed, tested, committed+pushed, publishable. Execute in order; each workstream ends
 > green (tests + verification) before the next. If context compacts mid-run, resume from the

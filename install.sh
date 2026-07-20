@@ -3,8 +3,8 @@
 # Pi/OMP managed delivery uses the environment bridge plus plain `omp --mode rpc`;
 # resident `omp-aify` / `pi-aify` wrapper install is disabled by default because
 # OMP is single-client and cannot receive live wake injection into an open TUI.
-# OpenCode install is also disabled by default until its resident/managed
-# integration gets a focused validation pass.
+# OpenCode client/resident install is disabled; managed OpenCode remains
+# available through an environment bridge installed by a supported client.
 #
 # Usage:
 #   bash install.sh --client claude
@@ -48,7 +48,7 @@ EMIT_CODEX_WRAPPERS_DIR=""
 DEFAULT_AIFY_SERVER_URL="${AIFY_DEFAULT_SERVER_URL:-http://127.0.0.1:8800}"
 
 usage() {
-  cat <<EOF
+  cat <<'EOF'
 Usage:
   bash install.sh --client <claude|codex|hermes> [SERVER_URL] [--with-hook]
 
@@ -65,8 +65,9 @@ Pi/OMP note:
   default because OMP has no multi-client resident wake surface.
 
 OpenCode note:
-  --client opencode is intentionally disabled until the integration gets a
-  focused validation pass. Existing adapter code remains for future work.
+  --client opencode is intentionally disabled. Managed OpenCode runs through
+  an environment bridge installed by a supported client; resident OpenCode is
+  presence/debug metadata only.
 EOF
 }
 
@@ -129,8 +130,8 @@ if [ "$CLIENT" = "pi" ]; then
 fi
 
 if [ "$CLIENT" = "opencode" ]; then
-  echo "OpenCode integration install is disabled until it receives a focused validation pass."
-  echo "Existing OpenCode adapter/controller code remains in the repo for future work."
+  echo "OpenCode client/resident install is disabled."
+  echo "Managed OpenCode remains available through an environment bridge installed by a supported client."
   exit 1
 fi
 

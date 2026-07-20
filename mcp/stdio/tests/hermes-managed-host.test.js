@@ -10,15 +10,15 @@
 //   2. deliverRun (claim/deliver loop): claim a dispatch run → reportTurnBusy →
 //      open a WS to the gateway → session.active_list → pickSessionForKey to
 //      resolve the visible TUI's EPHEMERAL runtime sid for `aify-<agentId>` →
-//      prompt.submit {session_id, text} → on 4009 busy fall back to
-//      session.steer → markRunDelivered (WAKE-ONLY: NO reply posted; the
+//      prompt.submit {session_id, text} → on 4009 busy requeue until turn-end
+//      → markRunDelivered (WAKE-ONLY: NO reply posted; the
 //      in-session agent self-replies via comms_send) → clearTurn.
 //   3. teardown: on SIGTERM/SIGINT/release kill the gateway-host child + exit.
 //
 // The runtime sid is NEVER cached: each delivery re-runs session.active_list.
 //
 // Tests inject a fake aify httpCall, a fake WS client modeling
-// session.active_list / prompt.submit / busy(4009)+steer, and a fake spawn +
+// session.active_list / prompt.submit / busy(4009)+requeue, and a fake spawn +
 // fake index HTML for ensureGatewayHost.
 
 import assert from "node:assert/strict";
@@ -295,24 +295,29 @@ test("deliverRun: requeue (TUI never attaches) closes inFlight window {submitted
   assert.equal(inFlight.runId, "", "requeue clears the tracked runId");
 });
 
-test("deliverRun: busy 4009 on prompt.submit → falls back to session.steer", async () => {
+test("deliverRun: busy 4009 requeues without session.steer or false delivered", async () => {
   const { httpCall, calls } = makeAifyHttp();
   const busy = Object.assign(new Error("session busy"), { code: 4009 });
   const ws = makeFakeWsClient({
     "session.active_list": ACTIVE_LIST_RESULT,
     "prompt.submit": busy,
-    "session.steer": { status: "queued" },
+  });
+  const inFlight = { submittedAt: 99, completed: false, runId: "run-1", dispatchTurnOpen: true };
+
+  await deliverRun({
+    run: SAMPLE_RUN, agentId: "sc-hermes", httpCall, wsClient: ws,
+    tempDir: MARKER_DIR, inFlight,
   });
 
-  await deliverRun({ run: SAMPLE_RUN, agentId: "sc-hermes", httpCall, wsClient: ws, tempDir: MARKER_DIR });
-
-  const steer = ws.sent.find((f) => f.method === "session.steer");
-  assert.ok(steer, "expected a session.steer fallback frame on 4009 busy");
-  assert.equal(steer.params.session_id, "live-sid-ab12", "steer targets the live runtime sid");
-
-  // Still settled delivered.
   const patch = findCall(calls, "PATCH", (e) => e.startsWith("/dispatch/runs/"));
-  assert.equal(String(patch.body.status), "delivered");
+  assert.equal(String(patch.body.status), "queued");
+  assert.ok(!ws.sent.find((f) => f.method === "session.steer"));
+  assert.notEqual(String(patch.body.status), "delivered");
+  assert.equal(inFlight.submittedAt, 0);
+  assert.equal(inFlight.runId, "");
+  assert.equal(inFlight.dispatchTurnOpen, false);
+  assert.ok(!findCall(calls, "POST", (e) => e.endsWith("/turn-end")),
+    "4009 proves another turn is active; keep turn_busy latched until its real turn-end");
 });
 
 test("deliverRun: never caches the sid — re-runs active_list on every delivery", async () => {

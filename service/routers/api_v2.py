@@ -1923,6 +1923,9 @@ def _row_capabilities(row) -> list[str]:
     if runtime == "opencode" and session_mode == "resident":
         return [cap for cap in capabilities if cap not in {"resident-run", "interrupt", "steer"}]
     if runtime == "hermes":
+        # Hermes cannot safely accept an injected prompt while any turn is active. Strip stale
+        # bridge registrations in BOTH modes; busy delivery is requeued until turn-end.
+        capabilities = [cap for cap in capabilities if cap != "steer"]
         if session_mode == "managed":
             # Managed hermes does NOT safely accept a mid-turn inject. Unlike claude (which queues
             # injects in order), a submission delivered to hermes WHILE it is waiting on the model is
@@ -1934,7 +1937,6 @@ def _row_capabilities(row) -> list[str]:
             # (mc-senior-dev proliferation, 2026-07-20). Strip `steer` (even if the bridge registered
             # it) so a message to a busy hermes ENQUEUES and delivers at turn-end instead. The
             # explicit `interrupt` (stop) capability is unaffected; claude keeps `steer`.
-            capabilities = [cap for cap in capabilities if cap != "steer"]
             for cap in ("managed-run", "resume", "interrupt", "spawn"):
                 if cap not in capabilities:
                     capabilities = [*capabilities, cap]
@@ -3417,6 +3419,7 @@ async def _record_channel_sidecar_heartbeat(
     agent_id: str,
     machine_id: str,
     runtime: str,
+    session_mode: str,
     now: str,
 ) -> None:
     """Task 1.6b (2026-05-30): upsert the standalone channel sidecar's
@@ -3442,16 +3445,28 @@ async def _record_channel_sidecar_heartbeat(
         return
     normalized_machine = _normalize_machine_id(machine_id)
     normalized_runtime_value = str(runtime or "generic")
+    normalized_session_mode_value = _normalize_session_mode(session_mode or "managed")
     # Refresh in place if the row already exists (the common case after the
     # first poll); otherwise insert a fresh, non-superseded liveness row. Keyed
     # on the PRIMARY KEY (bridge_id) so repeated polls are idempotent.
     updated = await db.execute(
         """
         UPDATE bridge_instances
-        SET last_seen = ?, bridge_kind = 'channel-sidecar'
+        SET last_seen = ?,
+            machine_id = COALESCE(NULLIF(?, ''), machine_id),
+            runtime = ?,
+            session_mode = ?,
+            bridge_kind = 'channel-sidecar'
         WHERE id = ? AND agent_id = ?
         """,
-        (now, bridge_id, agent_id),
+        (
+            now,
+            normalized_machine,
+            normalized_runtime_value,
+            normalized_session_mode_value,
+            bridge_id,
+            agent_id,
+        ),
     )
     if getattr(updated, "rowcount", 0):
         return
@@ -3467,7 +3482,7 @@ async def _record_channel_sidecar_heartbeat(
             agent_id,
             normalized_machine,
             normalized_runtime_value,
-            "managed",
+            normalized_session_mode_value,
             "",
             "",
             "channel-sidecar",
@@ -3483,10 +3498,21 @@ async def _record_channel_sidecar_heartbeat(
     await db.execute(
         """
         UPDATE bridge_instances
-        SET last_seen = ?, bridge_kind = 'channel-sidecar'
+        SET last_seen = ?,
+            machine_id = COALESCE(NULLIF(?, ''), machine_id),
+            runtime = ?,
+            session_mode = ?,
+            bridge_kind = 'channel-sidecar'
         WHERE id = ? AND agent_id = ?
         """,
-        (now, bridge_id, agent_id),
+        (
+            now,
+            normalized_machine,
+            normalized_runtime_value,
+            normalized_session_mode_value,
+            bridge_id,
+            agent_id,
+        ),
     )
     # FIX/available->online-promptness (2026-06-03): reaching this point means a
     # channel-sidecar row was newly INSERTed — the ongoing-poll case returns early
@@ -5703,76 +5729,116 @@ async def _managed_environment_status(db, row) -> tuple[str, str, str]:
 
 
 SPAWN_ORPHAN_GRACE_SECONDS = 180  # matches the dispatch queued-run backstop window
-# A worker is "live now" if it has a bound terminal that beat within this window. The console
-# keepalive/heartbeat refreshes terminal_sessions.updated_at every few seconds, so 180s is a
-# generous "definitely alive" bar — we only reap redundant spawns when a worker is unambiguously up.
-LIVE_WORKER_TERMINAL_STALE_SECONDS = 180
 
 
-async def _fail_running_spawns_superseded_by_live_worker(db) -> int:
-    """Fail spawn_requests stuck 'running' when the agent ALREADY has a live worker.
+async def _fail_running_spawns_superseded_by_current_session(db) -> int:
+    """Fail only running spawns proven older than the agent's current live backing.
 
-    Complements `_fail_orphaned_running_spawn_requests`, which reaps a spawn ONLY when its
-    CLAIMING BRIDGE is dead. This covers the opposite, more damaging case (mc-senior-dev
-    proliferation incident, 2026-07-20): a managed worker boots, registers a LIVE terminal, and
-    starts delivering — but the bridge never PATCHes the spawn_request to completed (a turn
-    interrupted mid-model-call leaves the boot's lifecycle unclosed). The record then lingers
-    'running' FOREVER on a LIVE bridge, so the dead-bridge reaper skips it; and once it ages past
-    the coldstart booting window it stops suppressing autostarts, so every later message
-    cold-starts ANOTHER worker for the same agent. Observed: one agent accrued 20 'running' spawns
-    (+ a stack of orphaned harness processes).
-
-    SAFETY — DB-only, never a process:
-    - Targets ONLY status='running' with empty finished_at, aged past SPAWN_ORPHAN_GRACE_SECONDS.
-    - Fails a spawn ONLY when its agent has a genuinely LIVE bound terminal (active state, beat
-      within LIVE_WORKER_TERMINAL_STALE_SECONDS) — i.e. a worker is already up. A worker still
-      mid-boot has no live terminal yet, so its spawn is untouched (conservative, like the sibling).
-    - 'failed' only frees the stale DB record; the live worker keeps delivering via its own bridge,
-      and coldstart stops double-spawning because the running record is now closed.
+    ``running`` is the normal lifetime state of a managed spawn, so a live terminal alone cannot
+    prove that its request is stale. The current ``agent_sessions.spawn_request_id`` is the
+    correlation authority: when a live managed session and terminal both reference a newer running
+    request, older running requests for that agent are superseded. The current request is never
+    changed.
     """
-    now_epoch = datetime.now(timezone.utc).timestamp()
-    now = _now()
     live_cutoff = time.strftime(
-        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - LIVE_WORKER_TERMINAL_STALE_SECONDS)
+        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - SPAWN_ORPHAN_GRACE_SECONDS)
     )
-    live_rows = await (await db.execute(
+    cursor = await db.execute(
         """
-        SELECT DISTINCT agent_id FROM terminal_sessions
-        WHERE status IN ('starting','attached','running','active','idle','recovering')
-          AND id NOT LIKE 'vterm_%'
-          AND COALESCE(NULLIF(updated_at, ''), '') >= ?
+        SELECT s.id AS session_id, s.agent_id, s.spawn_request_id, s.started_at
+        FROM agent_sessions s
+        JOIN terminal_sessions t
+          ON t.id = s.terminal_id
+         AND t.agent_id = s.agent_id
+         AND t.session_id = s.id
+        JOIN spawn_requests current_spawn
+          ON current_spawn.id = s.spawn_request_id
+         AND current_spawn.agent_id = s.agent_id
+         AND current_spawn.status = 'running'
+         AND COALESCE(current_spawn.finished_at, '') = ''
+        WHERE s.mode IN ('managed', 'managed-warm')
+          AND s.status IN ('starting','running','active','idle','recovering')
+          AND COALESCE(s.spawn_request_id, '') <> ''
+          AND t.status IN ('starting','attached','running','active','idle','recovering')
+          AND COALESCE(NULLIF(t.updated_at, ''), '') >= ?
+        ORDER BY s.started_at DESC
         """,
         (live_cutoff,),
-    )).fetchall()
-    live_agents = {str(r["agent_id"]).strip() for r in (live_rows or []) if str(r["agent_id"] or "").strip()}
-    if not live_agents:
-        return 0
-    cursor = await db.execute(
-        "SELECT id, agent_id, claimed_at, created_at FROM spawn_requests "
-        "WHERE status = 'running' AND COALESCE(finished_at, '') = ''"
     )
-    failed = 0
+    current_by_agent = {}
     for row in await cursor.fetchall():
-        aid = str(row["agent_id"] or "").strip()
-        if aid not in live_agents:
+        agent_id = str(row["agent_id"] or "").strip()
+        if agent_id and agent_id not in current_by_agent:
+            current_by_agent[agent_id] = row
+
+    failed = 0
+    now = _now()
+    for agent_id, current in current_by_agent.items():
+        current_spawn_id = str(current["spawn_request_id"] or "").strip()
+        current_started_epoch = _iso_to_epoch(str(current["started_at"] or ""))
+        if not current_spawn_id or not current_started_epoch:
             continue
-        age_epoch = _iso_to_epoch(str(row["claimed_at"] or row["created_at"] or ""))
-        if not age_epoch or (now_epoch - age_epoch) < SPAWN_ORPHAN_GRACE_SECONDS:
-            continue
-        await db.execute(
+        old_cursor = await db.execute(
             """
-            UPDATE spawn_requests
-            SET status = 'failed',
-                error = COALESCE(NULLIF(error, ''), 'Superseded: agent already has a live worker; redundant boot never closed by its bridge. Failed by reconcile.'),
-                finished_at = COALESCE(finished_at, ?),
-                updated_at = ?
-            WHERE id = ? AND status = 'running'
+            SELECT id, claimed_at, created_at
+            FROM spawn_requests
+            WHERE agent_id = ?
+              AND status = 'running'
+              AND COALESCE(finished_at, '') = ''
+              AND id <> ?
             """,
-            (now, now, row["id"]),
+            (agent_id, current_spawn_id),
         )
-        failed += 1
-    if failed:
-        await db.commit()
+        for old in await old_cursor.fetchall():
+            old_epoch = _iso_to_epoch(str(old["claimed_at"] or old["created_at"] or ""))
+            if not old_epoch or old_epoch >= current_started_epoch:
+                continue
+            update_cursor = await db.execute(
+                """
+                UPDATE spawn_requests
+                SET status = 'failed',
+                    error = COALESCE(
+                        NULLIF(error, ''),
+                        'Superseded by a newer live managed session tied to a different spawn request.'
+                    ),
+                    finished_at = COALESCE(finished_at, ?),
+                    updated_at = ?
+                WHERE id = ?
+                  AND status = 'running'
+                  AND COALESCE(finished_at, '') = ''
+                  AND EXISTS (
+                    SELECT 1
+                    FROM agent_sessions s
+                    JOIN terminal_sessions t
+                      ON t.id = s.terminal_id
+                     AND t.agent_id = s.agent_id
+                     AND t.session_id = s.id
+                    JOIN spawn_requests current_spawn
+                      ON current_spawn.id = s.spawn_request_id
+                     AND current_spawn.agent_id = s.agent_id
+                     AND current_spawn.status = 'running'
+                     AND COALESCE(current_spawn.finished_at, '') = ''
+                    WHERE s.id = ?
+                      AND s.agent_id = ?
+                      AND s.spawn_request_id = ?
+                      AND s.mode IN ('managed', 'managed-warm')
+                      AND s.status IN ('starting','running','active','idle','recovering')
+                      AND t.status IN ('starting','attached','running','active','idle','recovering')
+                      AND COALESCE(NULLIF(t.updated_at, ''), '') >= ?
+                  )
+                """,
+                (
+                    now,
+                    now,
+                    old["id"],
+                    current["session_id"],
+                    agent_id,
+                    current_spawn_id,
+                    live_cutoff,
+                ),
+            )
+            if update_cursor.rowcount > 0:
+                failed += 1
     return failed
 
 
@@ -5801,10 +5867,18 @@ async def _fail_orphaned_running_spawn_requests(db) -> int:
       failing a 'running' orphan never blocks a future autostart — it frees state.
       A live worker (if one exists) keeps delivering via its own sidecar bridge.
     """
-    live_rows = await (await db.execute(
-        "SELECT bridge_id FROM environments WHERE status = 'online' AND COALESCE(bridge_id, '') != ''"
+    settings = await _load_settings(db)
+    environment_rows = await (await db.execute(
+        "SELECT * FROM environments WHERE COALESCE(bridge_id, '') != ''"
     )).fetchall()
-    live_bridge_ids = {str(r["bridge_id"]).strip() for r in (live_rows or [])}
+    live_bridge_ids = {
+        str(row["bridge_id"]).strip()
+        for row in (environment_rows or [])
+        if _environment_effective_status(
+            row,
+            offline_seconds=settings.get("environment_offline_seconds", 90),
+        ) == "online"
+    }
 
     now_epoch = datetime.now(timezone.utc).timestamp()
     now = _now()
@@ -9169,7 +9243,12 @@ async def _link_reply_message_to_dispatch_run(
     reply_type: str,
     reply_body: str,
 ) -> bool:
-    if not _message_satisfies_reply_contract(reply_type, body=reply_body):
+    # A linked request may answer the current contract while asking a follow-up. Keep
+    # non-answer info messages open; their completion semantics remain content-aware.
+    if str(reply_type or "").strip().lower() != "request" and not _message_satisfies_reply_contract(
+        reply_type,
+        body=reply_body,
+    ):
         return False
     run_cursor = await db.execute(
         """
@@ -16675,12 +16754,13 @@ async def agent_heartbeat(agent_id: str, request: Request):
         # regardless of turn activity, so last_seen is a true "alive now" signal.
         # Unlike the plain UPDATE above (which no-ops when the bridge has no row
         # yet — e.g. an idle channel-sidecar that never claimed), this UPSERTS the
-        # row, touching ONLY last_seen + bridge_kind. It never clears
-        # superseded_by and never touches turn state. (A superseded existing row
-        # is already short-circuited by the guard above.)
+        # row, refreshing its current agent identity as well as last_seen +
+        # bridge_kind. It never clears superseded_by and never touches turn
+        # state. (A superseded existing row is already short-circuited by the
+        # guard above.)
         if body.get("liveness") and bridge_id:
             arow = await (await db.execute(
-                "SELECT machine_id, runtime FROM agents WHERE id = ?", (agent_id,),
+                "SELECT machine_id, runtime, session_mode FROM agents WHERE id = ?", (agent_id,),
             )).fetchone()
             arow_machine = (arow["machine_id"] if arow else "") or ""
             arow_runtime = (arow["runtime"] if arow else "") or "generic"
@@ -16691,6 +16771,7 @@ async def agent_heartbeat(agent_id: str, request: Request):
                     agent_id=agent_id,
                     machine_id=arow_machine,
                     runtime=arow_runtime,
+                    session_mode=(arow["session_mode"] if arow else "") or "managed",
                     now=now,
                 )
             else:
@@ -17909,6 +17990,7 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
                     agent_id=req.agentId,
                     machine_id=req.machineId or "",
                     runtime=agent_runtime,
+                    session_mode=agent["session_mode"] or "managed",
                     now=_now(),
                 )
             else:

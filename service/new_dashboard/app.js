@@ -2,6 +2,7 @@
 // sibling modules and are imported here; app.js remains the orchestrator (render + actions +
 // the single delegated event handler + init) until later Phase-0 slices split those too.
 import { esc, relTime, tsMs } from './util.js';
+import { createTerminalInputPoster, createTerminalInputHandler } from './terminal-input.mjs';
 import { STATUS_KINDS, resolveStatus, renderStatusChip } from './status.js';
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
 import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
@@ -1888,31 +1889,24 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
   // Service request shape (TerminalControlRequest in api_v2.py): {body, requestedBy}.
   // Hermes uses one ordered WebSocket. We still cross the service API, so serialize requests:
   // parallel fetches can otherwise deliver consecutive keystroke chunks out of order.
-  let inputPost = Promise.resolve();
-  term.onData((data) => {
-    // SGR mouse-report suppression (Hermes ChatPage parity). When a TUI enables mouse tracking,
-    // xterm reports clicks/drags to onData as SGR sequences like `\x1b[<0;12;34M`. We forward
-    // onData straight to the PTY input line, so an accidental click would inject those bytes as
-    // literal keystrokes into the prompt. The upstream app never sees our synthetic pane mouse,
-    // so drop the report entirely instead of forwarding it.
-    if (/^\x1b\[<\d+;\d+;\d+[Mm]$/.test(data)) return;
-    // Blocked-input guard (WS-D): don't silently POST into a console that can't accept input —
-    // warn the operator (debounced) so their keystrokes aren't lost into the void.
-    if (state.activeXterm && state.activeXterm.canInput === false) {
+  const postTerminalInput = createTerminalInputPoster({
+    api,
+    terminalId,
+    onError: (err) => {
+      term.write(`\r\n\x1b[31m[input post failed: ${String(err?.message || err).replace(/\x1b/g, '')}]\x1b[0m\r\n`);
+    },
+  });
+  term.onData(createTerminalInputHandler({
+    canInput: () => !(state.activeXterm && state.activeXterm.canInput === false),
+    onBlocked: () => {
       const now = Date.now();
       if (now - consoleInputBlockedToastAt > 4000) {
         consoleInputBlockedToastAt = now;
         toast('This console is not accepting input right now (session not live).', 'warn');
       }
-      return;
-    }
-    inputPost = inputPost.then(() => api(`/terminals/${encodeURIComponent(terminalId)}/input`, {
-        method: 'POST',
-        body: JSON.stringify({ body: data, requestedBy: 'dashboard' }),
-      })).catch((err) => {
-      term.write(`\r\n\x1b[31m[input post failed: ${String(err?.message || err).replace(/\x1b/g, '')}]\x1b[0m\r\n`);
-    });
-  });
+    },
+    postInput: postTerminalInput,
+  }));
   // Emit-resize-only-on-change (hermes parity): xterm fires onResize on every fit even when the
   // grid dims didn't actually change — debounce AND dedupe so we don't spam the PTY with no-ops.
   let resizeTimer = 0;

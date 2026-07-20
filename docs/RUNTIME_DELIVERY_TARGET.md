@@ -12,7 +12,7 @@ Companion to [DASHBOARD_8801_PARITY.md](DASHBOARD_8801_PARITY.md)
 > [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md)): managed and resident both run
 > a hidden per-agent gateway host plus a `hermes-managed-host.js` delivery loop
 > that submits into the visible TUI's real session — it is not raw wrapper-PTY
-> injection. Status is event-driven (turn-start → `working`, turn-end → idle)
+> injection. Status is event-driven (turn-start → `working`, turn-end → `online`)
 > with liveness heartbeats. The RuntimeAdapter / per-runtime controller split
 > below shipped and is accurate; the line-count figures in "Remaining gaps" are
 > point-in-time and have drifted.

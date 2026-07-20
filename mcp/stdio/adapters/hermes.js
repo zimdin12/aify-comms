@@ -14,16 +14,15 @@ export class HermesAdapter extends RuntimeAdapter {
   // the channel-sidecar — it claims dispatch runs over HTTP, opens its own WS to
   // the agent's hidden `hermes dashboard --tui` gateway host, resolves the agent's
   // captured REAL session id via session.active_list, and submits with
-  // prompt.submit (session.steer on 4009-busy). The retired api_server /
+  // prompt.submit. A 4009-busy race requeues until turn-end. The retired api_server /
   // hermes-channel.js sidecar and the dead tui_gateway WS bind
   // (aify.session.bind_transport) are no longer in any live path.
   get supportsResident() { return true; }
   get supportsManaged() { return true; }
-  // Steer IS supported on the gateway delivery path: the delivery loop
-  // (hermes-managed-host.js) injects mid-turn via the gateway `session.steer`
-  // RPC on a 4009-busy, and interrupt routes through the same gateway. Matches
-  // service/runtimes/hermes.py supports_steering=True. 2026-06-03.
-  get supportsSteering() { return true; }
+  // ASYMMETRY(hermes): a managed Hermes submission while the model is active interrupts the
+  // current turn. Dispatch therefore queues until turn-end instead of advertising safe mid-turn
+  // steering.
+  get supportsSteering() { return false; }
   get supportsInterrupt() { return true; }
   get supportsMultiClient() { return true; }
   get preferredDeliveryMode() { return "managed-via-wrapper"; }

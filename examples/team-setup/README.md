@@ -31,13 +31,13 @@ Example CLAUDE.md files for a 5-agent development team using aify-comms for coor
 - **File sharing**: `comms_share` for handoffs (logs, screenshots, test results)
 - **Long outputs**: send a short result message first, then attach deeper detail via `comms_share` when needed
 - **Active starts**: register the live resident session first, then use `comms_send(...)` or `comms_channel_send(...)` as the normal wake paths. Use `comms_dispatch(...)` only when you need lower-level run-control/debug state.
-- **Busy-agent behavior**: normal `comms_send(...)` is live-delivery gated and is not written when the target is offline, busy, queued, stopped, or not live-wakeable. Wait, interrupt, recover/restart, or inspect with `comms_agent_info(...)` before retrying.
+- **Busy-agent behavior**: an `available` managed target auto-starts; busy steer-capable targets receive a mid-turn update and busy non-steer targets queue/merge for the next turn. Only offline/stopped/no-wake targets reject the send; inspect and recover those before retrying.
 - **Explicit handoffs**: after any bounded dispatched result, send a short reply to the requester or acting manager even if the run summary already contains the detail
 - **Team-facing descriptions**: use `comms_describe(...)` to set a short description of what you're working on. Visible to teammates in `comms_agents`. Persists across re-register
 - **Live wake startup**: use `claude-aify` for Claude live wakeups and `codex-aify` for Codex live wakeups when you want the visible session itself to wake
 - **Persistent teammates**: use `comms_spawn(...)` or dashboard **Environments -> Spawn Agent** when you want a separate managed teammate with its own runtime state
 - **Run correction**: use `comms_send(..., steer=true)` or `comms_run_interrupt` when active work needs intervention
-- **Brief acks**: "on it" instead of paragraphs — reduce noise
+- **Acknowledgements**: send one only when it affects coordination; do not reply to closed informational or completion messages just to acknowledge them
 - **Subagents**: short-lived subagents should normally report to their parent/coordinator, not register themselves into comms or message the wider team directly
 
 ## Customization

@@ -1,12 +1,10 @@
 # 8801 Dashboard — Parity Contract
 
-> **STILL THE ACTIVE GATE (2026-06-10)** — refreshes pending per
-> [DASHBOARD_REBUILD_PLAN.md](DASHBOARD_REBUILD_PLAN.md) §6: status flow = the 8-label contract
-> incl. blocked/stale + display nuances; Sessions flow = the agent-centric model; new gated
-> flows: chat-first landing + persisted UI state, per-DM analytics, version badge,
-> delivery-truthfulness send toasts. F1/F2/F3 unchanged.
+> **HISTORICAL COMPLETED GATE.** The replacement dashboard shipped. Use
+> `service/new_dashboard/` and its tests for current behavior, and `AGENTS.md` for the
+> canonical six-state status/lifecycle contract.
 
-Status: **ACTIVE GATE.** Co-owned: comms-tech-lead (service/dashboard) +
+Status: **HISTORICAL GATE.** Co-owned: comms-tech-lead (service/dashboard) +
 comms-senior-dev (driving the slices). Derived from
 [DASHBOARD_ARCHITECTURE_PLAN.md](DASHBOARD_ARCHITECTURE_PLAN.md) and the
 2026-05 codebase analysis. The old dashboard remains **authoritative and
