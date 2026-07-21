@@ -6139,7 +6139,12 @@ async function main() {
     }, 3000);
     if (typeof harnessGuard.unref === "function") harnessGuard.unref();
   }
-  await autoRegisterConfiguredAgent();
+  // Codex app-server waits for its MCP servers to finish initializing while
+  // registration discovers the live thread through that same app-server.
+  // Do not deadlock MCP startup on the discovery round-trip.
+  autoRegisterConfiguredAgent().catch((err) => {
+    console.error(`[aify] auto-registration failed: ${err?.message || err}`);
+  });
 }
 
 // Plan 6 A2 (2026-05-26): only auto-run main() when this file is the

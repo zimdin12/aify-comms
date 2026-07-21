@@ -41,11 +41,14 @@ Backend changes under `service/`, `mcp/sse_server.py`, and `config/` require a c
 Useful checks:
 
 ```bash
+node mcp/stdio/doctor.js --json
 node --check mcp/stdio/server.js
 npm --prefix mcp/stdio test
 python3 -m py_compile service/models.py service/db.py service/routers/api_v2.py service/new_dashboard_app.py
 docker compose exec -T service python -m unittest service.tests.test_api_v2_regressions service.tests.test_main_websocket_auth -q
 ```
+
+`install.sh` verifies that the installed `node-pty` native module can actually be loaded and rebuilds it when necessary; package presence alone is not PTY evidence. After a host-bridge update, rerun the installer and restart the bridge, then require `aify-doctor --json` to show the installed and running bridge are current. For container updates, compare `/version` with the intended commit; a healthy endpoint does not prove the running container uses the rebuilt image.
 
 For Dashboard Next edits, syntax-check the maintained ES-module client directly:
 
@@ -72,6 +75,8 @@ aify-comms.cmd
 The current directory is always an allowed workspace root. Extra root arguments are optional safety boundaries. The exact project directory is selected per spawned agent in the dashboard. The launcher and service ignore flag-like root values such as `--help`; run `aify-comms --help` for usage.
 
 Only the `aify-comms` launcher should pass `--environment-bridge` to the stdio server. Ordinary MCP client sessions should not advertise themselves as dashboard spawn targets or set the legacy `AIFY_ENVIRONMENT_BRIDGE=1` flag.
+
+At boot, process truth outranks stale backend ownership metadata: a detected live resident wrapper protects its associated process family from the managed-survivor reaper. Never weaken that guard to make a cleanup sweep more aggressive.
 
 ## Dashboard Standard
 

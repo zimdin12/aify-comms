@@ -37,6 +37,7 @@ import {
 } from "./runtimes.js";
 import { detectCodexResumeFailure } from "./codex-errors.js";
 import { codexAifyReceiptFrame } from "./aify-console-markers.js";
+import { managedCodexServerRequest } from "./runtimes-rpc.js";
 
 const codexSessionPool = new Map();
 
@@ -198,6 +199,7 @@ export class CodexSession {
     this._rpc = createRpcClient(this._proc, {
       onNotification: (msg) => this._dispatchNotification(msg),
       onStderr: (line) => this._dispatchRuntimeLog(line, callbacks),
+      onRequest: managedCodexServerRequest,
     });
     this._proc.on("exit", (code, signal) => this._onExit(code, signal));
     this._proc.on("error", (err) => this._onSpawnError(err));

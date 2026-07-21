@@ -730,6 +730,11 @@ CODEX_PERMISSION_FLAGS=()
 if [ "$CODEX_AUTO" = true ]; then
   CODEX_PERMISSION_FLAGS+=(--dangerously-bypass-approvals-and-sandbox)
 fi
+if [ "${AIFY_MANAGED_VIA_WRAPPER:-}" = "1" ]; then
+  # The app-server owns the managed TUI; its built-in codex_apps MCP tries to
+  # initialize through that same not-yet-ready server and deadlocks startup.
+  CODEX_PERMISSION_FLAGS+=(--disable apps)
+fi
 
 if command -v setsid >/dev/null 2>&1; then
   setsid codex "${CODEX_PERMISSION_FLAGS[@]}" app-server --listen "$APP_SERVER_URL" </dev/null >>"$LOG_FILE" 2>&1 &
@@ -3932,6 +3937,16 @@ fi
 echo "[1/4] Installing MCP dependencies..."
 cd "$SCRIPT_DIR/mcp/stdio"
 npm install --silent
+# npm can keep an already-present node-pty package whose platform binary is
+# missing. That silently disables terminal-backed managed runtimes, so rebuild
+# only on the real load failure and refuse to install an unusable bridge.
+if ! node -e "require('node-pty')" >/dev/null 2>&1; then
+  npm rebuild node-pty --silent
+fi
+node -e "require('node-pty')" >/dev/null 2>&1 || {
+  echo "node-pty failed to load; managed terminal runtimes cannot start."
+  exit 1
+}
 cd "$SCRIPT_DIR"
 # Copy the bridge runtime (with node_modules) into the native dotfolder that
 # every wrapper + MCP config points at. Re-synced on every install (mirror with

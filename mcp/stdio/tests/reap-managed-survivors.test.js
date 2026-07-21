@@ -118,7 +118,24 @@ import {
 }
 
 // ---------------------------------------------------------------------------
-// 5. empty / missing ownedAgentIds → fail-safe, enumerate NOTHING.
+// 5. live resident process truth overrides a stale managed backend record.
+// ---------------------------------------------------------------------------
+{
+  const procs = [
+    { pid: 100, ppid: 1, commandLine: "node hermes-managed-host.js run sc-coder" },
+    { pid: 200, ppid: 1, commandLine: "/bin/bash hermes-aify --aify-agent sc-coder --resume native-session" },
+  ];
+  const found = enumerateManagedSurvivors({
+    ownedAgentIds: ["sc-coder"],
+    listProcesses: () => procs,
+    readMarkers: () => [{ kind: "port", agentId: "sc-coder", value: 9342 }],
+  });
+  assert.deepEqual(found.deliveryLoops, [], "live resident wrapper protects its delivery loop from managed boot reap");
+  assert.deepEqual(found.gatewayHosts, [], "live resident wrapper protects its gateway marker from managed boot reap");
+}
+
+// ---------------------------------------------------------------------------
+// 6. empty / missing ownedAgentIds → fail-safe, enumerate NOTHING.
 // ---------------------------------------------------------------------------
 {
   const procs = [{ pid: 100, ppid: 1, commandLine: "node hermes-managed-host.js run sc-coder" }];
@@ -136,7 +153,7 @@ import {
 }
 
 // ---------------------------------------------------------------------------
-// 6. reapManagedSurvivors delegates to the right kill primitive per kind and
+// 7. reapManagedSurvivors delegates to the right kill primitive per kind and
 //    logs what it kills (no silent drops).
 // ---------------------------------------------------------------------------
 {
@@ -166,7 +183,7 @@ import {
 }
 
 // ---------------------------------------------------------------------------
-// 7. reap is best-effort: a throwing primitive does not abort the others.
+// 8. reap is best-effort: a throwing primitive does not abort the others.
 // ---------------------------------------------------------------------------
 {
   const killedPids = [];
@@ -187,7 +204,7 @@ import {
 }
 
 // ---------------------------------------------------------------------------
-// 8. tombstonedMarkerAgentIds (fix/hermes-leak P4): markers for agents NOT in
+// 9. tombstonedMarkerAgentIds (fix/hermes-leak P4): markers for agents NOT in
 //    the live keyset are tombstoned; known agents are kept; unknown keyset is
 //    fail-safe (sweeps nothing).
 // ---------------------------------------------------------------------------
@@ -215,7 +232,7 @@ import {
 }
 
 // ---------------------------------------------------------------------------
-// 9. sweepTombstonedMarkers (fix/hermes-leak P4): deletes ALL marker files for
+// 10. sweepTombstonedMarkers (fix/hermes-leak P4): deletes ALL marker files for
 //    tombstoned agents, NEVER a known agent's; fail-safe on unknown keyset.
 // ---------------------------------------------------------------------------
 {

@@ -40,6 +40,7 @@ import {
   buildCodexNotificationHandler,
 } from "./codex-legacy-helpers.js";
 import { codexAifyReceiptFrame } from "../aify-console-markers.js";
+import { managedCodexServerRequest } from "../runtimes-rpc.js";
 
 export class CodexLegacyController extends BaseController {
   constructor(opts) {
@@ -214,6 +215,7 @@ export class CodexLegacyController extends BaseController {
             token: remoteAuthToken || undefined,
             onNotification: handleNotification,
             onStderr: handleRuntimeLog,
+            onRequest: managedCodexServerRequest,
           });
         } else {
           self._proc = spawnProcess(launcher.command, launcher.args, {
@@ -223,6 +225,7 @@ export class CodexLegacyController extends BaseController {
           self._rpc = createRpcClient(self._proc, {
             onNotification: handleNotification,
             onStderr: handleRuntimeLog,
+            onRequest: managedCodexServerRequest,
           });
         }
 

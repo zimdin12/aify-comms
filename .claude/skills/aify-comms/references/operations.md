@@ -65,7 +65,9 @@ Ordinary sends are live-delivery gated, but an `available` managed agent (regist
 ## Environment Bridges
 
 - `aify-comms --help` shows launcher usage. The current directory is always an allowed workspace root; extra root arguments are optional safety boundaries.
+- `install.sh` verifies that installed `node-pty` can actually load and rebuilds it when necessary. Package presence is not PTY evidence; confirm the installed/running bridge with `aify-doctor --json` after updating.
 - Starting a newer bridge for the same environment makes it current and asks the older bridge to exit. A hung old process may still need manual OS cleanup.
+- Boot cleanup preserves any process family protected by a live resident wrapper even when backend ownership metadata is stale. A bridge restart must not reap or disconnect that resident CLI.
 - Killing a bridge stops the execution target, not the agent identity. Managed identities become offline/detached; chats, identities, spawn specs, and session records remain.
 - Forgetting an environment hides an obsolete execution target. It does not delete identities, chats, spawn specs, or session records.
 - To keep an identity after an environment is gone, assign it to another online environment from Sessions -> Identity Directory, then restart it from Sessions.

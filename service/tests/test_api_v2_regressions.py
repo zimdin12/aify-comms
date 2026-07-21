@@ -1843,6 +1843,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         terminal_runtimes: list[str] | None = None,
         session_handle: str = "thread-1",
         role: str = "coder",
+        initial_message: str = "",
     ):
         self._heartbeat_environment(
             terminal=terminal,
@@ -1865,6 +1866,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "role": role,
                 "runtime": runtime,
                 "workspace": workspace,
+                "initialMessage": initial_message,
             },
         )
         self.assertEqual(created.status_code, 200, created.text)
@@ -4270,6 +4272,21 @@ class ApiV2RegressionTests(FastApiTestCase):
         managed_codex = _R({**managed_hermes, "id": "c-managed", "runtime": "codex"})
         mode_codex, _ = _agent_execution_mode(managed_codex, settings=settings)
         self.assertEqual(mode_codex, "managed", "codex unflagged stays on managed")
+
+    def test_wrapper_backed_codex_spawn_initial_message_routes_as_channel(self):
+        self.client.put("/api/v1/settings", json={"managed_via_wrapper": ["codex", "hermes"]})
+        self._create_running_session(
+            agent_id="codex-initial-channel",
+            runtime="codex",
+            terminal=True,
+            initial_message="probe",
+        )
+        run = self._fetchone(
+            "SELECT execution_mode FROM dispatch_runs WHERE target_agent = ? ORDER BY requested_at DESC LIMIT 1",
+            ("codex-initial-channel",),
+        )
+        self.assertIsNotNone(run)
+        self.assertEqual(run["execution_mode"], "channel")
 
     def test_managed_via_wrapper_forces_eager_pty_spawn(self):
         # Unified-backing refactor: when managed_via_wrapper includes a runtime,

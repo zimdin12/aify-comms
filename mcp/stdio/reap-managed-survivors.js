@@ -292,6 +292,15 @@ export function enumerateManagedSurvivors({
   } catch {
     procs = [];
   }
+  // Process truth wins over a stale backend mode: a live resident wrapper owns
+  // this same gateway/loop triad. Never reap any artifact for that agent.
+  for (const p of procs) {
+    const residentAgent = p && typeof p.commandLine === "string"
+      ? cmdlineResidentAgent(p.commandLine)
+      : null;
+    if (residentAgent) owned.delete(residentAgent);
+  }
+  if (owned.size === 0) return found;
   for (const p of procs) {
     if (!p || typeof p.commandLine !== "string") continue;
     // NEVER a resident operator session.

@@ -173,6 +173,12 @@ kill-prior on relaunch and the env-bridge survivor sweep on restart, not by a lo
 exit. A wrapper still on old code is the one to relaunch; verify the TUI's WebSocket
 now survives a loop restart.
 
+Current boot cleanup also treats a live resident wrapper as authoritative process
+evidence. Its associated process family is protected even if backend ownership
+metadata is stale, so restarting an environment bridge must not reap the resident
+gateway/TUI. If the WebSocket drops during a bridge restart, compare the installed
+and running bridge with `aify-doctor --json`; a stale bridge is the first suspect.
+
 ## Hermes `mcp test` works, but live turn has no aify tools
 
 **Symptom.** Inside `hermes-aify`, `hermes mcp list` shows `aify-comms`

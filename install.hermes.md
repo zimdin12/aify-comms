@@ -87,6 +87,8 @@ bash install.sh --client hermes --with-hook
 
 Restart Hermes after install.
 
+The installer verifies that the copied `node-pty` package can load its native binary and automatically rebuilds it when the package exists but the binary is missing or unloadable. Use `aify-doctor --json` after installation; checking only `node_modules/node-pty` is not sufficient proof that managed Console PTYs can start.
+
 The installer writes the MCP entry and optional hook to Hermes' active config
 home. On native Windows this is often `%LOCALAPPDATA%\\hermes` (for example
 `C:\\Users\\Administrator\\AppData\\Local\\hermes\\config.yaml`), not
@@ -253,6 +255,12 @@ restarting `aify-comms` is a guaranteed clean slate for managed sessions — no
 orphaned gateway hosts, no zombie `hermes.exe` proliferation, even after a hard
 crash. Managed sessions are re-spawned fresh by the dashboard/spawn loop, not
 inherited.
+
+The boot sweep also checks live process truth before trusting backend ownership
+metadata. If a live resident wrapper exists for an agent, its associated process
+family is protected even when the service still carries stale managed ownership.
+This guard prevents an environment-bridge restart from killing the resident
+gateway/TUI and surfacing `gateway websocket connection failed`.
 
 The shared gateway's lifetime ties to the TUI/console, NOT to the delivery loop.
 The loop kills the gateway host **only if it spawned that host itself** (an owned

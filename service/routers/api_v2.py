@@ -11116,6 +11116,7 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                 (now, now, row["agent_id"], session_id),
             )
             if row["status"] != "running" and str(row["initial_message"] or "").strip():
+                settings_for_runs = await _load_settings(db)
                 runs = await _create_dispatch_runs(
                     db,
                     [row["agent_id"]],
@@ -11126,7 +11127,11 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                     priority=row["priority"] or "normal",
                     in_reply_to=None,
                     dispatch_mode="start_if_possible",
-                    execution_mode="managed",
+                    execution_mode=(
+                        "channel"
+                        if _managed_via_wrapper_for_runtime(settings_for_runs, row["runtime"] or "")
+                        else "managed"
+                    ),
                     requested_runtime=row["runtime"],
                     message_id=None,
                     require_reply=True,
@@ -11137,7 +11142,6 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                 # the helper here e2e-test-claude's initial run stayed
                 # execution_mode='managed' and claude-channel.js never
                 # claimed it.
-                settings_for_runs = await _load_settings(db)
                 await _apply_channel_routing_to_claude_runs(db, runs, settings_for_runs)
                 for run in runs:
                     _wake_agent(run["targetAgentId"])
