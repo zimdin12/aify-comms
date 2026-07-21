@@ -42,6 +42,7 @@ import {
   resolveHermesPython,
   makeInFlightProbe,
   makeInFlightPulse,
+  shouldApplyGatewayTurnEnd,
   isGatewayConnectRefused,
   gatewayUnreachableMessage,
   noTuiAttachedMessage,
@@ -2522,6 +2523,98 @@ test("makeInFlightProbe: a transient 'idle' BEFORE any 'working' does NOT end th
   assert.equal(await probe(), true, "idle before any working → assume turn not started yet → keep re-pulsing");
   assert.equal(inFlight.completed, false, "no premature completion");
   assert.equal(cleared, 0, "no premature /turn-end");
+});
+
+test("makeInFlightProbe: accepted submit that never starts fails instead of wedging delivered", async () => {
+  const now = Date.now();
+  const inFlight = {
+    submittedAt: now - 60_001,
+    completed: false,
+    runId: "run-never-started",
+    observedWorking: false,
+  };
+  const failed = [];
+  let cleared = 0;
+  const probe = makeInFlightProbe({
+    inFlight,
+    serverUrl: "http://x",
+    httpCall: async () => ({ run: { status: "delivered", requireReply: true } }),
+    readGatewayStatus: async () => "idle",
+    failRunImpl: async (runId, error) => failed.push([runId, error.message]),
+    clearTurnImpl: async () => {
+      cleared++;
+    },
+    startTimeoutMs: 60_000,
+    now: () => now,
+    maxWindowMs: WIN,
+  });
+
+  assert.equal(await probe(), false, "no turn-start within the bound must stop the in-flight beat");
+  assert.deepEqual(failed, [[
+    "run-never-started",
+    "Hermes accepted prompt.submit but no gateway turn started within 60000ms",
+  ]]);
+  assert.equal(inFlight.completed, true);
+  assert.equal(inFlight.runId, "");
+  assert.equal(cleared, 1);
+});
+
+test("makeInFlightProbe: a turn observed by the fast detector cannot false-hit the start timeout", async () => {
+  const inFlight = {
+    submittedAt: Date.now() - 60_001,
+    completed: false,
+    runId: "run-started",
+    observedWorking: true,
+  };
+  let failed = 0;
+  const probe = makeInFlightProbe({
+    inFlight,
+    serverUrl: "http://x",
+    httpCall: async () => ({ run: { status: "delivered", requireReply: true } }),
+    readGatewayStatus: async () => "idle",
+    failRunImpl: async () => {
+      failed++;
+    },
+    startTimeoutMs: 60_000,
+    idleDebounce: 2,
+    maxWindowMs: WIN,
+  });
+
+  assert.equal(await probe(), true, "one idle read after a proven start remains debounced");
+  assert.equal(failed, 0, "a proven turn-start must suppress the no-start failure path");
+});
+
+test("makeInFlightProbe: a turn starting during the run-status fetch cannot be failed", async () => {
+  const inFlight = {
+    submittedAt: Date.now() - 60_001,
+    completed: false,
+    runId: "run-racing-start",
+    observedWorking: false,
+  };
+  let gatewayReads = 0;
+  let failed = 0;
+  const probe = makeInFlightProbe({
+    inFlight,
+    serverUrl: "http://x",
+    httpCall: async () => ({}),
+    fetchStatus: async () => ({ status: "delivered", requireReply: true }),
+    readGatewayStatus: async () => (++gatewayReads === 1 ? "idle" : "working"),
+    failRunImpl: async () => {
+      failed++;
+    },
+    startTimeoutMs: 60_000,
+    maxWindowMs: WIN,
+  });
+
+  assert.equal(await probe(), true);
+  assert.equal(inFlight.observedWorking, true);
+  assert.equal(failed, 0);
+});
+
+test("shouldApplyGatewayTurnEnd keeps an accepted dispatch open until its turn starts", () => {
+  assert.equal(shouldApplyGatewayTurnEnd({ dispatchTurnOpen: true, observedWorking: false }), false);
+  assert.equal(shouldApplyGatewayTurnEnd({ dispatchTurnOpen: true, observedWorking: true }), true);
+  assert.equal(shouldApplyGatewayTurnEnd({ dispatchTurnOpen: false, observedWorking: false }), true);
 });
 
 test("makeInFlightProbe: gateway status read error → no false turn-end (falls back to run-status path)", async () => {

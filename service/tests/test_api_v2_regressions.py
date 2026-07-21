@@ -144,6 +144,55 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         asyncio.run(_run())
 
+    def test_reconcile_does_not_close_live_channel_turn_at_thirty_minutes(self):
+        agent_id = "live-channel-worker"
+        run_id = "run_live_channel_long"
+        environment_id = self._heartbeat_environment()["id"]
+        self._register(agent_id, runtime="hermes", sessionMode="managed-warm")
+        requested_at = (datetime.now(timezone.utc) - timedelta(minutes=31)).isoformat().replace("+00:00", "Z")
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, from_agent, target_agent, dispatch_mode, execution_mode,
+                runtime, message_type, subject, body, priority, status,
+                require_reply, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                run_id, "manager", agent_id, "start_if_possible", "channel",
+                "hermes", "request", "long live turn", "work", "normal",
+                "delivered", 1, requested_at,
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, mode, status,
+                spawn_spec_id, spawn_request_id, started_at, last_seen
+            ) VALUES (?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess_live_channel_long", agent_id, environment_id, "hermes", "managed-warm",
+                "running", None, None, requested_at,
+                datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            ),
+        )
+
+        async def reconcile():
+            db = await get_db()
+            try:
+                closed = await api_v2._close_reconcilable_delivered_runs(
+                    db,
+                    stale_hours=24,
+                )
+                await db.commit()
+                return closed
+            finally:
+                await db.close()
+
+        self.assertEqual(asyncio.run(reconcile()), [])
+        self.assertEqual(self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", (run_id,))["status"], "delivered")
+
     def test_dispatch_run_events_are_bounded_and_cursor_paginated(self):
         run_id = "run_events_page"
         self._execute(

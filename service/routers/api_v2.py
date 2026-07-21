@@ -19688,7 +19688,6 @@ async def _close_reconcilable_delivered_runs(
     *,
     limit: int = 500,
     stale_hours: int = 24,
-    channel_stale_minutes: int = 30,
 ) -> list[dict[str, str]]:
     # Three classes of reconcilable lingering 'delivered' runs:
     # 1. Any with result_message_id already set (reply landed but path
@@ -19698,15 +19697,7 @@ async def _close_reconcilable_delivered_runs(
     # 3. require_reply=1 + orphaned (no in-flight runs AND no alive
     #    session) older than `stale_hours` — the agent that owed the
     #    reply is gone.
-    # 4. Channel/resident execution_mode + require_reply=1 older than
-    #    `channel_stale_minutes` (default 30) — these are claude-channel.js
-    #    deliveries; the wrapper does NOT preserve in-memory dispatch
-    #    state across restarts, so a 'delivered' channel run older than
-    #    30 minutes that the bridge never wrote a reply for almost
-    #    certainly fell on the floor across a wrapper restart. Without
-    #    this, sc-claude-style "agent showing working from before
-    #    restart" persists indefinitely once the agent has any live
-    #    session (the orphan rule's session check passes).
+
     cursor = await db.execute(
         """
         SELECT id, result_message_id, require_reply, requested_at
@@ -19737,15 +19728,6 @@ async def _close_reconcilable_delivered_runs(
                   AND s.status IN ('starting', 'running', 'recovering', 'restarting', 'cli-takeover')
               )
             )
-            OR (
-              -- Channel/resident wrapper bounces: claude-channel.js polls in
-              -- a fresh wrapper after restart and has no memory of prior
-              -- 'delivered' runs. Reconcile after a short window so the
-              -- agent's working-status doesn't pin indefinitely.
-              require_reply = 1
-              AND execution_mode IN ('channel', 'resident')
-              AND datetime(requested_at) <= datetime('now', ?)
-            )
           )
         ORDER BY requested_at ASC
         LIMIT ?
@@ -19753,7 +19735,6 @@ async def _close_reconcilable_delivered_runs(
         (
             f"-{max(1, int(stale_hours or 24))} hours",
             f"-{max(1, int(stale_hours or 24))} hours",
-            f"-{max(1, int(channel_stale_minutes or 30))} minutes",
             limit,
         ),
     )
