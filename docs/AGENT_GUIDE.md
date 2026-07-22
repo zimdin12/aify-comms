@@ -14,6 +14,8 @@ This guide is for coding agents working on `aify-comms`.
 - Prefer runtime adapters over hardcoded CLI assumptions. Codex, Claude Code, Hermes, OpenCode, and Oh My Pi flags can change.
 - Routine messages use the runtime's semantic delivery channel. Explicit console input is an audited, recovery-only control after the operator has inspected the live console; it is intentionally independent of the legacy `insert_messages_via_console` delivery toggle and must never duplicate `comms_send` traffic.
 - Reply contracts follow message intent: requests, reviews, and errors owe replies by default; info, responses, approvals, finals, and acknowledgements do not unless `requireReply=true`. Do not answer a non-actionable acknowledgement with another acknowledgement.
+- Communication and execution are separate evidence chains. Stored/queued/claimed/delivered does not prove a consumer turn started, an action executed, or post-action state converged.
+- A message containing `STOP`, a run interrupt, and a managed-console interrupt are distinct operations. Target the exact live owner and verify turn end; never send a blind duplicate interrupt.
 
 ## Main Surfaces
 
@@ -78,6 +80,11 @@ Only the `aify-comms` launcher should pass `--environment-bridge` to the stdio s
 
 At boot, process truth outranks stale backend ownership metadata: a detected live resident wrapper protects its associated process family from the managed-survivor reaper. Never weaken that guard to make a cleanup sweep more aggressive.
 
+For any lifecycle or cleanup action, correlate agent/session/terminal ownership with
+both environment and bridge instance plus current process ancestry. A database row or
+dashboard badge is evidence to investigate, not authority to kill or supersede a live
+worker when current activity conflicts with it.
+
 ## Dashboard Standard
 
 The dashboard should feel like a real work console, not a raw admin table:
@@ -101,3 +108,7 @@ Keep only two skills unless the workflow clearly demands another:
 - `aify-comms-debug`: failure recovery and known issues
 
 Do not teach agents to use silent/inbox-only paths as the default. New persistent agent identities should be created through `comms_spawn` or dashboard Environment spawn, not ad hoc one-off launch paths. Phase-change compaction should use dashboard **Compact** or `comms_compact(mode="handoff", ...)`, which starts a fresh backing from a handoff packet and keeps the same agent identity unless the operator intentionally chooses a new ID.
+
+Keep always-loaded skill bodies concise. Put runtime-specific and incident-specific
+detail in linked references, then consolidate or delete superseded incident notes rather
+than layering another overlapping skill.

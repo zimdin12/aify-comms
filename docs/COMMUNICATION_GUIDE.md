@@ -82,6 +82,19 @@ Contracts are expected for:
 
 Contracts are closed by a real answer to the original sender/result, not by silently completing local work. `delivered` only means the transport/runtime accepted the source message; it does not prove the agent read or acted on it, and a reply contract stays open until a linked answer/result exists. For dashboard-managed delivered runs and resident/live CLI sessions alike, close the contract with `comms_send(type="response", inReplyTo="<original-message-id>", ...)`; final plain text is working output, not the team-visible reply. The configurable fallback may auto-mirror a summary, but agents must not rely on it.
 
+Use this evidence ladder when reporting execution:
+
+```text
+intent accepted → stored → dispatched → claimed → runtime accepted
+→ consumer turn/action started → operation executed → linked result → state converged
+```
+
+Report only the highest observed stage. In particular, **delivered does not mean a
+consumer turn started**, and an accepted interrupt does not mean the provider turn
+ended. A message whose body says `STOP` remains a normal message; use the exact run or
+managed-console interrupt control and verify convergence when actual interruption is
+required.
+
 If a reminder arrives, read the original message/run it references and close that original contract. Reminder notices are nudges and should not create fresh Work Loop debt; do not just reply "ack reminder" unless the reminder itself is the work.
 
 Use `comms_contracts(...)` when acting as manager or when inbox state looks suspicious. It defaults to open direct contracts so old channel fan-out and historical failures do not hide owned work; request `state="missing_reply"`/`"failed"`/`"answered"` or `category="channel"`/`"self_wake"` when auditing history/noise. It shows overdue, working, queued, answered, and missing-reply contracts so agents do not infer truth from unread counts alone.

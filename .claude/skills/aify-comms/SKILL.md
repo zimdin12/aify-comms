@@ -44,17 +44,41 @@ repair, or dashboard operator details.
 - Answer naturally but compactly: result, evidence checked, blocker/uncertainty, next action.
 - If blocked, ask one concrete question or send a precise handoff. Do not guess or wait vaguely.
 
+## Evidence ladder — report only the highest proven stage
+
+Communication and execution are different state machines:
+
+```text
+Intent accepted
+→ message/control stored
+→ dispatch created
+→ correct owner claimed it
+→ runtime accepted it
+→ native consumer turn/action started
+→ requested operation executed
+→ reply/result linked
+→ post-action state converged
+```
+
+Stored ≠ dispatched. Dispatched ≠ claimed. Claimed ≠ runtime accepted.
+**Delivered ≠ consumer turn started.** Turn started ≠ requested action completed.
+Interrupt accepted ≠ provider turn ended. Report the furthest stage you observed and
+name the instrument (`comms_run_status`, linked reply, console, runtime event, or state
+readback). Never upgrade queued/delivered into "done."
+
+### Safe interruption
+
+- A message whose body says `STOP` is still a normal message; it is not a runtime interrupt.
+- Use `comms_run_interrupt(runId="...")` only for the exact active dispatch run.
+- Use `comms_interrupt(agentId="...")` for the current managed console turn, including work started directly in the TUI. It sends terminal-native Ctrl+C.
+- Before either action, identify the current agent, run, session, terminal, environment, and owning bridge. Do not trust a stale badge or old session row.
+- Do not send a blind duplicate interrupt: the first may have ended the old turn and the second may strike its replacement.
+- Afterward, verify the original turn ended and agent/run/session state converged. An accepted control request alone is not proof.
+
 ## Building software as a team
 
-If you are doing build/implementation work as part of a team, hold these — and **read `references/building-software.md` first** for the full standard:
-
-- **Ownership.** ONE driver owns the integrated product end-to-end + the seams no lane owns; "every slice approved" ≠ "the product works"; the driver runs the whole flow before "done."
-- **Production-grade + idiomatic.** Strong design where the language wants it (don't cargo-cult OOP); validate/bound ALL input (assume clients cheat); handle the unhappy paths; DRY the shared contracts and keep docs in lockstep with code.
-- **Testing is part of done.** Automated tests for real behavior; architect for testability.
-- **Review ≠ on-disk read.** Reviewer ≠ builder; end with an explicit `APPROVE`/`REVISE`; behaviorally VERIFY (run/measure) anything user-facing — code review alone misses render/feel/integration bugs.
-- **Freeze the seams on a channel** before lanes go heads-down; keep sessions lean (scope context, compact long ones).
-- **Honesty:** state proven vs assumed.
-- **Right-size the rigor** to complexity & risk — more agents/reviews are a COST, not a virtue.
+For implementation work, read `references/building-software.md` before splitting lanes.
+It owns the driver, seam-freezing, review, integration, and verification rules.
 
 ## Quick Start
 
@@ -73,47 +97,18 @@ resident agent without that bridge is `offline` and cannot receive live sends.
 Use the `comms_register` MCP tool from the real `*-aify` session, or launch the
 wrapper with `--aify-agent <id>` so the wrapper's MCP child registers itself.
 
-When opening a known agent directly, wrappers can register the live resident owner automatically: `claude-aify --aify-agent my-agent --resume <session-id>`, `codex-aify --aify-agent my-agent ...`, `hermes-aify --aify-agent my-agent --resume <session-id>`. Manual `comms_register(...)` remains the fallback and is required for a new ID when the wrapper was launched without an ID. If only the saved native handle is wrong and the operator knows the correct ID, use dashboard **Set handle** instead of re-registering unrelated fields.
-
-All `*-aify` wrappers accept explicit `--resident` and `--managed` flags to declare session mode. Precedence: inherited `AIFY_SESSION_MODE` env > flag > TTY auto-detect (`[ -t 0 ]` — interactive defaults to `resident`, non-TTY to `managed`). Operators almost never need the flag — running a wrapper from a terminal defaults to resident; bridge-spawned wrappers inherit `managed` from `terminalChildEnv`. `claude-aify` always exports `AIFY_CHANNELS_ENABLED=1` so its register call carries `runtime_config.channelEnabled=true` (the precondition for resident-run/interrupt/steer caps surviving the server-side strip).
-
-By default `claude-aify` loads the operator's FULL `~/.claude.json` MCP server list (so all your usual MCP servers are available inside the wrapper) alongside `aify-comms` + `aify-comms-channel`. If `aify-comms-channel` loses the known Claude Code stdio MCP init race against many competing servers ([#38462](https://github.com/anthropics/claude-code/issues/38462), [#21341](https://github.com/anthropics/claude-code/issues/21341)) and channel notifications get silently dropped, set `AIFY_CLAUDE_STRICT_MCP=1` before launch to force `--strict-mcp-config` with ONLY `aify-comms` + `aify-comms-channel` (the legacy isolation escape hatch; default flipped 2026-05-25).
-
-Managed mode is the normal persistent identity path: the operator runs an `aify-comms` environment bridge and spawns agents through the dashboard or `comms_spawn(...)`. Dashboard sends start or reuse a bridge-owned backing (wrapper PTY for Codex/Hermes/Claude, persistent OMP RPC for Pi) and browser Console attaches to it. Resident mode is the deliberate visible-terminal path for multi-client runtimes — `claude-aify --aify-agent <id>`, `codex-aify --aify-agent <id>`, `hermes-aify --aify-agent <id>` — when that CLI should own delivery; ownership changes are manual (**Switch to resident/managed**). For the full per-runtime routing matrix, per-runtime delivery-owner claim rules, `blocked`/completed-without-reply semantics, and resident-vs-managed ownership detail, see `references/operations.md` (Managed Runtime Policy).
-
-Session lifecycle verbs (minimal set, cleaned 2026-06-03): **Spawn** = fresh managed backing, no resume; **Stop** = halt the backing but keep spec/handle/identity, reversible via **Restart**; **Restart** = re-spawn and RESUME native context (carries the `session_handle`); **Reset (fresh context)** = re-spawn discarding native handle/state (this was the old "Recreate"); **Resume wake** = re-enable wake/dispatch for a stopped resident agent (no spawn); **Pause for CLI** = hand the session to the terminal, return via Restart; **Set handle** = repair the native resume target; **Remove** = tombstone the identity. The dead `recover`/`resume` session actions (byte-identical to `restart`) were removed — use `restart`. Switch safety: claude-code/codex/hermes are full-duplex (both modes); **pi/opencode are managed-only** (resident is presence/debug metadata, so `managed→resident` is rejected for them). `resident→managed` carries the native handle so the managed worker resumes the same thread/transcript instead of starting fresh; per-agent chat carries over regardless. Session status shown in the dashboard is DERIVED from live truth (live terminal for managed, fresh bridge for resident), so a session badge no longer shows "Stopped/Stale but running".
+When opening a known agent directly, use the runtime's `*-aify --aify-agent <id>`
+wrapper. Managed agents are created through the dashboard or `comms_spawn(...)` and
+must not re-register from delivered runs. Ownership switches and lifecycle verbs are
+operator actions; read `references/operations.md` before changing them. If only a
+saved native handle is wrong, use **Set handle** instead of re-registering unrelated
+fields.
 
 Windows paths passed to tools should use forward slashes (`C:/Users/you/project`). WSL/Linux sessions should use native Linux paths (`/mnt/c/...`), and native Windows sessions should use `C:/...`.
 
-For live Codex, prefer exact binding from the same `codex-aify` session:
-
-```text
-comms_register(agentId="my-agent", role="coder", runtime="codex", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
-```
-
-Add `sessionHandle="$CODEX_THREAD_ID"` only when that variable is non-empty, usually after an explicit `codex-aify --resume <id>` or after the current Codex CLI has exposed a real thread ID. Fresh `codex-aify` must not invent a handle from old `~/.codex/sessions` rollouts. If you skip `appServerUrl` and the bridge can't auto-discover it, the agent registers but `wakeMode` will be `codex-missing-handle` and `comms_send` will refuse with "agent capabilities do not include resident-run". Re-register with `appServerUrl` from the same `codex-aify` session to flip the wake mode to `codex-live`.
-
-For live Hermes, launch `hermes-aify` (which starts a hidden `hermes dashboard --port <P>` gateway host (no `--tui` — rejected by the `dashboard` subcommand since hermes 0.15.1), runs a `hermes-managed-host.js` delivery loop, opens a VISIBLE `hermes --tui` console resumed on the agent's native session id, and exports `HERMES_TUI_GATEWAY_URL`; the bridge still internally reads `AIFY_HERMES_GATEWAY_URL` for resident gateway detection), then register:
-
-```text
-mcp_aify_comms_comms_register(agentId="my-agent", role="tester", runtime="hermes")
-```
-
-Hermes exposes MCP tools with server-prefixed names (`mcp_aify_comms_comms_register`, `mcp_aify_comms_comms_agent_info`, `mcp_aify_comms_comms_send`). Generic aify-comms docs may shorten these to `comms_register`, `comms_agent_info`, and `comms_send`; in Hermes, use the prefixed callable names when they are available. The bridge auto-detects `gatewayUrl` from the env var the wrapper set — no explicit field needed. Fresh `hermes-aify` should register without `sessionHandle`; only add a handle for an explicit `hermes-aify --resume <id>` from this same terminal. Do not use gateway `session.most_recent` or inherited shell `HERMES_SESSION_ID` as proof of the current visible session, because it can be historical DB state. After registration, `wakeMode` should be `hermes-live` and status should not be `offline`. If status is `offline`, the agent record was not registered by a live bridge, the bridge heartbeat expired, or the wrapper was restarted without re-registering; restart `hermes-aify` and run `mcp_aify_comms_comms_register` from that same visible session. If it shows `hermes-missing-handle` instead, the wrapper didn't export `AIFY_HERMES_GATEWAY_URL` (you're either on the old wrapper or didn't restart hermes-aify after the wrapper update). Verify the current wrapper fingerprint with `grep -E 'hermes-managed-host|HERMES_TUI_GATEWAY_URL|aify-hermes-session' ~/.local/bin/hermes-aify` — the current wrapper matches those; an old one does not.
-
-For Oh My Pi (OMP), triggerable delivery is the managed persistent RPC path. Legacy `omp-aify` / `pi-aify` wrappers are not installed by default. OMP does not expose a multi-client resident injection surface like Claude channels, Codex app-server, or Hermes gateway; use managed Pi for triggerable delivery.
-
-```text
-comms_register(agentId="my-agent", role="coder", runtime="pi", sessionHandle="$PI_SESSION_ID")
-```
-
-Managed Pi uses OMP's native RPC `steer` command when the active run is steer-capable. The aify runtime key remains `pi`; use `omp-aify` in operator-facing commands and mention `pi-aify` only as an alias. Use `queueIfBusy=true` when the message should wait for the next turn instead. Managed pi keeps a persistent `omp --mode rpc` child per agent across dispatches and surfaces it in the dashboard as a synthesized terminal stream (no real PTY).
-
-Managed Codex defaults to the wrapper-backed `codex-aify` PTY path. The wrapper starts the local Codex app-server, the child bridge claims channel/resident dispatches, and dashboard Console renders the real wrapper TUI. If wrapper-backed mode is disabled or unavailable, the native controller fallback keeps a persistent `codex app-server` child per agent and surfaces synthesized terminal output. The resident path (operator-typed `codex-aify` with a shared WebSocket `appServerUrl`) is still app-server based.
-
-Managed Hermes uses the visible-TUI model: `hermes-aify --aify-agent <id>` brings up a hidden gateway host + a `hermes-managed-host.js` delivery loop and resumes the agent's stored **native session id** (symmetric with claude/codex — no synthetic `aify-<agentId>` session), rendered in the dashboard Console. The agent self-replies via `comms_send`. For the gateway/delivery-loop/marker internals, the `resuming...` heal path, retired delivery models, and the auto-spawn-on-send timeline, see `references/operations.md` (Managed Runtime Policy → hermes) and DECISIONS.md (2026-05-31) / install.hermes.md.
-
-Dashboard-managed delivered runs are already registered by the bridge. Do not call `comms_register` inside those runs.
+Runtime-specific wrapper, handle, gateway, and fallback details live in
+`references/operations.md`. Load them only when registering, switching ownership, or
+debugging a runtime; routine teamwork does not need them.
 
 Create persistent managed identities through an environment:
 
@@ -174,9 +169,8 @@ Dashboard is a special store-only recipient for human-visible updates. Use `comm
 - Close the original contract with a real reply/result. Do not treat reminders, unread counts, or run summaries as proof that communication happened.
 - If an automated reminder arrives, inspect the original message/run and answer the original owner/result. The reminder itself is only a nudge and should not create another Work Loop obligation.
 - Managers should split work by owner/topic, request evidence, and route blockers precisely. When delegating, **hand down only the context that subtask needs** (the specific file/result/decision, or a `comms_share` pointer) — not the whole thread; scoping inputs saves the delegate's context and sharpens the answer.
-- **Reviews return an explicit verdict.** A review reply should lead with `APPROVE` or `REVISE` (then evidence/rework), `inReplyTo` the work request. `APPROVE` is what closes the loop and lets work ship; `REVISE` lists the specific changes. Keep cycling implement→review→revise until a reviewer returns `APPROVE`.
-- Managers monitoring the team (especially on a heartbeat/self-wake loop) can read a **managed** agent's live console with `comms_console_tail(agentId="...")` to see *why* it's stuck — mid-build, waiting at a prompt, looping, or errored — when status alone is ambiguous. `comms_console_input` is recovery-only: read the tail first, then type only into a proven interactive prompt or operator-recovery case. Never duplicate a normal work message/reminder through the console; normal delivery is `comms_send` through the runtime's native channel. Managed-only (resident agents have no aify-owned console). See `references/teamwork.md`.
-- Autonomous teams should keep the loop moving: implement bounded chunks, request review, approve/rework, self-wake only for known next chunks, and report meaningful decisions to dashboard.
+- Reviews lead with `APPROVE` or `REVISE`, link to the work request, and include evidence or specific rework.
+- For ambiguous managed-agent stalls, read `comms_console_tail` before probing. Console input is recovery-only; see `references/teamwork.md`.
 
 ## Compacting
 
@@ -190,9 +184,9 @@ Identity/lifecycle: `comms_register`, `comms_envs`, `comms_spawn`, `comms_compac
 
 Messaging: `comms_send`, `comms_inbox`, `comms_unsend`, `comms_search`, `comms_clear`.
 
-Runs/work: `comms_contracts`, `comms_run_status`, `comms_run_interrupt`, `comms_restart`. `comms_dispatch` is lower-level debug/control; prefer `comms_send` for teamwork. `comms_restart` gracefully restarts another agent's **managed** session (the dashboard Sessions→Restart path; `freshContext=true` = Reset); it rejects resident agents (operator-owned — a remote restart would fork a managed twin), so for a stuck resident use `comms_run_interrupt` or ask the operator to relaunch.
+Runs/work: `comms_contracts`, `comms_run_status`, `comms_run_interrupt`, `comms_interrupt`, `comms_restart`. Prefer `comms_send` over lower-level `comms_dispatch`; read Operations before remote restart/reset.
 
-Consoles (managed agents): `comms_console_tail` reads the last N lines of another agent's live console (read-only, default 40); `comms_console_input` types text/keystrokes into it (e.g. a command, or just Enter to unstick) — audited. Input is recovery-only and must follow a console read that proves an interactive blocker; do not use it for normal teamwork, reminders, or duplicate `comms_send` delivery. They don't work on resident agents (no aify-owned console).
+Consoles (managed only): `comms_console_tail` reads; `comms_console_input` is audited recovery input after a read proves an interactive blocker.
 
 Channels/files: `comms_channel_create`, `comms_channel_join`, `comms_channel_send`, `comms_channel_read`, `comms_channel_list`, `comms_share`, `comms_read`, `comms_files`.
 
