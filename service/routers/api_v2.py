@@ -2609,6 +2609,7 @@ async def _fresh_same_mode_bridge_conflict(
           AND machine_id = ?
           AND id != ?
           AND session_mode = 'resident'
+          AND COALESCE(bridge_kind, '') != 'channel-sidecar'
           AND COALESCE(superseded_by, '') = ''
         ORDER BY last_seen DESC
         """,
@@ -3633,6 +3634,10 @@ async def _record_bridge_registration(
         SELECT id FROM bridge_instances
         WHERE agent_id = ? AND machine_id = ? AND id != ? AND superseded_by = ''
           AND NOT (
+            ? = 'resident'
+            AND COALESCE(bridge_kind, '') = 'channel-sidecar'
+          )
+          AND NOT (
             ? = 1
             AND session_mode = 'managed'
             AND COALESCE(bridge_kind, '') IN ('channel-sidecar', 'managed-wrapper-child')
@@ -3653,6 +3658,7 @@ async def _record_bridge_registration(
             agent_id,
             normalized_machine,
             bridge_id,
+            normalized_session_mode_value,
             1 if complementary_pair else 0,
             new_kind,
             normalized_runtime_value,
@@ -5395,6 +5401,30 @@ async def _fail_pending_terminal_controls(db, terminal_id: str, *, handled_at: s
     return len(control_ids)
 
 
+async def _reconcile_ended_terminal_controls(db, *, limit: int = 500) -> int:
+    cursor = await db.execute(
+        """
+        SELECT DISTINCT terminal.id
+        FROM terminal_sessions terminal
+        JOIN terminal_controls control ON control.terminal_id = terminal.id
+        WHERE terminal.status NOT IN ('starting', 'attached', 'running', 'active', 'idle')
+          AND control.status IN ('pending', 'claimed')
+        LIMIT ?
+        """,
+        (max(1, int(limit or 500)),),
+    )
+    total = 0
+    now = _now()
+    for row in await cursor.fetchall():
+        total += await _fail_pending_terminal_controls(
+            db,
+            str(row["id"] or ""),
+            handled_at=now,
+            response_text="terminal is not active",
+        )
+    return total
+
+
 async def _close_active_terminal_runs_for_terminal(db, terminal, terminal_status: str, *, now: Optional[str] = None, reason: str = "") -> int:
     if not terminal:
         return 0
@@ -5435,8 +5465,8 @@ async def _close_active_terminal_runs_for_terminal(db, terminal, terminal_status
             (run_status, summary, run_status, summary, now, run_id),
         )
         await _append_dispatch_event(db, run_id, "terminal_closed", f"{summary} terminalId={terminal_id}")
+    await _fail_pending_terminal_controls(db, terminal_id, handled_at=now, response_text=summary)
     if run_ids:
-        await _fail_pending_terminal_controls(db, terminal_id, handled_at=now, response_text=summary)
         await _invalidate_agent_live_state(db, agent_id)
     queued_ids: list[str] = []
     current_session = await _current_agent_session_row(db, agent_id)
@@ -6018,6 +6048,43 @@ async def _repair_terminal_session_consistency(db) -> int:
     now = _now()
     active_statuses = ("starting", "attached", "running", "active", "idle")
     repaired = 0
+
+    stale_binding_cursor = await db.execute(
+        """
+        SELECT stale.id AS session_id, stale.terminal_id AS terminal_id
+        FROM agent_sessions stale
+        JOIN terminal_sessions terminal ON terminal.id = stale.terminal_id
+        JOIN agent_sessions current
+          ON current.id = terminal.session_id
+         AND current.terminal_id = stale.terminal_id
+        WHERE LOWER(COALESCE(stale.status, '')) IN
+              ('ended', 'completed', 'cancelled', 'failed', 'lost', 'stopped', 'exited')
+          AND COALESCE(stale.terminal_id, '') != ''
+          AND terminal.session_id != stale.id
+          AND LOWER(COALESCE(current.status, '')) IN
+              ('starting', 'recovering', 'restarting', 'running', 'active', 'idle')
+        """
+    )
+    for row in await stale_binding_cursor.fetchall():
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET owner_bridge_id = '',
+                terminal_id = '',
+                terminal_status = '',
+                terminal_command = '',
+                terminal_workspace = ''
+            WHERE id = ? AND terminal_id = ?
+            """,
+            (row["session_id"], row["terminal_id"]),
+        )
+        await _append_terminal_event(
+            db,
+            row["terminal_id"],
+            "stale_session_terminal_binding_cleared",
+            json.dumps({"sessionId": row["session_id"]}),
+        )
+        repaired += 1
 
     legacy_cursor = await db.execute(
         f"""
@@ -6990,6 +7057,40 @@ async def _append_terminal_control(
     rows: int = 0,
 ) -> str:
     control_id = f"termctl_{int(time.time() * 1000)}_{next(_CONTROL_ID_COUNTER):06d}_{uuid.uuid4().hex[:8]}"
+    if str(action or "").strip().lower() == "resize":
+        cursor = await db.execute(
+            """
+            INSERT INTO terminal_controls (
+                id, terminal_id, environment_id, bridge_id, action, body, cols, rows,
+                status, requested_by, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(terminal_id) WHERE action = 'resize' AND status = 'pending'
+            DO UPDATE SET
+                environment_id = excluded.environment_id,
+                bridge_id = excluded.bridge_id,
+                body = excluded.body,
+                cols = excluded.cols,
+                rows = excluded.rows,
+                requested_by = excluded.requested_by,
+                requested_at = excluded.requested_at
+            RETURNING id
+            """,
+            (
+                control_id,
+                terminal_id,
+                environment_id,
+                bridge_id,
+                "resize",
+                body or "",
+                int(cols or 0),
+                int(rows or 0),
+                "pending",
+                requested_by or "dashboard",
+                _now(),
+            ),
+        )
+        row = await cursor.fetchone()
+        return str(row["id"])
     await db.execute(
         """
         INSERT INTO terminal_controls (
@@ -7365,7 +7466,7 @@ class TerminalOutputWriteQueue:
             terminal = await (await db.execute(
                 """
                 SELECT id, session_id, agent_id, environment_id, bridge_id, runtime,
-                       output, status, output_seq, created_at
+                       output, status, output_seq, created_at, cols, rows
                 FROM terminal_sessions WHERE id = ?
                 """,
                 (terminal_id,),
@@ -20550,14 +20651,19 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
         updates = []
         params = []
         now = _now()
+        current_status = str(row["status"] or "").strip().lower()
+        requested_status = str(req.status or "").strip().lower()
+        effective_status = req.status
+        if current_status in _DISPATCH_TERMINAL_STATUSES and requested_status != current_status:
+            effective_status = None
 
-        if req.status:
+        if effective_status:
             updates.append("status = ?")
-            params.append(req.status)
-            if req.status == "running" and not row["started_at"]:
+            params.append(effective_status)
+            if effective_status == "running" and not row["started_at"]:
                 updates.append("started_at = ?")
                 params.append(now)
-            if req.status in _DISPATCH_TERMINAL_STATUSES:
+            if effective_status in _DISPATCH_TERMINAL_STATUSES:
                 updates.append("finished_at = ?")
                 params.append(now)
         if req.summary is not None:
@@ -20588,12 +20694,12 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
             params.append(run_id)
             await db.execute(f"UPDATE dispatch_runs SET {', '.join(updates)} WHERE id = ?", params)
             await _invalidate_agent_live_state(db, row["target_agent"])
-            if req.status in ("completed", "failed", "cancelled"):
+            if effective_status in ("completed", "failed", "cancelled"):
                 await _fail_pending_controls_for_run(
                     db,
                     run_id,
                     handled_at=now,
-                    response_text=f'Run ended with status "{req.status}" before the control could be handled.',
+                    response_text=f'Run ended with status "{effective_status}" before the control could be handled.',
                 )
                 refreshed_cursor = await db.execute("SELECT * FROM dispatch_runs WHERE id = ?", (run_id,))
                 refreshed_row = await refreshed_cursor.fetchone()
@@ -20616,7 +20722,7 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
                     # reply lands; the guard ensures we never clear while another
                     # rr=1 turn is still open (anti-feedback-loop invariant).
                     if (
-                        req.status == "completed"
+                        effective_status == "completed"
                         and not _row_require_reply(refreshed_row)
                         and str((refreshed_row["execution_mode"] or "")).strip().lower() in {"channel", "resident"}
                     ):
@@ -20624,7 +20730,7 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
                             db, refreshed_row["target_agent"], run_id
                         )
                     await _apply_pending_resident_takeover_if_ready(db, refreshed_row["target_agent"])
-                    if req.status == "completed":
+                    if effective_status == "completed":
                         await _run_contract_reminders_once(
                             db,
                             request=request,
@@ -20657,7 +20763,7 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
         await db.commit()
         ws = await _get_ws(request)
         if ws:
-            await ws.broadcast("dispatch_updated", {"runId": run_id, "status": req.status or row["status"]})
+            await ws.broadcast("dispatch_updated", {"runId": run_id, "status": effective_status or row["status"]})
         return {"ok": True, "runId": run_id}
     finally:
         await db.close()

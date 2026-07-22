@@ -4523,6 +4523,10 @@ byId('chat-clear-filters')?.addEventListener('click', () => {
 });
 byId('chat-identity')?.addEventListener('change', (event) => {
   state.chat.identity = event.target.value || 'dashboard';
+  if (state.chat.identity === 'all' && state.chat.view === 'console') {
+    state.chat.view = 'messenger';
+    disposeActiveXterm();
+  }
   chatController.render();
 });
 byId('chat-identity-directory')?.addEventListener('click', () => openIdentityDirectory());

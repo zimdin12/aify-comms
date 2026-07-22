@@ -4679,6 +4679,18 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(fetched.json()["terminal"]["renderedCols"], 120)
         self.assertEqual(fetched.json()["terminal"]["renderedRows"], 40)
 
+        # A later queued output flush must use the persisted PTY geometry. Omitting cols/rows
+        # from the queue's SELECT silently reset the live screen to its 100x28 defaults.
+        appended = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={"bridgeId": "bridge-current", "output": "\x1b[Hafter resize", "status": "attached"},
+        )
+        self.assertEqual(appended.status_code, 200, appended.text)
+        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        fetched = self.client.get(f"/api/v1/terminals/{terminal_id}")
+        self.assertEqual(fetched.json()["terminal"]["renderedCols"], 120)
+        self.assertEqual(fetched.json()["terminal"]["renderedRows"], 40)
+
     def test_terminal_stop_reconciles_stale_bridge_owner(self):
         session_id = self._create_running_session(terminal=True)
         started = self.client.post(
@@ -7449,6 +7461,62 @@ class ApiV2RegressionTests(FastApiTestCase):
         prior = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id=?", ("bridge-A",))
         self.assertEqual(prior["superseded_by"], "bridge-B",
                          "idle same-session relaunch must take over the dead-looking prior bridge")
+
+    def test_resident_reregister_ignores_its_live_channel_sidecar(self):
+        self._heartbeat_environment()
+        self._register(
+            "hermes-resident-pair",
+            runtime="hermes",
+            sessionMode="resident",
+            launchMode="detached",
+            sessionHandle="hermes-session-pair",
+            bridgeId="bridge-resident-main",
+            machineId="linux:test-host",
+            capabilities=["resident-run", "resume", "interrupt", "steer"],
+        )
+        now = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO bridge_instances (
+                id, agent_id, machine_id, runtime, session_mode, session_handle,
+                bridge_kind, registered_at, last_seen, superseded_by
+            ) VALUES (?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "hermes-managed-host-linux:test-host-hermes-resident-pair",
+                "hermes-resident-pair",
+                "linux:test-host",
+                "hermes",
+                "resident",
+                "hermes-session-pair",
+                "channel-sidecar",
+                now,
+                now,
+                "",
+            ),
+        )
+
+        reregistered = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "hermes-resident-pair",
+                "role": "coder",
+                "runtime": "hermes",
+                "sessionMode": "resident",
+                "launchMode": "detached",
+                "sessionHandle": "hermes-session-pair",
+                "machineId": "linux:test-host",
+                "bridgeId": "bridge-resident-main",
+                "capabilities": ["resident-run", "resume", "interrupt", "steer"],
+            },
+        )
+
+        self.assertEqual(reregistered.status_code, 200, reregistered.text)
+        sidecar = self._fetchone(
+            "SELECT superseded_by FROM bridge_instances WHERE id = ?",
+            ("hermes-managed-host-linux:test-host-hermes-resident-pair",),
+        )
+        self.assertEqual(sidecar["superseded_by"], "")
 
     def test_same_machine_different_session_still_409s(self):
         """The Phase-4 duplicate-identity protection stays for a DIFFERENT session
@@ -14706,6 +14774,226 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(target["ownerMode"], "managed")
         self.assertEqual(self._dead_session_status("sess_e2e_dead"), "running")
 
+    def test_session_reconcile_clears_terminal_from_ended_duplicate_only(self):
+        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        self._seed_agent_row("one-console", "active")
+        self._seed_dead_session(
+            sid="sess_old_ended",
+            agent_id="one-console",
+            mode="managed-warm",
+            owner_mode="managed",
+            status="ended",
+        )
+        self._seed_dead_session(
+            sid="sess_current_running",
+            agent_id="one-console",
+            mode="managed-warm",
+            owner_mode="managed",
+            status="running",
+        )
+        self._seed_terminal_for_session(
+            tid="term_one_console",
+            sid="sess_current_running",
+            agent_id="one-console",
+            status="running",
+            runtime="hermes",
+        )
+        self._execute(
+            """
+            UPDATE agent_sessions
+            SET terminal_id = 'term_one_console', terminal_status = 'running'
+            WHERE id IN ('sess_old_ended', 'sess_current_running')
+            """
+        )
+
+        async def _run():
+            db = await get_db()
+            try:
+                return await api_v2._repair_terminal_session_consistency(db)
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+        rows = self._fetchall(
+            "SELECT id, terminal_id FROM agent_sessions WHERE agent_id = ? ORDER BY id",
+            ("one-console",),
+        )
+        self.assertEqual(
+            [(row["id"], row["terminal_id"]) for row in rows],
+            [("sess_current_running", "term_one_console"), ("sess_old_ended", "")],
+        )
+
+    def test_session_reconcile_keeps_terminal_authoritative_ended_owner(self):
+        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        self._seed_agent_row("one-console-inverse", "active")
+        self._seed_dead_session(
+            sid="sess_authoritative_ended",
+            agent_id="one-console-inverse",
+            mode="managed-warm",
+            owner_mode="managed",
+            status="ended",
+        )
+        self._seed_dead_session(
+            sid="sess_corrupt_running",
+            agent_id="one-console-inverse",
+            mode="managed-warm",
+            owner_mode="managed",
+            status="running",
+        )
+        self._seed_terminal_for_session(
+            tid="term_authoritative_ended",
+            sid="sess_authoritative_ended",
+            agent_id="one-console-inverse",
+            status="running",
+            runtime="hermes",
+        )
+        self._execute(
+            """
+            UPDATE agent_sessions
+            SET terminal_id = 'term_authoritative_ended', terminal_status = 'running'
+            WHERE id IN ('sess_authoritative_ended', 'sess_corrupt_running')
+            """
+        )
+
+        async def _run():
+            db = await get_db()
+            try:
+                return await api_v2._repair_terminal_session_consistency(db)
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+        authoritative = self._fetchone(
+            "SELECT terminal_id FROM agent_sessions WHERE id = ?",
+            ("sess_authoritative_ended",),
+        )
+        self.assertEqual(authoritative["terminal_id"], "term_authoritative_ended")
+
+    def test_delivery_ack_cannot_reopen_completed_dispatch(self):
+        self._register("monotonic-worker", runtime="hermes", sessionMode="managed")
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, from_agent, target_agent, dispatch_mode, execution_mode,
+                runtime, message_type, subject, body, priority, status,
+                require_reply, result_message_id, requested_at, finished_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_already_completed",
+                "manager",
+                "monotonic-worker",
+                "managed",
+                "channel",
+                "hermes",
+                "request",
+                "done",
+                "done",
+                "normal",
+                "completed",
+                1,
+                "reply-message-1",
+                api_v2._now(),
+                api_v2._now(),
+            ),
+        )
+
+        response = self.client.patch(
+            "/api/v1/dispatch/runs/run_already_completed",
+            json={"status": "delivered", "appendEvent": "late delivery ack", "eventType": "delivered"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        row = self._fetchone(
+            "SELECT status, result_message_id FROM dispatch_runs WHERE id = ?",
+            ("run_already_completed",),
+        )
+        self.assertEqual((row["status"], row["result_message_id"]), ("completed", "reply-message-1"))
+
+    def test_terminal_close_fails_controls_without_active_dispatch_run(self):
+        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        self._seed_agent_row("idle-terminal-owner", "active")
+        self._seed_dead_session(
+            sid="sess_idle_terminal",
+            agent_id="idle-terminal-owner",
+            mode="managed-warm",
+            owner_mode="managed",
+            status="running",
+        )
+        self._seed_terminal_for_session(
+            tid="term_idle_terminal",
+            sid="sess_idle_terminal",
+            agent_id="idle-terminal-owner",
+            status="running",
+            runtime="hermes",
+        )
+        self._execute(
+            """
+            INSERT INTO terminal_controls (
+                id, terminal_id, environment_id, bridge_id, action, status, requested_at
+            ) VALUES (?,?,?,?,?,?,?)
+            """,
+            ("ctl_idle_terminal", "term_idle_terminal", "linux:test-host:default", "bridge-current", "input", "pending", api_v2._now()),
+        )
+
+        async def _run():
+            db = await get_db()
+            try:
+                terminal = await (
+                    await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", ("term_idle_terminal",))
+                ).fetchone()
+                await api_v2._close_active_terminal_runs_for_terminal(db, terminal, "stopped")
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+        control = self._fetchone(
+            "SELECT status, handled_at FROM terminal_controls WHERE id = ?",
+            ("ctl_idle_terminal",),
+        )
+        self.assertEqual(control["status"], "failed")
+        self.assertTrue(control["handled_at"])
+
+    def test_periodic_reconcile_fails_controls_for_ended_terminal(self):
+        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        self._seed_agent_row("ended-terminal-owner", "active")
+        self._seed_dead_session(
+            sid="sess_ended_periodic",
+            agent_id="ended-terminal-owner",
+            mode="managed-warm",
+            owner_mode="managed",
+            status="ended",
+        )
+        self._seed_terminal_for_session(
+            tid="term_ended_periodic",
+            sid="sess_ended_periodic",
+            agent_id="ended-terminal-owner",
+            status="stopped",
+            runtime="hermes",
+        )
+        self._execute(
+            """
+            INSERT INTO terminal_controls (
+                id, terminal_id, environment_id, bridge_id, action, status, requested_at
+            ) VALUES (?,?,?,?,?,?,?)
+            """,
+            ("ctl_ended_periodic", "term_ended_periodic", "linux:test-host:default", "bridge-current", "resize", "claimed", api_v2._now()),
+        )
+
+        async def _run():
+            db = await get_db()
+            try:
+                count = await api_v2._reconcile_ended_terminal_controls(db)
+                await db.commit()
+                return count
+            finally:
+                await db.close()
+
+        self.assertEqual(asyncio.run(_run()), 1)
+        control = self._fetchone("SELECT status FROM terminal_controls WHERE id = ?", ("ctl_ended_periodic",))
+        self.assertEqual(control["status"], "failed")
+
 
 class TerminalSessionMigrationTests(unittest.TestCase):
     """Part 1 migration: an existing DB whose terminal_sessions table predates
@@ -14748,3 +15036,178 @@ class TerminalSessionMigrationTests(unittest.TestCase):
         cols_after = {row[1] for row in conn.execute("PRAGMA table_info(terminal_sessions)")}
         conn.close()
         self.assertIn("process_id", cols_after)
+
+    def _seed_terminal_control_db(self, *, terminal_status="running"):
+        tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmpdir.cleanup)
+        db_path = Path(tmpdir.name) / "controls.db"
+        asyncio.run(init_db(db_path))
+        now = "2026-07-22T00:00:00Z"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            "INSERT INTO environments (id, bridge_id, registered_at, last_seen) VALUES (?,?,?,?)",
+            ("env-1", "bridge-1", now, now),
+        )
+        conn.execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                status, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?)
+            """,
+            ("term-1", "session-1", "agent-1", "env-1", "bridge-1", "hermes", terminal_status, now, now),
+        )
+        conn.commit()
+        conn.close()
+        return db_path
+
+    def test_init_db_fails_unhandled_controls_for_stopped_terminals(self):
+        db_path = self._seed_terminal_control_db(terminal_status="stopped")
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            """
+            INSERT INTO terminal_controls (
+                id, terminal_id, environment_id, bridge_id, action, status,
+                requested_at
+            ) VALUES (?,?,?,?,?,?,?)
+            """,
+            ("ctl-stale", "term-1", "env-1", "bridge-1", "resize", "pending", "2026-07-15T00:00:00Z"),
+        )
+        conn.commit()
+        conn.close()
+
+        asyncio.run(init_db(db_path))
+
+        conn = sqlite3.connect(str(db_path))
+        row = conn.execute(
+            "SELECT status, handled_at, error FROM terminal_controls WHERE id = 'ctl-stale'"
+        ).fetchone()
+        conn.close()
+        self.assertEqual(row[0], "failed")
+        self.assertTrue(row[1])
+        self.assertIn("terminal is not active", row[2])
+
+    def test_pending_resize_controls_are_coalesced_per_terminal(self):
+        db_path = self._seed_terminal_control_db()
+
+        async def _run():
+            db = await get_db()
+            try:
+                first = await api_v2._append_terminal_control(
+                    db,
+                    terminal_id="term-1",
+                    environment_id="env-1",
+                    bridge_id="bridge-1",
+                    action="resize",
+                    cols=100,
+                    rows=30,
+                )
+                second = await api_v2._append_terminal_control(
+                    db,
+                    terminal_id="term-1",
+                    environment_id="env-1",
+                    bridge_id="bridge-1",
+                    action="resize",
+                    cols=120,
+                    rows=40,
+                )
+                await db.commit()
+                rows = await (await db.execute(
+                    "SELECT id, cols, rows FROM terminal_controls WHERE terminal_id = 'term-1'"
+                )).fetchall()
+                return first, second, rows
+            finally:
+                await db.close()
+
+        first, second, rows = asyncio.run(_run())
+        self.assertEqual(second, first)
+        self.assertEqual([(row["id"], row["cols"], row["rows"]) for row in rows], [(first, 120, 40)])
+
+    def test_concurrent_resize_controls_are_coalesced_atomically(self):
+        db_path = self._seed_terminal_control_db()
+
+        async def _submit(cols):
+            db = await get_db()
+            try:
+                control_id = await api_v2._append_terminal_control(
+                    db,
+                    terminal_id="term-1",
+                    environment_id="env-1",
+                    bridge_id="bridge-1",
+                    action="resize",
+                    cols=cols,
+                    rows=40,
+                )
+                await db.commit()
+                return control_id
+            finally:
+                await db.close()
+
+        async def _run():
+            return await asyncio.gather(_submit(100), _submit(120))
+
+        first, second = asyncio.run(_run())
+        conn = sqlite3.connect(str(db_path))
+        rows = conn.execute(
+            "SELECT id FROM terminal_controls WHERE terminal_id = 'term-1' AND action = 'resize' AND status = 'pending'"
+        ).fetchall()
+        conn.close()
+        self.assertEqual(first, second)
+        self.assertEqual(len(rows), 1)
+
+    def test_terminal_control_claim_index_includes_bridge(self):
+        db_path = self._seed_terminal_control_db()
+        conn = sqlite3.connect(str(db_path))
+        columns = [row[2] for row in conn.execute("PRAGMA index_info(idx_terminal_controls_env_status)")]
+        conn.close()
+        self.assertEqual(columns[:4], ["environment_id", "bridge_id", "status", "requested_at"])
+
+    def test_init_db_fails_controls_for_superseded_environment_bridge(self):
+        db_path = self._seed_terminal_control_db()
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            """
+            INSERT INTO environment_controls (
+                id, environment_id, bridge_id, action, status, requested_at
+            ) VALUES (?,?,?,?,?,?)
+            """,
+            ("envctl-stale", "env-1", "bridge-old", "stop", "claimed", "2026-07-15T00:00:00Z"),
+        )
+        conn.commit()
+        conn.close()
+
+        asyncio.run(init_db(db_path))
+
+        conn = sqlite3.connect(str(db_path))
+        row = conn.execute(
+            "SELECT status, handled_at, error FROM environment_controls WHERE id = 'envctl-stale'"
+        ).fetchone()
+        conn.close()
+        self.assertEqual(row[0], "failed")
+        self.assertTrue(row[1])
+        self.assertIn("bridge is no longer current", row[2])
+
+    def test_init_db_fails_terminal_controls_for_superseded_environment_bridge(self):
+        db_path = self._seed_terminal_control_db(terminal_status="running")
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            """
+            INSERT INTO terminal_controls (
+                id, terminal_id, environment_id, bridge_id, action, status, requested_at
+            ) VALUES (?,?,?,?,?,?,?)
+            """,
+            ("termctl-stale-bridge", "term-1", "env-1", "bridge-old", "input", "pending", "2026-07-15T00:00:00Z"),
+        )
+        conn.commit()
+        conn.close()
+
+        asyncio.run(init_db(db_path))
+
+        conn = sqlite3.connect(str(db_path))
+        row = conn.execute(
+            "SELECT status, handled_at, error FROM terminal_controls WHERE id = 'termctl-stale-bridge'"
+        ).fetchone()
+        conn.close()
+        self.assertEqual(row[0], "failed")
+        self.assertTrue(row[1])
+        self.assertIn("bridge is no longer current", row[2])

@@ -11,6 +11,7 @@ process.env.AIFY_AGENT_ID = "manager-bot";
 const {
   commsConsoleTailHandler,
   commsConsoleInputHandler,
+  commsInterruptHandler,
   CONSOLE_INPUT_TOOL_DESCRIPTION,
   COMMS_SEND_TOOL_DESCRIPTION,
 } = await import("../server.js");
@@ -18,6 +19,25 @@ const {
 assert.match(CONSOLE_INPUT_TOOL_DESCRIPTION, /recovery-only/i);
 assert.match(CONSOLE_INPUT_TOOL_DESCRIPTION, /read the console first/i);
 assert.match(CONSOLE_INPUT_TOOL_DESCRIPTION, /do not inject normal work messages/i);
+
+// --- comms_interrupt: target the agent's live console with terminal-native Ctrl+C ---
+{
+  const calls = [];
+  const fakeHttp = async (method, endpoint, body) => {
+    calls.push({ method, endpoint, body });
+    return { ok: true, live: true, terminalId: "term_live", controlId: "ctl_interrupt" };
+  };
+  const res = await commsInterruptHandler(
+    { agentId: "busy-agent", from: "manager-bot" },
+    { httpCall: fakeHttp },
+  );
+  assert.deepEqual(calls, [{
+    method: "POST",
+    endpoint: "/agents/busy-agent/console/input",
+    body: { text: "\u0003", enter: false, from: "manager-bot" },
+  }]);
+  assert.match(res.content[0].text, /Interrupted busy-agent/);
+}
 
 assert.match(COMMS_SEND_TOOL_DESCRIPTION, /omit requireReply/i,
   "normal type defaults should not require a reply override");

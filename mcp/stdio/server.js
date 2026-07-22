@@ -4788,6 +4788,37 @@ server.tool(
   }
 );
 
+export async function commsInterruptHandler({ agentId, from }, { httpCall: call = httpCall } = {}) {
+  if (!IS_REMOTE) {
+    return { content: [{ type: "text", text: "Agent interrupt is only available in remote server mode." }], isError: true };
+  }
+  try {
+    const r = await call("POST", `/agents/${encodeURIComponent(agentId)}/console/input`, {
+      text: "\u0003",
+      enter: false,
+      from: from || AIFY_AGENT_ID || "",
+    });
+    if (!r.ok) {
+      return { content: [{ type: "text", text: r.message || `Could not interrupt ${agentId}.` }], isError: true };
+    }
+    return {
+      content: [{ type: "text", text: `Interrupted ${agentId} through its live console (terminal ${r.terminalId}, control ${r.controlId}).` }],
+    };
+  } catch (error) {
+    return { content: [{ type: "text", text: error.message }], isError: true };
+  }
+}
+
+server.tool(
+  "comms_interrupt",
+  "Interrupt the agent currently running in a managed console. Sends terminal-native Ctrl+C to the target agent, so it also works for turns started directly in the TUI rather than by a dispatch run.",
+  {
+    agentId: z.string().describe("Target agent ID"),
+    from: z.string().optional().describe("Requesting agent ID"),
+  },
+  (args) => commsInterruptHandler(args),
+);
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // comms_console_tail / comms_console_input -- read & unstick a managed agent's console
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -4,6 +4,7 @@ Single database file replaces all JSON file storage.
 """
 import json
 import aiosqlite
+from datetime import datetime, timezone
 from pathlib import Path
 
 SQLITE_BUSY_TIMEOUT_MS = 5000
@@ -411,7 +412,7 @@ CREATE INDEX IF NOT EXISTS idx_terminal_sessions_session ON terminal_sessions(se
 -- session display, /agents + /sessions worker gates) which previously full-scanned this table.
 CREATE INDEX IF NOT EXISTS idx_terminal_sessions_agent ON terminal_sessions(agent_id, status);
 CREATE INDEX IF NOT EXISTS idx_terminal_events_terminal ON terminal_events(terminal_id, id);
-CREATE INDEX IF NOT EXISTS idx_terminal_controls_env_status ON terminal_controls(environment_id, status, requested_at);
+CREATE INDEX IF NOT EXISTS idx_terminal_controls_env_status ON terminal_controls(environment_id, bridge_id, status, requested_at, id);
 
 CREATE TABLE IF NOT EXISTS agent_turn_state (
     agent_id TEXT PRIMARY KEY,
@@ -702,6 +703,106 @@ async def _backfill_native_managed_capability(db: aiosqlite.Connection):
         )
 
 
+async def _reconcile_terminal_controls(db: aiosqlite.Connection):
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    await db.execute(
+        """
+        UPDATE terminal_controls
+        SET status = 'failed',
+            handled_at = COALESCE(handled_at, ?),
+            error = CASE WHEN COALESCE(error, '') = ''
+                         THEN 'terminal is not active'
+                         ELSE error END
+        WHERE status IN ('pending', 'claimed')
+          AND terminal_id IN (
+              SELECT id FROM terminal_sessions
+              WHERE status NOT IN ('starting', 'attached', 'running', 'active', 'idle')
+          )
+        """,
+        (now,),
+    )
+    await db.execute(
+        """
+        UPDATE terminal_controls
+        SET status = 'failed',
+            handled_at = COALESCE(handled_at, ?),
+            error = CASE WHEN COALESCE(error, '') = ''
+                         THEN 'environment bridge is no longer current'
+                         ELSE error END
+        WHERE status IN ('pending', 'claimed')
+          AND NOT EXISTS (
+              SELECT 1 FROM environments
+              WHERE environments.id = terminal_controls.environment_id
+                AND COALESCE(environments.bridge_id, '') = COALESCE(terminal_controls.bridge_id, '')
+                AND environments.status = 'online'
+          )
+        """,
+        (now,),
+    )
+    await db.execute(
+        """
+        UPDATE environment_controls
+        SET status = 'failed',
+            handled_at = COALESCE(handled_at, ?),
+            error = CASE WHEN COALESCE(error, '') = ''
+                         THEN 'environment bridge is no longer current'
+                         ELSE error END
+        WHERE status IN ('pending', 'claimed')
+          AND NOT EXISTS (
+              SELECT 1 FROM environments
+              WHERE environments.id = environment_controls.environment_id
+                AND COALESCE(environments.bridge_id, '') = COALESCE(environment_controls.bridge_id, '')
+                AND environments.status = 'online'
+          )
+        """,
+        (now,),
+    )
+    await db.execute(
+        """
+        UPDATE terminal_controls AS stale
+        SET status = 'failed',
+            handled_at = COALESCE(handled_at, ?),
+            error = CASE WHEN COALESCE(error, '') = ''
+                         THEN 'superseded by newer pending resize'
+                         ELSE error END
+        WHERE stale.action = 'resize'
+          AND stale.status = 'pending'
+          AND EXISTS (
+              SELECT 1 FROM terminal_controls newer
+              WHERE newer.terminal_id = stale.terminal_id
+                AND newer.action = 'resize'
+                AND newer.status = 'pending'
+                AND (
+                    newer.requested_at > stale.requested_at
+                    OR (newer.requested_at = stale.requested_at AND newer.id > stale.id)
+                )
+          )
+        """,
+        (now,),
+    )
+    await db.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_terminal_controls_pending_resize
+        ON terminal_controls(terminal_id)
+        WHERE action = 'resize' AND status = 'pending'
+        """
+    )
+    columns = [
+        row[2]
+        for row in await (await db.execute(
+            "PRAGMA index_info(idx_terminal_controls_env_status)"
+        )).fetchall()
+    ]
+    if columns != ["environment_id", "bridge_id", "status", "requested_at", "id"]:
+        await db.execute("DROP INDEX IF EXISTS idx_terminal_controls_env_status")
+        await db.execute(
+            """
+            CREATE INDEX idx_terminal_controls_env_status
+            ON terminal_controls(environment_id, bridge_id, status, requested_at, id)
+            """
+        )
+
+
 async def init_db(db_path: Path = None):
     global _db_path
     if db_path:
@@ -722,6 +823,7 @@ async def init_db(db_path: Path = None):
         await _migrate_console_signal_table(db)
         await _migrate_agent_turn_state_table(db)
         await _backfill_native_managed_capability(db)
+        await _reconcile_terminal_controls(db)
         await db.commit()
 
 async def get_db(busy_timeout_ms: int = SQLITE_BUSY_TIMEOUT_MS) -> aiosqlite.Connection:
