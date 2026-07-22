@@ -2,7 +2,7 @@
 // sibling modules and are imported here; app.js remains the orchestrator (render + actions +
 // the single delegated event handler + init) until later Phase-0 slices split those too.
 import { esc, relTime, tsMs } from './util.js';
-import { createTerminalInputPoster, createTerminalInputHandler } from './terminal-input.mjs';
+import { createTerminalInputPoster, createTerminalInputHandler, forceTerminalRepaint, waitForTerminalSize } from './terminal-input.mjs';
 import { STATUS_KINDS, resolveStatus, renderStatusChip } from './status.js';
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
 import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
@@ -470,6 +470,14 @@ async function api(path, options = {}) {
     throw new Error(detail);
   }
   return data;
+}
+
+function awaitTerminalSize(terminalId, cols, rows) {
+  return waitForTerminalSize({
+    cols,
+    rows,
+    readSize: async () => (await api(`/terminals/${encodeURIComponent(terminalId)}`)).terminal,
+  });
 }
 
 function refreshSoon() {
@@ -2056,7 +2064,7 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
     applyRenderedWidth(state.activeXterm, term, container, data, ownsPty);
     if (state.activeXterm) state.activeXterm.ownsPty = ownsPty;
 
-    // ALWAYS push the pane's size to a PTY we own — do not wait for xterm's onResize.
+    // Force one real width transition on a PTY we own — do not wait for xterm's onResize.
     //
     // This is what actually un-garbles a console, and it took a browser to see it. These TUIs
     // paint by ABSOLUTE cursor position and never scroll (measured: zero newlines, 1160 CUP moves
@@ -2066,16 +2074,20 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
     // redraw those rows on its own.
     //
     // A genuine RESIZE does force a full repaint (verified live: the app emitted 23 chunks and
-    // the screen came back clean). But `term.onResize` only fires when xterm's own size CHANGES —
-    // and once the xterm already fits the pane it never does, so no resize was ever sent and the
-    // console stayed broken forever. Send it explicitly on every attach, then re-pull the
-    // snapshot so the freshly-repainted screen is what lands.
+    // the screen came back clean). But `term.onResize` only fires when xterm's own size CHANGES,
+    // and Linux sends no SIGWINCH for a same-size resize. Nudge one column and restore it before
+    // pulling the freshly-repainted snapshot.
     if (ownsPty) {
       const c = Math.max(20, term.cols), r2 = Math.max(5, term.rows);
       try {
-        await api(`/terminals/${encodeURIComponent(terminalId)}/resize`, {
-          method: 'POST',
-          body: JSON.stringify({ cols: c, rows: r2, requestedBy: 'dashboard-attach' }),
+        await forceTerminalRepaint({
+          cols: c,
+          rows: r2,
+          resize: (nextCols, nextRows) => api(`/terminals/${encodeURIComponent(terminalId)}/resize`, {
+            method: 'POST',
+            body: JSON.stringify({ cols: nextCols, rows: nextRows, requestedBy: 'dashboard-attach' }),
+          }),
+          waitForSize: (nextCols, nextRows) => awaitTerminalSize(terminalId, nextCols, nextRows),
         });
         await new Promise((res) => setTimeout(res, 700));   // let the app repaint
         const fresh = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${c}&rows=${r2}`);
@@ -2170,13 +2182,14 @@ async function resyncActiveConsole({ forceRepaint = false } = {}) {
     // col, then back), which makes the app redraw everything, and THEN pulls the clean snapshot.
     if (forceRepaint && entry.ownsPty) {
       try {
-        await api(`/terminals/${encodeURIComponent(entry.terminalId)}/resize`, {
-          method: 'POST',
-          body: JSON.stringify({ cols: Math.max(20, fetchCols - 1), rows: entry.term.rows, requestedBy: 'dashboard-refresh' }),
-        });
-        await api(`/terminals/${encodeURIComponent(entry.terminalId)}/resize`, {
-          method: 'POST',
-          body: JSON.stringify({ cols: fetchCols, rows: entry.term.rows, requestedBy: 'dashboard-refresh' }),
+        await forceTerminalRepaint({
+          cols: fetchCols,
+          rows: entry.term.rows,
+          resize: (nextCols, nextRows) => api(`/terminals/${encodeURIComponent(entry.terminalId)}/resize`, {
+            method: 'POST',
+            body: JSON.stringify({ cols: nextCols, rows: nextRows, requestedBy: 'dashboard-refresh' }),
+          }),
+          waitForSize: (nextCols, nextRows) => awaitTerminalSize(entry.terminalId, nextCols, nextRows),
         });
         await new Promise((res) => setTimeout(res, 700));
       } catch { /* best-effort */ }

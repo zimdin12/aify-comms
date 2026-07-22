@@ -21,7 +21,7 @@ test("app.js loads as an ES module (Phase 0.1) and imports the extracted pure co
   assert.match(html, /<script type="module" src="\/assets\/app\.js">/, "index.html must load app.js as a module");
   const source = read("app.js");
   assert.match(source, /import \{ esc, relTime, tsMs \} from '\.\/util\.js'/);
-  assert.match(source, /import \{ createTerminalInputPoster, createTerminalInputHandler \} from '\.\/terminal-input\.mjs'/);
+  assert.match(source, /from '\.\/terminal-input\.mjs'/);
   assert.match(source, /from '\.\/status\.js'/);
   assert.match(source, /from '\.\/console-chooser\.js'/);
   // The extracted definitions must be GONE from app.js (no duplicate source of truth).
