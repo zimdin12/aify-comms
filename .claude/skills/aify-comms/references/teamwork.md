@@ -136,7 +136,10 @@ When the human asks "what happened", inspect messages/runs/contracts first. Do n
 
 ## Reply on the surface you received
 
-**Default rule: reply on the same surface the request arrived on, unless explicitly directed otherwise.**
+**Use one human-facing surface per interaction.** Infer it from where the request arrived. An explicit "talk in comms" or "talk in terminal" overrides that choice until the user changes it; ask once only when the surface is genuinely ambiguous.
+
+- **Terminal-observed:** use normal concise terminal interaction, including useful progress between tool calls and the final result. Do not also send the operator a dashboard/comms copy unless requested.
+- **Comms-observed:** send questions, useful progress, and results through `comms_send`; omit terminal narration and duplicate final prose because nobody is reading that surface. Tool-call telemetry may still be visible there.
 
 - Request arrived as a `<channel source="aify-comms-channel" ...>` event (someone called `comms_send` to you) → reply with `comms_send(type="response", inReplyTo="<message id>", ...)`. Do NOT just print the answer as terminal output; the sender is not watching your terminal — they're waiting for the threaded reply via the bridge.
 - Request typed directly into your CLI (operator at your keyboard) → reply in the CLI / final plain text. Do not `comms_send` back to the operator unless they specifically asked for a dashboard update.
@@ -145,4 +148,4 @@ When the human asks "what happened", inspect messages/runs/contracts first. Do n
 
 The principle: every channel of communication has its own thread. Replying on a different surface breaks threading, hides the answer from the sender, and creates duplicate context. If a message asks for action that produces output to multiple surfaces (e.g. "commit and tell me the hash"), the primary reply still goes back where the request came from; supplementary notifications go via `comms_send` to whoever else needs them.
 
-When in doubt: where did the question arrive? Reply there.
+When in doubt, use the request's arrival surface; ask only if that evidence conflicts with an explicit user choice.
