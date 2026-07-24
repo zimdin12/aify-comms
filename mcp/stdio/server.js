@@ -2,14 +2,6 @@
 //
 // aify-comms-mcp -- MCP server for inter-agent communication between coding-agent runtimes.
 //
-// 31 tools (all prefixed "comms_"):
-//   comms_register, comms_envs, comms_spawn, comms_compact, comms_agents, comms_status, comms_describe, comms_send, comms_dispatch, comms_contracts, comms_inbox, comms_search,
-//   comms_share, comms_read, comms_files,
-//   comms_channel_create, comms_channel_join, comms_channel_send, comms_channel_read, comms_channel_list,
-//   comms_agent_info, comms_listen, comms_unsend, comms_run_status, comms_run_interrupt,
-//   comms_console_tail, comms_console_input,
-//   comms_remove_agent, comms_delete_session, comms_clear, comms_dashboard
-//
 // Modes:
 //   - Remote: set AIFY_SERVER_URL (or legacy CLAUDE_MCP_SERVER_URL) to use HTTP server
 //   - Local: filesystem-based message bus in .messages/ directory
@@ -4788,6 +4780,37 @@ server.tool(
   }
 );
 
+export async function commsInterruptHandler({ agentId, from }, { httpCall: call = httpCall } = {}) {
+  if (!IS_REMOTE) {
+    return { content: [{ type: "text", text: "Agent interrupt is only available in remote server mode." }], isError: true };
+  }
+  try {
+    const r = await call("POST", `/agents/${encodeURIComponent(agentId)}/console/input`, {
+      text: "\u0003",
+      enter: false,
+      from: from || AIFY_AGENT_ID || "",
+    });
+    if (!r.ok) {
+      return { content: [{ type: "text", text: r.message || `Could not interrupt ${agentId}.` }], isError: true };
+    }
+    return {
+      content: [{ type: "text", text: `Interrupted ${agentId} through its live console (terminal ${r.terminalId}, control ${r.controlId}).` }],
+    };
+  } catch (error) {
+    return { content: [{ type: "text", text: error.message }], isError: true };
+  }
+}
+
+server.tool(
+  "comms_interrupt",
+  "Interrupt the agent currently running in a managed console. Sends terminal-native Ctrl+C to the target agent, so it also works for turns started directly in the TUI rather than by a dispatch run.",
+  {
+    agentId: z.string().describe("Target agent ID"),
+    from: z.string().optional().describe("Requesting agent ID"),
+  },
+  (args) => commsInterruptHandler(args),
+);
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // comms_console_tail / comms_console_input -- read & unstick a managed agent's console
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -6139,7 +6162,12 @@ async function main() {
     }, 3000);
     if (typeof harnessGuard.unref === "function") harnessGuard.unref();
   }
-  await autoRegisterConfiguredAgent();
+  // Codex app-server waits for its MCP servers to finish initializing while
+  // registration discovers the live thread through that same app-server.
+  // Do not deadlock MCP startup on the discovery round-trip.
+  autoRegisterConfiguredAgent().catch((err) => {
+    console.error(`[aify] auto-registration failed: ${err?.message || err}`);
+  });
 }
 
 // Plan 6 A2 (2026-05-26): only auto-run main() when this file is the

@@ -244,13 +244,12 @@ import {
     killTree: (pid) => { calls.killTree.push(pid); return true; },
   });
 
-  assert.deepEqual(calls.killTree.sort((a, b) => a - b), [301, 302], "boot reaps both self-bound predecessor delivery loops");
+  assert.deepEqual(calls.killTree, [302], "boot reaps only the self-bound predecessor without a live resident wrapper");
   assert.ok(!calls.killTree.includes(303), "live OTHER bridge's loop NEVER reaped");
   assert.ok(!calls.killTree.includes(999), "resident operator session NEVER reaped");
-  assert.deepEqual(calls.killByPort.sort((a, b) => a - b), [9342, 9343], "boot reaps both self-bound gateways; not 9341 (live other)");
+  assert.deepEqual(calls.killByPort, [9343], "resident process truth protects its gateway; live-other gateway is also untouched");
   assert.ok(!calls.killByPort.includes(9341), "live OTHER bridge's gateway NEVER reaped");
-  assert.equal(calls.stopDaemon.length, 1);
-  assert.equal(calls.stopDaemon[0].agentId, "sc-architect");
+  assert.equal(calls.stopDaemon.length, 0, "resident process truth protects its daemon marker too");
 }
 
 console.log("server-boot-reap.test.js: all assertions passed");

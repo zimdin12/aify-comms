@@ -193,9 +193,15 @@ class ReplyReminderTests(FastApiTestCase):
                     reminded = [r for r in result["reminded"] if r["runId"] == run_id]
                     self.assertEqual(len(reminded), 1, result)
                     message_id = reminded[0]["messageId"]
-                    row = self._fetchall("SELECT body FROM messages WHERE id = ?", (message_id,))
+                    row = self._fetchall(
+                        "SELECT from_agent, to_agent, in_reply_to, body FROM messages WHERE id = ?",
+                        (message_id,),
+                    )
                     self.assertEqual(len(row), 1)
                     body = row[0]["body"]
+                    self.assertEqual(row[0]["from_agent"], "lead", f"{runtime}: reminder keeps original sender")
+                    self.assertEqual(row[0]["to_agent"], "coder", f"{runtime}: reminder goes to owing agent")
+                    self.assertIn('to="lead"', body, f"{runtime}: reply must go to original sender")
                     self.assertIn("comms_send", body, f"{runtime}: body must teach comms_send")
                     self.assertIn("inReplyTo", body, f"{runtime}: body must teach inReplyTo anchor")
                     self.assertIn('type="response"', body, f"{runtime}: body must show the response type")
@@ -223,6 +229,39 @@ class ReplyReminderTests(FastApiTestCase):
                     self.assertEqual(len(self._reminder_events(run_id)), 0)
                 finally:
                     self.tearDown()
+
+    def test_linked_request_closes_reply_contract_without_reminder(self):
+        self._register_live_resident("lead", runtime="hermes", bridge_id="lead-bridge", port=1)
+        self._register_live_resident("coder", runtime="hermes", bridge_id="coder-bridge", port=2)
+        created = self._dispatch(
+            from_agent="lead",
+            to="coder",
+            type="request",
+            subject="please answer",
+            body="need a decision",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = created["runs"][0]["runId"]
+        reply = self.client.post(
+            "/api/v1/messages/send",
+            json={
+                "from_agent": "coder",
+                "to": "lead",
+                "type": "request",
+                "subject": "answer plus follow-up",
+                "body": "the answer is yes; please confirm timing",
+                "inReplyTo": created["messageId"],
+                "trigger": False,
+            },
+        )
+        self.assertEqual(reply.status_code, 200, reply.text)
+
+        rows = self._fetchall("SELECT status, result_message_id FROM dispatch_runs WHERE id = ?", (run_id,))
+        self.assertEqual(rows[0]["status"], "completed")
+        self.assertEqual(rows[0]["result_message_id"], reply.json()["messageId"])
+        result = self._run_reminders(run_id=run_id, ignore_repeat=True)
+        self.assertFalse([r for r in result["reminded"] if r["runId"] == run_id])
 
     def test_reminders_are_capped_after_max_count(self):
         for runtime in _RUNTIMES:

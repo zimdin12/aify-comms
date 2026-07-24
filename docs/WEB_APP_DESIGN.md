@@ -1,9 +1,8 @@
 # Web App Design
 
-> **PARTIALLY SUPERSEDED (2026-06-10):** see [DASHBOARD_REBUILD_PLAN.md](DASHBOARD_REBUILD_PLAN.md)
-> — the active rebuild plan. Still-valid here: Continue/compaction-packet UX, the Spawn Flow
-> wizard, Anti-Patterns, frontend state rules. The IA (Work/Runtime/Insight/System), status
-> colors, and Home Page detail are superseded (chat-first landing + the 8-status contract).
+> **HISTORICAL DESIGN INPUT.** The rebuild shipped. Use `service/new_dashboard/` for the
+> current UI and `AGENTS.md` for the canonical six-state status/lifecycle contract. The
+> anti-patterns and frontend-state principles below remain useful; old IA/status examples do not.
 
 ## Goal
 

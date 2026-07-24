@@ -140,6 +140,7 @@ class ConsoleScrollbackTests(unittest.TestCase):
 
     def setUp(self):
         drop_live_screen("scroll")
+        feed_live_screen("scroll", "\x1b[H", cols=COLS, rows=10)
 
     def tearDown(self):
         drop_live_screen("scroll")

@@ -86,13 +86,14 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _reroute_orphaned_managed_channel_runs,
         _reconcile_stale_managed_terminals_for_resident_agents,
         _reconcile_stuck_terminal_and_session_rows,
+        _reconcile_ended_terminal_controls,
         _refresh_expired_agent_live_states,
         _repair_unusable_active_runs,
         _requeue_orphaned_claimed_runs,
         _run_contract_reminders_once,
         _repair_spawn_requests_from_initial_dispatch_failures,
         _fail_orphaned_running_spawn_requests,
-        _fail_running_spawns_superseded_by_live_worker,
+        _fail_running_spawns_superseded_by_current_session,
     )
 
     db = await _get_db()
@@ -113,10 +114,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # ~15s dashboard poll, contending with all reads. Run them here in the 60s sweep instead.
         await _commit_step(await _repair_spawn_requests_from_initial_dispatch_failures(db))
         await _commit_step(await _fail_orphaned_running_spawn_requests(db))
-        # Reap 'running' spawns the agent already outgrew: a live worker exists, but the boot
-        # record was never closed (turn-interrupt churn) → it lingered 'running' and, past the
-        # booting window, stopped suppressing autostarts → duplicate cold-starts + orphan harnesses.
-        await _commit_step(await _fail_running_spawns_superseded_by_live_worker(db))
+        await _commit_step(await _fail_running_spawns_superseded_by_current_session(db))
         closed_delivered_total = 0
         for _ in range(10):  # hard cap: <= 10 * 500 = 5k runs per pass
             batch = await _close_reconcilable_delivered_runs(db, limit=500)
@@ -237,6 +235,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         deduped_resident_sessions = await _commit_step(await _reconcile_duplicate_resident_sessions(db))
         # Self-heal wedged 'stopping' PTYs + ended-but-not-closed sessions (2026-06-18 audit).
         stuck_rows = await _commit_step(await _reconcile_stuck_terminal_and_session_rows(db))
+        ended_terminal_controls_failed = await _commit_step(await _reconcile_ended_terminal_controls(db, limit=500))
         # Server-side status self-heal. The live-status cache is otherwise
         # refreshed only on request (GET /agents, send, GET /agents/{id}), and
         # the only periodic driver was a CLIENT-SIDE dashboard setInterval that
@@ -284,6 +283,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "deduped_resident_sessions": deduped_resident_sessions,
             "stuck_stopping_terminals_closed": stuck_rows.get("stuck_stopping_terminals_closed", 0),
             "ended_sessions_backfilled": stuck_rows.get("ended_sessions_backfilled", 0),
+            "ended_terminal_controls_failed": ended_terminal_controls_failed,
             "dead_sessions_stopped": dead_sessions_stopped,
             "dead_bridge_turn_busy_cleared": len(cleared_dead_turn_busy),
             "undeliverable_queued_runs_failed": len(reaped_queued),

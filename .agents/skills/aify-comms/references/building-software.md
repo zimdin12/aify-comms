@@ -13,25 +13,20 @@ It is general on purpose: apply judgment, scale it to the task, and let language
   cross-cutting concerns: data flowing across layers, consistent UX/controls, auth→action→persistence,
   restart/recovery.
 
-## Architecture & code quality — build it like it's going to production
-- Write idiomatic, well-architected code for the language at hand. Use strong OOP/SOLID where the
-  language and problem call for it; clean functional/modular composition where they don't. Do not
-  cargo-cult OOP into code that doesn't want it — "production-grade" means appropriate, not ornate.
-- Clear module boundaries; separate concerns (transport, domain, data, UI); name precisely; keep
-  functions focused.
-- Defensive by default: validate and bound ALL external input (including upper bounds — assume clients
-  lie/cheat), parameterize every query, never trust the client, handle the unhappy paths (network down,
-  stale/expired auth, empty state, restart). Fail with clear, actionable errors.
-- DRY the SHARED CONTRACTS: agree the data model / API shapes / interfaces ONCE, up front, and keep the
-  implementation and the written contract in lockstep — a doc that drifts from the code is a bug.
-- Cover ALL areas the task implies, not just the happy path: security, validation, error handling, edge
-  cases, persistence/migration, accessibility, performance where it matters.
+## Shared contracts — freeze the seams
+- Agree the data model, API shape, ownership, and integration order once before parallel work.
+- Keep the implementation and written contract in lockstep. Project-specific engineering standards
+  govern code quality; this skill governs coordination across lanes.
 
 ## Testing — prove behavior, and make it testable
 - Write automated tests for real behavior (not assertions that it "should" work). For a service, drive
   the real thing (boot it over HTTP against a throwaway DB). Architect FOR testability (e.g. an app
   factory separate from `listen`).
 - Tests are part of "done," not optional. A reviewer's APPROVE should be backed by tests passing.
+- Watch a load-bearing regression fail for the intended reason before the fix, then pass after it. A
+  test that passes through an unconditional capability or unrelated path is vacuous.
+- A nonzero test command is not green because its assertions looked clean. Report runner/discovery
+  errors, excluded tests, and reduced samples explicitly.
 
 ## Reviewing — reviewer ≠ builder, and verify behavior not just text
 - Every non-trivial piece is reviewed by someone who didn't build it. Reviews END with an explicit
@@ -39,6 +34,10 @@ It is general on purpose: apply judgment, scale it to the task, and let language
 - Distinguish CODE REVIEW (read the diff on disk) from BEHAVIORAL VERIFICATION (run it / measure it).
   Anything user-facing, render-, feel-, or integration-affecting MUST be behaviorally verified — code
   review alone does not catch these. Say which you did.
+- Certify the exact final tree, after the last edit. Earlier review does not cover a later commit or
+  uncommitted patch. A timed-out or acknowledgement-only reviewer returned no verdict.
+- Before commit/publish: inspect the complete diff, run the affected gates after the final patch,
+  include only intended files, and distinguish commit from push and install from deploy.
 
 ## Discussion — agree the seams before you build them, on the channel
 - For interdependent work, discuss and FREEZE the shared contracts (data model, API, auth, the module

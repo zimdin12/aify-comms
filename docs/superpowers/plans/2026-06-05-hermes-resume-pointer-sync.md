@@ -1,5 +1,8 @@
 # Hermes Resume-Pointer Sync — Investigation + Fix
 
+> **Status:** Historical investigation/fix plan; periodic resume-marker synchronization is
+> implemented. Do not run the manual marker/handle stopgap below as current guidance.
+
 **Symptom:** A managed hermes agent starts a FRESH "(untitled)" session on every stop+start instead of resuming the previous one. The sessions are NOT lost — the hermes TUI shows them all ("1 live · 26 resumable", incl. the user's "Context Retention Banana Test" etc.). Only the *resume pointer* is wrong.
 
 ## Root cause (fully traced, 2026-06-05, next-tech-lead)

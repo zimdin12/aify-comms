@@ -1,7 +1,10 @@
 # Dashboard Rebuild Plan — the continuable plan (2026-06-10)
 
-**This is the single entry point for dashboard-rebuild work.** It supersedes the planning
-content of the older docs (disposition table below) and reflects a full 3-way audit of
+> **HISTORICAL COMPLETED PLAN.** The replacement dashboard shipped and is now the only
+> operator UI. Use `service/new_dashboard/` for current behavior and `AGENTS.md` for current
+> status/lifecycle semantics.
+
+This plan superseded the planning content of the older docs and reflects a full 3-way audit of
 (a) the old plan docs, (b) the live 8800 dashboard, (c) the WIP 8801 "Dashboard Next".
 
 **Goal (operator's words):** a *really good* dashboard. The current one is functionally good

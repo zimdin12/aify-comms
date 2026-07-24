@@ -200,8 +200,8 @@ event-driven path was built — read "new" as "the (now sole) `derive()` path".
 
 **Deploy.** Service-side (rebuild the container) + bridge-side (`/heartbeat` turnBusy + the
 console spinner/lease are sent by the wrappers' delivery loops, so re-run `install.sh` and
-relaunch the affected wrapper). If a managed/channel agent still reads `online`/`idle` mid-turn
-while `status_engine=new`, the service is pre-`4d52571`.
+relaunch the affected wrapper). If a managed/channel agent still reads `online` mid-turn on
+the sole `derive()` path, the service or bridge predates these fixes.
 
 ## `available→online` is prompt now (and unrelated to auto-close); resident clean-exit drops `online` fast
 
@@ -219,7 +219,7 @@ you're on pre-`5070c84` code; rebuild/restart the service.
 **Resident clean-exit drops `online` within ~1.5s (2026-06-03, `5070c84`).** The resident MCP
 bridge (`mcp/stdio/server.js`) now POSTs `/agents/{id}/resident-lost` on clean exit
 (best-effort, resident-only, idempotent, bounded ~1.5s); the server handler sets
-`status=stopped` for a **resident** (or auto-returns to managed if a managed backing exists). A
+`status=stopped` for a **resident**. Ownership never auto-switches to managed. A
 `session_mode='managed'` agent that hits this same endpoint (e.g. its hermes gateway port died)
 is instead rested **cold-startable** — stored `status='active'` (the enabled flag) → derives `available`,
 `launch_mode='detached'` — so the next send auto-spawns a fresh managed worker (new gateway),
@@ -360,8 +360,8 @@ scheduled), at ≤ ~30s latency. A long blocking tool call or a Task sub-agent d
 a pending `tool_use` (or a static parent transcript — sub-agents write a separate
 `subagents/*.jsonl`) and correctly STAYS `working` (the earlier growth-based detector
 false-cleared on those — fixed `8efbbaf`). Backstop only: a still-alive agent with both end-paths missed
-self-heals at the single 30-min ceiling (`TURN_BUSY_BACKSTOP_SECONDS`); the claim-gate
-keeps the 120s (`TURN_BUSY_STALE_SECONDS`) so a queued send isn't stranded. Resident
+self-heals at the single 30-min ceiling (`TURN_BUSY_BACKSTOP_SECONDS`). Explicit
+`queueIfBusy` holds on raw `turn_busy=1` until the authoritative turn-end. Resident
 hermes has no upstream turn-end HOOK, but it DOES arm the continuous gateway turn detector
 (`startHermesGatewayTurnDetector`, `server.js`) whenever `AIFY_HERMES_GATEWAY_URL` is set —
 same as managed — so a gateway-bound resident hermes reports turn-end normally; only a

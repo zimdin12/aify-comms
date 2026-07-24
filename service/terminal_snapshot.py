@@ -9,9 +9,10 @@ into garbage. See DECISIONS.md "Console replay uses a server-rendered screen sna
 
 This module replays the raw log through a headless VT emulator (`pyte`) sized to the
 VIEWER's cols/rows and emits a clean, self-contained ANSI string that paints the CURRENT
-screen state into a fresh terminal. It is used only on attach/refresh (a rare, bounded,
-one-shot parse over <=64KB), never on the live streaming path — so it adds no per-frame
-cost. Live deltas keep streaming raw to the client xterm, which renders them incrementally.
+screen state into a fresh terminal. It also keeps a bounded live screen per ANSI/TUI PTY so
+text-only console-tail readers receive the rendered screen instead of cursor-motion deltas.
+Plain logs bypass emulation and retain their original lines. Browser clients still receive
+live deltas raw and render them incrementally in xterm.
 
 Degrades safely: if pyte is unavailable, `render_snapshot` returns the raw log unchanged,
 so the console behaves exactly as before (never worse, never an error).
@@ -363,6 +364,11 @@ def feed_live_screen(terminal_id: str, chunk: str, *, cols: Any = 0, rows: Any =
     try:
         live = _LIVE_SCREENS.get(tid)
         if live is None:
+            # Plain logs must remain byte-for-byte logs, not terminal screen state: creating a
+            # screen would wrap long lines and cap history. Once ANSI starts, seed preserves
+            # any preceding plain startup output and subsequent plain chunks continue the TUI.
+            if "\x1b" not in chunk and "\x1b" not in seed:
+                return False
             if len(_LIVE_SCREENS) >= _MAX_LIVE_SCREENS:
                 return False  # bounded: never grow without limit
             live = _LiveScreen(c, r)
@@ -391,6 +397,22 @@ def render_live_screen(terminal_id: str) -> Optional[tuple[str, int, int]]:
     except Exception:
         _LIVE_SCREENS.pop(str(terminal_id), None)
         return None
+
+
+def resize_live_screen(terminal_id: str, cols: Any, rows: Any) -> bool:
+    """Align an existing live screen when the bridge confirms a PTY resize."""
+    tid = str(terminal_id or "")
+    live = _LIVE_SCREENS.get(tid)
+    if live is None:
+        return False
+    try:
+        c, r = _clamp_grid(cols, rows)
+        if (c, r) != (live.cols, live.rows):
+            live.resize(c, r)
+        return True
+    except Exception:
+        _LIVE_SCREENS.pop(tid, None)
+        return False
 
 
 def drop_live_screen(terminal_id: str) -> None:

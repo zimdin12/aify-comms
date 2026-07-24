@@ -6,12 +6,11 @@ export class OpencodeAdapter extends RuntimeAdapter {
   get displayName() { return "OpenCode"; }
   get sessionEnvVars() { return ["OPENCODE_SESSION_ID", "OPENCODE_SESSION"]; }
 
-  // Plan 2 capability matrix. aify-comms doesn't wire `opencode serve`
-  // today — capabilities describe current aify-comms delivery surface.
-  // Wiring serve is tracked as separate follow-up.
+  // The managed controller owns a per-run OpenCode server and injects ordinary
+  // busy sends through the native promptAsync endpoint.
   get supportsResident() { return false; }
   get supportsManaged() { return true; }
-  get supportsSteering() { return false; }
+  get supportsSteering() { return true; }
   get supportsInterrupt() { return true; }
   get supportsMultiClient() { return false; }
   get preferredDeliveryMode() { return "managed"; }

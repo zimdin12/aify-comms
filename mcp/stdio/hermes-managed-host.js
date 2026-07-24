@@ -18,9 +18,10 @@
 //      (2026-06-03): target the agent's bound REAL session id (the marker
 //      written at launch/register), with a most-recent-live-session fallback
 //      (symmetric with claude UUID / codex thread id). NOT the retired synthetic
-//      `aify-<agentId>` key. Then `prompt.submit {session_id, text}` (fallback
-//      `session.steer` on 4009 busy). Events route to the TUI's transport
-//      (owner) so the TUI renders; aify's submit does NOT displace it.
+//      `aify-<agentId>` key. Then `prompt.submit {session_id, text}`. Events route
+//      to the TUI's transport
+//      (owner) so the TUI renders; aify's submit does NOT displace it. A 4009
+//      explicit queue waits for turn-end; ordinary busy sends use session.steer.
 //
 // WAKE-ONLY (symmetric with claude-channel.js): this helper authors NO reply.
 // The in-session hermes agent has the aify-comms comms_* tools loaded and
@@ -172,6 +173,10 @@ const RUNTIME = "hermes";
 // path). The agent's own reply closing the run is the precise clear; the next
 // submit resets the window.
 const REPULSE_MS = Math.max(5000, Number(process.env.AIFY_HERMES_TURN_REPULSE_MS || 45000));
+const TURN_START_TIMEOUT_MS = Math.max(
+  REPULSE_MS,
+  Number(process.env.AIFY_HERMES_TURN_START_TIMEOUT_MS || 90_000),
+);
 // Continuous gateway turn-state detector cadence (fix/hermes-working-debounce).
 // A faster, dedicated poll of the gateway session["running"] status that drives
 // the BIDIRECTIONAL turn-state detector (sets working on a gateway-running turn,
@@ -1128,7 +1133,7 @@ async function markRunRequeued(httpCall, run, reason) {
 }
 
 // ---------------------------------------------------------------------------
-// 3. DELIVERY — claim → active_list → prompt.submit (steer on busy) → delivered.
+// 3. DELIVERY — claim → active_list → prompt.submit (requeue on busy) → delivered.
 // ---------------------------------------------------------------------------
 
 // Native-session-id delivery (2026-06-03): poll session.active_list until the
@@ -1297,7 +1302,7 @@ export async function waitForActiveSession({
 
 // Drive ONE claimed run end-to-end (WAKE-ONLY). NEVER throws.
 //   reportTurnBusy(true) → WAIT for active session (cold-start race) →
-//   prompt.submit{session_id, text} → (4009 busy → session.steer) →
+//   session.steer for an ordinary busy send, otherwise prompt.submit →
 //   markRunDelivered → clearTurn. If the visible TUI never attaches within the
 //   bounded window, REQUEUE the run (claimable) — NOT markRunFailed — so the
 //   next poll delivers once the TUI resumes. On real failure: markRunFailed.
@@ -1449,18 +1454,41 @@ export async function deliverRun({
       /* plugin-less gateway or transient render failure — never block delivery */
     }
 
+    let steered = false;
+    if (run?.steerIfBusy) {
+      try {
+        const active = await wsClient.request(buildSessionActiveListFrame({ id: id++ }));
+        const status = pickSessionStatusById(active, sessionId);
+        if (isGatewaySessionWorking(status)) {
+          const result = await wsClient.request(buildSessionSteerFrame({ id: id++, sessionId, text }));
+          steered = String(result?.status || result?.result?.status || "").toLowerCase() === "queued";
+        }
+      } catch {
+        steered = false;
+      }
+    }
+
     try {
-      await wsClient.request(buildPromptSubmitFrame({ id: id++, sessionId, text }));
+      if (!steered) {
+        await wsClient.request(buildPromptSubmitFrame({ id: id++, sessionId, text }));
+      }
     } catch (err) {
       if (isSessionBusyError(err)) {
-        // Mid-run: steer into the running turn instead of submitting a new one.
-        await wsClient.request(buildSessionSteerFrame({ id: id++, sessionId, text }));
+        await markRunRequeued(httpCall, run, "Hermes session became busy before prompt.submit; retry after turn-end");
+        // 4009 proves another turn is active. Keep turn_busy latched so claim cannot race it again.
+        if (inFlight) {
+          inFlight.submittedAt = 0;
+          inFlight.runId = "";
+          inFlight.dispatchTurnOpen = false;
+        }
+        return;
       } else {
         throw err;
       }
     }
 
     await markRunDelivered(httpCall, run);
+    if (steered) return;
     // SUCCESS: do NOT clear turn_busy. prompt.submit is FIRE-AND-FORGET (it
     // returns on accept, not turn completion), so the visible-TUI turn is only
     // just STARTING — clearing here loses the "working" signal for the entire
@@ -1566,6 +1594,9 @@ export function makeInFlightProbe({
   fetchStatus = (runId) => fetchRunStatus(httpCall, runId),
   readGatewayStatus = null,
   clearTurnImpl = null,
+  failRunImpl = null,
+  startTimeoutMs = TURN_START_TIMEOUT_MS,
+  now = Date.now,
   // DEBOUNCE (fix/hermes-working-debounce): require N CONSECUTIVE gateway-idle
   // reads before latching the turn-end. The hermes gateway session["running"]
   // flag flips False MID-TURN (between tool calls / generation gaps), so a
@@ -1597,6 +1628,47 @@ export function makeInFlightProbe({
       if (isGatewaySessionWorking(gwStatus)) {
         inFlight.observedWorking = true;
         inFlight.idleStreak = 0; // a working read resets the idle streak (no flap).
+      }
+      if (
+        !inFlight.observedWorking &&
+        isGatewaySessionIdle(gwStatus) &&
+        now() - Number(inFlight.submittedAt || 0) >= startTimeoutMs &&
+        typeof failRunImpl === "function"
+      ) {
+        const runId = inFlight.runId;
+        const submittedAt = inFlight.submittedAt;
+        const run = await fetchStatus(runId);
+        if (run.status === "delivered" && run.requireReply) {
+          let freshGatewayStatus = "";
+          try {
+            freshGatewayStatus = String((await readGatewayStatus()) || "");
+          } catch {
+            return true; // unknown is never evidence that a turn failed to start.
+          }
+          if (isGatewaySessionWorking(freshGatewayStatus)) inFlight.observedWorking = true;
+          if (
+            inFlight.runId !== runId ||
+            inFlight.submittedAt !== submittedAt ||
+            inFlight.observedWorking ||
+            !isGatewaySessionIdle(freshGatewayStatus)
+          ) {
+            return true;
+          }
+          const error = new Error(
+            `Hermes accepted prompt.submit but no gateway turn started within ${startTimeoutMs}ms`,
+          );
+          try {
+            await failRunImpl(runId, error);
+          } catch {
+            return true; // transient server failure: retry the fail on the next probe.
+          }
+          inFlight.completed = true;
+          inFlight.runId = "";
+          inFlight.dispatchTurnOpen = false;
+          inFlight.idleStreak = 0;
+          await clearTurnImpl?.();
+          return false;
+        }
       }
       // idle is the turn-end ONLY after we've seen working (submit-race guard)
       // AND only once a SUSTAINED run of idle reads confirms it (debounce). A
@@ -1634,6 +1706,10 @@ export function makeInFlightProbe({
     }
     return true;
   };
+}
+
+export function shouldApplyGatewayTurnEnd(inFlight = {}) {
+  return inFlight.dispatchTurnOpen !== true || inFlight.observedWorking === true;
 }
 
 // The re-pulse PULSE for the managed-host beat. Returns the `pulse` callback for
@@ -2349,6 +2425,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
       // truth, never the aify server's derived status (anti-feedback-loop safe).
       readGatewayStatus: readManagedSessionStatus,
       clearTurnImpl: () => clearTurn(httpCall, id).catch(() => {}),
+      failRunImpl: (runId, error) => markRunFailed(httpCall, { id: runId }, error),
     }),
     // Thread the in-flight runId so the server heartbeat handler keeps
     // turn_run_id pointing at the open run (it OVERWRITES turn_run_id from the
@@ -2379,7 +2456,10 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     // overwrite agent_turn_state.turn_run_id with '' (the server does turn_run_id =
     // excluded.turn_run_id on every busy beat), which had raced the makeInFlightPulse
     // beat and dropped the run linkage → the reply-reminder deadlock (2026-07-10 review).
-    postTurnStart: () => reportTurnBusy(httpCall, id, { busy: true, runId: inFlight.runId || "" }).catch(() => {}),
+    postTurnStart: () => {
+      inFlight.observedWorking = true;
+      return reportTurnBusy(httpCall, id, { busy: true, runId: inFlight.runId || "" }).catch(() => {});
+    },
     // CLEAR on sustained idle — authoritative /turn-end, only ever clears. Also
     // REVOKES the dispatched-turn credit AND closes the re-pulse probe window: this
     // turn is over, so (a) a subsequent gateway `working` (hermes POST-TURN background
@@ -2390,6 +2470,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     // Setting inFlight.completed makes shouldManagedHostRepulse skip; a new delivery
     // re-arms completed=false, so the next turn tracks normally (2026-07-10 review F1).
     postTurnEnd: () => {
+      if (!shouldApplyGatewayTurnEnd(inFlight)) return;
       inFlight.dispatchTurnOpen = false;
       inFlight.completed = true;
       return clearTurn(httpCall, id).catch(() => {});

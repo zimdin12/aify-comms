@@ -3,8 +3,8 @@
 # Pi/OMP managed delivery uses the environment bridge plus plain `omp --mode rpc`;
 # resident `omp-aify` / `pi-aify` wrapper install is disabled by default because
 # OMP is single-client and cannot receive live wake injection into an open TUI.
-# OpenCode install is also disabled by default until its resident/managed
-# integration gets a focused validation pass.
+# OpenCode client/resident install is disabled; managed OpenCode remains
+# available through an environment bridge installed by a supported client.
 #
 # Usage:
 #   bash install.sh --client claude
@@ -48,7 +48,7 @@ EMIT_CODEX_WRAPPERS_DIR=""
 DEFAULT_AIFY_SERVER_URL="${AIFY_DEFAULT_SERVER_URL:-http://127.0.0.1:8800}"
 
 usage() {
-  cat <<EOF
+  cat <<'EOF'
 Usage:
   bash install.sh --client <claude|codex|hermes> [SERVER_URL] [--with-hook]
 
@@ -65,8 +65,9 @@ Pi/OMP note:
   default because OMP has no multi-client resident wake surface.
 
 OpenCode note:
-  --client opencode is intentionally disabled until the integration gets a
-  focused validation pass. Existing adapter code remains for future work.
+  --client opencode is intentionally disabled. Managed OpenCode runs through
+  an environment bridge installed by a supported client; resident OpenCode is
+  presence/debug metadata only.
 EOF
 }
 
@@ -129,8 +130,8 @@ if [ "$CLIENT" = "pi" ]; then
 fi
 
 if [ "$CLIENT" = "opencode" ]; then
-  echo "OpenCode integration install is disabled until it receives a focused validation pass."
-  echo "Existing OpenCode adapter/controller code remains in the repo for future work."
+  echo "OpenCode client/resident install is disabled."
+  echo "Managed OpenCode remains available through an environment bridge installed by a supported client."
   exit 1
 fi
 
@@ -728,6 +729,11 @@ done
 CODEX_PERMISSION_FLAGS=()
 if [ "$CODEX_AUTO" = true ]; then
   CODEX_PERMISSION_FLAGS+=(--dangerously-bypass-approvals-and-sandbox)
+fi
+if [ "${AIFY_MANAGED_VIA_WRAPPER:-}" = "1" ]; then
+  # The app-server owns the managed TUI; its built-in codex_apps MCP tries to
+  # initialize through that same not-yet-ready server and deadlocks startup.
+  CODEX_PERMISSION_FLAGS+=(--disable apps)
 fi
 
 if command -v setsid >/dev/null 2>&1; then
@@ -3931,6 +3937,16 @@ fi
 echo "[1/4] Installing MCP dependencies..."
 cd "$SCRIPT_DIR/mcp/stdio"
 npm install --silent
+# npm can keep an already-present node-pty package whose platform binary is
+# missing. That silently disables terminal-backed managed runtimes, so rebuild
+# only on the real load failure and refuse to install an unusable bridge.
+if ! node -e "require('node-pty')" >/dev/null 2>&1; then
+  npm rebuild node-pty --silent
+fi
+node -e "require('node-pty')" >/dev/null 2>&1 || {
+  echo "node-pty failed to load; managed terminal runtimes cannot start."
+  exit 1
+}
 cd "$SCRIPT_DIR"
 # Copy the bridge runtime (with node_modules) into the native dotfolder that
 # every wrapper + MCP config points at. Re-synced on every install (mirror with
@@ -4022,8 +4038,8 @@ elif [ "$CLIENT" = "hermes" ]; then
   install_hermes_wrapper
   # Symmetric turn-start hook for hermes-aify direct typing via the
   # pre_llm_call shell-hook event. No matching turn-end hook because
-  # upstream hermes shell-hooks don't expose one; the 120s server-side
-  # turn_busy stale window handles cleanup.
+  # upstream hermes shell-hooks don't expose one; the gateway-status detector
+  # supplies turn-end and the long server backstop covers a dropped end-event.
   install_hermes_turn_hooks
   # Post-install LOUD probe (Plan 1.4 Step 4): there is no silent success path.
   # We cannot ensure a real per-agent daemon at install time without an agent

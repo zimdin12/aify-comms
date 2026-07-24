@@ -96,3 +96,16 @@ test("codex-aify wrapper: bypass flags reach BOTH the app-server line and the fo
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("codex-aify wrapper: managed sessions disable the built-in codex_apps MCP", () => {
+  const { text, dir } = renderCodexWrapper();
+  try {
+    const managed = text.indexOf('if [ "${AIFY_MANAGED_VIA_WRAPPER:-}" = "1" ]; then');
+    const disableApps = text.indexOf("CODEX_PERMISSION_FLAGS+=(--disable apps)", managed);
+    const appServer = text.indexOf('app-server --listen "$APP_SERVER_URL"', managed);
+    assert.ok(managed >= 0 && disableApps > managed && appServer > disableApps,
+      "managed wrappers must disable codex_apps before starting their app-server");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

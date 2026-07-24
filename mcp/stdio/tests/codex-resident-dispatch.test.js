@@ -133,3 +133,22 @@ test("resident codex dispatch echoes the prompt body into the synth-terminal sin
   assert.match(allText, /Wake event payload/, "synth-terminal should echo the dispatch body");
   assert.match(allText, /turn started|turn ended/, "synth-terminal should reflect codex turn lifecycle");
 });
+
+test("managed Codex app-server requests are auto-approved", async (t) => {
+  const threadId = "thr_resident_approval";
+  const { url } = await startFakeAppServer(t, { threadId, script: "approval" });
+  const { launchRuntimeRun } = await import("../runtimes.js");
+  const controller = launchRuntimeRun({
+    agentId: "codex-resident-test",
+    agentInfo: makeResidentAgentInfo({ appServerUrl: url, threadId }),
+    run: makeResidentRun({ id: "run_resident_approval" }),
+    runtimeState: { threadId },
+    callbacks: { onEvent: () => {}, onRefs: () => {} },
+  });
+  const result = await Promise.race([
+    controller.promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("approval response timed out")), 2000)),
+  ]);
+  assert.equal(result.status, "completed");
+  assert.equal(result.summary, "approved");
+});

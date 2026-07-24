@@ -12,6 +12,7 @@ import { fleetPulseHtml } from './analytics.js';
 // identity. (The server already scopes the dashboard inbox; this is the per-peer filter.)
 export function dmMessages(messages, agentId, identity = 'dashboard') {
   const peer = String(agentId || '');
+  const viewer = String(identity || 'dashboard');
   return (messages || []).filter((m) => {
     // Exclude channel-broadcast rows (bughunt 2026-07-03): /messages/recent returns
     // channel posts (source:'channel', to:null); without this guard a channel message
@@ -21,7 +22,8 @@ export function dmMessages(messages, agentId, identity = 'dashboard') {
     if (String(m.source || '') === 'channel' || m.channel) return false;
     const from = String(m.from || '');
     const to = String(m.to || m.targetAgentId || m.target_agent_id || '');
-    return from === peer || to === peer;
+    if (viewer === 'all') return from === peer || to === peer;
+    return (from === peer && to === viewer) || (from === viewer && to === peer);
   });
 }
 
@@ -60,10 +62,17 @@ export function chatConversationItems(state) {
   const buckets = new Map();
   const push = (peer, m) => { const b = buckets.get(peer); if (b) b.push(m); else buckets.set(peer, [m]); };
   for (const m of (state.messages || [])) {
+    if (String(m.source || '') === 'channel' || m.channel) continue;
     const from = String(m.from || '');
     const to = String(m.to || m.targetAgentId || m.target_agent_id || '');
-    if (from) push(from, m);
-    if (to && to !== from) push(to, m);
+    if (identity === 'all') {
+      if (from) push(from, m);
+      if (to && to !== from) push(to, m);
+    } else if (from === identity && to) {
+      push(to, m);
+    } else if (to === identity && from) {
+      push(from, m);
+    }
   }
 
   const dms = (state.agents || [])
@@ -132,7 +141,7 @@ export function chatConversationItems(state) {
 }
 
 // Chat overview shown when no conversation is open (re-click an open chat to return here).
-function railItemHtml(item, selectedKey, drafts = {}) {
+function railItemHtml(item, selectedKey, drafts = {}, readOnly = false) {
   const active = item.key === selectedKey ? ' active' : '';
   const favClass = item.favorited ? ' fav' : '';
   const hasDraft = !!((drafts[item.key] || '').trim());
@@ -148,7 +157,7 @@ function railItemHtml(item, selectedKey, drafts = {}) {
     ? '<span class="chat-await-badge" title="Agent is blocked on an interactive prompt — open its Console">⌛ input</span>'
     : '';
   // DMs get a clickable star (PATCH /agents/{id}/favorite); channels have no server favorite.
-  const fav = item.kind === 'dm'
+  const fav = item.kind === 'dm' && !readOnly
     ? `<span class="chat-fav-toggle${item.favorited ? ' on' : ''}" data-fav-toggle="${esc(item.id)}" role="button" tabindex="0" aria-label="${item.favorited ? 'Unfavorite' : 'Favorite'} ${esc(item.id)}" title="${item.favorited ? 'Unfavorite' : 'Favorite'}">${item.favorited ? '★' : '☆'}</span>`
     : (item.favorited ? '<span class="chat-fav" title="Favorite">★</span>' : '');
   // Sub-line carries the same compact context the old dashboard showed: "role · status · preview"
@@ -171,6 +180,7 @@ export function messageHtml(m, identity = 'dashboard', isChannel = false) {
   const woke = !!runId || m.dispatchRequested || m.dispatch_requested;
   const priority = String(m.priority || '').toLowerCase();
   const mine = String(m.from || '') === String(identity);
+  const readOnly = String(identity) === 'all';
   const badges = [
     `<span class="msg-badge ${m.read === false ? 'unread' : 'read'}">${m.read === false ? 'unread' : 'read'}</span>`,
     woke ? '<span class="msg-badge woke">woke</span>' : '<span class="msg-badge stored">stored</span>',
@@ -184,9 +194,9 @@ export function messageHtml(m, identity = 'dashboard', isChannel = false) {
   // dead/incorrect on channel rows — only show them for DMs.
   // These are optional actions, not reply/read-contract state. Use verb phrases so a read
   // non-reply-owing response does not render the contradictory-looking "read · Reply · Unread".
-  const reply = !isChannel ? `<button class="chat-msg-reply" data-chat-reply="${esc(id)}" title="Compose an optional reply to this message">Write reply</button>` : '';
-  const readToggle = (!mine && !isChannel) ? `<button class="chat-msg-act" data-msg-read="${esc(id)}" data-read="${m.read === false ? '0' : '1'}" title="Mark ${m.read === false ? 'read' : 'unread'}">Mark ${m.read === false ? 'read' : 'unread'}</button>` : '';
-  const unsendBtn = (mine && !isChannel) ? `<button class="chat-msg-act danger" data-msg-unsend="${esc(id)}" title="Unsend this message">Unsend</button>` : '';
+  const reply = (!isChannel && !readOnly) ? `<button class="chat-msg-reply" data-chat-reply="${esc(id)}" title="Compose an optional reply to this message">Write reply</button>` : '';
+  const readToggle = (!mine && !isChannel && !readOnly) ? `<button class="chat-msg-act" data-msg-read="${esc(id)}" data-read="${m.read === false ? '0' : '1'}" title="Mark ${m.read === false ? 'read' : 'unread'}">Mark ${m.read === false ? 'read' : 'unread'}</button>` : '';
+  const unsendBtn = (mine && !isChannel && !readOnly) ? `<button class="chat-msg-act danger" data-msg-unsend="${esc(id)}" title="Unsend this message">Unsend</button>` : '';
   // The ⋯ detail lookup only searches the DM store, so it's dead on channel rows — DMs only.
   const detail = !isChannel ? `<button class="chat-msg-detail" data-message-detail="${esc(id)}" aria-label="Message details" title="Message details">⋯</button>` : '';
   const actions = `${runChip}${reply}${readToggle}${unsendBtn}${detail}`;
@@ -301,7 +311,7 @@ export function createChatController(deps) {
     const chEmpty = loaded ? 'No channels.' : 'Loading…';
     const html = (
       `<div class="chat-rail-section">Direct messages</div>`
-      + (dmItems.length ? dmItems.map((i) => railItemHtml(i, state.chat.selected, state.chat.drafts)).join('') : `<p class="subtle chat-rail-empty">${dmEmpty}</p>`)
+      + (dmItems.length ? dmItems.map((i) => railItemHtml(i, state.chat.selected, state.chat.drafts, state.chat.identity === 'all')).join('') : `<p class="subtle chat-rail-empty">${dmEmpty}</p>`)
       + `<div class="chat-rail-section">Channels</div>`
       + (chItems.length ? chItems.map((i) => railItemHtml(i, state.chat.selected, state.chat.drafts)).join('') : `<p class="subtle chat-rail-empty">${chEmpty}</p>`)
     );
@@ -349,6 +359,7 @@ export function createChatController(deps) {
     }
     const isChannel = key.startsWith('channel:');
     const id = key.slice(key.indexOf(':') + 1);
+    const readOnly = state.chat.identity === 'all';
     if (titleEl) titleEl.textContent = isChannel ? `#${id}` : id;
     // Channel management actions (join/leave/read) reflect membership for the viewing identity.
     const actions = byId('chat-conv-actions');
@@ -359,30 +370,30 @@ export function createChatController(deps) {
         const isMember = members.includes(state.chat.identity);
         const count = chan.memberCount ?? members.length;
         // I7: add-member select (agents not already in the channel) + per-member remove chips.
-        const candidates = (state.agents || []).map((a) => a.id).filter((aid) => aid && aid !== 'dashboard' && !members.includes(aid));
+        const candidates = readOnly ? [] : (state.agents || []).map((a) => a.id).filter((aid) => aid && aid !== 'dashboard' && !members.includes(aid));
         const addControl = candidates.length
           ? `<select id="chat-add-member-${esc(id)}" class="chat-add-member"><option value="">+ Add member…</option>${candidates.map((aid) => `<option value="${esc(aid)}">${esc(aid)}</option>`).join('')}</select><button class="ghost" data-channel-add-member="${esc(id)}">Add</button>`
           : '';
         actions.innerHTML = `<span class="chat-members" title="${esc(members.join(', '))}">${count} member${count === 1 ? '' : 's'}</span>`
-          + (isMember
+          + (readOnly ? '' : (isMember
             ? `<button class="ghost" data-chat-channel-action="leave" data-channel="${esc(id)}">Leave</button>`
-            : `<button class="ghost" data-chat-channel-action="join" data-channel="${esc(id)}">Join</button>`)
-          + `<button class="ghost" data-chat-channel-action="read" data-channel="${esc(id)}">Mark read</button>`
-          + `<button class="ghost danger" data-chat-channel-action="delete" data-channel="${esc(id)}" title="Delete this channel">Delete</button>`
+            : `<button class="ghost" data-chat-channel-action="join" data-channel="${esc(id)}">Join</button>`))
+          + (readOnly ? '' : `<button class="ghost" data-chat-channel-action="read" data-channel="${esc(id)}">Mark read</button>`
+          + `<button class="ghost danger" data-chat-channel-action="delete" data-channel="${esc(id)}" title="Delete this channel">Delete</button>`)
           + addControl;
         // Member chips with remove buttons below the action row.
         if (members.length) {
-          actions.innerHTML += `<div class="chat-member-chips">${members.map((mbr) => `<span class="chat-member-chip">${esc(mbr)}<button data-channel-remove-member="${esc(id)}" data-member="${esc(mbr)}" aria-label="Remove ${esc(mbr)}" title="Remove ${esc(mbr)}">✕</button></span>`).join('')}</div>`;
+          actions.innerHTML += `<div class="chat-member-chips">${members.map((mbr) => `<span class="chat-member-chip">${esc(mbr)}${readOnly ? '' : `<button data-channel-remove-member="${esc(id)}" data-member="${esc(mbr)}" aria-label="Remove ${esc(mbr)}" title="Remove ${esc(mbr)}">✕</button>`}</span>`).join('')}</div>`;
         }
       } else {
         // Messenger | Console segmented toggle — inline terminal access without leaving Chat.
-        const view = state.chat.view === 'console' ? 'console' : 'messenger';
-        const toggle = `<span class="chat-view-toggle" role="group" aria-label="Conversation view">`
+        const view = !readOnly && state.chat.view === 'console' ? 'console' : 'messenger';
+        const toggle = readOnly ? '' : `<span class="chat-view-toggle" role="group" aria-label="Conversation view">`
           + `<button class="seg${view === 'messenger' ? ' active' : ''}" data-chat-view="messenger" aria-pressed="${view === 'messenger'}">Messenger</button>`
           + `<button class="seg${view === 'console' ? ' active' : ''}" data-chat-view="console" aria-pressed="${view === 'console'}" title="Open ${esc(id)}'s live terminal inline">Console</button>`
           + `</span>`;
         actions.innerHTML = toggle
-          + `<button class="ghost" data-mark-conv-read="${esc(id)}" title="Mark all messages from ${esc(id)} read">Mark all read</button>`
+          + (readOnly ? '' : `<button class="ghost" data-mark-conv-read="${esc(id)}" title="Mark all messages from ${esc(id)} read">Mark all read</button>`)
           + `<button class="ghost" data-agent-drawer="${esc(id)}">Details</button>`
           + `<button class="ghost" data-chat-analytics="${esc(id)}">Analytics</button>`;
       }
@@ -390,7 +401,7 @@ export function createChatController(deps) {
     // Console view (DMs only): render the agent's live terminal inline instead of the message
     // timeline. Guard against poll re-renders re-mounting the xterm — only (re)build the host
     // when it's missing or points at a different agent, so the terminal stays stable.
-    if (!isChannel && state.chat.view === 'console') {
+    if (!isChannel && !readOnly && state.chat.view === 'console') {
       let host = byId('chat-console-host');
       if (!host || host.dataset.agent !== id) {
         timeline.innerHTML = `<div id="chat-console-host" class="chat-console-host" data-agent="${esc(id)}"></div>`;
@@ -454,7 +465,7 @@ export function createChatController(deps) {
       sync();
     }
     const composer = byId('chat-composer');
-    if (composer) composer.hidden = false;
+    if (composer) composer.hidden = state.chat.identity === 'all';
     // Type/Priority/Subject only apply to DMs — channel posts are plain {from, body}, so hide the
     // meta row on channels rather than show inert controls.
     const composerMeta = composer?.querySelector('.composer-meta');
@@ -490,10 +501,12 @@ export function createChatController(deps) {
   function renderIdentityOptions() {
     const sel = byId('chat-identity');
     if (!sel) return;
-    const ids = ['dashboard', ...(state.agents || []).map((a) => a.id).filter((id) => id && id !== 'dashboard').sort()];
+    const ids = ['dashboard', 'all', ...(state.agents || []).map((a) => a.id).filter((id) => id && id !== 'dashboard').sort()];
     const html = ids.map((id) => `<option value="${esc(id)}">${esc(id)}</option>`).join('');
     if (sel.dataset.optionSig !== html) { sel.innerHTML = html; sel.dataset.optionSig = html; }
     if (sel.value !== state.chat.identity) sel.value = state.chat.identity;
+    const newChannel = byId('chat-new-channel-form');
+    if (newChannel) newChannel.hidden = state.chat.identity === 'all';
   }
 
   function render() {

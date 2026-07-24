@@ -1,5 +1,9 @@
 # aify-comms — Multi-Agent Teamwork Strategy
 
+> **HISTORICAL TEAM RETROSPECTIVE.** Current agent teamwork guidance lives in
+> `.agents/skills/aify-comms/references/teamwork.md` (mirrored under `.claude/skills/`).
+> Old status examples below predate the proof-based six-state engine.
+
 Operating rules for how this team (operator + `comms-tech-lead` + `comms-senior-dev-pi`
 + spawned managed agents) runs multi-day, multi-agent work without drift.
 

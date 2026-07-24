@@ -2,6 +2,7 @@
 // sibling modules and are imported here; app.js remains the orchestrator (render + actions +
 // the single delegated event handler + init) until later Phase-0 slices split those too.
 import { esc, relTime, tsMs } from './util.js';
+import { createTerminalInputPoster, createTerminalInputHandler, forceTerminalRepaint, waitForTerminalSize } from './terminal-input.mjs';
 import { STATUS_KINDS, resolveStatus, renderStatusChip } from './status.js';
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
 import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
@@ -469,6 +470,14 @@ async function api(path, options = {}) {
     throw new Error(detail);
   }
   return data;
+}
+
+function awaitTerminalSize(terminalId, cols, rows) {
+  return waitForTerminalSize({
+    cols,
+    rows,
+    readSize: async () => (await api(`/terminals/${encodeURIComponent(terminalId)}`)).terminal,
+  });
 }
 
 function refreshSoon() {
@@ -1888,31 +1897,24 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
   // Service request shape (TerminalControlRequest in api_v2.py): {body, requestedBy}.
   // Hermes uses one ordered WebSocket. We still cross the service API, so serialize requests:
   // parallel fetches can otherwise deliver consecutive keystroke chunks out of order.
-  let inputPost = Promise.resolve();
-  term.onData((data) => {
-    // SGR mouse-report suppression (Hermes ChatPage parity). When a TUI enables mouse tracking,
-    // xterm reports clicks/drags to onData as SGR sequences like `\x1b[<0;12;34M`. We forward
-    // onData straight to the PTY input line, so an accidental click would inject those bytes as
-    // literal keystrokes into the prompt. The upstream app never sees our synthetic pane mouse,
-    // so drop the report entirely instead of forwarding it.
-    if (/^\x1b\[<\d+;\d+;\d+[Mm]$/.test(data)) return;
-    // Blocked-input guard (WS-D): don't silently POST into a console that can't accept input —
-    // warn the operator (debounced) so their keystrokes aren't lost into the void.
-    if (state.activeXterm && state.activeXterm.canInput === false) {
+  const postTerminalInput = createTerminalInputPoster({
+    api,
+    terminalId,
+    onError: (err) => {
+      term.write(`\r\n\x1b[31m[input post failed: ${String(err?.message || err).replace(/\x1b/g, '')}]\x1b[0m\r\n`);
+    },
+  });
+  term.onData(createTerminalInputHandler({
+    canInput: () => !(state.activeXterm && state.activeXterm.canInput === false),
+    onBlocked: () => {
       const now = Date.now();
       if (now - consoleInputBlockedToastAt > 4000) {
         consoleInputBlockedToastAt = now;
         toast('This console is not accepting input right now (session not live).', 'warn');
       }
-      return;
-    }
-    inputPost = inputPost.then(() => api(`/terminals/${encodeURIComponent(terminalId)}/input`, {
-        method: 'POST',
-        body: JSON.stringify({ body: data, requestedBy: 'dashboard' }),
-      })).catch((err) => {
-      term.write(`\r\n\x1b[31m[input post failed: ${String(err?.message || err).replace(/\x1b/g, '')}]\x1b[0m\r\n`);
-    });
-  });
+    },
+    postInput: postTerminalInput,
+  }));
   // Emit-resize-only-on-change (hermes parity): xterm fires onResize on every fit even when the
   // grid dims didn't actually change — debounce AND dedupe so we don't spam the PTY with no-ops.
   let resizeTimer = 0;
@@ -2062,7 +2064,7 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
     applyRenderedWidth(state.activeXterm, term, container, data, ownsPty);
     if (state.activeXterm) state.activeXterm.ownsPty = ownsPty;
 
-    // ALWAYS push the pane's size to a PTY we own — do not wait for xterm's onResize.
+    // Force one real width transition on a PTY we own — do not wait for xterm's onResize.
     //
     // This is what actually un-garbles a console, and it took a browser to see it. These TUIs
     // paint by ABSOLUTE cursor position and never scroll (measured: zero newlines, 1160 CUP moves
@@ -2072,16 +2074,20 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
     // redraw those rows on its own.
     //
     // A genuine RESIZE does force a full repaint (verified live: the app emitted 23 chunks and
-    // the screen came back clean). But `term.onResize` only fires when xterm's own size CHANGES —
-    // and once the xterm already fits the pane it never does, so no resize was ever sent and the
-    // console stayed broken forever. Send it explicitly on every attach, then re-pull the
-    // snapshot so the freshly-repainted screen is what lands.
+    // the screen came back clean). But `term.onResize` only fires when xterm's own size CHANGES,
+    // and Linux sends no SIGWINCH for a same-size resize. Nudge one column and restore it before
+    // pulling the freshly-repainted snapshot.
     if (ownsPty) {
       const c = Math.max(20, term.cols), r2 = Math.max(5, term.rows);
       try {
-        await api(`/terminals/${encodeURIComponent(terminalId)}/resize`, {
-          method: 'POST',
-          body: JSON.stringify({ cols: c, rows: r2, requestedBy: 'dashboard-attach' }),
+        await forceTerminalRepaint({
+          cols: c,
+          rows: r2,
+          resize: (nextCols, nextRows) => api(`/terminals/${encodeURIComponent(terminalId)}/resize`, {
+            method: 'POST',
+            body: JSON.stringify({ cols: nextCols, rows: nextRows, requestedBy: 'dashboard-attach' }),
+          }),
+          waitForSize: (nextCols, nextRows) => awaitTerminalSize(terminalId, nextCols, nextRows),
         });
         await new Promise((res) => setTimeout(res, 700));   // let the app repaint
         const fresh = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${c}&rows=${r2}`);
@@ -2176,13 +2182,14 @@ async function resyncActiveConsole({ forceRepaint = false } = {}) {
     // col, then back), which makes the app redraw everything, and THEN pulls the clean snapshot.
     if (forceRepaint && entry.ownsPty) {
       try {
-        await api(`/terminals/${encodeURIComponent(entry.terminalId)}/resize`, {
-          method: 'POST',
-          body: JSON.stringify({ cols: Math.max(20, fetchCols - 1), rows: entry.term.rows, requestedBy: 'dashboard-refresh' }),
-        });
-        await api(`/terminals/${encodeURIComponent(entry.terminalId)}/resize`, {
-          method: 'POST',
-          body: JSON.stringify({ cols: fetchCols, rows: entry.term.rows, requestedBy: 'dashboard-refresh' }),
+        await forceTerminalRepaint({
+          cols: fetchCols,
+          rows: entry.term.rows,
+          resize: (nextCols, nextRows) => api(`/terminals/${encodeURIComponent(entry.terminalId)}/resize`, {
+            method: 'POST',
+            body: JSON.stringify({ cols: nextCols, rows: nextRows, requestedBy: 'dashboard-refresh' }),
+          }),
+          waitForSize: (nextCols, nextRows) => awaitTerminalSize(entry.terminalId, nextCols, nextRows),
         });
         await new Promise((res) => setTimeout(res, 700));
       } catch { /* best-effort */ }
@@ -2951,7 +2958,7 @@ function environmentStartCommand(env) {
   if (os.includes('win')) {
     const cd = firstRoot ? `cd /d ${quote(firstRoot)}` : 'cd /d C:\\Docker';
     const args = extras.map(quote).join(' ');
-    return `${cd}\naify-comms.cmd${args ? ' ' + args : ''}`;
+    return `${cd}\naify-comms${args ? ' ' + args : ''}`;
   }
   const cd = firstRoot ? `cd ${quote(firstRoot)}` : (os.includes('mac') || os.includes('darwin') ? 'cd "$HOME"' : 'cd /mnt/c/Docker');
   const args = extras.map(quote).join(' ');
@@ -3295,11 +3302,11 @@ function openIdentityDirectory() {
 // operator's own terminal (mirror of the 8800 dashboard resume-command). Empty when
 // there's no saved handle or the runtime has no resident resume (pi/opencode are
 // managed-only). Linux/WSL shell form.
-function continueCliCommand(agent) {
-  const handle = String(agent?.sessionHandle || agent?.session_handle || '').trim();
+function continueCliCommand(agent, session) {
+  const handle = String(agent?.sessionHandle || agent?.session_handle || session?.sessionHandle || session?.session_handle || '').trim();
   if (!handle) return '';
-  const runtime = String(agent?.runtime || '').trim().toLowerCase();
-  const id = String(agent?.id || '').trim();
+  const runtime = String(agent?.runtime || sessionRuntime(session) || '').trim().toLowerCase();
+  const id = String(agent?.id || sessionAgentId(session) || '').trim();
   const agentFlag = id ? ` --aify-agent ${id}` : '';
   if (runtime === 'claude-code') return `claude-aify${agentFlag} --dangerously-skip-permissions --resume ${handle}`;
   if (runtime === 'hermes') return `hermes-aify${agentFlag} --resume ${handle}`;
@@ -3330,7 +3337,7 @@ function openAgentDrawer(agentId) {
     `<button class="ghost danger" data-agent-remove="${esc(id)}">Remove agent</button>`,
     `<button class="ghost" data-agent-open-sessions="${esc(sid)}">Open in Sessions</button>`,
   ].filter(Boolean).join('');
-  const cliCmd = continueCliCommand(agent);
+  const cliCmd = continueCliCommand(agent, session);
   const continueCliBlock = cliCmd ? `
       <div class="agent-drawer-cli">
         <div class="agent-drawer-subhead">Continue in CLI</div>
@@ -4529,6 +4536,10 @@ byId('chat-clear-filters')?.addEventListener('click', () => {
 });
 byId('chat-identity')?.addEventListener('change', (event) => {
   state.chat.identity = event.target.value || 'dashboard';
+  if (state.chat.identity === 'all' && state.chat.view === 'console') {
+    state.chat.view = 'messenger';
+    disposeActiveXterm();
+  }
   chatController.render();
 });
 byId('chat-identity-directory')?.addEventListener('click', () => openIdentityDirectory());

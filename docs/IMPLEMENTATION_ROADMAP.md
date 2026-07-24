@@ -1,6 +1,6 @@
 # Implementation Roadmap
 
-Status note: this document is a historical slice plan, not a precise list of unimplemented work. Environment registry, environment-backed spawn, managed agent records, dashboard chat, channel member management, artifacts, session restart/recover/continue, and stale-bridge guards now exist. Use [DASHBOARD_REVIEW.md](DASHBOARD_REVIEW.md), [BRIDGE_SETUP.md](BRIDGE_SETUP.md), and the regression tests for current behavior before treating any old slice text as pending work.
+Status note: this document is a historical slice plan, not a precise list of unimplemented work. Environment registry, environment-backed spawn, managed agent records, dashboard chat, channel member management, artifacts, session restart/reset, and stale-bridge guards now exist. Use [DASHBOARD_REVIEW.md](DASHBOARD_REVIEW.md), [BRIDGE_SETUP.md](BRIDGE_SETUP.md), and the regression tests for current behavior before treating any old slice text as pending work.
 
 ## Slice 0: Product Identity And Safe Cleanup
 

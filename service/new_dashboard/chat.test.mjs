@@ -7,7 +7,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { dmMessages, chatConversationItems, deliveryToastFor, messageHtml, sortChronological } from "./chat.js";
+import { createChatController, dmMessages, chatConversationItems, deliveryToastFor, messageHtml, sortChronological } from "./chat.js";
 
 test("sortChronological orders oldest→newest so the newest sits at the bottom (2026-07-06)", () => {
   // /messages/recent returns DESCENDING (newest first). The timeline must show ascending.
@@ -34,7 +34,7 @@ test("sortChronological is pure (does not mutate the input) and tolerates field-
   assert.deepEqual(sortChronological(undefined), []);
 });
 
-test("dmMessages keeps only messages to/from the peer", () => {
+test("dmMessages keeps only messages between the viewing identity and peer", () => {
   const msgs = [
     { id: "1", from: "alice", to: "dashboard" },
     { id: "2", from: "dashboard", to: "alice" },
@@ -42,7 +42,22 @@ test("dmMessages keeps only messages to/from the peer", () => {
     { id: "4", from: "carol", targetAgentId: "alice" },
   ];
   const got = dmMessages(msgs, "alice").map((m) => m.id);
-  assert.deepEqual(got, ["1", "2", "4"]);
+  assert.deepEqual(got, ["1", "2"]);
+  assert.deepEqual(dmMessages(msgs, "alice", "all").map((m) => m.id), ["1", "2", "4"]);
+});
+
+test("chatConversationItems does not use third-party traffic for a dashboard DM", () => {
+  const items = chatConversationItems({
+    agents: [{ id: "alice", status: "online" }, { id: "carol", status: "online" }],
+    messages: [
+      { id: "mine", from: "alice", to: "dashboard", body: "for dashboard", timestamp: 1 },
+      { id: "other", from: "carol", to: "alice", body: "private handoff", timestamp: 2 },
+    ],
+    chat: { identity: "dashboard", channels: [] },
+  });
+  const alice = items.find((item) => item.id === "alice");
+  assert.equal(alice.msgCount, 1);
+  assert.equal(alice.preview, "for dashboard");
 });
 
 test("dmMessages excludes channel-broadcast rows (bughunt 2026-07-03)", () => {
@@ -57,15 +72,48 @@ test("dmMessages excludes channel-broadcast rows (bughunt 2026-07-03)", () => {
 });
 
 test("read DM actions are labelled as actions, not contradictory message state", () => {
-  const html = messageHtml({
+  const message = {
     id: "m-read", from: "alice", to: "dashboard", type: "response",
     subject: "ack", body: "nothing owed", read: true, dispatchRequested: true,
-  }, "dashboard");
+  };
+  const html = messageHtml(message, "dashboard");
   assert.match(html, />read<\/span>/, "the badge reports current read state");
   assert.match(html, />Write reply<\/button>/, "reply is clearly an optional compose action");
   assert.match(html, />Mark unread<\/button>/, "read toggle says what clicking it will do");
   assert.doesNotMatch(html, />Reply<\/button>/, "a bare Reply label looked like a reply obligation");
   assert.doesNotMatch(html, />Unread<\/button>/, "a bare Unread action contradicted the read badge");
+  const allHtml = messageHtml(message, "all");
+  assert.doesNotMatch(allHtml, /Write reply|Mark unread|Unsend/, "the all identity is read-only");
+});
+
+test("Viewing as all renders a read-only conversation surface", () => {
+  const classList = { add() {}, remove() {}, toggle() {} };
+  const element = () => ({ innerHTML: "", textContent: "", hidden: false, value: "", dataset: {}, classList, querySelector: () => null, addEventListener() {}, scrollHeight: 0, scrollTop: 0, clientHeight: 0 });
+  const ids = ["chat-rail-list", "chat-conv-title", "chat-timeline", "chat-msg-search", "chat-scroll-bottom", "chat-conv-actions", "chat-composer", "chat-identity", "chat-new-channel-form"];
+  const els = Object.fromEntries(ids.map((id) => [id, element()]));
+  const state = {
+    loaded: true,
+    agents: [{ id: "alice", status: "online", favorited: true }, { id: "bob", status: "online" }],
+    messages: [{ id: "m1", from: "alice", to: "bob", body: "handoff", timestamp: 1 }],
+    chat: { identity: "all", selected: "dm:alice", view: "console", analytics: {}, pulse: {}, channels: [{ name: "ops", members: ["alice"], memberCount: 1 }], channelMessages: {}, drafts: {} },
+  };
+  let consoleMounts = 0;
+  const previousDocument = globalThis.document;
+  globalThis.document = { activeElement: null };
+  try {
+    const controller = createChatController({ state, byId: (id) => els[id] || null, mountChatConsole: () => { consoleMounts += 1; } });
+    controller.render();
+    assert.equal(consoleMounts, 0, "all-view must not mount an input-capable console");
+    assert.doesNotMatch(els["chat-conv-actions"].innerHTML, /data-chat-view|data-mark-conv-read/);
+    assert.doesNotMatch(els["chat-rail-list"].innerHTML, /data-fav-toggle/);
+    assert.equal(els["chat-new-channel-form"].hidden, true);
+
+    state.chat.selected = "channel:ops";
+    controller.renderConversation();
+    assert.doesNotMatch(els["chat-conv-actions"].innerHTML, /data-chat-channel-action|data-channel-add-member|data-channel-remove-member/);
+  } finally {
+    globalThis.document = previousDocument;
+  }
 });
 
 test("chatConversationItems pins favorites, then sorts by activity (default)", () => {

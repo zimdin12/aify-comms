@@ -29,6 +29,7 @@ let threadCounter = 0;
 let turnCounter = 0;
 const threads = new Map(); // threadId → { interrupted, activeTurnId }
 let interruptResolver = null;
+let approvalTurn = null;
 if (RESIDENT_THREAD) threads.set(RESIDENT_THREAD, { interrupted: false, activeTurnId: null });
 
 // Pluggable sender: stdio writes JSON to stdout; WS writes to the open socket.
@@ -64,6 +65,17 @@ async function runTurn(reqId, threadId, _params) {
     return;
   }
 
+  if (SCRIPT === "approval") {
+    approvalTurn = turn;
+    send({
+      jsonrpc: "2.0",
+      id: "approval-1",
+      method: "item/commandExecution/requestApproval",
+      params: { threadId, turnId: turn, itemId: "i1", reason: "test" },
+    });
+    return;
+  }
+
   if (SCRIPT === "interrupt") {
     send({ jsonrpc: "2.0", method: "item/agentMessage/delta", params: { delta: "thinking..." } });
     // Wait for turn/interrupt to arrive on stdin.
@@ -86,6 +98,13 @@ async function runTurn(reqId, threadId, _params) {
 }
 
 async function handleMessage(msg) {
+  if (msg.id === "approval-1" && !msg.method) {
+    if (msg.result?.decision !== "acceptForSession") throw new Error("approval was not accepted for session");
+    send({ jsonrpc: "2.0", method: "item/agentMessage/delta", params: { delta: "approved" } });
+    send({ jsonrpc: "2.0", method: "turn/completed", params: { turn: { id: approvalTurn, status: "completed" } } });
+    approvalTurn = null;
+    return;
+  }
   if (msg.method === "initialize") {
     if (SCRIPT === "crash-on-init") process.exit(1);
     send({ jsonrpc: "2.0", id: msg.id, result: {} });

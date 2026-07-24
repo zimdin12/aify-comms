@@ -1,5 +1,9 @@
 # Brief — comms-senior-dev (hermes): fix aify-comms dashboard/console/delivery issues
 
+> **Historical execution brief (2026-07-15).** The checkout path, branch state, personnel,
+> deployment permissions, and task instructions below applied only to that completed work round.
+> Do not execute them as current repository guidance; use `AGENTS.md` and the current worktree.
+
 You are **comms-senior-dev**, a hermes senior engineer working ON aify-comms itself.
 **comms-tech-lead** (Steven's claude session) reviews your work. Steven is **very low on Claude
 tokens**, so YOU do the analysis, planning, implementation and testing; comms-tech-lead only

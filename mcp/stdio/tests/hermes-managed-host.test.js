@@ -10,15 +10,15 @@
 //   2. deliverRun (claim/deliver loop): claim a dispatch run → reportTurnBusy →
 //      open a WS to the gateway → session.active_list → pickSessionForKey to
 //      resolve the visible TUI's EPHEMERAL runtime sid for `aify-<agentId>` →
-//      prompt.submit {session_id, text} → on 4009 busy fall back to
-//      session.steer → markRunDelivered (WAKE-ONLY: NO reply posted; the
+//      prompt.submit {session_id, text} → on 4009 busy requeue until turn-end
+//      → markRunDelivered (WAKE-ONLY: NO reply posted; the
 //      in-session agent self-replies via comms_send) → clearTurn.
 //   3. teardown: on SIGTERM/SIGINT/release kill the gateway-host child + exit.
 //
 // The runtime sid is NEVER cached: each delivery re-runs session.active_list.
 //
 // Tests inject a fake aify httpCall, a fake WS client modeling
-// session.active_list / prompt.submit / busy(4009)+steer, and a fake spawn +
+// session.active_list / prompt.submit / busy(4009)+requeue, and a fake spawn +
 // fake index HTML for ensureGatewayHost.
 
 import assert from "node:assert/strict";
@@ -42,6 +42,7 @@ import {
   resolveHermesPython,
   makeInFlightProbe,
   makeInFlightPulse,
+  shouldApplyGatewayTurnEnd,
   isGatewayConnectRefused,
   gatewayUnreachableMessage,
   noTuiAttachedMessage,
@@ -195,6 +196,39 @@ test("deliverRun: active_list resolves the live TUI sid, prompt.submit targets i
   );
 });
 
+test("deliverRun: an ordinary busy send uses native session.steer without starting another turn", async () => {
+  const { httpCall, calls } = makeAifyHttp();
+  const working = {
+    result: {
+      sessions: [
+        { id: "live-sid-ab12", session_key: "aify-sc-hermes", status: "working", started_at: "2099-01-01T00:00:00Z" },
+      ],
+    },
+  };
+  const ws = makeFakeWsClient({
+    "session.active_list": working,
+    "session.steer": { status: "queued" },
+  });
+  const inFlight = { submittedAt: 123, completed: false, runId: "active-run", dispatchTurnOpen: true };
+
+  await deliverRun({
+    run: { ...SAMPLE_RUN, steerIfBusy: true },
+    agentId: "sc-hermes",
+    httpCall,
+    wsClient: ws,
+    tempDir: MARKER_DIR,
+    inFlight,
+  });
+
+  const steer = ws.sent.find((frame) => frame.method === "session.steer");
+  assert.ok(steer, "expected native session.steer");
+  assert.equal(steer.params.session_id, "live-sid-ab12");
+  assert.ok(!ws.sent.find((frame) => frame.method === "prompt.submit"), "steer must not start or interrupt a turn");
+  const delivered = findCall(calls, "PATCH", (endpoint) => endpoint.startsWith("/dispatch/runs/"));
+  assert.equal(delivered?.body?.status, "delivered");
+  assert.deepEqual(inFlight, { submittedAt: 123, completed: false, runId: "active-run", dispatchTurnOpen: true });
+});
+
 test("deliverRun: renders the inbound notice box (#3) BEFORE prompt.submit, same sid, carries sender + body", async () => {
   const { httpCall } = makeAifyHttp();
   const ws = makeFakeWsClient({
@@ -295,24 +329,29 @@ test("deliverRun: requeue (TUI never attaches) closes inFlight window {submitted
   assert.equal(inFlight.runId, "", "requeue clears the tracked runId");
 });
 
-test("deliverRun: busy 4009 on prompt.submit → falls back to session.steer", async () => {
+test("deliverRun: busy 4009 requeues without session.steer or false delivered", async () => {
   const { httpCall, calls } = makeAifyHttp();
   const busy = Object.assign(new Error("session busy"), { code: 4009 });
   const ws = makeFakeWsClient({
     "session.active_list": ACTIVE_LIST_RESULT,
     "prompt.submit": busy,
-    "session.steer": { status: "queued" },
+  });
+  const inFlight = { submittedAt: 99, completed: false, runId: "run-1", dispatchTurnOpen: true };
+
+  await deliverRun({
+    run: SAMPLE_RUN, agentId: "sc-hermes", httpCall, wsClient: ws,
+    tempDir: MARKER_DIR, inFlight,
   });
 
-  await deliverRun({ run: SAMPLE_RUN, agentId: "sc-hermes", httpCall, wsClient: ws, tempDir: MARKER_DIR });
-
-  const steer = ws.sent.find((f) => f.method === "session.steer");
-  assert.ok(steer, "expected a session.steer fallback frame on 4009 busy");
-  assert.equal(steer.params.session_id, "live-sid-ab12", "steer targets the live runtime sid");
-
-  // Still settled delivered.
   const patch = findCall(calls, "PATCH", (e) => e.startsWith("/dispatch/runs/"));
-  assert.equal(String(patch.body.status), "delivered");
+  assert.equal(String(patch.body.status), "queued");
+  assert.ok(!ws.sent.find((f) => f.method === "session.steer"));
+  assert.notEqual(String(patch.body.status), "delivered");
+  assert.equal(inFlight.submittedAt, 0);
+  assert.equal(inFlight.runId, "");
+  assert.equal(inFlight.dispatchTurnOpen, false);
+  assert.ok(!findCall(calls, "POST", (e) => e.endsWith("/turn-end")),
+    "4009 proves another turn is active; keep turn_busy latched until its real turn-end");
 });
 
 test("deliverRun: never caches the sid — re-runs active_list on every delivery", async () => {
@@ -2484,6 +2523,98 @@ test("makeInFlightProbe: a transient 'idle' BEFORE any 'working' does NOT end th
   assert.equal(await probe(), true, "idle before any working → assume turn not started yet → keep re-pulsing");
   assert.equal(inFlight.completed, false, "no premature completion");
   assert.equal(cleared, 0, "no premature /turn-end");
+});
+
+test("makeInFlightProbe: accepted submit that never starts fails instead of wedging delivered", async () => {
+  const now = Date.now();
+  const inFlight = {
+    submittedAt: now - 60_001,
+    completed: false,
+    runId: "run-never-started",
+    observedWorking: false,
+  };
+  const failed = [];
+  let cleared = 0;
+  const probe = makeInFlightProbe({
+    inFlight,
+    serverUrl: "http://x",
+    httpCall: async () => ({ run: { status: "delivered", requireReply: true } }),
+    readGatewayStatus: async () => "idle",
+    failRunImpl: async (runId, error) => failed.push([runId, error.message]),
+    clearTurnImpl: async () => {
+      cleared++;
+    },
+    startTimeoutMs: 60_000,
+    now: () => now,
+    maxWindowMs: WIN,
+  });
+
+  assert.equal(await probe(), false, "no turn-start within the bound must stop the in-flight beat");
+  assert.deepEqual(failed, [[
+    "run-never-started",
+    "Hermes accepted prompt.submit but no gateway turn started within 60000ms",
+  ]]);
+  assert.equal(inFlight.completed, true);
+  assert.equal(inFlight.runId, "");
+  assert.equal(cleared, 1);
+});
+
+test("makeInFlightProbe: a turn observed by the fast detector cannot false-hit the start timeout", async () => {
+  const inFlight = {
+    submittedAt: Date.now() - 60_001,
+    completed: false,
+    runId: "run-started",
+    observedWorking: true,
+  };
+  let failed = 0;
+  const probe = makeInFlightProbe({
+    inFlight,
+    serverUrl: "http://x",
+    httpCall: async () => ({ run: { status: "delivered", requireReply: true } }),
+    readGatewayStatus: async () => "idle",
+    failRunImpl: async () => {
+      failed++;
+    },
+    startTimeoutMs: 60_000,
+    idleDebounce: 2,
+    maxWindowMs: WIN,
+  });
+
+  assert.equal(await probe(), true, "one idle read after a proven start remains debounced");
+  assert.equal(failed, 0, "a proven turn-start must suppress the no-start failure path");
+});
+
+test("makeInFlightProbe: a turn starting during the run-status fetch cannot be failed", async () => {
+  const inFlight = {
+    submittedAt: Date.now() - 60_001,
+    completed: false,
+    runId: "run-racing-start",
+    observedWorking: false,
+  };
+  let gatewayReads = 0;
+  let failed = 0;
+  const probe = makeInFlightProbe({
+    inFlight,
+    serverUrl: "http://x",
+    httpCall: async () => ({}),
+    fetchStatus: async () => ({ status: "delivered", requireReply: true }),
+    readGatewayStatus: async () => (++gatewayReads === 1 ? "idle" : "working"),
+    failRunImpl: async () => {
+      failed++;
+    },
+    startTimeoutMs: 60_000,
+    maxWindowMs: WIN,
+  });
+
+  assert.equal(await probe(), true);
+  assert.equal(inFlight.observedWorking, true);
+  assert.equal(failed, 0);
+});
+
+test("shouldApplyGatewayTurnEnd keeps an accepted dispatch open until its turn starts", () => {
+  assert.equal(shouldApplyGatewayTurnEnd({ dispatchTurnOpen: true, observedWorking: false }), false);
+  assert.equal(shouldApplyGatewayTurnEnd({ dispatchTurnOpen: true, observedWorking: true }), true);
+  assert.equal(shouldApplyGatewayTurnEnd({ dispatchTurnOpen: false, observedWorking: false }), true);
 });
 
 test("makeInFlightProbe: gateway status read error → no false turn-end (falls back to run-status path)", async () => {

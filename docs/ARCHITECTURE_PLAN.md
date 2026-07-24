@@ -61,7 +61,7 @@ Fields:
 - `bridge_id`
 - `cwd_roots`
 - `runtimes`: supported runtime capabilities
-- `status`: `online`, `idle`, `offline`, `blocked`
+- `status`: `working`, `online`, `available`, `blocked`, `offline`, `stopped`
 - `last_seen`
 - `metadata`
 
@@ -87,7 +87,7 @@ Fields:
 - `initial_message`
 - `channel_ids`
 - `mode`: `managed-warm` for dashboard-created agents. Older compatibility values may appear in existing data, but the live dashboard should not expose them as product modes.
-- `resume_policy`: `native_first`, `bridge_only`, `fresh_context` (fresh context is only for explicit Recreate/Compact flows; ordinary Restart/Recover must preserve the stored native handle or surface a recoverable error)
+- `resume_policy`: `native_first`, `bridge_only`, `fresh_context` (fresh context is only for explicit Reset/Compact flows; ordinary Restart must preserve the stored native handle or surface a recoverable error)
 - `status`: `queued`, `claimed`, `starting`, `running`, `failed`, `cancelled`
 - `claimed_by_bridge_id`
 - `process_id`
@@ -301,7 +301,7 @@ Important API families:
 
 - environments and bridge heartbeat/control
 - spawn requests, spawn specs, and managed agent adoption
-- agent sessions stop/restart/recover/pause/continue
+- agent sessions stop/restart/reset/pause/continue
 - run audit records, events, handoffs, interrupt, and steer controls
 - direct messages, channel messages, read state, and shared artifacts
 - compaction packets and managed successors

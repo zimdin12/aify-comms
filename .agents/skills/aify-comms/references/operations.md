@@ -2,6 +2,56 @@
 
 Load this file only for setup, runtime policy, bridge/session repair, or dashboard operations. For routine chat, use the main skill.
 
+## Operator proof model
+
+### Ownership before action
+
+For lifecycle or cleanup work, establish the current ownership tuple:
+
+```text
+agent id + runtime session handle + agent session id + terminal id
++ environment id + bridge instance id + current process ancestry
+```
+
+`comms_agent_info` is the first read, not the final authority when records conflict.
+Current bridge heartbeats, terminal ownership, runtime events, and OS process ancestry
+outrank stale database rows. Terminal controls belong to both the environment and the
+bridge instance that owns the terminal. A resident registration may reconcile stale,
+unbacked managed metadata; it must not displace an active managed run. A runtime's own
+delivery sidecar can be part of the same owner, not a competing worker.
+
+Do not kill, restart, reap, switch, or supersede until the exact live owner is known.
+If the tuple conflicts, stop and diagnose through `aify-comms-debug`.
+
+### Interruption
+
+1. Read `comms_agent_info` and `comms_run_status` where a dispatch run exists.
+2. Confirm the live session, terminal, environment, bridge instance, and current turn.
+3. Use `comms_run_interrupt` for that exact dispatch run, or `comms_interrupt` for the current managed console turn.
+4. Do not repeat the control blindly; a replacement turn may now own the terminal.
+5. Verify native turn end plus converged run/agent/session state.
+
+An accepted or claimed control proves transport only. Completion requires observing the
+original turn end and post-action state. A normal message containing `STOP` is not an
+interrupt.
+
+### Deployment claims
+
+Report each state separately; later states do not follow from earlier ones:
+
+| Claim | Minimum evidence |
+|---|---|
+| Source changed | exact worktree SHA/diff |
+| Installed/copied | installed checksum or source provenance |
+| Process refreshed | new PID/start time or explicit reload/restart evidence |
+| Image built | image digest/build output |
+| Container deployed | running container uses that image digest |
+| Service current | `/version` or served checksum matches the intended SHA |
+| Behavior proven | the real runtime/provider path produced the expected result |
+
+A healthy endpoint is not deployment proof. A rebuilt image is not a recreated
+container. A copied file is not a reloaded long-running process.
+
 ## Install Or Update
 
 After every install/update:
@@ -26,125 +76,80 @@ Wrapper auto mode:
 
 ## Managed Runtime Policy
 
-- Dashboard-managed identities are already registered by the environment bridge. Do not call `comms_register` inside delivered dashboard-managed runs.
-- Terminal-capable managed runtimes use a bridge-owned backing when possible. Dashboard Messenger sends start or reuse that backing, and browser Console attaches to the same process/stream instead of taking over the identity. Managed Claude Code uses an interactive `claude-aify` PTY/channel backing. Managed Codex and Hermes default to bridge-owned `codex-aify` / `hermes-aify` wrapper PTYs (`managed_via_wrapper=["codex","hermes"]`) whose in-process bridge claims channel/resident dispatches. Managed Pi uses a persistent native OMP RPC child and virtual terminal stream.
-- Managed Codex uses Codex's unattended bypass profile by default. Managed Claude Code adds `--dangerously-skip-permissions` by default. Operators can override only for debugging.
-- Managed Claude Code no longer uses `claude -p`; Claude work starts/reuses an interactive `claude-aify` PTY, confirms the channel prompt when needed, writes the dashboard turn into Claude, and submits it with a separate Enter.
-- Three settings shape the managed-delivery surface: `insert_messages_via_console=false` is the default channel-route mode for managed Claude; `managed_pty_eager_spawn=true` with `managed_terminal_backing_enabled=true` proactively launches wrapper PTYs at spawn-request running where applicable; **`managed_via_wrapper=["codex","hermes"]` is the default wrapper-backed path for Codex and Hermes**. These controls are exposed in Dashboard Settings -> Runtime, alongside `manual_session_mode` for showing explicit Switch to resident/managed actions. Pi is excluded from wrapper mode because OMP is single-client; its dashboard Console is the persistent native RPC virtual terminal (`aify://virtual-rpc/pi`). Flip settings via Dashboard Settings or `PUT /api/v1/settings` and roll back instantly if anything regresses. See DECISIONS.md for the rationale.
-- **Important precondition for channel-route managed Claude**: `claude-channel.js` runs INSIDE the `claude-aify` wrapper as an MCP child of Claude, so the wrapper PTY must be alive somewhere to claim the channel dispatch. The bridge spawns that wrapper for managed claude on dispatch (or eagerly with `managed_pty_eager_spawn=true`); a resident `claude-aify --aify-agent <id>` works equivalently. If the env doesn't advertise terminal+claude-code support (`Get-Command claude` / `Get-Command claude-aify` failing on the bridge host, or node-pty not built), the wrapper can't be spawned → no claim → run sits in `queued`. The "channel route doesn't need a PTY" framing is wrong — channel route is "PTY exists but delivery goes via MCP notification instead of typing into stdin", not "no PTY at all".
-- All `*-aify` wrappers accept explicit `--resident`/`--managed` flags; precedence is `AIFY_SESSION_MODE` env > flag > TTY auto-detect (`[ -t 0 ]`). Bridge-spawned wrappers always inherit `AIFY_SESSION_MODE=managed`; operator-launched wrappers default to `resident`. `claude-aify` additionally exports `AIFY_CHANNELS_ENABLED=1` so `runtime_config.channelEnabled=true` is set at register (precondition for resident-run/interrupt/steer caps).
-- By default `claude-aify` loads the operator's FULL `~/.claude.json` MCP server list (your usual MCP servers ARE available inside the wrapper) alongside `aify-comms` + `aify-comms-channel`. Set `AIFY_CLAUDE_STRICT_MCP=1` to force `--strict-mcp-config` with ONLY the two aify servers — the escape hatch for the Claude-Code stdio MCP init race that can silently kill `aify-comms-channel` when many servers compete at startup (default flipped 2026-05-25, commit `6b79dd0`). On Windows Git Bash the wrapper uses `cygpath -m` to convert install paths to native (`C:/...`) format.
-- When wrapper-backed delivery is disabled or unavailable, managed pi/codex/opencode/hermes delivery flows through the bridge's per-runtime controllers in `mcp/stdio/controllers/` (Plan 3 of the 2026-05-25 RuntimeAdapter refactor — `PiController`, `CodexController` + per-mode subclasses, `OpencodeController`, `HermesController` + per-mode subclasses). The adapter contract owns dispatcher selection (`adapter.controllerFor(opts)`). Pi uses this native controller surface today; OpenCode code is retained but install is disabled pending focused validation; Codex and Hermes use it as fallback/debug because their default path is wrapper-backed PTY. Native-controller paths surface a **synthesized terminal_session** so the dashboard's Console pane shows live dispatch activity (`runtime_state.virtualTerminal=true`, `command='aify://virtual-rpc/<runtime>'`):
-  - **pi managed** — `aify://virtual-rpc/pi`. RPC child is **persistent**: spawned on the first dispatch (`PiController` + `pi-session.js` pool), reused across subsequent ones, idle-timed out at 24h (`AIFY_PI_IDLE_TIMEOUT_MS`). Each `AgentSessionEvent` (ready, message_update, tool_execution_*, agent_*, error, RpcExtensionUIRequest) is formatted into a human-readable frame. Operator console input buffers until `\r`/`\n` and dispatches a new RPC turn through the same persistent child. Soft watchdog (`GET /agents/{id}/pi-session-state`) lets `omp-aify`/`pi-aify` refuse to launch an external omp on the same session-id while the bridge owns it; `omp-aify --standalone --resume <other-id>` is the escape hatch. Plan 2 removed `pi-session-resume` and pi resident — pi now exclusively uses this managed path.
-  - **hermes managed** — default wrapper-backed PTY via `hermes-aify`; the wrapper's child bridge delivers through the local Hermes dashboard gateway (`prompt.submit` / `session.steer`) and dashboard Console renders the real TUI. If wrapper-backed delivery is disabled, native controller fallback uses Hermes process/gateway controllers and synthesized terminal output. Internals (visible-TUI model): `hermes-aify --aify-agent <id>` brings up the gateway-host and resumes the agent's stored **native session id** (or starts fresh the first time); `hermes-aify --resume <real-session-id>` recovers the agent from the stored handle and resumes that real session. The session id is symmetric with claude (UUID) / codex (thread) — there is no synthetic `aify-<agentId>` session, and the operator never types one. The model is: a hidden `hermes dashboard --port <P>` gateway host (no `--tui` since hermes 0.15.1), a `hermes-managed-host.js run <agent>` delivery loop (runs as a `channel-sidecar` bridge; targets the agent's session by its stored real id via WS `session.active_list` and delivers via WS `prompt.submit` / `session.steer`), and a VISIBLE `hermes --tui --resume <real-session-id>` rendered in the dashboard Console via xterm.js. The agent→real-session binding is the marker `aify-hermes-session-<agentId>`; the bridge reads the visible session's real id from the active-session file (`HERMES_TUI_ACTIVE_SESSION_FILE` / `AIFY_HERMES_ACTIVE_SESSION_FILE`), now the PRIMARY id source. The agent self-replies via `comms_send`. A healthy live dispatch should show the message in the visible TUI before the assistant reply streams or completes. If a managed Hermes wrapper stays at `resuming...` on a stale handle, current bridges do not claim dashboard work from that unready Console; the terminal manager heals by restarting once. Use `AIFY_HERMES_DISABLE_PLUGIN=1 hermes-aify` only for upstream-Hermes A/B testing. Retired (do not treat as live): `aify.session.bind_transport` / `HermesResidentController`, the per-agent `hermes gateway run` api_server daemon as the managed delivery path, and api_server `chat` wake — all superseded by the native-session-id gateway model. Operator sends a message to an "available" managed hermes → host + visible TUI auto-spawn → ~3-15s later the sidecar claims once the Console is ready → dispatch delivered, no message lost. See DECISIONS.md (2026-05-31) and install.hermes.md.
-  - **codex managed** — default wrapper-backed PTY via `codex-aify`; the wrapper's child bridge delivers through the local Codex app-server and dashboard Console renders the wrapper TUI. If wrapper-backed delivery is disabled, native controller fallback uses Codex app-server RPC and synthesized terminal output.
-  - **opencode managed** — `aify://virtual-rpc/opencode`. Per-dispatch SDK call via `OpencodeController`. Coarser feed than codex because the SDK doesn't expose granular tool events — prompt echo, connecting marker, the final reply (or error), and `■ turn ended`. Full persistent-worker is Phase 6, deferred. Multi-client via `opencode serve` integration is also tracked as a follow-up.
-  - Worker auto-close: `worker_idle_close_enabled=true` plus `worker_idle_close_minutes>0` reaps managed worker terminals that have been idle longer than the window AND have no in-flight `dispatch_runs`. It applies to wrapper-backed PTYs (`codex-aify`, `hermes-aify`, etc.) and native virtual RPC terminals (`aify://virtual-rpc/<runtime>`). Real PTYs are asked to stop through bridge terminal controls and go to `stopping`; virtual RPC terminals can be marked `stopped` immediately. Orphaned dispatch_runs (no `claim_bridge_id`, no `dispatch_events` since the cutoff) are reaped at `active_managed_run_stale_minutes` (default 5) by the periodic reconciler — covers both managed-mode AND terminal-mode (wrapper-PTY-backed) orphans, so stuck queued messages unblock in 5 min instead of 30. The dispatch_events evidence requirement prevents false-positive reaping of legitimate slow-claim clients.
-  - Reliability: bridge-side `controller.promise.catch` retries the failure-PATCH 3× with exponential backoff; the virtual terminal sink retries POSTs to `/terminals/{id}/output` 3× on transient errors. Closes the gap where a service-restart blip silently drops dispatch failures or text_delta frames.
-  - Bridge takeover (2026-05-22): a virtual rpc terminal_session created by an earlier bridge process whose UUID has since changed (every bridge restart picks a fresh `BRIDGE_INSTANCE_ID`) can be written to by a later bridge — the `/terminals/{id}/output` endpoint transfers ownership for `command IN VIRTUAL_RPC_COMMAND_SET` on bridge_id mismatch (audit event `virtual_rpc_bridge_takeover`). Real PTY terminals keep the strict ownership check. Operator-visible win: synth terminal feeds stay continuous across bridge restarts instead of going silent.
-- Status taxonomy (proof-based 6-state, 2026-06-18): `working` (turn in progress) / `online` (live worker, no turn — the effective "ready" state) / `available` (managed, env reachable, no live worker yet) / `blocked` (in-turn, awaiting operator input) / `offline` (heartbeat gone — resident bridge expired / no usable wake handle, or managed env down) / `stopped` (operator hard-disabled). The time-decay states `idle` and `stale` were removed — a long-quiet live agent stays `online`, and a resident whose bridge lapsed or has no usable wake handle (`*-missing-handle`) reads `offline`, not `stale`. **Engine note:** `derive()` is the sole authority (the `status_engine` flag was removed); a booting managed console shows `online`. The `working` state is event-driven and liveness-gated:
-  - **Per-runtime turn-start signals** (claude-aify `UserPromptSubmit` hook + the bidirectional transcript turn detector, codex hooks.json `UserPromptSubmit`, the continuous hermes gateway-status detector for managed) → POST `/agents/{id}/turn-start`, or the `/heartbeat` `turnBusy` field for managed channel turns → sets the engine in-turn state. (`Stop` is the turn-END hook; the old claude `PostToolUse` re-pulse was removed.)
-  - **Liveness-gated (WS-2):** the in-turn states (`working`/`blocked`) require a LIVE worker — a dead managed worker / expired resident bridge falls to `available`/`offline` within the liveness window (`agent_liveness_seconds`, default 90s) instead of latching `working` to the `TURN_BUSY_BACKSTOP_SECONDS` ceiling.
-  - **Real-time (WS-1):** turn-start/turn-end/`turnBusy`-flip/console-working transitions push the new status to BOTH dashboards (8800 + 8801) immediately, so to-working/to-ready reflect within a second rather than on the ~60s poll.
-  - **Cleared authoritatively** by per-runtime turn-end signals (claude-aify Stop + transcript detector, codex Stop, hermes gateway idle/exit), and by `_mark_dispatch_run_answered` when a reply lands. STATUS self-heals a dropped turn-end at the 30-min `TURN_BUSY_BACKSTOP_SECONDS` ceiling; the 120s `TURN_BUSY_STALE_SECONDS` window is reserved for the claim/queue gate only.
-  - **Queue gate (WS-3):** `queueIfBusy=true` defers while the target is genuinely working per the liveness-aware engine status (ANY of `hasActiveRun`, `queuedRuns>0`, or engine `working`/`blocked` within the 120s bound) and releases the instant the target returns to ready (`online`) — never stranding behind a dead worker. An ORDINARY (non-queued) `comms_send` is a steer and still injects mid-turn into a steer-capable target; only explicitly-queued sends wait for ready.
-- For wrapper-backed managed Codex/Hermes, the environment bridge starts/reuses the PTY, but the wrapper's child bridge must claim the queued channel run; the environment bridge must not claim it directly because it does not own the live app-server/gateway.
-- If an in-turn agent's live console output clearly asks for operator input or a decision, the engine shows `blocked` instead of healthy `working`; ordinary Claude prompt/footer chrome alone is not `blocked` — and the auto-answered claude/hermes session-resume picker (Resume full session as-is / Don't ask me again) is suppressed too, so only genuine y/n or password prompts flag. If a runtime returns to an idle prompt after visible output but never sends an explicit chat reply, reconcile closes the active turn as completed-without-reply so it becomes Work Loop audit debt rather than live work.
-- Stopped/failed Console terminals are cleared as the current session binding and remain historical only, so they should not be treated as the current Console. Dashboard Next suppresses stale managed terminal widgets while the identity is in `resident` mode; use the resident-specific attach widget or switch back to managed before expecting the managed PTY to receive typed dashboard turns.
-- Resident mode is a deliberate visible-terminal path for runtimes with a multi-client injection surface: use `claude-aify --aify-agent <id>`, `codex-aify --aify-agent <id>`, or `hermes-aify --aify-agent <id>` when that separate CLI should own live delivery. Legacy `omp-aify` / `pi-aify` wrappers are not installed by default; triggerable Pi delivery is managed RPC, not resident injection into an open OMP TUI. Ownership changes are manual: resident registration records a candidate, but operators switch delivery with **Switch to resident/managed** in Sessions or Chat details; stale resident sends fail visibly until switched or restarted.
-- Managed runtime defaults are global operator policy in Dashboard Settings, not normal per-agent fields.
-- Managed Claude Code and Codex model fields are blank by default, which means runtime default/latest; both default to `high` effort/reasoning effort. Managed Claude Code uses 50 max turns by default (`runtimeConfig.maxTurns` can override). Bridge-spawned `claude-aify` applies model/effort when its PTY starts, so restart existing managed Claude PTYs after changing the global policy. Managed Pi has optional Dashboard Runtime model/effort defaults; blank or `default` model means no `--model` override, and Pi effort is passed as OMP `--thinking` when set.
-- Managed runtimes have a 12-hour hard dispatch timeout by default. Managed Codex also has a 30-minute quiet-stall watchdog and a narrower 90-second aify-comms MCP tool-call watchdog.
-- Tune with `runtimeConfig.timeoutMs`, `runtimeConfig.quietTimeoutMs` / `runtimeConfig.silenceTimeoutMs`, and `runtimeConfig.mcpToolTimeoutMs` / `runtimeConfig.commsToolTimeoutMs`.
-- Set quiet timeout to `0` only for agents expected to run very long silent commands; set MCP tool timeout to `0` only while debugging the MCP transport.
+- Dashboard-managed identities are registered by the environment bridge. Delivered managed runs must not call `comms_register`.
+- The bridge owns managed backings; Browser Console attaches to that backing and is not another owner.
+- Branch on advertised capabilities, not runtime names. Unsupported resident mode or interrupt must fail visibly rather than create an undeliverable session.
+- Use Dashboard Settings for operator policy. Runtime flags and controller internals belong in [the architecture plan](../../../../docs/ARCHITECTURE_PLAN.md), not in an agent's routine context.
+
+| Runtime | Normal managed delivery | Resident delivery |
+|---|---|---|
+| Claude Code | wrapper PTY plus channel | supported through `claude-aify` |
+| Codex | wrapper PTY plus app-server | supported through `codex-aify` |
+| Hermes | wrapper PTY plus gateway sidecar | supported through `hermes-aify` |
+| Pi | persistent managed RPC | presence/debug only |
+| OpenCode | native managed controller when enabled | unsupported |
+
+A wrapper-backed runtime still needs its wrapper/sidecar alive to claim work. A console can
+exist while its delivery owner is dead; prove both before calling the agent `online`.
 
 ## Send Gating & Delivery
 
-Ordinary sends are live-delivery gated, but an `available` managed agent (registered, env online, no live worker yet) AUTO-STARTS on send: the service cold-starts a bridge-claimed worker, auto-binding the freshest online environment that advertises the runtime when none is bound — so you don't pre-spawn idle agents (`available` means reachable/not-running, not "boot everything on open"). Only `offline`/no-online-env targets, and explicitly-disabled `stopped` agents, fail (without storing a future surprise). (Known caveat: auto-start can be unreliable right after a bridge restart, when the prior session binding has gone stale — bug D in KNOWN_ISSUES; **Restart** a warm/`available` agent that stays dormant after a restart instead of relying on send-to-wake.) A `stopped` agent is an operator **disable** (Stop): it never auto-starts and refuses others' sends until **Resume**; when truly no env advertises the runtime the rejection reads "no online environment can host". Managed delivery is runtime-specific but dashboard-symmetric: Claude Code uses `claude-aify` PTY/channel backing, Codex and Hermes default to bridge-owned wrapper PTYs with child bridges and native app-server/gateway delivery, Pi uses the persistent OMP RPC virtual terminal, and OpenCode is currently deferred/not installed by default. Browser Console attaches to the backing stream where one exists; it is not a separate owner. If wrapper backing is disabled or unavailable, Codex/Hermes native controllers are fallback/debug paths with synthesized terminal output. Busy steer-capable targets receive ordinary sends as steer into the active run when no direct managed/PTY delivery applies; busy non-steer targets queue/merge as next-turn work. Dashboard Next's composer checkbox is opt-in: unchecked sends mirror normal `comms_send`, checked sends set `queueIfBusy=true`. Use `queueIfBusy=true` only when you intentionally want the next-turn path; if the target is idle and terminal-backed, Queue still uses the normal live PTY path instead of creating an orphan queued run. A `working` agent's yellow dot may briefly pulse orange when its terminal emits output; that is only a live-output hint and should not be interpreted as a separate status. `blocked` means there is still an active run, but the terminal tail explicitly looks like it needs operator input or a decision. Completion-style `info` replies like `Done`, `Pushed`, or `Fixed` can close the active terminal run during send/reconcile when an agent forgot to thread the reply; Claude PTY runs that visibly return to an idle prompt after output are also closed as completed-without-reply so they do not pin `working`. Requests, reviews, and errors are reply contracts by default; routine `info` is not unless `requireReply` is explicitly set. Recent overdue reply-contract reminders are sent by the periodic service loop and can also be triggered manually from Work Loop; busy or blocked targets are deferred by the automatic reminder pass and retried after the agent returns idle, reminder notices do not create new reply debt, default reminders are unlimited until answered/operator-closed, and Work Loop shows both reminder count and last reminder time.
+- `available` means an online environment can cold-start the managed worker on send. Do not pre-spawn it.
+- `online` means a live worker is between turns. `working`/`blocked` mean a live worker has an open turn.
+- `offline` has no current wake path. `stopped` is operator-disabled and does not auto-start.
+- Ordinary sends use the runtime's live path and may steer a busy capable runtime. `queueIfBusy=true` deliberately waits for the next turn.
+- A queued, claimed, or delivered run is transport evidence only. Read `comms_run_status`, the linked reply, runtime events, or console before claiming execution.
+- Browser Console is an attachment to the managed backing. Do not use console input as a second messaging path.
 
 ## Environment Bridges
 
-- `aify-comms --help` shows launcher usage. The current directory is always an allowed workspace root; extra root arguments are optional safety boundaries.
-- Starting a newer bridge for the same environment makes it current and asks the older bridge to exit. A hung old process may still need manual OS cleanup.
-- Killing a bridge stops the execution target, not the agent identity. Managed identities become offline/detached; chats, identities, spawn specs, and session records remain.
-- Forgetting an environment hides an obsolete execution target. It does not delete identities, chats, spawn specs, or session records.
-- To keep an identity after an environment is gone, assign it to another online environment from Sessions -> Identity Directory, then restart it from Sessions.
+- `aify-comms --help` shows launcher usage. The current directory is an allowed workspace root; extra roots are optional boundaries.
+- After install/update, run `aify-doctor --json`. Package presence does not prove the installed `node-pty` can load or that the running bridge uses it.
+- A newer bridge instance supersedes the older instance for its environment. Current bridge identity owns new terminal controls; stale controls must not cross that boundary.
+- Killing or forgetting an environment does not delete agent identities, chat, spawn specs, or historical sessions.
+- Never terminate a process from a stale bridge/session row. Confirm current process ancestry and activity first.
 
 ## CLI Ownership Transfer
 
-- Prefer wrapper auto-registration when opening a managed session directly: `claude-aify --aify-agent <agentId> --resume <id>`, the dashboard-provided `codex-aify --aify-agent <agentId> ...` resume command, or `hermes-aify --aify-agent <agentId> --resume <id>`. For Pi, `omp-aify --aify-agent <agentId> --resume <id>` is presence/standalone only; use managed RPC for triggerable dashboard delivery.
-- Manual `comms_register(...)` from the opened CLI remains the fallback and is still required for a new ID when the wrapper was launched without an ID.
-- A plain Hermes TUI does not normally export `HERMES_SESSION_ID`. Its synchronous `comms_register` path resolves the real native session from `AIFY_HERMES_ACTIVE_SESSION_FILE` / `HERMES_TUI_ACTIVE_SESSION_FILE`; after registering, verify `sessionHandle` and live status with `comms_agent_info` rather than accepting the tool acknowledgement alone.
-- A resident live-wake identity needs both runtime wake config and a fresh
-  wrapper bridge row. `wakeMode: hermes-live` or `claude-live` alone is not
-  enough if `status: offline`; restart the visible wrapper and re-register from
-  that same session.
-- Ownership transfer is manual. A resident wrapper registration records a candidate for later use but does not take over a managed identity or kill a managed PTY. Operators use **Switch to resident/managed** from Sessions or Chat details; active runs block the switch unless forced. Stale resident sends fail visibly until switched or restarted.
-- Dashboard **Stop wake** / session **Stop** on a resident identity asks the live resident bridge to terminate its host CLI/app process where the OS allows it.
-- Fresh native handles should come from a new spawn or explicit **Reset (fresh context)** (formerly "Recreate"). Ordinary adopt/restart should preserve the stored handle when runtime is unchanged.
-- If the saved handle is wrong and the correct native ID is known, use Dashboard **Chat details -> Runtime Session -> Set handle**, **Sessions -> Actions -> Set handle**, or the `/api/v1/agents/{id}/session-handle` endpoint. This updates the saved `sessionHandle`, runtime state, and latest session record without creating a fresh context.
+1. Open the exact native session through `claude-aify`, `codex-aify`, or `hermes-aify` with `--aify-agent <id>`; preserve the real native handle when resuming.
+2. Use manual `comms_register` only when the wrapper did not auto-register.
+3. Verify `sessionHandle`, `sessionMode`, live bridge identity, and status with `comms_agent_info`.
+4. Switch managed/resident explicitly. Registration records a candidate; it must not silently displace a live managed owner.
+5. Use **Set handle** only to repair a known native ID. Use **Reset** only when fresh context is intentional.
 
-Browser Console is current behavior when an environment advertises terminal/PTY support for the runtime. It is an attachment to the bridge-owned PTY/stream, not a separate resident takeover. Messenger sends while Console is open are delivered through that runtime's backing path (Claude channel, Codex app-server, Hermes gateway, native RPC, or PTY controls depending on runtime); Stop Console stops that terminal backing where applicable and returns the session to managed delivery. Dashboard Next hides stale managed PTY widgets while the identity is in `resident` mode, so a resident agent should show a resident attach surface or an explicit unavailable state rather than an old managed buffer. Use **Pause for CLI** only when you intentionally want a separate native terminal to own delivery.
+Pi and OpenCode are managed-only for triggerable work. A plain presence registration does not
+create a resident delivery path. A resident agent has no aify-owned console.
 
 ## Multi-Instance Rules
 
-| Runtime | Same project dir | Different project dirs |
-|---|---|---|
-| `claude-code` | OK with distinct `agentId`s; each `claude-aify` sidecar polls only its bound agent. | OK |
-| `codex` | Register with `sessionHandle="$CODEX_THREAD_ID"` and `appServerUrl="$AIFY_CODEX_APP_SERVER_URL"` to avoid ambiguous live markers. | OK |
-| `hermes` | Resident: launch `hermes-aify`, then `comms_register(agentId=..., runtime="hermes")` — the bridge auto-detects `gatewayUrl` from `AIFY_HERMES_GATEWAY_URL` exported by the wrapper, flipping wake mode to `hermes-live`. `status: offline` means the wrapper bridge is missing/expired; raw `/api/v1/agents` registration is not sufficient. If you see `hermes-missing-handle`, the wrapper is the old one or wasn't restarted after today's update. | OK |
-| `opencode` | Deferred; install disabled pending focused validation. | Do not use as a default target. |
-| `pi` | Triggerable delivery is managed RPC only; `omp-aify` / `pi-aify` registration is presence/standalone and must not share a session id with a bridge-owned RPC child. | OK with distinct session handles or `--standalone` |
-
-Never register the same `agentId` from two tabs. Re-registering the same ID supersedes the previous bridge/session binding.
+- Every visible agent needs a distinct `agentId` and one current delivery owner.
+- Never register the same `agentId` from two tabs.
+- Native handles must not be shared by live agents unless the runtime explicitly supports it and the operator accepts the coupling.
+- Workspace paths must use the target environment's path style.
 
 ## Dashboard Semantics
 
-- Home/Control is a live operations queue, not a full audit log.
-- Work Loop shows reply/work contracts derived from messages and runs. Requests, reviews, and errors are contracts by default; routine `info` is not unless `requireReply` is explicitly set. Hidden contracts are dashboard-local and do not delete audit history; operator close/bulk-close marks selected contracts reviewed while keeping run/chat history.
-- An automatic overdue reminder is sent **from the original requester**, not `dashboard`. It is an informational message linked to the original request, so it creates no duplicate debt. The target must answer the original requester with `type=response` and `inReplyTo=<original-message-id>`; that linked response closes the original contract. Old stored reminders can still display `dashboard` because history is not rewritten.
-- Muted live/session/handoff notices stay yellow but stop counting as active red issues.
-- Analytics has range selectors and separates historical counts from live capacity.
-- Settings is grouped into Appearance, Runtime, Work Loop, and Maintenance. Runtime includes managed model/effort defaults plus delivery toggles; Maintenance includes retention, presence thresholds, environment offline threshold, active-run stale cleanup windows, resident bridge lease, and worker auto-close.
-- Dashboard Next on `8801` is the only operator UI and reads/writes through the `8800` API. `/api/v1/dashboard` is a compatibility redirect. Shared behavior belongs server-side where appropriate; client-only changes go only in `service/new_dashboard/`.
-- Chat Peek mode lets an operator watch without marking messages read.
-- Chat composer Queue is opt-in. A normal unchecked send follows ordinary live `comms_send` semantics; checking Queue sets `queueIfBusy=true`.
-- Chat Console attaches to the same managed PTY used for terminal-capable Messenger delivery. Hiding panes or opening Console should not change the identity mode to `cli-takeover`.
-- Console terminals are copyable even on the dashboard's usual non-secure `http://` origin (where `navigator.clipboard` is undefined): the **Copy** button on the Console toolbar copies the current selection or the whole scrollback if nothing is selected, **Ctrl+Shift+C** copies the selection, and **Shift+drag** selects text even while an attached TUI is capturing the mouse. Copy uses a `document.execCommand('copy')` fallback so it works on any origin; paste and interactive input are unchanged.
-- Channel Leave/Remove stops future fan-out for that identity but keeps history; re-add from Chat details to rejoin.
-- The Sessions page is agent-centric: one row per agent showing its live status plus its current session (or "no active session"). Both Chat (behind the **Filters** expander) and Sessions have a **Statuses** multiselect dropdown (All / None / Live-only presets); Chat defaults to live statuses while Sessions shows every status except Deleted, so offline and available agents stay visible.
+- Work Loop shows reply/work contracts derived from messages and runs; hiding or reviewing an item does not delete audit history.
+- Overdue reminders point back to the original contract. Reply to the original message ID, not the reminder.
+- Chat **Queue** maps to `queueIfBusy=true`; unchecked sends use ordinary live delivery.
+- Console attaches to the current managed backing. Opening, hiding, or copying from it must not change session ownership.
+- Dashboard state is a view over the API, not independent execution proof.
 
 ## Status Meanings
 
-Status is **PROVEN, not time-assumed**. It is computed by a single live-state engine
-(`service/status_engine.py` `derive()` — the same one the dashboard, `comms_agents`, and write
-paths use), not a self-reported field. The `*-aify` wrapper is the source of truth for what the
-agent is doing (turn-start/turn-end/awaiting-input + a 30s liveness heartbeat); the engine
-reflects that verbatim and only ADDS `offline`/`available`/`stopped`. The proof-based 6-state
-vocabulary is `working`/`online`/`available`/`blocked`/`offline`/`stopped` — there are **no
-minute thresholds** and the old time-decay states `idle` and `stale` were removed (2026-06-18).
-Use `comms_agent_info` for the authoritative state.
+Status is proof-based and derived from live inputs. Read `comms_agent_info`; diagnose conflicts
+through `aify-comms-debug` rather than inventing another status.
 
-> **If ONE agent's status is permanently wrong** — stuck `working` while idle, or stuck `online`
-> while clearly working, surviving restarts and self-heals — suspect its wrapper was launched
-> **without `--aify-agent`**. `AIFY_AGENT_ID` gates the turn detector and every turn hook, so an
-> id-less session can register, message, and heartbeat while lacking working-state evidence.
-> Do not assume re-registering is sufficient: current Claude can arm late identity, while Hermes
-> can recover a native handle from its active-session file but still needs a fresh wrapper/gateway
-> bridge for live wake and turn detection. Verify readback and delivery; if either is absent,
-> relaunch with the id (`--resume <handle>` keeps the conversation). Full diagnosis:
-> *CHECK THIS FIRST* in the `aify-comms-debug` skill's `references/status.md`.
+| Status | Meaning | Normal action |
+|---|---|---|
+| `working` | Live worker, open turn | wait, steer, or interrupt the proven turn |
+| `online` | Live worker, between turns | send normally |
+| `available` | Managed and cold-startable, no worker | send normally; it auto-starts |
+| `blocked` | Live turn awaiting operator input | inspect console, then answer the proven prompt |
+| `offline` | No current wake path | restore bridge/environment or switch ownership |
+| `stopped` | Operator-disabled | restart/resume only when intended |
 
-| Status | Meaning |
-|---|---|
-| `working` | An open turn: the wrapper reported a turn in progress (turn-start, not yet turn-end), a tracked run is claimed/running, **or** a fresh bridge `turnBusy` heartbeat says the runtime is mid-turn. Managed Claude PTY turns are tracked as running until their reply closes the run; if Claude visibly returns to an idle prompt without a chat reply, reconcile closes the turn as completed-without-reply so it becomes audit debt instead of live work. **Liveness-gated:** `working`/`blocked` require a LIVE worker — a dead managed worker (no heartbeat past `agent_liveness_seconds`, default 90s) or an expired resident bridge (lease lapsed past `resident_lease_seconds`, default 150s) no longer latches `working`; it falls to `available`/`offline`. **Real-time:** turn start/end/`turnBusy`-flip/console-working transitions push the new status to Dashboard Next immediately (no poll lag). **Hermes caveat:** both **managed** AND **resident** hermes `working` are driven by the continuous bidirectional gateway-status turn detector — `startHermesGatewayTurnDetector` arms for managed hermes (delivery-loop lifetime) and for resident hermes whenever `AIFY_HERMES_GATEWAY_URL` is set (`server.js`), covering long + autonomous/direct-TUI turns (#172). Only a **gateway-less** resident hermes (no `AIFY_HERMES_GATEWAY_URL`, no upstream turn-end hook) lacks a turn detector and self-heals off `working` at the `TURN_BUSY_BACKSTOP_SECONDS` ceiling — but with no usable wake handle it derives `offline` anyway (see KNOWN_ISSUES.md). |
-| `online` | Worker alive, no turn in progress. This is the ready/idle state — operators rely on `online` as "ready for queued work" (a long-quiet live agent stays `online`, never demotes to a separate idle state). Internal bridge readiness is folded into this public state, so operators should not see a separate `ready` status. For **managed claude**, `online` requires BOTH a live console PTY AND a live, non-superseded channel-sidecar (`claude-channel.js`): a live console with a dead/superseded sidecar, or a live sidecar with no console (a "headless orphan", which is reaped), reads `available`, not `online`. Alive agents stay `online` via an unconditional 30s liveness heartbeat from each long-lived bridge. |
-| `available` | Managed agent, env online, registered, no live worker yet — sending wakes it (wrapper PTY auto-spawns under `managed_via_wrapper`, or PiSession/HermesSession/etc. spawns on demand). `available` ≠ `online`: no worker yet, it boots one on send. |
-| `blocked` | An in-turn agent whose live console tail looks like it's awaiting operator input/a decision (a prompt/question, not healthy generation). Requires a live worker — gated like `working`. Ordinary Claude prompt/footer chrome alone is not `blocked` — and the auto-answered claude/hermes session-resume picker (Resume full session as-is / Don't ask me again) is suppressed too; only genuine y/n or password prompts flag. Emitted from the console-awaiting-input hint. |
-| `offline` | Heartbeat gone — instant on a clean wrapper disconnect, otherwise within the no-heartbeat liveness window (`agent_liveness_seconds`, default 90s). Covers managed (env bridge down) and resident (bridge heartbeat missing/expired, a stored resident binding points at a bridge that no longer owns delivery, or a resident agent has no usable wake handle — wake-mode `*-missing-handle`, e.g. a resident hermes registered without a usable `gatewayUrl`). To recover a resident: restart the visible wrapper and re-register from it, or switch the identity back to managed. `offline` ≠ `stopped`: offline is "we lost the signal", stopped is "operator disabled it". |
-| `stopped` | Operator hard-disabled the agent — wake/dispatch disabled until Resume/restart or re-register. A deliberate down-state, not a lost signal. |
-
-Legacy `active`/`idle`/`stale` are no longer emitted by the live-state engine; old bookmarks/filters that match them will not match (any straggler from old data normalizes: `active`/`idle`→`online`, `stale`→`offline`).
+There are no live `idle` or `stale` states. A long-quiet live worker remains `online`.
 
 ## Repair Hints
 

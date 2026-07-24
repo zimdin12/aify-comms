@@ -2,7 +2,7 @@
 
 Use aify-comms when you want dashboard-driven coordination for Pi agents: live direct messages, channels, shared artifacts, active dispatch, managed agent spawn, and environment control.
 
-## Copy-Paste Install
+## No standalone install
 
 Install Oh My Pi first so the `omp` command is available in the same shell/user that will run the bridge.
 
@@ -15,7 +15,7 @@ cd ~/aify-comms
 
 There is no resident Pi wrapper install step for normal use. Restart any long-running `aify-comms` bridge after updating the repo so managed Pi loads the current controller code.
 
-For dashboard-managed spawns, also connect an environment bridge on the machine that should run Pi:
+For dashboard-managed spawns, connect an environment bridge on the machine that should run Pi. The shared `aify-comms` launcher is installed by the supported Claude/Codex/Hermes client installs; cloning this repo alone does not install it:
 
 ```bash
 cd /path/to/workspace-or-workspace-parent

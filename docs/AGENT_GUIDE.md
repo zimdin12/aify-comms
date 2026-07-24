@@ -14,6 +14,8 @@ This guide is for coding agents working on `aify-comms`.
 - Prefer runtime adapters over hardcoded CLI assumptions. Codex, Claude Code, Hermes, OpenCode, and Oh My Pi flags can change.
 - Routine messages use the runtime's semantic delivery channel. Explicit console input is an audited, recovery-only control after the operator has inspected the live console; it is intentionally independent of the legacy `insert_messages_via_console` delivery toggle and must never duplicate `comms_send` traffic.
 - Reply contracts follow message intent: requests, reviews, and errors owe replies by default; info, responses, approvals, finals, and acknowledgements do not unless `requireReply=true`. Do not answer a non-actionable acknowledgement with another acknowledgement.
+- Communication and execution are separate evidence chains. Stored/queued/claimed/delivered does not prove a consumer turn started, an action executed, or post-action state converged.
+- A message containing `STOP`, a run interrupt, and a managed-console interrupt are distinct operations. Target the exact live owner and verify turn end; never send a blind duplicate interrupt.
 
 ## Main Surfaces
 
@@ -41,11 +43,14 @@ Backend changes under `service/`, `mcp/sse_server.py`, and `config/` require a c
 Useful checks:
 
 ```bash
+node mcp/stdio/doctor.js --json
 node --check mcp/stdio/server.js
 npm --prefix mcp/stdio test
 python3 -m py_compile service/models.py service/db.py service/routers/api_v2.py service/new_dashboard_app.py
 docker compose exec -T service python -m unittest service.tests.test_api_v2_regressions service.tests.test_main_websocket_auth -q
 ```
+
+`install.sh` verifies that the installed `node-pty` native module can actually be loaded and rebuilds it when necessary; package presence alone is not PTY evidence. After a host-bridge update, rerun the installer and restart the bridge, then require `aify-doctor --json` to show the installed and running bridge are current. For container updates, compare `/version` with the intended commit; a healthy endpoint does not prove the running container uses the rebuilt image.
 
 For Dashboard Next edits, syntax-check the maintained ES-module client directly:
 
@@ -73,6 +78,13 @@ The current directory is always an allowed workspace root. Extra root arguments 
 
 Only the `aify-comms` launcher should pass `--environment-bridge` to the stdio server. Ordinary MCP client sessions should not advertise themselves as dashboard spawn targets or set the legacy `AIFY_ENVIRONMENT_BRIDGE=1` flag.
 
+At boot, process truth outranks stale backend ownership metadata: a detected live resident wrapper protects its associated process family from the managed-survivor reaper. Never weaken that guard to make a cleanup sweep more aggressive.
+
+For any lifecycle or cleanup action, correlate agent/session/terminal ownership with
+both environment and bridge instance plus current process ancestry. A database row or
+dashboard badge is evidence to investigate, not authority to kill or supersede a live
+worker when current activity conflicts with it.
+
 ## Dashboard Standard
 
 The dashboard should feel like a real work console, not a raw admin table:
@@ -96,3 +108,7 @@ Keep only two skills unless the workflow clearly demands another:
 - `aify-comms-debug`: failure recovery and known issues
 
 Do not teach agents to use silent/inbox-only paths as the default. New persistent agent identities should be created through `comms_spawn` or dashboard Environment spawn, not ad hoc one-off launch paths. Phase-change compaction should use dashboard **Compact** or `comms_compact(mode="handoff", ...)`, which starts a fresh backing from a handoff packet and keeps the same agent identity unless the operator intentionally chooses a new ID.
+
+Keep always-loaded skill bodies concise. Put runtime-specific and incident-specific
+detail in linked references, then consolidate or delete superseded incident notes rather
+than layering another overlapping skill.

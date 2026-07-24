@@ -11,6 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
+import { createTerminalInputHandler, createTerminalInputPoster } from "./terminal-input.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const read = (name) => fs.readFileSync(path.join(__dirname, name), "utf8");
@@ -20,6 +21,7 @@ test("app.js loads as an ES module (Phase 0.1) and imports the extracted pure co
   assert.match(html, /<script type="module" src="\/assets\/app\.js">/, "index.html must load app.js as a module");
   const source = read("app.js");
   assert.match(source, /import \{ esc, relTime, tsMs \} from '\.\/util\.js'/);
+  assert.match(source, /from '\.\/terminal-input\.mjs'/);
   assert.match(source, /from '\.\/status\.js'/);
   assert.match(source, /from '\.\/console-chooser\.js'/);
   // The extracted definitions must be GONE from app.js (no duplicate source of truth).
@@ -82,6 +84,18 @@ test("xterm remount guard checks container identity, not just terminal id", () =
     "mountXtermForTerminal must remount when render recreated the host container");
 });
 
+test("chat agent details builds Continue in CLI from the linked session", () => {
+  const source = read("app.js");
+  assert.match(source, /function continueCliCommand\(agent, session\)/,
+    "the details drawer must accept linked session metadata");
+  assert.match(source, /session\?\.sessionHandle \|\| session\?\.session_handle/,
+    "a session handle must not disappear just because the agent list omits it");
+  assert.match(source, /continueCliCommand\(agent, session\)/,
+    "the chat details drawer must pass its linked session to the command builder");
+  assert.ok(!source.includes("aify-comms.cmd"),
+    "copyable dashboard commands should be shell-neutral; PowerShell resolves the shim itself");
+});
+
 test("automatic console resync never self-excites a PTY resize loop", () => {
   const source = read("app.js");
   assert.match(source, /async function resyncActiveConsole\(\{ forceRepaint = false \} = \{\}\)/,
@@ -96,10 +110,11 @@ test("automatic console resync never self-excites a PTY resize loop", () => {
 
 test("managed PTY keeps raw terminal semantics and ordered input", () => {
   const source = read("app.js");
+  const terminalInput = read("terminal-input.mjs");
   const html = read("index.html");
   assert.match(source, /convertEol:\s*false/,
     "real PTY output must not rewrite LF into CRLF");
-  assert.match(source, /let inputPost = Promise\.resolve\(\)/,
+  assert.match(terminalInput, /let pending = Promise\.resolve\(\)/,
     "terminal input posts must be serialized so keystrokes cannot arrive out of order");
   assert.match(html, /addon-unicode11\.js/,
     "the managed console should use the same Unicode width tables as Hermes dashboard");
@@ -144,9 +159,27 @@ test("xterm setup imitates Hermes terminal-fidelity settings", () => {
   assert.match(source, /minimumContrastRatio: 4\.5/, "clamp low-contrast ANSI (Hermes 'VS Code secret sauce')");
   assert.match(source, /macOptionClickForcesSelection: true/);
   assert.match(source, /rightClickSelectsWord: true/);
-  // Mouse-report bytes must be dropped, not forwarded into the PTY input line.
-  assert.ok(source.includes("SGR mouse-report suppression"), "SGR mouse-report suppression guard present");
-  assert.ok(source.includes(".test(data)) return;"), "onData drops SGR mouse reports before forwarding");
+  assert.match(source, /const postTerminalInput = createTerminalInputPoster\(/);
+  assert.match(source, /term\.onData\(createTerminalInputHandler\(\{/);
+});
+
+test("terminal input forwards SGR mouse reports unchanged and in order", async () => {
+  const calls = [];
+  const postInput = createTerminalInputPoster({
+    terminalId: "term 1",
+    api: async (endpoint, options) => calls.push({ endpoint, options }),
+  });
+  const onData = createTerminalInputHandler({
+    canInput: () => true,
+    onBlocked: () => assert.fail("live terminal input must not be blocked"),
+    postInput,
+  });
+  const reports = ["\x1b[<0;12;34M", "\x1b[<32;13;35M", "\x1b[<0;12;34m"];
+
+  await Promise.all(reports.map(onData));
+
+  assert.deepEqual(calls.map(({ endpoint }) => endpoint), reports.map(() => "/terminals/term%201/input"));
+  assert.deepEqual(calls.map(({ options }) => JSON.parse(options.body).body), reports);
 });
 
 test("Batch 2: terminal fit is guarded and ResizeObserver is rAF-coalesced", () => {

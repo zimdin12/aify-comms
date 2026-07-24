@@ -229,6 +229,75 @@ class SessionModeFsmTests(FastApiTestCase):
             f"a driving resident's delivery sidecar must NOT be released, got {claim.json()}",
         )
 
+    def test_resident_channel_sidecar_claim_refreshes_reused_bridge_identity(self):
+        """A deterministic sidecar id can survive an agent runtime/mode repair.
+
+        Its next live claim is authoritative evidence of the current agent
+        identity, so the heartbeat must not preserve stale runtime/mode metadata.
+        """
+        self._heartbeat_environment("hermes")
+        reg = self._register(
+            agent_id="hermes-reused-sidecar",
+            runtime="hermes",
+            session_mode="resident",
+            bridge_id="resident-bridge",
+        )
+        self.assertEqual(reg.status_code, 200, reg.text)
+        sidecar_id = "hermes-managed-host-linux:test-host-hermes-reused-sidecar"
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            conn.execute(
+                """
+                INSERT INTO bridge_instances (
+                    id, agent_id, machine_id, runtime, session_mode,
+                    registered_at, last_seen, superseded_by, bridge_kind
+                ) VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    sidecar_id,
+                    "hermes-reused-sidecar",
+                    "linux:old-host",
+                    "pi",
+                    "managed",
+                    "2026-05-30T00:00:00Z",
+                    "2026-05-30T00:00:00Z",
+                    "",
+                    "channel-sidecar",
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        claim = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": "hermes-reused-sidecar",
+                "machineId": "linux:test-host",
+                "bridgeId": sidecar_id,
+                "bridgeKind": "channel-sidecar",
+                "executionModes": ["channel", "resident"],
+            },
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        self.assertFalse(claim.json().get("release"), claim.json())
+
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            row = conn.execute(
+                """
+                SELECT machine_id, runtime, session_mode, bridge_kind
+                FROM bridge_instances WHERE id = ? AND agent_id = ?
+                """,
+                (sidecar_id, "hermes-reused-sidecar"),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(
+            row,
+            ("linux:test-host", "hermes", "resident", "channel-sidecar"),
+        )
+
     def test_native_resident_channel_sidecar_heartbeat_does_not_release(self):
         self._heartbeat_environment("claude-code")
         reg = self._register(agent_id="claude-native-hb", runtime="claude-code",

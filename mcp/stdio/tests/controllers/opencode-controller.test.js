@@ -21,3 +21,28 @@ test("OpencodeController preserves opts", () => {
   const c = new OpencodeController(opts);
   assert.deepStrictEqual(c.opts, opts);
 });
+
+test("OpencodeController steers through OpenCode promptAsync", async () => {
+  const calls = [];
+  const c = new OpencodeController({ agentId: "x", agentInfo: {}, run: {}, runtimeState: {}, callbacks: {} });
+  c._sessionId = "session-1";
+  c._cwd = "/work";
+  c._open = {
+    client: {
+      session: {
+        promptAsync: async (input) => {
+          calls.push(input);
+          return {};
+        },
+      },
+    },
+  };
+
+  await c._legacyShape().steer("new information");
+
+  assert.deepStrictEqual(calls, [{
+    path: { id: "session-1" },
+    query: { directory: "/work" },
+    body: { parts: [{ type: "text", text: "new information" }] },
+  }]);
+});

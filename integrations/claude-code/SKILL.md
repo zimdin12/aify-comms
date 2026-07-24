@@ -60,7 +60,7 @@ GET  http://localhost:8800/route/qdrant/collections
 
 ## Historical Installation Example
 
-Do not use this for current `aify-comms` installs. Use `install.claude.md`, `install.codex.md`, or `install.opencode.md` instead.
+Do not use this for current `aify-comms` installs. Use `install.claude.md`, `install.codex.md`, or `install.hermes.md` instead.
 
 ### MCP SSE:
 ```

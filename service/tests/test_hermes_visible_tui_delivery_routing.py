@@ -213,6 +213,7 @@ class HermesVisibleTuiDeliveryTests(FastApiTestCase):
                     agent_id=agent_id,
                     machine_id="win32:test-host",
                     runtime="hermes",
+                    session_mode="managed",
                     now=_now(),
                 )
                 await db.commit()

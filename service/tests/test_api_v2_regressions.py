@@ -144,6 +144,55 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         asyncio.run(_run())
 
+    def test_reconcile_does_not_close_live_channel_turn_at_thirty_minutes(self):
+        agent_id = "live-channel-worker"
+        run_id = "run_live_channel_long"
+        environment_id = self._heartbeat_environment()["id"]
+        self._register(agent_id, runtime="hermes", sessionMode="managed-warm")
+        requested_at = (datetime.now(timezone.utc) - timedelta(minutes=31)).isoformat().replace("+00:00", "Z")
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, from_agent, target_agent, dispatch_mode, execution_mode,
+                runtime, message_type, subject, body, priority, status,
+                require_reply, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                run_id, "manager", agent_id, "start_if_possible", "channel",
+                "hermes", "request", "long live turn", "work", "normal",
+                "delivered", 1, requested_at,
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, mode, status,
+                spawn_spec_id, spawn_request_id, started_at, last_seen
+            ) VALUES (?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess_live_channel_long", agent_id, environment_id, "hermes", "managed-warm",
+                "running", None, None, requested_at,
+                datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            ),
+        )
+
+        async def reconcile():
+            db = await get_db()
+            try:
+                closed = await api_v2._close_reconcilable_delivered_runs(
+                    db,
+                    stale_hours=24,
+                )
+                await db.commit()
+                return closed
+            finally:
+                await db.close()
+
+        self.assertEqual(asyncio.run(reconcile()), [])
+        self.assertEqual(self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", (run_id,))["status"], "delivered")
+
     def test_dispatch_run_events_are_bounded_and_cursor_paginated(self):
         run_id = "run_events_page"
         self._execute(
@@ -1794,6 +1843,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         terminal_runtimes: list[str] | None = None,
         session_handle: str = "thread-1",
         role: str = "coder",
+        initial_message: str = "",
     ):
         self._heartbeat_environment(
             terminal=terminal,
@@ -1816,6 +1866,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "role": role,
                 "runtime": runtime,
                 "workspace": workspace,
+                "initialMessage": initial_message,
             },
         )
         self.assertEqual(created.status_code, 200, created.text)
@@ -2706,113 +2757,6 @@ class ApiV2RegressionTests(FastApiTestCase):
             f"refresh_after {cache['refresh_after']} must be <= turn_updated_at+backstop ({limit}); cache={cache}",
         )
 
-    def test_turn_busy_status_long_ceiling_claim_gate_short_window_split(self):
-        # pure-event-status changes #3 + #5 (2026-06-02): STATUS and the CLAIM/SEND
-        # gate are DELIBERATELY RE-SPLIT.
-        #   - STATUS goes pure-event with a LONG ceiling (30m) as the dropped-event
-        #     self-heal only — safe now that change #1 (transcript turn-end detector)
-        #     + change #2 (liveness wins) make a real turn-end reliable.
-        #   - The CLAIM/SEND gate KEEPS the short 120s window so a queued send is
-        #     never stranded behind a missed end-event.
-        #
-        # This SUPERSEDES the prior "single shared 120s window" test (commit 0fc84e6
-        # collapsed them because turn-end events were unreliable — the root cause #1
-        # now fixes, so the split is restored). It pins the new split behavior.
-        self.assertGreater(
-            api_v2.TURN_BUSY_BACKSTOP_SECONDS, api_v2.TURN_BUSY_STALE_SECONDS,
-            "status backstop (long ceiling) must be DECOUPLED from the short claim window",
-        )
-        self.assertEqual(api_v2.TURN_BUSY_STALE_SECONDS, 120, "claim-gate window stays 120s (#5)")
-        self._register("tb-split-claude", runtime="claude-code", sessionMode="resident")
-        from datetime import datetime, timezone
-        # Aged PAST the short claim window (120s) but WELL WITHIN the long status
-        # ceiling: STATUS still `working` (pure-event, no flap) while the CLAIM/SEND
-        # gate is OPEN so a queued run is deliverable (never stranded > 120s).
-        aged_past_gate = api_v2._iso_from_ms(int(
-            (datetime.now(timezone.utc).timestamp() - (api_v2.TURN_BUSY_STALE_SECONDS + 80)) * 1000
-        ))
-        self._execute(
-            """
-            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-            VALUES (?, 1, ?, ?, ?, ?)
-            ON CONFLICT(agent_id) DO UPDATE SET turn_busy = 1, turn_run_id = excluded.turn_run_id, turn_updated_at = excluded.turn_updated_at
-            """,
-            ("tb-split-claude", "run-split-1", "bridge-split-1", "claude-code", aged_past_gate),
-        )
-        cache = self._async_compute_live_status("tb-split-claude")
-        self.assertEqual(
-            cache["status"], "working",
-            f"past the 120s claim window but within the long status ceiling → STILL working (pure-event); {cache}",
-        )
-        self.assertFalse(
-            self._turn_busy_gate_for("tb-split-claude"),
-            "past the 120s claim window → busy gate is OPEN so a queued run is deliverable (not stranded)",
-        )
-        # WITHIN both windows: working AND gate closed (both halves agree).
-        fresh = api_v2._now()
-        self._execute(
-            "UPDATE agent_turn_state SET turn_updated_at = ? WHERE agent_id = ?",
-            (fresh, "tb-split-claude"),
-        )
-        cache_fresh = self._async_compute_live_status("tb-split-claude")
-        self.assertEqual(cache_fresh["status"], "working", f"within both windows → working; {cache_fresh}")
-        self.assertTrue(self._turn_busy_gate_for("tb-split-claude"), "within the claim window → gate closed")
-
-    def test_claim_gate_uses_short_window_not_backstop(self):
-        # pure-event-status change #5: the CLAIM/SEND gate paths keep the SHORT
-        # TURN_BUSY_STALE_SECONDS (120s) window — never the long status backstop —
-        # so a queued send is not stranded behind a missed end-event for up to the
-        # 30-min ceiling. Static guard on the two claim-gate sites so a future
-        # refactor can't silently widen the gate to the long ceiling.
-        import re
-        from pathlib import Path
-        src = Path(api_v2.__file__).read_text(encoding="utf-8")
-        gate_lines = [
-            ln for ln in src.splitlines()
-            if "tb_epoch" in ln and "TURN_BUSY" in ln and "<=" in ln
-        ]
-        self.assertGreaterEqual(len(gate_lines), 2, "expected both claim-gate turn_busy freshness checks present")
-        for ln in gate_lines:
-            self.assertIn(
-                "TURN_BUSY_STALE_SECONDS", ln,
-                f"claim-gate must use the short 120s window, not the backstop: {ln.strip()}",
-            )
-            self.assertNotIn(
-                "TURN_BUSY_BACKSTOP_SECONDS", ln,
-                f"claim-gate must NOT use the long status ceiling: {ln.strip()}",
-            )
-
-    def test_engine_busy_for_queue_releases_on_ready_status(self):
-        # WS-3 (2026-06-17): the queue/claim busy-check consults the liveness-aware
-        # engine status (cached agent_live_state.status) so a queued send (a) releases
-        # the instant the target returns to ready (online) even while the raw turn_busy
-        # window is still open, and (b) never holds behind a DEAD worker's stale
-        # turn_busy (engine → available). Cold cache falls back to raw freshness.
-        import asyncio
-        from service.db import get_db
-        self._register("wq-target", runtime="claude-code", sessionMode="resident")
-        self._seed_fresh_turn_busy("wq-target", "run-wq", "bridge-wq")  # raw window OPEN
-
-        def busy():
-            async def _run():
-                db = await get_db()
-                try:
-                    return await api_v2._agent_engine_busy_for_queue(db, "wq-target")
-                finally:
-                    await db.close()
-            return asyncio.run(_run())
-
-        self.assertTrue(busy(), "cold cache → fall back to raw turn_busy freshness (busy)")
-        api_v2._LIVE_STATE_CACHE["wq-target"] = {
-            "status": "working", "reason": "", "environment_id": "",
-            "session_id": "", "terminal_id": "", "active_run_id": "",
-            "refresh_after": "9999-12-31T23:59:59Z", "updated_at": api_v2._now(),
-        }
-        self.assertTrue(busy(), "engine working → busy (queue holds)")
-        api_v2._LIVE_STATE_CACHE["wq-target"]["status"] = "online"
-        self.assertFalse(busy(), "engine online (ready) → not busy; queue releases instantly")
-        api_v2._LIVE_STATE_CACHE["wq-target"]["status"] = "available"
-        self.assertFalse(busy(), "engine available (dead worker) → not busy; no strand")
 
     def test_stale_resident_bridge_with_turn_busy_is_not_working(self):
         # pure-event-status change #2: a DEAD resident worker stuck with
@@ -3024,18 +2968,12 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def _turn_busy_gate_for(self, agent_id: str) -> bool:
         """Mirror the dispatcher's mid-turn busy check (api_v2 send queueIfBusy
-        branch): turn_busy=1 AND fresh within TURN_BUSY_STALE_SECONDS."""
+        branch): explicit queue holds exactly while raw turn_busy=1."""
         row = self._fetchone(
-            "SELECT turn_busy, turn_updated_at FROM agent_turn_state WHERE agent_id = ?",
+            "SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?",
             (agent_id,),
         )
-        if not row or int(row["turn_busy"] or 0) != 1:
-            return False
-        epoch = api_v2._iso_to_epoch(str(row["turn_updated_at"] or ""))
-        if not epoch:
-            return False
-        from datetime import datetime, timezone
-        return (datetime.now(timezone.utc).timestamp() - epoch) <= api_v2.TURN_BUSY_STALE_SECONDS
+        return bool(row and int(row["turn_busy"] or 0) == 1)
 
     # --- send-deadlock fix (2026-06-02): channel/resident steer past turn_busy ---
 
@@ -3065,17 +3003,19 @@ class ApiV2RegressionTests(FastApiTestCase):
             (agent_id, run_id, bridge_id, runtime, api_v2._now()),
         )
 
-    def _seed_queued_dispatch_run(self, run_id: str, target: str, *, execution_mode: str, require_reply: int = 0, from_agent: str = "sc-claude"):
+    def _seed_queued_dispatch_run(self, run_id: str, target: str, *, execution_mode: str, require_reply: int = 0, from_agent: str = "sc-claude", queue_if_busy: int = 0, steer_if_busy: int = 0):
         self._execute(
             """
             INSERT INTO dispatch_runs (
                 id, message_id, from_agent, target_agent, dispatch_mode, execution_mode,
-                message_type, subject, body, priority, status, require_reply, requested_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                message_type, subject, body, priority, status, require_reply,
+                queue_if_busy, steer_if_busy, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 run_id, None, from_agent, target, "start_if_possible", execution_mode,
-                "info", "fyi", "for your info", "normal", "queued", require_reply, api_v2._now(),
+                "info", "fyi", "for your info", "normal", "queued", require_reply,
+                queue_if_busy, steer_if_busy, api_v2._now(),
             ),
         )
 
@@ -3091,7 +3031,13 @@ class ApiV2RegressionTests(FastApiTestCase):
         # A 2nd send queues. A resident channelEnabled claude's dispatches resolve
         # to execution_mode='resident' (see _agent_execution_mode) — the exact
         # shape of the two deadlocked sends in the live evidence.
-        self._seed_queued_dispatch_run("run_queued_306769", "sc-manager", execution_mode="resident", require_reply=0)
+        self._seed_queued_dispatch_run(
+            "run_queued_306769",
+            "sc-manager",
+            execution_mode="resident",
+            require_reply=0,
+            steer_if_busy=1,
+        )
 
         claim = self.client.post(
             "/api/v1/dispatch/claim",
@@ -3107,6 +3053,172 @@ class ApiV2RegressionTests(FastApiTestCase):
         run = claim.json().get("run")
         self.assertIsNotNone(run, f"steer-capable busy claude must claim the queued channel run, not defer: {claim.json()}")
         self.assertEqual(run["id"], "run_queued_306769")
+        self.assertTrue(run["steerIfBusy"])
+
+    def test_busy_claim_skips_earlier_non_steer_run(self):
+        self._register_resident_channel_claude("mixed-manager", bridge_id="bridge-mixed-manager")
+        self._seed_fresh_turn_busy(
+            "mixed-manager", "run_active", "channel-linux:test-host-mixed-manager"
+        )
+        self._seed_queued_dispatch_run(
+            "run_earlier_non_steer",
+            "mixed-manager",
+            execution_mode="resident",
+        )
+        self._seed_queued_dispatch_run(
+            "run_later_steer",
+            "mixed-manager",
+            execution_mode="resident",
+            steer_if_busy=1,
+        )
+        self._execute(
+            "UPDATE dispatch_runs SET requested_at = ? WHERE id = ?",
+            ("2000-01-01T00:00:00+00:00", "run_earlier_non_steer"),
+        )
+        self._execute(
+            "UPDATE dispatch_runs SET requested_at = ? WHERE id = ?",
+            ("2001-01-01T00:00:00+00:00", "run_later_steer"),
+        )
+
+        claim = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": "mixed-manager",
+                "bridgeId": "channel-linux:test-host-mixed-manager",
+                "bridgeKind": "channel-sidecar",
+                "machineId": "linux:test-host",
+                "executionModes": ["channel", "resident"],
+            },
+        )
+
+        self.assertEqual(claim.status_code, 200, claim.text)
+        self.assertEqual(claim.json()["run"]["id"], "run_later_steer")
+        earlier = self._fetchone(
+            "SELECT status FROM dispatch_runs WHERE id = ?",
+            ("run_earlier_non_steer",),
+        )
+        self.assertEqual(earlier["status"], "queued")
+
+    def test_ordinary_send_to_busy_managed_hermes_routes_steer_through_channel_claim(self):
+        self._register("lead", runtime="codex", sessionMode="managed")
+        self._seed_managed_hermes_with_attached_terminal("hermes-coder", "term_hermes_steer")
+        self._stamp_live_channel_sidecar("hermes-coder", runtime="hermes")
+        self.client.post(
+            "/api/v1/agents/hermes-coder/claimer-lease",
+            json={"action": "acquire", "bridgeId": "channel-linux:test-host-hermes-coder"},
+        )
+        self._seed_queued_dispatch_run(
+            "run_hermes_active",
+            "hermes-coder",
+            execution_mode="channel",
+            require_reply=1,
+            from_agent="lead",
+        )
+        self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", (api_v2._now(), "run_hermes_active"))
+        self._seed_fresh_turn_busy(
+            "hermes-coder",
+            "run_hermes_active",
+            "channel-linux:test-host-hermes-coder",
+            runtime="hermes",
+        )
+
+        async def _create_channel_steer():
+            db = await api_v2.get_db()
+            try:
+                runs = await api_v2._create_dispatch_runs(
+                    db,
+                    from_agent="lead",
+                    recipients=["hermes-coder"],
+                    message_type="info",
+                    subject="mid-turn guidance",
+                    body="apply this now",
+                    priority="normal",
+                    in_reply_to=None,
+                    dispatch_mode="start_if_possible",
+                    execution_mode="channel",
+                    requested_runtime="hermes",
+                    steer=True,
+                )
+                await db.commit()
+                return runs
+            finally:
+                await db.close()
+
+        created = asyncio.run(_create_channel_steer())
+        self.assertEqual(created[0]["status"], "queued")
+        queued_id = created[0]["runId"]
+        queued_row = self._fetchone(
+            "SELECT execution_mode, queue_if_busy, steer_if_busy FROM dispatch_runs WHERE id = ?",
+            (queued_id,),
+        )
+        self.assertEqual((queued_row["execution_mode"], queued_row["queue_if_busy"], queued_row["steer_if_busy"]), ("channel", 0, 1))
+        self.assertIsNone(
+            self._fetchone("SELECT id FROM dispatch_controls WHERE run_id = ?", ("run_hermes_active",)),
+            "channel-owned Hermes must not receive an unconsumed bridge control",
+        )
+        serialized = api_v2._serialize_dispatch_run_row(self._fetchone("SELECT * FROM dispatch_runs WHERE id = ?", (queued_id,)))
+        self.assertTrue(serialized["steerIfBusy"])
+
+    def test_explicit_queue_to_busy_steerable_target_waits_for_turn_end(self):
+        self._register_resident_channel_claude("queued-manager", bridge_id="bridge-queued-manager")
+        self._seed_fresh_turn_busy(
+            "queued-manager", "run_active", "channel-linux:test-host-queued-manager"
+        )
+        self._seed_queued_dispatch_run(
+            "run_explicit_queue",
+            "queued-manager",
+            execution_mode="resident",
+            queue_if_busy=1,
+        )
+        claim_payload = {
+            "agentId": "queued-manager",
+            "bridgeId": "channel-linux:test-host-queued-manager",
+            "bridgeKind": "channel-sidecar",
+            "machineId": "linux:test-host",
+            "executionModes": ["channel", "resident"],
+        }
+
+        busy_claim = self.client.post("/api/v1/dispatch/claim", json=claim_payload)
+        self.assertEqual(busy_claim.status_code, 200, busy_claim.text)
+        self.assertIsNone(busy_claim.json().get("run"), busy_claim.json())
+
+        self._execute(
+            "UPDATE agent_turn_state SET turn_busy = 0 WHERE agent_id = ?",
+            ("queued-manager",),
+        )
+        ready_claim = self.client.post("/api/v1/dispatch/claim", json=claim_payload)
+        self.assertEqual(ready_claim.status_code, 200, ready_claim.text)
+        self.assertEqual(ready_claim.json()["run"]["id"], "run_explicit_queue")
+
+    def test_explicit_queue_stays_held_while_raw_turn_busy_is_aged_but_set(self):
+        self._register_resident_channel_claude("aged-queued-manager", bridge_id="bridge-aged-queued-manager")
+        self._seed_fresh_turn_busy(
+            "aged-queued-manager", "run_active", "channel-linux:test-host-aged-queued-manager"
+        )
+        self._execute(
+            "UPDATE agent_turn_state SET turn_updated_at = ? WHERE agent_id = ?",
+            ("2000-01-01T00:00:00+00:00", "aged-queued-manager"),
+        )
+        self._seed_queued_dispatch_run(
+            "run_aged_explicit_queue",
+            "aged-queued-manager",
+            execution_mode="resident",
+            queue_if_busy=1,
+        )
+
+        claim = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": "aged-queued-manager",
+                "bridgeId": "channel-linux:test-host-aged-queued-manager",
+                "bridgeKind": "channel-sidecar",
+                "machineId": "linux:test-host",
+                "executionModes": ["channel", "resident"],
+            },
+        )
+
+        self.assertEqual(claim.status_code, 200, claim.text)
+        self.assertIsNone(claim.json().get("run"), claim.json())
 
     def test_busy_non_channel_resident_still_defers_queued_run(self):
         # GATE PRESERVED (fix 1 safety): a resident codex (NOT steer/inject
@@ -4161,6 +4273,21 @@ class ApiV2RegressionTests(FastApiTestCase):
         mode_codex, _ = _agent_execution_mode(managed_codex, settings=settings)
         self.assertEqual(mode_codex, "managed", "codex unflagged stays on managed")
 
+    def test_wrapper_backed_codex_spawn_initial_message_routes_as_channel(self):
+        self.client.put("/api/v1/settings", json={"managed_via_wrapper": ["codex", "hermes"]})
+        self._create_running_session(
+            agent_id="codex-initial-channel",
+            runtime="codex",
+            terminal=True,
+            initial_message="probe",
+        )
+        run = self._fetchone(
+            "SELECT execution_mode FROM dispatch_runs WHERE target_agent = ? ORDER BY requested_at DESC LIMIT 1",
+            ("codex-initial-channel",),
+        )
+        self.assertIsNotNone(run)
+        self.assertEqual(run["execution_mode"], "channel")
+
     def test_managed_via_wrapper_forces_eager_pty_spawn(self):
         # Unified-backing refactor: when managed_via_wrapper includes a runtime,
         # the wrapper PTY must pre-exist at spawn-request running transition.
@@ -4502,6 +4629,11 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(fetched.json()["terminal"]["status"], "attached")
         self.assertEqual(fetched.json()["terminal"]["output"], "ready\n")
 
+        # The live screen starts at the PTY's initial geometry. Completing a resize must
+        # resize that screen immediately, even when the TUI is idle and emits no next chunk.
+        from service.terminal_snapshot import feed_live_screen
+        feed_live_screen(terminal_id, "\x1b[Hready", cols=100, rows=28)
+
         sent = self.client.post(
             f"/api/v1/terminals/{terminal_id}/input",
             json={"requestedBy": "dashboard", "body": "echo hi\n"},
@@ -4544,6 +4676,20 @@ class ApiV2RegressionTests(FastApiTestCase):
         fetched = self.client.get(f"/api/v1/terminals/{terminal_id}")
         self.assertEqual(fetched.json()["terminal"]["cols"], 120)
         self.assertEqual(fetched.json()["terminal"]["rows"], 40)
+        self.assertEqual(fetched.json()["terminal"]["renderedCols"], 120)
+        self.assertEqual(fetched.json()["terminal"]["renderedRows"], 40)
+
+        # A later queued output flush must use the persisted PTY geometry. Omitting cols/rows
+        # from the queue's SELECT silently reset the live screen to its 100x28 defaults.
+        appended = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={"bridgeId": "bridge-current", "output": "\x1b[Hafter resize", "status": "attached"},
+        )
+        self.assertEqual(appended.status_code, 200, appended.text)
+        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        fetched = self.client.get(f"/api/v1/terminals/{terminal_id}")
+        self.assertEqual(fetched.json()["terminal"]["renderedCols"], 120)
+        self.assertEqual(fetched.json()["terminal"]["renderedRows"], 40)
 
     def test_terminal_stop_reconciles_stale_bridge_owner(self):
         session_id = self._create_running_session(terminal=True)
@@ -7316,6 +7462,62 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(prior["superseded_by"], "bridge-B",
                          "idle same-session relaunch must take over the dead-looking prior bridge")
 
+    def test_resident_reregister_ignores_its_live_channel_sidecar(self):
+        self._heartbeat_environment()
+        self._register(
+            "hermes-resident-pair",
+            runtime="hermes",
+            sessionMode="resident",
+            launchMode="detached",
+            sessionHandle="hermes-session-pair",
+            bridgeId="bridge-resident-main",
+            machineId="linux:test-host",
+            capabilities=["resident-run", "resume", "interrupt", "steer"],
+        )
+        now = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO bridge_instances (
+                id, agent_id, machine_id, runtime, session_mode, session_handle,
+                bridge_kind, registered_at, last_seen, superseded_by
+            ) VALUES (?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "hermes-managed-host-linux:test-host-hermes-resident-pair",
+                "hermes-resident-pair",
+                "linux:test-host",
+                "hermes",
+                "resident",
+                "hermes-session-pair",
+                "channel-sidecar",
+                now,
+                now,
+                "",
+            ),
+        )
+
+        reregistered = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "hermes-resident-pair",
+                "role": "coder",
+                "runtime": "hermes",
+                "sessionMode": "resident",
+                "launchMode": "detached",
+                "sessionHandle": "hermes-session-pair",
+                "machineId": "linux:test-host",
+                "bridgeId": "bridge-resident-main",
+                "capabilities": ["resident-run", "resume", "interrupt", "steer"],
+            },
+        )
+
+        self.assertEqual(reregistered.status_code, 200, reregistered.text)
+        sidecar = self._fetchone(
+            "SELECT superseded_by FROM bridge_instances WHERE id = ?",
+            ("hermes-managed-host-linux:test-host-hermes-resident-pair",),
+        )
+        self.assertEqual(sidecar["superseded_by"], "")
+
     def test_same_machine_different_session_still_409s(self):
         """The Phase-4 duplicate-identity protection stays for a DIFFERENT session
         handle: only a same-session relaunch may take over without force."""
@@ -9501,8 +9703,13 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertTrue(queued["messageId"])
         self.assertEqual(queued["dispatchRuns"][0]["status"], "queued")
         self.assertEqual(queued["dispatchRuns"][0]["queuedBehindActiveRun"]["runId"], active_run_id)
+        queued_row = self._fetchone(
+            "SELECT queue_if_busy, steer_if_busy FROM dispatch_runs WHERE id = ?",
+            (queued["dispatchRuns"][0]["runId"],),
+        )
+        self.assertEqual((queued_row["queue_if_busy"], queued_row["steer_if_busy"]), (1, 0))
 
-    def test_normal_send_to_busy_non_steerable_target_queues_as_fallback(self):
+    def test_normal_send_to_busy_opencode_target_steers(self):
         self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
         self._register("lead", runtime="codex", sessionMode="managed")
         self._register("qa", runtime="codex", sessionMode="managed")
@@ -9537,8 +9744,8 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertTrue(sent["ok"])
         self.assertEqual(sent["notStarted"], [])
-        self.assertEqual(sent["dispatchRuns"][0]["status"], "queued")
-        self.assertEqual(sent["dispatchRuns"][0]["queuedBehindActiveRun"]["runId"], active_run_id)
+        self.assertEqual(sent["dispatchRuns"][0]["status"], "steered")
+        self.assertEqual(sent["dispatchRuns"][0]["runId"], active_run_id)
 
         second_sender = self._send_message(
             from_agent="qa",
@@ -9549,10 +9756,12 @@ class ApiV2RegressionTests(FastApiTestCase):
             trigger=True,
         )
         self.assertTrue(second_sender["ok"])
-        self.assertEqual(second_sender["dispatchRuns"][0]["status"], "queued")
-        self.assertNotEqual(second_sender["dispatchRuns"][0]["runId"], sent["dispatchRuns"][0]["runId"])
-        queued_rows = self._fetchall("SELECT from_agent, target_agent FROM dispatch_runs WHERE target_agent = ? AND status = 'queued' ORDER BY requested_at", ("manager",))
-        self.assertEqual([row["from_agent"] for row in queued_rows], ["lead", "qa"])
+        self.assertEqual(second_sender["dispatchRuns"][0]["status"], "steered")
+        controls = self._fetchall(
+            "SELECT action FROM dispatch_controls WHERE run_id = ? ORDER BY requested_at",
+            (active_run_id,),
+        )
+        self.assertEqual([row["action"] for row in controls], ["steer", "steer"])
 
     def test_stale_pi_capabilities_gain_steer_without_recreate(self):
         self._register("lead", runtime="codex", sessionMode="managed")
@@ -12418,22 +12627,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # harness-level turn_busy signal (set by claude-channel.js claim
         # / UserPromptSubmit hook / per-runtime turn-start hook), which
         # survives the dispatch-row auto-completion.
-        self._heartbeat_environment(
-            id="env_qb",
-            bridgeId="bridge-qb",
-            machineId="linux:qb",
-            runtimes=[
-                {
-                    "runtime": "claude-code",
-                    "modes": ["managed-warm"],
-                    "capabilities": {"interrupt": True, "steer": True},
-                }
-            ],
-            terminal=True,
-            pty=True,
-            terminalRuntimes=["claude-code"],
-        )
-        self._register("qb-claude", runtime="claude-code", sessionMode="resident", runtimeConfig={"channelEnabled": True})
+        self._register_resident_channel_claude("qb-claude", bridge_id="bridge-qb")
         # No claimed/running dispatch_run, but turn_busy=1 (fresh) — the
         # exact scenario the operator hit: previous info message
         # auto-completed but the assistant is still working.
@@ -12442,7 +12636,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
             VALUES (?, 1, '', 'channel-test', 'claude-code', ?)
             """,
-            ("qb-claude", api_v2._now()),
+            ("qb-claude", "2000-01-01T00:00:00+00:00"),
         )
         self._register("qb-sender", runtime="claude-code", sessionMode="resident")
         sent = self._send_message(
@@ -12458,13 +12652,15 @@ class ApiV2RegressionTests(FastApiTestCase):
         # turn_busy=1. The send returns success, but the dispatch_run
         # should remain in queued state behind the busy turn.
         runs = sent.get("dispatchRuns", [])
-        if runs:
-            for run in runs:
-                self.assertEqual(
-                    run.get("status"),
-                    "queued",
-                    f"queueIfBusy should defer while turn_busy=1, got {run}",
-                )
+        self.assertTrue(runs, sent)
+        for run in runs:
+            self.assertEqual(
+                run.get("status"),
+                "queued",
+                f"queueIfBusy should defer while turn_busy=1, got {run}",
+            )
+            row = self._fetchone("SELECT queue_if_busy FROM dispatch_runs WHERE id = ?", (run["runId"],))
+            self.assertEqual(row["queue_if_busy"], 1)
 
     def test_idle_virtual_rpc_workers_auto_close_when_setting_enabled(self):
         # Operator-driven feature: managed worker terminal_sessions whose
@@ -13700,6 +13896,55 @@ class ApiV2RegressionTests(FastApiTestCase):
         out_lines = data["output"].splitlines()
         self.assertEqual(out_lines, ["line-116", "line-117", "line-118", "line-119", "line-120"])
 
+    def test_agent_console_tail_keeps_ingested_plain_log_unwrapped(self):
+        self._seed_managed_claude_with_attached_terminal("console-plain", "term_console_plain")
+        line = "plain-" + ("x" * 150)
+
+        written = self.client.post(
+            "/api/v1/terminals/term_console_plain/output",
+            json={"bridgeId": "bridge-current", "output": line, "status": "attached"},
+        )
+        self.assertEqual(written.status_code, 200, written.text)
+
+        resp = self.client.get("/api/v1/agents/console-plain/console?lines=1")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["output"], line)
+
+    def test_agent_console_tail_reads_rendered_screen_not_raw_tui_deltas(self):
+        self._seed_managed_claude_with_attached_terminal("console-tui", "term_console_tui")
+        self._execute(
+            "UPDATE terminal_sessions SET output = ? WHERE id = ?",
+            ("\x1b[60C\x1b[26B3\x1b[H\x1b[31C\x1b[26B2\x1b[H", "term_console_tui"),
+        )
+        screen = "\x1b[0m\x1b[2J\x1b[H\x1b[38;5;178m(¬‿¬) musing… · 22m 24s\x1b[0m"
+
+        with patch.object(api_v2, "_render_live_terminal_screen", return_value=(screen, 100, 28)):
+            resp = self.client.get("/api/v1/agents/console-tui/console?lines=14")
+
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["output"], "(¬‿¬) musing… · 22m 24s")
+
+    def test_agent_console_tail_replays_ansi_when_live_screen_is_unavailable(self):
+        self._seed_managed_claude_with_attached_terminal("console-replay", "term_console_replay")
+        raw = (
+            "\x1b[2J\x1b[H(¬‿¬) musing…"
+            "\x1b[28;67H1\x1b[H"
+            "\x1b[28;67H2"
+        )
+        self._execute(
+            "UPDATE terminal_sessions SET output = ?, cols = 100, rows = 28 WHERE id = ?",
+            (raw, "term_console_replay"),
+        )
+
+        with patch.object(api_v2, "_render_live_terminal_screen", return_value=None):
+            resp = self.client.get("/api/v1/agents/console-replay/console?lines=40")
+
+        self.assertEqual(resp.status_code, 200, resp.text)
+        output = resp.json()["output"]
+        self.assertIn("(¬‿¬) musing…", output)
+        self.assertTrue(output.rstrip().endswith("2"), output)
+        self.assertNotIn("\x1b", output)
+
     def test_agent_console_tail_live_false_when_no_live_console(self):
         # Registered managed agent with NO consoleTerminal pointer / no terminal.
         self._heartbeat_environment(
@@ -14529,6 +14774,226 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(target["ownerMode"], "managed")
         self.assertEqual(self._dead_session_status("sess_e2e_dead"), "running")
 
+    def test_session_reconcile_clears_terminal_from_ended_duplicate_only(self):
+        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        self._seed_agent_row("one-console", "active")
+        self._seed_dead_session(
+            sid="sess_old_ended",
+            agent_id="one-console",
+            mode="managed-warm",
+            owner_mode="managed",
+            status="ended",
+        )
+        self._seed_dead_session(
+            sid="sess_current_running",
+            agent_id="one-console",
+            mode="managed-warm",
+            owner_mode="managed",
+            status="running",
+        )
+        self._seed_terminal_for_session(
+            tid="term_one_console",
+            sid="sess_current_running",
+            agent_id="one-console",
+            status="running",
+            runtime="hermes",
+        )
+        self._execute(
+            """
+            UPDATE agent_sessions
+            SET terminal_id = 'term_one_console', terminal_status = 'running'
+            WHERE id IN ('sess_old_ended', 'sess_current_running')
+            """
+        )
+
+        async def _run():
+            db = await get_db()
+            try:
+                return await api_v2._repair_terminal_session_consistency(db)
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+        rows = self._fetchall(
+            "SELECT id, terminal_id FROM agent_sessions WHERE agent_id = ? ORDER BY id",
+            ("one-console",),
+        )
+        self.assertEqual(
+            [(row["id"], row["terminal_id"]) for row in rows],
+            [("sess_current_running", "term_one_console"), ("sess_old_ended", "")],
+        )
+
+    def test_session_reconcile_keeps_terminal_authoritative_ended_owner(self):
+        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        self._seed_agent_row("one-console-inverse", "active")
+        self._seed_dead_session(
+            sid="sess_authoritative_ended",
+            agent_id="one-console-inverse",
+            mode="managed-warm",
+            owner_mode="managed",
+            status="ended",
+        )
+        self._seed_dead_session(
+            sid="sess_corrupt_running",
+            agent_id="one-console-inverse",
+            mode="managed-warm",
+            owner_mode="managed",
+            status="running",
+        )
+        self._seed_terminal_for_session(
+            tid="term_authoritative_ended",
+            sid="sess_authoritative_ended",
+            agent_id="one-console-inverse",
+            status="running",
+            runtime="hermes",
+        )
+        self._execute(
+            """
+            UPDATE agent_sessions
+            SET terminal_id = 'term_authoritative_ended', terminal_status = 'running'
+            WHERE id IN ('sess_authoritative_ended', 'sess_corrupt_running')
+            """
+        )
+
+        async def _run():
+            db = await get_db()
+            try:
+                return await api_v2._repair_terminal_session_consistency(db)
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+        authoritative = self._fetchone(
+            "SELECT terminal_id FROM agent_sessions WHERE id = ?",
+            ("sess_authoritative_ended",),
+        )
+        self.assertEqual(authoritative["terminal_id"], "term_authoritative_ended")
+
+    def test_delivery_ack_cannot_reopen_completed_dispatch(self):
+        self._register("monotonic-worker", runtime="hermes", sessionMode="managed")
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, from_agent, target_agent, dispatch_mode, execution_mode,
+                runtime, message_type, subject, body, priority, status,
+                require_reply, result_message_id, requested_at, finished_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_already_completed",
+                "manager",
+                "monotonic-worker",
+                "managed",
+                "channel",
+                "hermes",
+                "request",
+                "done",
+                "done",
+                "normal",
+                "completed",
+                1,
+                "reply-message-1",
+                api_v2._now(),
+                api_v2._now(),
+            ),
+        )
+
+        response = self.client.patch(
+            "/api/v1/dispatch/runs/run_already_completed",
+            json={"status": "delivered", "appendEvent": "late delivery ack", "eventType": "delivered"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        row = self._fetchone(
+            "SELECT status, result_message_id FROM dispatch_runs WHERE id = ?",
+            ("run_already_completed",),
+        )
+        self.assertEqual((row["status"], row["result_message_id"]), ("completed", "reply-message-1"))
+
+    def test_terminal_close_fails_controls_without_active_dispatch_run(self):
+        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        self._seed_agent_row("idle-terminal-owner", "active")
+        self._seed_dead_session(
+            sid="sess_idle_terminal",
+            agent_id="idle-terminal-owner",
+            mode="managed-warm",
+            owner_mode="managed",
+            status="running",
+        )
+        self._seed_terminal_for_session(
+            tid="term_idle_terminal",
+            sid="sess_idle_terminal",
+            agent_id="idle-terminal-owner",
+            status="running",
+            runtime="hermes",
+        )
+        self._execute(
+            """
+            INSERT INTO terminal_controls (
+                id, terminal_id, environment_id, bridge_id, action, status, requested_at
+            ) VALUES (?,?,?,?,?,?,?)
+            """,
+            ("ctl_idle_terminal", "term_idle_terminal", "linux:test-host:default", "bridge-current", "input", "pending", api_v2._now()),
+        )
+
+        async def _run():
+            db = await get_db()
+            try:
+                terminal = await (
+                    await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", ("term_idle_terminal",))
+                ).fetchone()
+                await api_v2._close_active_terminal_runs_for_terminal(db, terminal, "stopped")
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+        control = self._fetchone(
+            "SELECT status, handled_at FROM terminal_controls WHERE id = ?",
+            ("ctl_idle_terminal",),
+        )
+        self.assertEqual(control["status"], "failed")
+        self.assertTrue(control["handled_at"])
+
+    def test_periodic_reconcile_fails_controls_for_ended_terminal(self):
+        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        self._seed_agent_row("ended-terminal-owner", "active")
+        self._seed_dead_session(
+            sid="sess_ended_periodic",
+            agent_id="ended-terminal-owner",
+            mode="managed-warm",
+            owner_mode="managed",
+            status="ended",
+        )
+        self._seed_terminal_for_session(
+            tid="term_ended_periodic",
+            sid="sess_ended_periodic",
+            agent_id="ended-terminal-owner",
+            status="stopped",
+            runtime="hermes",
+        )
+        self._execute(
+            """
+            INSERT INTO terminal_controls (
+                id, terminal_id, environment_id, bridge_id, action, status, requested_at
+            ) VALUES (?,?,?,?,?,?,?)
+            """,
+            ("ctl_ended_periodic", "term_ended_periodic", "linux:test-host:default", "bridge-current", "resize", "claimed", api_v2._now()),
+        )
+
+        async def _run():
+            db = await get_db()
+            try:
+                count = await api_v2._reconcile_ended_terminal_controls(db)
+                await db.commit()
+                return count
+            finally:
+                await db.close()
+
+        self.assertEqual(asyncio.run(_run()), 1)
+        control = self._fetchone("SELECT status FROM terminal_controls WHERE id = ?", ("ctl_ended_periodic",))
+        self.assertEqual(control["status"], "failed")
+
 
 class TerminalSessionMigrationTests(unittest.TestCase):
     """Part 1 migration: an existing DB whose terminal_sessions table predates
@@ -14571,3 +15036,178 @@ class TerminalSessionMigrationTests(unittest.TestCase):
         cols_after = {row[1] for row in conn.execute("PRAGMA table_info(terminal_sessions)")}
         conn.close()
         self.assertIn("process_id", cols_after)
+
+    def _seed_terminal_control_db(self, *, terminal_status="running"):
+        tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmpdir.cleanup)
+        db_path = Path(tmpdir.name) / "controls.db"
+        asyncio.run(init_db(db_path))
+        now = "2026-07-22T00:00:00Z"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            "INSERT INTO environments (id, bridge_id, registered_at, last_seen) VALUES (?,?,?,?)",
+            ("env-1", "bridge-1", now, now),
+        )
+        conn.execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                status, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?)
+            """,
+            ("term-1", "session-1", "agent-1", "env-1", "bridge-1", "hermes", terminal_status, now, now),
+        )
+        conn.commit()
+        conn.close()
+        return db_path
+
+    def test_init_db_fails_unhandled_controls_for_stopped_terminals(self):
+        db_path = self._seed_terminal_control_db(terminal_status="stopped")
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            """
+            INSERT INTO terminal_controls (
+                id, terminal_id, environment_id, bridge_id, action, status,
+                requested_at
+            ) VALUES (?,?,?,?,?,?,?)
+            """,
+            ("ctl-stale", "term-1", "env-1", "bridge-1", "resize", "pending", "2026-07-15T00:00:00Z"),
+        )
+        conn.commit()
+        conn.close()
+
+        asyncio.run(init_db(db_path))
+
+        conn = sqlite3.connect(str(db_path))
+        row = conn.execute(
+            "SELECT status, handled_at, error FROM terminal_controls WHERE id = 'ctl-stale'"
+        ).fetchone()
+        conn.close()
+        self.assertEqual(row[0], "failed")
+        self.assertTrue(row[1])
+        self.assertIn("terminal is not active", row[2])
+
+    def test_pending_resize_controls_are_coalesced_per_terminal(self):
+        db_path = self._seed_terminal_control_db()
+
+        async def _run():
+            db = await get_db()
+            try:
+                first = await api_v2._append_terminal_control(
+                    db,
+                    terminal_id="term-1",
+                    environment_id="env-1",
+                    bridge_id="bridge-1",
+                    action="resize",
+                    cols=100,
+                    rows=30,
+                )
+                second = await api_v2._append_terminal_control(
+                    db,
+                    terminal_id="term-1",
+                    environment_id="env-1",
+                    bridge_id="bridge-1",
+                    action="resize",
+                    cols=120,
+                    rows=40,
+                )
+                await db.commit()
+                rows = await (await db.execute(
+                    "SELECT id, cols, rows FROM terminal_controls WHERE terminal_id = 'term-1'"
+                )).fetchall()
+                return first, second, rows
+            finally:
+                await db.close()
+
+        first, second, rows = asyncio.run(_run())
+        self.assertEqual(second, first)
+        self.assertEqual([(row["id"], row["cols"], row["rows"]) for row in rows], [(first, 120, 40)])
+
+    def test_concurrent_resize_controls_are_coalesced_atomically(self):
+        db_path = self._seed_terminal_control_db()
+
+        async def _submit(cols):
+            db = await get_db()
+            try:
+                control_id = await api_v2._append_terminal_control(
+                    db,
+                    terminal_id="term-1",
+                    environment_id="env-1",
+                    bridge_id="bridge-1",
+                    action="resize",
+                    cols=cols,
+                    rows=40,
+                )
+                await db.commit()
+                return control_id
+            finally:
+                await db.close()
+
+        async def _run():
+            return await asyncio.gather(_submit(100), _submit(120))
+
+        first, second = asyncio.run(_run())
+        conn = sqlite3.connect(str(db_path))
+        rows = conn.execute(
+            "SELECT id FROM terminal_controls WHERE terminal_id = 'term-1' AND action = 'resize' AND status = 'pending'"
+        ).fetchall()
+        conn.close()
+        self.assertEqual(first, second)
+        self.assertEqual(len(rows), 1)
+
+    def test_terminal_control_claim_index_includes_bridge(self):
+        db_path = self._seed_terminal_control_db()
+        conn = sqlite3.connect(str(db_path))
+        columns = [row[2] for row in conn.execute("PRAGMA index_info(idx_terminal_controls_env_status)")]
+        conn.close()
+        self.assertEqual(columns[:4], ["environment_id", "bridge_id", "status", "requested_at"])
+
+    def test_init_db_fails_controls_for_superseded_environment_bridge(self):
+        db_path = self._seed_terminal_control_db()
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            """
+            INSERT INTO environment_controls (
+                id, environment_id, bridge_id, action, status, requested_at
+            ) VALUES (?,?,?,?,?,?)
+            """,
+            ("envctl-stale", "env-1", "bridge-old", "stop", "claimed", "2026-07-15T00:00:00Z"),
+        )
+        conn.commit()
+        conn.close()
+
+        asyncio.run(init_db(db_path))
+
+        conn = sqlite3.connect(str(db_path))
+        row = conn.execute(
+            "SELECT status, handled_at, error FROM environment_controls WHERE id = 'envctl-stale'"
+        ).fetchone()
+        conn.close()
+        self.assertEqual(row[0], "failed")
+        self.assertTrue(row[1])
+        self.assertIn("bridge is no longer current", row[2])
+
+    def test_init_db_fails_terminal_controls_for_superseded_environment_bridge(self):
+        db_path = self._seed_terminal_control_db(terminal_status="running")
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            """
+            INSERT INTO terminal_controls (
+                id, terminal_id, environment_id, bridge_id, action, status, requested_at
+            ) VALUES (?,?,?,?,?,?,?)
+            """,
+            ("termctl-stale-bridge", "term-1", "env-1", "bridge-old", "input", "pending", "2026-07-15T00:00:00Z"),
+        )
+        conn.commit()
+        conn.close()
+
+        asyncio.run(init_db(db_path))
+
+        conn = sqlite3.connect(str(db_path))
+        row = conn.execute(
+            "SELECT status, handled_at, error FROM terminal_controls WHERE id = 'termctl-stale-bridge'"
+        ).fetchone()
+        conn.close()
+        self.assertEqual(row[0], "failed")
+        self.assertTrue(row[1])
+        self.assertIn("bridge is no longer current", row[2])

@@ -1,4 +1,4 @@
-// Persistent `hermes dashboard --tui` child per managed hermes agent.
+// Persistent `hermes dashboard` gateway child per managed hermes agent.
 // Mirror of CodexSession (codex app-server) and HermesSession (hermes acp)
 // patterns, but uses hermes's multi-client tui_gateway WS instead of
 // single-client ACP. Symmetric with the resident-hermes channel path —
@@ -10,7 +10,7 @@
 // The tui_gateway dispatcher fans events via TeeTransport to N clients,
 // so bridge + dashboard Console can both subscribe to the same session.
 //
-// Gated by AIFY_HERMES_MANAGED_USE_GATEWAY=1 (default off until validated).
+// Native-controller fallback, gated by AIFY_HERMES_MANAGED_USE_GATEWAY=1.
 
 import { spawn } from "node:child_process";
 import http from "node:http";
@@ -21,7 +21,6 @@ import {
   buildSessionSteerFrame,
   buildSessionMostRecentFrame,
   translateGatewayEvent,
-  isSessionBusyError,
 } from "./hermes-gateway-protocol.js";
 import { terminateProcessTree } from "./runtimes.js";
 import {
@@ -383,17 +382,6 @@ export class HermesManagedGatewaySession {
         await this._sendRpc(buildPromptSubmitFrame({ sessionId, text }));
         callbacks.onEvent?.("hermes", `prompt.submit accepted on session ${sessionId}`);
       } catch (err) {
-        if (isSessionBusyError(err)) {
-          callbacks.onEvent?.("hermes", `prompt.submit busy; falling back to session.steer on ${sessionId}`);
-          await this._sendRpc(buildSessionSteerFrame({ sessionId, text }));
-          callbacks.onEvent?.("hermes", `session.steer queued on ${sessionId}`);
-          return {
-            status: "completed",
-            summary: `Steered into running turn: ${text.slice(0, 80)}${text.length > 80 ? "..." : ""}`,
-            runtimeState: { sessionId },
-            externalRefs: { sessionId },
-          };
-        }
         throw new Error(`hermes prompt.submit failed: ${err?.message || JSON.stringify(err)}`);
       }
 
@@ -430,6 +418,13 @@ export class HermesManagedGatewaySession {
       this.stop().catch(() => {});
     }, ms);
     if (typeof this._idleTimer.unref === "function") this._idleTimer.unref();
+  }
+
+  async steer(text) {
+    await this.ensureStarted();
+    const sessionId = await this._resolveSessionId();
+    if (!sessionId) throw new Error("could not resolve hermes session id");
+    return this._sendRpc(buildSessionSteerFrame({ sessionId, text: String(text ?? "") }));
   }
 
   async cancelActiveTurn() {

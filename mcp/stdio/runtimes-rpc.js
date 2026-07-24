@@ -4,11 +4,36 @@
 import readline from "readline";
 import WebSocket from "ws";
 
+export function managedCodexServerRequest(message) {
+  const method = String(message?.method || "");
+  if (method === "item/commandExecution/requestApproval" || method === "item/fileChange/requestApproval") {
+    return { decision: "acceptForSession" };
+  }
+  if (method === "item/permissions/requestApproval") {
+    return { permissions: message?.params?.permissions || {}, scope: "session" };
+  }
+  throw new Error(`unsupported Codex server request: ${method || "(missing method)"}`);
+}
+
+function answerServerRequest(message, send, handler) {
+  Promise.resolve()
+    .then(() => {
+      if (typeof handler !== "function") throw new Error(`unsupported server request: ${message.method}`);
+      return handler(message);
+    })
+    .then((result) => send({ jsonrpc: "2.0", id: message.id, result }))
+    .catch((error) => send({
+      jsonrpc: "2.0",
+      id: message.id,
+      error: { code: -32601, message: error?.message || String(error) },
+    }));
+}
+
 export function quoteForDisplay(text) {
   return String(text || "").replace(/\s+/g, " ").trim();
 }
 
-export function createRpcClient(proc, { onNotification, onStderr } = {}) {
+export function createRpcClient(proc, { onNotification, onStderr, onRequest } = {}) {
   const pending = new Map();
   let nextId = 1;
   let processError = null;
@@ -17,6 +42,7 @@ export function createRpcClient(proc, { onNotification, onStderr } = {}) {
   // constructor-time `onNotification`; null disables forwarding.
   let activeNotificationHandler = onNotification || null;
   let activeStderrHandler = onStderr || null;
+  let activeRequestHandler = onRequest || null;
 
   function failPending(error) {
     for (const [id, pendingRequest] of pending.entries()) {
@@ -42,6 +68,10 @@ export function createRpcClient(proc, { onNotification, onStderr } = {}) {
       return;
     }
 
+    if (Object.prototype.hasOwnProperty.call(message, "id") && message.method) {
+      answerServerRequest(message, send, activeRequestHandler);
+      return;
+    }
     if (Object.prototype.hasOwnProperty.call(message, "id")) {
       const pendingRequest = pending.get(message.id);
       if (!pendingRequest) return;
@@ -102,10 +132,15 @@ export function createRpcClient(proc, { onNotification, onStderr } = {}) {
     activeStderrHandler = typeof handler === "function" ? handler : null;
   }
 
+  function setOnRequest(handler) {
+    activeRequestHandler = typeof handler === "function" ? handler : null;
+  }
+
   function close() {
     failPending(new Error("rpc client closed"));
     activeNotificationHandler = null;
     activeStderrHandler = null;
+    activeRequestHandler = null;
     try { stdout.close(); } catch {}
     try { stderr.close(); } catch {}
     try { proc.stdin?.end?.(); } catch {}
@@ -113,10 +148,10 @@ export function createRpcClient(proc, { onNotification, onStderr } = {}) {
     try { proc.stderr?.destroy?.(); } catch {}
   }
 
-  return { request, notify, setOnNotification, setOnStderr, close };
+  return { request, notify, setOnNotification, setOnStderr, setOnRequest, close };
 }
 
-export function createWebSocketRpcClient(url, { token, onNotification, onStderr } = {}) {
+export function createWebSocketRpcClient(url, { token, onNotification, onStderr, onRequest } = {}) {
   return new Promise((resolve, reject) => {
     const pending = new Map();
     let nextId = 1;
@@ -125,6 +160,7 @@ export function createWebSocketRpcClient(url, { token, onNotification, onStderr 
 
     let activeNotificationHandler = onNotification || null;
     let activeStderrHandler = onStderr || null;
+    let activeRequestHandler = onRequest || null;
     const headers = {};
     if (token) headers.Authorization = `Bearer ${token}`;
     const socket = new WebSocket(url, Object.keys(headers).length ? { headers } : undefined);
@@ -196,6 +232,7 @@ export function createWebSocketRpcClient(url, { token, onNotification, onStderr 
         }
         activeNotificationHandler = null;
         activeStderrHandler = null;
+        activeRequestHandler = null;
       }
 
       function setOnNotification(handler) {
@@ -206,7 +243,11 @@ export function createWebSocketRpcClient(url, { token, onNotification, onStderr 
         activeStderrHandler = typeof handler === "function" ? handler : null;
       }
 
-      resolve({ request, notify, close, setOnNotification, setOnStderr });
+      function setOnRequest(handler) {
+        activeRequestHandler = typeof handler === "function" ? handler : null;
+      }
+
+      resolve({ request, notify, close, setOnNotification, setOnStderr, setOnRequest });
     });
 
     socket.on("message", (data) => {
@@ -217,6 +258,12 @@ export function createWebSocketRpcClient(url, { token, onNotification, onStderr 
         return;
       }
 
+      if (Object.prototype.hasOwnProperty.call(message, "id") && message.method) {
+        answerServerRequest(message, (payload) => {
+          if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
+        }, activeRequestHandler);
+        return;
+      }
       if (Object.prototype.hasOwnProperty.call(message, "id")) {
         const pendingRequest = pending.get(message.id);
         if (!pendingRequest) return;

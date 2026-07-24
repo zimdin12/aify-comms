@@ -117,15 +117,29 @@ function checkNativeBridge() {
     "Re-run `bash install.sh --client <runtime>` — bridge edits do NOT take effect from the checkout.");
 }
 
+function checkBridgeTerminal() {
+  try {
+    execFileSync(process.execPath, ["-e", "require('node-pty')"], {
+      cwd: BRIDGE_DIR,
+      stdio: "ignore",
+    });
+    return add("bridge-terminal", true, "ok", "installed node-pty native module loads");
+  } catch {
+    return add("bridge-terminal", false, "unloadable", "installed node-pty native module does not load; terminal-backed runtimes cannot start.",
+      "Run `cd ~/.aify-comms/mcp/stdio && npm rebuild node-pty`, then restart the environment bridge.");
+  }
+}
+
 // ── 3. RUNNING bridges: a process keeps the code it loaded at boot ──────────────────
 // This is the check that would have saved the most time. A fix can be committed, installed, and
 // still not be running anywhere — because every live wrapper is executing the copy it read at
-// startup. Compare each bridge process's start time against the installed copy's mtime.
+// startup. Compare each bridge process's start time against the install marker;
+// mirrored source files preserve their old mtimes and cannot prove install time.
 function checkRunningBridges() {
   if (process.platform !== "linux") return skip("bridge-running", "process inspection is Linux-only");
-  const serverJs = join(BRIDGE_DIR, "server.js");
-  if (!existsSync(serverJs)) return skip("bridge-running", "no installed bridge to compare against");
-  const installedAtMs = statSync(serverJs).mtimeMs;
+  const marker = join(AIFY_HOME, ".aify-version");
+  if (!existsSync(marker)) return skip("bridge-running", "no install marker to compare against");
+  const installedAtMs = statSync(join(AIFY_HOME, ".aify-version")).mtimeMs;
   const stale = [];
   let running = 0;
   for (const pid of readdirSync("/proc").filter((d) => /^\d+$/.test(d))) {
@@ -247,6 +261,7 @@ async function checkUsage() {
 // ── run ──────────────────────────────────────────────────────────────────────────────
 await checkService();
 checkNativeBridge();
+checkBridgeTerminal();
 checkRunningBridges();
 await checkAgentIdentity();
 checkWrappers();

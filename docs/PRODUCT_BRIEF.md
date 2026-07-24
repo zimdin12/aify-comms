@@ -34,11 +34,11 @@ The dashboard should feel like a real web application, not a database admin page
 
 - What bridges/environments are connected?
 - Which agents exist, and where are they running?
-- Who is currently working, idle, blocked, or offline?
+- Who is currently working, online/available, blocked, or offline?
 - What conversations need attention?
 - Which runs are pending handoff?
 - Which reply/work contracts are overdue, answered, stale, or only historical noise?
-- What can I safely spawn, stop, restart, or recover?
+- What can I safely spawn, stop, restart, or reset?
 - Which old failures are still actionable, and which are only audit history?
 
 Daily workflow target:
@@ -46,7 +46,7 @@ Daily workflow target:
 1. Start the service/dashboard container.
 2. Run `aify-comms` in each execution environment, for example native Windows and WSL.
 3. Open the dashboard.
-4. Spawn or recover managed identities from the dashboard, selecting the exact workspace per agent.
+4. Spawn or restart managed identities from the dashboard, selecting the exact workspace per agent.
 5. Chat with agents and channels from the dashboard; keep manual resident CLI registrations as compatibility/debug bindings.
 
 ## Core User Stories
@@ -56,9 +56,9 @@ Daily workflow target:
 - As a user, I can select workspace, runtime, role, and initial instructions before spawn. Managed model/effort policy is configured globally in dashboard settings.
 - As a user, I can DM a spawned agent immediately without asking it to manually register.
 - As a user, I can create a channel, add agents, and send a message to that channel.
-- As a user, I can see which agents are alive, idle, working, blocked, or dead.
+- As a user, I can see which agents are online/available, working, blocked, offline, or stopped.
 - As a user, I can stop a managed agent process and later respawn/resume the same identity when supported by the runtime.
-- As a user, I can stop a managed agent process and recover it from stored backing even when the runtime does not support native resume.
+- As a user, I can stop a managed agent process and restart it from stored backing even when the runtime does not support native resume.
 - As a user, I can inspect token/cost telemetry when the runtime exposes it.
 - As a user, I can inspect enough run/session evidence to understand what happened, with richer transcript/log views added per adapter as they mature.
 - As a user, I can start a clean new session from an old session using a reviewed compaction packet, including switching model, runtime, bridge, or workspace.
@@ -89,7 +89,7 @@ Daily workflow target:
 - Browser Console is an implemented terminal surface for bridge-owned PTYs. It is not a replacement for chat: Messenger remains the contract surface, and Console attaches to the same managed PTY used for terminal-capable delivery instead of pausing dashboard delivery by default.
 - Bridges are execution owners. The container coordinates; the bridge running in Windows/WSL/Linux validates paths and starts native processes.
 - Handoff compaction is not native resume. It creates a new session from a portable compaction packet so users can compact context or switch runtime/model/environment safely. It should keep the same agent ID by default unless the operator intentionally creates a separate successor identity.
-- Work contracts are computed from messages and runs. They are not a second messaging system; they expose the obligations already created by direct requests, reviews, errors, urgent/high-priority messages, self-wakes, and required handoffs.
+- Work contracts are computed from messages and runs. They are not a second messaging system; they expose obligations created by direct requests, reviews, errors, explicit `requireReply` messages, self-wakes, and required handoffs. Priority alone does not create reply debt.
 
 ## Product Quality Bar
 

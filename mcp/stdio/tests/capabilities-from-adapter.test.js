@@ -2,6 +2,7 @@
 // Pi resident no longer advertises `resident-run` (Plan 2 pi flip).
 import assert from "assert";
 import test from "node:test";
+import { supportedRuntimes } from "../adapters/index.js";
 import {
   defaultCapabilitiesForRuntime,
   controlCapabilitiesForRuntime,
@@ -25,11 +26,16 @@ test("claude resident still has resident-run", () => {
   assert.ok(caps.includes("resident-run"));
 });
 
-test("opencode managed has no steer", () => {
+test("hermes managed advertises native steer", () => {
+  const caps = controlCapabilitiesForRuntime("hermes", "managed");
+  assert.equal(caps.steer, true);
+});
+
+test("opencode managed has native promptAsync steer", () => {
   const caps = defaultCapabilitiesForRuntime("opencode", "managed", "", {});
   assert.ok(caps.includes("managed-run"));
   assert.ok(caps.includes("interrupt"));
-  assert.ok(!caps.includes("steer"));
+  assert.ok(caps.includes("steer"));
 });
 
 test("controlCapabilitiesForRuntime derives from adapter for pi", () => {
@@ -41,7 +47,17 @@ test("controlCapabilitiesForRuntime derives from adapter for pi", () => {
 
 test("controlCapabilitiesForRuntime derives from adapter for opencode", () => {
   const caps = controlCapabilitiesForRuntime("opencode");
-  // OpencodeAdapter.supportsSteering == false, supportsInterrupt == true
+  // OpencodeAdapter supports promptAsync steer and interrupt.
   assert.strictEqual(caps.interrupt, true);
-  assert.strictEqual(caps.steer, false);
+  assert.strictEqual(caps.steer, true);
+});
+
+test("every managed harness advertises ordinary-send steer", () => {
+  for (const runtime of supportedRuntimes()) {
+    assert.strictEqual(
+      controlCapabilitiesForRuntime(runtime).steer,
+      true,
+      `${runtime} must expose its native busy-input path as steer`,
+    );
+  }
 });

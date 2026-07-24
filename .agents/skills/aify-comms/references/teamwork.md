@@ -55,87 +55,20 @@ Use labels in subjects when they reduce ambiguity:
 
 Do not use labels as theater. The body must include evidence or the exact ask.
 
-## Right-size the message — you decide how much the recipient needs
+## Right-size the message
 
-You have the context; judge how much the recipient actually needs to act correctly, and
-send exactly that. There is no word limit and no virtue in terseness for its own sake —
-sometimes the right message is a full spec with evidence, sometimes it's one line. **The
-test is always: does this give the recipient something they need and don't already have?**
+Send the smallest message that lets the recipient act correctly. Terseness is not the goal;
+avoid both missing inputs and repeated context.
 
-Both directions are failures:
+- **Send the delta.** Include the new decision, result, blocker, or exact ask; do not restate an agreed plan.
+- **Keep intent inline.** Put the owner, decision, ask, and completion condition in the message. Point to a shared path or `comms_share` artifact for bulky detail.
+- **No courtesy loop.** A terminal `APPROVE`, result, or thanks ends the thread unless it creates new work.
+- **Promises need a wake.** Before ending a turn with future work, create the follow-up contract or self-wake. Written `Next:` text is not scheduling.
+- **DM owners; channel shared state.** Post a settled decision once on the team channel. Send a DM only to the person who must act. The same text to several people belongs on a channel.
+- **Delegate inside your lane; route across lanes.** Native subagents can help an owner; they must not shadow another teammate's role.
 
-- **Under-communicating borks the work.** If the recipient needs a decision, the evidence,
-  a blocker, the exact file/criteria, or a real heads-up to act correctly, send it IN FULL.
-  Never strip out information they need just to "be brief." A missing detail costs a
-  clarify round-trip (or a wrong build) far more than a few extra sentences.
-- **Over-communicating stalls the work.** The most common live pattern is the
-  **confirmation loop ("violent agreement")**: after a decision is settled, agents keep
-  sending long messages that re-state the whole agreed plan and re-affirm alignment —
-  "Agreed — …", "Fully aligned, nothing to add", "Locked, standing by". Those carry ~zero
-  new information; they just add round-trips and burn context. (A real thread ran ~1300
-  messages between two agents on ONE experiment this way — almost all mutual
-  re-confirmation, with the one genuinely-useful heads-up buried inside.)
-
-Judgment rules (apply the test above, don't apply them mechanically):
-
-- **Send the DELTA — what's new or what they need — not a re-summary of what they already
-  have.** New decision, result, blocker, or heads-up: yes. Re-pasting the agreed plan the
-  recipient wrote half of: no. If you have nothing new *and* they need nothing, that's a
-  cue to ACT, not to write.
-- **Point at bulky content; don't paste it. Reference if co-located, share if not.** When
-  you'd otherwise inline a large brief / diff / spec / log, send a pointer instead — the
-  content then lives in ONE place and the recipient pulls only the part it needs, instead
-  of the whole payload being copied into every recipient's context (and the DB + envelope)
-  on every send. If the recipient shares your workspace, cite the **path** (`tmp/brief.md`,
-  `src/engine/World.h:118`); if they're in a different folder/env, `comms_share` it once and send
-  the one-line pointer (an artifact is also an immutable snapshot — safer for "this exact
-  state" than a live file). **But keep the decision, the ask, and the delta INLINE** —
-  reference the detail, not the intent; a bare "see tmp/x.md" just forces a blind read.
-  Small content (a number, a one-line status, the actual decision) stays inline — a pointer
-  isn't worth a tool round-trip for a sentence.
-- **You don't owe a message just to acknowledge.** If a reply is required to CLOSE A RUN
-  (see "Reply on the surface you received"), send that one and make it terminal — an
-  explicit stop marker ("Proceeding, no reply needed", `[APPROVE]`, `[COMMIT]`) — then the
-  recipient treats it as the end and does NOT write back "sounds good". Don't stack extra
-  confirmations on top of the one that closes the loop. **An acknowledgment never earns a
-  reply: a "thanks" ENDS the thread.** (Real teams have burned full agent turns exchanging
-  "Re: standing down — thanks" → "Re: standing down" — 129 characters, two context re-reads.)
-- **A promise of future work does not close a contract.** A reply that ends with
-  "Next: <steps>... continuing" (or any I'll-do-it-later phrasing) answers nothing — the
-  promised work lives in nobody's ledger the moment the run closes, and nothing will wake
-  the promiser (live incident: a lead replied exactly that, created no wake, and the
-  top-priority lane sat silent ~25 minutes). Two duties: the PROMISER creates the next
-  wake BEFORE ending the turn (dispatch the follow-on to yourself or the owner — written
-  "Next:" text is not a wake); the MANAGER treats a promise-reply as a NON-answer — either
-  re-ask so the contract stays open until the work actually lands, or immediately send the
-  follow-on as its own contract. Never accept "continuing..." as closure of anything.
-- **Post a settled decision once, on a channel — then point at it instead of re-pasting.**
-  When a contract/criteria/target is locked, `comms_channel_send` it once as the shared
-  durable record; the re-confirmation loop is usually a symptom of there being no single
-  agreed record everyone can re-read.
-- **Two agents re-confirming alignment is a smell.** Once aligned, the owner ACTS and
-  reports the RESULT; the reviewer waits for that result. Neither needs another "we're
-  aligned."
-- **Address the agent who can act — don't broadcast outside the team/project.** Send a
-  decision/request to the specific owner(s) on THIS project. Broadcasting a team decision
-  to agents on a different repo/team just burns their context and earns a "wrong project,
-  I can't run that" bounce (it has happened). If you genuinely need many owners, name each
-  and what you want from them; if it's a shared record, put it on the team channel.
-- **Same text to 3+ teammates = a channel post, not N DMs.** Post ONCE to the team channel
-  and name who must act; DM only that person. Prefixing DMs with "#channel:" is channel
-  emulation at N× the cost — every copy wakes a full agent turn, and recipients who weren't
-  the owner burn further turns declining ("this landed in my inbox but per the review matrix
-  it's not mine"). A real team's ×4 review broadcasts turned 8 interactions into 26
-  deliveries plus 4 pure-misroute turns; the one team that posted matrix/READY/verdict to
-  the channel once each ran the same task shape with zero acks, zero misroutes.
-- **Delegate within your lane; route across lanes; keep the team aware via the record.**
-  Inside your own lane, your runtime's native delegation (claude-code subagents, hermes
-  `delegate_task`, codex multi-agent) is the cheap tool for fan-out research/edits/
-  verification. Work belonging to another ROLE goes to that teammate — a manager with a
-  coder on the team routes coding to the coder, never spawns a shadow one. And shared
-  awareness comes from the durable record (a channel post of the settled decision), not
-  from CCing everyone in DMs — teammates who need the context should be able to find it,
-  without each getting a wake-turn.
+When unsure, ask: "Does the recipient need this and not already have it?" If not, act instead
+of sending another message.
 
 ## Source-of-truth docs
 
@@ -165,12 +98,14 @@ creates them at kickoff; "we'll remember" is not a plan.
 - **Right-size the rigor.** Scale review depth and teammate count to task complexity and risk. Do not run the full multi-reviewer gauntlet on trivial/low-risk work — more agents and more review rounds are a COST, not a virtue; spend them where they buy something. (See `references/building-software.md`.)
 - **Scope the context you hand down.** When you delegate, give each agent only the inputs that subtask needs — the specific file, the one prior result, the exact decision — not the whole thread. Broadcasting full history burns the delegate's context and tokens for no benefit, and a focused brief gets a sharper answer. If two agents don't need each other's output, don't cross-pollinate it; if one does, name the exact artifact (`comms_share` + a one-line pointer) rather than pasting it. Put shared DECISIONS everyone needs (frozen contracts, API shapes, integration order) on a team CHANNEL via `comms_channel_send`, not scattered across DMs — DMs are for owned 1:1 handoffs. (Context-scoping discipline — cf. the "Conductor" access-list idea, arXiv:2512.04388.)
 - Check `comms_contracts` and `comms_agent_info` before assuming who is idle or stuck.
-- If an agent is active but not working and owes a contract, send a focused status probe or rebrief.
+- **Presence is not progress.** `online` proves a live worker and `lastSeen` proves a heartbeat; neither proves work or session resumption. Measure a lane by its latest evidenced output — for example a commit, push, merge, deploy, test result, or delivered artifact — and keep those states distinct.
+- If an agent is `online`/`available` and owes a contract, send a focused status probe or rebrief.
 - **Peek before you probe (managed agents).** When status alone is ambiguous — an agent shows `working` but owes an overdue reply, or you're sweeping the team on a heartbeat/monitoring loop — read what it is actually doing with `comms_console_tail(agentId="...")` (read-only, last 40 lines by default). The console reveals whether it's mid-build, waiting at a prompt, looping, or errored — detail that status can't convey. This is often faster and cheaper than a status round-trip.
 - To recover a managed agent stuck at a prompt, `comms_console_input(agentId="...", text="...")` types into its console (empty text just sends Enter to unstick). Audited; use sparingly — prefer `comms_send` for normal work.
 - **Console tools are managed-only.** Resident agents have no aify-owned console, so `comms_console_tail`/`comms_console_input` report "no live console." For a resident agent your levers are `comms_send` (ask for a `[STATUS]` with evidence) and the dashboard; **Switch to managed** if you need a console to peek into.
 - If a worker replies with repeated vague status, demand `[REVIEW]` or `[HOLD]` with evidence.
 - If context is noisy, use handoff compact/rebrief: `comms_compact(from="you", targetAgentId="other", mode="handoff")` compacts **another** managed agent by spawning a fresh managed backing seeded with a handoff packet (recent messages + your instructions). It is NOT the runtime's native `/compact`, and it needs a managed backing — a resident-only agent can't be compacted this way. Keep the same agent ID unless intentionally splitting identity (`newAgentId`). To trigger a managed PTY runtime's own in-place `/compact` (claude-code/codex/hermes), type it via `comms_console_input(agentId="...", text="/compact")` while the agent is at its prompt; for a resident agent, `comms_send` a request asking it to `/compact` itself.
+- **An identity change is a migration.** Renaming tombstones the old ID, orphans a live session until it re-registers under the new ID, and makes stale sends fail. Notify the agent and its active correspondents of the cutover, or keep the existing ID.
 - Avoid long dashboard updates. Tell the human what changed, what was verified, what remains blocked, and the next owner.
 
 ## Worker Discipline

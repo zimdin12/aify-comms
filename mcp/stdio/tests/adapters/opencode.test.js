@@ -28,11 +28,10 @@ test("OpencodeAdapter falls back to OPENCODE_SESSION", () => {
 
 test("OpencodeAdapter Plan 2 capabilities", () => {
   const a = new OpencodeAdapter();
-  // aify-comms doesn't wire `opencode serve` today — capabilities reflect
-  // current aify-comms delivery surface, not what opencode CAN do.
+  // Managed OpenCode steers through the per-run server's promptAsync endpoint.
   assert.strictEqual(a.supportsResident, false);
   assert.strictEqual(a.supportsManaged, true);
-  assert.strictEqual(a.supportsSteering, false);
+  assert.strictEqual(a.supportsSteering, true);
   assert.strictEqual(a.supportsInterrupt, true);
   assert.strictEqual(a.supportsMultiClient, false);
   assert.strictEqual(a.preferredDeliveryMode, "managed");

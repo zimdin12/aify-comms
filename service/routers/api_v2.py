@@ -34,6 +34,7 @@ from service.terminal_snapshot import (
     infer_source_width as _infer_terminal_source_width,
     feed_live_screen as _feed_live_terminal_screen,
     render_live_screen as _render_live_terminal_screen,
+    resize_live_screen as _resize_live_terminal_screen,
     drop_live_screen as _drop_live_terminal_screen,
 )
 from service.status_engine import apply_event, derive, StatusInputs, VALID_STATUSES
@@ -1636,6 +1637,8 @@ def _serialize_dispatch_run_row(row, *, blocked_by=None, include_body: bool = Fa
         "error": row["error_text"] or "",
         "resultMessageId": row["result_message_id"] or "",
         "requireReply": _row_require_reply(row),
+        "queueIfBusy": bool(row["queue_if_busy"]),
+        "steerIfBusy": bool(row["steer_if_busy"]),
         "replyState": _dispatch_reply_state(row),
         "replyPending": _dispatch_reply_pending(row),
         "requestedAt": row["requested_at"],
@@ -1884,7 +1887,12 @@ def _default_capabilities_for(
         caps.append("resume")
     if adapter.supports_interrupt:
         caps.append("interrupt")
-    if adapter.supports_steering:
+    supports_steering = adapter.supports_steering
+    # ASYMMETRY(hermes): wrapper/gateway delivery supports native steer. The
+    # advanced single-client ACP fallback rejects concurrent session/prompt.
+    if runtime_n == "hermes" and session_mode_n == "managed" and not bool((runtime_config or {}).get("channelEnabled")):
+        supports_steering = False
+    if supports_steering:
         caps.append("steer")
 
     # `spawn` capability is independent — every aify-comms managed-capable
@@ -1924,22 +1932,16 @@ def _row_capabilities(row) -> list[str]:
         return [cap for cap in capabilities if cap not in {"resident-run", "interrupt", "steer"}]
     if runtime == "hermes":
         if session_mode == "managed":
-            # Managed hermes does NOT safely accept a mid-turn inject. Unlike claude (which queues
-            # injects in order), a submission delivered to hermes WHILE it is waiting on the model is
-            # treated as an INTERRUPT and cancels the in-flight turn (conversation_loop.py:2294,
-            # "Operation interrupted: waiting for model response"). Advertising `steer` made BOTH
-            # injection points fire for hermes — the send-time steer branch (~6783) and the
-            # /dispatch/claim turn-busy bypass (_has_claimable_steerable_run) — so every message to a
-            # busy hermes interrupted its turn, stranded the reply, and drove cold-start churn
-            # (mc-senior-dev proliferation, 2026-07-20). Strip `steer` (even if the bridge registered
-            # it) so a message to a busy hermes ENQUEUES and delivers at turn-end instead. The
-            # explicit `interrupt` (stop) capability is unaffected; claude keeps `steer`.
-            capabilities = [cap for cap in capabilities if cap != "steer"]
-            for cap in ("managed-run", "resume", "interrupt", "spawn"):
+            managed_caps = ["managed-run", "resume", "interrupt", "spawn"]
+            if bool(runtime_config.get("channelEnabled")):
+                managed_caps.append("steer")
+            else:
+                capabilities = [cap for cap in capabilities if cap != "steer"]
+            for cap in managed_caps:
                 if cap not in capabilities:
                     capabilities = [*capabilities, cap]
         elif _has_hermes_gateway_url(runtime_config):
-            for cap in ("resident-run", "resume", "interrupt"):
+            for cap in ("resident-run", "resume", "interrupt", "steer"):
                 if cap not in capabilities:
                     capabilities = [*capabilities, cap]
         else:
@@ -2572,25 +2574,6 @@ async def _is_turn_busy_fresh(db, agent_id: str) -> bool:
     return fresh
 
 
-async def _agent_engine_busy_for_queue(db, agent_id: str) -> bool:
-    """WS-3 (2026-06-17): True when the agent is GENUINELY mid-turn per the
-    liveness-aware engine status — the same value the dashboard shows. Used to
-    gate explicitly-queued delivery (queueIfBusy) so it (a) holds exactly while
-    the target is working/blocked and releases the instant it returns to ready
-    (online), and (b) never holds behind a DEAD worker's stale turn_busy=1 (the
-    engine resolves that to available/offline, not working — status-F2/WS-2).
-
-    Reads the cached agent_live_state.status, kept real-time by the
-    turn-transition pushes (WS-1) and self-healed by the 60s reconcile. Falls
-    back to the raw turn-busy freshness signal only when the cache row is absent
-    (cold start), preserving the prior behavior in that window."""
-    entry = _live_state_get(agent_id)
-    if entry and entry.get("status"):
-        return str(entry["status"]).strip().lower() in {"working", "blocked"}
-    # Cache cold: fall back to the raw turn-busy freshness (prior gate behavior).
-    return await _is_turn_busy_fresh(db, agent_id)
-
-
 async def _fresh_same_mode_bridge_conflict(
     db,
     *,
@@ -2626,6 +2609,7 @@ async def _fresh_same_mode_bridge_conflict(
           AND machine_id = ?
           AND id != ?
           AND session_mode = 'resident'
+          AND COALESCE(bridge_kind, '') != 'channel-sidecar'
           AND COALESCE(superseded_by, '') = ''
         ORDER BY last_seen DESC
         """,
@@ -3417,6 +3401,7 @@ async def _record_channel_sidecar_heartbeat(
     agent_id: str,
     machine_id: str,
     runtime: str,
+    session_mode: str,
     now: str,
 ) -> None:
     """Task 1.6b (2026-05-30): upsert the standalone channel sidecar's
@@ -3442,16 +3427,28 @@ async def _record_channel_sidecar_heartbeat(
         return
     normalized_machine = _normalize_machine_id(machine_id)
     normalized_runtime_value = str(runtime or "generic")
+    normalized_session_mode_value = _normalize_session_mode(session_mode or "managed")
     # Refresh in place if the row already exists (the common case after the
     # first poll); otherwise insert a fresh, non-superseded liveness row. Keyed
     # on the PRIMARY KEY (bridge_id) so repeated polls are idempotent.
     updated = await db.execute(
         """
         UPDATE bridge_instances
-        SET last_seen = ?, bridge_kind = 'channel-sidecar'
+        SET last_seen = ?,
+            machine_id = COALESCE(NULLIF(?, ''), machine_id),
+            runtime = ?,
+            session_mode = ?,
+            bridge_kind = 'channel-sidecar'
         WHERE id = ? AND agent_id = ?
         """,
-        (now, bridge_id, agent_id),
+        (
+            now,
+            normalized_machine,
+            normalized_runtime_value,
+            normalized_session_mode_value,
+            bridge_id,
+            agent_id,
+        ),
     )
     if getattr(updated, "rowcount", 0):
         return
@@ -3467,7 +3464,7 @@ async def _record_channel_sidecar_heartbeat(
             agent_id,
             normalized_machine,
             normalized_runtime_value,
-            "managed",
+            normalized_session_mode_value,
             "",
             "",
             "channel-sidecar",
@@ -3483,10 +3480,21 @@ async def _record_channel_sidecar_heartbeat(
     await db.execute(
         """
         UPDATE bridge_instances
-        SET last_seen = ?, bridge_kind = 'channel-sidecar'
+        SET last_seen = ?,
+            machine_id = COALESCE(NULLIF(?, ''), machine_id),
+            runtime = ?,
+            session_mode = ?,
+            bridge_kind = 'channel-sidecar'
         WHERE id = ? AND agent_id = ?
         """,
-        (now, bridge_id, agent_id),
+        (
+            now,
+            normalized_machine,
+            normalized_runtime_value,
+            normalized_session_mode_value,
+            bridge_id,
+            agent_id,
+        ),
     )
     # FIX/available->online-promptness (2026-06-03): reaching this point means a
     # channel-sidecar row was newly INSERTed — the ongoing-poll case returns early
@@ -3626,6 +3634,10 @@ async def _record_bridge_registration(
         SELECT id FROM bridge_instances
         WHERE agent_id = ? AND machine_id = ? AND id != ? AND superseded_by = ''
           AND NOT (
+            ? = 'resident'
+            AND COALESCE(bridge_kind, '') = 'channel-sidecar'
+          )
+          AND NOT (
             ? = 1
             AND session_mode = 'managed'
             AND COALESCE(bridge_kind, '') IN ('channel-sidecar', 'managed-wrapper-child')
@@ -3646,6 +3658,7 @@ async def _record_bridge_registration(
             agent_id,
             normalized_machine,
             bridge_id,
+            normalized_session_mode_value,
             1 if complementary_pair else 0,
             new_kind,
             normalized_runtime_value,
@@ -5388,6 +5401,30 @@ async def _fail_pending_terminal_controls(db, terminal_id: str, *, handled_at: s
     return len(control_ids)
 
 
+async def _reconcile_ended_terminal_controls(db, *, limit: int = 500) -> int:
+    cursor = await db.execute(
+        """
+        SELECT DISTINCT terminal.id
+        FROM terminal_sessions terminal
+        JOIN terminal_controls control ON control.terminal_id = terminal.id
+        WHERE terminal.status NOT IN ('starting', 'attached', 'running', 'active', 'idle')
+          AND control.status IN ('pending', 'claimed')
+        LIMIT ?
+        """,
+        (max(1, int(limit or 500)),),
+    )
+    total = 0
+    now = _now()
+    for row in await cursor.fetchall():
+        total += await _fail_pending_terminal_controls(
+            db,
+            str(row["id"] or ""),
+            handled_at=now,
+            response_text="terminal is not active",
+        )
+    return total
+
+
 async def _close_active_terminal_runs_for_terminal(db, terminal, terminal_status: str, *, now: Optional[str] = None, reason: str = "") -> int:
     if not terminal:
         return 0
@@ -5428,8 +5465,8 @@ async def _close_active_terminal_runs_for_terminal(db, terminal, terminal_status
             (run_status, summary, run_status, summary, now, run_id),
         )
         await _append_dispatch_event(db, run_id, "terminal_closed", f"{summary} terminalId={terminal_id}")
+    await _fail_pending_terminal_controls(db, terminal_id, handled_at=now, response_text=summary)
     if run_ids:
-        await _fail_pending_terminal_controls(db, terminal_id, handled_at=now, response_text=summary)
         await _invalidate_agent_live_state(db, agent_id)
     queued_ids: list[str] = []
     current_session = await _current_agent_session_row(db, agent_id)
@@ -5703,76 +5740,116 @@ async def _managed_environment_status(db, row) -> tuple[str, str, str]:
 
 
 SPAWN_ORPHAN_GRACE_SECONDS = 180  # matches the dispatch queued-run backstop window
-# A worker is "live now" if it has a bound terminal that beat within this window. The console
-# keepalive/heartbeat refreshes terminal_sessions.updated_at every few seconds, so 180s is a
-# generous "definitely alive" bar — we only reap redundant spawns when a worker is unambiguously up.
-LIVE_WORKER_TERMINAL_STALE_SECONDS = 180
 
 
-async def _fail_running_spawns_superseded_by_live_worker(db) -> int:
-    """Fail spawn_requests stuck 'running' when the agent ALREADY has a live worker.
+async def _fail_running_spawns_superseded_by_current_session(db) -> int:
+    """Fail only running spawns proven older than the agent's current live backing.
 
-    Complements `_fail_orphaned_running_spawn_requests`, which reaps a spawn ONLY when its
-    CLAIMING BRIDGE is dead. This covers the opposite, more damaging case (mc-senior-dev
-    proliferation incident, 2026-07-20): a managed worker boots, registers a LIVE terminal, and
-    starts delivering — but the bridge never PATCHes the spawn_request to completed (a turn
-    interrupted mid-model-call leaves the boot's lifecycle unclosed). The record then lingers
-    'running' FOREVER on a LIVE bridge, so the dead-bridge reaper skips it; and once it ages past
-    the coldstart booting window it stops suppressing autostarts, so every later message
-    cold-starts ANOTHER worker for the same agent. Observed: one agent accrued 20 'running' spawns
-    (+ a stack of orphaned harness processes).
-
-    SAFETY — DB-only, never a process:
-    - Targets ONLY status='running' with empty finished_at, aged past SPAWN_ORPHAN_GRACE_SECONDS.
-    - Fails a spawn ONLY when its agent has a genuinely LIVE bound terminal (active state, beat
-      within LIVE_WORKER_TERMINAL_STALE_SECONDS) — i.e. a worker is already up. A worker still
-      mid-boot has no live terminal yet, so its spawn is untouched (conservative, like the sibling).
-    - 'failed' only frees the stale DB record; the live worker keeps delivering via its own bridge,
-      and coldstart stops double-spawning because the running record is now closed.
+    ``running`` is the normal lifetime state of a managed spawn, so a live terminal alone cannot
+    prove that its request is stale. The current ``agent_sessions.spawn_request_id`` is the
+    correlation authority: when a live managed session and terminal both reference a newer running
+    request, older running requests for that agent are superseded. The current request is never
+    changed.
     """
-    now_epoch = datetime.now(timezone.utc).timestamp()
-    now = _now()
     live_cutoff = time.strftime(
-        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - LIVE_WORKER_TERMINAL_STALE_SECONDS)
+        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - SPAWN_ORPHAN_GRACE_SECONDS)
     )
-    live_rows = await (await db.execute(
+    cursor = await db.execute(
         """
-        SELECT DISTINCT agent_id FROM terminal_sessions
-        WHERE status IN ('starting','attached','running','active','idle','recovering')
-          AND id NOT LIKE 'vterm_%'
-          AND COALESCE(NULLIF(updated_at, ''), '') >= ?
+        SELECT s.id AS session_id, s.agent_id, s.spawn_request_id, s.started_at
+        FROM agent_sessions s
+        JOIN terminal_sessions t
+          ON t.id = s.terminal_id
+         AND t.agent_id = s.agent_id
+         AND t.session_id = s.id
+        JOIN spawn_requests current_spawn
+          ON current_spawn.id = s.spawn_request_id
+         AND current_spawn.agent_id = s.agent_id
+         AND current_spawn.status = 'running'
+         AND COALESCE(current_spawn.finished_at, '') = ''
+        WHERE s.mode IN ('managed', 'managed-warm')
+          AND s.status IN ('starting','running','active','idle','recovering')
+          AND COALESCE(s.spawn_request_id, '') <> ''
+          AND t.status IN ('starting','attached','running','active','idle','recovering')
+          AND COALESCE(NULLIF(t.updated_at, ''), '') >= ?
+        ORDER BY s.started_at DESC
         """,
         (live_cutoff,),
-    )).fetchall()
-    live_agents = {str(r["agent_id"]).strip() for r in (live_rows or []) if str(r["agent_id"] or "").strip()}
-    if not live_agents:
-        return 0
-    cursor = await db.execute(
-        "SELECT id, agent_id, claimed_at, created_at FROM spawn_requests "
-        "WHERE status = 'running' AND COALESCE(finished_at, '') = ''"
     )
-    failed = 0
+    current_by_agent = {}
     for row in await cursor.fetchall():
-        aid = str(row["agent_id"] or "").strip()
-        if aid not in live_agents:
+        agent_id = str(row["agent_id"] or "").strip()
+        if agent_id and agent_id not in current_by_agent:
+            current_by_agent[agent_id] = row
+
+    failed = 0
+    now = _now()
+    for agent_id, current in current_by_agent.items():
+        current_spawn_id = str(current["spawn_request_id"] or "").strip()
+        current_started_epoch = _iso_to_epoch(str(current["started_at"] or ""))
+        if not current_spawn_id or not current_started_epoch:
             continue
-        age_epoch = _iso_to_epoch(str(row["claimed_at"] or row["created_at"] or ""))
-        if not age_epoch or (now_epoch - age_epoch) < SPAWN_ORPHAN_GRACE_SECONDS:
-            continue
-        await db.execute(
+        old_cursor = await db.execute(
             """
-            UPDATE spawn_requests
-            SET status = 'failed',
-                error = COALESCE(NULLIF(error, ''), 'Superseded: agent already has a live worker; redundant boot never closed by its bridge. Failed by reconcile.'),
-                finished_at = COALESCE(finished_at, ?),
-                updated_at = ?
-            WHERE id = ? AND status = 'running'
+            SELECT id, claimed_at, created_at
+            FROM spawn_requests
+            WHERE agent_id = ?
+              AND status = 'running'
+              AND COALESCE(finished_at, '') = ''
+              AND id <> ?
             """,
-            (now, now, row["id"]),
+            (agent_id, current_spawn_id),
         )
-        failed += 1
-    if failed:
-        await db.commit()
+        for old in await old_cursor.fetchall():
+            old_epoch = _iso_to_epoch(str(old["claimed_at"] or old["created_at"] or ""))
+            if not old_epoch or old_epoch >= current_started_epoch:
+                continue
+            update_cursor = await db.execute(
+                """
+                UPDATE spawn_requests
+                SET status = 'failed',
+                    error = COALESCE(
+                        NULLIF(error, ''),
+                        'Superseded by a newer live managed session tied to a different spawn request.'
+                    ),
+                    finished_at = COALESCE(finished_at, ?),
+                    updated_at = ?
+                WHERE id = ?
+                  AND status = 'running'
+                  AND COALESCE(finished_at, '') = ''
+                  AND EXISTS (
+                    SELECT 1
+                    FROM agent_sessions s
+                    JOIN terminal_sessions t
+                      ON t.id = s.terminal_id
+                     AND t.agent_id = s.agent_id
+                     AND t.session_id = s.id
+                    JOIN spawn_requests current_spawn
+                      ON current_spawn.id = s.spawn_request_id
+                     AND current_spawn.agent_id = s.agent_id
+                     AND current_spawn.status = 'running'
+                     AND COALESCE(current_spawn.finished_at, '') = ''
+                    WHERE s.id = ?
+                      AND s.agent_id = ?
+                      AND s.spawn_request_id = ?
+                      AND s.mode IN ('managed', 'managed-warm')
+                      AND s.status IN ('starting','running','active','idle','recovering')
+                      AND t.status IN ('starting','attached','running','active','idle','recovering')
+                      AND COALESCE(NULLIF(t.updated_at, ''), '') >= ?
+                  )
+                """,
+                (
+                    now,
+                    now,
+                    old["id"],
+                    current["session_id"],
+                    agent_id,
+                    current_spawn_id,
+                    live_cutoff,
+                ),
+            )
+            if update_cursor.rowcount > 0:
+                failed += 1
     return failed
 
 
@@ -5801,10 +5878,18 @@ async def _fail_orphaned_running_spawn_requests(db) -> int:
       failing a 'running' orphan never blocks a future autostart — it frees state.
       A live worker (if one exists) keeps delivering via its own sidecar bridge.
     """
-    live_rows = await (await db.execute(
-        "SELECT bridge_id FROM environments WHERE status = 'online' AND COALESCE(bridge_id, '') != ''"
+    settings = await _load_settings(db)
+    environment_rows = await (await db.execute(
+        "SELECT * FROM environments WHERE COALESCE(bridge_id, '') != ''"
     )).fetchall()
-    live_bridge_ids = {str(r["bridge_id"]).strip() for r in (live_rows or [])}
+    live_bridge_ids = {
+        str(row["bridge_id"]).strip()
+        for row in (environment_rows or [])
+        if _environment_effective_status(
+            row,
+            offline_seconds=settings.get("environment_offline_seconds", 90),
+        ) == "online"
+    }
 
     now_epoch = datetime.now(timezone.utc).timestamp()
     now = _now()
@@ -5963,6 +6048,43 @@ async def _repair_terminal_session_consistency(db) -> int:
     now = _now()
     active_statuses = ("starting", "attached", "running", "active", "idle")
     repaired = 0
+
+    stale_binding_cursor = await db.execute(
+        """
+        SELECT stale.id AS session_id, stale.terminal_id AS terminal_id
+        FROM agent_sessions stale
+        JOIN terminal_sessions terminal ON terminal.id = stale.terminal_id
+        JOIN agent_sessions current
+          ON current.id = terminal.session_id
+         AND current.terminal_id = stale.terminal_id
+        WHERE LOWER(COALESCE(stale.status, '')) IN
+              ('ended', 'completed', 'cancelled', 'failed', 'lost', 'stopped', 'exited')
+          AND COALESCE(stale.terminal_id, '') != ''
+          AND terminal.session_id != stale.id
+          AND LOWER(COALESCE(current.status, '')) IN
+              ('starting', 'recovering', 'restarting', 'running', 'active', 'idle')
+        """
+    )
+    for row in await stale_binding_cursor.fetchall():
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET owner_bridge_id = '',
+                terminal_id = '',
+                terminal_status = '',
+                terminal_command = '',
+                terminal_workspace = ''
+            WHERE id = ? AND terminal_id = ?
+            """,
+            (row["session_id"], row["terminal_id"]),
+        )
+        await _append_terminal_event(
+            db,
+            row["terminal_id"],
+            "stale_session_terminal_binding_cleared",
+            json.dumps({"sessionId": row["session_id"]}),
+        )
+        repaired += 1
 
     legacy_cursor = await db.execute(
         f"""
@@ -6935,6 +7057,40 @@ async def _append_terminal_control(
     rows: int = 0,
 ) -> str:
     control_id = f"termctl_{int(time.time() * 1000)}_{next(_CONTROL_ID_COUNTER):06d}_{uuid.uuid4().hex[:8]}"
+    if str(action or "").strip().lower() == "resize":
+        cursor = await db.execute(
+            """
+            INSERT INTO terminal_controls (
+                id, terminal_id, environment_id, bridge_id, action, body, cols, rows,
+                status, requested_by, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(terminal_id) WHERE action = 'resize' AND status = 'pending'
+            DO UPDATE SET
+                environment_id = excluded.environment_id,
+                bridge_id = excluded.bridge_id,
+                body = excluded.body,
+                cols = excluded.cols,
+                rows = excluded.rows,
+                requested_by = excluded.requested_by,
+                requested_at = excluded.requested_at
+            RETURNING id
+            """,
+            (
+                control_id,
+                terminal_id,
+                environment_id,
+                bridge_id,
+                "resize",
+                body or "",
+                int(cols or 0),
+                int(rows or 0),
+                "pending",
+                requested_by or "dashboard",
+                _now(),
+            ),
+        )
+        row = await cursor.fetchone()
+        return str(row["id"])
     await db.execute(
         """
         INSERT INTO terminal_controls (
@@ -7310,7 +7466,7 @@ class TerminalOutputWriteQueue:
             terminal = await (await db.execute(
                 """
                 SELECT id, session_id, agent_id, environment_id, bridge_id, runtime,
-                       output, status, output_seq, created_at
+                       output, status, output_seq, created_at, cols, rows
                 FROM terminal_sessions WHERE id = ?
                 """,
                 (terminal_id,),
@@ -7645,7 +7801,7 @@ async def _has_claimable_steerable_run(
         return False
     cursor = await db.execute(
         """
-        SELECT execution_mode, requested_runtime
+        SELECT execution_mode, requested_runtime, queue_if_busy, steer_if_busy
         FROM dispatch_runs
         WHERE target_agent = ? AND status = 'queued'
         ORDER BY requested_at ASC
@@ -7654,6 +7810,8 @@ async def _has_claimable_steerable_run(
         (target_agent,),
     )
     for run in await cursor.fetchall():
+        if bool(run["queue_if_busy"]) or not bool(run["steer_if_busy"]):
+            continue
         run_execution_mode = str((run["execution_mode"] or "managed")).strip().lower()
         if run_execution_mode not in {"channel", "resident"}:
             continue
@@ -8660,6 +8818,7 @@ async def _create_dispatch_runs(
     message_id: Optional[str] = None,
     source_message_ids: Optional[dict[str, str]] = None,
     steer: bool = False,
+    queue_if_busy: bool = False,
     require_reply: bool = False,
     allow_merge: bool = True,
 ):
@@ -8683,7 +8842,12 @@ async def _create_dispatch_runs(
             if active_run and await _discard_unusable_active_run(db, recipient_id, active_run):
                 active_state = await _get_dispatch_state_for_agent(db, recipient_id)
                 active_run = active_state.get("activeRun")
-            if active_run and "steer" in capabilities:
+            active_execution_mode = str((active_run.get("executionMode") if active_run else "") or "").strip().lower()
+            recipient_runtime = _normalize_runtime((recipient_row["runtime"] if recipient_row else "") or requested_runtime)
+            # ASYMMETRY(hermes): its gateway sidecar does not consume dispatch_controls;
+            # route channel/resident steer through its claim loop and native session.steer.
+            steer_via_claim = recipient_runtime == "hermes" and active_execution_mode in {"channel", "resident"}
+            if steer and active_run and "steer" in capabilities and not steer_via_claim:
                 steer_body = f"[Message from {from_agent}]\nSubject: {subject}\n\n{body}"
                 control_id = await _append_dispatch_control(
                     db,
@@ -8819,7 +8983,8 @@ async def _create_dispatch_runs(
             merge_cursor = await db.execute(
                 """
                 UPDATE dispatch_runs
-                SET subject = ?, body = ?, priority = ?, dispatch_mode = ?, message_type = ?, require_reply = ?
+                SET subject = ?, body = ?, priority = ?, dispatch_mode = ?, message_type = ?, require_reply = ?,
+                    queue_if_busy = ?, steer_if_busy = ?
                 WHERE id = ? AND status = 'queued'
                 """,
                 (
@@ -8829,6 +8994,8 @@ async def _create_dispatch_runs(
                     "require_start" if mergeable_run["dispatch_mode"] == "require_start" or dispatch_mode == "require_start" else mergeable_run["dispatch_mode"],
                     message_type,
                     1 if (bool(mergeable_run["require_reply"]) or require_reply) else 0,
+                    1 if (bool(mergeable_run["queue_if_busy"]) or queue_if_busy) else 0,
+                    1 if (bool(mergeable_run["steer_if_busy"]) or steer) else 0,
                     mergeable_run["id"],
                 ),
             )
@@ -8855,12 +9022,14 @@ async def _create_dispatch_runs(
             """
             INSERT INTO dispatch_runs (
                 id, message_id, from_agent, target_agent, dispatch_mode, execution_mode, requested_runtime,
-                message_type, subject, body, priority, in_reply_to, status, require_reply, requested_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                message_type, subject, body, priority, in_reply_to, status, require_reply,
+                queue_if_busy, steer_if_busy, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 run_id, source_message_id or None, from_agent, recipient_id, dispatch_mode, execution_mode, requested_runtime or "",
-                message_type, subject, body, priority, in_reply_to, "queued", 1 if require_reply else 0, requested_at
+                message_type, subject, body, priority, in_reply_to, "queued", 1 if require_reply else 0,
+                1 if queue_if_busy else 0, 1 if steer else 0, requested_at
             )
         )
         await _append_dispatch_event(db, run_id, "queued", f"{message_type}: {subject}")
@@ -9169,7 +9338,12 @@ async def _link_reply_message_to_dispatch_run(
     reply_type: str,
     reply_body: str,
 ) -> bool:
-    if not _message_satisfies_reply_contract(reply_type, body=reply_body):
+    # A linked request may answer the current contract while asking a follow-up. Keep
+    # non-answer info messages open; their completion semantics remain content-aware.
+    if str(reply_type or "").strip().lower() != "request" and not _message_satisfies_reply_contract(
+        reply_type,
+        body=reply_body,
+    ):
         return False
     run_cursor = await db.execute(
         """
@@ -11043,6 +11217,7 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                 (now, now, row["agent_id"], session_id),
             )
             if row["status"] != "running" and str(row["initial_message"] or "").strip():
+                settings_for_runs = await _load_settings(db)
                 runs = await _create_dispatch_runs(
                     db,
                     [row["agent_id"]],
@@ -11053,7 +11228,11 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                     priority=row["priority"] or "normal",
                     in_reply_to=None,
                     dispatch_mode="start_if_possible",
-                    execution_mode="managed",
+                    execution_mode=(
+                        "channel"
+                        if _managed_via_wrapper_for_runtime(settings_for_runs, row["runtime"] or "")
+                        else "managed"
+                    ),
                     requested_runtime=row["runtime"],
                     message_id=None,
                     require_reply=True,
@@ -11064,7 +11243,6 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                 # the helper here e2e-test-claude's initial run stayed
                 # execution_mode='managed' and claude-channel.js never
                 # claimed it.
-                settings_for_runs = await _load_settings(db)
                 await _apply_channel_routing_to_claude_runs(db, runs, settings_for_runs)
                 for run in runs:
                     _wake_agent(run["targetAgentId"])
@@ -12570,6 +12748,7 @@ async def update_terminal_control(control_id: str, req: TerminalControlUpdate, r
                 "UPDATE terminal_sessions SET cols = ?, rows = ? WHERE id = ?",
                 (int(control["cols"]), int(control["rows"]), terminal["id"]),
             )
+            _resize_live_terminal_screen(terminal["id"], control["cols"], control["rows"])
         if req.output:
             latest_terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal["id"],))).fetchone()
             await _append_terminal_output(db, latest_terminal or terminal, req.output, status=terminal_status)
@@ -13774,8 +13953,30 @@ async def get_agent_console(agent_id: str, lines: int = 40):
             await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal["id"],))
         ).fetchone()
         tail_lines = max(1, min(int(lines or 40), _CONSOLE_TAIL_MAX_LINES))
-        full_output = (terminal["output"] if "output" in terminal.keys() else "") or ""
-        selected = full_output.splitlines()[-tail_lines:]
+        keys = terminal.keys()
+        full_output = (terminal["output"] if "output" in keys else "") or ""
+        screen_output = full_output
+        terminal_id = str(terminal["id"] or "")
+        if terminal_id and not terminal_id.startswith("vterm_"):
+            try:
+                live = _render_live_terminal_screen(terminal_id)
+                if live:
+                    screen_output = live[0]
+                elif "\x1b" in full_output:
+                    screen_output = await asyncio.to_thread(
+                        _render_terminal_snapshot,
+                        full_output,
+                        int(terminal["cols"] or 0) if "cols" in keys else 100,
+                        int(terminal["rows"] or 0) if "rows" in keys else 40,
+                    )
+            except Exception:
+                screen_output = full_output
+        clean = _ANSI_RE.sub("", screen_output)
+        clean = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", clean)
+        screen_lines = clean.splitlines()
+        while screen_lines and not screen_lines[-1].strip():
+            screen_lines.pop()
+        selected = screen_lines[-tail_lines:]
         output = "\n".join(selected)
         if len(output.encode("utf-8", "ignore")) > _CONSOLE_TAIL_MAX_BYTES:
             output = output.encode("utf-8", "ignore")[-_CONSOLE_TAIL_MAX_BYTES:].decode("utf-8", "ignore")
@@ -15745,10 +15946,19 @@ async def _upsert_resident_agent_session(
 
 # ─── Messages ────────────────────────────────────────────────────────────────
 
+def _reject_sender_truncated_body(body):
+    if re.search(r"(?:\.\.\.|…)\[truncated\](?:\s*```)?\s*$", str(body or ""), re.I):
+        raise HTTPException(
+            422,
+            "Message body was already truncated by the sender; resend a complete concise body or link a durable artifact.",
+        )
+
+
 @router.post("/messages/send")
 async def send_message(req: MessageSend, request: Request):
     if not req.to and not req.toRole:
         raise HTTPException(400, "Need 'to' or 'toRole'")
+    _reject_sender_truncated_body(req.body)
     db = await get_db()
     try:
         await _touch_agent(db, req.from_agent)
@@ -15868,7 +16078,7 @@ async def send_message(req: MessageSend, request: Request):
                     # Three signals of "currently busy":
                     # 1. hasActiveRun: tracked dispatch_run in claimed/running
                     # 2. queuedRuns > 0: prior queue already pending
-                    # 3. turn_busy=1 (fresh): the agent is mid-turn even if
+                    # 3. raw turn_busy=1: the agent is mid-turn even if
                     #    no tracked dispatch_run is in flight. Operator-
                     #    reported 2026-05-22: queue button sent immediately
                     #    because require_reply=0 info messages auto-complete
@@ -15880,19 +16090,10 @@ async def send_message(req: MessageSend, request: Request):
                     is_turn_busy = False
                     try:
                         tb_row = await (await db.execute(
-                            "SELECT turn_busy, turn_updated_at FROM agent_turn_state WHERE agent_id = ?",
+                            "SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?",
                             (recipient_id,),
                         )).fetchone()
-                        if tb_row and int(tb_row["turn_busy"] or 0) == 1:
-                            tb_epoch = _iso_to_epoch(str(tb_row["turn_updated_at"] or ""))
-                            # 120s freshness = anti-strand bound (same as the claim gate).
-                            if tb_epoch and (datetime.now(timezone.utc).timestamp() - tb_epoch) <= TURN_BUSY_STALE_SECONDS:
-                                # WS-3 (2026-06-17): within the window, queue only when the
-                                # liveness-aware engine status (working/blocked) — the value
-                                # the dashboard shows — agrees, so the send releases the
-                                # instant the target returns to ready and never queues
-                                # behind a dead worker's stale turn_busy.
-                                is_turn_busy = await _agent_engine_busy_for_queue(db, recipient_id)
+                        is_turn_busy = bool(tb_row and int(tb_row["turn_busy"] or 0) == 1)
                     except Exception:
                         is_turn_busy = False
                     if (
@@ -16245,6 +16446,7 @@ async def send_message(req: MessageSend, request: Request):
                 message_id=msg_id if len(recipients) == 1 else None,
                 source_message_ids=source_message_ids,
                 steer=prefer_steer,
+                queue_if_busy=bool(req.queueIfBusy),
                 require_reply=require_reply,
             )
             dispatch_runs = await _finalize_dispatch_runs(db, dispatch_runs, launchable_recipients, not_started)
@@ -16675,12 +16877,13 @@ async def agent_heartbeat(agent_id: str, request: Request):
         # regardless of turn activity, so last_seen is a true "alive now" signal.
         # Unlike the plain UPDATE above (which no-ops when the bridge has no row
         # yet — e.g. an idle channel-sidecar that never claimed), this UPSERTS the
-        # row, touching ONLY last_seen + bridge_kind. It never clears
-        # superseded_by and never touches turn state. (A superseded existing row
-        # is already short-circuited by the guard above.)
+        # row, refreshing its current agent identity as well as last_seen +
+        # bridge_kind. It never clears superseded_by and never touches turn
+        # state. (A superseded existing row is already short-circuited by the
+        # guard above.)
         if body.get("liveness") and bridge_id:
             arow = await (await db.execute(
-                "SELECT machine_id, runtime FROM agents WHERE id = ?", (agent_id,),
+                "SELECT machine_id, runtime, session_mode FROM agents WHERE id = ?", (agent_id,),
             )).fetchone()
             arow_machine = (arow["machine_id"] if arow else "") or ""
             arow_runtime = (arow["runtime"] if arow else "") or "generic"
@@ -16691,6 +16894,7 @@ async def agent_heartbeat(agent_id: str, request: Request):
                     agent_id=agent_id,
                     machine_id=arow_machine,
                     runtime=arow_runtime,
+                    session_mode=(arow["session_mode"] if arow else "") or "managed",
                     now=now,
                 )
             else:
@@ -17431,6 +17635,7 @@ def _wake_agent(agent_id: str):
 async def create_dispatch(req: DispatchRequest, request: Request):
     if not req.to and not req.toRole:
         raise HTTPException(400, "Need 'to' or 'toRole'")
+    _reject_sender_truncated_body(req.body)
     if req.mode == "message_only":
         raise HTTPException(400, "Dispatch no longer supports mode='message_only'. Use comms_send for normal live messaging or comms_dispatch without message_only for tracked work.")
 
@@ -17909,6 +18114,7 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
                     agent_id=req.agentId,
                     machine_id=req.machineId or "",
                     runtime=agent_runtime,
+                    session_mode=agent["session_mode"] or "managed",
                     now=_now(),
                 )
             else:
@@ -18026,59 +18232,47 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
                     "run": None,
                     "blockedBy": blocked_by_console,
                 }
-        # Turn-busy claim gate: if the agent is currently mid-turn
-        # (turn_busy=1, fresh, within TURN_BUSY_STALE_SECONDS),
+        # Turn-busy claim gate: if the raw harness state says the agent is mid-turn
+        # (turn_busy=1),
         # don't return queued runs. Operator-asked 2026-05-22:
         # "queue should wait until agent stops working" — without this
         # gate, the SENDER's queueIfBusy=true correctly held the run
         # in 'queued' state, but the bridge's next claim cycle picked
         # it up and delivered immediately because the claim endpoint
-        # didn't respect turn_busy. Stop hook (or 120s stale window)
-        # is the authoritative clear; once that fires, next claim
+        # didn't respect turn_busy. The turn-end event is the authoritative clear;
+        # once that fires, next claim
         # picks up the queued run as designed.
         #
         # CHANNEL/RESIDENT STEER CARVE-OUT (2026-06-02, send-deadlock fix):
         # a channel/resident-mode run to a STEER-capable target (a managed or
-        # channelEnabled resident claude — `steer` in _row_capabilities, the
+        # channelEnabled Claude/Hermes — `steer` in _row_capabilities, the
         # same signal used by the send-time steer path) is INJECTED into the
-        # agent's input mid-turn; claude queues multiple injects safely and in
-        # order. Deferring such a run behind turn_busy was the deadlock: every
-        # delivery re-pulses the recipient's turn_busy (claude-channel.js), so a
-        # queued rr=0 send never found a 120s gap and waited minutes. So when the
+        # agent's native mid-turn input path; these harnesses accept multiple injects
+        # in order. Deferring an ordinary send behind turn_busy was the deadlock, so when the
         # target can steer AND a claimable channel/resident run is queued, do NOT
         # defer — fall through and let it claim + inject immediately. The gate is
         # PRESERVED for every other case (non-steer-capable runtimes, managed
         # headless runs) so a genuinely-uninjectable target still waits for the
         # turn to end.
+        hold_explicit_queue = False
         try:
             tb_row = await (await db.execute(
-                "SELECT turn_busy, turn_updated_at FROM agent_turn_state WHERE agent_id = ?",
+                "SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?",
                 (req.agentId,),
             )).fetchone()
             if tb_row and int(tb_row["turn_busy"] or 0) == 1:
-                tb_epoch = _iso_to_epoch(str(tb_row["turn_updated_at"] or ""))
-                # The 120s freshness bound is the ANTI-STRAND backstop: the gate opens
-                # once the turn signal goes stale so a missed turn-end can't hold a
-                # queued run for the long status ceiling (#5).
-                if tb_epoch and (datetime.now(timezone.utc).timestamp() - tb_epoch) <= TURN_BUSY_STALE_SECONDS:
-                    # WS-3 (2026-06-17): within that window, HOLD only when the
-                    # liveness-aware engine ALSO says the target is genuinely working/
-                    # blocked — the same value the dashboard shows. So (a) the queue
-                    # releases the instant the agent returns to ready (online) instead
-                    # of waiting out the raw window, and (b) a DEAD worker's stale-but-
-                    # fresh turn_busy (engine → available/offline) never strands a run.
-                    # The channel/resident STEER bypass is PRESERVED unchanged: an
-                    # ordinary (non-queued) comms_send still injects mid-turn into a
-                    # steer-capable target; only explicitly-queued sends wait for ready.
-                    if await _agent_engine_busy_for_queue(db, req.agentId):
-                        if not await _has_claimable_steerable_run(
-                            db,
-                            agent_row=agent,
-                            supported_modes=supported_modes,
-                            agent_runtime=agent_runtime,
-                        ):
-                            await db.commit()
-                            return {"ok": True, "run": None}
+                # Explicit queue means exactly "after this turn". Do not reinterpret an aged
+                # raw busy signal through derived status or a timeout. Ordinary sends can still
+                # bypass through a row explicitly marked steer_if_busy.
+                hold_explicit_queue = True
+                if not await _has_claimable_steerable_run(
+                    db,
+                    agent_row=agent,
+                    supported_modes=supported_modes,
+                    agent_runtime=agent_runtime,
+                ):
+                    await db.commit()
+                    return {"ok": True, "run": None}
         except Exception:
             # If turn state is unreadable, fall through and let the normal claim
             # flow proceed — better to deliver than block.
@@ -18101,6 +18295,10 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
         runs = await run_cursor.fetchall()
         selected_run = None
         for run in runs:
+            if hold_explicit_queue and (
+                bool(run["queue_if_busy"]) or not bool(run["steer_if_busy"])
+            ):
+                continue
             run_execution_mode = (run["execution_mode"] or "managed").strip().lower()
             if supported_modes and run_execution_mode not in supported_modes:
                 continue
@@ -18197,6 +18395,8 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
                 "status": "claimed",
                 "mode": selected_run["dispatch_mode"],
                 "executionMode": selected_run["execution_mode"] or "managed",
+                "queueIfBusy": bool(selected_run["queue_if_busy"]),
+                "steerIfBusy": bool(selected_run["steer_if_busy"]),
                 "runtime": agent_runtime,
                 "requireReply": _row_require_reply(selected_run),
                 "conversationContext": await _dispatch_conversation_context(db, selected_run),
@@ -19593,7 +19793,6 @@ async def _close_reconcilable_delivered_runs(
     *,
     limit: int = 500,
     stale_hours: int = 24,
-    channel_stale_minutes: int = 30,
 ) -> list[dict[str, str]]:
     # Three classes of reconcilable lingering 'delivered' runs:
     # 1. Any with result_message_id already set (reply landed but path
@@ -19603,15 +19802,7 @@ async def _close_reconcilable_delivered_runs(
     # 3. require_reply=1 + orphaned (no in-flight runs AND no alive
     #    session) older than `stale_hours` — the agent that owed the
     #    reply is gone.
-    # 4. Channel/resident execution_mode + require_reply=1 older than
-    #    `channel_stale_minutes` (default 30) — these are claude-channel.js
-    #    deliveries; the wrapper does NOT preserve in-memory dispatch
-    #    state across restarts, so a 'delivered' channel run older than
-    #    30 minutes that the bridge never wrote a reply for almost
-    #    certainly fell on the floor across a wrapper restart. Without
-    #    this, sc-claude-style "agent showing working from before
-    #    restart" persists indefinitely once the agent has any live
-    #    session (the orphan rule's session check passes).
+
     cursor = await db.execute(
         """
         SELECT id, result_message_id, require_reply, requested_at
@@ -19642,15 +19833,6 @@ async def _close_reconcilable_delivered_runs(
                   AND s.status IN ('starting', 'running', 'recovering', 'restarting', 'cli-takeover')
               )
             )
-            OR (
-              -- Channel/resident wrapper bounces: claude-channel.js polls in
-              -- a fresh wrapper after restart and has no memory of prior
-              -- 'delivered' runs. Reconcile after a short window so the
-              -- agent's working-status doesn't pin indefinitely.
-              require_reply = 1
-              AND execution_mode IN ('channel', 'resident')
-              AND datetime(requested_at) <= datetime('now', ?)
-            )
           )
         ORDER BY requested_at ASC
         LIMIT ?
@@ -19658,7 +19840,6 @@ async def _close_reconcilable_delivered_runs(
         (
             f"-{max(1, int(stale_hours or 24))} hours",
             f"-{max(1, int(stale_hours or 24))} hours",
-            f"-{max(1, int(channel_stale_minutes or 30))} minutes",
             limit,
         ),
     )
@@ -20470,14 +20651,19 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
         updates = []
         params = []
         now = _now()
+        current_status = str(row["status"] or "").strip().lower()
+        requested_status = str(req.status or "").strip().lower()
+        effective_status = req.status
+        if current_status in _DISPATCH_TERMINAL_STATUSES and requested_status != current_status:
+            effective_status = None
 
-        if req.status:
+        if effective_status:
             updates.append("status = ?")
-            params.append(req.status)
-            if req.status == "running" and not row["started_at"]:
+            params.append(effective_status)
+            if effective_status == "running" and not row["started_at"]:
                 updates.append("started_at = ?")
                 params.append(now)
-            if req.status in _DISPATCH_TERMINAL_STATUSES:
+            if effective_status in _DISPATCH_TERMINAL_STATUSES:
                 updates.append("finished_at = ?")
                 params.append(now)
         if req.summary is not None:
@@ -20508,12 +20694,12 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
             params.append(run_id)
             await db.execute(f"UPDATE dispatch_runs SET {', '.join(updates)} WHERE id = ?", params)
             await _invalidate_agent_live_state(db, row["target_agent"])
-            if req.status in ("completed", "failed", "cancelled"):
+            if effective_status in ("completed", "failed", "cancelled"):
                 await _fail_pending_controls_for_run(
                     db,
                     run_id,
                     handled_at=now,
-                    response_text=f'Run ended with status "{req.status}" before the control could be handled.',
+                    response_text=f'Run ended with status "{effective_status}" before the control could be handled.',
                 )
                 refreshed_cursor = await db.execute("SELECT * FROM dispatch_runs WHERE id = ?", (run_id,))
                 refreshed_row = await refreshed_cursor.fetchone()
@@ -20536,7 +20722,7 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
                     # reply lands; the guard ensures we never clear while another
                     # rr=1 turn is still open (anti-feedback-loop invariant).
                     if (
-                        req.status == "completed"
+                        effective_status == "completed"
                         and not _row_require_reply(refreshed_row)
                         and str((refreshed_row["execution_mode"] or "")).strip().lower() in {"channel", "resident"}
                     ):
@@ -20544,7 +20730,7 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
                             db, refreshed_row["target_agent"], run_id
                         )
                     await _apply_pending_resident_takeover_if_ready(db, refreshed_row["target_agent"])
-                    if req.status == "completed":
+                    if effective_status == "completed":
                         await _run_contract_reminders_once(
                             db,
                             request=request,
@@ -20577,7 +20763,7 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
         await db.commit()
         ws = await _get_ws(request)
         if ws:
-            await ws.broadcast("dispatch_updated", {"runId": run_id, "status": req.status or row["status"]})
+            await ws.broadcast("dispatch_updated", {"runId": run_id, "status": effective_status or row["status"]})
         return {"ok": True, "runId": run_id}
     finally:
         await db.close()
@@ -21243,6 +21429,7 @@ async def mark_channel_read(name: str, request: Request):
 @router.post("/channels/{name}/send")
 async def send_channel_message(name: str, req: ChannelMessage, request: Request):
     validate_name(name, "channel name")
+    _reject_sender_truncated_body(req.body)
     db = await get_db()
     try:
         await _touch_agent(db, req.from_agent)
@@ -21339,6 +21526,7 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
                 message_id=inbox_message_ids.get(recipients[0]) if len(recipients) == 1 else None,
                 source_message_ids=inbox_message_ids,
                 steer=prefer_steer,
+                queue_if_busy=bool(req.queueIfBusy),
                 require_reply=False,
             )
             dispatch_runs = await _finalize_dispatch_runs(db, dispatch_runs, launchable_recipients, not_started)
