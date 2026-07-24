@@ -7323,6 +7323,9 @@ class TerminalOutputWriteQueue:
         # seq-dedupe to drop frames -> ANSI desync -> scrambled console.
         self.ws_manager = None
         self._lock = asyncio.Lock()
+        # ponytail: SQLite has one writer; queue high-rate terminal flushes here instead of
+        # letting per-terminal tasks create a retry storm against the database lock.
+        self._write_lock = asyncio.Lock()
 
     async def enqueue(self, terminal_id: str, output: str = "", *, status: str = "", base_seq: int = 0, autoschedule: bool = True) -> int:
         chunk = str(output or "")
@@ -7431,7 +7434,8 @@ class TerminalOutputWriteQueue:
         status = state["status"]
         seq = int(state.get("last_seq") or 0)
         try:
-            await self._write_terminal_output(terminal_id, output, status=status, seq=seq)
+            async with self._write_lock:
+                await self._write_terminal_output(terminal_id, output, status=status, seq=seq)
         except BaseException:
             await self._requeue_front(terminal_id, output, status=status, seq=seq)
             raise

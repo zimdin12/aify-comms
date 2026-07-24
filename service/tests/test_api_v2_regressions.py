@@ -1659,6 +1659,38 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertEqual([row["body"] for row in output_events], ["abc"])
 
+    def test_terminal_output_flushes_serialize_database_writes(self):
+        async def _run():
+            queue = api_v2.TerminalOutputWriteQueue()
+            active = 0
+            max_active = 0
+            first_started = asyncio.Event()
+            release = asyncio.Event()
+
+            async def _write(*_args, **_kwargs):
+                nonlocal active, max_active
+                active += 1
+                max_active = max(max_active, active)
+                first_started.set()
+                try:
+                    await release.wait()
+                finally:
+                    active -= 1
+
+            queue._write_terminal_output = _write
+            await queue.enqueue("terminal-a", "a", autoschedule=False)
+            await queue.enqueue("terminal-b", "b", autoschedule=False)
+            first = asyncio.create_task(queue.flush_terminal("terminal-a"))
+            await first_started.wait()
+            second = asyncio.create_task(queue.flush_terminal("terminal-b"))
+            await asyncio.sleep(0)
+            overlapped = max_active
+            release.set()
+            await asyncio.gather(first, second)
+            return overlapped
+
+        self.assertEqual(asyncio.run(_run()), 1)
+
     def test_terminal_output_broadcast_includes_agent_id(self):
         session_id = self._create_running_session(terminal=True)
         started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
