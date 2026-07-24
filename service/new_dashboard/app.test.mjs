@@ -254,3 +254,12 @@ test("WS half-open watchdog is per-socket (not a shared global id)", () => {
   // Resume nudge leaves a CONNECTING socket to the watchdog instead of aborting it.
   assert.match(source, /if \(rs === WebSocket\.OPEN \|\| rs === WebSocket\.CONNECTING\) return;/);
 });
+
+test("agent edit runtime choices include Hermes and preserve the current runtime", () => {
+  const source = read("app.js");
+  const expression = source.match(/const runtimeOptions = (\[[^\n]+\])\n\s+\.map/)?.[1];
+  assert.ok(expression, "runtime choice expression must remain inspectable");
+  const choices = Function("currentRuntime", `return ${expression}`)("future-runtime");
+  assert.ok(choices.includes("hermes"), "Hermes must be selectable with its canonical backend identifier");
+  assert.ok(choices.includes("future-runtime"), "an existing runtime must not be silently replaced");
+});

@@ -3417,7 +3417,7 @@ function openAgentEditForm(agentId) {
       const id = String(env.id || env.environmentId || '');
       return `<option value="${esc(id)}"${id === currentEnv ? ' selected' : ''}>${esc(env.label || id)}</option>`;
     })).join('');
-  const runtimeOptions = ['generic', 'claude-code', 'codex', 'pi', 'opencode']
+  const runtimeOptions = [...new Set(['generic', 'claude-code', 'codex', 'hermes', 'pi', 'opencode', currentRuntime])]
     .map((rt) => `<option value="${esc(rt)}"${rt === currentRuntime ? ' selected' : ''}>${esc(rt)}</option>`).join('');
   byId('inspector-content').innerHTML = `
     <div class="agent-drawer continue-form">
