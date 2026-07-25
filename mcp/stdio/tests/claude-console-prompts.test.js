@@ -71,6 +71,29 @@ assert.equal(matchConsolePrompt("I'll continue without compacting the context fo
 assert.equal(matchConsolePrompt("Claude is running in bypass permissions mode; yes, I accept the risk."), null);
 assert.equal(matchConsolePrompt("Loaded the development-channels server earlier this turn."), null);
 
+// Every blind Enter must belong to the LIVE cursor row, not merely to prompt text still in
+// scrollback. Otherwise typing while a later screen is focused can confirm the stale dialog.
+assert.equal(
+  matchConsolePrompt(fx("compaction-prompt.txt") + "\n❯ No, compact first"),
+  null,
+  "compaction auto-confirm must not override the operator's current selection",
+);
+assert.equal(
+  matchConsolePrompt(fx("perms-accept.txt") + "\n❯ No, exit"),
+  null,
+  "permissions auto-confirm must not override the operator's current selection",
+);
+assert.equal(
+  matchConsolePrompt(fx("dev-channels-accept.txt") + "\n❯ 2. Exit"),
+  null,
+  "development-channel auto-confirm must not override the operator's current selection",
+);
+assert.equal(
+  matchConsolePrompt(fx("channel-enter.txt") + "\n…continued…\n❯ idle input"),
+  null,
+  "a stale channel prompt above the live input cursor must not be re-detected",
+);
+
 // Only the live tail region matches: a resume menu far up in scrollback under a current
 // idle prompt does NOT match (avoid answering a scrolled-away prompt).
 assert.equal(
@@ -180,20 +203,20 @@ assert.equal(
 
 console.log("claude-console-prompts.test.js: all assertions passed");
 
-// COMPACTION-RECOMMENDATION dialog (2026-07-02 operator incident): the /compact flow's
-// one-option "Resume from summary (recommended)" dialog — with the usage-limits sentence
-// and NO live "Resume full session" option — auto-confirms with Enter (managed agents were
-// stalling here while managers waited on the compaction decision).
+// COMPACTION-RECOMMENDATION dialog: starting agents keep their full context by selecting
+// option 2 instead of accepting the highlighted summary option.
 const COMPACT_DIALOG =
   "✻ Compacting conversation…\n" +
   "This session is 1h 58m old and 329.6k tokens.\n" +
   "Resuming the full session will consume a substantial portion of your usage limits. " +
   "We recommend resuming from a summary.\n\n" +
   "❯ 1. Resume from summary (recommended)\n" +
+  "  2. Resume full session as-is\n" +
+  "  3. Don't ask me again\n" +
   "Enter to confirm · Esc to cancel\n";
 const compactConfirm = matchConsolePrompt(COMPACT_DIALOG);
-assert.equal(compactConfirm?.name, "compaction-resume-summary-confirm");
-assert.deepEqual(compactConfirm?.answer, ["\r"], "confirm the highlighted recommended option");
+assert.equal(compactConfirm?.name, "compaction-resume-full-session");
+assert.deepEqual(compactConfirm?.answer, ["\x1b[B", "\r"], "select option 2 and keep full context");
 
 // Opt-out: autoConfirmCompaction:false disables the rule (server setting / env off-switch).
 assert.equal(matchConsolePrompt(COMPACT_DIALOG, { autoConfirmCompaction: false }), null);
@@ -216,14 +239,13 @@ const twoOptionWithProse = matchConsolePrompt(
 );
 assert.equal(twoOptionWithProse?.name, "resume-full-session");
 
-// A STALE full-session mention far above (scrollback) must NOT block the live one-option
-// compaction dialog from confirming.
+// A one-option summary dialog cannot satisfy the keep-full-context policy, so it must wait.
 const staleFullAbove = matchConsolePrompt(
   "earlier: chose Resume full session as-is\n" + "y\n".repeat(400) +
   "Resuming the full session will consume a substantial portion of your usage limits.\n" +
   "❯ 1. Resume from summary (recommended)\nEnter to confirm · Esc to cancel\n",
 );
-assert.equal(staleFullAbove?.name, "compaction-resume-summary-confirm");
+assert.equal(staleFullAbove, null);
 
 // DATA-LOSS REGRESSION (bughunt 2026-07-03): a large-session cold-start `--resume`
 // menu renders progressively — "Resume from summary" paints before "Resume full

@@ -56,19 +56,13 @@ test("flattenConsoleText reconstructs the screen's real words and lines", () => 
 test("REGRESSION: the auto-confirm now fires on the real dialog (it never did)", () => {
   const rule = matchConsolePrompt(atDialog(), { sessionMode: "managed" });
   assert.ok(rule, "matcher returned null on a dialog the agent is stuck at");
-  assert.equal(rule.name, "compaction-resume-summary-confirm");
-  // Enter accepts the HIGHLIGHTED option: "1. Resume from summary (recommended)".
-  assert.deepEqual(rule.answer, ["\r"]);
+  assert.equal(rule.name, "compaction-resume-full-session");
+  assert.deepEqual(rule.answer, [DOWN, "\r"], "select option 2: keep the full session context");
 });
 
-test("it must NOT pick 'Resume full session as-is' — that is the option the dialog warns about", () => {
-  // The old byte-proximity deferral handed this dialog to the cold-start resume rule, whose
-  // policy answer is [Down, Down, Enter] = "Resume full session as-is" — i.e. it would have
-  // done the exact thing the dialog exists to warn you against (consuming a substantial portion
-  // of your usage limits). Pin that it cannot come back.
+test("it selects 'Resume full session as-is' instead of compacting starting agents", () => {
   const rule = matchConsolePrompt(atDialog(), { sessionMode: "managed" });
-  assert.notDeepEqual(rule.answer, [DOWN, DOWN, "\r"]);
-  assert.notEqual(rule.name, "resume-full-session");
+  assert.deepEqual(rule.answer, [DOWN, "\r"]);
 });
 
 test("refuses to answer when no option is highlighted (prose, not a live menu)", () => {
@@ -103,6 +97,6 @@ test("EVICTION: the dialog must survive the repaint flood that follows it", () =
   const newTail = REAL_PTY.replace(OSC, "").slice(-65536);
   const rule = matchConsolePrompt(newTail, { sessionMode: "managed" });
   assert.ok(rule, "dialog must still be reachable after the repaint flood");
-  assert.equal(rule.name, "compaction-resume-summary-confirm");
-  assert.deepEqual(rule.answer, ["\r"]);
+  assert.equal(rule.name, "compaction-resume-full-session");
+  assert.deepEqual(rule.answer, [DOWN, "\r"]);
 });

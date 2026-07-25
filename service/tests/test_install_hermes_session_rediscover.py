@@ -113,7 +113,7 @@ def test_hermes_windows_shim_uses_powershell_not_git_bash_for_tui():
     text = _read_install_sh()
     assert "install_hermes_windows_tui_shim" in text
     assert "hermes-aify.ps1" in text
-    assert 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$windows_ps_path" %*' in text
+    assert 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0hermes-aify.ps1" %*' in text
     # The PS fallback launches the native Hermes TUI resuming the explicit handle.
     # The permission-bypass flags are appended via `(@(...) + $HermesPermissionFlags)`,
     # so match the resume invocation up to the array close.

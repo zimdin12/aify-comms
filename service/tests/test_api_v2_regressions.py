@@ -4055,139 +4055,6 @@ class ApiV2RegressionTests(FastApiTestCase):
             f"managed PTY must be stopping after manual resident switch; got {term['status']}",
         )
 
-    def test_dev_channel_auto_confirm_requires_both_signals_and_fresh_terminal(self):
-        # Operator complaint: "something enters 1's into console quite
-        # randomly". Cause: detector matched the menu text any time it
-        # appeared in the buffer, including in Claude's own conversation
-        # output explaining the dev-channel feature. Fix gates on:
-        #   (a) terminal created less than 30s ago, AND
-        #   (b) BOTH "WARNING: Loading development channels" header
-        #       AND "I am using this for local development" menu option
-        #       present in the cleaned tail.
-        # This test pins the gate at the helper-function level (avoids
-        # the async queue-flush dance of going through the full HTTP
-        # output-append path).
-        import time as _t, re
-        from service.routers.api_v2 import (
-            _ANSI_RE,
-            DEFAULT_SETTINGS,
-        )
-        # Reconstruct the gate logic inline so we can assert it
-        # without the full async fixture. If the production helper's
-        # gating changes, this test stays a behavior pin.
-        def _would_fire(age_seconds: float, full_output: str) -> bool:
-            if not full_output:
-                return False
-            if age_seconds > 30:
-                return False
-            stripped = _ANSI_RE.sub("", full_output[-6000:])
-            return (
-                "WARNING: Loading development channels" in stripped
-                and "I am using this for local development" in stripped
-            )
-
-        # Fresh + both signals → fire.
-        self.assertTrue(_would_fire(
-            2,
-            "WARNING: Loading development channels\nChannels: server:aify-comms-channel\nI am using this for local development\n",
-        ))
-        # Fresh + only menu option → do NOT fire.
-        self.assertFalse(_would_fire(
-            2,
-            "claude said: I am using this for local development workflow",
-        ))
-        # Fresh + only warning header → do NOT fire.
-        self.assertFalse(_would_fire(
-            2,
-            "WARNING: Loading development channels (admin context)",
-        ))
-        # Old + both signals → do NOT fire (age gate).
-        self.assertFalse(_would_fire(
-            120,
-            "WARNING: Loading development channels\nI am using this for local development\n",
-        ))
-
-    def test_claude_dev_channel_reactive_auto_confirm_enqueues_choice(self):
-        self.client.put("/api/v1/settings", json={"console_auto_confirm_claude_dev_channels": True})
-        session_id = self._create_running_session(
-            terminal=True,
-            runtime="claude-code",
-            terminal_runtimes=["claude-code"],
-            session_handle="claude-session-1",
-        )
-        fresh = api_v2._now()
-        self._execute(
-            """
-            INSERT INTO terminal_sessions (
-                id, session_id, agent_id, environment_id, bridge_id, runtime,
-                workspace, command, output, status, requested_by,
-                created_at, updated_at, stopped_at, error
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "term_claude_dev_confirm",
-                session_id,
-                "console-agent",
-                "linux:test-host:default",
-                "bridge-current",
-                "claude-code",
-                "/workspace/repo",
-                "claude-aify --aify-agent console-agent --auto --resume claude-session-1",
-                "",
-                "attached",
-                "dashboard",
-                fresh,
-                fresh,
-                None,
-                "",
-            ),
-        )
-
-        async def _run():
-            from service.db import get_db as _get_db
-            from unittest.mock import patch
-
-            captured = []
-
-            async def _fake_sleep(_seconds):
-                return None
-
-            db = await _get_db()
-            try:
-                terminal = await (await db.execute(
-                    "SELECT * FROM terminal_sessions WHERE id = ?",
-                    ("term_claude_dev_confirm",),
-                )).fetchone()
-                output = (
-                    "WARNING: Loading development channels\n"
-                    "Channels: server:aify-comms-channel\n"
-                    "❯ 1. I am using this for local development\n"
-                    "Enter to confirm · Esc to cancel\n"
-                )
-                with patch("service.routers.api_v2.asyncio.create_task", side_effect=lambda coro: captured.append(coro) or None), \
-                     patch("service.routers.api_v2.asyncio.sleep", side_effect=_fake_sleep):
-                    await api_v2._maybe_auto_confirm_claude_dev_channel_prompt(db, terminal, output)
-                    await db.commit()
-                    self.assertEqual(len(captured), 1)
-                    await captured[0]
-                    await db.commit()
-            finally:
-                await db.close()
-
-        asyncio.run(_run())
-        event = self._fetchone(
-            "SELECT event_type FROM terminal_events WHERE terminal_id = ? AND event_type = ?",
-            ("term_claude_dev_confirm", "dev_channel_prompt_auto_confirmed"),
-        )
-        self.assertIsNotNone(event)
-        control = self._fetchone(
-            "SELECT action, body, requested_by FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at DESC, id DESC LIMIT 1",
-            ("term_claude_dev_confirm",),
-        )
-        self.assertEqual(control["action"], "input")
-        self.assertEqual(control["body"], "1\r")
-        self.assertEqual(control["requested_by"], "dev-channel-auto-confirm")
-
     def test_channel_delivery_receipt_is_not_persisted_as_chat_reply(self):
         # Operator-caught bug: channel-bridge PATCH writes a summary of
         # "Delivered to Claude channel session; awaiting explicit reply"
@@ -5032,11 +4899,6 @@ class ApiV2RegressionTests(FastApiTestCase):
                 )
                 self.assertIsNone(injected)
     def test_managed_claude_dispatch_uses_claude_aify_terminal_turn(self):
-        # This test pins the start/input control sequence for managed
-        # claude dispatch. Default-on auto-confirm of the dev-channel
-        # prompt would add an extra "input" before the message; opt out
-        # here so we keep asserting the core sequence.
-        self.client.put("/api/v1/settings", json={"console_auto_confirm_claude_dev_channels": False})
         session_id = self._create_running_session(
             terminal=True,
             runtime="claude-code",
@@ -5085,7 +4947,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertIn("\x1b[201~", controls[1]["body"])
         self.assertTrue(controls[1]["body"].endswith("\r"))
 
-    def test_managed_claude_auto_confirm_dev_channel_prompt_is_operator_toggle(self):
+    def test_service_does_not_blindly_inject_claude_startup_enter(self):
         self.client.put("/api/v1/settings", json={"console_auto_confirm_claude_dev_channels": True})
         session_id = self._create_running_session(
             terminal=True,
@@ -5109,10 +4971,8 @@ class ApiV2RegressionTests(FastApiTestCase):
             "SELECT action, body FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC, id ASC",
             (session["terminal_id"],),
         )
-        self.assertEqual([row["action"] for row in controls], ["start", "input", "input"])
-        self.assertEqual(controls[1]["body"], "\r")
-        self.assertNotIn("do it without console open", controls[1]["body"])
-        self.assertIn("do it without console open", controls[2]["body"])
+        self.assertEqual([row["action"] for row in controls], ["start", "input"])
+        self.assertIn("do it without console open", controls[1]["body"])
 
     def test_managed_claude_dispatch_does_not_create_channel_only_run(self):
         self._create_running_session(
@@ -5332,10 +5192,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(payload["consoleDeliveries"][0]["contractRunId"], contract["id"])
 
     def test_message_send_to_managed_claude_uses_console_turn_when_console_open(self):
-        # Opt out of default-on dev-channel auto-confirm so this test
-        # asserts the core start/input control sequence without the
-        # extra auto-confirm \r interleaved.
-        self.client.put("/api/v1/settings", json={"console_auto_confirm_claude_dev_channels": False})
         session_id = self._create_running_session(
             terminal=True,
             runtime="claude-code",
@@ -5381,10 +5237,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(len(submit), 1)
 
     def test_message_send_to_managed_claude_starts_claude_aify_and_inputs_dashboard_message(self):
-        # Opt out of default-on dev-channel auto-confirm so this test
-        # asserts the core start/input control sequence without the
-        # extra auto-confirm \r interleaved.
-        self.client.put("/api/v1/settings", json={"console_auto_confirm_claude_dev_channels": False})
         session_id = self._create_running_session(
             terminal=True,
             runtime="claude-code",

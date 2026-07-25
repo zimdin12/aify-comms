@@ -400,7 +400,7 @@ export class TerminalProcessManager {
       });
       if (rule && state.answeredPrompt !== rule.name) {
         state.answeredPrompt = rule.name;
-        this._sendAnswer(id, rule.answer);
+        this._sendAnswer(id, rule.answer, state, rule.name);
       } else if (!rule) {
         state.answeredPrompt = null;
       }
@@ -578,11 +578,12 @@ export class TerminalProcessManager {
   // Send a prompt auto-answer. A string is one write; an ARRAY is a SEQUENCE of keystrokes
   // sent with `autoAnswerKeyDelayMs` between them, so a menu move (e.g. ↓) re-renders before
   // the confirm (Enter) — sending them in one write loses the move to an Ink/React state-
-  // batching race (Enter reads the pre-move selection). Best-effort; stops if the terminal exits.
-  _sendAnswer(id, answer) {
+  // batching race (Enter reads the pre-move selection). Stops if the terminal or prompt changes.
+  _sendAnswer(id, answer, state, ruleName) {
     const keys = Array.isArray(answer) ? answer.slice() : [answer];
     const sendNext = () => {
-      if (!keys.length || !this.terminals.has(id)) return;
+      const current = this.terminals.get(id);
+      if (!keys.length || current !== state || current.answeredPrompt !== ruleName) return;
       const key = keys.shift();
       try { this.input(id, key); } catch { return; }
       if (keys.length) {

@@ -902,7 +902,6 @@ const SETTINGS_SCHEMA = [
     { key: 'managed_terminal_backing_enabled', label: 'Terminal-backed managed sessions', type: 'toggle' },
     { key: 'insert_messages_via_console', label: 'Legacy PTY-input delivery', type: 'toggle', hint: 'Default off — scrambles concurrent typing. Channel delivery is preferred.' },
     { key: 'managed_pty_eager_spawn', label: 'Eager-spawn managed PTY', type: 'toggle' },
-    { key: 'console_auto_confirm_claude_dev_channels', label: 'Auto-confirm claude dev-channels prompt', type: 'toggle' },
     { key: 'managed_via_wrapper', label: 'Wrapper-backed managed runtimes', type: 'csv', hint: 'Comma-separated, e.g. codex, hermes.' },
     { key: 'managed_claude_model', label: 'Managed claude model', type: 'text' },
     { key: 'managed_claude_effort', label: 'Managed claude effort', type: 'select', options: EFFORT_OPTS },

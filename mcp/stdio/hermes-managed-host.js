@@ -1455,17 +1455,24 @@ export async function deliverRun({
     }
 
     let steered = false;
+    let busyForSteer = false;
     if (run?.steerIfBusy) {
       try {
         const active = await wsClient.request(buildSessionActiveListFrame({ id: id++ }));
         const status = pickSessionStatusById(active, sessionId);
         if (isGatewaySessionWorking(status)) {
+          busyForSteer = true;
           const result = await wsClient.request(buildSessionSteerFrame({ id: id++, sessionId, text }));
           steered = String(result?.status || result?.result?.status || "").toLowerCase() === "queued";
         }
       } catch {
         steered = false;
       }
+    }
+
+    if (busyForSteer && !steered) {
+      await markRunRequeued(httpCall, run, "Hermes rejected the non-interrupting steer; retry after turn-end");
+      return;
     }
 
     try {

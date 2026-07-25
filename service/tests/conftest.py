@@ -7,11 +7,11 @@ migration/backfill pass in :func:`service.db.init_db`. With ~600 tests that
 fixed cost dominates wall-clock.
 
 This conftest builds the schema exactly ONCE per pytest session into a
-template SQLite file, then transparently replaces every ``init_db(path)``
-call with a cheap ``shutil.copy`` of that template to ``path``. Each test
-still gets its own fresh DB file (full per-test isolation) at a fraction of
-the cost — there is no behavior change, the resulting DB is byte-for-byte the
-output of the real ``init_db``.
+template SQLite file, then replaces fresh-database ``init_db(path)`` calls
+with a cheap ``shutil.copy`` of that template. Calls against an existing,
+non-empty database still run the real migration/reconciliation path. Each
+test gets its own DB file (full per-test isolation) at a fraction of the
+fixed setup cost.
 
 The replacement is wired as an autouse session fixture so existing test
 files inherit the speedup with ZERO edits to their bodies.
@@ -67,6 +67,9 @@ def _fast_init_db():
             _db._db_path = Path(db_path)
         target = Path(_db._db_path)
         target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists() and target.stat().st_size:
+            await _db._real_init_db(target)
+            return
         shutil.copy(template, target)
 
     patched_modules = []

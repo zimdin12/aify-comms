@@ -21,6 +21,7 @@ const RESUME_FULL_RE = /Resume full session/i;
 // is the primary guard against typing keystrokes into a live turn. Declared up here (before
 // computeResumeAnswer, which reads it at call-time) to avoid the hoisting smell.
 const MENU_CURSOR_RE = /[❯›▶]/;
+const NUMBERED_MENU_OPTION_RE = /^\s*(?:[❯›▶]\s*)?\d+\.\s+/;
 
 // CURSOR-AWARE resume selection (2026-06-05): operator policy is "Resume full session as-is".
 // The earlier fix blindly sent [Down, Enter] assuming the menu always renders summary on the
@@ -56,10 +57,30 @@ function computeResumeAnswer(visible) {
   if (targetIdx < 0) return null;
   const delta = targetIdx - cursorIdx;
   if (Math.abs(delta) > 9) return null; // implausible spread → don't guess-press
+  // Claude inserts blank/description display rows between selectable options. Arrow keys move
+  // between OPTIONS, not physical screen rows, so count numbered option rows on the path. Using
+  // the raw line delta would send Down twice for adjacent options 1 and 2 in the real compaction
+  // frame and land on option 3 ("Don't ask me again").
+  let moves = 0;
+  const step = delta >= 0 ? 1 : -1;
+  for (let i = cursorIdx + step; delta !== 0 && (step > 0 ? i <= targetIdx : i >= targetIdx); i += step) {
+    if (NUMBERED_MENU_OPTION_RE.test(lines[i])) moves += 1;
+  }
+  if (delta !== 0 && moves === 0) return null;
   const keys = [];
-  for (let i = 0; i < Math.abs(delta); i++) keys.push(delta > 0 ? DOWN : UP);
+  for (let i = 0; i < moves; i++) keys.push(delta > 0 ? DOWN : UP);
   keys.push(ENTER);
   return keys;
+}
+
+function enterWhenCursorMatches(rowPattern) {
+  return (visible) => {
+    const lines = visible.split(/\r?\n/);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (MENU_CURSOR_RE.test(lines[i])) return rowPattern.test(lines[i]) ? ENTER : null;
+    }
+    return null;
+  };
 }
 
 export const CONSOLE_PROMPT_RULES = [
@@ -80,7 +101,7 @@ export const CONSOLE_PROMPT_RULES = [
     // dialog-literal phrasing.
     name: "compaction-question",
     match: /continue without compact/i,
-    answer: "\r",
+    computeAnswer: enterWhenCursorMatches(/Yes,?\s*continue/i),
   },
   {
     // Bypass-permissions accept dialog. Tuned against
@@ -95,7 +116,7 @@ export const CONSOLE_PROMPT_RULES = [
     // literal "Yes, I accept" option.
     name: "bypass-permissions-accept",
     match: /bypass permissions mode[\s\S]{0,200}yes, i accept/i,
-    answer: "\r",
+    computeAnswer: enterWhenCursorMatches(/Yes,?\s*I accept/i),
   },
   {
     // Channel auto-enter: accept the development-channels prompt so a dispatched channel
@@ -111,7 +132,7 @@ export const CONSOLE_PROMPT_RULES = [
     // prompt.
     name: "channel-enter",
     match: /enter channel to receive/i,
-    answer: "\r",
+    computeAnswer: enterWhenCursorMatches(/\bYes\b/i),
   },
   {
     // Dev-channels ACKNOWLEDGMENT (2026-07-03, mc-vulkan-manager "up-but-deaf" incident):
@@ -129,7 +150,7 @@ export const CONSOLE_PROMPT_RULES = [
     // interlock (blind-Enter rule) keep it from firing into a resume menu.
     name: "dev-channels-accept",
     match: /I am using this for local development/i,
-    answer: "\r",
+    computeAnswer: enterWhenCursorMatches(/I am using this for local development/i),
   },
 ];
 
@@ -170,15 +191,10 @@ function lastIndexOf(text, re) {
 // (2026-06-10, the "random agent-selection screen" incident).
 const AGENTS_MANAGER_RE = /← for agents|↑\/↓ to select|↓ to manage/;
 
-// COMPACTION-RECOMMENDATION dialog (2026-07-02, operator incident: managed agents stalled
-// at "/compact → ❯ 1. Resume from summary (recommended) — Enter to confirm" while managers
-// waited). This is a DIFFERENT dialog from the cold-start resume menu: it renders during a
-// compaction flow, often with ONLY the summary option visible, plus the usage-limits
-// sentence — so the two-option cursor-aware resume rule can never fire on it. Confirming
-// the highlighted recommended option is the intended outcome here (the operator asked for
-// compaction to proceed unattended), unlike the cold-start menu where we deliberately
-// preserve the full session. Fires ONLY when the live cursor row IS the summary option and
-// the usage-limits/compacting sentence is present; disable via
+// COMPACTION-RECOMMENDATION dialog. Starting agents must preserve their context by selecting
+// "Resume full session as-is", not the highlighted summary option. The unambiguous marker
+// distinguishes this flow from ordinary prose; cursor-aware navigation below refuses to fire
+// unless both the live cursor and the full-session target are visible. Disable via
 // matchConsolePrompt(tail, { autoConfirmCompaction: false }) (host env override:
 // AIFY_AUTO_CONFIRM_COMPACTION=0) or the `console_auto_confirm_claude_compaction` setting.
 const COMPACTION_FLOW_RE = /(substantial portion of your usage limits|Compacting conversation|We recommend resuming from a summary)/i;
@@ -193,18 +209,6 @@ const COMPACTION_FLOW_RE = /(substantial portion of your usage limits|Compacting
 // session. Worst case for a compaction flow that shows only the ambiguous phrase:
 // manual confirm needed (a stall) — acceptable vs. eating a session.
 const UNAMBIGUOUS_COMPACTION_RE = /(substantial portion of your usage limits|Compacting conversation)/i;
-
-function computeCompactionConfirmAnswer(visible) {
-  const lines = visible.split(/\r?\n/);
-  let cursorIdx = -1;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (MENU_CURSOR_RE.test(lines[i])) { cursorIdx = i; break; }
-  }
-  if (cursorIdx < 0) return null;
-  // Only confirm when the LIVE cursor row is the recommended summary option itself.
-  if (!/Resume from summary/i.test(lines[cursorIdx])) return null;
-  return [ENTER];
-}
 
 export function matchConsolePrompt(rawTail = "", opts = {}) {
   // flattenConsoleText, NOT stripAnsi: claude paints words with cursor-position escapes rather
@@ -228,20 +232,17 @@ export function matchConsolePrompt(rawTail = "", opts = {}) {
   // the cursor row is the real thing.
   const visible = flat.slice(-2000);
   const dialogView = flat.slice(-16000);
-  // Compaction-recommendation confirm — checked BEFORE the general loop because its own
+  // Compaction-recommendation selection — checked BEFORE the general loop because its own
   // option line ("Resume from summary") is exactly what the resume-menu interlock keys on;
-  // the interlock exists to protect the COLD-START menu, not this flow. The cursor-row
-  // requirement in computeCompactionConfirmAnswer keeps it from firing on prose or on the
-  // two-option cold-start menu mid-navigation (there the usage sentence is absent anyway).
+  // the interlock exists to protect the COLD-START menu, not this flow. Cursor-aware
+  // computeResumeAnswer keeps it from firing on prose or an incomplete menu.
   // Auto-confirm ONLY on an unambiguous compaction marker — never on the cold-start
   // resume menu (whose summary blurb also matches COMPACTION_FLOW_RE). See
   // UNAMBIGUOUS_COMPACTION_RE above.
   // Is the COMPACTION dialog the live menu? True when its unambiguous marker is on screen AND
   // the cursor currently sits on one of ITS option rows. That ownership test matters twice over:
-  //  - the cold-start resume rule must NEVER answer this dialog. Its policy answer is "Resume
-  //    full session as-is" — precisely the option the dialog exists to warn you against. It used
-  //    to be handed the dialog by a byte-proximity deferral; with auto-confirm DISABLED it would
-  //    still grab it on the fall-through, which is worse than doing nothing.
+  //  - this branch owns the explicit compaction policy and must honor its opt-out rather than
+  //    falling through to another rule;
   //  - but a STALE compaction dialog (answered, scrolled up, cursor now on a different menu)
   //    must NOT block that other menu from being answered — so ownership follows the cursor,
   //    not the mere presence of the text.
@@ -263,29 +264,9 @@ export function matchConsolePrompt(rawTail = "", opts = {}) {
     // Operator disabled auto-confirm: touch NOTHING. Returning null here is the point — falling
     // through would let another rule type into this dialog.
     if (opts.autoConfirmCompaction === false) return null;
-    const compactIdx = lastIndexOf(dialogView, /Resume from summary/i);
-    // A byte-PROXIMITY deferral used to live here: if "Resume full session" sat within 200 bytes
-    // of "Resume from summary", this branch stood down and let the cold-start resume rule answer.
-    // It rested on the belief that only the COLD-START menu renders those two options adjacently.
-    // Against the real dialog that is simply false — compaction lists all three together:
-    //     ❯ 1. Resume from summary (recommended)
-    //       2. Resume full session as-is
-    //       3. Don't ask me again
-    // so the deferral fired every time and handed the dialog to the rule that presses "Resume
-    // full session as-is" — the one option that burns the usage limits the dialog is warning
-    // about. (It was never observed, because the words were jammed together and NOTHING matched.)
-    // Byte proximity cannot tell these menus apart. Two things can, and both are now real:
-    //   1. UNAMBIGUOUS_COMPACTION_RE — the usage-limits sentence the cold-start menu never emits;
-    //   2. the cursor ROW must literally be the "Resume from summary" option — which only became
-    //      meaningful once flattenConsoleText restored newlines (with the old stripper the whole
-    //      screen was ONE line, so "the cursor row" was everything and the check was vacuous).
-    // If a stale compaction marker lingers while a cold-start menu is live, its highlighted row
-    // is not "Resume from summary", so (2) refuses and we wait rather than guess.
-    if (compactIdx >= 0) {
-      const answer = computeCompactionConfirmAnswer(dialogView);
-      if (answer != null) {
-        return { name: "compaction-resume-summary-confirm", match: COMPACTION_FLOW_RE, answer };
-      }
+    const answer = computeResumeAnswer(dialogView);
+    if (answer != null) {
+      return { name: "compaction-resume-full-session", match: COMPACTION_FLOW_RE, answer };
     }
     // It owns the screen and we could not answer it safely — stop here rather than fall through.
     // Any rule below would be typing keystrokes into THIS dialog against a cursor it did not read.

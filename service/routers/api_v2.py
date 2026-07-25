@@ -228,11 +228,8 @@ DEFAULT_SETTINGS = {
     "orphaned_dispatch_run_retention_hours": 24,
     "managed_claude_model": "",
     "managed_claude_effort": "high",
-    # Auto-confirm the Claude "WARNING: Loading development channels" prompt
-    # when the bridge spawns a managed PTY or operator opens Console.
-    # Default true: the prompt is just confirming behavior the operator
-    # already asked for by launching a managed-channel claude wrapper.
-    # Operators who want manual approval can flip false.
+    # Retained for settings-response compatibility only. Prompt recognition
+    # and confirmation belong to the bridge's cursor-verified rules layer.
     "console_auto_confirm_claude_dev_channels": True,
     # Retained for settings-response compatibility only. The bridge decides at
     # process start from AIFY_AUTO_CONFIRM_COMPACTION; it does not poll this
@@ -7170,128 +7167,6 @@ async def _append_terminal_output(db, terminal, output: str, *, status: str = ""
     )
     if chunk:
         await _append_terminal_event(db, terminal["id"], "terminal_output", chunk[-2000:])
-        await _maybe_auto_confirm_claude_dev_channel_prompt(db, terminal, next_output)
-
-
-async def _maybe_auto_confirm_claude_dev_channel_prompt(db, terminal, full_output: str) -> None:
-    """Reactive dev-channel prompt confirmation.
-
-    Claude with `--dangerously-load-development-channels server:...` shows
-    an interactive menu at boot:
-
-        WARNING: Loading development channels
-        ...
-        Channels: server:aify-comms-channel
-        ❯ 1. I am using this for local development
-          2. ...
-
-    The earlier blind \\r enqueue fires before this menu appears and ends
-    up consumed by some other prompt. The right fix is to react to the
-    actual prompt text in the terminal output: when this menu text shows
-    up AND we haven't fired auto-confirm for this terminal yet, enqueue
-    `1\\r` to explicitly pick the local-development option. The audit
-    event guards against re-firing within the same terminal session.
-
-    Only fires for claude-code wrappers; only when the setting is on.
-    """
-    if not terminal:
-        return
-    runtime = _normalize_runtime(terminal["runtime"] if "runtime" in terminal.keys() else "")
-    if runtime != "claude-code":
-        return
-    # Only fire for FRESH wrappers — the dev-channel menu only appears
-    # right after Claude boots. Match only when the terminal was created
-    # less than 30s ago. Without this guard, the detector would also
-    # fire when Claude's conversation later contains the menu text
-    # verbatim (e.g., Claude explaining channels), causing spurious
-    # "1\r" inputs into a live conversation — what the operator
-    # described as "1's randomly entered into console".
-    created_at_iso = terminal["created_at"] if "created_at" in terminal.keys() else ""
-    created_epoch = _iso_to_epoch(str(created_at_iso or ""))
-    if not created_epoch or (time.time() - created_epoch) > 30:
-        return
-    # Stripped scan-ready view of the recent output — ANSI sequences split
-    # the menu line in node-pty output, so collapse them before matching.
-    tail = full_output[-6000:] if full_output else ""
-    if not tail:
-        return
-    # Strip ANSI CSI/OSC so the text-only match is reliable.
-    stripped = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", tail)
-    stripped = re.sub(r"\x1b[\]\^\\]\\d*;?[^\x07]*\x07?", "", stripped)
-    # Require BOTH a development-channels warning AND a local-development
-    # menu option to be present. Each alone could appear in normal Claude
-    # conversation; both together near startup only happens for the
-    # actual dev-channel approval menu. Pattern matching is intentionally
-    # permissive to survive minor upstream text changes — operator-
-    # reported 2026-05-22 "Claude dev-channel auto-confirm might not
-    # work" probably traces to a text shift in newer Claude Code.
-    warning_lower = stripped.lower()
-    has_warning = (
-        "loading development channels" in warning_lower
-        or "loading dev channels" in warning_lower
-        or "development channels enabled" in warning_lower
-        or "dev-channel" in warning_lower
-    )
-    has_menu_option = (
-        "i am using this for local development" in warning_lower
-        or "using this for local development" in warning_lower
-        or ("local development" in warning_lower and "channel" in warning_lower)
-    )
-    if not (has_warning and has_menu_option):
-        return
-    # Idempotency: if we already fired for this terminal session, stop.
-    prior = await (await db.execute(
-        "SELECT 1 FROM terminal_events WHERE terminal_id = ? AND event_type = ? LIMIT 1",
-        (terminal["id"], "dev_channel_prompt_auto_confirmed"),
-    )).fetchone()
-    if prior:
-        return
-    # Gate on the setting (default true post-c895ba1).
-    settings = await _load_settings(db)
-    if not bool(settings.get("console_auto_confirm_claude_dev_channels", DEFAULT_SETTINGS["console_auto_confirm_claude_dev_channels"])):
-        return
-    # Record the audit event NOW (idempotency guard) but DEFER the actual
-    # input by 2 seconds. Live testing showed firing immediately at the
-    # first chunk containing the menu text races with Claude's menu
-    # interactive-ready state — the "1\r" arrived while the menu was
-    # still rendering and Claude apparently dismissed/ignored it. The
-    # 2s deferral lets Claude finish drawing the menu and become
-    # interactive before our input lands. Operator's suggested timing.
-    environment_id = terminal["environment_id"] if "environment_id" in terminal.keys() else ""
-    bridge_id = terminal["bridge_id"] if "bridge_id" in terminal.keys() else ""
-    terminal_id_value = terminal["id"]
-    await _append_terminal_event(
-        db,
-        terminal_id_value,
-        "dev_channel_prompt_auto_confirmed",
-        json.dumps({"reason": "reactive prompt-text match (deferred 2s)", "sent": "1\\r"}),
-    )
-
-    async def _deferred_send() -> None:
-        try:
-            await asyncio.sleep(2.0)
-            inner_db = await get_db()
-            try:
-                await _append_terminal_control(
-                    inner_db,
-                    terminal_id=terminal_id_value,
-                    environment_id=environment_id or "",
-                    bridge_id=bridge_id or "",
-                    action="input",
-                    requested_by="dev-channel-auto-confirm",
-                    body="1\r",
-                )
-                await inner_db.commit()
-            finally:
-                await inner_db.close()
-        except Exception:
-            # Best-effort. If the deferred send fails the audit event still
-            # records the attempt; next observed menu (e.g., on a fresh
-            # wrapper) gets another chance.
-            pass
-
-    asyncio.create_task(_deferred_send())
-
 
 
 class TerminalOutputWriteQueue:
@@ -7460,13 +7335,6 @@ class TerminalOutputWriteQueue:
     async def _write_terminal_output(self, terminal_id: str, output: str, *, status: str = "", seq: int = 0) -> None:
         db = await get_db()
         try:
-            # Include runtime + environment_id + bridge_id so reactive
-            # detectors inside _append_terminal_output (dev-channel
-            # auto-confirm + pi idle-prompt close) can see what runtime
-            # the buffer belongs to and where to enqueue follow-up
-            # controls. Pre-fix this SELECT was id/session/agent/output/
-            # status/output_seq only, which silently disabled the
-            # detectors because terminal["runtime"] was empty.
             terminal = await (await db.execute(
                 """
                 SELECT id, session_id, agent_id, environment_id, bridge_id, runtime,
@@ -8171,22 +8039,7 @@ async def _ensure_managed_pty_for_dispatch(db, agent_id: str, *, runtime: str, s
             "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
             (json.dumps(_agent_rs), now, agent_id),
         )
-    if normalized_runtime == "claude-code" and bool(settings.get("console_auto_confirm_claude_dev_channels")):
-        await _append_terminal_control(
-            db,
-            terminal_id=terminal_id,
-            environment_id=session["environment_id"],
-            bridge_id=bridge_id,
-            action="input",
-            requested_by=requested_by or "dashboard",
-            body="\r",
-        )
-        await _append_terminal_event(
-            db,
-            terminal_id,
-            "managed_pty_channel_prompt_confirm_requested",
-            json.dumps({"requestedBy": requested_by or "dashboard", "reason": "confirm Claude development channel prompt"}),
-        )
+
     await db.execute(
         """
         UPDATE agent_sessions
@@ -11709,29 +11562,7 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
             requested_by=requested_by,
             body=command,
         )
-        # Mirror _ensure_managed_pty_for_dispatch: when the operator has
-        # opted into auto-confirming the Claude dev-channel "WARNING:
-        # Loading development channels" prompt, enqueue the startup Enter
-        # for the manually-started console too. Without this, manual
-        # console starts hit the prompt and require the operator to
-        # actually press Enter — which the per-keystroke path makes
-        # awkward (the prompt is a TUI menu, not a plain line).
-        if runtime == "claude-code" and bool(settings.get("console_auto_confirm_claude_dev_channels")):
-            await _append_terminal_control(
-                db,
-                terminal_id=terminal_id,
-                environment_id=session["environment_id"],
-                bridge_id=bridge_id,
-                action="input",
-                requested_by=requested_by,
-                body="\r",
-            )
-            await _append_terminal_event(
-                db,
-                terminal_id,
-                "console_channel_prompt_auto_confirm_requested",
-                json.dumps({"requestedBy": requested_by, "reason": "confirm Claude development channel prompt on manual console start"}),
-            )
+
         await db.execute(
             """
             UPDATE agent_sessions

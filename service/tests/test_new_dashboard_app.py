@@ -102,6 +102,11 @@ class NewDashboardAppTest(unittest.TestCase):
             script,
             "the bridge reads AIFY_AUTO_CONFIRM_COMPACTION at boot; do not expose a no-op service toggle",
         )
+        self.assertNotIn(
+            "console_auto_confirm_claude_dev_channels",
+            script,
+            "the bridge owns prompt detection; do not expose a competing service-side sender",
+        )
         self.assertIn("sendMessageWithTimeout", script)
         self.assertIn("uploadPastedImage", script)
         self.assertIn("document.addEventListener('paste'", script)

@@ -20,7 +20,9 @@ for (const source of [server, channel]) {
 }
 
 assert.match(server, /logTransientOrError/);
-assert.match(server, /will retry on next poll/);
+assert.match(server, /noteControlClaimFailure/);
+assert.match(server, /noteControlClaimSuccess/);
+assert.doesNotMatch(server, /will retry on next poll/);
 assert.match(installer, /AIFY_DEFAULT_SERVER_URL:-http:\/\/127\.0\.0\.1:8800/);
 
 console.log("server-url-fallback.test.js: all assertions passed");

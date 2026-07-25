@@ -1247,10 +1247,40 @@ function isTransientHttpError(error) {
 function logTransientOrError(prefix, error) {
   if (isTransientHttpError(error)) {
     const target = error?.serverUrl || ACTIVE_SERVER_URL || SERVER_URL;
-    console.error(`${prefix}: transient HTTP error against ${target}: ${error?.message || String(error)}; will retry on next poll`);
+    console.error(`${prefix}: transient HTTP error against ${target}: ${error?.message || String(error)}; retrying`);
     return;
   }
   console.error(`${prefix}:`, error);
+}
+
+const CONTROL_CLAIM_FAILURES = new Map();
+
+function noteControlClaimFailure(label, error) {
+  const previous = CONTROL_CLAIM_FAILURES.get(label) || { count: 0, lastLogAt: 0 };
+  const state = { count: previous.count + 1, lastLogAt: previous.lastLogAt };
+  const decision = claimFailureDecision(state);
+  state.lastLogAt = decision.nextLastLogAt;
+  CONTROL_CLAIM_FAILURES.set(label, state);
+  const target = error?.serverUrl || ACTIVE_SERVER_URL || SERVER_URL;
+  const detail = [...new Set([error?.message, error?.cause?.code, error?.cause?.message].filter(Boolean))].join(": ");
+  if (decision.debug && String(process.env.AIFY_DEBUG || "").trim() === "1") {
+    console.debug(`[aify] ${label} transient failure against ${target}: ${detail}; retrying`);
+  }
+  if (decision.warn) {
+    console.error(
+      `[aify] ${label} unavailable (${state.count} consecutive) against ${target}: ${detail}. ` +
+      "Retrying quietly; check that the service is running and reachable from this shell.",
+    );
+  }
+}
+
+function noteControlClaimSuccess(label) {
+  const state = CONTROL_CLAIM_FAILURES.get(label);
+  if (!state) return;
+  if (claimRecoveryDecision(state.count).log) {
+    console.error(`[aify] ${label} recovered after ${state.count} failure(s)`);
+  }
+  CONTROL_CLAIM_FAILURES.delete(label);
 }
 
 async function httpCall(method, endpoint, body = null, opts = {}) {
@@ -2604,6 +2634,7 @@ async function runEnvironmentControlLoop() {
       machineId: MACHINE_ID,
       waitMs: CLAIM_WAIT_MS,
     }, CLAIM_OPTS);
+    noteControlClaimSuccess("environment controls");
     const control = claim?.control;
     if (!control) return;
     if (control.action === "stop") {
@@ -2639,7 +2670,7 @@ async function runEnvironmentControlLoop() {
     });
   } catch (error) {
     if (error?.status !== 404) {
-      logTransientOrError("[aify] environment control claim failed", error);
+      noteControlClaimFailure("environment controls", error);
     }
   } finally {
     environmentControlBusy = false;
@@ -2668,36 +2699,6 @@ async function updateTerminalControl(controlId, body) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
-}
-
-function looksLikeClaudeDevelopmentChannelPrompt(text = "") {
-  const compact = String(text || "").replace(/\s+/g, " ").toLowerCase();
-  return compact.includes("loading development channels") || compact.includes("enter to confirm");
-}
-
-async function waitForTerminalOutput(terminalId, predicate, { timeoutMs = 8000, intervalMs = 100 } = {}) {
-  const deadline = Date.now() + Math.max(1, Number(timeoutMs) || 8000);
-  while (Date.now() < deadline) {
-    const state = TERMINAL_MANAGER.stateFor(terminalId);
-    if (!state) return false;
-    if (predicate(state.outputTail || "")) return true;
-    await sleep(intervalMs);
-  }
-  return false;
-}
-
-async function prepareClaudeTerminalInput(terminalId, rawBody) {
-  const state = TERMINAL_MANAGER.stateFor(terminalId);
-  if (normalizeRuntime(state?.runtime || "") !== "claude-code") return;
-  const body = String(rawBody || "");
-  if (body === "\r" || body === "\n") {
-    await waitForTerminalOutput(terminalId, looksLikeClaudeDevelopmentChannelPrompt);
-    return;
-  }
-  if (looksLikeClaudeDevelopmentChannelPrompt(state?.outputTail || "")) {
-    TERMINAL_MANAGER.input(terminalId, "\r");
-    await sleep(2500);
-  }
 }
 
 function extractTerminalSessionHandle(runtime = "", command = "") {
@@ -2777,6 +2778,7 @@ async function runTerminalControlLoop() {
       bridgeId: BRIDGE_INSTANCE_ID,
       waitMs: CLAIM_WAIT_MS,
     }, CLAIM_OPTS);
+    noteControlClaimSuccess("terminal controls");
     const controls = claim?.controls || [];
     for (const control of controls) {
       try {
@@ -2837,22 +2839,10 @@ async function runTerminalControlLoop() {
             processId: started.pid != null ? String(started.pid) : "",
           });
         } else if (control.action === "input") {
-          // Raw passthrough. The bridge does NOT auto-append \r anymore —
-          // auto-appending broke the dashboard's per-keystroke console input
-          // (every typed letter got a forced Enter, submitting one-letter
-          // commands). Callers own newline semantics:
-          //  - Dispatch / message paths build their bodies via
-          //    _console_dispatch_input_body, which already terminates with \r.
-          //  - Dev-channel auto-confirm enqueues body="\r" explicitly.
-          //  - Dashboard per-keystroke /terminals/{id}/input sends raw bytes
-          //    (including a real \r ONLY when the user actually presses Enter).
-          // This lets the operator type multi-character commands in the console.
+          // Raw passthrough: callers own newline semantics. Prompt answers are
+          // handled separately by TerminalProcessManager's cursor-verified rules.
           const rawBody = String(control.body || "");
-          await prepareClaudeTerminalInput(terminalId, rawBody);
           TERMINAL_MANAGER.input(terminalId, rawBody);
-          if (normalizeRuntime(TERMINAL_MANAGER.stateFor(terminalId)?.runtime || "") === "claude-code" && (rawBody === "\r" || rawBody === "\n")) {
-            await sleep(2500);
-          }
           await updateTerminalControl(control.id, { status: "completed", terminalStatus: "attached" });
         } else if (control.action === "resize") {
           TERMINAL_MANAGER.resize(terminalId, control.cols || 0, control.rows || 0);
@@ -2907,7 +2897,7 @@ async function runTerminalControlLoop() {
     }
   } catch (error) {
     if (error?.status !== 404) {
-      logTransientOrError("[aify] terminal control claim failed", error);
+      noteControlClaimFailure("terminal controls", error);
     }
   } finally {
     terminalControlBusy = false;

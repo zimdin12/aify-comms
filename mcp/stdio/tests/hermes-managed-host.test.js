@@ -229,6 +229,32 @@ test("deliverRun: an ordinary busy send uses native session.steer without starti
   assert.deepEqual(inFlight, { submittedAt: 123, completed: false, runId: "active-run", dispatchTurnOpen: true });
 });
 
+test("deliverRun: a rejected busy steer requeues instead of submitting an interrupting prompt", async () => {
+  const { httpCall, calls } = makeAifyHttp();
+  const ws = makeFakeWsClient({
+    "session.active_list": {
+      result: { sessions: [{ id: "live-sid-ab12", session_key: "aify-sc-hermes", status: "working", started_at: "2099-01-01T00:00:00Z" }] },
+    },
+    "session.steer": { status: "rejected" },
+    "prompt.submit": { status: "redirected" },
+  });
+  const inFlight = { submittedAt: 123, completed: false, runId: "active-run", dispatchTurnOpen: true };
+
+  await deliverRun({
+    run: { ...SAMPLE_RUN, steerIfBusy: true },
+    agentId: "sc-hermes",
+    httpCall,
+    wsClient: ws,
+    tempDir: MARKER_DIR,
+    inFlight,
+  });
+
+  assert.ok(!ws.sent.find((frame) => frame.method === "prompt.submit"));
+  const patch = findCall(calls, "PATCH", (endpoint) => endpoint.startsWith("/dispatch/runs/"));
+  assert.equal(patch?.body?.status, "queued");
+  assert.deepEqual(inFlight, { submittedAt: 123, completed: false, runId: "active-run", dispatchTurnOpen: true });
+});
+
 test("deliverRun: renders the inbound notice box (#3) BEFORE prompt.submit, same sid, carries sender + body", async () => {
   const { httpCall } = makeAifyHttp();
   const ws = makeFakeWsClient({

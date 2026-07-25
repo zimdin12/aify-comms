@@ -9,6 +9,7 @@ import { TerminalProcessManager } from "../terminal-runtime.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const resumeFrame = readFileSync(join(here, "fixtures/claude-console/resume-prompt.txt"), "utf8");
+const channelFrame = readFileSync(join(here, "fixtures/claude-console/channel-enter.txt"), "utf8");
 
 const tick = (ms = 15) => new Promise((r) => setTimeout(r, ms));
 
@@ -34,6 +35,29 @@ function makeMgr(opts = {}) {
     ["\x1b[B", "\r"],
     "managed resume prompt answered exactly once: down, then enter (spaced)",
   );
+}
+
+// The same prompt can legitimately appear again. An intervening idle cursor must clear the
+// one-shot latch even while the old prompt text remains in the retained terminal tail.
+{
+  const { mgr, typed } = makeMgr();
+  const st = { id: "t5", runtime: "claude-code", sessionMode: "managed", agentId: "a5", outputTail: "" };
+  mgr.terminals.set("t5", st);
+  await mgr._handleOutput("t5", st, channelFrame);
+  await mgr._handleOutput("t5", st, "\n…continued…\n❯ idle input");
+  await mgr._handleOutput("t5", st, `\n${channelFrame}`);
+  assert.deepEqual(typed.map(([, body]) => body), ["\r", "\r"]);
+}
+
+// A spaced menu answer must stop if the prompt disappears between its navigation key and Enter.
+{
+  const { mgr, typed } = makeMgr({ autoAnswerKeyDelayMs: 20 });
+  const st = { id: "t6", runtime: "claude-code", sessionMode: "managed", agentId: "a6", outputTail: "" };
+  mgr.terminals.set("t6", st);
+  await mgr._handleOutput("t6", st, resumeFrame);
+  await mgr._handleOutput("t6", st, "\n…cancelled…\n❯ idle input");
+  await tick(30);
+  assert.deepEqual(typed.map(([, body]) => body), ["\x1b[B"]);
 }
 
 // Resident claude is NEVER auto-answered (no typing into an operator session).

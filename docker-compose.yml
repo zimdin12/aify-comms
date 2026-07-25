@@ -14,6 +14,11 @@ services:
         SERVICE_PORT: ${SERVICE_PORT:-8800}
     container_name: ${COMPOSE_PROJECT_NAME:-aify-comms}-service
     restart: ${RESTART_POLICY:-unless-stopped}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "${SERVICE_PORT:-8800}:8800"
     volumes:
@@ -56,7 +61,12 @@ services:
         SERVICE_PORT: ${SERVICE_PORT:-8800}
     container_name: ${COMPOSE_PROJECT_NAME:-aify-comms}-dashboard-next
     restart: ${RESTART_POLICY:-unless-stopped}
-    command: ["python", "-m", "uvicorn", "service.new_dashboard_app:app", "--host", "0.0.0.0", "--port", "8801"]
+    command: ["python", "-m", "uvicorn", "service.new_dashboard_app:app", "--host", "0.0.0.0", "--port", "8801", "--no-access-log"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "${NEW_DASHBOARD_PORT:-8801}:8801"
     depends_on:
