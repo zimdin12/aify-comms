@@ -8452,11 +8452,25 @@ class ApiV2RegressionTests(FastApiTestCase):
             ("term_newer_running", "attached", "sess_newer_running"),
         )
 
-        listed = self.client.get("/api/v1/sessions?agentId=repair-recover-coder")
+        # includeEnded: this test's intent is the superseded-recovering REPAIR (the old row must be
+        # marked ended), and as of 2026-07-26 GET /sessions lists CURRENT sessions by default — so
+        # the repaired row is only observable through the explicit history view. The repair itself
+        # is unchanged; only where we look for it is.
+        listed = self.client.get(
+            "/api/v1/sessions?agentId=repair-recover-coder&includeEnded=true"
+        )
         self.assertEqual(listed.status_code, 200, listed.text)
         by_id = {session["id"]: session for session in listed.json()["sessions"]}
         self.assertEqual(by_id[old_session_id]["status"], "ended")
         self.assertEqual(by_id["sess_newer_running"]["status"], "running")
+
+        # ...and the DEFAULT view must not carry the superseded row at all — that pile is exactly
+        # what made the Sessions rail read as duplicate sessions.
+        current = self.client.get("/api/v1/sessions?agentId=repair-recover-coder")
+        self.assertEqual(current.status_code, 200, current.text)
+        current_ids = {session["id"] for session in current.json()["sessions"]}
+        self.assertIn("sess_newer_running", current_ids)
+        self.assertNotIn(old_session_id, current_ids)
 
     def test_session_stop_cancels_pending_recovery_and_late_bridge_running_is_rejected(self):
         self._heartbeat_environment()

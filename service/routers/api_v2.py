@@ -226,6 +226,21 @@ DEFAULT_SETTINGS = {
     # agents and test teardown don't accrete dispatch_runs forever. Never touches
     # non-terminal runs or any run referencing a currently-live agent.
     "orphaned_dispatch_run_retention_hours": 24,
+    # Session HISTORY retention (2026-07-26). A managed agent gets a NEW agent_sessions row on
+    # every cold start — correct, since each row describes a distinct worker process — but nothing
+    # ever pruned the terminal ones, so the Sessions page grew without bound (mc-senior-dev had 79
+    # rows, 449 fleet-wide back to April, and the operator read the pile as "duplicates"). Age
+    # alone is not a safe rule: a rarely-used agent would lose its whole history, so
+    # SESSION_HISTORY_KEEP_PER_AGENT newest rows always survive regardless of age.
+    # 3 days, not 14: the newest-N floor is what preserves useful history, so the age window only
+    # decides how long the TAIL lingers. At 14 days mc-senior-dev's 79 rows (all inside 11 days)
+    # were untouched — i.e. it did not fix the reported symptom at all. The last 10 boots per agent
+    # are always kept, and dispatch_runs (the actual record of work) is a separate table this
+    # never touches. Both knobs are operator-settable (Settings → Maintenance): days sets how long
+    # the tail lingers, keep_per_agent is the floor that guarantees recent history survives.
+    # 0 days disables pruning entirely.
+    "session_history_retention_days": 3,
+    "session_history_keep_per_agent": 10,
     "managed_claude_model": "",
     "managed_claude_effort": "high",
     # Retained for settings-response compatibility only. Prompt recognition
@@ -5458,6 +5473,89 @@ async def _fail_pending_terminal_controls(db, terminal_id: str, *, handled_at: s
         [(handled_at, response_text, control_id) for control_id in control_ids],
     )
     return len(control_ids)
+
+
+# Floor for the operator-settable `session_history_keep_per_agent`. Not a policy value — a SAFETY
+# bound: a keep-per-agent of 0 (or a typo'd negative) would let the sweep delete an agent's entire
+# history including the row the dashboard is currently describing, so the setting is clamped up to
+# this. Policy lives in DEFAULT_SETTINGS; this only stops the setting being made unsafe.
+SESSION_HISTORY_MIN_KEEP_PER_AGENT = 1
+
+
+async def _prune_session_history(db, *, limit: int = 500) -> int:
+    """Delete TERMINAL agent_sessions history past the retention window.
+
+    Why this exists (2026-07-26): a managed agent gets a new `agent_sessions` row per cold start.
+    That is correct — each row is a distinct worker process, and reusing a dead row would make the
+    dashboard claim a live worker that no longer exists. But nothing pruned the terminal rows, so
+    they accumulated forever: mc-senior-dev alone held 79, the fleet 449 back to April, and the
+    operator reasonably read that pile as "duplicates". The 2026-07-20 spike (36 rows in one day)
+    was the separate orphan-proliferation incident, already fixed — since then the rate is ~1/day,
+    i.e. normal restart churn. So the remaining defect is retention, not duplication.
+
+    SAFETY — this is the only DELETE in the reconcile loop, so the guards are explicit:
+      * only rows in a TERMINAL status, and only with a non-empty `ended_at`. A live row, or a
+        contradictory live-status row, is never touched.
+      * the newest SESSION_HISTORY_KEEP_PER_AGENT rows per agent always survive, whatever age.
+      * a row whose terminal is still live is skipped — `terminal_sessions.session_id` is
+        ON DELETE CASCADE, so deleting such a row would take a LIVE console with it.
+      * bounded by `limit` per pass, so one sweep can never be a long write txn (the DB-lock
+        lesson: writes stay in the millisecond range).
+    """
+    settings = await _load_settings(db)
+
+    def _setting_int(key: str) -> int:
+        """Read an int setting, falling back to the default on anything unparseable.
+
+        Settings arrive as strings from the DB and as free text from the dashboard, so ''/None/
+        'abc' must degrade to the documented default rather than raising inside the reconcile loop
+        (one bad keystroke in Settings must never stop the sweep — or, worse, make it delete with
+        a nonsense bound).
+        """
+        raw = settings.get(key, DEFAULT_SETTINGS[key])
+        try:
+            return int(str(raw).strip())
+        except (TypeError, ValueError):
+            return int(DEFAULT_SETTINGS[key])
+
+    days = _setting_int("session_history_retention_days")
+    if days <= 0:
+        return 0  # retention disabled by the operator
+    keep_per_agent = max(SESSION_HISTORY_MIN_KEEP_PER_AGENT,
+                         _setting_int("session_history_keep_per_agent"))
+    cutoff = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - days * 86400))
+    terminal_states = sorted(_SESSION_DELETE_ALLOWED_STATUSES)
+    state_ph = ",".join("?" for _ in terminal_states)
+    cursor = await db.execute(
+        f"""
+        SELECT s.id
+        FROM agent_sessions s
+        WHERE LOWER(COALESCE(s.status,'')) IN ({state_ph})
+          AND COALESCE(s.ended_at,'') <> ''
+          AND COALESCE(s.ended_at,'') < ?
+          AND NOT EXISTS (
+                SELECT 1 FROM terminal_sessions t
+                WHERE t.session_id = s.id
+                  AND LOWER(COALESCE(t.status,'')) NOT IN
+                      ('stopped','failed','exited','lost','ended','cancelled','completed')
+          )
+          AND s.id NOT IN (
+                SELECT keep.id FROM agent_sessions keep
+                WHERE keep.agent_id = s.agent_id
+                ORDER BY keep.started_at DESC
+                LIMIT ?
+          )
+        ORDER BY s.ended_at ASC
+        LIMIT ?
+        """,
+        (*terminal_states, cutoff, keep_per_agent, max(1, int(limit or 500))),
+    )
+    ids = [str(r["id"]) for r in await cursor.fetchall() if r["id"]]
+    if not ids:
+        return 0
+    placeholders = ",".join("?" for _ in ids)
+    await db.execute(f"DELETE FROM agent_sessions WHERE id IN ({placeholders})", ids)
+    return len(ids)
 
 
 async def _reconcile_ended_terminal_controls(db, *, limit: int = 500) -> int:
@@ -11258,7 +11356,35 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
 
 
 @router.get("/sessions")
-async def list_sessions(request: Request, agentId: Optional[str] = None, environmentId: Optional[str] = None, limit: int = Query(100, ge=1, le=500)):
+async def list_sessions(
+    request: Request,
+    agentId: Optional[str] = None,
+    environmentId: Optional[str] = None,
+    limit: int = Query(100, ge=1, le=500),
+    includeEnded: bool = Query(
+        False,
+        description="Include TERMINAL (ended/stopped/failed/lost/cancelled/completed) sessions. "
+                    "Off by default: this endpoint lists CURRENT sessions.",
+    ),
+):
+    """List sessions. CURRENT ones by default — this is not a history feed.
+
+    Why the default changed (2026-07-26): the query filtered only on agentId/environmentId, so it
+    returned every historical row and the dashboard's Sessions rail became an accidental history
+    dump — one entry per worker process ever started. mc-senior-dev showed 79, all of them the SAME
+    native conversation (`session_handle` 20260715_001441_960b8f) resumed by 75 successive boots,
+    which is exactly why it read as "duplicates". Session HISTORY already has a home: the
+    spawn-requests list under Environments.
+
+    Two latent bugs came with it, which is why this is a correctness fix and not just tidying:
+      * the dashboard picks an agent's session with `state.sessions.find(...)` — the FIRST match.
+        Ordering is `last_seen DESC`, and a dead row can carry a newer `last_seen` than the live
+        one, so the console/drawer could bind to an ENDED session.
+      * the dashboard requests `limit=80`. With 449 rows, one agent's dead history could push
+        another agent's LIVE session out of the window entirely, making it invisible.
+
+    `includeEnded=true` preserves the old behaviour for anything that genuinely wants history.
+    """
     db = await get_db()
     try:
         # Best-effort consistency repairs — serve cached on a write-lock rather than 503 (see list_agents).
@@ -11285,6 +11411,15 @@ async def list_sessions(request: Request, agentId: Optional[str] = None, environ
         if environmentId:
             where.append("environment_id = ?")
             params.append(environmentId)
+        if not includeEnded:
+            # Filter on the STORED status only. A row stored live but derived dead below stays in
+            # the response on purpose — the operator should see it (and the reconcilers heal it);
+            # what must not appear is a row already recorded as finished.
+            terminal_states = sorted(_SESSION_DELETE_ALLOWED_STATUSES)
+            where.append(
+                f"LOWER(COALESCE(status,'')) NOT IN ({','.join('?' for _ in terminal_states)})"
+            )
+            params.extend(terminal_states)
         where_sql = "WHERE " + " AND ".join(where) if where else ""
         cursor = await db.execute(
             f"SELECT * FROM agent_sessions {where_sql} ORDER BY last_seen DESC LIMIT ?",
