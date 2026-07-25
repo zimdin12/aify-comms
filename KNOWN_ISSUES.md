@@ -1,6 +1,16 @@
 # Known Issues & Concerns — aify-comms
 
-Living list of known limitations, deferred work, and things to watch. Complements [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Last reviewed 2026-07-14.
+Living list of known limitations, deferred work, and things to watch. Complements [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Last reviewed 2026-07-26.
+
+> **v0.2 backlog moved out of this file.** Non-urgent findings from the v0.1 release review now live in **[docs/V0.2_PLAN.md](docs/V0.2_PLAN.md)** with their traces attached — including two behaviour changes awaiting an operator decision (the compaction dialog now spends usage limits by design; managed codex auto-approves all command/file approvals). This file stays the list of *known limitations*; that file is the *work queue*.
+
+## v0.1 release review (2026-07-26) — three service-breaking fixes
+
+Whole-series review of `6b3985c..5885eef` (125 files). All three fixed and deployed; kept here because each is a failure *class* worth recognising again.
+
+- **Queued work could strand forever; non-steer agents could go permanently deaf — FIXED (`b6601ac`).** The delivery gates read raw `turn_busy` with no bound, and the dead-bridge sweeper deliberately cannot reach hook-owned turns (`turn_bridge_id` in `('', 'user-prompt-submit')`) or turns on a live bridge. Past the 30-min ceiling status already reported the agent idle while delivery kept holding; for a target without `steer` the claim gate's early return made it deaf to *every* dispatch. Now bounded by the same ceiling status uses. See DECISIONS.md "Delivery gates read raw `turn_busy`, bounded by exactly one ceiling" and the debug skill's *"Agent reads idle but its queued work NEVER delivers"*.
+- **`aify-doctor` reported a dead fleet as healthy — FIXED (`756f3a5`).** `env-bridge` counted *registered* environment rows, so it printed "✓ 2 connected" while both rows read `status=offline` (stale 24h and ~7 weeks). The one check meant to prove managed spawns can run was structurally incapable of failing. **Lesson: a verifier that cannot go red is not a verifier** — doctor still has no unit coverage (v0.2 B2).
+- **The test suite was permanently red on Windows — FIXED (`7086006`).** The installer-contract test shelled out to `bash <absolute host path>`; MSYS bash accepts neither the backslash form nor `C:/...`, so it failed 127 on a file that exists and its real assertion never ran. Suite is now 931 passed / 0 failed. **Watch-item: keep the suite green on Windows, not just Linux** (v0.2 E2).
 
 ## Planned, not started (2026-07-14) — CLI status view + dashboard upgrades
 
@@ -95,7 +105,7 @@ The 11 must-fix findings were fixed same-day (see the `fix(review): project-wide
 - **`_reap_undeliverable_queued_runs` claimer check is not execution-mode aware:** a channel run whose wrapper died sits `queued` forever while the env bridge heartbeats; runtime-mismatched queued runs are silently skipped by claim and invisible to the backstop. Also: the backstop can fail a queued run whose coldstart spawn is still in flight (skip targets with a pending spawn_request).
 - **Steered messages lose their reply anchor** (no Message ID in the steer body), so a steered rr=1 contract can strand at `delivered` until the 24h rule; include inReplyTo guidance in the steer body + let delivered-reconciler class 4 cover steer runs.
 - **B1 ghost reap doesn't invalidate the live-state cache** (cached `online` lingers); resurrect doesn't restore `runtime_state.consoleTerminal` (Console endpoints can't resolve the healed console until re-register).
-- **`/ready` refreshes `turn_updated_at` on a busy row it doesn't own** (re-arms the 120s claim gate + 30-min backstop for a stuck turn).
+- **`/ready` refreshes `turn_updated_at` on a busy row it doesn't own** — re-arms the 30-min backstop for a stuck turn. **Sharper as of 2026-07-26:** that same timestamp is now what bounds the delivery gates (`_turn_busy_holds_delivery`), so a spurious `/ready` refresh also postpones the anti-strand release for a latched `turn_busy`. Still bounded (each refresh buys 30 min, not forever), but it makes this row worth fixing rather than tolerating.
 - **Bridge:** shutdown ordering lets the env heartbeat re-mark the env online after the `offline` POST (clear all timers first); dropped PTY output frames are unlogged/unretried (reuse the pi sink's retry pattern); a bare Enter on a claude console stalls the single-flight terminal-control loop ~10.5s (prompt-settle only when the prompt was seen); duplicate hermes turn detectors for a managed agent whose MCP child carries the gateway URL.
 - **Dashboard:** per-output-chunk full refetch for never-opened terminals (track last status outside the details cache); N+1 sequential inbox fetches per refresh (Promise.all); console label/widget disagreement siblings (dead-session set not applied to the start-console branch; env-offline keeps input enabled); seq gaps in the console stream are not detected (force-resync on gap).
 

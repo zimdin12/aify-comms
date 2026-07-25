@@ -62,10 +62,14 @@ It proves each claim against the running system rather than checking that a file
 |---|---|
 | `service` | container serving a build ≠ repo HEAD (a healthy `/health` says nothing about *which* code) |
 | `bridge-installed` | `~/.aify-comms` older than the checkout — i.e. you edited `mcp/stdio/` and never re-ran `install.sh` |
-| `bridge-running` | **running** bridges started BEFORE the last install → still executing the old code. Names the agents that must restart. |
-| `agent-identity` | a REGISTERED agent whose process has no `AIFY_AGENT_ID` (status structurally dead). An unregistered plain session is legitimately id-less and is not flagged. |
-| `env-bridge`, `wrappers`, `runtimes` | the plumbing is actually connected |
+| `bridge-terminal` | the installed `node-pty` native module does not load → terminal-backed runtimes silently cannot start |
+| `bridge-running` | **running** bridges started BEFORE the last install → still executing the old code. Names the agents that must restart. **Linux-only** — it reads `/proc`, so on Windows it SKIPS and nothing verifies this. |
+| `agent-identity` | a REGISTERED agent whose process has no `AIFY_AGENT_ID` (status structurally dead). An unregistered plain session is legitimately id-less and is not flagged. **Linux-only**, same caveat. |
+| `env-bridge` | no environment bridge is actually **ONLINE** → dashboard-managed spawns cannot run. Keys on each row's server-derived `status`, and names the registered-but-dead ones with their `lastSeen`. (Until `756f3a5` it counted *registered* rows and reported "2 connected" with zero bridges alive — the exact false green this tool exists to prevent.) |
+| `wrappers`, `runtimes` | the wrappers are on PATH and the runtime CLIs exist |
 | `usage-openai` | the ChatGPT quota token works — by calling the API, since an expired token passes a file check |
+
+**On Windows, `bridge-running` and `agent-identity` are skips** — so after `install.sh` nothing proves a *running* wrapper is executing the new bridge code. Relaunching wrappers remains a manual, unverified step on this host (tracked as v0.2 item B1: have each bridge report its build stamp on heartbeat, which is platform-independent).
 
 Operator-facing versions of these flows (install / update integrations / install / update container) are the **Agent playbooks** table in [README.md](README.md).
 

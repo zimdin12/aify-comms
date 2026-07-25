@@ -10,6 +10,7 @@
 - [Agent shows `online`, but no live worker exists](#agent-shows-online-but-no-live-worker-exists)
 - [Status semantics: `working` vs `online · awaiting reply` (2026-05-31)](#status-semantics-working-vs-online-awaiting-reply-2026-05-31)
 - [Agent shows `online`/`Console ready` but messages stay queued (status lied)](#agent-shows-onlineconsole-ready-but-messages-stay-queued-status-lied)
+- [Agent reads idle but its queued work NEVER delivers (deaf agent) — 2026-07-26](#agent-reads-idle-but-its-queued-work-never-delivers-deaf-agent--2026-07-26)
 - [Agent shows online without a console (Plan 5 Section C)](#agent-shows-online-without-a-console-plan-5-section-c)
 - [Managed claude shows `online` while it is clearly thinking](#managed-claude-shows-online-while-it-is-clearly-thinking)
 - [Managed claude flaps to `online` while working — but only when the Console is CLOSED](#managed-claude-flaps-to-online-while-working-but-only-when-the-console-is-closed)
@@ -361,7 +362,8 @@ a pending `tool_use` (or a static parent transcript — sub-agents write a separ
 `subagents/*.jsonl`) and correctly STAYS `working` (the earlier growth-based detector
 false-cleared on those — fixed `8efbbaf`). Backstop only: a still-alive agent with both end-paths missed
 self-heals at the single 30-min ceiling (`TURN_BUSY_BACKSTOP_SECONDS`). Explicit
-`queueIfBusy` holds on raw `turn_busy=1` until the authoritative turn-end. Resident
+`queueIfBusy` holds on raw `turn_busy=1` until the authoritative turn-end **or the same 30-min
+ceiling** (anti-strand — see "queued work never delivers" below). Resident
 hermes has no upstream turn-end HOOK, but it DOES arm the continuous gateway turn detector
 (`startHermesGatewayTurnDetector`, `server.js`) whenever `AIFY_HERMES_GATEWAY_URL` is set —
 same as managed — so a gateway-bound resident hermes reports turn-end normally; only a
@@ -378,8 +380,11 @@ proven fact, **not** a time-based heuristic (nothing here decides anything from 
 elapsed time only sets how often the same proof is restated):
 
 - **KEEP-FRESH** (existing): while the transcript/gateway proves IN-FLIGHT, re-POST `/turn-start`
-  every 45s (< the 120s `TURN_BUSY_STALE_SECONDS`), so a server-side clear of a LIVE turn can't
-  make a working agent read `online`.
+  every 45s (far under `TURN_BUSY_BACKSTOP_SECONDS`, the 30-min dropped-event ceiling), so a
+  server-side clear of a LIVE turn can't make a working agent read `online`. This cadence is also
+  what makes the delivery gates' anti-strand ceiling safe: because a live turn keeps re-stamping
+  `turn_updated_at`, only an ABANDONED `turn_busy` ever ages out (see status.md "delivery gates"
+  below and DECISIONS.md "Delivery gates read raw turn_busy, bounded by one ceiling").
 - **KEEP-CLEARED** (new, the symmetric mirror): while the transcript/gateway proves ENDED **and**
   the detector is not mid-turn, re-POST `/turn-end` every 45s. Before this, the CLEAR was
   edge-ONLY: a stray `in_turn` set OUTSIDE the detector (a hook/sidecar `/turn-start` whose
@@ -416,6 +421,47 @@ SIGTERM→SIGKILL — so a lifecycle action no longer strands a headless orphan 
 60s reaper; the reaper is the backstop for crash/leak residue.) If you see
 `available` with a live Console, the sidecar is down — restart the wrapper (and
 ensure the self-heal/per-agent-id build is deployed).
+
+## Agent reads idle but its queued work NEVER delivers (deaf agent) — 2026-07-26
+
+**Symptom.** The dashboard shows the agent `online`/`available`, its bridge is alive, but
+queued runs sit in `queued` forever. In the worst case the agent answers NOTHING at all — not
+even ordinary sends.
+
+**Cause.** The delivery gates (send-time queue decision + `/dispatch/claim`) key on the RAW
+`agent_turn_state.turn_busy` flag — deliberately, because deriving it from status is what made
+explicitly-queued sends land mid-turn. But `turn_busy` is only cleared by a turn-END event, and
+two paths can never clear it:
+
+- `_clear_turn_busy_for_dead_bridges` SKIPS `turn_bridge_id IN ('', 'user-prompt-submit')` —
+  every hook-driven resident-claude turn — and skips any turn whose bridge row is still fresh.
+- A killed harness, a failed `Stop` hook, or a transcript classifier stuck reading in-flight
+  latches `turn_busy=1` with no further writes.
+
+Past the 30-min ceiling `derive()` already clamps `in_turn`, so the agent READS idle while
+delivery is still holding — the disagreement you're looking at. And because the claim gate's
+early return is gated on `"steer" in capabilities`, a target WITHOUT steer gets no run at all:
+**deaf to every dispatch**. `_row_capabilities` strips `steer` from resident claude without
+`channelEnabled`, managed hermes without `channelEnabled`, resident hermes without a gateway
+URL, and resident pi/opencode — so this is not an exotic configuration.
+
+**Fix (2026-07-26, `b6601ac`).** Both gates go through `_turn_busy_holds_delivery`, which reads
+the raw flag but bounds it by `TURN_BUSY_BACKSTOP_SECONDS` — the SAME ceiling status uses, so
+delivery and displayed status can never disagree permanently. Real turns are unaffected: the
+KEEP-FRESH detector re-stamps `turn-start` every 45s, so only an abandoned flag ages out.
+
+**Triage.** Check the raw flag and its age directly:
+
+```bash
+# inside the container
+sqlite3 /data/aify.db "SELECT agent_id, turn_busy, turn_bridge_id, turn_updated_at
+  FROM agent_turn_state WHERE turn_busy = 1;"
+```
+
+A row whose `turn_updated_at` is older than a few minutes while the agent is visibly idle is a
+latched flag. It now self-heals at 30 min; if it keeps recurring for the SAME agent, the real
+bug is upstream in that runtime's turn-end signal (see the KEEP-CLEARED detector above), not in
+the gate.
 
 ## Agent shows online without a console (Plan 5 Section C)
 
