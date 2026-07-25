@@ -3223,13 +3223,28 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(ready_claim.json()["run"]["id"], "run_explicit_queue")
 
     def test_explicit_queue_stays_held_while_raw_turn_busy_is_aged_but_set(self):
+        """Explicit queue means "after this turn" — ordinary aging must NOT release it.
+
+        The gate keys on the RAW harness flag, not on derived status or a short freshness
+        window: reinterpreting it is what let queued sends land mid-turn (#236). A long turn
+        (here: well past the old 120s window) must still hold.
+
+        NOTE (2026-07-26): this test previously aged the turn to 2000-01-01 — 26 years — and
+        asserted it was STILL held, which pinned "queue can mean never". That is the strand
+        fixed by the anti-strand ceiling; the release side is the sibling test below. The
+        intent being pinned here (aging *within* a turn does not release) is unchanged.
+        """
         self._register_resident_channel_claude("aged-queued-manager", bridge_id="bridge-aged-queued-manager")
         self._seed_fresh_turn_busy(
             "aged-queued-manager", "run_active", "channel-linux:test-host-aged-queued-manager"
         )
+        aged_but_inside = time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ",
+            time.gmtime(time.time() - (api_v2.TURN_BUSY_BACKSTOP_SECONDS - 120)),
+        )
         self._execute(
             "UPDATE agent_turn_state SET turn_updated_at = ? WHERE agent_id = ?",
-            ("2000-01-01T00:00:00+00:00", "aged-queued-manager"),
+            (aged_but_inside, "aged-queued-manager"),
         )
         self._seed_queued_dispatch_run(
             "run_aged_explicit_queue",
@@ -3251,6 +3266,55 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         self.assertEqual(claim.status_code, 200, claim.text)
         self.assertIsNone(claim.json().get("run"), claim.json())
+
+    def test_explicit_queue_releases_once_turn_busy_passes_the_antistrand_ceiling(self):
+        """ANTI-STRAND (regression 2026-07-26): an ABANDONED turn_busy must not hold forever.
+
+        turn_busy is cleared by a turn-END event, but two documented holes mean the clear can
+        never arrive: _clear_turn_busy_for_dead_bridges skips turn_bridge_id in
+        ('', 'user-prompt-submit') (every hook-driven resident-claude turn) and skips turns whose
+        bridge is still alive. Past TURN_BUSY_BACKSTOP_SECONDS the status engine already clamps
+        in_turn, so the agent READS idle — if the claim gate still holds, the dashboard shows an
+        idle agent whose queued work can never be claimed.
+        """
+        self._register_resident_channel_claude("strand-queued-manager", bridge_id="bridge-strand-queued-manager")
+        self._seed_fresh_turn_busy(
+            "strand-queued-manager", "run_active", "channel-linux:test-host-strand-queued-manager"
+        )
+        abandoned = time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ",
+            time.gmtime(time.time() - (api_v2.TURN_BUSY_BACKSTOP_SECONDS + 300)),
+        )
+        self._execute(
+            "UPDATE agent_turn_state SET turn_updated_at = ? WHERE agent_id = ?",
+            (abandoned, "strand-queued-manager"),
+        )
+        self._seed_queued_dispatch_run(
+            "run_strand_explicit_queue",
+            "strand-queued-manager",
+            execution_mode="resident",
+            queue_if_busy=1,
+        )
+
+        claim = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": "strand-queued-manager",
+                "bridgeId": "channel-linux:test-host-strand-queued-manager",
+                "bridgeKind": "channel-sidecar",
+                "machineId": "linux:test-host",
+                "executionModes": ["channel", "resident"],
+            },
+        )
+
+        self.assertEqual(claim.status_code, 200, claim.text)
+        run = claim.json().get("run")
+        self.assertIsNotNone(
+            run,
+            "queued work must be claimable once the turn flag is provably abandoned "
+            f"(>{api_v2.TURN_BUSY_BACKSTOP_SECONDS}s): {claim.json()}",
+        )
+        self.assertEqual(run.get("id"), "run_strand_explicit_queue")
 
     def test_busy_non_channel_resident_still_defers_queued_run(self):
         # GATE PRESERVED (fix 1 safety): a resident codex (NOT steer/inject

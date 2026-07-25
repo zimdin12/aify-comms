@@ -403,9 +403,11 @@ _TERMINAL_DEAD_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "c
 # codex turn/completed + pi agent_end (native run terminal), and — newly — managed
 # hermes observing its gateway session go idle (hermes-managed-host.js
 # makeInFlightProbe → clearTurn). The event clears turn_busy=0 the instant a turn
-# ends, so this window now ONLY fires when an end event is DROPPED. It is kept at
-# 120s as the CLAIM-GATE / mid-turn-busy window (the conservative choice: a send is
-# not queued behind a possibly-finished turn longer than 2m). The STATUS staleness
+# ends, so this window now ONLY fires when an end event is DROPPED. NOTE (2026-07-26):
+# this is NO LONGER the claim-gate window. The delivery gates read the raw flag bounded
+# by TURN_BUSY_BACKSTOP_SECONDS (_turn_busy_holds_delivery); this 120s value now only
+# serves _turn_busy_state / _is_turn_busy_fresh (reminder-loop busy definition). The
+# STATUS staleness
 # window is the longer TURN_BUSY_BACKSTOP_SECONDS so a missed end event self-heals
 # at the single long wall-clock ceiling instead of flapping against the re-pulse
 # cadence (the prior 120s-vs-45s race produced the false-working flap). Never key a
@@ -450,8 +452,13 @@ WORKED_SPAN_CEILING_SECONDS = 4 * 3600
 # now safe to restore: a missed Stop hook is caught by the detector in ~30s, and a
 # dead worker is caught by the liveness lease — only a still-alive agent with BOTH
 # event paths missed reaches this 30-min ceiling, which is exactly its purpose.
-# DECOUPLED from the short claim window below (#5 keeps the claim-gate at 120s so a
-# queued send is never stranded behind a missed end-event).
+# ALSO the delivery gates' anti-strand bound (2026-07-26). The gates key on the RAW
+# turn_busy flag so "explicit queue" means exactly "after this turn" (#236), and this
+# ceiling is the single bound on that raw read — see _turn_busy_holds_delivery. Using
+# the SAME ceiling as status is the invariant that matters: past it, derive() already
+# reports the agent as not-in-turn, so delivery must not still be holding, or an
+# abandoned flag strands queued work forever (and a target without `steer` goes
+# permanently deaf).
 #
 # ANTI-FEEDBACK-LOOP: only a bridge/event sets turn_busy; only an event/this
 # ceiling/the run-reply clear clears it. Status is NEVER read back to re-arm it.
@@ -2569,6 +2576,50 @@ async def _is_turn_busy_fresh(db, agent_id: str) -> bool:
     Finding 2, 2026-05-31.)"""
     fresh, _run_id = await _turn_busy_state(db, agent_id)
     return fresh
+
+
+async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
+    """True when the RAW turn_busy flag may still hold delivery back.
+
+    The delivery gates (send-time queue decision + /dispatch/claim) key on the raw
+    harness signal on purpose: "explicit queue" means exactly "after this turn", and
+    re-deriving that through status or a short window is what made queued sends land
+    mid-turn (#236). So this helper does NOT reinterpret the signal — it only applies
+    the SAME anti-strand ceiling the status engine already applies to `in_turn`
+    (TURN_BUSY_BACKSTOP_SECONDS, see the constant's own note).
+
+    Why a ceiling is required (regression found 2026-07-26): the gates are pure-raw,
+    but nothing guarantees turn_busy is ever cleared.
+      * The dead-bridge sweeper (_clear_turn_busy_for_dead_bridges) deliberately
+        SKIPS turn_bridge_id IN ('', 'user-prompt-submit') — i.e. every hook-driven
+        resident-claude turn — and skips any turn whose bridge is still alive.
+      * A missed turn-END (killed harness, hook error, or a transcript classifier
+        that keeps reading in-flight) therefore latches turn_busy=1 permanently.
+    Past the ceiling, status ALREADY stops reporting `working` (derive() clamps
+    in_turn in both the push and poll paths). Holding delivery past that point makes
+    the two disagree permanently: the dashboard shows an idle agent whose queued work
+    can never be claimed. For a target WITHOUT `steer` the claim gate returns early,
+    so that agent goes permanently deaf to every dispatch.
+
+    A genuinely long turn is unaffected: the bridge turn detectors KEEP-FRESH re-stamp
+    turn-start, so turn_updated_at keeps advancing for as long as real work runs. Only
+    an ABANDONED flag ages out — which is exactly the strand this bounds.
+    """
+    try:
+        row = await (await db.execute(
+            "SELECT turn_busy, turn_updated_at FROM agent_turn_state WHERE agent_id = ?",
+            (agent_id,),
+        )).fetchone()
+    except Exception:
+        # Unreadable turn state must never block delivery — better to deliver.
+        return False
+    if not row or not int((row["turn_busy"] if "turn_busy" in row.keys() else 0) or 0):
+        return False
+    seen = _iso_to_epoch(str(row["turn_updated_at"] or ""))
+    if not seen:
+        # No timestamp to age against: trust the raw flag (prior behavior).
+        return True
+    return (datetime.now(timezone.utc).timestamp() - seen) <= TURN_BUSY_BACKSTOP_SECONDS
 
 
 async def _fresh_same_mode_bridge_conflict(
@@ -15922,13 +15973,12 @@ async def send_message(req: MessageSend, request: Request):
                     #    while the assistant is still working. turn_busy
                     #    is the harness-level signal that survives the
                     #    auto-completion.
-                    is_turn_busy = False
+                    # Raw signal, bounded ONLY by the anti-strand ceiling that also bounds the
+                    # claim gate — otherwise an abandoned turn_busy=1 makes every later send to
+                    # this agent queue behind a turn that already ended (and the claim gate then
+                    # never releases it). See _turn_busy_holds_delivery.
                     try:
-                        tb_row = await (await db.execute(
-                            "SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?",
-                            (recipient_id,),
-                        )).fetchone()
-                        is_turn_busy = bool(tb_row and int(tb_row["turn_busy"] or 0) == 1)
+                        is_turn_busy = await _turn_busy_holds_delivery(db, recipient_id)
                     except Exception:
                         is_turn_busy = False
                     if (
@@ -18091,14 +18141,14 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
         # turn to end.
         hold_explicit_queue = False
         try:
-            tb_row = await (await db.execute(
-                "SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?",
-                (req.agentId,),
-            )).fetchone()
-            if tb_row and int(tb_row["turn_busy"] or 0) == 1:
-                # Explicit queue means exactly "after this turn". Do not reinterpret an aged
-                # raw busy signal through derived status or a timeout. Ordinary sends can still
-                # bypass through a row explicitly marked steer_if_busy.
+            # Explicit queue means exactly "after this turn": key on the RAW harness signal,
+            # never on derived status (that reinterpretation is what let queued sends land
+            # mid-turn, #236). The ONE bound is the anti-strand ceiling — see
+            # _turn_busy_holds_delivery: an abandoned turn_busy=1 that the dead-bridge sweeper
+            # cannot reach (hook-owned turns, live bridge) would otherwise hold queued work
+            # FOREVER, and for a target without `steer` the early return below makes that agent
+            # permanently deaf while status already reports it idle.
+            if await _turn_busy_holds_delivery(db, req.agentId):
                 hold_explicit_queue = True
                 if not await _has_claimable_steerable_run(
                     db,
