@@ -534,8 +534,8 @@ claimer", even the coldstart rescue re-hits the same stall) — because the work
 its in-process MCP to register a wrapper-child / channel-sidecar bridge. Read the console tail
 (`comms_console_tail`) to see which prompt it's stuck on.
 
-**Fix (2026-06-05).** The host bridge auto-answers these via a centralized rules layer
-(`claude-console-prompts.js`): resume → **full session** (↓+Enter), the rest → Enter. Gated
+**Fix (2026-06-05, updated 2026-07-25).** The host bridge auto-answers these via a centralized rules layer
+(`claude-console-prompts.js`): resume and the three-option compaction recommendation → **full session** (cursor-aware ↓+Enter from the default), simple confirmation dialogs → Enter. Gated
 to **managed claude only** (never a resident/operator session), requires an interactive menu
 cursor (`❯`) and that claude is NOT mid-turn, fires once per appearance. If a NEW prompt
 appears after a claude update, capture the frame into `mcp/stdio/tests/fixtures/claude-console/`
@@ -662,7 +662,7 @@ for the upstream provider message), but the run-failure path is working as desig
 
 Three different signatures, three different meanings — don't conflate them:
 
-- **`fetch failed` / `transient HTTP error … will retry on next poll` … `recovered after N failure(s)`** — TCP-level "service momentarily unreachable," almost always a service container restart (a deploy) or a brief network blip. The bridge retries and self-heals; the `recovered after N` line confirms it. **Ignore it** unless it does NOT recover (many consecutive with no `recovered`), which means the service is actually down — check the container.
+- **`fetch failed` / `transient HTTP error … will retry on next poll` … `recovered after N failure(s)`** — the bridge aggregates the first two consecutive failures, warns on the third with the nested socket cause, reports a sustained outage at most every 30 seconds, and emits one recovery summary. A deploy or network interruption is a common cause, not proof; use the nested cause and service/container state. If no recovery arrives, check the service and network path.
 - **`HTTP 503 … database is locked`** — write-lock contention under load. As of `d069f51` the service RETRIES the write (3×, 0.1/0.25/0.5s backoff) before ever surfacing a 503, so this should be rare; if it appears it's genuine sustained overload (correct backpressure), not a transient. The claim endpoints never 503 on contention — they return an empty claim (200) and retry next poll (`6eb3263`).
 - **`claim … timed out after 28000ms`** — the old long-poll lock-overshoot, FIXED (`6eb3263`): claim probes now open with a short busy_timeout (`SQLITE_CLAIM_BUSY_TIMEOUT_MS=1200`) and fail fast, and `longpoll.MAX_WAIT_S` is 25s (below the bridge's 28s HTTP timeout). If you still see it, the host's service predates the fix — `git pull && docker compose up -d --build`.
 

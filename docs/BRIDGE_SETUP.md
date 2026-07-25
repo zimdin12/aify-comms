@@ -72,23 +72,21 @@ Use this when the runtime CLIs and target workspaces live in Linux, macOS, or WS
 ```bash
 cd /path/to/aify-comms
 bash install.sh --client codex http://localhost:8800 --with-hook
-npm --prefix mcp/stdio install
-npm --prefix mcp/stdio rebuild node-pty
 
 cd /path/to/workspace-or-workspace-parent
 aify-comms
 ```
 
-If the dashboard says the WSL/Linux bridge has no PTY/terminal support, verify
-and repair the native PTY module in that same checkout:
+The installer verifies that the copied native `node-pty` module loads, attempts one rebuild,
+and fails the install if PTY support is still unavailable. If an older/manual bridge reports
+no PTY support, rerun the installer and restart that bridge. For source-checkout diagnosis:
 
 ```bash
 node -e "import('./mcp/stdio/terminal-runtime.js').then(m=>console.log(m.bridgeTerminalSupported()))"
 npm --prefix mcp/stdio rebuild node-pty
 ```
 
-Restart the `aify-comms` bridge after the rebuild. A bridge can advertise Codex
-as available while Console is still disabled if `node-pty` cannot load.
+Restart the `aify-comms` bridge after a successful repair.
 
 For WSL, run this from the WSL distro that owns the runtime CLI and workspace paths. Use Linux paths such as `/mnt/c/Docker/project`, not `C:/Docker/project`. Add extra roots only when you want one bridge command to cover multiple workspace trees:
 
@@ -248,7 +246,7 @@ The reply contract is uniform across managed delivered runs and resident/live se
 
 Managed runs should not call `comms_register`. Dashboard-managed identities are registered by the environment bridge and stored spawn/session records. Current MCP builds reject `comms_register` when `AIFY_MANAGED_DISPATCH=1` so a managed identity cannot accidentally downgrade itself into a resident/manual identity while handling a dashboard message.
 
-Resident `claude-aify` sessions receive live messages and steer controls through Claude Code Channels. The bridge emits `notifications/claude/channel` into the already-running interactive Claude session, so it can react to external comms while the terminal stays open. Delivery-only runs are marked as "Delivered to Claude resident session; awaiting explicit reply" until the resident agent sends a real `comms_send(... inReplyTo=...)` response; that delivery marker is run telemetry, not a teammate-visible answer. Dashboard-managed Claude Code starts or reuses a bridge-owned interactive `claude-aify` PTY, leaves development-channel auto-confirm off unless the operator enables it, and keeps the run active/`working` only while it has live terminal backing and is waiting for the reply. Browser Console attaches to that PTY, and Stop Console tears it down without switching identity to `cli-takeover`. Managed Hermes and Codex default to wrapper-backed PTYs, but delivery goes through runtime APIs rather than raw PTY input: Codex through its app-server via the wrapper child bridge, and Hermes through its gateway via a per-agent `hermes-managed-host.js` delivery loop (a `channel-sidecar` that submits `prompt.submit` into the visible TUI's session and requeues a 4009-busy race until turn-end). Pi still has native OMP RPC `steer` support where available.
+Resident `claude-aify` sessions receive live messages and steer controls through Claude Code Channels. The bridge emits `notifications/claude/channel` into the already-running interactive Claude session, so it can react to external comms while the terminal stays open. Delivery-only runs are marked as "Delivered to Claude resident session; awaiting explicit reply" until the resident agent sends a real `comms_send(... inReplyTo=...)` response; that delivery marker is run telemetry, not a teammate-visible answer. Dashboard-managed Claude Code starts or reuses a bridge-owned interactive `claude-aify` PTY, uses cursor-verified bridge rules for recognized boot prompts and no blind service/dashboard input, and keeps the run active/`working` only while it has live terminal backing and is waiting for the reply. Browser Console attaches to that PTY, and Stop Console tears it down without switching identity to `cli-takeover`. Managed Hermes and Codex default to wrapper-backed PTYs, but delivery goes through runtime APIs rather than raw PTY input: Codex through its app-server via the wrapper child bridge, and Hermes through its gateway via a per-agent `hermes-managed-host.js` delivery loop (a `channel-sidecar` that uses `prompt.submit` while idle, native `session.steer` while busy, and requeues if a busy steer or submit race is rejected). Pi still has native OMP RPC `steer` support where available.
 
 Managed prompts also include a focused team-communication contract: stay on the current ask, treat each message as a small contract, verify state/history before asserting it, answer with result/evidence/blocker/next action, and split unrelated topics instead of dragging all recent context into one turn. A message contract should make clear who owns it, what action or answer is expected, what evidence/result satisfies it, and whether a reply or follow-up wake is owed. Managed turns should not end silently: stdout, logs, tool output, and run summaries are operational telemetry, not the team-visible answer. Each turn should close with a final reply to the triggering sender, separate `comms_send(...)` updates for other owners/dashboard, or a self-scheduled wake when the same agent owns later work. When an agent asks teammates for parallel work, it should name the expected reply target and completion condition so follow-up replies wake the right owner. The injected direct-message context is intentionally compact and should be treated as background, not as a command to continue every old thread.
 

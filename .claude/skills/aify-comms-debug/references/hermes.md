@@ -2,7 +2,7 @@
 
 > **Current path:** a hidden `hermes dashboard` gateway host, a visible
 > `hermes-aify` TUI, and a per-agent `hermes-managed-host.js` channel-sidecar
-> that delivers with `prompt.submit` and queues while a turn is busy. Sections
+> that uses `prompt.submit` while idle and native `session.steer` while busy. Explicitly queued work waits; rejected busy steering requeues without interrupting the turn. Sections
 > explicitly labeled native fallback or legacy daemon describe retained
 > recovery/debug code, not the normal managed delivery path.
 
@@ -327,8 +327,7 @@ whose port files (`aify-hermes-port-*`) no longer match a live agent, then relau
 **Symptom.** A managed hermes (visible-TUI) agent runs a turn but the dashboard
 never shows `working` — it stays `online`/`online · awaiting reply`.
 
-**Cause.** `hermes-managed-host.js` delivers via `prompt.submit`, which is
-FIRE-AND-FORGET (resolves on accept, not turn completion). The old code pulsed
+**Cause.** `hermes-managed-host.js` delivers via `prompt.submit` while idle or `session.steer` while busy; both resolve on accept, not turn completion. The old code pulsed
 `turn_busy=true` then cleared it in a `finally` immediately after submit — so
 working flipped 1→0 while the turn was only just starting. (The blocking
 `hermes-channel.js` path is fine — its `chatStream` runs the turn to completion
