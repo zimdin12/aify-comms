@@ -239,16 +239,40 @@ function checkRuntimes() {
 }
 
 // ── 7. environment bridge: is one actually connected? ────────────────────────────────
+// REGISTERED IS NOT CONNECTED (fixed 2026-07-26). This counted rows in /environments and
+// reported every row as "connected", so it stayed green forever: an environment row is never
+// deleted, it just goes stale. Observed live — "✓ 2 connected" while BOTH rows read
+// status='offline', one stale by 24h and the other by ~7 weeks, i.e. zero bridges alive and no
+// managed spawn possible. That is precisely the false green aify-doctor exists to prevent, on
+// the one check that is supposed to prove managed spawns can run. The server already derives
+// liveness per row, so trust ITS `status` and name the dead ones instead of hiding them.
+const ENV_ONLINE_STATES = new Set(["online", "connected", "ready", "active"]);
+
+function envIsOnline(env) {
+  return ENV_ONLINE_STATES.has(String(env?.status || "").trim().toLowerCase());
+}
+
+function describeEnv(env) {
+  const seen = String(env?.lastSeen || "").trim();
+  const state = String(env?.status || "unknown").trim().toLowerCase() || "unknown";
+  return `${env?.id || "(unnamed)"} [${state}${seen ? `, last seen ${seen}` : ""}]`;
+}
+
 async function checkEnvBridge() {
   const envs = await get("/api/v1/environments");
   if (!envs) return skip("env-bridge", "service unreachable");
   const list = envs.environments || [];
-  if (!list.length) {
-    return add("env-bridge", false, "none",
-      "No environment bridge is connected — dashboard-managed spawns cannot run.",
-      "Start one on the host: `aify-comms`.");
+  const online = list.filter(envIsOnline);
+  const offline = list.filter((e) => !envIsOnline(e));
+  if (!online.length) {
+    const detail = list.length
+      ? `No environment bridge is ONLINE — dashboard-managed spawns cannot run. ${list.length} registered but not connected: ${offline.map(describeEnv).join(", ")}`
+      : "No environment bridge is registered — dashboard-managed spawns cannot run.";
+    return add("env-bridge", false, "none", detail, "Start one on the host: `aify-comms`.");
   }
-  add("env-bridge", true, "ok", `${list.length} connected: ${list.map((e) => e.id).join(", ")}`);
+  const detail = `${online.length} online: ${online.map((e) => e.id).join(", ")}`
+    + (offline.length ? ` (${offline.length} registered but offline: ${offline.map(describeEnv).join(", ")})` : "");
+  add("env-bridge", true, "ok", detail);
 }
 
 // ── 8. OpenAI usage (proves the connection, not the file) ────────────────────────────
