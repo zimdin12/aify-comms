@@ -231,7 +231,7 @@ DEFAULT_SETTINGS = {
     # ever pruned the terminal ones, so the Sessions page grew without bound (mc-senior-dev had 79
     # rows, 449 fleet-wide back to April, and the operator read the pile as "duplicates"). Age
     # alone is not a safe rule: a rarely-used agent would lose its whole history, so
-    # SESSION_HISTORY_KEEP_PER_AGENT newest rows always survive regardless of age.
+    # the newest `session_history_keep_per_agent` rows always survive regardless of age.
     # 3 days, not 14: the newest-N floor is what preserves useful history, so the age window only
     # decides how long the TAIL lingers. At 14 days mc-senior-dev's 79 rows (all inside 11 days)
     # were untouched — i.e. it did not fix the reported symptom at all. The last 10 boots per agent
@@ -5526,7 +5526,8 @@ async def _prune_session_history(db, *, limit: int = 500) -> int:
     SAFETY — this is the only DELETE in the reconcile loop, so the guards are explicit:
       * only rows in a TERMINAL status, and only with a non-empty `ended_at`. A live row, or a
         contradictory live-status row, is never touched.
-      * the newest SESSION_HISTORY_KEEP_PER_AGENT rows per agent always survive, whatever age.
+      * the newest `session_history_keep_per_agent` rows per agent always survive, whatever age
+        (the setting, clamped up to SESSION_HISTORY_MIN_KEEP_PER_AGENT so it can never be made unsafe).
       * a row whose terminal is still live is skipped — `terminal_sessions.session_id` is
         ON DELETE CASCADE, so deleting such a row would take a LIVE console with it.
       * bounded by `limit` per pass, so one sweep can never be a long write txn (the DB-lock
