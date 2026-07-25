@@ -11,11 +11,17 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class RepositoryBuildContractTests(unittest.TestCase):
     def test_installer_help_is_side_effect_free(self):
+        # Relative name + cwd, never an absolute host path. On Windows neither form works:
+        # str(Path) yields backslashes that MSYS bash eats as escapes
+        # (`C:Dockeraify-commsinstall.sh`), and as_posix() yields `C:/...` which the MSYS
+        # bash in Git for Windows cannot open either (it wants `/c/...`). A bare relative
+        # name needs no drive-letter translation on any platform.
         result = subprocess.run(
-            ["bash", str(ROOT / "install.sh"), "--help"],
+            ["bash", "install.sh", "--help"],
+            cwd=str(ROOT),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
