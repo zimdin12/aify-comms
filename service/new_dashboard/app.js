@@ -225,6 +225,9 @@ const chatController = createChatController({
   mountChatConsole: (agentId, hostEl) => mountChatConsole(agentId, hostEl),
   loadPulse: (mins) => api(`/analytics/pulse?window_minutes=${encodeURIComponent(mins)}`),
   persistDrafts: () => persistChatDrafts(),
+  // Keep the details drawer pointed at whatever the operator just selected — otherwise its
+  // lifecycle buttons act on the agent they navigated away from. See syncInspectorToSelection.
+  onSelectionChange: () => syncInspectorToSelection(),
 });
 
 // Mount an agent's live console inline inside the Chat conversation pane. Reuses the exact
@@ -3323,10 +3326,23 @@ function openAgentDrawer(agentId) {
   const mode = String(agent.sessionMode || (session && session.mode) || 'resident').toLowerCase();
   const otherMode = mode === 'managed' ? 'resident' : 'managed';
   const row = (label, value) => `<dt>${esc(label)}</dt><dd>${value}</dd>`;
+  // AGENT-LEVEL stop (2026-07-26, operator request: "a way to stop/kill an online agent").
+  // Every other action here is gated on `sid` — a resolvable session row — so an agent whose
+  // session is missing/unresolved offered NO way to stop it from the dashboard at all. This one
+  // is keyed on the AGENT and hits /agents/{id}/stop-worker, the authoritative teardown: it ends
+  // the live worker, terminal bindings and turn_busy pulse, reports `available`, and PRESERVES
+  // registration + session_handle so the agent can be started again later.
+  // Offered whenever the agent isn't already down, so it works for exactly the `online`/`working`
+  // case the operator hit.
+  const agentStatus = String(agent.status || '').trim().toLowerCase();
+  const canStopWorker = !['offline', 'stopped', 'available'].includes(agentStatus);
   const actions = [
+    canStopWorker
+      ? `<button class="ghost danger" data-agent-stop-worker="${esc(id)}" title="Kill this agent's live worker. Identity, history and resume handle are kept — it can be started again.">Stop worker</button>`
+      : '',
     sid ? `<button class="ghost" data-agent-control="restart" data-session="${esc(sid)}">Restart</button>` : '',
     sid ? `<button class="ghost" data-agent-control="recreate" data-session="${esc(sid)}" title="Restart with a FRESH context (discards native session)">Reset</button>` : '',
-    sid ? `<button class="ghost danger" data-agent-control="stop" data-session="${esc(sid)}">Stop</button>` : '',
+    sid ? `<button class="ghost danger" data-agent-control="stop" data-session="${esc(sid)}">Stop session</button>` : '',
     sid ? `<button class="ghost" data-agent-compact="${esc(sid)}">Compact</button>` : '',
     sid ? `<button class="ghost" data-agent-continue="${esc(sid)}">Continue as…</button>` : '',
     `<button class="ghost" data-agent-mode="${esc(otherMode)}" data-agent="${esc(id)}">Switch to ${esc(otherMode)}</button>`,
@@ -3366,9 +3382,36 @@ function openAgentDrawer(agentId) {
       ${continueCliBlock}
       <div class="agent-drawer-actions">${actions}</div>
     </div>`;
-  state.inspector = { ...state.inspector, kind: 'agent', runId: '' };
+  // Remember WHICH agent the drawer is showing, so selecting a different agent can follow it
+  // (see syncInspectorToSelection) instead of leaving a stale panel open on the previous agent.
+  state.inspector = { ...state.inspector, kind: 'agent', runId: '', agentId: id };
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
+}
+
+// Keep the details drawer in step with the conversation selection (2026-07-26, operator request:
+// "when i click on another agent then details panel should close or it should switch to that
+// selected agent"). Previously the drawer was opened once and never followed the selection, so it
+// sat there describing the agent you had navigated AWAY from — which is worse than closing,
+// because every lifecycle button in it (Stop worker, Restart, Reset, Delete session) then targets
+// the wrong agent. Switching is the safer of the two behaviours the operator offered.
+//  - selecting a DIFFERENT agent DM   → re-render the drawer for that agent
+//  - selecting a channel / closing    → close the drawer (a channel has no agent lifecycle)
+// No-op unless the drawer is actually open on an agent, so run/history drawers are untouched.
+function syncInspectorToSelection() {
+  const inspector = byId('inspector');
+  if (!inspector?.classList.contains('open')) return;
+  if (state.inspector?.kind !== 'agent') return;
+  const selected = String(state.chat?.selected || '');
+  const shownAgent = String(state.inspector?.agentId || '');
+  if (!selected || !selected.startsWith('dm:')) {
+    inspector.classList.remove('open');
+    state.inspector = { ...state.inspector, kind: '', agentId: '' };
+    return;
+  }
+  const nextAgent = selected.slice('dm:'.length);
+  if (!nextAgent || nextAgent === shownAgent) return;
+  openAgentDrawer(nextAgent);
 }
 
 // I9 — compaction / continuation lineage, derived from spawn records (metadata.continuedFrom*).
@@ -3587,6 +3630,32 @@ async function removeAgent(agentId) {
     closeInspector();
     refreshSoon();
   } catch (err) { toast(`Remove failed: ${err?.message || err}`, 'error'); }
+}
+
+// Kill a live worker from the details drawer, keyed on the AGENT rather than a session row
+// (2026-07-26). /agents/{id}/stop-worker is the authoritative teardown: it ends the live
+// agent_sessions rows, terminal bindings, virtual-terminal pointer and turn_busy pulse, and the
+// agent reports `available`. Identity, history and the resume handle survive, so this is "stop",
+// not "remove" — the agent can be started again from the same drawer.
+// Confirmed because it kills real running work.
+async function stopAgentWorker(agentId) {
+  if (!agentId) return;
+  if (!await uiConfirm(
+    `Stop ${agentId}'s live worker?\n\n`
+    + 'Any turn it is running is lost. Its identity, history and resume handle are kept, '
+    + 'so you can start it again.',
+  )) return;
+  try {
+    await api(`/agents/${encodeURIComponent(agentId)}/stop-worker`, {
+      method: 'POST',
+      body: JSON.stringify({ requestedBy: 'dashboard' }),
+    });
+    toast(`Stopped ${agentId}'s worker`, 'ok');
+    // Re-render the drawer rather than closing it: the operator usually wants to see the new
+    // status (and often Start it again straight after).
+    openAgentDrawer(agentId);
+    refreshSoon();
+  } catch (err) { toast(`Stop failed: ${err?.message || err}`, 'error'); }
 }
 
 async function deleteSessionById(sid) {
@@ -4195,6 +4264,8 @@ document.addEventListener('click', (event) => {
   if (copyCli) { copyText(copyCli.dataset.copyCli || '').then((ok) => toast(ok ? 'Resume command copied' : 'Copy failed', ok ? 'ok' : 'error')); return; }
   const agentDetails = event.target.closest('[data-agent-details]');
   if (agentDetails) { openAgentDrawer(agentDetails.dataset.agentDetails); return; }
+  const agentStopWorker = event.target.closest('[data-agent-stop-worker]');
+  if (agentStopWorker) { stopAgentWorker(agentStopWorker.dataset.agentStopWorker); return; }
   const agentRemove = event.target.closest('[data-agent-remove]');
   if (agentRemove) { removeAgent(agentRemove.dataset.agentRemove); return; }
   const agentDeleteSession = event.target.closest('[data-agent-delete-session]');

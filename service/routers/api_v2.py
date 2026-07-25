@@ -2617,8 +2617,19 @@ async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
         return False
     seen = _iso_to_epoch(str(row["turn_updated_at"] or ""))
     if not seen:
-        # No timestamp to age against: trust the raw flag (prior behavior).
-        return True
+        # MISSING/UNPARSEABLE timestamp → do NOT hold (fixed 2026-07-26, review follow-up).
+        # The first cut returned True here "to trust the raw flag", which quietly reproduced the
+        # exact strand this helper exists to prevent: a latched turn_busy=1 whose turn_updated_at
+        # is empty or malformed has NOTHING to age against, so it would hold delivery forever and
+        # a non-steer target would stay permanently deaf — with no ceiling to rescue it.
+        #
+        # Releasing is the correct asymmetry. Every writer stamps turn_updated_at via _now()
+        # (the /turn-start, /heartbeat and reconcile paths all do), so a blank or unparseable
+        # value means a corrupt row, not a live turn. The worst case from releasing is ONE
+        # message delivered mid-turn, which the harness queues or the reply reconciles; the worst
+        # case from holding is an agent that never receives work again. Prefer the recoverable
+        # failure.
+        return False
     return (datetime.now(timezone.utc).timestamp() - seen) <= TURN_BUSY_BACKSTOP_SECONDS
 
 

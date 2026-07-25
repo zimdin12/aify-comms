@@ -289,6 +289,10 @@ export function renderAnalyticsPanelHtml(agentId, data) {
 // refresh, loadConversation, loadAgentAnalytics, ... } (channel loading is driven from app.js).
 export function createChatController(deps) {
   const { state, byId, sendMessage, refresh, loadConversation, loadAgentAnalytics, mountChatConsole, loadPulse, persistDrafts } = deps;
+  // Optional hook fired whenever the selected conversation CHANGES, so the page can keep
+  // selection-dependent UI (the agent details drawer) in step. Defaulted to a no-op so the
+  // unit tests can construct the controller without it.
+  const onSelectionChange = typeof deps.onSelectionChange === 'function' ? deps.onSelectionChange : () => {};
 
   // One-shot "pin to newest" flag. The timeline renders oldest→newest, so the
   // newest message lives at the BOTTOM. On a fresh conversation open (or right
@@ -529,6 +533,7 @@ export function createChatController(deps) {
     const dmAgentId = key.startsWith('dm:') ? key.slice('dm:'.length) : key;
     if (state.chat.analytics.agent && !isChannel && dmAgentId !== state.chat.analytics.agent) {
       state.chat.selected = key;
+      onSelectionChange();
       return openAnalytics(dmAgentId);
     }
     state.chat.analytics = { agent: '', data: null }; // leaving analytics view
@@ -541,6 +546,7 @@ export function createChatController(deps) {
       try { await loadConversation(name); } catch (_) { /* toast handled upstream */ }
     }
     render();
+    onSelectionChange();
   }
 
   // Re-clicking the open conversation closes it back to the Fleet pulse view.
@@ -549,6 +555,7 @@ export function createChatController(deps) {
     state.chat.analytics = { agent: '', data: null };
     state.chat.pulse.data = null; // force a fresh pulse fetch on return
     render();
+    onSelectionChange();
   }
 
   // Fetch the window-scoped fleet pulse for the landing dashboard.

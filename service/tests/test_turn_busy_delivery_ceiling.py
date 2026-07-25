@@ -127,24 +127,43 @@ class TurnBusyDeliveryCeilingTests(FastApiTestCase):
     def test_missing_row_never_holds(self):
         self.assertFalse(self._holds("tbc-never-seen"))
 
-    def test_missing_timestamp_falls_back_to_the_raw_flag(self):
-        """No timestamp to age against → trust the raw flag (prior behavior), never release
-        on the basis of a value we cannot read."""
-        async def _run():
-            db = await get_db()
-            try:
-                await db.execute("PRAGMA foreign_keys=OFF")
-                await db.execute(
-                    """
-                    INSERT INTO agent_turn_state
-                        (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-                    VALUES (?, 1, '', '', '', '')
-                    """,
-                    ("tbc-no-stamp",),
-                )
-                await db.commit()
-            finally:
-                await db.close()
+    def test_unstampable_turn_busy_must_not_hold(self):
+        """A latched flag with NO usable timestamp must release, not hold.
 
-        asyncio.run(_run())
-        self.assertTrue(self._holds("tbc-no-stamp"))
+        Review follow-up 2026-07-26: the first cut returned "hold" here, which reproduced the very
+        strand this helper prevents — nothing to age against means no ceiling can ever fire, so a
+        non-steer target would go permanently deaf. Every writer stamps turn_updated_at via
+        _now(), so a blank/malformed value is a corrupt row, not a live turn. Releasing risks one
+        mid-turn delivery (recoverable); holding risks an agent that never gets work again.
+        """
+        for label, stamp in (
+            ("blank", ""),
+            ("garbage", "not-a-timestamp"),
+            ("half-iso", "2026-07-26T"),
+        ):
+            with self.subTest(stamp=label):
+                agent = f"tbc-bad-{label}"
+
+                async def _run():
+                    db = await get_db()
+                    try:
+                        await db.execute("PRAGMA foreign_keys=OFF")
+                        await db.execute(
+                            """
+                            INSERT INTO agent_turn_state
+                                (agent_id, turn_busy, turn_run_id, turn_bridge_id,
+                                 turn_runtime, turn_updated_at)
+                            VALUES (?, 1, '', '', '', ?)
+                            """,
+                            (agent, stamp),
+                        )
+                        await db.commit()
+                    finally:
+                        await db.close()
+
+                asyncio.run(_run())
+                self.assertFalse(
+                    self._holds(agent),
+                    f"turn_updated_at={stamp!r} gives no ceiling to age against — holding here "
+                    "is a permanent strand",
+                )

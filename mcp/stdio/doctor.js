@@ -246,10 +246,24 @@ function checkRuntimes() {
 // managed spawn possible. That is precisely the false green aify-doctor exists to prevent, on
 // the one check that is supposed to prove managed spawns can run. The server already derives
 // liveness per row, so trust ITS `status` and name the dead ones instead of hiding them.
-const ENV_ONLINE_STATES = new Set(["online", "connected", "ready", "active"]);
+// The REAL environments.status vocabulary, read off the service rather than guessed:
+//   online | degraded | offline   — accepted from a bridge registration (api_v2.py:10105)
+//   forgotten | disabled          — set server-side (api_v2.py:10496 / :10529)
+// `degraded` still heartbeats and can host spawns, so it counts as connected; the other three
+// cannot. An unknown/absent value is treated as NOT connected — this check exists to fail loudly,
+// so the unknown case must never be the optimistic one.
+// (First cut of this fix keyed on an INVENTED set {online,connected,ready,active}: three values
+// the service never emits, while omitting the real `degraded` — which would have reported a live
+// degraded bridge as "none online", a false RED. Verified against api_v2.py before rewriting.)
+const ENV_CONNECTED_STATES = new Set(["online", "degraded"]);
+const ENV_KNOWN_STATES = new Set(["online", "degraded", "offline", "forgotten", "disabled"]);
 
 function envIsOnline(env) {
-  return ENV_ONLINE_STATES.has(String(env?.status || "").trim().toLowerCase());
+  return ENV_CONNECTED_STATES.has(String(env?.status || "").trim().toLowerCase());
+}
+
+function envStateIsUnknown(env) {
+  return !ENV_KNOWN_STATES.has(String(env?.status || "").trim().toLowerCase());
 }
 
 function describeEnv(env) {
@@ -270,8 +284,10 @@ async function checkEnvBridge() {
       : "No environment bridge is registered — dashboard-managed spawns cannot run.";
     return add("env-bridge", false, "none", detail, "Start one on the host: `aify-comms`.");
   }
+  const unknown = list.filter(envStateIsUnknown);
   const detail = `${online.length} online: ${online.map((e) => e.id).join(", ")}`
-    + (offline.length ? ` (${offline.length} registered but offline: ${offline.map(describeEnv).join(", ")})` : "");
+    + (offline.length ? ` (${offline.length} registered but not connected: ${offline.map(describeEnv).join(", ")})` : "")
+    + (unknown.length ? ` — WARNING: unrecognised status on ${unknown.map(describeEnv).join(", ")}; doctor's state vocabulary may be stale` : "");
   add("env-bridge", true, "ok", detail);
 }
 

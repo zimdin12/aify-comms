@@ -2999,13 +2999,21 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertNotEqual(agent["status"], "working", f"agent must not be left working after turn-end; got {agent}")
 
     def _turn_busy_gate_for(self, agent_id: str) -> bool:
-        """Mirror the dispatcher's mid-turn busy check (api_v2 send queueIfBusy
-        branch): explicit queue holds exactly while raw turn_busy=1."""
-        row = self._fetchone(
-            "SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?",
-            (agent_id,),
-        )
-        return bool(row and int(row["turn_busy"] or 0) == 1)
+        """The dispatcher's mid-turn busy check — by CALLING it, not by re-implementing it.
+
+        This used to hand-roll `SELECT turn_busy ... == 1`, which made the test pass whatever
+        production did AND let it silently drift: once the real gate gained the anti-strand
+        ceiling (b6601ac) the copy no longer described the code it was named after. Delegate to
+        the shared helper so this test exercises the real predicate and cannot diverge again.
+        """
+        async def _run():
+            db = await get_db()
+            try:
+                return await api_v2._turn_busy_holds_delivery(db, agent_id)
+            finally:
+                await db.close()
+
+        return asyncio.run(_run())
 
     # --- send-deadlock fix (2026-06-02): channel/resident steer past turn_busy ---
 
