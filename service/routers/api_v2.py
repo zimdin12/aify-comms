@@ -14459,14 +14459,37 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
                     f'Agent "{agent_id}" is resident — its terminal is the CLI you launched, '
                     "not a dashboard-owned worker. Switch it to managed to start one from here.",
                 )
+            # ALLOWLIST, never a blocklist (fixed 2026-07-26). This gate used to be
+            # `status NOT IN ('stopped','failed','ended','cancelled')`, which silently treats
+            # every status NOT on that list as LIVE. `lost` is not on it — so an agent whose
+            # worker was lost months ago read as "already running" forever: Start returned
+            # alreadyRunning, no spawn request was ever created, the agent stayed `available`,
+            # and clicking again just repeated the toast. Live-reproduced on the whole ef- team
+            # (ef-manager / ef-coder-lead / ef-tech-lead / ef-tester — four sessions stuck
+            # `lost` with ended_at 2026-04-30), which were permanently unstartable from the
+            # dashboard. Note the asymmetry that made it invisible: derive() correctly reported
+            # `available` off real liveness, so status and this gate disagreed.
+            #
+            # Use the canonical live sets instead, so a new session status can never silently
+            # mean "live" here again. The union of both is deliberate: LIVE_SESSION_STATUSES is
+            # the session-row set the reconcilers use, _LIVE_SESSION_STATUSES the narrower
+            # status-engine set that also covers restarting/cli-takeover. A row must ALSO not be
+            # marked ended — a live status with ended_at set is a stale row the reconcilers heal,
+            # and trusting it would re-create exactly this permanent block.
+            _start_live_statuses = sorted(
+                {s.lower() for s in LIVE_SESSION_STATUSES}
+                | {s.lower() for s in _LIVE_SESSION_STATUSES}
+            )
+            _live_ph = ",".join("?" for _ in _start_live_statuses)
             live = await (await db.execute(
-                """
+                f"""
                 SELECT id FROM agent_sessions
                 WHERE agent_id = ?
-                  AND LOWER(COALESCE(status,'')) NOT IN ('stopped','failed','ended','cancelled')
+                  AND LOWER(COALESCE(status,'')) IN ({_live_ph})
+                  AND COALESCE(ended_at,'') = ''
                 LIMIT 1
                 """,
-                (agent_id,),
+                (agent_id, *_start_live_statuses),
             )).fetchone()
             if live:
                 # Already running — starting again would spawn a duplicate worker.
