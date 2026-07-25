@@ -20496,11 +20496,28 @@ def _contract_reminder_body(row, *, full: bool = True) -> str:
         if message_id
         else f'comms_run_status(runId="{row["id"]}")'
     )
+    # BODY PLACEHOLDER: describe the body in prose AFTER the call, never as a literal argument.
+    # It used to render as body="<answer, blocker, or result>" inside the snippet, which an agent
+    # can copy verbatim — and several did, sending the placeholder as the answer. A snippet an
+    # agent is meant to run must not contain a token that is valid-looking but wrong.
+    _body_note = ' — put your answer, blocker, or result in body.'
+    # FALLBACK ANCHOR (fixed 2026-07-26): the no-message_id branch used to drop BOTH inReplyTo and
+    # subject, so the agent was told "reply" with nothing to reply TO. That branch is not an edge
+    # case: every DASHBOARD-originated run (Restart/Stop/Start and other control actions) has no
+    # message row, so it is exactly the path an operator-driven contract takes. Observed live on
+    # run_1785016147732_61a46d43 ("Restart mc-senior-dev"): four reminders, each offering an
+    # unanchored comms_send, then the run failed stranded at 45 min. Without an anchor the reply
+    # cannot be threaded, so it can only be matched by the weaker unthreaded fallback — and the
+    # run keeps nagging until it is failed. Give the run id and the subject in both branches.
     reply_hint = (
         f'comms_send(from="{target}", to="{sender}", type="response", inReplyTo="{message_id}", '
-        f'subject="Re: {subject}", body="<answer, blocker, or result>")'
+        f'subject="Re: {subject}"){_body_note}'
         if message_id and sender
-        else f'comms_send(from="{target}", to="{sender or "original-sender"}", type="response", body="<answer, blocker, or result>")'
+        else (
+            f'comms_send(from="{target}", to="{sender or "dashboard"}", type="response", '
+            f'subject="Re: {subject}"){_body_note} '
+            f'No source message to thread to — the subject matches it to the run.'
+        )
     )
     if not full:
         # LIGHT reminder (operator decision 2026-07-02): one line — the owed
