@@ -373,6 +373,17 @@ _TERMINAL_END_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "ca
 _DISPATCH_ACTIVE_STATUSES = {"queued", "claimed", "running"}
 _SPAWN_TERMINAL_STATUSES = {"running", "failed", "cancelled"}
 _SESSION_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
+# CLEAN history: finished AND nothing left to act on — the only rows GET /sessions hides by
+# default. Deliberately NOT the same set as _SESSION_DELETE_ALLOWED_STATUSES above, and the
+# difference is load-bearing (regression 2026-07-26, caught in review): "safe to eventually
+# delete" is not "not worth showing".
+#   * `stopped` is a session the OPERATOR stopped — Restart / Reset / Compact are precisely the
+#     actions you take on it. `comms_restart` even falls back to `sessions[0]` on purpose so a
+#     non-live session can be restarted; hiding `stopped` made it answer "no session to restart".
+#   * `failed` / `lost` are crashed workers the operator may still restart or inspect.
+# Hiding those three broke real consumers (comms_restart, comms_compact, the drawer's
+# Restart/Reset/Compact buttons). Only a cleanly-finished session is pure history.
+SESSION_CLEAN_HISTORY_STATUSES = {"ended", "completed", "cancelled"}
 _TERMINAL_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
 # A session whose spawn/run is in flight or live. "starting" is included so a
 # spawn-in-progress is not marked offline merely because the environment bridge
@@ -4045,9 +4056,28 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
     }
 
 
+#: Stored environment statuses that still claim a HEARTBEATING bridge, and must therefore be aged
+#: against `last_seen`. `degraded` belongs here: a degraded bridge is reduced-capability, not
+#: dead — so when it stops heartbeating it is just as offline as an `online` one.
+_ENVIRONMENT_HEARTBEAT_STATUSES = {"online", "degraded"}
+
+
 def _environment_effective_status(row, *, offline_seconds: int = 90) -> str:
+    """Derive an environment's status, ageing a silent bridge to `offline`.
+
+    The stored column is only ever written `online|degraded|offline` by a registration, plus
+    `forgotten`/`disabled` server-side — nothing ages it, so the derivation here IS the liveness
+    truth every caller depends on.
+
+    BUG (fixed 2026-07-26, found in review): the staleness check was gated on `status == "online"`,
+    so a `degraded` environment NEVER aged out. It stayed "degraded" forever after the bridge died,
+    and because callers treat degraded as still-connected that resurrected the exact false-green
+    class `aify-doctor`'s env-bridge check exists to prevent — a dead bridge reported as live.
+    Terminal states (`offline`/`forgotten`/`disabled`) are returned untouched: they are decisions,
+    not observations, and must not be overridden by a timestamp.
+    """
     status = str(row["status"] or "online")
-    if status == "online":
+    if status in _ENVIRONMENT_HEARTBEAT_STATUSES:
         try:
             last = datetime.fromisoformat(str(row["last_seen"] or "").replace("Z", "+00:00"))
             if datetime.now(timezone.utc) - last > timedelta(seconds=max(15, int(offline_seconds or 90))):
@@ -11414,12 +11444,12 @@ async def list_sessions(
         if not includeEnded:
             # Filter on the STORED status only. A row stored live but derived dead below stays in
             # the response on purpose — the operator should see it (and the reconcilers heal it);
-            # what must not appear is a row already recorded as finished.
-            terminal_states = sorted(_SESSION_DELETE_ALLOWED_STATUSES)
+            # what must not appear is a row that is finished AND has nothing left to act on.
+            hidden = sorted(SESSION_CLEAN_HISTORY_STATUSES)
             where.append(
-                f"LOWER(COALESCE(status,'')) NOT IN ({','.join('?' for _ in terminal_states)})"
+                f"LOWER(COALESCE(status,'')) NOT IN ({','.join('?' for _ in hidden)})"
             )
-            params.extend(terminal_states)
+            params.extend(hidden)
         where_sql = "WHERE " + " AND ".join(where) if where else ""
         cursor = await db.execute(
             f"SELECT * FROM agent_sessions {where_sql} ORDER BY last_seen DESC LIMIT ?",

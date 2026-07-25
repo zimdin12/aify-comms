@@ -308,3 +308,18 @@ test("chat controller notifies on every selection change", () => {
   assert.ok(calls.length >= 3,
     `all selection-changing paths must notify (open, analytics switch, close); found ${calls.length}`);
 });
+
+test("stop-worker waits for refreshed state before re-rendering the drawer", () => {
+  const source = read("app.js");
+  const fn = source.match(/async function stopAgentWorker\([\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(fn, "stopAgentWorker must exist");
+  // Rendering before the refresh painted the drawer from PRE-stop state: old status plus a live
+  // "Stop worker" button for a worker that was already gone.
+  assert.match(fn, /await refresh\(\)/, "must pull fresh state before re-rendering");
+  const awaitIdx = fn.indexOf("await refresh()");
+  const renderIdx = fn.indexOf("openAgentDrawer(agentId)");
+  assert.ok(awaitIdx > -1 && renderIdx > awaitIdx,
+    "the re-render must come AFTER the awaited refresh, not before it");
+  assert.ok(!/refreshSoon\(\);\s*\}/.test(fn),
+    "a fire-and-forget refreshSoon leaves the drawer stale — it must not be the only refresh");
+});

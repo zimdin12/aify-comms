@@ -55,14 +55,50 @@ class SessionsListIsCurrentNotHistoryTests(FastApiTestCase):
         self.assertEqual(r.status_code, 200, r.text)
         return [s.get("id") for s in r.json().get("sessions", [])]
 
-    def test_terminal_sessions_are_hidden_by_default(self):
+    def test_cleanly_finished_sessions_are_hidden_by_default(self):
         self._seed("s-live", "a1", "running", last_seen_ago=100, ended=False)
-        for i, st in enumerate(("ended", "stopped", "failed", "lost", "cancelled", "completed")):
+        for i, st in enumerate(("ended", "cancelled", "completed")):
             self._seed(f"s-{st}", "a1", st, last_seen_ago=10 + i)
         ids = self._ids()
         self.assertIn("s-live", ids, "the live session must be listed")
-        for st in ("ended", "stopped", "failed", "lost", "cancelled", "completed"):
-            self.assertNotIn(f"s-{st}", ids, f"{st} is history and must not appear by default")
+        for st in ("ended", "cancelled", "completed"):
+            self.assertNotIn(f"s-{st}", ids, f"{st} is clean history and must not appear by default")
+
+    def test_ACTIONABLE_terminal_sessions_stay_visible(self):
+        """CRITICAL REGRESSION GUARD (review 2026-07-26).
+
+        The first cut hid every status in `_SESSION_DELETE_ALLOWED_STATUSES` — a DELETION allowlist
+        — which also hid `stopped`/`failed`/`lost`. Those are the states you act on: Restart, Reset
+        and Compact exist precisely for them, and `comms_restart` deliberately falls back to
+        `sessions[0]` so a non-live session can be restarted. Hiding them made comms_restart and
+        comms_compact answer "no session" for a stopped agent. Safe-to-delete is NOT
+        not-worth-showing.
+        """
+        for st in ("stopped", "failed", "lost"):
+            self._seed(f"s-act-{st}", f"actionable-{st}", st, last_seen_ago=5)
+            ids = self._ids(f"?agentId=actionable-{st}")
+            self.assertIn(
+                f"s-act-{st}", ids,
+                f"a {st} session is actionable (restart/reset/compact) and must stay listed",
+            )
+
+    def test_comms_restart_style_lookup_still_finds_a_stopped_session(self):
+        """Reproduce the consumer contract: comms_restart prefers a live status, else sessions[0]."""
+        self._seed("s-stopped-only", "restartable", "stopped", last_seen_ago=5)
+        sessions = self.client.get("/api/v1/sessions?agentId=restartable").json()["sessions"]
+        live = {"starting", "running", "recovering", "restarting", "cli-takeover"}
+        target = next((s for s in sessions if str(s.get("status", "")).lower() in live), None)             or (sessions[0] if sessions else None)
+        self.assertIsNotNone(target, "comms_restart must still find a session to restart")
+        self.assertEqual(target["id"], "s-stopped-only")
+
+    def test_hidden_set_is_narrower_than_the_delete_set(self):
+        """Pin the distinction so the two sets cannot be collapsed again."""
+        self.assertTrue(
+            api_v2.SESSION_CLEAN_HISTORY_STATUSES < api_v2._SESSION_DELETE_ALLOWED_STATUSES,
+            "the hidden set must be a strict subset of the deletable set",
+        )
+        for actionable in ("stopped", "failed", "lost"):
+            self.assertNotIn(actionable, api_v2.SESSION_CLEAN_HISTORY_STATUSES)
 
     def test_include_ended_restores_history(self):
         self._seed("s2-live", "a2", "running", last_seen_ago=100, ended=False)
@@ -104,6 +140,65 @@ class SessionsListIsCurrentNotHistoryTests(FastApiTestCase):
         """Both the list filter and the history prune must mean the same thing by "terminal"; if
         they drift, the list would hide rows the prune keeps (or vice versa)."""
         self.assertEqual(
-            api_v2._SESSION_DELETE_ALLOWED_STATUSES,
-            {"stopped", "failed", "lost", "ended", "completed", "cancelled"},
+            api_v2.SESSION_CLEAN_HISTORY_STATUSES, {"ended", "completed", "cancelled"},
         )
+
+
+class EnvironmentDegradedAgesOfflineTests(FastApiTestCase):
+    """A `degraded` environment must age to `offline` like an `online` one.
+
+    Found in review 2026-07-26. `_environment_effective_status` gated its staleness check on
+    `status == "online"`, so a `degraded` row NEVER aged out — it stayed "degraded" forever after
+    the bridge died. Because callers (including aify-doctor's env-bridge check) treat degraded as
+    still-connected, that resurrected the exact false-green class the check exists to prevent: a
+    dead bridge reported as live. `degraded` means reduced capability, not dead.
+    """
+
+    DB_NAME = "aify-env-degraded-test.db"
+
+    def _row(self, status, last_seen_ago):
+        return {
+            "status": status,
+            "last_seen": time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - last_seen_ago)
+            ),
+        }
+
+    def test_fresh_degraded_stays_degraded(self):
+        self.assertEqual(
+            api_v2._environment_effective_status(self._row("degraded", 5), offline_seconds=90),
+            "degraded",
+            "a heartbeating degraded bridge is still usable",
+        )
+
+    def test_stale_degraded_ages_to_offline(self):
+        self.assertEqual(
+            api_v2._environment_effective_status(self._row("degraded", 3600), offline_seconds=90),
+            "offline",
+            "a degraded bridge that stopped heartbeating is offline, not degraded forever",
+        )
+
+    def test_stale_online_still_ages_to_offline(self):
+        self.assertEqual(
+            api_v2._environment_effective_status(self._row("online", 3600), offline_seconds=90),
+            "offline",
+        )
+
+    def test_fresh_online_stays_online(self):
+        self.assertEqual(
+            api_v2._environment_effective_status(self._row("online", 5), offline_seconds=90),
+            "online",
+        )
+
+    def test_decisions_are_never_overridden_by_a_timestamp(self):
+        """offline/forgotten/disabled are operator or server DECISIONS — ageing must not touch
+        them, and a fresh heartbeat must not resurrect them."""
+        for decided in ("offline", "forgotten", "disabled"):
+            for age in (5, 3600):
+                self.assertEqual(
+                    api_v2._environment_effective_status(
+                        self._row(decided, age), offline_seconds=90
+                    ),
+                    decided,
+                    f"{decided} is a decision, not an observation",
+                )

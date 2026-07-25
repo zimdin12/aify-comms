@@ -3658,10 +3658,12 @@ async function stopAgentWorker(agentId) {
       body: JSON.stringify({ requestedBy: 'dashboard' }),
     });
     toast(`Stopped ${agentId}'s worker`, 'ok');
-    // Re-render the drawer rather than closing it: the operator usually wants to see the new
-    // status (and often Start it again straight after).
+    // AWAIT the refresh before re-rendering (review 2026-07-26). Rendering straight after the POST
+    // painted the drawer from the PRE-stop `state.agents`, so it still showed the old status and a
+    // live "Stop worker" button for a worker that was already gone. Pull fresh state first, then
+    // re-render, so the drawer reflects the real post-stop status.
+    try { await refresh(); } catch { /* keep the drawer usable even if that poll failed */ }
     openAgentDrawer(agentId);
-    refreshSoon();
   } catch (err) { toast(`Stop failed: ${err?.message || err}`, 'error'); }
 }
 

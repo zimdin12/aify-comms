@@ -257,9 +257,27 @@ function checkRuntimes() {
 // degraded bridge as "none online", a false RED. Verified against api_v2.py before rewriting.)
 const ENV_CONNECTED_STATES = new Set(["online", "degraded"]);
 const ENV_KNOWN_STATES = new Set(["online", "degraded", "offline", "forgotten", "disabled"]);
+// Independent staleness bound. The server derives liveness from `last_seen`, and a bug there is
+// exactly how a dead bridge got reported as live twice now (first the row-count check, then
+// `degraded` never ageing out because the staleness test was gated on status == "online"). A
+// verifier whose whole job is to fail loudly must not depend solely on the value under test — so
+// doctor ALSO ages the row itself. Generous vs `environment_offline_seconds` (90s default): this is
+// a backstop against a broken derivation, not a second opinion on normal jitter.
+const ENV_STALE_AFTER_MS = 10 * 60 * 1000;
+
+function envLastSeenMs(env) {
+  const raw = String(env?.lastSeen || "").trim();
+  if (!raw) return NaN;
+  return Date.parse(raw.endsWith("Z") || raw.includes("+") ? raw : `${raw}Z`);
+}
 
 function envIsOnline(env) {
-  return ENV_CONNECTED_STATES.has(String(env?.status || "").trim().toLowerCase());
+  if (!ENV_CONNECTED_STATES.has(String(env?.status || "").trim().toLowerCase())) return false;
+  const seen = envLastSeenMs(env);
+  // Unparseable lastSeen → trust the served status (do not invent a failure); a parseable but old
+  // one overrides it.
+  if (Number.isNaN(seen)) return true;
+  return Date.now() - seen <= ENV_STALE_AFTER_MS;
 }
 
 function envStateIsUnknown(env) {
