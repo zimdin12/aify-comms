@@ -108,6 +108,70 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
         row = self._reconcile_then_status("term_claimed", "stop")
         self.assertEqual(row["status"], "claimed", f"an in-flight stop must not be failed; got {row}")
 
+    # --- the SECOND copy of the same rule -------------------------------------------------
+
+    def test_the_db_py_sweep_also_spares_a_stop(self):
+        """SELF-REVIEW FIND. The rule is implemented TWICE: api_v2._reconcile_ended_terminal_controls
+        and db._reconcile_terminal_controls, with the same predicate and the same
+        'terminal is not active' error text. Exempting the stop in only one of them fixes nothing —
+        the other sweep still cancels it. This test drives the db.py path specifically, so the two
+        implementations cannot drift apart again without a failure."""
+        from service import db as db_module
+
+        self._seed("term_dbpy", terminal_status="stopping", action="stop")
+
+        async def _run():
+            db = await get_db()
+            try:
+                # Keep the env-currency sweep in the same function from failing the row for an
+                # unrelated reason — this test is about the LIVENESS predicate only.
+                await db.execute(
+                    "INSERT OR REPLACE INTO environments (id, status, bridge_id, registered_at, last_seen) "
+                    "VALUES (?,?,?,?,?)",
+                    ("env-1", "online", "bridge-1", api_v2._now(), api_v2._now()),
+                )
+                await db_module._reconcile_terminal_controls(db)
+                await db.commit()
+                row = await (await db.execute(
+                    "SELECT status, error FROM terminal_controls WHERE id = ?",
+                    ("ctl-term_dbpy-stop",),
+                )).fetchone()
+                return dict(row)
+            finally:
+                await db.close()
+
+        row = asyncio.run(_run())
+        self.assertEqual(
+            row["status"], "pending",
+            f"db.py's sweep must spare a stop exactly as api_v2's does; got {row}",
+        )
+
+    def test_the_db_py_sweep_still_fails_a_doomed_input(self):
+        """The db.py copy must keep its fail-fast behaviour too — the exemption is stop-only."""
+        from service import db as db_module
+
+        self._seed("term_dbpy_input", terminal_status="stopped", action="input")
+
+        async def _run():
+            db = await get_db()
+            try:
+                await db.execute(
+                    "INSERT OR REPLACE INTO environments (id, status, bridge_id, registered_at, last_seen) "
+                    "VALUES (?,?,?,?,?)",
+                    ("env-1", "online", "bridge-1", api_v2._now(), api_v2._now()),
+                )
+                await db_module._reconcile_terminal_controls(db)
+                await db.commit()
+                row = await (await db.execute(
+                    "SELECT status FROM terminal_controls WHERE id = ?",
+                    ("ctl-term_dbpy_input-input",),
+                )).fetchone()
+                return dict(row)
+            finally:
+                await db.close()
+
+        self.assertEqual(asyncio.run(_run())["status"], "failed")
+
     # --- what must KEEP working -----------------------------------------------------------
 
     def test_input_on_a_dead_terminal_is_still_failed(self):

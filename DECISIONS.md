@@ -1120,3 +1120,41 @@ A wave of small status/lifecycle/UX hardening fixes (commits `c2c9659`, `4ef1db3
 **Reply reminders are LIGHT by default — one line (subject + message id), every Nth full (`fea68bb`).** Operator rejected exponential backoff ("might break loops so that they stop working"); cadence stays fixed, only VERBOSITY changes. `reply_reminder_full_every` (default 3; 0/1 = every reminder full) is available in DEFAULT_SETTINGS and Dashboard Next. Light bodies keep `inReplyTo` wiring so auto-close still works.
 
 **Verified-as-designed, no change:** queueIfBusy already means "don't steer" (three busy signals gate steering), and digest-wake already exists (pending dispatches merge into ONE combined turn via `[AIFY PENDING DISPATCHES]` / "Pending updates (N)"). Both were suspected broken; both were confirmed correct with tests.
+
+## 2026-07-26 — A queued terminal `stop` is exempt from the liveness sweep (and the rule lives in TWO places)
+
+`stop_agent_worker` marks a real terminal `'stopping'` — deliberately transitional, because the stop
+is only QUEUED and the host has not acknowledged it — and appends the `action='stop'` terminal
+control in the same transaction. Two reconcilers then fail pending controls whose terminal is
+`NOT IN ('starting','attached','running','active','idle')`, and `'stopping'` is not in that set. Both
+run on timers while the bridge polls every ~3s, so whenever a sweep won the race it **cancelled the
+very stop meant to kill the process**: the PTY survived a "successful" Stop worker, and 900s later
+the `STUCK_STOPPING_GRACE_SECONDS` reaper wrote `'stopped'` over it — a row asserting a death that
+never happened. Not theoretical; the live DB held 158 controls failed with exactly
+`terminal is not active`, so the sweep fires against real traffic.
+
+**Decision: `action='stop'` is never failed on liveness grounds.** Killing a process is idempotent
+and stays desirable on a dead-looking row — `server.js` carries an orphan-pid fallback for exactly
+the case where no bridge owns the PTY in memory any more. Everything else still fails fast, which is
+the point of the sweep: keystrokes into a console that is gone cannot be honoured and the caller
+should learn that instead of hanging.
+
+**Rejected alternative:** adding `'stopping'` to the active set. The pre-existing VIRTUAL-terminal
+path marks `'stopped'` and queues its stop together, so it had the identical exposure through a
+different status. Exempting the action covers both; widening the status set covers only one.
+
+**INVARIANT — this rule is implemented TWICE and both copies must carry the exemption:**
+- `service/routers/api_v2.py` → `_reconcile_ended_terminal_controls` (plus the
+  `exclude_actions` parameter on `_fail_pending_terminal_controls`, because a terminal holding an
+  input AND a stop is still selected on account of the input, and the helper would otherwise take
+  the stop down as collateral);
+- `service/db.py` → `_reconcile_terminal_controls`.
+
+They share the predicate and the error string. The first fix landed in `api_v2` only and **changed
+nothing**, because the `db.py` copy still cancelled the stop — found in self-review, not by the
+suite. `service/tests/test_stop_control_survives_reconcile.py` now drives BOTH paths explicitly so
+they cannot drift apart again.
+
+Accumulation stays bounded: the env-currency sweep in `db.py` still fails controls whose
+environment/bridge is no longer current, stop included, so controls for a dead environment do not
+pile up forever.

@@ -711,6 +711,24 @@ async def _reconcile_terminal_controls(db: aiosqlite.Connection):
     # today because the only comparison is datetime(handled_at), but one future `handled_at >= ?`
     # would be a silent bug. One shape, everywhere (C2).
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    # A queued `stop` is EXEMPT from the liveness sweep. This rule is implemented TWICE — here and
+    # in api_v2._reconcile_ended_terminal_controls — with the same predicate and the same error
+    # text, so BOTH must carry the exemption or neither does: an earlier fix landed in api_v2 only
+    # and changed nothing, because this copy still cancelled the stop.
+    #
+    # Why the exemption: stop_agent_worker marks the terminal 'stopping' (correct — the host has not
+    # acknowledged) and queues the stop control in the same transaction. 'stopping' is not in the
+    # active set below, and this sweep runs on a timer while the bridge polls every ~3s, so whenever
+    # the sweep won the race it cancelled the very stop meant to kill the process. The PTY then
+    # survived a "successful" Stop worker, and 900s later the stuck-stopping reaper wrote 'stopped'
+    # over it — a row asserting a death that never happened. The pre-existing VIRTUAL path has the
+    # identical exposure via 'stopped', which is why the fix is not "add 'stopping' to the set".
+    # Killing a process is idempotent and stays desirable on a dead-looking row; server.js keeps an
+    # orphan-pid fallback for the case where no bridge owns the PTY in memory any more.
+    #
+    # Accumulation is still bounded: the env-currency sweep immediately below fails controls whose
+    # environment/bridge is no longer current, stop included, so a control for a dead environment
+    # does not pile up forever.
     await db.execute(
         """
         UPDATE terminal_controls
@@ -720,6 +738,7 @@ async def _reconcile_terminal_controls(db: aiosqlite.Connection):
                          THEN 'terminal is not active'
                          ELSE error END
         WHERE status IN ('pending', 'claimed')
+          AND LOWER(COALESCE(action, '')) != 'stop'
           AND terminal_id IN (
               SELECT id FROM terminal_sessions
               WHERE status NOT IN ('starting', 'attached', 'running', 'active', 'idle')
