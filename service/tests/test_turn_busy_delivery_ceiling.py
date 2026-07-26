@@ -167,3 +167,23 @@ class TurnBusyDeliveryCeilingTests(FastApiTestCase):
                     f"turn_updated_at={stamp!r} gives no ceiling to age against — holding here "
                     "is a permanent strand",
                 )
+
+    def test_future_turn_updated_at_must_not_hold(self):
+        """R4 (review 2026-07-26). A FUTURE timestamp makes `now - seen` NEGATIVE, which trivially
+        satisfies `<= CEILING` — so a clock-skewed or bad write would hold delivery FOREVER, the
+        exact permanent strand this ceiling exists to bound. I closed the missing-timestamp hole in
+        the same predicate and missed this one."""
+        for label, ahead in (("1 min ahead", 60), ("1 day ahead", 86400), ("1 year ahead", 31536000)):
+            with self.subTest(skew=label):
+                agent = f"tbc-future-{ahead}"
+                self._set_turn_busy(agent, age_seconds=-ahead)
+                self.assertFalse(
+                    self._holds(agent),
+                    f"turn_updated_at {label} must not hold delivery — a negative age is not "
+                    "'inside the window', it is a broken clock",
+                )
+
+    def test_zero_age_still_holds(self):
+        """Boundary: an age of exactly 0 is a legitimate just-written turn."""
+        self._set_turn_busy("tbc-now", age_seconds=0)
+        self.assertTrue(self._holds("tbc-now"))

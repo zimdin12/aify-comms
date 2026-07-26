@@ -257,7 +257,10 @@ test("WS half-open watchdog is per-socket (not a shared global id)", () => {
 
 test("agent edit runtime choices include Hermes and preserve the current runtime", () => {
   const source = read("app.js");
-  const expression = source.match(/const runtimeOptions = (\[[^\n]+\])\n\s+\.map/)?.[1];
+  // Line-ending agnostic. A bare \n cannot match CRLF, so this assertion failed purely because the
+  // working tree was CRLF while git normalises to LF on commit — i.e. green in CI, red locally, the
+  // worst kind of flake. Assert structure, never whitespace.
+  const expression = source.match(/const runtimeOptions = (\[[^\r\n]+\])\r?\n\s+\.map/)?.[1];
   assert.ok(expression, "runtime choice expression must remain inspectable");
   const choices = Function("currentRuntime", `return ${expression}`)("future-runtime");
   assert.ok(choices.includes("hermes"), "Hermes must be selectable with its canonical backend identifier");
@@ -322,4 +325,15 @@ test("stop-worker waits for refreshed state before re-rendering the drawer", () 
     "the re-render must come AFTER the awaited refresh, not before it");
   assert.ok(!/refreshSoon\(\);\s*\}/.test(fn),
     "a fire-and-forget refreshSoon leaves the drawer stale — it must not be the only refresh");
+});
+
+test("doctor rejects a FUTURE lastSeen instead of greening a dead bridge", () => {
+  const source = read("../../mcp/stdio/doctor.js");
+  const fn = source.match(/function envIsOnline\([\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(fn, "envIsOnline must exist");
+  // R3 (review 2026-07-26): `Date.now() - seen` goes NEGATIVE for a future stamp and trivially
+  // satisfies the staleness bound, so a clock-skewed row would pass as connected — the very false
+  // green this check exists to catch.
+  assert.match(fn, /age >= 0/, "a negative age (future lastSeen) must not pass");
+  assert.match(fn, /age <= ENV_STALE_AFTER_MS/, "the staleness bound must still apply");
 });

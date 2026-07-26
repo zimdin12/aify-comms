@@ -274,10 +274,13 @@ function envLastSeenMs(env) {
 function envIsOnline(env) {
   if (!ENV_CONNECTED_STATES.has(String(env?.status || "").trim().toLowerCase())) return false;
   const seen = envLastSeenMs(env);
-  // Unparseable lastSeen → trust the served status (do not invent a failure); a parseable but old
-  // one overrides it.
+  // Unparseable lastSeen → trust the served status (do not invent a failure).
   if (Number.isNaN(seen)) return true;
-  return Date.now() - seen <= ENV_STALE_AFTER_MS;
+  // A FUTURE lastSeen must NOT pass (review R3, 2026-07-26): `Date.now() - seen` goes negative and
+  // trivially satisfies the bound, so a clock-skewed or bogus stamp would green a dead bridge — the
+  // very false green this check exists to catch. Require a non-negative age.
+  const age = Date.now() - seen;
+  return age >= 0 && age <= ENV_STALE_AFTER_MS;
 }
 
 function envStateIsUnknown(env) {

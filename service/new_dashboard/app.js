@@ -892,13 +892,6 @@ const SETTINGS_SCHEMA = [
     { key: 'worker_idle_close_minutes', label: 'Idle close after (min)', type: 'number', min: 0, max: 1440 },
     { key: 'auto_confirm_session_id', label: 'Auto-confirm new session IDs', type: 'toggle' },
     { key: 'manual_session_mode', label: 'Show resident↔managed switch chips', type: 'toggle' },
-    // Session HISTORY retention. A managed agent gets a new session row per cold start (one
-    // worker process each, all resuming the SAME native conversation), so these rows accumulate.
-    // Sessions lists only CURRENT sessions, so these two only bound stored history.
-    { key: 'session_history_retention_days', label: 'Keep session history for (days)', type: 'number', min: 0, max: 365,
-      hint: '0 disables pruning. Only finished sessions are ever removed.' },
-    { key: 'session_history_keep_per_agent', label: 'Always keep newest sessions per agent', type: 'number', min: 1, max: 500,
-      hint: 'Floor that survives the age window, so an agent never loses all of its history.' },
   ] },
   { group: 'Reply contracts', items: [
     { key: 'reply_contracts_enabled', label: 'Reply contracts enabled', type: 'toggle' },
