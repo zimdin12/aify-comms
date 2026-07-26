@@ -327,13 +327,19 @@ test("stop-worker waits for refreshed state before re-rendering the drawer", () 
     "a fire-and-forget refreshSoon leaves the drawer stale — it must not be the only refresh");
 });
 
-test("doctor rejects a FUTURE lastSeen instead of greening a dead bridge", () => {
-  const source = read("../../mcp/stdio/doctor.js");
-  const fn = source.match(/function envIsOnline\([\s\S]*?\n\}/)?.[0] || "";
-  assert.ok(fn, "envIsOnline must exist");
-  // R3 (review 2026-07-26): `Date.now() - seen` goes NEGATIVE for a future stamp and trivially
-  // satisfies the staleness bound, so a clock-skewed row would pass as connected — the very false
-  // green this check exists to catch.
-  assert.match(fn, /age >= 0/, "a negative age (future lastSeen) must not pass");
-  assert.match(fn, /age <= ENV_STALE_AFTER_MS/, "the staleness bound must still apply");
-});
+// REMOVED (2026-07-26): "doctor rejects a FUTURE lastSeen instead of greening a dead bridge".
+//
+// It asserted the property by regex-matching the SOURCE of ../../mcp/stdio/doctor.js for
+// `function envIsOnline` containing `age >= 0`. Two problems, and the second is why it is gone
+// rather than repointed:
+//   1. it broke the moment the predicates moved to mcp/stdio/doctor-predicates.js — a pure
+//      refactor with no behaviour change turned the suite red, which is the signature of a test
+//      coupled to layout instead of behaviour;
+//   2. a regex over source text cannot fail when the LOGIC is wrong, only when the TEXT moves. It
+//      would have passed just as happily on `const age = ...; return age >= 0 || true`.
+//
+// The property is now covered behaviourally and strictly more strongly, in the suite that owns the
+// module: mcp/stdio/tests/doctor-env-predicates.test.js exercises a future lastSeen at +1min,
+// +1day and +1year, plus the age-0 and exact-bound boundaries, by CALLING the predicate with an
+// injected clock. Nothing was weakened to make this suite green — see also the arity-trap test
+// there, which caught a real false RED this file's regex could never have seen.

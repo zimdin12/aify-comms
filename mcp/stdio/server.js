@@ -4841,8 +4841,11 @@ export async function commsConsoleInputHandler({ agentId, text, enter, from }, {
     if (!r.ok) {
       return { content: [{ type: "text", text: r.message || `Could not send input to ${agentId}.` }], isError: true };
     }
+    // "Input sent" was the sentence an operator's sc-manager read as confirmation before burning
+    // ~15 minutes retrying a lever that could not work (C8). The write is only QUEUED, and even a
+    // completed control proves nothing beyond "bytes reached the PTY". Say that.
     return {
-      content: [{ type: "text", text: `Input sent to ${agentId}'s console (terminal ${r.terminalId}, control ${r.controlId}).` }],
+      content: [{ type: "text", text: `Input QUEUED to ${agentId}'s console (terminal ${r.terminalId}, control ${r.controlId}). This is NOT confirmation: it proves only that the bytes were written to the PTY, not that the runtime acted on them. Read the console with comms_console_tail and check whether the draft is still at the prompt before assuming it worked — and do not retry blind, a repeated Enter has been observed to change nothing.` }],
     };
   } catch (error) {
     return { content: [{ type: "text", text: error.message }], isError: true };
@@ -4852,7 +4855,10 @@ export async function commsConsoleInputHandler({ agentId, text, enter, from }, {
 export const CONSOLE_INPUT_TOOL_DESCRIPTION =
   "Recovery-only: send keystrokes/text into another managed agent's live console. " +
   "Read the console first with comms_console_tail and use this only for a proven interactive prompt or operator recovery. " +
-  "Do not inject normal work messages, reminders, or duplicate comms_send delivery through the console. Audited.";
+  "Do not inject normal work messages, reminders, or duplicate comms_send delivery through the console. Audited. " +
+  "NOT RELIABLE AS A SUBMIT: a successful call means the bytes were written to the PTY, never that the runtime acted on them. " +
+  "Observed 2026-07-26 on a stuck managed-claude draft — two text writes and three bare-Enter retries ALL reported success while the draft never submitted. " +
+  "If one attempt does not visibly change the console, escalate to the operator instead of retrying; repeated Enter has been measured to do nothing.";
 
 server.tool(
   "comms_console_tail",
@@ -4870,7 +4876,7 @@ server.tool(
   {
     agentId: z.string().describe("Agent whose console to send input to"),
     text: z.string().optional().describe("Text/command to type. Empty string + enter=true sends just Enter."),
-    enter: z.boolean().optional().describe("Append a carriage return (submit). Default true."),
+    enter: z.boolean().optional().describe("Append a carriage return. Default true. ATTEMPTS a submit — does not guarantee one; see the tool description."),
   },
   (args) => commsConsoleInputHandler({ ...args, from: AIFY_AGENT_ID })
 );

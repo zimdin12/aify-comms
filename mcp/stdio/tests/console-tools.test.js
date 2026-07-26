@@ -95,7 +95,15 @@ assert.match(COMMS_SEND_TOOL_DESCRIPTION, /set requireReply=false/i,
   assert.equal(calls[0].method, "POST");
   assert.equal(calls[0].endpoint, "/agents/stuck-agent/console/input");
   assert.deepEqual(calls[0].body, { text: "/status", enter: true, from: "manager-bot" });
-  assert.match(res.content[0].text, /Input sent to stuck-agent/);
+  // C8 (2026-07-26): this asserted /Input sent to stuck-agent/, and "Input sent" is the exact
+  // sentence an operator's sc-manager read as confirmation before burning ~15 minutes retrying a
+  // lever that could not work. The write is only QUEUED; even a completed control proves nothing
+  // beyond "bytes reached the PTY". Pin the honest wording AND the absence of the old claim, so a
+  // future edit cannot quietly restore a success message this call cannot justify.
+  assert.match(res.content[0].text, /Input QUEUED to stuck-agent/);
+  assert.match(res.content[0].text, /NOT confirmation/);
+  assert.doesNotMatch(res.content[0].text, /Input sent/,
+    "must not claim the input was delivered — that is unknowable from here");
 }
 
 // --- comms_console_input: defaults enter=true and from=AIFY_AGENT_ID ---

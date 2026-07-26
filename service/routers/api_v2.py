@@ -5501,15 +5501,39 @@ async def _invalidate_agent_live_state(db, agent_id: str) -> None:
     _live_state_expire(agent_id)
 
 
-async def _fail_pending_terminal_controls(db, terminal_id: str, *, handled_at: str, response_text: str) -> int:
+async def _fail_pending_terminal_controls(
+    db,
+    terminal_id: str,
+    *,
+    handled_at: str,
+    response_text: str,
+    exclude_actions: tuple[str, ...] = (),
+) -> int:
+    """Fail this terminal's outstanding controls. `exclude_actions` spares specific actions.
+
+    The exclusion exists for the liveness sweep, which must not cancel a queued `stop` (see
+    _reconcile_ended_terminal_controls). It is NOT the default: the terminal-CLOSED callers below
+    are right to fail everything, because once the process is genuinely gone a pending stop is moot.
+    Needed as a parameter rather than relying on the caller's outer WHERE, since a terminal with
+    BOTH an input and a stop outstanding is still selected by that query, and this helper would
+    otherwise fail every pending row for it — taking the stop down with the input.
+    """
+    params: list[Any] = [terminal_id]
+    exclusion_sql = ""
+    normalized_exclusions = tuple(str(a or "").strip().lower() for a in exclude_actions if str(a or "").strip())
+    if normalized_exclusions:
+        placeholders = ", ".join("?" * len(normalized_exclusions))
+        exclusion_sql = f" AND LOWER(COALESCE(action, '')) NOT IN ({placeholders})"
+        params.extend(normalized_exclusions)
     cursor = await db.execute(
-        """
+        f"""
         SELECT id
         FROM terminal_controls
         WHERE terminal_id = ?
           AND status IN ('pending', 'claimed')
+          {exclusion_sql}
         """,
-        (terminal_id,),
+        tuple(params),
     )
     rows = await cursor.fetchall()
     control_ids = [str(row["id"] or "") for row in rows if str(row["id"] or "")]
@@ -5529,6 +5553,25 @@ async def _fail_pending_terminal_controls(db, terminal_id: str, *, handled_at: s
 
 
 async def _reconcile_ended_terminal_controls(db, *, limit: int = 500) -> int:
+    """Fail controls nobody will ever run, so a caller is not left waiting on a dead terminal.
+
+    A `stop` is EXEMPT (review finding on `35cc646`, a regression). `stop_agent_worker` marks the
+    terminal `'stopping'` — correct, the host has not acknowledged — and queues the stop control in
+    the SAME transaction. `'stopping'` is not in the active set below, and this sweep runs on a timer
+    while the bridge polls every ~3s, so whenever the sweep won the race it cancelled the very stop
+    that was supposed to kill the process. The PTY then survived a "successful" Stop worker, and
+    900s later the stuck-stopping reaper wrote `'stopped'` over it — a row asserting a death that
+    never happened. Strictly worse than the state lie it replaced, because the process lived.
+
+    The pre-existing VIRTUAL path had the same exposure for a different reason: it marks `'stopped'`
+    and queues its stop together, and `'stopped'` is not in the active set either. So the fix is not
+    "add 'stopping' to the set" — it is that a stop must never be cancelled on liveness grounds.
+    Killing a process is idempotent and stays desirable on a dead-looking row; server.js carries an
+    orphan-pid fallback for exactly the case where no bridge owns the PTY in memory any more.
+
+    Everything else still fails fast, which is the whole point of this reconcile — keystrokes into a
+    console that is gone cannot be honoured, and the caller should learn that instead of hanging.
+    """
     cursor = await db.execute(
         """
         SELECT DISTINCT terminal.id
@@ -5536,6 +5579,7 @@ async def _reconcile_ended_terminal_controls(db, *, limit: int = 500) -> int:
         JOIN terminal_controls control ON control.terminal_id = terminal.id
         WHERE terminal.status NOT IN ('starting', 'attached', 'running', 'active', 'idle')
           AND control.status IN ('pending', 'claimed')
+          AND LOWER(COALESCE(control.action, '')) != 'stop'
         LIMIT ?
         """,
         (max(1, int(limit or 500)),),
@@ -5548,6 +5592,7 @@ async def _reconcile_ended_terminal_controls(db, *, limit: int = 500) -> int:
             str(row["id"] or ""),
             handled_at=now,
             response_text="terminal is not active",
+            exclude_actions=("stop",),
         )
     return total
 
@@ -14082,11 +14127,43 @@ async def post_agent_console_input(agent_id: str, req: AgentConsoleInputRequest,
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast("terminal_control_requested", {"terminalId": terminal["id"], "action": "input"})
+        # HONESTY (C8, 2026-07-26). `ok` here means the control was QUEUED — nothing more. It was
+        # being read as "the input landed and the runtime acted on it", and that is not a claim this
+        # endpoint can make: an operator's sc-manager issued two text writes and three bare-Enter
+        # retries against a stuck managed-claude draft, ALL of which reached status='completed' with
+        # handled_at set, while the draft never submitted. A completed control proves only that the
+        # bridge wrote the bytes to the PTY; whether the TUI consumed them as a keypress is
+        # unobservable from here. The tool lied to an AGENT, which then burned ~15 minutes of
+        # critical path retrying a lever that could not work.
+        #
+        # Deliberately NOT verified here. Two reasons, and the second is why there is no byte-diff
+        # affordance either:
+        #   * confirming would mean waiting for the bridge's poll cycle inside this handler, and the
+        #     service is single-worker by hard constraint (_LIVE_STATE_CACHE) — a blocking wait would
+        #     stall every other request;
+        #   * a tail diff CANNOT prove submission (review finding on `35cc646`). A managed claude
+        #     repaints its spinner and footer continuously, so the console output changes constantly
+        #     whether or not the keystroke was consumed. An earlier cut of this returned
+        #     `consoleBytesBefore` for the caller to diff; that was a misleading affordance dressed
+        #     as evidence, so it is gone rather than documented.
+        # What is left is the honest shape: say it is queued, say submission is unknown, and point at
+        # the only thing that actually settles it — a human or agent READING the console and judging
+        # whether the draft is still sitting at the prompt.
         return {
             "ok": True,
             "live": True,
             "terminalId": terminal["id"],
             "controlId": control_id,
+            "queued": True,
+            # Tri-state on purpose: not False (no failure was observed) and not True (no submit was
+            # observed). Unknown is the only defensible value, and it is not knowable from here.
+            "submitted": None,
+            "note": (
+                "QUEUED, not confirmed. A completed control proves only that the bytes were "
+                "written to the PTY — not that the runtime acted on them. Nothing this endpoint "
+                "returns can confirm a submit; read the console with comms_console_tail and judge "
+                "whether the draft is still at the prompt."
+            ),
         }
     finally:
         await db.close()
