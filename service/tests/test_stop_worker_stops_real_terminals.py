@@ -100,12 +100,20 @@ class StopWorkerStopsRealTerminalsTests(FastApiTestCase):
             f"got {controls}",
         )
 
-    def test_real_terminal_row_is_marked_stopped(self):
+    def test_real_terminal_row_is_marked_STOPPING_not_stopped(self):
+        """TRANSITIONAL, not terminal (review 2026-07-26). The stop is only QUEUED here — the host
+        has not acknowledged it — so writing 'stopped' asserts a process death that has not
+        happened, which is the same "state that lies" defect this release exists to remove. The
+        shared session-control path already uses 'stopping' (api_v2.py:12407), and a wedged
+        'stopping' row is caught by the STUCK_STOPPING_GRACE_SECONDS reaper."""
         self._register("sw-mark")
         self._seed_terminal("term_real_2", "sw-mark", status="running")
         self._stop("sw-mark")
         rows = self._rows("SELECT status FROM terminal_sessions WHERE id = ?", ("term_real_2",))
-        self.assertEqual(rows[0]["status"], "stopped")
+        self.assertEqual(
+            rows[0]["status"], "stopping",
+            "the row must reflect a queued stop, not an unconfirmed process death",
+        )
 
     def test_every_live_terminal_for_the_agent_is_stopped(self):
         """A leaked second PTY must not survive the stop — that is how orphans accumulate."""

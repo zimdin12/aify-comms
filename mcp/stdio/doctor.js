@@ -282,8 +282,11 @@ function envLastSeenMs(env) {
 function envIsOnline(env) {
   if (!ENV_CONNECTED_STATES.has(String(env?.status || "").trim().toLowerCase())) return false;
   const seen = envLastSeenMs(env);
-  // Unparseable lastSeen → trust the served status (do not invent a failure).
-  if (Number.isNaN(seen)) return true;
+  // Unparseable or MISSING lastSeen → NOT connected. An earlier version trusted the served status
+  // here "rather than invent a failure", but this check exists to fail loudly: a row we cannot date
+  // is a row we cannot prove is alive, and every false green in this file so far came from treating
+  // unprovable as fine. The detail line names the row so the cause is obvious.
+  if (Number.isNaN(seen)) return false;
   // A FUTURE lastSeen must NOT pass (review R3, 2026-07-26): `Date.now() - seen` goes negative and
   // trivially satisfies the bound, so a clock-skewed or bogus stamp would green a dead bridge — the
   // very false green this check exists to catch. Require a non-negative age.
