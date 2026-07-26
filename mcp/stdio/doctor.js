@@ -28,6 +28,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { checkOpenAiUsageAccess } from "./usage-collector.js";
+// Pure env predicates live in their own module so they can be unit-tested — this script runs its
+// checks at import and ends in process.exit(), so nothing here is importable by a test. See
+// doctor-predicates.js for why (two shipped false greens, zero coverage).
+import {
+  describeEnv,
+  envIsOnline,
+  envStateIsUnknown,
+} from "./doctor-predicates.js";
 
 const args = process.argv.slice(2);
 const asJson = args.includes("--json");
@@ -255,55 +263,6 @@ function checkRuntimes() {
 // (First cut of this fix keyed on an INVENTED set {online,connected,ready,active}: three values
 // the service never emits, while omitting the real `degraded` — which would have reported a live
 // degraded bridge as "none online", a false RED. Verified against api_v2.py before rewriting.)
-// ONLINE ONLY — matched to the SPAWN PICKER, which is the thing this check claims to prove.
-// `api_v2.py` (env selection for a cold start) does `if status.lower() != "online": continue`, so a
-// `degraded` environment CANNOT host a managed spawn. An earlier version of this check counted
-// degraded as connected, which let doctor read green while no spawn could actually run — the same
-// false-green class, one layer along (review R3b). Note the codebase has a THIRD, looser notion:
-// the reachability test in api_v2 accepts {online, degraded} when deciding whether an agent is
-// merely reachable. That is a different question and is deliberately left alone; "can host a new
-// spawn" is the one this check is about.
-const ENV_CONNECTED_STATES = new Set(["online"]);
-const ENV_KNOWN_STATES = new Set(["online", "degraded", "offline", "forgotten", "disabled"]);
-// Independent staleness bound. The server derives liveness from `last_seen`, and a bug there is
-// exactly how a dead bridge got reported as live twice now (first the row-count check, then
-// `degraded` never ageing out because the staleness test was gated on status == "online"). A
-// verifier whose whole job is to fail loudly must not depend solely on the value under test — so
-// doctor ALSO ages the row itself. Generous vs `environment_offline_seconds` (90s default): this is
-// a backstop against a broken derivation, not a second opinion on normal jitter.
-const ENV_STALE_AFTER_MS = 10 * 60 * 1000;
-
-function envLastSeenMs(env) {
-  const raw = String(env?.lastSeen || "").trim();
-  if (!raw) return NaN;
-  return Date.parse(raw.endsWith("Z") || raw.includes("+") ? raw : `${raw}Z`);
-}
-
-function envIsOnline(env) {
-  if (!ENV_CONNECTED_STATES.has(String(env?.status || "").trim().toLowerCase())) return false;
-  const seen = envLastSeenMs(env);
-  // Unparseable or MISSING lastSeen → NOT connected. An earlier version trusted the served status
-  // here "rather than invent a failure", but this check exists to fail loudly: a row we cannot date
-  // is a row we cannot prove is alive, and every false green in this file so far came from treating
-  // unprovable as fine. The detail line names the row so the cause is obvious.
-  if (Number.isNaN(seen)) return false;
-  // A FUTURE lastSeen must NOT pass (review R3, 2026-07-26): `Date.now() - seen` goes negative and
-  // trivially satisfies the bound, so a clock-skewed or bogus stamp would green a dead bridge — the
-  // very false green this check exists to catch. Require a non-negative age.
-  const age = Date.now() - seen;
-  return age >= 0 && age <= ENV_STALE_AFTER_MS;
-}
-
-function envStateIsUnknown(env) {
-  return !ENV_KNOWN_STATES.has(String(env?.status || "").trim().toLowerCase());
-}
-
-function describeEnv(env) {
-  const seen = String(env?.lastSeen || "").trim();
-  const state = String(env?.status || "unknown").trim().toLowerCase() || "unknown";
-  return `${env?.id || "(unnamed)"} [${state}${seen ? `, last seen ${seen}` : ""}]`;
-}
-
 async function checkEnvBridge() {
   const envs = await get("/api/v1/environments");
   if (!envs) return skip("env-bridge", "service unreachable");

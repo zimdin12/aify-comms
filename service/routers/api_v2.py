@@ -399,6 +399,27 @@ LIVE_SESSION_STATUSES = {
     "starting",
     "recovering",
 }
+# ENDED `agent_sessions.status` values — the complement of LIVE_SESSION_STATUSES that
+# `_current_agent_session_row` filters on (R2c, 2026-07-26). A session in one of these is over and
+# can never become live again, so it must never answer "what is this agent's CURRENT session".
+#
+# Deliberately its OWN set even though the members coincide with two neighbours today, because a
+# set's name encodes its purpose and these are read by unrelated call sites:
+#   * `_SESSION_DELETE_ALLOWED_STATUSES` is a DELETION allowlist (reusing it as a filter once broke
+#     comms_restart / comms_compact — see the c2f0e38 round);
+#   * `_TERMINAL_DEAD_STATUSES` is about `terminal_sessions.status`, a different table.
+# NOT the same thing as the TRANSITIONAL statuses `restarting` / `cli-takeover`, which are neither
+# live nor ended and must keep resolving as current so a restart can find its own session.
+ENDED_AGENT_SESSION_STATUSES = {
+    "ended",
+    "completed",
+    "cancelled",
+    "stopped",
+    "failed",
+    "lost",
+}
+_ENDED_AGENT_SESSION_STATUS_PARAMS = tuple(sorted(ENDED_AGENT_SESSION_STATUSES))
+_ENDED_AGENT_SESSION_STATUS_PLACEHOLDERS = ", ".join("?" * len(_ENDED_AGENT_SESSION_STATUS_PARAMS))
 # Terminal-session (terminal_sessions.status) end states: a managed session's
 # backing console/worker is DEAD when its owning terminal row is in this set (or
 # the terminal row is absent). Used by the new deriver + the dead-session
@@ -4227,19 +4248,29 @@ async def _current_agent_session_row(db, agent_id: str):
     # fresh actively-running row over a merely-attached one), not as a membership
     # test — so its narrower CASE list is intentionally a priority hint, kept
     # stable to avoid reordering which session a relaunch picks.
+    #
+    # R2c (2026-07-26): the WHERE used to exclude only ('ended','completed','cancelled') while the
+    # docstring above already claimed the full complement — so `stopped`/`failed`/`lost` passed.
+    # That was not a comment nit. The CASE promotes only FOUR statuses, so the live statuses
+    # `attached`/`active`/`idle`/`starting` share tier 1 with the dead ones and LOSE the
+    # `last_seen DESC` tiebreak to a fresher corpse: this picker answered "the agent's CURRENT
+    # session" with a dead row. Downstream that made `_has_live_worker_for` report no live worker
+    # for an agent with a live console, pointed both idle-reply closers at the wrong terminal_id,
+    # and broke the terminal-close requeue compare. Same shadowing class as c2f0e38.
+    # The WHERE is now the documented complement; the ORDER BY is untouched on purpose.
     cursor = await db.execute(
-        """
+        f"""
         SELECT *
         FROM agent_sessions
         WHERE agent_id = ?
-          AND status NOT IN ('ended', 'completed', 'cancelled')
+          AND status NOT IN ({_ENDED_AGENT_SESSION_STATUS_PLACEHOLDERS})
         ORDER BY
           CASE WHEN status IN ('running', 'recovering', 'restarting', 'cli-takeover') THEN 0 ELSE 1 END,
           last_seen DESC,
           started_at DESC
         LIMIT 1
         """,
-        (agent_id,),
+        (agent_id, *_ENDED_AGENT_SESSION_STATUS_PARAMS),
     )
     return await cursor.fetchone()
 
