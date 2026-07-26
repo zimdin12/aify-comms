@@ -20497,27 +20497,29 @@ def _contract_reminder_body(row, *, full: bool = True) -> str:
         if message_id
         else f'comms_run_status(runId="{row["id"]}")'
     )
-    # BODY PLACEHOLDER: describe the body in prose AFTER the call, never as a literal argument.
-    # It used to render as body="<answer, blocker, or result>" inside the snippet, which an agent
-    # can copy verbatim — and several did, sending the placeholder as the answer. A snippet an
-    # agent is meant to run must not contain a token that is valid-looking but wrong.
-    _body_note = ' — put your answer, blocker, or result in body.'
-    # FALLBACK ANCHOR (fixed 2026-07-26): the no-message_id branch used to drop BOTH inReplyTo and
-    # subject, so the agent was told "reply" with nothing to reply TO. That branch is not an edge
-    # case: every DASHBOARD-originated run (Restart/Stop/Start and other control actions) has no
-    # message row, so it is exactly the path an operator-driven contract takes. Observed live on
-    # run_1785016147732_61a46d43 ("Restart mc-senior-dev"): four reminders, each offering an
-    # unanchored comms_send, then the run failed stranded at 45 min. Without an anchor the reply
-    # cannot be threaded, so it can only be matched by the weaker unthreaded fallback — and the
-    # run keeps nagging until it is failed. Give the run id and the subject in both branches.
+    # The snippet MUST be a valid comms_send call: `body` is a REQUIRED zod field
+    # (mcp/stdio/server.js:4472 `body: z.string()`), so it cannot be omitted. An earlier attempt
+    # here moved the body out of the call and described it in prose — that produced a snippet an
+    # agent could not run at all, which is strictly worse than a conventional placeholder. Keep the
+    # placeholder inside the call.
+    #
+    # NO subject-based matching claim. `_link_reply_message_to_dispatch_run` matches on
+    # `WHERE target_agent = ? AND message_id = ?` keyed on the reply's inReplyTo — it never reads
+    # the subject. A previous version of this text told the agent "the subject matches it to the
+    # run", which is simply false; do not re-add any variant of it.
+    #
+    # HONEST LIMIT for a run with no source message: every DASHBOARD-originated run
+    # (Restart/Stop/Start) has no message row, so there is no id to thread to and the reply CANNOT
+    # be linked by the matcher. Such a run is closed by the reconcile completed-without-reply path,
+    # not by threading. Say so plainly rather than implying an anchor exists.
     reply_hint = (
         f'comms_send(from="{target}", to="{sender}", type="response", inReplyTo="{message_id}", '
-        f'subject="Re: {subject}"){_body_note}'
+        f'subject="Re: {subject}", body="<answer, blocker, or result>")'
         if message_id and sender
         else (
             f'comms_send(from="{target}", to="{sender or "dashboard"}", type="response", '
-            f'subject="Re: {subject}"){_body_note} '
-            f'No source message to thread to — the subject matches it to the run.'
+            f'subject="Re: {subject}", body="<answer, blocker, or result>") '
+            f'(operator-initiated — no source message to thread to)'
         )
     )
     if not full:
