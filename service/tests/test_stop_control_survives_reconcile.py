@@ -172,6 +172,123 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
 
         self.assertEqual(asyncio.run(_run())["status"], "failed")
 
+    # --- bridge restart: the stop must REACH the new bridge, not be cancelled --------------
+
+    def _seed_env(self, env_id, bridge_id, status="online"):
+        async def _run():
+            db = await get_db()
+            try:
+                await db.execute(
+                    "INSERT OR REPLACE INTO environments (id, status, bridge_id, registered_at, last_seen) "
+                    "VALUES (?,?,?,?,?)",
+                    (env_id, status, bridge_id, api_v2._now(), api_v2._now()),
+                )
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+
+    def _run_db_reconcile_and_read(self, control_id):
+        from service import db as db_module
+
+        async def _run():
+            db = await get_db()
+            try:
+                await db_module._reconcile_terminal_controls(db)
+                await db.commit()
+                row = await (await db.execute(
+                    "SELECT status, bridge_id, error FROM terminal_controls WHERE id = ?",
+                    (control_id,),
+                )).fetchone()
+                return dict(row)
+            finally:
+                await db.close()
+
+        return asyncio.run(_run())
+
+    def test_a_stop_is_RETARGETED_when_the_owning_bridge_restarted(self):
+        """THE COMPOSED DEFECT the reviewer identified, and its root cause.
+
+        `server.js` carries an orphan-pid fallback for precisely "the owning bridge restarted/died
+        and orphaned a still-live console" — it kills the persisted PTY root by pid when the stop
+        arrives at a bridge that never owned the terminal in memory. That fallback could NEVER RUN,
+        because the env-currency sweep fails the control the moment `bridge_id` stops matching a
+        current online environment. So the machinery built for bridge restart was unreachable in the
+        exact scenario it names, the PTY survived, and — since stop_agent_worker writes the session
+        `'ended'` — Start was then free to spawn a SECOND worker for the same agent.
+
+        Re-target instead of cancel: a live bridge on that environment is machine-local and CAN reap
+        the orphan. This is also why the fix is not a Start gate — a gate would only hide the
+        duplicate, and a too-strict Start gate is what made the whole ef- team unstartable."""
+        self._seed("term_restart", terminal_status="stopping", action="stop")
+        self._seed_env("env-1", "bridge-NEW", status="online")
+        row = self._run_db_reconcile_and_read("ctl-term_restart-stop")
+        self.assertEqual(row["status"], "pending", f"the stop must stay actionable; got {row}")
+        self.assertEqual(
+            row["bridge_id"], "bridge-NEW",
+            "the stop must be re-pointed at the environment's CURRENT bridge so the orphan-pid "
+            f"fallback can reach it; got {row}",
+        )
+
+    def test_a_stop_IS_failed_when_the_environment_has_no_live_bridge(self):
+        """The bound on accumulation. If nothing can act on it, cancelling is correct — otherwise a
+        control for a dead environment would sit pending forever."""
+        self._seed("term_noenv", terminal_status="stopping", action="stop")
+        self._seed_env("env-1", "bridge-OLD", status="offline")
+        row = self._run_db_reconcile_and_read("ctl-term_noenv-stop")
+        self.assertEqual(row["status"], "failed",
+                         f"an unreachable stop must not accumulate; got {row}")
+
+    def test_a_non_stop_control_is_still_failed_on_bridge_mismatch(self):
+        """Re-targeting is stop-only. Replaying a keystroke at a different bridge would inject it
+        into whatever that bridge now owns — the exemption must not widen."""
+        self._seed("term_mismatch_input", terminal_status="attached", action="input")
+        self._seed_env("env-1", "bridge-NEW", status="online")
+        row = self._run_db_reconcile_and_read("ctl-term_mismatch_input-input")
+        self.assertEqual(row["status"], "failed", f"got {row}")
+
+    def test_start_never_ADOPTS_a_stopping_terminal(self):
+        """The invariant the Start-before-ack concern rests on. `_active_terminal_for_agent`'s query
+        carries NO status filter — it takes the newest session's terminal — and the guard lives in
+        the Python that follows it. If that guard ever widened, Start would reuse a terminal the
+        operator had just asked to die, which is far worse than briefly running two: the new worker
+        would inherit a PTY being killed underneath it. Pinned here because the SQL alone does not
+        express it."""
+        async def _run():
+            db = await get_db()
+            try:
+                await db.execute("PRAGMA foreign_keys=OFF")
+                await db.execute(
+                    """
+                    INSERT INTO terminal_sessions
+                        (id, session_id, agent_id, environment_id, bridge_id, runtime, status,
+                         created_at, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?)
+                    """,
+                    ("term_adopt", "sess_adopt", "adopt-agent", "env-1", "bridge-1", "claude-code",
+                     "stopping", api_v2._now(), api_v2._now()),
+                )
+                await db.execute(
+                    """
+                    INSERT INTO agent_sessions
+                        (id, agent_id, environment_id, runtime, mode, status, started_at, last_seen,
+                         terminal_id, terminal_status)
+                    VALUES (?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    ("sess_adopt", "adopt-agent", "env-1", "claude-code", "managed", "running",
+                     api_v2._now(), api_v2._now(), "term_adopt", "stopping"),
+                )
+                await db.commit()
+                return await api_v2._active_terminal_for_agent(db, "adopt-agent")
+            finally:
+                await db.close()
+
+        self.assertIsNone(
+            asyncio.run(_run()),
+            "a 'stopping' terminal must never be offered up as an agent's active console",
+        )
+
     # --- what must KEEP working -----------------------------------------------------------
 
     def test_input_on_a_dead_terminal_is_still_failed(self):

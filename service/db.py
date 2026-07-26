@@ -746,6 +746,53 @@ async def _reconcile_terminal_controls(db: aiosqlite.Connection):
         """,
         (now,),
     )
+    # A pending `stop` whose owning bridge restarted is RE-TARGETED at the environment's current
+    # bridge instead of being cancelled. This closes the composed defect a reviewer identified on
+    # `9747dda`, and the root cause is that it made existing machinery unreachable:
+    #
+    #   server.js carries an orphan-pid fallback for precisely "the owning bridge restarted/died and
+    #   orphaned a still-live console" — it kills the persisted PTY root BY PID when a stop arrives
+    #   at a bridge that never owned the terminal in memory. That fallback could never run, because
+    #   this sweep failed the control the moment `bridge_id` stopped matching a current online
+    #   environment. So the code written for bridge restart was dead in the exact scenario it names.
+    #
+    # Consequence when it fired: the PTY survived, and because stop_agent_worker writes the session
+    # 'ended', Start was then free to spawn a SECOND worker for the same agent — the instance-leak
+    # class this repo has been bitten by before. Re-targeting is the root fix; a Start gate would
+    # only hide the duplicate, and a too-strict Start gate is what made the whole ef- team
+    # unstartable in v0.1.
+    #
+    # Safe because a bridge on that environment is machine-local, so it can reap a local orphan, and
+    # server.js still guards the pid (`orphanPidReapAllowed` refuses when the cmdline positively
+    # names a DIFFERENT agent, and pidIsSelfProtected blocks bridge/shell/init).
+    #
+    # STOP-ONLY on purpose: replaying a queued keystroke at a different bridge would inject it into
+    # whatever that bridge now owns. Only an idempotent kill may be re-pointed.
+    await db.execute(
+        """
+        UPDATE terminal_controls
+        SET bridge_id = (
+                SELECT COALESCE(environments.bridge_id, '')
+                FROM environments
+                WHERE environments.id = terminal_controls.environment_id
+                  AND environments.status = 'online'
+                LIMIT 1
+            )
+        WHERE status IN ('pending', 'claimed')
+          AND LOWER(COALESCE(action, '')) = 'stop'
+          AND EXISTS (
+              SELECT 1 FROM environments
+              WHERE environments.id = terminal_controls.environment_id
+                AND environments.status = 'online'
+                AND COALESCE(environments.bridge_id, '') != COALESCE(terminal_controls.bridge_id, '')
+                AND COALESCE(environments.bridge_id, '') != ''
+          )
+        """
+    )
+    # Everything still unreachable is failed, stop included — that is the bound on accumulation. A
+    # stop whose environment has no ONLINE bridge at all cannot be delivered by anyone, so leaving it
+    # pending forever would just grow the table. The re-target above has already rescued the cases
+    # that a live bridge could still act on.
     await db.execute(
         """
         UPDATE terminal_controls
