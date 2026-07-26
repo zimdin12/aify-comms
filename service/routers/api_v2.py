@@ -35,6 +35,8 @@ from service.terminal_snapshot import (
     feed_live_screen as _feed_live_terminal_screen,
     render_live_screen as _render_live_terminal_screen,
     resize_live_screen as _resize_live_terminal_screen,
+    TERMINAL_MAX_COLS,
+    TERMINAL_MAX_ROWS,
     drop_live_screen as _drop_live_terminal_screen,
 )
 from service.status_engine import apply_event, derive, StatusInputs, VALID_STATUSES
@@ -12275,8 +12277,11 @@ async def resize_terminal(terminal_id: str, req: TerminalControlRequest, request
         # bridge, even one running older code. 0 stays 0 (the bridge substitutes its own default).
         _cols = int(req.cols or 0)
         _rows = int(req.rows or 0)
-        _cols = 0 if _cols <= 0 else min(_cols, 2000)
-        _rows = 0 if _rows <= 0 else min(_rows, 1000)
+        # Clamp to what the RENDERER can represent (C1). These used to be 2000x1000 while the live
+        # screen clamped to 500x200, so a wider console got a snapshot at the wrong width — the
+        # garbling the snapshot exists to prevent. One max, owned by terminal_snapshot.
+        _cols = 0 if _cols <= 0 else min(_cols, TERMINAL_MAX_COLS)
+        _rows = 0 if _rows <= 0 else min(_rows, TERMINAL_MAX_ROWS)
         control_id = await _append_terminal_control(
             db,
             terminal_id=terminal_id,

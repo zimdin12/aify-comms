@@ -255,7 +255,15 @@ function checkRuntimes() {
 // (First cut of this fix keyed on an INVENTED set {online,connected,ready,active}: three values
 // the service never emits, while omitting the real `degraded` — which would have reported a live
 // degraded bridge as "none online", a false RED. Verified against api_v2.py before rewriting.)
-const ENV_CONNECTED_STATES = new Set(["online", "degraded"]);
+// ONLINE ONLY — matched to the SPAWN PICKER, which is the thing this check claims to prove.
+// `api_v2.py` (env selection for a cold start) does `if status.lower() != "online": continue`, so a
+// `degraded` environment CANNOT host a managed spawn. An earlier version of this check counted
+// degraded as connected, which let doctor read green while no spawn could actually run — the same
+// false-green class, one layer along (review R3b). Note the codebase has a THIRD, looser notion:
+// the reachability test in api_v2 accepts {online, degraded} when deciding whether an agent is
+// merely reachable. That is a different question and is deliberately left alone; "can host a new
+// spawn" is the one this check is about.
+const ENV_CONNECTED_STATES = new Set(["online"]);
 const ENV_KNOWN_STATES = new Set(["online", "degraded", "offline", "forgotten", "disabled"]);
 // Independent staleness bound. The server derives liveness from `last_seen`, and a bug there is
 // exactly how a dead bridge got reported as live twice now (first the row-count check, then
@@ -307,7 +315,7 @@ async function checkEnvBridge() {
   }
   const unknown = list.filter(envStateIsUnknown);
   const detail = `${online.length} online: ${online.map((e) => e.id).join(", ")}`
-    + (offline.length ? ` (${offline.length} registered but not connected: ${offline.map(describeEnv).join(", ")})` : "")
+    + (offline.length ? ` (${offline.length} registered but cannot host a spawn: ${offline.map(describeEnv).join(", ")})` : "")
     + (unknown.length ? ` — WARNING: unrecognised status on ${unknown.map(describeEnv).join(", ")}; doctor's state vocabulary may be stale` : "");
   add("env-bridge", true, "ok", detail);
 }

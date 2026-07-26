@@ -58,8 +58,25 @@ class TerminalResizeClampTests(FastApiTestCase):
         self._seed_terminal()
         r = self._resize("term-1", 131072, 1)
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(self._control_dims("term-1"), (2000, 1),
-                         "cols capped at 2000, rows floored kept (1 is > 0 so passes through)")
+        # Read the SHARED ceiling rather than hardcoding a number (C1, 2026-07-26). This test
+        # pinned 2000 while the renderer clamped to 500, which is exactly how the two drifted
+        # apart and let a >500-column console be rendered at the wrong width. The renderer owns
+        # the max; this asserts the endpoint agrees with it.
+        from service.terminal_snapshot import TERMINAL_MAX_COLS
+        self.assertEqual(self._control_dims("term-1"), (TERMINAL_MAX_COLS, 1),
+                         "cols capped at the shared renderer max, rows floored kept (1 > 0 passes through)")
+
+    def test_resize_clamp_matches_the_renderer_grid(self):
+        """The endpoint and the live-screen renderer must share ONE ceiling. If they diverge, a
+        console wider than the renderer's grid gets a snapshot at the wrong width — the garbling
+        the server-rendered snapshot exists to prevent."""
+        from service.terminal_snapshot import (
+            TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS, _clamp_grid,
+        )
+        self.assertEqual(_clamp_grid(99999, 99999), (TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS))
+        self._seed_terminal()
+        self._resize("term-1", 99999, 99999)
+        self.assertEqual(self._control_dims("term-1"), (TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS))
 
     def test_sane_winsize_passes_through(self):
         self._seed_terminal()

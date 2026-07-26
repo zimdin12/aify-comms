@@ -3,6 +3,7 @@ SQLite database layer for aify-comms v2.
 Single database file replaces all JSON file storage.
 """
 import json
+import time
 import aiosqlite
 from datetime import datetime, timezone
 from pathlib import Path
@@ -704,7 +705,12 @@ async def _backfill_native_managed_capability(db: aiosqlite.Connection):
 
 
 async def _reconcile_terminal_controls(db: aiosqlite.Connection):
-    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    # SAME format every other writer uses (api_v2._now()). isoformat() adds sub-second
+    # precision, so `...:00.123456Z` sorts BEFORE `...:00Z` in any lexical comparison — and this
+    # repo has already been bitten six times by exactly that (bughunt-round2-2026-07-03). Safe
+    # today because the only comparison is datetime(handled_at), but one future `handled_at >= ?`
+    # would be a silent bug. One shape, everywhere (C2).
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     await db.execute(
         """
         UPDATE terminal_controls
