@@ -268,6 +268,25 @@ export function matchConsolePrompt(rawTail = "", opts = {}) {
     if (answer != null) {
       return { name: "compaction-resume-full-session", match: COMPACTION_FLOW_RE, answer };
     }
+    // STRUCTURAL FALLBACK (2026-07-26). Policy is context-preserving — pick "Resume full session
+    // as-is" — and that stays the default above. But when the dialog does not OFFER that option at
+    // all, insisting on it means the agent sits on the menu forever: this branch owns the screen, so
+    // it returns null and no other rule may answer. That is the 2026-07-02 incident verbatim
+    // ("managed agents stalled at /compact while managers waited"), and a hang is worse than a
+    // compaction the operator did not choose.
+    //
+    // NOT a timeout — this matcher is a pure function of the tail and cannot count. It is a
+    // STRUCTURAL test: if "Resume full session" appears nowhere in the dialog, the preferred option
+    // does not exist and confirming the highlighted one is the only way forward. When the option IS
+    // present but simply unreadable (cursor lost mid-repaint), we still fall through to null and
+    // wait — that case is recoverable on the next frame and must not be guessed at.
+    if (!RESUME_FULL_RE.test(dialogView)) {
+      return {
+        name: "compaction-no-full-session-option",
+        match: COMPACTION_FLOW_RE,
+        answer: [ENTER],
+      };
+    }
     // It owns the screen and we could not answer it safely — stop here rather than fall through.
     // Any rule below would be typing keystrokes into THIS dialog against a cursor it did not read.
     return null;

@@ -17127,6 +17127,58 @@ async def stop_agent_worker(agent_id: str, request: Request):
                 terminal_payload = _terminal_session_to_dict(row)
             runtime_state.pop("virtualTerminal", None)
             runtime_state.pop("virtualTerminalId", None)
+        # REAL terminals too (R2, 2026-07-26). The block above only ever stopped
+        # runtime_state.virtualTerminalId — Pi's synthesized RPC terminal — so for every
+        # wrapper-backed runtime (claude-aify / hermes-aify / codex-aify PTYs) this endpoint
+        # tore down DB state and reported success while the actual process kept running. The
+        # operator's "Stop worker" button therefore lied on a destructive action.
+        #
+        # No new machinery: the same `_append_terminal_control(action="stop")` the virtual path
+        # uses is what session-control already relies on, and host-side TERMINAL_MANAGER.stop
+        # escalates SIGTERM→SIGKILL. Only the target was wrong.
+        #
+        # `id NOT LIKE 'vterm_%'` skips the synthesized rows (handled above, and already marked
+        # stopped) so a virtual terminal is never double-stopped.
+        live_terminals = await (await db.execute(
+            """
+            SELECT * FROM terminal_sessions
+            WHERE agent_id = ?
+              AND id NOT LIKE 'vterm_%'
+              AND LOWER(COALESCE(status,'')) IN
+                  ('starting','attached','running','active','idle','recovering')
+            """,
+            (agent_id,),
+        )).fetchall()
+        for row in live_terminals:
+            real_terminal_id = str(row["id"] or "")
+            if not real_terminal_id:
+                continue
+            await _append_terminal_control(
+                db,
+                terminal_id=real_terminal_id,
+                environment_id=str(row["environment_id"] or ""),
+                bridge_id=str(row["bridge_id"] or ""),
+                action="stop",
+                requested_by=requested_by,
+            )
+            await db.execute(
+                """
+                UPDATE terminal_sessions
+                SET status = 'stopped',
+                    stopped_at = COALESCE(stopped_at, ?),
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (now, now, real_terminal_id),
+            )
+            await _append_terminal_event(
+                db,
+                real_terminal_id,
+                "agent_worker_stopped",
+                json.dumps({"agentId": agent_id, "requestedAt": now, "terminal": "real"}),
+            )
+            if terminal_payload is None:
+                terminal_payload = _terminal_session_to_dict(row)
         await db.execute(
             "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
             (json.dumps(runtime_state), now, agent_id),

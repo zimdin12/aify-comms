@@ -266,3 +266,49 @@ assert.equal(
 );
 
 console.log("claude-console-prompts compaction-confirm tests passed");
+
+// A1 STALL (2026-07-26, operator: context-preserving stays the DEFAULT). Policy is "Resume full
+// session as-is" and is unchanged when the dialog offers it. When the dialog does NOT offer it,
+// insisting meant this branch returned null while OWNING the screen — no other rule may answer it —
+// so the agent sat on the menu forever. That is the 2026-07-02 incident verbatim ("managed agents
+// stalled at /compact while managers waited"); a hang is worse than an unchosen compaction. The
+// fallback is STRUCTURAL, not a timeout: it fires only when "Resume full session" appears nowhere.
+const COMPACT_ONLY_SUMMARY =
+  "✻ Compacting conversation…\n" +
+  "Resuming the full session will consume a substantial portion of your usage limits.\n" +
+  "❯ 1. Resume from summary (recommended)\n" +
+  "Enter to confirm · Esc to cancel\n";
+const onlySummary = matchConsolePrompt(COMPACT_ONLY_SUMMARY);
+assert.equal(onlySummary?.name, "compaction-no-full-session-option",
+  "a dialog with no full-session option must be answered, not stalled on");
+assert.deepEqual(onlySummary?.answer, ["\r"], "confirm the highlighted option — it is the only one");
+
+// The DEFAULT is untouched: when full-session IS offered, navigate to it.
+const bothOptions = matchConsolePrompt(
+  "✻ Compacting conversation…\n" +
+  "Resuming the full session will consume a substantial portion of your usage limits.\n" +
+  "❯ 1. Resume from summary (recommended)\n" +
+  "  2. Resume full session as-is\n" +
+  "  3. Don't ask me again\n",
+);
+assert.equal(bothOptions?.name, "compaction-resume-full-session",
+  "context-preserving remains the default whenever the option exists");
+assert.deepEqual(bothOptions?.answer, ["\x1b[B", "\r"]);
+
+// The opt-out outranks the fallback — a disabled auto-confirm must still touch NOTHING.
+assert.equal(matchConsolePrompt(COMPACT_ONLY_SUMMARY, { autoConfirmCompaction: false }), null,
+  "autoConfirmCompaction:false must not be overridden by the no-option fallback");
+
+// UNREADABLE is not ABSENT: full-session present but no cursor to navigate from must still wait
+// (recoverable on the next frame), never guess.
+assert.equal(
+  matchConsolePrompt(
+    "✻ Compacting conversation…\n" +
+    "Resuming the full session will consume a substantial portion of your usage limits.\n" +
+    "  1. Resume from summary (recommended)\n  2. Resume full session as-is\n",
+  ),
+  null,
+  "no cursor = unreadable menu; the option exists so wait for a clean frame",
+);
+
+console.log("compaction no-full-session fallback: all assertions passed");
