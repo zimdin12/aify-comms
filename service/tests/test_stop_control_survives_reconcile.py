@@ -231,6 +231,86 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
             f"fallback can reach it; got {row}",
         )
 
+    def test_a_CLAIMED_stop_is_released_back_to_pending_when_its_bridge_restarted(self):
+        """REVIEW FIND on `530ee71` — a real defect in my own re-target fix.
+
+        The re-target rewrote `bridge_id` for `status IN ('pending','claimed')`, but a bridge only
+        ever claims PENDING work: `api_v2.py:12675` is
+        `SET status='claimed' ... WHERE id = ? AND status = 'pending'`. So a stop the OLD bridge had
+        already claimed kept `status='claimed'`, was re-pointed at the new bridge, and the new bridge
+        never touched it — stranded forever. Re-targeting without releasing the claim is a no-op for
+        exactly the controls most likely to exist when a bridge dies mid-stop.
+
+        A claim held by a bridge that no longer exists is not a claim. Release it."""
+        self._seed("term_claimed_restart", terminal_status="stopping", action="stop",
+                   control_status="claimed")
+
+        async def _stamp_claimed_at():
+            db = await get_db()
+            try:
+                await db.execute(
+                    "UPDATE terminal_controls SET claimed_at = ? WHERE id = ?",
+                    (api_v2._now(), "ctl-term_claimed_restart-stop"),
+                )
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_stamp_claimed_at())
+        self._seed_env("env-1", "bridge-NEW", status="online")
+
+        from service import db as db_module
+
+        async def _run():
+            db = await get_db()
+            try:
+                await db_module._reconcile_terminal_controls(db)
+                await db.commit()
+                row = await (await db.execute(
+                    "SELECT status, bridge_id, claimed_at FROM terminal_controls WHERE id = ?",
+                    ("ctl-term_claimed_restart-stop",),
+                )).fetchone()
+                return dict(row)
+            finally:
+                await db.close()
+
+        row = asyncio.run(_run())
+        self.assertEqual(row["bridge_id"], "bridge-NEW", f"must be re-pointed; got {row}")
+        self.assertEqual(
+            row["status"], "pending",
+            "a claim held by a bridge that no longer exists must be RELEASED, or the replacement "
+            f"bridge (which claims only 'pending') can never pick the stop up; got {row}",
+        )
+        self.assertFalse(
+            str(row["claimed_at"] or "").strip(),
+            f"the stale claim timestamp must be cleared with the claim; got {row}",
+        )
+
+    def test_a_CLAIMED_non_stop_control_is_NOT_released(self):
+        """Releasing is stop-only, same reasoning as re-targeting: re-running a keystroke that a
+        previous bridge may already have delivered would double-type it."""
+        self._seed("term_claimed_input", terminal_status="attached", action="input",
+                   control_status="claimed")
+        self._seed_env("env-1", "bridge-NEW", status="online")
+
+        from service import db as db_module
+
+        async def _run():
+            db = await get_db()
+            try:
+                await db_module._reconcile_terminal_controls(db)
+                await db.commit()
+                row = await (await db.execute(
+                    "SELECT status FROM terminal_controls WHERE id = ?",
+                    ("ctl-term_claimed_input-input",),
+                )).fetchone()
+                return dict(row)
+            finally:
+                await db.close()
+
+        self.assertNotEqual(asyncio.run(_run())["status"], "pending",
+                            "a claimed input must never be silently re-queued for replay")
+
     def test_a_stop_IS_failed_when_the_environment_has_no_live_bridge(self):
         """The bound on accumulation. If nothing can act on it, cancelling is correct — otherwise a
         control for a dead environment would sit pending forever."""

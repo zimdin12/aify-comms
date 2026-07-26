@@ -768,6 +768,17 @@ async def _reconcile_terminal_controls(db: aiosqlite.Connection):
     #
     # STOP-ONLY on purpose: replaying a queued keystroke at a different bridge would inject it into
     # whatever that bridge now owns. Only an idempotent kill may be re-pointed.
+    #
+    # The CLAIM MUST BE RELEASED TOO (review finding on `530ee71` — re-pointing alone was a no-op for
+    # the commonest case). A bridge only ever claims PENDING work: api_v2.py:12675 is
+    # `SET status='claimed' ... WHERE id = ? AND status = 'pending'`. So a stop the dying bridge had
+    # already claimed kept `status='claimed'`, got re-pointed at the new bridge, and the new bridge
+    # never looked at it — stranded forever, which is precisely the state most likely to exist when a
+    # bridge dies mid-stop. A claim held by a bridge that no longer exists is not a claim; drop it and
+    # clear `claimed_at` so the replacement can take the work.
+    #
+    # Releasing is stop-only for the same reason re-targeting is: re-queueing a keystroke the previous
+    # bridge may already have delivered would double-type it.
     await db.execute(
         """
         UPDATE terminal_controls
@@ -777,7 +788,9 @@ async def _reconcile_terminal_controls(db: aiosqlite.Connection):
                 WHERE environments.id = terminal_controls.environment_id
                   AND environments.status = 'online'
                 LIMIT 1
-            )
+            ),
+            status = 'pending',
+            claimed_at = NULL
         WHERE status IN ('pending', 'claimed')
           AND LOWER(COALESCE(action, '')) = 'stop'
           AND EXISTS (
