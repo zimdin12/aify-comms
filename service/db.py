@@ -5,7 +5,7 @@ Single database file replaces all JSON file storage.
 import json
 import time
 import aiosqlite
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SQLITE_BUSY_TIMEOUT_MS = 5000
@@ -704,6 +704,71 @@ async def _backfill_native_managed_capability(db: aiosqlite.Connection):
         )
 
 
+# ONE definition of "a bridge on this environment can still act on a queued control".
+#
+# N7 (reviewer finding, 2026-07-26): the sweeps below asked `environments.status = 'online'` while
+# api_v2's stop-request path asks
+#     _environment_effective_status(env_row, offline_seconds=max(30, setting)) in {"online","degraded"}
+# (`api_v2.py:12391-12405`, `bridge_can_claim`). Two halves of one feature, two different answers to
+# the same question, so a degraded environment's stop was left PENDING by the request path and then
+# FAILED by the sweep — the PTY survived, the session was already 'ended', and Start was free to
+# spawn a second worker. Same chain v0.1 fixed for a changed `bridge_id`, reached via `degraded`.
+#
+# So this mirrors the api_v2 derivation instead of inventing a third one:
+#   * `degraded` counts — eleven reachability gates in api_v2 accept it and
+#     `_ENVIRONMENT_HEARTBEAT_STATUSES` keeps it heartbeating; a degraded bridge is reduced-capability,
+#     not dead;
+#   * BOTH heartbeat statuses AGE. Raw `status='online'` never aged, so a silent online bridge kept
+#     its controls pending indefinitely while api_v2 already called that environment offline. Ageing
+#     is what preserves the accumulation bound once `degraded` is admitted.
+#   * `offline`/`forgotten`/`disabled` are DECISIONS, not observations, and are never revived here.
+#
+# Degenerate `last_seen` values are enumerated deliberately (the class that produced the future-
+# timestamp strands): an absent, empty, malformed or non-canonical stamp is NOT datable, so it TRUSTS
+# the stored status rather than inventing a failure — exactly what `_environment_effective_status`
+# does when `fromisoformat` raises. Comparison is on the canonical 19-char prefix, so both
+# `...:00Z` and a legacy `...:00.123456Z` compare correctly (C2: never compare mixed-width
+# timestamps lexically).
+_ENV_CANONICAL_TS_GLOB = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]"
+
+
+def _environment_actionable_sql() -> str:
+    """SQL fragment: the `environments` row in scope can still act. Binds ONE `?` (the cutoff)."""
+    return (
+        "environments.status IN ('online', 'degraded')\n"
+        "                AND (\n"
+        "                    environments.last_seen IS NULL\n"
+        "                    OR substr(environments.last_seen, 1, 19) NOT GLOB '" + _ENV_CANONICAL_TS_GLOB + "'\n"
+        "                    OR substr(environments.last_seen, 1, 19) >= substr(?, 1, 19)\n"
+        "                )"
+    )
+
+
+async def _environment_offline_cutoff(db: aiosqlite.Connection, now: str) -> str:
+    """The `last_seen` below which a heartbeat status ages to offline.
+
+    Reads `environment_offline_seconds` from settings rather than hardcoding the 90s default, so the
+    sweep cannot silently disagree with the operator's configuration — a knob that is honoured in one
+    place and ignored in another is its own defect class (see the container health-interval finding).
+    The `max(30, ...)` floor matches the api_v2 call sites.
+    """
+    seconds = 90
+    try:
+        row = await (
+            await db.execute("SELECT value FROM settings WHERE key = ?", ("environment_offline_seconds",))
+        ).fetchone()
+        if row and str(row[0] or "").strip():
+            seconds = int(float(str(row[0]).strip()))
+    except Exception:
+        seconds = 90
+    seconds = max(30, seconds)
+    try:
+        parsed = datetime.strptime(now, "%Y-%m-%dT%H:%M:%SZ")
+    except Exception:  # pragma: no cover - `now` is produced by strftime above
+        parsed = datetime.now(timezone.utc).replace(tzinfo=None)
+    return (parsed - timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 async def _reconcile_terminal_controls(db: aiosqlite.Connection):
     # SAME format every other writer uses (api_v2._now()). isoformat() adds sub-second
     # precision, so `...:00.123456Z` sorts BEFORE `...:00Z` in any lexical comparison — and this
@@ -779,14 +844,16 @@ async def _reconcile_terminal_controls(db: aiosqlite.Connection):
     #
     # Releasing is stop-only for the same reason re-targeting is: re-queueing a keystroke the previous
     # bridge may already have delivered would double-type it.
+    actionable = _environment_actionable_sql()
+    cutoff = await _environment_offline_cutoff(db, now)
     await db.execute(
-        """
+        f"""
         UPDATE terminal_controls
         SET bridge_id = (
                 SELECT COALESCE(environments.bridge_id, '')
                 FROM environments
                 WHERE environments.id = terminal_controls.environment_id
-                  AND environments.status = 'online'
+                  AND {actionable}
                 LIMIT 1
             ),
             status = 'pending',
@@ -796,18 +863,20 @@ async def _reconcile_terminal_controls(db: aiosqlite.Connection):
           AND EXISTS (
               SELECT 1 FROM environments
               WHERE environments.id = terminal_controls.environment_id
-                AND environments.status = 'online'
+                AND {actionable}
                 AND COALESCE(environments.bridge_id, '') != COALESCE(terminal_controls.bridge_id, '')
                 AND COALESCE(environments.bridge_id, '') != ''
           )
-        """
+        """,
+        (cutoff, cutoff),
     )
     # Everything still unreachable is failed, stop included — that is the bound on accumulation. A
-    # stop whose environment has no ONLINE bridge at all cannot be delivered by anyone, so leaving it
-    # pending forever would just grow the table. The re-target above has already rescued the cases
-    # that a live bridge could still act on.
+    # stop whose environment has no bridge that can ACT (see _environment_actionable_sql: online or
+    # degraded, and still heartbeating) cannot be delivered by anyone, so leaving it pending forever
+    # would just grow the table. The re-target above has already rescued the cases a live bridge
+    # could still reach.
     await db.execute(
-        """
+        f"""
         UPDATE terminal_controls
         SET status = 'failed',
             handled_at = COALESCE(handled_at, ?),
@@ -819,13 +888,17 @@ async def _reconcile_terminal_controls(db: aiosqlite.Connection):
               SELECT 1 FROM environments
               WHERE environments.id = terminal_controls.environment_id
                 AND COALESCE(environments.bridge_id, '') = COALESCE(terminal_controls.bridge_id, '')
-                AND environments.status = 'online'
+                AND {actionable}
           )
         """,
-        (now,),
+        (now, cutoff),
     )
+    # THE SAME RULE on the sibling table — same predicate, same error string. It gets the same
+    # definition of "can act", because the answer to "is this environment's bridge reachable?" must
+    # not depend on which table the control happens to live in. Fixing only `terminal_controls` would
+    # have recreated, on purpose, the same-rule-two-answers defect this change exists to remove.
     await db.execute(
-        """
+        f"""
         UPDATE environment_controls
         SET status = 'failed',
             handled_at = COALESCE(handled_at, ?),
@@ -837,10 +910,10 @@ async def _reconcile_terminal_controls(db: aiosqlite.Connection):
               SELECT 1 FROM environments
               WHERE environments.id = environment_controls.environment_id
                 AND COALESCE(environments.bridge_id, '') = COALESCE(environment_controls.bridge_id, '')
-                AND environments.status = 'online'
+                AND {actionable}
           )
         """,
-        (now,),
+        (now, cutoff),
     )
     await db.execute(
         """

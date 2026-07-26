@@ -1158,3 +1158,52 @@ they cannot drift apart again.
 Accumulation stays bounded: the env-currency sweep in `db.py` still fails controls whose
 environment/bridge is no longer current, stop included, so controls for a dead environment do not
 pile up forever.
+
+## 2026-07-26 — "This environment's bridge can act" has ONE definition, and it is the effective status
+
+**Decision:** the reconcile sweeps in `service/db.py` decide reachability with
+`_environment_actionable_sql()` — `status IN ('online','degraded')` **AND** `last_seen` fresh within
+`environment_offline_seconds` — which mirrors `api_v2._environment_effective_status(...) in
+{"online","degraded"}`. There is no second derivation.
+
+**Why (N7, reviewer finding).** The sweeps asked `environments.status = 'online'` while the stop-
+REQUEST path (`api_v2.py:12391-12405`, `bridge_can_claim`) asks for the *effective* status in
+`{online, degraded}`. Two halves of one feature, two answers to the same question. For a degraded
+environment the request path therefore left the stop **pending for its bridge** and the sweep then
+**failed** it — so the PTY was never killed, `stop_agent_worker` had already written the session
+`'ended'`, and Start was free to spawn a SECOND worker. That is the identical worker-duplication
+chain fixed in v0.1 for a changed `bridge_id`, reached instead through `degraded`.
+
+Reachability was **measured, not assumed**: `environments.status` holds only
+`{online, offline, forgotten}` on the live fleet and no bridge reports `degraded` — it arrives only
+from an explicit registration or status write. So this was latent-but-reachable. It is fixed because
+eleven reachability gates in `api_v2` accept `degraded` and the sweeps did not, and a disagreement
+that wide is reached eventually and silently.
+
+**Two divergences closed, not one.** Raw `status = 'online'` never *ages*, so a silent ONLINE bridge
+kept its controls pending indefinitely while `api_v2` already considered that environment offline.
+Ageing both heartbeat statuses is also what preserves the accumulation bound once `degraded` is
+admitted — otherwise a stop on a dead degraded bridge would sit pending forever.
+
+**Degenerate `last_seen` values TRUST the stored status.** Absent, empty, malformed or non-canonical
+stamps are not datable, so they do not age — exactly what `_environment_effective_status` does when
+`fromisoformat` raises (R3a's rule: do not invent a failure). Comparison is on the canonical 19-char
+prefix so `...:00Z` and a legacy `...:00.123456Z` compare correctly (C2: never compare mixed-width
+timestamps lexically).
+
+**The setting is read, not hardcoded.** `_environment_offline_cutoff` loads
+`environment_offline_seconds` from `settings` with the same `max(30, …)` floor as the api_v2 call
+sites. A threshold honoured in one place and ignored in another is its own defect class.
+
+**INVARIANT — the rule now has FOUR uses and they share one fragment:**
+- the stop re-target's `SET bridge_id = (SELECT …)` subquery,
+- the stop re-target's `EXISTS` guard,
+- the `terminal_controls` env-currency failure sweep,
+- the `environment_controls` env-currency failure sweep (same predicate, same error string, sibling
+  table).
+
+`environment_controls` was included deliberately: whether an environment's bridge is reachable must
+not depend on which table the control lives in. Fixing only `terminal_controls` would have recreated
+the same-rule-two-answers defect on purpose. `service/tests/test_stop_control_degraded_environment.py`
+enumerates the whole `ENV_KNOWN_STATES` domain — online/degraded actionable, offline/forgotten/disabled
+failed, stale-either-way failed, undatable trusted — so the set cannot be narrowed silently again.
