@@ -2,7 +2,7 @@
 // sibling modules and are imported here; app.js remains the orchestrator (render + actions +
 // the single delegated event handler + init) until later Phase-0 slices split those too.
 import { esc, relTime, tsMs } from './util.js';
-import { createTerminalInputPoster, createTerminalInputHandler, forceTerminalRepaint, waitForTerminalSize } from './terminal-input.mjs';
+import { createTerminalInputPoster, createTerminalInputHandler, forceTerminalRepaint, waitForTerminalSize, wheelInputSequence } from './terminal-input.mjs';
 import { STATUS_KINDS, resolveStatus, renderStatusChip } from './status.js';
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
 import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
@@ -1969,15 +1969,39 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
   // Wheel → arrow keys when a full-screen TUI owns the alternate screen buffer (claude/hermes Ink
   // UIs): a raw wheel does nothing inside the alt-screen, so translate it to cursor up/down so the
   // operator can scroll the agent's UI with the mouse like the old dashboard allowed.
+  //
+  // TWO FIXES, 2026-07-27, from an operator report of "I try to write and delete stuff in the
+  // dashboard terminal but I can't" — a composer full of scrambled escape-sequence fragments.
+  //
+  // 1. It POSTED DIRECTLY, bypassing `postTerminalInput`. The comment 70 lines above this one
+  //    explains exactly why that is wrong — "serialize requests: parallel fetches can otherwise
+  //    deliver consecutive keystroke chunks out of order" — and then this handler opened a second,
+  //    UNORDERED writer to the same PTY. A wheel gesture emits a burst of events, each firing its
+  //    own fetch, so wheel arrows and real keystrokes interleaved arbitrarily. Now routed through
+  //    the same serialized queue, so there is ONE ordered writer per console.
+  //
+  // 2. It fired on HOVER. `wheel` does not require focus, so merely scrolling the page with the
+  //    pointer over a console injected up to 5 synthetic arrow keypresses PER EVENT into that
+  //    agent's live PTY. Inside a composer, arrows move the cursor — so an operator scrolling to
+  //    read scattered their own subsequent typing across the draft, which is precisely the reported
+  //    symptom. Keystroke injection now requires the terminal to actually HAVE FOCUS, which is the
+  //    honest signal for "I intend to type here". Hover-scroll is navigation, not input.
+  //
+  // Deliberately NOT filtering what xterm emits from real keys/mouse — that is the raw-passthrough
+  // contract (`server.js`: "Raw passthrough: callers own newline semantics"). This only stops the
+  // dashboard SYNTHESISING input the operator never typed.
   const onWheel = (ev) => {
     try {
-      if (term.buffer?.active?.type !== 'alternate') return; // normal buffer scrolls natively
-      const lines = Math.min(5, Math.max(1, Math.round(Math.abs(ev.deltaY) / 40)));
-      const seq = (ev.deltaY > 0 ? '\x1b[B' : '\x1b[A').repeat(lines);
-      if (state.activeXterm?.canInput === false) return;
-      api(`/terminals/${encodeURIComponent(terminalId)}/input`, {
-        method: 'POST', body: JSON.stringify({ body: seq, requestedBy: 'dashboard' }),
-      }).catch(() => {});
+      // Focus gate: `document.activeElement` is xterm's hidden textarea when the terminal is
+      // focused. Without it, a wheel over an unfocused pane types into someone's draft.
+      const seq = wheelInputSequence({
+        bufferType: term.buffer?.active?.type,
+        canInput: state.activeXterm?.canInput !== false,
+        focused: !!(term.textarea && document.activeElement === term.textarea),
+        deltaY: ev.deltaY,
+      });
+      if (!seq) return; // let the page scroll; do not inject keystrokes
+      postTerminalInput(seq);
       ev.preventDefault();
     } catch { /* leave native behavior */ }
   };

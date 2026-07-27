@@ -174,6 +174,27 @@ function railItemHtml(item, selectedKey, drafts = {}, readOnly = false) {
 
 // Wake-vs-stored badge: a message that triggered a dispatch run "woke" the agent; otherwise
 // it was stored to the inbox. read/unread shown alongside.
+// A message sent without an explicit Subject gets one DERIVED from its own body:
+// `app.js` → chatSendMessage: `finalSubject = subject.trim() ? subject.trim() : body.slice(0, 80)`.
+// Rendering that above the body then prints the same words twice, which operators read as the hub
+// duplicating their messages (reported 2026-07-27 with a screenshot of two bubbles: one where the
+// bold line was the 80-char slice cut mid-word, one under 80 chars where subject === body exactly).
+//
+// Nothing is duplicated in storage — this is purely the echo of the derivation. So suppress the
+// heading when it carries no information the body does not already lead with, and keep it whenever
+// the operator (or an agent) actually typed a distinct subject.
+//
+// The derivation is a plain prefix, so `body.startsWith(subject)` recognises BOTH shapes: the exact
+// match and the 80-char truncation. Compared on trimmed text because the composer trims the subject
+// but not always the body.
+export function subjectIsEchoOfBody(subject, body) {
+  const s = String(subject == null ? '' : subject).trim();
+  if (!s) return false; // no subject to render anyway; caller's own guard handles it
+  const b = String(body == null ? '' : body).trim();
+  if (!b) return false; // a subject with an empty body is the ONLY thing worth showing
+  return b === s || b.startsWith(s);
+}
+
 export function messageHtml(m, identity = 'dashboard', isChannel = false) {
   const id = String(m.id || m.messageId || '');
   const runId = String(m.dispatchRunId || m.dispatch_run_id || m.runId || m.run_id || '');
@@ -204,7 +225,7 @@ export function messageHtml(m, identity = 'dashboard', isChannel = false) {
     <div class="chat-msg-head"><strong>${esc(m.from || 'unknown')}</strong>
       <span class="chat-msg-badges">${badges}${actions}</span>
     </div>
-    ${m.subject ? `<h4 class="chat-msg-subject">${esc(m.subject)}</h4>` : ''}
+    ${subjectIsEchoOfBody(m.subject, m.body || m.preview || '') ? '' : (m.subject ? `<h4 class="chat-msg-subject">${esc(m.subject)}</h4>` : '')}
     <p class="chat-msg-body">${esc(m.body || m.preview || '')}</p>
     <small class="chat-msg-time">${(() => { const t = relTime(m.timestamp || m.createdAt); return t ? esc(t) + ' ago' : ''; })()}</small>
   </article>`;

@@ -7,7 +7,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createChatController, dmMessages, chatConversationItems, deliveryToastFor, messageHtml, sortChronological } from "./chat.js";
+import { createChatController, dmMessages, chatConversationItems, deliveryToastFor, messageHtml, sortChronological, subjectIsEchoOfBody } from "./chat.js";
 
 test("sortChronological orders oldest→newest so the newest sits at the bottom (2026-07-06)", () => {
   // /messages/recent returns DESCENDING (newest first). The timeline must show ascending.
@@ -209,3 +209,56 @@ test("deliveryToastFor maps the send response to the truthful ladder", () => {
   assert.equal(deliveryToastFor({ ok: false, error: "offline" }, "x").tone, "error");
 });
 
+
+// ── subject echo (operator report 2026-07-27: "i see messages in duplicate manner") ──────────
+//
+// A message sent with an empty Subject field gets `subject = body.slice(0, 80)` (app.js
+// chatSendMessage). Rendering that heading above the body printed the same words twice, which reads
+// as the hub duplicating messages. Nothing is duplicated in storage — it is the derivation echoing.
+
+test("subjectIsEchoOfBody: exact match is an echo (body under 80 chars)", () => {
+  const body = "btw this is from another pc. answer me here";
+  assert.equal(subjectIsEchoOfBody(body, body), true);
+});
+
+test("subjectIsEchoOfBody: the 80-char derived slice is an echo", () => {
+  const body = "Hey look at this (I am trying to write and delete stuff in dashboard terminal.. but i cant.. weird)";
+  assert.ok(body.length > 80, "fixture must exceed the 80-char derivation to be meaningful");
+  assert.equal(subjectIsEchoOfBody(body.slice(0, 80), body), true);
+});
+
+test("subjectIsEchoOfBody: a genuinely typed subject is KEPT", () => {
+  assert.equal(subjectIsEchoOfBody("Console garbage", "The draft is full of escape fragments"), false);
+});
+
+test("subjectIsEchoOfBody: degenerate inputs never hide a real subject", () => {
+  // No subject → caller's own `m.subject ?` guard already handles it; report false, not true.
+  assert.equal(subjectIsEchoOfBody("", "some body"), false);
+  assert.equal(subjectIsEchoOfBody(null, "some body"), false);
+  assert.equal(subjectIsEchoOfBody(undefined, "some body"), false);
+  // A subject with NO body is the only thing worth rendering — must never be suppressed.
+  assert.equal(subjectIsEchoOfBody("Only a subject", ""), false);
+  assert.equal(subjectIsEchoOfBody("Only a subject", null), false);
+});
+
+test("subjectIsEchoOfBody: whitespace differences still count as an echo", () => {
+  assert.equal(subjectIsEchoOfBody("  hello world  ", "hello world"), true);
+});
+
+test("subjectIsEchoOfBody: a subject the body merely CONTAINS is not an echo", () => {
+  // Only a leading prefix is the derivation. A mid-body coincidence must keep the heading.
+  assert.equal(subjectIsEchoOfBody("deploy", "please deploy the hotfix"), false);
+});
+
+test("messageHtml omits the subject heading when it echoes the body", () => {
+  const body = "btw this is from another pc. answer me here";
+  const html = messageHtml({ id: "m1", from: "dashboard", subject: body, body });
+  assert.doesNotMatch(html, /chat-msg-subject/, "the echoed heading must not render");
+  assert.match(html, /chat-msg-body/, "the body still renders");
+});
+
+test("messageHtml keeps a distinct subject heading", () => {
+  const html = messageHtml({ id: "m2", from: "dashboard", subject: "Deploy done", body: "cb732c4 is live" });
+  assert.match(html, /chat-msg-subject/);
+  assert.match(html, /Deploy done/);
+});
