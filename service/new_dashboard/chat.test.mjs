@@ -262,3 +262,118 @@ test("messageHtml keeps a distinct subject heading", () => {
   assert.match(html, /chat-msg-subject/);
   assert.match(html, /Deploy done/);
 });
+
+// ── send(): queueing is EXPLICIT, and replying clears the peer's unread badge ──────────────────
+//
+// Both from operator reports, 2026-07-27:
+//   * "what does ordinary pressing enter do? it should steer / ordinary send, not queue. message was
+//     queued" — the old `#chat-queue` checkbox was sticky and hidden inside the collapsed Options
+//     disclosure, so one tick queued every later message silently. Removed; Queue is now the second
+//     half of the split Send button and passes an explicit flag.
+//   * "if i write to you then it should disappear" — the unread badge survived a reply.
+
+// `send()` toasts, and toast() reaches for document.createElement. Stub a DOM just deep enough.
+function withStubDocument(fn) {
+  const previous = globalThis.document;
+  // Exactly what ui.js toast() touches: className, setAttribute, textContent, classList,
+  // addEventListener, remove, plus host.children / firstElementChild for the stack cap.
+  const node = () => ({
+    className: "", textContent: "", innerHTML: "", style: {}, dataset: {},
+    children: [], firstElementChild: null, isConnected: true,
+    setAttribute() {}, removeAttribute() {},
+    appendChild() {}, remove() {}, addEventListener() {}, removeEventListener() {},
+    querySelector: () => null, querySelectorAll: () => [],
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+  });
+  globalThis.document = {
+    createElement: node, body: node(), getElementById: () => null,
+    querySelector: () => null, querySelectorAll: () => [],
+    addEventListener() {}, removeEventListener() {},
+  };
+  const prevRaf = globalThis.requestAnimationFrame;
+  if (typeof prevRaf !== "function") globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => {
+      globalThis.document = previous;
+      globalThis.requestAnimationFrame = prevRaf;
+    });
+}
+
+function sendHarness({ selected = "dm:peer" } = {}) {
+  const sent = [];
+  const readCalls = [];
+  const els = {
+    "chat-composer-body": { value: "hello there" },
+    "chat-subject": { value: "" },
+    "chat-expects-reply": { checked: false },
+    "chat-timeline": { innerHTML: "", scrollTop: 0, scrollHeight: 0, clientHeight: 0 },
+    "chat-rail-list": { innerHTML: "" },
+    "chat-conv-actions": { innerHTML: "" },
+    "chat-conv-title": { textContent: "" },
+    "chat-composer": { hidden: false },
+    "chat-msg-search": { hidden: true, value: "" },
+  };
+  const state = {
+    agents: [{ id: "peer", status: "online" }],
+    messages: [],
+    channels: [],
+    runs: [],
+    chat: { selected, identity: "dashboard", drafts: {}, replyTo: null, analytics: {}, view: "dm" },
+  };
+  const controller = createChatController({
+    state,
+    byId: (id) => els[id] || null,
+    sendMessage: async (payload) => { sent.push(payload); return { ok: true }; },
+    refresh: async () => {},
+    loadConversation: async () => {},
+    markConversationRead: async (agentId, opts) => { readCalls.push({ agentId, opts }); },
+    persistDrafts: () => {},
+  });
+  return { controller, sent, readCalls, els, state };
+}
+
+test("send() without arguments never queues — Enter and Send are ordinary sends", () => withStubDocument(async () => {
+    const h = sendHarness();
+    await h.controller.send();
+    assert.equal(h.sent.length, 1);
+    assert.equal(h.sent[0].queueIfBusy, false, "a bare send must not queue");
+}));
+
+test("send({queue:true}) queues — the Queue half of the split button", () => withStubDocument(async () => {
+    const h = sendHarness();
+    await h.controller.send({ queue: true });
+    assert.equal(h.sent.length, 1);
+    assert.equal(h.sent[0].queueIfBusy, true);
+}));
+
+test("send() marks the peer's messages read — answering IS reading", () => withStubDocument(async () => {
+    const h = sendHarness();
+    await h.controller.send();
+    assert.deepEqual(h.readCalls, [{ agentId: "peer", opts: { quiet: true } }],
+      "must clear the unread badge quietly (the send already toasts)");
+}));
+
+test("send() to a CHANNEL does not touch DM read state", () => withStubDocument(async () => {
+    const h = sendHarness({ selected: "channel:ops" });
+    await h.controller.send();
+    assert.equal(h.sent.length, 1);
+    assert.deepEqual(h.readCalls, [], "channel read state is per-membership, a different contract");
+}));
+
+test("a failing mark-read never loses the sent message", () => withStubDocument(async () => {
+    const h = sendHarness();
+    h.controller.__proto__; // no-op, keeps shape explicit
+    const controller = createChatController({
+      state: h.state,
+      byId: (id) => h.els[id] || null,
+      sendMessage: async (payload) => { h.sent.push(payload); return { ok: true }; },
+      refresh: async () => {},
+      loadConversation: async () => {},
+      markConversationRead: async () => { throw new Error("read endpoint down"); },
+      persistDrafts: () => {},
+    });
+    h.els["chat-composer-body"].value = "hello there";
+    await controller.send(); // must not throw
+    assert.equal(h.sent.length, 1, "the message was still sent");
+}));

@@ -36,14 +36,23 @@ test("styles.css keeps ready internal: ready normalizes to online, no separate r
   // dot kind classes, never a bare .status-ready/.status-online text class).
 });
 
-test("chat composer queue defaults to live send (not queued)", () => {
+test("chat composer has NO sticky queue control — queueing is per-message only", () => {
   const html = read("index.html");
-  // WS-J: the Sessions composer was removed (it duplicated Chat); messaging lives in the chat
-  // composer. Queue-if-busy must not default to checked.
-  const queueInput = html.match(/<input[^>]+id="chat-queue"[^>]*>/);
-  assert.ok(queueInput, "chat queue checkbox must exist");
-  assert.ok(!/\schecked(\s|>|=)/.test(queueInput[0]),
-    "normal Send must not default queueIfBusy=true; Queue is an explicit operator choice");
+  // This test used to assert `#chat-queue` exists and is not `checked`, with the comment "Queue is
+  // an explicit operator choice". That intent was right; the mechanism defeated it. The checkbox was
+  // never reset after a send and sat inside the collapsed Options disclosure, so one tick queued
+  // every LATER message invisibly — the operator hit exactly that on 2026-07-27 ("what does ordinary
+  // pressing enter do? ... message was queued"). "Unchecked by default" only ever constrained the
+  // FIRST send.
+  //
+  // So the guarantee is now structural rather than a default: there is no sticky control to leave on.
+  // Queue is the second half of the split Send button and passes an explicit per-send flag, which
+  // chat.test.mjs pins behaviourally (bare send() never queues; send({queue:true}) does).
+  assert.doesNotMatch(html, /id="chat-queue"/,
+    "the sticky queue checkbox must stay removed — a per-send choice must not have a persistent mode");
+  assert.match(html, /id="chat-send-queue"/, "the explicit Queue half of the split Send button must exist");
+  assert.match(html, /type="submit"[^>]*composer-send-main/,
+    "Send stays the form's submit action, so Enter is an ordinary send");
 });
 
 test("click handling processes mode switch before session row selection", () => {

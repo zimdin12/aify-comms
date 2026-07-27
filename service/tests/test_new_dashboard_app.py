@@ -93,7 +93,12 @@ class NewDashboardAppTest(unittest.TestCase):
         # WS-J: messaging consolidated into the Chat composer (the Sessions composer was a
         # duplicate and was removed). Type/priority/queue + paste-to-share live in chat now.
         self.assertIn('id="chat-expects-reply"', html)
-        self.assertIn('id="chat-queue"', html)
+        # `#chat-queue` (the sticky "Queue if busy" checkbox) was REMOVED 2026-07-27. It was never
+        # reset after a send and lived inside the collapsed Options disclosure, so one tick queued
+        # every later message invisibly. Queueing is now an explicit per-message act — the Queue half
+        # of the split Send button — so Enter and Send are always an ordinary steer-if-possible send.
+        self.assertNotIn('id="chat-queue"', html)
+        self.assertIn('id="chat-send-queue"', html)
         self.assertIn("const finalType = type || (expectsReply ? 'request' : 'info');", script)
         self.assertIn("requireReply: !!expectsReply", script)
         self.assertNotRegex(html, r'id="chat-expects-reply"[^>]*\schecked(?:\s|=|>)')

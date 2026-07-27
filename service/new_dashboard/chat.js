@@ -310,6 +310,11 @@ export function renderAnalyticsPanelHtml(agentId, data) {
 // refresh, loadConversation, loadAgentAnalytics, ... } (channel loading is driven from app.js).
 export function createChatController(deps) {
   const { state, byId, sendMessage, refresh, loadConversation, loadAgentAnalytics, mountChatConsole, loadPulse, persistDrafts } = deps;
+  // Answering a peer marks their messages read (see send()). Defaulted to a no-op so the unit tests
+  // can construct the controller without stubbing the read API.
+  const markConversationRead = typeof deps.markConversationRead === 'function'
+    ? deps.markConversationRead
+    : async () => {};
   // Optional hook fired whenever the selected conversation CHANGES, so the page can keep
   // selection-dependent UI (the agent details drawer) in step. Defaulted to a no-op so the
   // unit tests can construct the controller without it.
@@ -629,7 +634,12 @@ export function createChatController(deps) {
     }
   }
 
-  async function send() {
+  // `queue` is EXPLICIT and per-message: only the Queue half of the split Send button passes it.
+  // Enter and Send never queue. The old `#chat-queue` checkbox was sticky and hidden inside the
+  // collapsed Options disclosure, so one tick silently queued every subsequent message — reported
+  // 2026-07-27 as "what does ordinary pressing enter do? ... message was queued". Removed rather
+  // than surfaced: a per-send choice does not want a persistent mode.
+  async function send({ queue = false } = {}) {
     const bodyEl = byId('chat-composer-body');
     const body = (bodyEl?.value || '').trim();
     const key = state.chat.selected;
@@ -637,7 +647,7 @@ export function createChatController(deps) {
     const isChannel = key.startsWith('channel:');
     const id = key.slice(key.indexOf(':') + 1);
     const expectsReply = byId('chat-expects-reply')?.checked;
-    const queueIfBusy = byId('chat-queue')?.checked;
+    const queueIfBusy = !!queue;
     // Composer meta (restored regression): explicit message type, priority, and subject.
     const type = byId('chat-type')?.value || 'info';
     const priority = byId('chat-priority')?.value || 'normal';
@@ -662,6 +672,21 @@ export function createChatController(deps) {
         toast(t.text, t.tone);
       } else {
         toast(`Posted to #${id}`, 'ok');
+      }
+      // Answering a peer IS reading them (operator report 2026-07-27: "if i write to you then it
+      // should disappear"). Their unread badge previously survived a reply and could only be cleared
+      // by the explicit Mark-all-read button, so a conversation you had just answered still shouted
+      // for attention. Quiet on purpose — the send already produced a delivery toast, and a second
+      // "marked N read" toast for something the operator did implicitly is noise.
+      //
+      // Deliberately NOT clearing on scroll: the operator flagged that as too aggressive, and it is
+      // — scrolling past a message is not evidence anyone read it, which is the same "state that
+      // lies" trap the rest of this project keeps closing. A reply IS evidence.
+      //
+      // DMs only: channel read state is per-membership (`/channels/{name}/read`), a different
+      // contract, and posting to a channel is not the same act as reading its backlog.
+      if (!isChannel) {
+        try { await markConversationRead(id, { quiet: true }); } catch (_) { /* never block a sent message */ }
       }
       await refresh();
       if (isChannel) { try { await loadConversation(id); } catch (_) {} }

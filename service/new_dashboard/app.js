@@ -225,6 +225,8 @@ const chatController = createChatController({
   mountChatConsole: (agentId, hostEl) => mountChatConsole(agentId, hostEl),
   loadPulse: (mins) => api(`/analytics/pulse?window_minutes=${encodeURIComponent(mins)}`),
   persistDrafts: () => persistChatDrafts(),
+  // Replying to a peer clears their unread badge — quiet, since the send already toasts.
+  markConversationRead: (agentId, opts) => markConversationRead(agentId, opts),
   // Keep the details drawer pointed at whatever the operator just selected — otherwise its
   // lifecycle buttons act on the agent they navigated away from. See syncInspectorToSelection.
   onSelectionChange: () => syncInspectorToSelection(),
@@ -4712,7 +4714,37 @@ byId('page-chat')?.addEventListener('click', (event) => {
 });
 byId('chat-composer')?.addEventListener('submit', (event) => {
   event.preventDefault();
-  chatController.send();
+  chatController.send(); // Enter / Send = ordinary send (steer if the target supports it). Never queues.
+});
+// The Queue half of the split Send button: same send, queueIfBusy forced on for THIS message only.
+byId('chat-send-queue')?.addEventListener('click', (event) => {
+  event.preventDefault();
+  chatController.send({ queue: true });
+});
+// Clicking composer chrome must not strand the operator unable to type (reported 2026-07-27:
+// "if i press click outside of the chat textarea (to element with class=composer-advanced) then my
+// cursor appears in front of textinput area and i cannot write").
+//
+// The Options panel is a <details>; its <summary> is focusable and the surrounding <div>s are not,
+// so a click on either BLURS the textarea — the browser either moves focus to the summary or drops
+// it entirely. Typing then goes nowhere, which reads as a dead composer.
+//
+// So: after a click anywhere in the composer that did NOT land on a real control, hand focus back to
+// the textarea. Interactive targets are left alone — stealing focus from a select mid-choice, or from
+// the file input, or from the Send/Queue buttons, would be its own bug. `closest()` covers clicks on
+// a <label>'s text, which forward to their control.
+byId('chat-composer')?.addEventListener('click', (event) => {
+  const t = event.target;
+  if (!t || typeof t.closest !== 'function') return;
+  if (t.closest('input, textarea, select, button, a, label, summary, [contenteditable="true"]')) return;
+  const bodyEl = byId('chat-composer-body');
+  if (bodyEl && !bodyEl.disabled && document.activeElement !== bodyEl) bodyEl.focus();
+});
+// Toggling the Options disclosure leaves focus on the <summary>, so the very next keystroke is lost.
+// Return it to the textarea once the panel has finished opening/closing.
+byId('chat-composer')?.querySelector('.composer-advanced')?.addEventListener('toggle', () => {
+  const bodyEl = byId('chat-composer-body');
+  if (bodyEl && !bodyEl.disabled) bodyEl.focus();
 });
 // Draft persistence (2026-06-29 parity with old dashboard): mirror per-conversation drafts to
 // localStorage so a half-written message + its rail "draft" badge survive a page reload.

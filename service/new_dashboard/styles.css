@@ -649,6 +649,21 @@ small, .subtle { color: var(--muted); }
 .composer-send-row { display: flex; gap: 10px; align-items: stretch; }
 .composer-send-row textarea { flex: 1; min-height: 52px; }
 .composer-send-row .primary { align-self: stretch; padding-inline: 18px; }
+/* Split Send | Queue control. Send is the default act and keeps the visual weight; Queue is the
+   deliberate "run it after the current turn" variant, de-emphasised so it reads as the secondary
+   half rather than a second primary button competing for the click. */
+.composer-send-split { display: flex; align-self: stretch; }
+.composer-send-split .composer-send-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.composer-send-split .composer-send-queue {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  padding-inline: 12px;
+  font-size: .92em;
+  opacity: .72;
+  border-left: 1px solid rgba(0, 0, 0, .28);
+}
+.composer-send-split .composer-send-queue:hover,
+.composer-send-split .composer-send-queue:focus-visible { opacity: 1; }
 .check-row { display: flex; gap: 8px; align-items: center; color: var(--muted); cursor: pointer; }
 .check-row input[type="checkbox"] { min-height: 0; width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; flex: 0 0 auto; }
 .inspector {

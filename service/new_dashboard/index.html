@@ -179,14 +179,28 @@
                   </div>
                   <div class="composer-options">
                     <label class="check-row"><input id="chat-expects-reply" type="checkbox"><span>Expects reply</span></label>
-                    <label class="check-row"><input id="chat-queue" type="checkbox"><span>Queue if busy</span></label>
+                    <!-- "Queue if busy" REMOVED 2026-07-27. It was a STICKY checkbox that was never
+                         reset after a send and lived inside this collapsed disclosure, so ticking it
+                         once made every later Enter queue silently — the operator hit exactly that
+                         ("what does ordinary pressing enter do? ... message was queued"). Queueing is
+                         now an explicit per-message act: the Queue half of the split Send button.
+                         Enter and Send are therefore always an ordinary steer-if-possible send. -->
                     <label class="chat-attach ghost" title="Share a file and insert its reference"><span>📎 Attach</span><input id="chat-attach-input" type="file"></label>
                   </div>
                 </div>
               </details>
               <div class="composer-send-row">
                 <textarea id="chat-composer-body" placeholder="Select a conversation"></textarea>
-                <button type="submit" class="primary">Send</button>
+                <!-- Split control: Send is the default act; Queue is the same send with
+                     queueIfBusy forced on for THIS message only, so the common "let it run after
+                     the current turn" case no longer requires opening Options and hunting a
+                     checkbox. The sticky "Queue if busy" checkbox above still works and still
+                     wins when checked. -->
+                <span class="composer-send-split">
+                  <button type="submit" class="primary composer-send-main">Send</button>
+                  <button type="button" id="chat-send-queue" class="primary composer-send-queue"
+                          title="Queue behind the target's current turn instead of steering into it">Queue</button>
+                </span>
               </div>
             </form>
           </section>
