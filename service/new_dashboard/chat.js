@@ -184,15 +184,26 @@ function railItemHtml(item, selectedKey, drafts = {}, readOnly = false) {
 // heading when it carries no information the body does not already lead with, and keep it whenever
 // the operator (or an agent) actually typed a distinct subject.
 //
-// The derivation is a plain prefix, so `body.startsWith(subject)` recognises BOTH shapes: the exact
-// match and the 80-char truncation. Compared on trimmed text because the composer trims the subject
-// but not always the body.
+// SELF-REVIEW FIX (same day): the first cut tested `body.startsWith(subject)` — ANY prefix. That
+// hid deliberately-typed short subjects: subject "Deploy" with body "Deploy the hotfix now" matched
+// and vanished, destroying information the operator had explicitly entered. Strictly worse than the
+// echo it was removing, because an echo is noise and a suppressed real subject is lost signal.
+//
+// The derivation produces exactly TWO shapes, so match exactly those and nothing else:
+//   * body <= 80 chars  -> subject === body
+//   * body >  80 chars  -> subject === body.slice(0, 80)
+// Anything else is a subject someone chose, and it renders.
+//
+// Compared on trimmed text because `chatSendMessage` trims the body before slicing, and trims the
+// subject separately, so a stored pair can differ by surrounding whitespace alone.
+export const DERIVED_SUBJECT_MAX = 80;
+
 export function subjectIsEchoOfBody(subject, body) {
   const s = String(subject == null ? '' : subject).trim();
   if (!s) return false; // no subject to render anyway; caller's own guard handles it
   const b = String(body == null ? '' : body).trim();
   if (!b) return false; // a subject with an empty body is the ONLY thing worth showing
-  return b === s || b.startsWith(s);
+  return s === b || s === b.slice(0, DERIVED_SUBJECT_MAX).trim();
 }
 
 export function messageHtml(m, identity = 'dashboard', isChannel = false) {

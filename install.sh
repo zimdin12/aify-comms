@@ -848,6 +848,36 @@ for ARG in "$@"; do
   CODEX_ARGS+=("$ARG")
 done
 export AIFY_RUNTIME="codex"
+# IDENTITY RECOVERY (2026-07-28) — the third wrapper finally gets what the other two have.
+#
+# Every turn-state path is gated on AIFY_AGENT_ID. With no id, this session cannot report
+# turn-start/turn-end, so the agent's status LATCHES: nothing alive can ever clear it, and it looks
+# healthy from every other angle. claude-aify's comment records what that costs ("days of
+# general-manager is always working").
+#
+# claude-aify has recovered the agent from a bare `--resume <id>` since 2026-07-14, and hermes-aify
+# since 2026-06-03. hermes-aify's own comment admitted the gap verbatim: "codex still has no such
+# recovery: its operator path is covered by the resume command now carrying --aify-agent, but a
+# hand-typed `codex-aify --resume <id>` is still identity-less." The dashboard's Resume passes
+# --aify-agent, so only the HAND-TYPED path was broken — which is exactly the path an operator uses.
+#
+# Ask the SERVICE which agent owns this thread handle: authoritative, and it survives a reboot.
+# Scoped to runtime="codex" so a claude and a codex agent that happen to share a handle string can
+# never cross-bind (the cross-contamination class already fixed for claude). Unlike claude there is
+# no local session store to fall back to — `claude-session-store.js` is claude-specific — so if the
+# service is unreachable the id stays empty and we say so out loud rather than degrade in silence.
+if [ -z "$CODEX_AIFY_AGENT_ID" ] && [ -n "${CODEX_RESUME_HANDLE:-}" ]; then
+  if command -v node >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
+    _aify_codex_rec="$(curl -sS --max-time 2 "${AIFY_COMMS_URL:-__AIFY_INSTALL_TIME_URL__}/api/v1/agents" 2>/dev/null | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const a=(JSON.parse(d).agents)||{};const h=process.argv[1];for(const k in a){const v=a[k]||{};const sh=String(v.sessionHandle||v.session_handle||"");if(sh&&sh===h&&String(v.runtime||"")==="codex"){process.stdout.write(k);break;}}}catch{}})' "$CODEX_RESUME_HANDLE" 2>/dev/null)"
+    if [ -n "$_aify_codex_rec" ]; then
+      CODEX_AIFY_AGENT_ID="$_aify_codex_rec"
+      echo "[codex-aify] resolved aify agent '$CODEX_AIFY_AGENT_ID' from thread handle '$CODEX_RESUME_HANDLE' (service lookup)." >&2
+    fi
+  fi
+fi
+if [ -z "$CODEX_AIFY_AGENT_ID" ] && [ -n "${CODEX_RESUME_HANDLE:-}" ]; then
+  echo "[codex-aify] NO AGENT ID for --resume $CODEX_RESUME_HANDLE: aify turn/status detection is DISABLED for this session (status will latch). Pass --aify-agent <id> if this is a registered agent." >&2
+fi
 if [ -n "$CODEX_AIFY_AGENT_ID" ]; then
   export AIFY_AGENT_ID="$CODEX_AIFY_AGENT_ID"
   export AIFY_AGENT_ROLE="$CODEX_AIFY_ROLE"

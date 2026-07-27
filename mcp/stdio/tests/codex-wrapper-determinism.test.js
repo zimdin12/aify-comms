@@ -109,3 +109,33 @@ test("codex-aify wrapper: managed sessions disable the built-in codex_apps MCP",
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// IDENTITY RECOVERY on a hand-typed `codex-aify --resume <id>` (2026-07-28).
+//
+// Every turn-state path is gated on AIFY_AGENT_ID; with no id the agent's status LATCHES and
+// nothing alive can clear it. claude-aify has recovered the agent from a bare --resume since
+// 2026-07-14 and hermes-aify since 2026-06-03, but hermes-aify's own comment admitted codex had no
+// such recovery — the dashboard's Resume passes --aify-agent, so only the HAND-TYPED operator path
+// was broken, which is exactly the path an operator uses. Pinned here because the failure is silent:
+// the wrapper still launches, the session still works, and only the fleet's status view rots.
+test("codex-aify recovers the agent id from a bare --resume via the service", () => {
+  const { text } = renderCodexWrapper();
+  // Substring, not regex: the guard is an exact shell expression, and a regex here would only add
+  // escaping bugs of its own.
+  assert.ok(
+    text.includes('[ -z "$CODEX_AIFY_AGENT_ID" ] && [ -n "${CODEX_RESUME_HANDLE:-}" ]'),
+    "recovery must be gated on an EMPTY agent id plus a resume handle",
+  );
+  assert.match(text, /\/api\/v1\/agents/, "must ask the service which agent owns the handle");
+  assert.match(text, /=== *"codex"/,
+    'must scope the match to runtime "codex" so a claude agent sharing a handle cannot cross-bind');
+  assert.match(text, /resolved aify agent/, "must announce a successful recovery");
+  assert.match(text, /NO AGENT ID for --resume/,
+    "must say so OUT LOUD when the id is still unknown — silent degradation is the whole defect");
+});
+
+test("codex-aify's recovery URL is substituted at install time, not left as a placeholder", () => {
+  const { text } = renderCodexWrapper();
+  assert.doesNotMatch(text, /__AIFY_INSTALL_TIME_URL__/,
+    "an unsubstituted placeholder would make the lookup curl a literal string and always fail");
+});

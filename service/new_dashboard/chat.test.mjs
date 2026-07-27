@@ -246,8 +246,30 @@ test("subjectIsEchoOfBody: whitespace differences still count as an echo", () =>
 });
 
 test("subjectIsEchoOfBody: a subject the body merely CONTAINS is not an echo", () => {
-  // Only a leading prefix is the derivation. A mid-body coincidence must keep the heading.
   assert.equal(subjectIsEchoOfBody("deploy", "please deploy the hotfix"), false);
+});
+
+test("subjectIsEchoOfBody: a deliberately-typed SHORT subject is never hidden (self-review fix)", () => {
+  // The first cut tested `body.startsWith(subject)` — any prefix — which hid real subjects the
+  // operator had typed. Suppressing an echo is removing noise; suppressing a chosen subject is
+  // losing signal, which is strictly worse. Only the two exact derivation shapes count.
+  assert.equal(subjectIsEchoOfBody("Deploy", "Deploy the hotfix now"), false);
+  assert.equal(subjectIsEchoOfBody("N7", "N7 is fixed"), false);
+  assert.equal(subjectIsEchoOfBody("Console garbage", "Console garbage is escape fragments"), false);
+});
+
+test("subjectIsEchoOfBody: a subject one char short of the full body is NOT an echo", () => {
+  // Boundary: only `=== body` or `=== body.slice(0,80)` are derivations. Anything else renders.
+  const body = "abcdefghij";
+  assert.equal(subjectIsEchoOfBody(body.slice(0, 9), body), false);
+  assert.equal(subjectIsEchoOfBody(body, body), true);
+});
+
+test("subjectIsEchoOfBody: the 80-char boundary is exact", () => {
+  const body = "x".repeat(200);
+  assert.equal(subjectIsEchoOfBody(body.slice(0, 80), body), true, "the derivation itself");
+  assert.equal(subjectIsEchoOfBody(body.slice(0, 79), body), false, "79 chars is not the derivation");
+  assert.equal(subjectIsEchoOfBody(body.slice(0, 81), body), false, "81 chars is not the derivation");
 });
 
 test("messageHtml omits the subject heading when it echoes the body", () => {
