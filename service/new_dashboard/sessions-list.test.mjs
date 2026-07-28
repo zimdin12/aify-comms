@@ -12,7 +12,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { collapseSupersededSessions, sessionRowIsLive } from './sessions-list.mjs';
+import { collapseSupersededSessions, countSupersededSessions, sessionRowIsLive } from './sessions-list.mjs';
 
 const S = (agentId, status, id = `${agentId}-${status}`) => ({ id, agentId, status });
 
@@ -83,4 +83,35 @@ test('a custom agentIdOf accessor is honoured (app.js injects sessionAgentId)', 
   ];
   const out = collapseSupersededSessions(rows, { agentIdOf: (s) => s.meta.who });
   assert.deepEqual(out.map((r) => r.id), ['live']);
+});
+
+test('ONE AGENT = ONE ENTRY: with no live row, only the NEWEST dead row shows', () => {
+  // The operator's model: "for me i know only one sc-manager... seeing 2 makes me misunderstand."
+  const rows = [
+    { id: 'old', agentId: 'a', status: 'stopped', lastSeen: '2026-06-02T16:10:47Z' },
+    { id: 'newer', agentId: 'a', status: 'failed', lastSeen: '2026-07-20T10:00:00Z' },
+    { id: 'oldest', agentId: 'a', status: 'lost', lastSeen: '2026-05-01T00:00:00Z' },
+  ];
+  assert.deepEqual(collapseSupersededSessions(rows).map((r) => r.id), ['newer']);
+  assert.equal(countSupersededSessions(rows), 2, 'the other two must be REPORTED, not silently dropped');
+});
+
+test('undatable rows fall back to list order rather than vanishing', () => {
+  const rows = [S('a', 'stopped', 'first'), S('a', 'stopped', 'second')];
+  assert.deepEqual(collapseSupersededSessions(rows).map((r) => r.id), ['first']);
+  assert.equal(countSupersededSessions(rows), 1);
+});
+
+test('a malformed lastSeen never wins over a real timestamp', () => {
+  const rows = [
+    { id: 'real', agentId: 'a', status: 'stopped', lastSeen: '2026-07-20T10:00:00Z' },
+    { id: 'junk', agentId: 'a', status: 'stopped', lastSeen: 'not-a-date' },
+  ];
+  assert.deepEqual(collapseSupersededSessions(rows).map((r) => r.id), ['real']);
+});
+
+test('countSupersededSessions reports 0 when nothing is collapsed', () => {
+  assert.equal(countSupersededSessions([S('a', 'running', 'l')]), 0);
+  assert.equal(countSupersededSessions([]), 0);
+  assert.equal(countSupersededSessions(null), 0);
 });

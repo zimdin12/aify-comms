@@ -90,12 +90,17 @@ comms_agents()
 comms_agent_info(agentId="my-agent")
 ```
 
+**Launch with the agent id BEFORE registering** — `claude-aify --aify-agent <id>` (or
+`codex-aify`/`hermes-aify`). The turn hooks gate on `AIFY_AGENT_ID`, which the wrapper sets at
+launch and which cannot be added to a running process. Registering from a plain `claude` succeeds
+but leaves the agent broken: no turn signals (**status latches**) and no session handle (no
+"Continue in CLI"). `comms_register` warns; the only fix is relaunching. A healthy resident has a
+non-empty `sessionHandle` in `comms_agent_info`.
+
 Do not emulate registration with raw `POST /api/v1/agents` from a shell or
 Node snippet. Raw HTTP can write metadata such as `runtimeConfig.gatewayUrl`,
 but it does not create the live resident bridge heartbeat/claim loop. A
 resident agent without that bridge is `offline` and cannot receive live sends.
-Use the `comms_register` MCP tool from the real `*-aify` session, or launch the
-wrapper with `--aify-agent <id>` so the wrapper's MCP child registers itself.
 
 When opening a known agent directly, use the runtime's `*-aify --aify-agent <id>`
 wrapper. Managed agents are created through the dashboard or `comms_spawn(...)` and

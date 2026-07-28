@@ -4,7 +4,7 @@
 import { esc, relTime, tsMs } from './util.js';
 import { createTerminalInputPoster, createTerminalInputHandler, forceTerminalRepaint, waitForTerminalSize, wheelInputSequence } from './terminal-input.mjs';
 import { continueCliInfo } from './cli-resume.mjs';
-import { collapseSupersededSessions } from './sessions-list.mjs';
+import { collapseSupersededSessions, countSupersededSessions } from './sessions-list.mjs';
 import { STATUS_KINDS, resolveStatus, renderStatusChip } from './status.js';
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
 import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
@@ -1643,6 +1643,12 @@ function renderSessionStatusFilter() {
   if (filter && filter.size) {
     const hidden = state.sessions.filter((s) => !filter.has(resolveStatus(s.status || agentForSession(s).status || 'unknown').kind)).length;
     if (hidden) hiddenNote = `<span class="filter-hidden-note">${hidden} hidden by filter</span>`;
+  }
+  // Superseded rows are collapsed so one agent reads as ONE entry — but say how many, so the list
+  // never silently shrinks (a quiet cap reads as "that is everything").
+  const superseded = countSupersededSessions(state.sessions, { agentIdOf: sessionAgentId });
+  if (superseded) {
+    hiddenNote += `<span class="filter-hidden-note" title="Older finished sessions for agents that already have a newer one. Their history is still on the agent's History view.">${superseded} older session${superseded === 1 ? '' : 's'} collapsed</span>`;
   }
   host.innerHTML = presets + chips + hiddenNote;
 }

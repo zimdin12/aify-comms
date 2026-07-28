@@ -36,9 +36,30 @@ export function sessionRowIsLive(session) {
   return LIVE_SESSION_ROW_STATUSES.has(norm(session?.status));
 }
 
-// Drop an agent's NON-live rows when that same agent also has a live one. Order is preserved, and
-// agents with no live row are untouched (so Restart on a stopped session still works).
-export function collapseSupersededSessions(sessions, { agentIdOf = (s) => s?.agentId ?? s?.agent_id } = {}) {
+// ONE AGENT = ONE ENTRY, which is how the operator reads this list: "for me i know only one
+// sc-manager. this one identification is one specific agent / session for me.. seeing 2 makes me
+// misunderstand". So per agent:
+//
+//   * has live row(s)  -> show the live ones, hide every non-live row.
+//   * has none live    -> show the NEWEST non-live row only (that is the one Restart would act on).
+//
+// TWO LIVE ROWS ARE BOTH KEPT on purpose. That is not clutter, it is a duplicate-worker leak — a
+// class this repo has been bitten by — and hiding it would be the dashboard lying about a real
+// fault. Only dead rows collapse.
+//
+// Nothing is dropped silently: `countSupersededSessions` gives the UI the number it hid, so the
+// list can say so (this repo's own rule — a silent cap reads as "that is everything").
+//
+// "Newest" prefers `lastSeen`/`last_seen`; when timestamps are absent or equal it falls back to the
+// list's own order, which the server already returns as `ORDER BY last_seen DESC`.
+const defaultAgentIdOf = (s) => s?.agentId ?? s?.agent_id;
+const seenAt = (s) => {
+  const raw = s?.lastSeen ?? s?.last_seen ?? '';
+  const t = Date.parse(raw);
+  return Number.isNaN(t) ? null : t;
+};
+
+export function collapseSupersededSessions(sessions, { agentIdOf = defaultAgentIdOf } = {}) {
   const list = Array.isArray(sessions) ? sessions : [];
   const agentsWithLive = new Set();
   for (const s of list) {
@@ -47,11 +68,32 @@ export function collapseSupersededSessions(sessions, { agentIdOf = (s) => s?.age
       if (a) agentsWithLive.add(a);
     }
   }
-  if (!agentsWithLive.size) return list;
+  // For agents with nothing live, pick the single newest non-live row to represent them.
+  const keptDeadByAgent = new Map();
+  list.forEach((s, index) => {
+    if (sessionRowIsLive(s)) return;
+    const a = norm(agentIdOf(s));
+    if (!a || agentsWithLive.has(a)) return;
+    const prev = keptDeadByAgent.get(a);
+    if (!prev) { keptDeadByAgent.set(a, { s, index, at: seenAt(s) }); return; }
+    const at = seenAt(s);
+    if (prev.at == null && at == null) return;           // both undatable -> keep the first
+    if (prev.at == null || (at != null && at > prev.at)) keptDeadByAgent.set(a, { s, index, at });
+  });
+  const keptDead = new Set([...keptDeadByAgent.values()].map((v) => v.s));
+
   return list.filter((s) => {
     if (sessionRowIsLive(s)) return true;
     const a = norm(agentIdOf(s));
     if (!a) return true; // never hide a row we cannot attribute to an agent
-    return !agentsWithLive.has(a);
+    if (agentsWithLive.has(a)) return false;
+    return keptDead.has(s);
   });
+}
+
+// How many rows `collapseSupersededSessions` would hide — so the list can show "N older hidden"
+// instead of quietly shrinking.
+export function countSupersededSessions(sessions, opts) {
+  const list = Array.isArray(sessions) ? sessions : [];
+  return list.length - collapseSupersededSessions(list, opts).length;
 }

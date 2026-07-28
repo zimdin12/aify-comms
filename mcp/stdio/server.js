@@ -8,6 +8,7 @@
 //
 
 import { spawn } from "child_process";
+import { residentIdentityWarning } from "./register-identity.js";
 import { randomUUID } from "crypto";
 import fs from "fs";
 import os from "os";
@@ -3965,6 +3966,15 @@ server.tool(
           text:
             `Registered "${r.agentId}" (${resolvedSessionMode}, role: ${r.role}, runtime: ${resolvedRuntime}, machine: ${resolvedMachineId}).` +
             (resolvedSessionHandle ? ` Session: ${resolvedSessionHandle}` : "") +
+            // A resident that registered from a session with no AIFY_AGENT_ID is registered but
+            // structurally unable to report turns — say so HERE, the one moment the agent is
+            // listening. See register-identity.js for why it cannot be fixed after launch.
+            residentIdentityWarning({
+              registeredAgentId: r.agentId,
+              envAgentId: process.env.AIFY_AGENT_ID,
+              sessionMode: resolvedSessionMode,
+              runtime: resolvedRuntime,
+            }) +
             (
               resolvedRuntime === "codex" &&
               hasCodexLiveAppServer(runtimeConfig) &&
