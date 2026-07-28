@@ -1726,6 +1726,19 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 .session-filter-chip:hover { color: var(--soft); background: var(--panel-2); }
 .session-filter-chip.active { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); font-weight: 700; }
 .filter-hidden-note { font-size: var(--fs-xs); color: var(--muted); align-self: center; margin-left: 4px; }
+/* The collapsed-sessions note is a real <button> (it toggles the older rows back into view), so it
+   must not inherit button chrome — it should read as the quiet note it is, but still look clickable. */
+button.filter-hidden-note {
+  background: none;
+  border: 0;
+  padding: 0 2px;
+  min-height: 0;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+button.filter-hidden-note:hover,
+button.filter-hidden-note:focus-visible { color: var(--text); }
 
 /* WS-G7/G8 density: tighter session rows, small inline mode chip (not a full-width button),
    designed empty states. */

@@ -64,6 +64,10 @@ const state = {
   runStatusFilter: '',
   runFromFilter: '', runToFilter: '', runRuntimeFilter: '', runSearch: '', // WS-H runs filters
   sessionStatusFilter: new Set(), // WS-F: status multiselect for the Sessions rail (empty = all)
+  // Reveal the superseded (older, non-live) session rows the list collapses so one agent reads
+  // as one entry. Off by default; the collapsed-count note toggles it. Without this the older
+  // rows would be UNREACHABLE — and Delete session is only offered on a row you can see.
+  showSupersededSessions: false,
   settingsTab: '', // active settings tab (empty → first group)
   // Global analytics page (WS-C). Lazily loaded when the page is first opened, then on refresh
   // while it stays active, and on range change. data === null until first load completes.
@@ -1526,7 +1530,10 @@ function groupedSessionsByEnvironment() {
   // Collapse an agent's SUPERSEDED rows (see sessions-list.mjs). Applied HERE, at the list render,
   // rather than where `state.sessions` is assigned: that array also builds `state.terminalOwners`
   // and backs `sessionForAgent`, so narrowing it would silently change lookups far from this page.
-  collapseSupersededSessions(state.sessions, { agentIdOf: sessionAgentId }).forEach((session) => {
+  const visibleSessions = state.showSupersededSessions
+    ? state.sessions
+    : collapseSupersededSessions(state.sessions, { agentIdOf: sessionAgentId });
+  visibleSessions.forEach((session) => {
     // WS-F status multiselect: empty filter = all; otherwise keep only matching status kinds.
     if (filter && filter.size) {
       const agent = agentForSession(session);
@@ -1647,8 +1654,10 @@ function renderSessionStatusFilter() {
   // Superseded rows are collapsed so one agent reads as ONE entry — but say how many, so the list
   // never silently shrinks (a quiet cap reads as "that is everything").
   const superseded = countSupersededSessions(state.sessions, { agentIdOf: sessionAgentId });
-  if (superseded) {
-    hiddenNote += `<span class="filter-hidden-note" title="Older finished sessions for agents that already have a newer one. Their history is still on the agent's History view.">${superseded} older session${superseded === 1 ? '' : 's'} collapsed</span>`;
+  if (state.showSupersededSessions) {
+    hiddenNote += `<button type="button" class="filter-hidden-note" data-toggle-superseded title="Collapse older sessions again so each agent reads as one entry">showing older sessions — collapse</button>`;
+  } else if (superseded) {
+    hiddenNote += `<button type="button" class="filter-hidden-note" data-toggle-superseded title="Older non-live sessions for agents that already have a newer one. Click to show them — they are not reachable anywhere else, and Delete session is only offered on a visible row.">${superseded} older session${superseded === 1 ? '' : 's'} collapsed — show</button>`;
   }
   host.innerHTML = presets + chips + hiddenNote;
 }
@@ -4268,6 +4277,12 @@ document.addEventListener('click', (event) => {
     if (sid) { state.selectedSessionId = sid; renderSessionWorkspace(); }
     setPage('sessions');
     closeInspector();
+    return;
+  }
+  const toggleSuperseded = event.target.closest('[data-toggle-superseded]');
+  if (toggleSuperseded) {
+    state.showSupersededSessions = !state.showSupersededSessions;
+    renderSessionRail();
     return;
   }
   const sessionStatusPreset = event.target.closest('[data-session-status-preset]');
