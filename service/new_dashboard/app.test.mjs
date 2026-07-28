@@ -95,14 +95,32 @@ test("xterm remount guard checks container identity, not just terminal id", () =
 
 test("chat agent details builds Continue in CLI from the linked session", () => {
   const source = read("app.js");
-  assert.match(source, /function continueCliCommand\(agent, session\)/,
-    "the details drawer must accept linked session metadata");
-  assert.match(source, /session\?\.sessionHandle \|\| session\?\.session_handle/,
+  // The command builder moved to cli-resume.mjs (2026-07-28) so it could be unit-tested — this file
+  // can only regex the SPA source, which cannot fail on wrong logic, only on moved text. The two
+  // behavioural claims this test used to approximate now live in cli-resume.test.mjs:
+  //   * "the handle can come from the SESSION when the agent row lacks it"
+  //   * "no session handle yields NO command but an explanatory reason"
+  // What stays here is the WIRING that only app.js can prove: the drawer passes its linked session
+  // through, and the block always renders so an absent command explains itself.
+  const cliResume = read("cli-resume.mjs");
+  assert.match(cliResume, /session\?\.sessionHandle \|\| session\?\.session_handle/,
     "a session handle must not disappear just because the agent list omits it");
-  assert.match(source, /continueCliCommand\(agent, session\)/,
+  assert.match(source, /continueCliDetails\(agent, session\)/,
     "the chat details drawer must pass its linked session to the command builder");
+  assert.match(source, /continueCliBlock = `/,
+    "the Continue-in-CLI block must render unconditionally — an absent block reads as a broken feature");
   assert.ok(!source.includes("aify-comms.cmd"),
     "copyable dashboard commands should be shell-neutral; PowerShell resolves the shim itself");
+});
+
+test("the Continue-in-CLI command block is actually styled", () => {
+  // Reported 2026-07-28: "that cli command is just placed there, no padding, ugly". None of
+  // .agent-drawer-cli / .cli-cmd-row / .cli-cmd existed in the stylesheet at all.
+  const styles = read("styles.css");
+  for (const cls of [".agent-drawer-cli", ".agent-drawer-subhead", ".cli-cmd-row", ".cli-cmd"]) {
+    assert.ok(styles.includes(cls), `${cls} must be styled, not rendered bare`);
+  }
+  assert.match(styles, /\.cli-cmd\s*\{[^}]*padding:/s, "the command box needs padding — that was the complaint");
 });
 
 test("automatic console resync never self-excites a PTY resize loop", () => {

@@ -3,6 +3,8 @@
 // the single delegated event handler + init) until later Phase-0 slices split those too.
 import { esc, relTime, tsMs } from './util.js';
 import { createTerminalInputPoster, createTerminalInputHandler, forceTerminalRepaint, waitForTerminalSize, wheelInputSequence } from './terminal-input.mjs';
+import { continueCliInfo } from './cli-resume.mjs';
+import { collapseSupersededSessions } from './sessions-list.mjs';
 import { STATUS_KINDS, resolveStatus, renderStatusChip } from './status.js';
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
 import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
@@ -1521,7 +1523,10 @@ function groupedSessionsByEnvironment() {
   const groups = new Map();
   const filter = state.sessionStatusFilter;
   const find = state.filter.trim().toLowerCase();
-  state.sessions.forEach((session) => {
+  // Collapse an agent's SUPERSEDED rows (see sessions-list.mjs). Applied HERE, at the list render,
+  // rather than where `state.sessions` is assigned: that array also builds `state.terminalOwners`
+  // and backs `sessionForAgent`, so narrowing it would silently change lookups far from this page.
+  collapseSupersededSessions(state.sessions, { agentIdOf: sessionAgentId }).forEach((session) => {
     // WS-F status multiselect: empty filter = all; otherwise keep only matching status kinds.
     if (filter && filter.size) {
       const agent = agentForSession(session);
@@ -3330,16 +3335,14 @@ function openIdentityDirectory() {
 // operator's own terminal (mirror of the 8800 dashboard resume-command). Empty when
 // there's no saved handle or the runtime has no resident resume (pi/opencode are
 // managed-only). Linux/WSL shell form.
+// Thin adapters over cli-resume.mjs (pure + unit-tested there). The runtime/agent-id accessors are
+// injected because they live in this module.
+function continueCliDetails(agent, session) {
+  return continueCliInfo(agent, session, { sessionRuntime, sessionAgentId });
+}
+
 function continueCliCommand(agent, session) {
-  const handle = String(agent?.sessionHandle || agent?.session_handle || session?.sessionHandle || session?.session_handle || '').trim();
-  if (!handle) return '';
-  const runtime = String(agent?.runtime || sessionRuntime(session) || '').trim().toLowerCase();
-  const id = String(agent?.id || sessionAgentId(session) || '').trim();
-  const agentFlag = id ? ` --aify-agent ${id}` : '';
-  if (runtime === 'claude-code') return `claude-aify${agentFlag} --dangerously-skip-permissions --resume ${handle}`;
-  if (runtime === 'hermes') return `hermes-aify${agentFlag} --resume ${handle}`;
-  if (runtime === 'codex') return `AIFY_RUNTIME=codex AIFY_AGENT_ID=${id} AIFY_SESSION_HANDLE=${handle} CODEX_THREAD_ID=${handle} CODEX_HOME="$HOME/.local/state/aify-comms/managed-codex-home" codex --no-alt-screen resume --include-non-interactive ${handle}`;
-  return '';
+  return continueCliDetails(agent, session).command;
 }
 
 function openAgentDrawer(agentId) {
@@ -3378,13 +3381,19 @@ function openAgentDrawer(agentId) {
     `<button class="ghost danger" data-agent-remove="${esc(id)}">Remove agent</button>`,
     `<button class="ghost" data-agent-open-sessions="${esc(sid)}">Open in Sessions</button>`,
   ].filter(Boolean).join('');
-  const cliCmd = continueCliCommand(agent, session);
-  const continueCliBlock = cliCmd ? `
+  // Always render this block. When there is no command, say WHY — an absent section is
+  // indistinguishable from a broken feature (operator report: "llama-manager does not have cli
+  // command that i can copy"; it has no session handle, so there is nothing to resume).
+  const cli = continueCliDetails(agent, session);
+  const cliCmd = cli.command;
+  const continueCliBlock = `
       <div class="agent-drawer-cli">
         <div class="agent-drawer-subhead">Continue in CLI</div>
-        <p class="subtle">Resume this session in your own terminal — native ${esc(agent.runtime || 'runtime')} CLI.</p>
-        <div class="cli-cmd-row"><code class="cli-cmd">${esc(cliCmd)}</code><button class="ghost" data-copy-cli="${esc(cliCmd)}" title="Copy the resume command">Copy</button></div>
-      </div>` : '';
+        ${cliCmd
+          ? `<p class="subtle">Resume this session in your own terminal — native ${esc(agent.runtime || 'runtime')} CLI.</p>
+        <div class="cli-cmd-row"><code class="cli-cmd">${esc(cliCmd)}</code><button class="ghost" data-copy-cli="${esc(cliCmd)}" title="Copy the resume command">Copy</button></div>`
+          : `<p class="subtle">${esc(cli.reason)}</p>`}
+      </div>`;
   const sessionChangedBanner = agent.sessionChanged ? `
       <div class="session-changed-banner" role="alert">
         <p>⚠ This agent reported a new session id <code>${esc(agent.pendingSessionId)}</code> that differs from its pinned handle <code>${esc(agent.sessionHandle || '—')}</code>. Delivery still targets the pinned handle until you resolve this.</p>

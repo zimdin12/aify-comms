@@ -1457,6 +1457,32 @@ small, .subtle { color: var(--muted); }
 .help-links a { color: var(--blue); text-decoration: none; font-size: .88em; }
 .help-links a:hover { text-decoration: underline; }
 .help-pre { background: #080c10; border: 1px solid var(--line); border-radius: var(--radius-control); padding: 9px 10px; color: var(--text); font-size: .8em; white-space: pre-wrap; word-break: break-word; margin: 4px 0 10px; }
+
+/* "Continue in CLI" block in the agent drawer. NONE of these classes had any styling — the resume
+   command rendered as a bare inline <code> jammed against its Copy button with no padding, which is
+   what the operator reported as "just placed there, no padding, ugly". Matched to .help-pre's
+   treatment (the repo's existing code-block look) so it reads as one system. */
+.agent-drawer-cli { margin: 14px 0 4px; }
+.agent-drawer-subhead { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 4px; }
+.agent-drawer-cli .subtle { margin: 0 0 8px; }
+.cli-cmd-row { display: flex; align-items: stretch; gap: 8px; }
+.cli-cmd {
+  flex: 1;
+  min-width: 0;                 /* lets a long command shrink instead of pushing Copy off-panel */
+  background: #080c10;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 9px 10px;
+  color: var(--text);
+  font-size: .8em;
+  line-height: 1.45;
+  /* The command is one long line with no spaces in the paths. Wrap it rather than clipping, so the
+     operator can READ what they are about to run — Copy takes the exact text either way. */
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: all;             /* one click selects the whole command for a manual copy */
+}
+.cli-cmd-row .ghost { align-self: flex-start; white-space: nowrap; }
 .help-endpoints { margin-top: 14px; }
 .help-endpoint-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-top: 6px; }
 .help-endpoint-grid ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
