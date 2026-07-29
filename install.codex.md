@@ -58,6 +58,35 @@ The wrapper adds the best permission flag supported by the installed Codex CLI (
 
 `codex-aify` accepts `--resident` and `--managed`. Precedence: inherited `AIFY_SESSION_MODE` env wins (bridge-spawned managed PTYs set it to `managed`); else the flag; else TTY auto-detect via `[ -t 0 ]` — interactive defaults to `resident`, non-TTY to `managed`. Use the explicit flag only when TTY detection might be wrong for your shell context (most operators never need it).
 
+### Agent identity is MANDATORY for status — and now self-recovering (2026-07-28)
+
+**Always launch a registered agent with its id** (`codex-aify --aify-agent <agent-id> …`, or
+`AIFY_AGENT_ID` exported) *before* it registers. `AIFY_AGENT_ID` gates EVERY turn-state path: the
+bridge's rollout-tail turn detector and the `UserPromptSubmit`/`Stop` hooks all test it. An
+environment variable cannot be added to an already-running process, so a session that starts without
+it can never acquire it — `comms_register` mid-session writes DB rows and nothing more.
+
+Launched without it, the agent still registers, sends and receives messages and heartbeats fine, but
+its status is structurally broken: nothing reports turn-start/turn-end, so the status **latches** and
+no live process can clear it. No session handle is bound either, so the dashboard has no
+"Continue in CLI" command to offer.
+
+Two guards now make this hard to hit:
+
+- **Identity recovery on a bare `--resume`.** `codex-aify` asks the service which agent owns the
+  thread handle (scoped to `runtime="codex"`, so a claude agent that happens to share a handle string
+  cannot cross-bind) and adopts that id. This mirrors what `claude-aify` has done since 2026-07-14
+  and `hermes-aify` since 2026-06-03; codex was the last wrapper without it, and only the
+  HAND-TYPED path was affected — the dashboard's resume command already passed `--aify-agent`.
+- **Loud refusal to degrade silently.** If the id is still unknown, the wrapper prints
+  `NO AGENT ID for --resume <id>: aify turn/status detection is DISABLED for this session (status
+  will latch)`. Anonymous sessions remain legal — they just are not silent. `comms_register` also
+  warns when it sees a resident registering from an identity-less session, naming the relaunch
+  command.
+
+**A running session cannot be repaired** — relaunch through the wrapper. Verify with
+`comms_agent_info(agentId=…)`: a healthy resident has a non-empty `sessionHandle`.
+
 ### Session handle binding
 
 Fresh `codex-aify` launches do **not** scan `~/.codex/sessions/` to invent `CODEX_THREAD_ID`. The newest rollout file can be an unrelated historical thread, and binding a fresh visible TUI to that ID makes resident/channel delivery target the wrong session. For fresh launches, `CODEX_THREAD_ID` and `AIFY_SESSION_HANDLE` stay unset until Codex exposes a real current thread.

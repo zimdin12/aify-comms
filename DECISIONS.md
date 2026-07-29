@@ -1207,3 +1207,70 @@ not depend on which table the control lives in. Fixing only `terminal_controls` 
 the same-rule-two-answers defect on purpose. `service/tests/test_stop_control_degraded_environment.py`
 enumerates the whole `ENV_KNOWN_STATES` domain — online/degraded actionable, offline/forgotten/disabled
 failed, stale-either-way failed, undatable trusted — so the set cannot be narrowed silently again.
+
+## 2026-07-28 — The Sessions list collapses an agent's superseded rows, CLIENT-side
+
+**Decision:** the Sessions list shows at most one entry per agent — every LIVE row, or if none are
+live the newest non-live row — and the collapsed count is a toggle that reveals the rest.
+Implemented in `service/new_dashboard/sessions-list.mjs`, applied at the list render, NOT in
+`GET /sessions`.
+
+**Why.** Operator report: *"i see multiple sc-manager sessions… for me i know only one sc-manager.
+this one identification is one specific agent / session for me… seeing 2 makes me misunderstand."*
+Measured: sc-manager had 10 rows in `agent_sessions`, exactly ONE live. The server already hides pure
+history (`SESSION_CLEAN_HISTORY_STATUSES`), so 8 were suppressed; what reached the dashboard was the
+live row plus a `stopped` row from eight weeks earlier.
+
+**Why not narrow the server response.** `stopped`/`failed`/`lost` are served deliberately — hiding
+them once broke `comms_restart`, `comms_compact` and the drawer's Restart/Reset/Compact, because a
+non-live session is exactly what those act on (see the entry on `SESSION_CLEAN_HISTORY_STATUSES`).
+Checked the consumer BEFORE writing the filter: `comms_restart` resolves with
+`sessions.find(live) || sessions[0]`, so it prefers the live row — which this never removes — and
+falls back to newest only when nothing is live, where the filter is a no-op. Client-side also keeps
+`state.sessions` complete, which `state.terminalOwners` and `sessionForAgent` depend on.
+
+**Two live rows for one agent stay VISIBLE.** That is a duplicate-worker leak, a class this repo has
+been bitten by, and collapsing it would make the dashboard hide a real fault. Only dead rows collapse.
+
+**Nothing is hidden silently.** `countSupersededSessions` feeds a "N older sessions collapsed — show"
+toggle. The first cut had a static note claiming the rows were "still on the agent's History view";
+that was FALSE (`data-agent-history` opens `openCompactionHistory` — compaction history, not
+sessions), and since "Delete session" is only offered on a visible row, collapsing them removed the
+only way to delete an older session. The toggle exists because of that.
+
+## 2026-07-28 — Queueing a chat message is a per-send act, never a sticky mode
+
+**Decision:** the composer's `Queue if busy` checkbox is REMOVED. Queue is the second half of a split
+Send button and passes an explicit per-message flag; Enter and Send are always an ordinary
+steer-if-possible send.
+
+**Why.** The checkbox was never reset after a send and lived inside the collapsed Options disclosure,
+so one tick silently queued every LATER message. The operator hit exactly that: *"what does ordinary
+pressing enter do? it should steer / ordinary send, not queue. message was queued."* A test already
+asserted the checkbox was "not checked by default", commented *"Queue is an explicit operator
+choice"* — the right intent, defeated by the mechanism, because a default only ever constrains the
+FIRST send. A per-send choice must not have a persistent mode.
+
+**Rejected:** surfacing the checkbox state instead of removing it. That keeps a hidden mode and adds
+an indicator to compensate for it.
+
+## 2026-07-28 — `comms_register` warns when a resident has no launch identity
+
+**Decision:** `comms_register` appends a warning (never an error) when a RESIDENT registers from a
+session whose `AIFY_AGENT_ID` is missing, or differs from the id being registered. See
+`mcp/stdio/register-identity.js`.
+
+**Why.** Every turn hook is gated on `AIFY_AGENT_ID`, which the `*-aify` wrapper exports at LAUNCH.
+An environment variable cannot be injected into a running process, so a session that starts as a
+plain `claude` and only then registers can NEVER acquire it. The agent registers successfully and is
+structurally broken: no session handle is bound (empty `sessionHandle`, hence no "Continue in CLI"
+command) and no turn signals are reported, so its status latches with nothing alive able to clear it.
+Registration reported success, so nothing told the agent. Same state-that-lies class the status work
+exists to remove.
+
+The BRIDGE can detect what the server cannot: it is a child of the session, so
+`process.env.AIFY_AGENT_ID` is exactly the identity the hooks will use, or its absence.
+
+**Scope:** residents only. Managed sessions get their identity from the spawner and their turn
+signals from the runtime host, not shell hooks. A warning, not a refusal — anonymous
+`claude` + comms sessions remain legal, they just stop being silent.

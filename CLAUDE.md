@@ -28,7 +28,9 @@ The MCP stdio bridges under `mcp/stdio/` run on the **host**, not in the contain
 | Path | What |
 |------|------|
 | `service/` | FastAPI backend, SQLite persistence, dashboard HTML, dispatch logic. Rebuild container after changes. |
+| `service/new_dashboard/*.mjs` | Pure dashboard modules with their own `*.test.mjs` (`terminal-input`, `cli-resume`, `sessions-list`, …). `app.js` is ~4.9k lines and only reachable by source-regex tests, which cannot fail on wrong logic — put new behaviour in a module here instead. |
 | `mcp/stdio/` | Host-side MCP bridges (`server.js`, `claude-channel.js`, `runtimes.js`, `runtime-markers.js`, `notify-check.js`). Restart client wrapper after changes. |
+| `mcp/stdio/*-predicates.js`, `register-identity.js` | PURE, unit-tested helpers extracted out of the bridges so their logic can fail a test instead of only failing in production. `doctor-predicates.js` (env liveness) and `register-identity.js` (resident launch-identity warning) are the pattern to follow — `doctor.js` was untestable until its predicates moved out, and the first thing the new test caught was a real bug. |
 | `mcp/sse_server.py` | SSE MCP transport (runs inside the container). Rebuild container after changes. |
 | `.claude/skills/aify-comms/` | Usage skill — tool reference, workflow, status table, multi-instance matrix. |
 | `.claude/skills/aify-comms-debug/` | Troubleshooting skill — known issues and fixes. |
