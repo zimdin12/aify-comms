@@ -394,9 +394,26 @@ export class TerminalProcessManager {
       state.consoleClass !== "working"
     ) {
       const rule = matchConsolePrompt(state.outputTail, {
-        // Operator-configurable compaction auto-confirm (default ON; server setting
-        // `console_auto_confirm_claude_compaction` mirrors this default). Host off-switch:
-        autoConfirmCompaction: process.env.AIFY_AUTO_CONFIRM_COMPACTION !== "0",
+        // DEFAULT FLIPPED TO OFF (2026-08-01, operator-reported data loss): this was
+        // `!== "0"` — auto-confirm ON unless explicitly disabled. The operator observed the
+        // compaction dialog answered with the FIRST option instead of "keep/resume full", i.e.
+        // context they had chosen to preserve was silently compacted away.
+        //
+        // claude-console-prompts.js documents exactly this hazard: the menu renders
+        // PROGRESSIVELY and "Resume from summary" paints before "Resume full session", so a
+        // keystroke computed mid-render can land on summary. That file added guard after guard
+        // (unambiguous-marker gate, cursor-aware navigation, no Enter fallback) — and the
+        // failure still reached a live agent.
+        //
+        // The asymmetry decides the default, and this repo already wrote it down in the v0.2
+        // plan's WS-8: a wrong press "silently loses context the operator explicitly chose to
+        // preserve — unrecoverable and fleet-wide", while the alternative is a STALL, which is
+        // "visible and recoverable". A feature whose failure mode is unrecoverable data loss
+        // must be opt-IN.
+        //
+        // Turn it back on per-host with AIFY_AUTO_CONFIRM_COMPACTION=1 once the mid-render
+        // landing is proven fixed by the WS-8 discriminating test — not before.
+        autoConfirmCompaction: process.env.AIFY_AUTO_CONFIRM_COMPACTION === "1",
       });
       if (rule && state.answeredPrompt !== rule.name) {
         state.answeredPrompt = rule.name;
