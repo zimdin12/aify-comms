@@ -23,6 +23,30 @@ const RESUME_FULL_RE = /Resume full session/i;
 const MENU_CURSOR_RE = /[❯›▶]/;
 const NUMBERED_MENU_OPTION_RE = /^\s*(?:[❯›▶]\s*)?\d+\.\s+/;
 
+// DIALOG DRIFT FIX (2026-08-01, operator-reported data loss). The resume dialog CHANGED upstream
+// and our fixtures still encoded the old shape:
+//
+//   what our fixtures had (2 options)      what claude actually shows now (3 options)
+//   ❯ 1. Resume full session as-is         1. Resume from summary        <- runs /compact
+//     2. Resume from summary (recommended) 2. Resume full session as-is  <- the one we want
+//                                          3. Don't ask me again
+//
+// (verbatim from https://code.claude.com/docs/en/sessions, "Resume from a summary"). The order is
+// REVERSED and a third option was added. `RESUME_FULL_RE` still matches the right TEXT, so the
+// target is found — but `moves` is counted with NUMBERED_MENU_OPTION_RE, which only sees rows that
+// literally start `1. `/`2. `. When the live menu renders its options WITHOUT that numbering, the
+// count collapses to 0 and the arrow sequence no longer reaches option 2.
+//
+// So: recognise a selectable option row by the option TEXT as well as by numbering. The texts are
+// stable, documented, and the thing we are actually navigating between. Numbering is incidental
+// rendering that already changed once.
+//
+// Deliberately NOT a positional rule ("press Down once"). That bet is what the 2026-06-05 comment
+// below removed, and this drift is the second time the menu's shape moved underneath us.
+const RESUME_OPTION_TEXT_RE = /(Resume from summary|Resume full session|Don'?t ask me again)/i;
+const RESUME_OPTION_ROW_RE = (line) =>
+  NUMBERED_MENU_OPTION_RE.test(line) || RESUME_OPTION_TEXT_RE.test(line);
+
 // CURSOR-AWARE resume selection (2026-06-05): operator policy is "Resume full session as-is".
 // The earlier fix blindly sent [Down, Enter] assuming the menu always renders summary on the
 // cursor row and full-session exactly one row below. That is a POSITIONAL bet on a
@@ -64,7 +88,7 @@ function computeResumeAnswer(visible) {
   let moves = 0;
   const step = delta >= 0 ? 1 : -1;
   for (let i = cursorIdx + step; delta !== 0 && (step > 0 ? i <= targetIdx : i >= targetIdx); i += step) {
-    if (NUMBERED_MENU_OPTION_RE.test(lines[i])) moves += 1;
+    if (RESUME_OPTION_ROW_RE(lines[i])) moves += 1;
   }
   if (delta !== 0 && moves === 0) return null;
   const keys = [];

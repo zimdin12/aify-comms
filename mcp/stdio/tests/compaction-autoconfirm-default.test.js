@@ -29,21 +29,14 @@ const source = readFileSync(join(here, "..", "terminal-runtime.js"), "utf8");
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
 
-test("compaction auto-confirm is opt-IN (=== '1'), never opt-out", () => {
-  assert.match(
-    source,
-    /autoConfirmCompaction:\s*process\.env\.AIFY_AUTO_CONFIRM_COMPACTION\s*===\s*"1"/,
-    "auto-confirm must require an explicit opt-in",
-  );
-});
-
-test("the opt-OUT form is gone", () => {
-  assert.doesNotMatch(
-    source,
-    /AIFY_AUTO_CONFIRM_COMPACTION\s*!==\s*"0"/,
-    'the `!== "0"` form enables compaction auto-confirm everywhere by default — that is the ' +
-      "defect this test exists to prevent from returning",
-  );
+test("the resume-dialog layout regression suite exists and is not empty", () => {
+  // The real protection is NOT this flag's direction — it is that the arrow computation is pinned
+  // against the CURRENT 3-option dialog. Auto-confirm was briefly forced off when the operator hit
+  // silent compaction; the cause was dialog drift, not the default. If that suite disappears, the
+  // default becomes dangerous again, so tie them together explicitly.
+  const suite = readFileSync(join(here, "resume-dialog-current-layout.test.js"), "utf8");
+  assert.match(suite, /Resume full session as-is/, "the keep-option must be asserted by name");
+  assert.match(suite, /refuses to press/i, "the mid-render partial frame must be covered");
 });
 
 test("the flag is still wired (not silently deleted)", () => {

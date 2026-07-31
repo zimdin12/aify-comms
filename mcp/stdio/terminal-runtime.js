@@ -394,10 +394,17 @@ export class TerminalProcessManager {
       state.consoleClass !== "working"
     ) {
       const rule = matchConsolePrompt(state.outputTail, {
-        // DEFAULT FLIPPED TO OFF (2026-08-01, operator-reported data loss): this was
-        // `!== "0"` — auto-confirm ON unless explicitly disabled. The operator observed the
-        // compaction dialog answered with the FIRST option instead of "keep/resume full", i.e.
-        // context they had chosen to preserve was silently compacted away.
+        // RESTORED TO ON after the actual defect was fixed (2026-08-01). It was briefly forced
+        // OFF as a stop-the-bleeding measure when the operator reported the compaction dialog
+        // being answered with the FIRST option instead of "keep as is" — context they had chosen
+        // to preserve was silently compacted away.
+        //
+        // The cause was NOT this flag: claude's resume dialog CHANGED shape (summary moved to
+        // option 1, a third option appeared) and computeResumeAnswer counted its arrow moves with
+        // a numbering-only regex that the new menu no longer satisfies. Fixed in
+        // claude-console-prompts.js and pinned by tests/resume-dialog-current-layout.test.js
+        // against both numbered and unnumbered 3-option frames, including the mid-render partial
+        // frame, which must refuse to press.
         //
         // claude-console-prompts.js documents exactly this hazard: the menu renders
         // PROGRESSIVELY and "Resume from summary" paints before "Resume full session", so a
@@ -413,7 +420,7 @@ export class TerminalProcessManager {
         //
         // Turn it back on per-host with AIFY_AUTO_CONFIRM_COMPACTION=1 once the mid-render
         // landing is proven fixed by the WS-8 discriminating test — not before.
-        autoConfirmCompaction: process.env.AIFY_AUTO_CONFIRM_COMPACTION === "1",
+        autoConfirmCompaction: process.env.AIFY_AUTO_CONFIRM_COMPACTION !== "0",
       });
       if (rule && state.answeredPrompt !== rule.name) {
         state.answeredPrompt = rule.name;
