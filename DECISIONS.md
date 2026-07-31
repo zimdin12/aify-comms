@@ -1274,3 +1274,37 @@ The BRIDGE can detect what the server cannot: it is a child of the session, so
 **Scope:** residents only. Managed sessions get their identity from the spawner and their turn
 signals from the runtime host, not shell hooks. A warning, not a refusal — anonymous
 `claude` + comms sessions remain legal, they just stop being silent.
+
+## 2026-07-31 — The agent status vocabulary has ONE owner per language, bound by a test
+
+`status_engine.VALID_STATUSES` is the authority. The JS side has exactly one owner —
+`new_dashboard/status.js`'s `AGENT_STATUSES` — and `service/tests/test_status_vocabulary_binding.py`
+asserts the two are identical, in order.
+
+Why this needed a decision rather than a tidy-up: the vocabulary was hand-retyped in three further
+places (`SESSION_FILTER_KINDS`, `SESSION_LIVE_KINDS`, and an independent `new Set([...])` in
+`chat.js`), nothing bound any copy to the source, and the vocabulary is not served by the API — so
+there was no runtime path by which the client could learn it either. The drift could not announce
+itself: `resolveStatus` ends `|| STATUS_KINDS.unknown`, so a seventh server-side state would render
+as a muted grey "unknown" chip and filter into nothing rather than throwing.
+
+Two consequences that must survive future edits:
+- `LIVE_AGENT_STATUSES` is **derived** (`AGENT_STATUSES` minus `NON_LIVE_AGENT_STATUSES`), never
+  retyped. Two independently-typed sets is the defect that was removed; a literal would restore it
+  while looking tidy, so the test asserts the mechanism, not just today's values.
+- Adding a status server-side REQUIRES a `STATUS_KINDS` entry. The test fails without one; that is
+  deliberate, and it is the check that catches "added a state, forgot the dashboard".
+
+## 2026-07-31 — Counts that claim reachability must DERIVE it, never read stored status
+
+The dashboard's "Online envs" card counted `environments WHERE status = 'online'` while its tooltip
+claimed "bridges reachable right now (managed agents can be spawned on these)". Nothing in this
+codebase ages an environment row — every `UPDATE environments` writer is a registration, an explicit
+disable, or a `last_seen` bump — so a bridge that died uncleanly kept `status='online'` forever and
+was counted as reachable indefinitely.
+
+This is the same false green `aify-doctor`'s `env-bridge` check exists to prevent (`756f3a5`), which
+was fixed in the tool and never in the surface the operator actually watches. The rule, stated once:
+**any surface asserting reachability derives it through `_environment_effective_status`.** The stored
+column is a registration record, not a liveness signal.
+

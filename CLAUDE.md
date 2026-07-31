@@ -63,7 +63,7 @@ It proves each claim against the running system rather than checking that a file
 | check | catches |
 |---|---|
 | `service` | container serving a build ≠ repo HEAD (a healthy `/health` says nothing about *which* code) |
-| `bridge-installed` | `~/.aify-comms` older than the checkout — i.e. you edited `mcp/stdio/` and never re-ran `install.sh` |
+| `bridge-installed` | commits since the installed marker that actually **touched `mcp/stdio/`** — i.e. you edited the bridge and never re-ran `install.sh`. Being behind by docs- or service-only commits is reported as CLEAN (with the count), so this check does not cry wolf on every commit |
 | `bridge-terminal` | the installed `node-pty` native module does not load → terminal-backed runtimes silently cannot start |
 | `bridge-running` | **running** bridges started BEFORE the last install → still executing the old code. Names the agents that must restart. **Linux-only** — it reads `/proc`, so on Windows it SKIPS and nothing verifies this. |
 | `agent-identity` | a REGISTERED agent whose process has no `AIFY_AGENT_ID` (status structurally dead). An unregistered plain session is legitimately id-less and is not flagged. **Linux-only**, same caveat. |

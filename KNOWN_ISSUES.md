@@ -4,6 +4,43 @@ Living list of known limitations, deferred work, and things to watch. Complement
 
 > **v0.2 backlog moved out of this file.** Non-urgent findings from the v0.1 release review now live in **[docs/V0.2_PLAN.md](docs/V0.2_PLAN.md)** with their traces attached — including two behaviour changes awaiting an operator decision (the compaction dialog now spends usage limits by design; managed codex auto-approves all command/file approvals). This file stays the list of *known limitations*; that file is the *work queue*.
 
+## OPEN (2026-07-31) — Restart can leave an agent with no worker: the orphaned-claim race
+
+**Live-reproduced on `ef-manager`.** The operator hit Restart; the agent came back `available` (a
+wakeable identity with no live worker) instead of `online`, and no new terminal was ever created.
+
+Chain, from the DB: the stop completes correctly and kills the PTY — but one second earlier the NEW
+worker's initial-brief run is CLAIMED by the OLD worker's channel sidecar, which is being torn down
+as it claims. It dies holding the claim, the run is failed 120s later, and the spawn_request fails
+with it. No `start` control is ever issued.
+
+**The mechanism is a RACE between two existing paths with the same trigger and opposite outcomes:**
+
+| path | outcome | eligible when |
+|---|---|---|
+| `_requeue_orphaned_claimed_runs` (`api_v2.py:19435`, reconcile loop) | RECOVERS — requeues so a live bridge re-claims | claim >90s old AND claim bridge stale >120s |
+| `_discard_unclaimable_active_run` (`api_v2.py:8747`) | FAILS the run, taking the spawn with it | owner bridge stale >120s |
+
+Both gate on the same `ACTIVE_RUN_BRIDGE_STALE_SECONDS`, so the 90s grace is not the binding
+constraint and they become eligible together. Whichever fires first wins. The recovery mechanism
+exists and is correct — it simply loses the coin flip.
+
+**A fix was written, shipped, and REVERTED (`0b948d2` → `70e03aa`).** It superseded a managed channel
+sidecar at terminal death (mirroring the Bug D wrapper-child fix). Self-review found it made things
+worse: the claim happens one second BEFORE the death, so the supersede cannot prevent it, and
+`_discard_superseded_active_run` (`:8590`) fails a run the instant its claim bridge is superseded —
+no grace, no delivered-check. The change therefore DELETED the window in which the run could be
+rescued and made the failure faster and more certain. Do not re-attempt that shape.
+
+**The fix to build:** make the failing paths PREFER RECOVERY for a run that is `claimed` with no
+`delivered` event — requeue through the existing tested mechanism instead of failing, with a bounded
+retry so a genuinely undeliverable run still terminates. This converts a race into a deterministic
+outcome and needs no new machinery.
+
+Adjacent, also open: `bridge_instances` leaks per agent (ef-manager held 3 non-superseded rows at
+once); the Sessions list renders the BRIDGE INSTANCE id where the operator reads session identity;
+and a stop that succeeds is recorded `failed` when the PTY dies before the bridge acks it.
+
 ## v0.1 release review (2026-07-26) — three service-breaking fixes
 
 Whole-series review of `6b3985c..5885eef` (125 files). All three fixed and deployed; kept here because each is a failure *class* worth recognising again.
