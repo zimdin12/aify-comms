@@ -399,3 +399,17 @@ test("a failing mark-read never loses the sent message", () => withStubDocument(
     await controller.send(); // must not throw
     assert.equal(h.sent.length, 1, "the message was still sent");
 }));
+
+test("deliveryToastFor does NOT claim 'queued' when a queueIfBusy send actually went straight through", () => {
+  // Operator report 2026-07-31: "these last 2 messages were sent using queue feature. but i already
+  // see that my last one was delivered. must be a bug." It is not — queueIfBusy waits only if the
+  // target is MID-TURN. Live evidence from the same minute: one queued send was claimed after 1s
+  // (target idle), another after 7m24s (target working). The toast must reflect which happened
+  // rather than always saying "Queued", or it would be reporting a wait that never occurred.
+  const delivered = deliveryToastFor({ dispatchRuns: [{ status: 'claimed' }] }, 'peer');
+  assert.doesNotMatch(delivered.text, /queued/i, 'an immediately-claimed run must not report as queued');
+  assert.match(delivered.text, /Woke peer/);
+
+  const queued = deliveryToastFor({ dispatchRuns: [{ status: 'queued' }] }, 'peer');
+  assert.match(queued.text, /Queued behind peer's active work/);
+});
