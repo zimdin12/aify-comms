@@ -12594,41 +12594,6 @@ async def report_terminal_dead(terminal_id: str, req: TerminalDeadReport, reques
             """,
             (terminal_id, now, terminal["agent_id"], terminal_id),
         )
-        # RESTART FIX (2026-07-31, live-reproduced on ef-manager): the same argument as the Bug D
-        # fix immediately above applies to the CHANNEL SIDECAR, and was never applied to it.
-        #
-        # A managed worker's channel sidecar runs INSIDE the worker, so it dies with the PTY — but
-        # nothing superseded its row, so for up to ACTIVE_RUN_BRIDGE_STALE_SECONDS (120s) it still
-        # looked live and remained eligible to CLAIM work. Measured during a Restart:
-        #
-        #   19:52:52 Restart -> stop issued
-        #   19:52:53 the NEW worker's initial-brief run is CLAIMED by the OLD worker's sidecar
-        #   19:52:53 that sidecar's last heartbeat — it is being torn down as it claims
-        #   19:55:00 run fails: "owner bridge has not heartbeated for more than 120s"
-        #   19:55:34 spawn_request -> failed; no `start` control ever issued; no new terminal
-        #
-        # The restart's own teardown claimed, and then killed, the brief for its replacement. The
-        # agent ended with a live bridge and no worker, reading `available` instead of `online`.
-        #
-        # SCOPED BY session_mode = 'managed', NOT by terminal_id. Measured 2026-07-31: EVERY
-        # channel-sidecar row on the live fleet carries an EMPTY terminal_id (11/11), so reusing the
-        # Bug D scoping above (`terminal_id = '' OR terminal_id = ?`) would match every sidecar for
-        # this agent — including a RESIDENT one, which does NOT die with a managed terminal and
-        # whose supersession would break that agent's delivery path. Bug D could absorb that
-        # false-positive because it only costs a redundant coldstart check; here it would cost
-        # delivery. The mode check is load-bearing — do not "simplify" it away.
-        await db.execute(
-            """
-            UPDATE bridge_instances
-            SET superseded_by = 'terminal-dead:' || ?,
-                superseded_at = ?
-            WHERE agent_id = ?
-              AND bridge_kind = 'channel-sidecar'
-              AND session_mode = 'managed'
-              AND COALESCE(superseded_by, '') = ''
-            """,
-            (terminal_id, now, terminal["agent_id"]),
-        )
         # Phantom-pending fix (review 2026-07-02): a `running` spawn_request is the
         # terminal SUCCESS state and its timestamps freeze at boot, so for 5 minutes
         # after boot _has_pending_or_booting_spawn_request would treat this now-dead
