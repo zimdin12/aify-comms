@@ -200,6 +200,25 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
             ),
         )
 
+    def _seed_channel_sidecar(self, bridge_id: str, agent_id: str, *, session_mode: str = "managed",
+                              last_seen: str = ""):
+        """A channel-sidecar row. NOTE: terminal_id is deliberately EMPTY — measured 2026-07-31,
+        every channel-sidecar row on the live fleet has one, which is why the fix cannot scope by
+        terminal and must scope by session_mode instead."""
+        self._execute(
+            """
+            INSERT OR REPLACE INTO bridge_instances (
+                id, agent_id, machine_id, runtime, session_mode, session_handle,
+                terminal_id, bridge_kind, registered_at, last_seen, superseded_by, superseded_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                bridge_id, agent_id, "linux:test-host", "codex", session_mode, "",
+                "", "channel-sidecar", api_v2._now(),
+                last_seen or api_v2._now(), "", None,
+            ),
+        )
+
     def _seed_spawn_request(self, request_id: str, agent_id: str, *, status: str,
                             created_at: str = "", updated_at: str = "", session_id: str = ""):
         now = api_v2._now()
@@ -306,6 +325,143 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
         )
         self.assertEqual(bridge["superseded_by"], "", "pid-mismatched report must not supersede")
         self.assertTrue(self._has_live_managed_wrapper_child(agent_id))
+
+    # ------------------------------------------------------------------
+    # RESTART FIX (2026-07-31): the same treatment for the CHANNEL SIDECAR
+    #
+    # Live repro on ef-manager. A managed worker's channel sidecar runs INSIDE the worker, so it
+    # dies with the PTY — but nothing superseded its row, so it stayed claim-eligible for the whole
+    # 120s stale window. During a Restart it claimed the initial-brief run for its own REPLACEMENT
+    # one second before dying, the run then aged out, the spawn_request failed, no `start` control
+    # was ever issued, and the agent ended with a live bridge and no worker (reading `available`).
+    # ------------------------------------------------------------------
+
+    def test_report_dead_supersedes_managed_channel_sidecar(self):
+        agent_id = "restart-sidecar-managed"
+        terminal_id = "term_restart_sidecar"
+        self._seed_managed_agent_with_terminal(agent_id, terminal_id, pid="5150")
+        self._seed_channel_sidecar("restart-cs-1", agent_id, session_mode="managed")
+
+        resp = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/report-dead",
+            json={"bridgeId": "bridge-current", "processId": "5150", "reason": "host pid not alive"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        bridge = self._fetchone(
+            "SELECT superseded_by FROM bridge_instances WHERE id = ?", ("restart-cs-1",)
+        )
+        self.assertEqual(
+            bridge["superseded_by"], f"terminal-dead:{terminal_id}",
+            "a managed worker's channel sidecar dies WITH the PTY and must be superseded at the "
+            "death site — otherwise it stays claim-eligible for the full 120s stale window",
+        )
+
+    def test_report_dead_leaves_a_RESIDENT_channel_sidecar_alone(self):
+        """THE REGRESSION GUARD. This is the trap the fix had to avoid.
+
+        Every channel-sidecar row on the live fleet has an EMPTY terminal_id (11/11 measured), so
+        reusing the wrapper-child scoping (`terminal_id = '' OR terminal_id = ?`) would have matched
+        a RESIDENT sidecar too. A resident sidecar does NOT die with a managed terminal — it is the
+        agent's own MCP session — and superseding it would break that agent's delivery path.
+
+        The sibling wrapper-child fix could absorb that false-positive because it only costs one
+        redundant coldstart check. Here it costs delivery, so `session_mode = 'managed'` is
+        load-bearing. If someone ever "simplifies" the predicate, this test is what stops them.
+        """
+        agent_id = "restart-sidecar-resident"
+        terminal_id = "term_restart_resident"
+        self._seed_managed_agent_with_terminal(agent_id, terminal_id, pid="5151")
+        self._seed_channel_sidecar("restart-cs-resident", agent_id, session_mode="resident")
+
+        resp = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/report-dead",
+            json={"bridgeId": "bridge-current", "processId": "5151", "reason": "host pid not alive"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        bridge = self._fetchone(
+            "SELECT superseded_by FROM bridge_instances WHERE id = ?", ("restart-cs-resident",)
+        )
+        self.assertEqual(
+            bridge["superseded_by"], "",
+            "a RESIDENT channel sidecar does not die with a managed terminal; superseding it would "
+            "break that agent's delivery path",
+        )
+
+    def test_report_dead_does_not_touch_another_agents_sidecar(self):
+        """Agent scoping. The UPDATE has no terminal filter, so agent_id is the only thing keeping
+        one agent's death from reaching another's live sidecar."""
+        agent_id = "restart-sidecar-scoped"
+        other_id = "restart-sidecar-bystander"
+        terminal_id = "term_restart_scoped"
+        self._seed_managed_agent_with_terminal(agent_id, terminal_id, pid="5152")
+        # The bystander needs a real agent row of its own (bridge_instances.agent_id is an FK), and
+        # its own LIVE terminal — this models the case that actually matters: one agent restarting
+        # while another is happily running on the same host.
+        self._seed_managed_agent_with_terminal(other_id, "term_restart_bystander", pid="5199")
+        self._seed_channel_sidecar("restart-cs-own", agent_id, session_mode="managed")
+        self._seed_channel_sidecar("restart-cs-other", other_id, session_mode="managed")
+
+        resp = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/report-dead",
+            json={"bridgeId": "bridge-current", "processId": "5152", "reason": "host pid not alive"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        self.assertEqual(
+            self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id = ?", ("restart-cs-own",))["superseded_by"],
+            f"terminal-dead:{terminal_id}",
+        )
+        self.assertEqual(
+            self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id = ?", ("restart-cs-other",))["superseded_by"],
+            "",
+            "another agent's sidecar must be untouched",
+        )
+
+    def test_report_dead_pid_mismatch_leaves_channel_sidecar_live(self):
+        """Same pid guard as the wrapper-child case: a stale dead-report for an OLD terminal must
+        not supersede the sidecar of the NEW live worker. Without this the fix would become a way
+        for a late report to kill a healthy agent."""
+        agent_id = "restart-sidecar-pid"
+        terminal_id = "term_restart_pid"
+        self._seed_managed_agent_with_terminal(agent_id, terminal_id, pid="9001")
+        self._seed_channel_sidecar("restart-cs-pid", agent_id, session_mode="managed")
+
+        resp = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/report-dead",
+            json={"bridgeId": "bridge-current", "processId": "1234", "reason": "stale report"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json().get("ignored"), "pid-mismatch", resp.text)
+
+        bridge = self._fetchone(
+            "SELECT superseded_by FROM bridge_instances WHERE id = ?", ("restart-cs-pid",)
+        )
+        self.assertEqual(bridge["superseded_by"], "", "a pid-mismatched report must not supersede")
+
+    def test_report_dead_does_not_reclaim_an_already_superseded_sidecar(self):
+        """`COALESCE(superseded_by,'') = ''` — an already-superseded row keeps its ORIGINAL cause.
+        Overwriting it would destroy the audit trail of which death actually retired the bridge."""
+        agent_id = "restart-sidecar-idem"
+        terminal_id = "term_restart_idem"
+        self._seed_managed_agent_with_terminal(agent_id, terminal_id, pid="5153")
+        self._seed_channel_sidecar("restart-cs-idem", agent_id, session_mode="managed")
+        self._execute(
+            "UPDATE bridge_instances SET superseded_by = ? WHERE id = ?",
+            ("reaper:stale-orphan", "restart-cs-idem"),
+        )
+
+        resp = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/report-dead",
+            json={"bridgeId": "bridge-current", "processId": "5153", "reason": "host pid not alive"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        bridge = self._fetchone(
+            "SELECT superseded_by FROM bridge_instances WHERE id = ?", ("restart-cs-idem",)
+        )
+        self.assertEqual(bridge["superseded_by"], "reaper:stale-orphan", "must not overwrite the original cause")
 
     # ------------------------------------------------------------------
     # Fix 2: coldstart coalesces against a RECENT `running` spawn_request
