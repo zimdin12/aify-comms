@@ -16,6 +16,7 @@ import {
   envIsOnlineAt,
   envLastSeenMs,
   envStateIsUnknown,
+  bridgeInstallVerdict,
 } from "../doctor-predicates.js";
 
 const NOW = Date.parse("2026-07-26T12:00:00Z");
@@ -138,6 +139,78 @@ test("describeEnv names the row and its age so the failure is actionable", () =>
     "env-1 [online, last seen 2026-07-25T10:00:00Z]",
   );
   assert.equal(describeEnv({}), "(unnamed) [unknown]");
+});
+
+// ── N13: `bridge-installed` must key on BRIDGE changes, not on repo HEAD ──────────────
+// It used to fail whenever the marker sha != HEAD, so a docs-only or service-only commit reported
+// "the bridge is stale, re-run install.sh" — false, and repeated often enough to train the operator
+// to skim past the one check that catches a genuinely silent failure.
+
+test("bridge-installed: marker == HEAD is clean", () => {
+  const v = bridgeInstallVerdict({ installedSha: "abc1234def", headSha: "abc1234def", headShort: "abc1234" });
+  assert.equal(v.ok, true);
+  assert.equal(v.code, "ok");
+  assert.match(v.detail, /== repo HEAD/);
+});
+
+test("bridge-installed: behind by commits that DO touch mcp/stdio is stale", () => {
+  const v = bridgeInstallVerdict({
+    installedSha: "old1111", headSha: "new2222", headShort: "new2222",
+    bridgeCommits: 2, totalCommits: 9,
+  });
+  assert.equal(v.ok, false);
+  assert.equal(v.code, "stale");
+  assert.match(v.detail, /2 commit\(s\) since then changed mcp\/stdio/);
+  assert.match(v.fix, /install\.sh/);
+  // The relaunch half matters as much as the copy half: install.sh updates the files on disk, but a
+  // RUNNING wrapper keeps the code it loaded at boot.
+  assert.match(v.fix, /relaunch/i);
+});
+
+test("N13 REGRESSION: behind by commits that do NOT touch mcp/stdio is CLEAN, not stale", () => {
+  const v = bridgeInstallVerdict({
+    installedSha: "old1111", headSha: "new2222", headShort: "new2222",
+    bridgeCommits: 0, totalCommits: 8,
+  });
+  assert.equal(v.ok, true, "a docs-only or service-only commit must not report the bridge as stale");
+  assert.equal(v.code, "ok");
+  assert.match(v.detail, /none touching mcp\/stdio/);
+  assert.equal(v.fix, "", "there is nothing for the operator to do, so offer no fix");
+});
+
+test("bridge-installed: the count is reported so 'clean' is auditable, not just asserted", () => {
+  const v = bridgeInstallVerdict({
+    installedSha: "old1111", headSha: "new2222", headShort: "new2222",
+    bridgeCommits: 0, totalCommits: 8,
+  });
+  assert.match(v.detail, /8 commit\(s\) ahead/);
+});
+
+test("bridge-installed: no marker sha, and no checkout, are distinct outcomes", () => {
+  const noMarker = bridgeInstallVerdict({ installedSha: "", headSha: "x" });
+  assert.equal(noMarker.ok, false);
+  assert.equal(noMarker.code, "unknown-version");
+
+  const noRepo = bridgeInstallVerdict({ installedSha: "abc1234", headSha: "" });
+  assert.equal(noRepo.ok, true, "no checkout to compare against is not a failure");
+  assert.match(noRepo.detail, /no checkout/);
+});
+
+test("bridge-installed: degenerate counts do not flip the verdict", () => {
+  // Enumerating the degenerate numeric inputs, not just the happy path — a missing/NaN count from a
+  // failed `git` call must not read as "bridge changed".
+  for (const bridgeCommits of [undefined, null, 0, "", "0", NaN]) {
+    const v = bridgeInstallVerdict({
+      installedSha: "old1111", headSha: "new2222", headShort: "new2222", bridgeCommits, totalCommits: 3,
+    });
+    assert.equal(v.ok, true, `bridgeCommits=${String(bridgeCommits)} must not report stale`);
+  }
+  for (const bridgeCommits of [1, "1", 7]) {
+    const v = bridgeInstallVerdict({
+      installedSha: "old1111", headSha: "new2222", headShort: "new2222", bridgeCommits, totalCommits: 9,
+    });
+    assert.equal(v.ok, false, `bridgeCommits=${String(bridgeCommits)} must report stale`);
+  }
 });
 
 let failed = 0;

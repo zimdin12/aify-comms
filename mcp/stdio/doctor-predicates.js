@@ -75,3 +75,58 @@ export function describeEnv(env) {
   const state = String(env?.status || "unknown").trim().toLowerCase() || "unknown";
   return `${env?.id || "(unnamed)"} [${state}${seen ? `, last seen ${seen}` : ""}]`;
 }
+
+// ── `bridge-installed` staleness ─────────────────────────────────────────────────────
+//
+// N13 (bug-hunt 2026-07-31). The check compared the installed marker sha to repo HEAD and failed on
+// ANY difference:
+//
+//     if (sha === repo.sha) return ok;
+//     return stale(`installed copy is X, repo HEAD is Y (N commit(s) behind)`);
+//
+// So a docs-only commit — or a service-only one — reported "the bridge is stale, re-run install.sh",
+// which is false: nothing under `mcp/stdio/` changed, and the running bridge is executing exactly
+// the code the checkout describes. Observed live: three consecutive roadmap commits and one
+// service+dashboard commit each produced the warning.
+//
+// That is not a cosmetic annoyance. `bridge-installed` is one of the few checks that catches a REAL
+// and completely silent failure (you edited the bridge, forgot install.sh, and the checkout lies to
+// you). A check that fires on commits it has no opinion about trains the operator to skim past it —
+// and then the one time it means something, it reads the same as the twenty times it did not. Alarm
+// fatigue is how a true positive becomes invisible, which is the same outcome as a false green by a
+// different route.
+//
+// The honest question is not "is the marker equal to HEAD?" but "have any commits since the marker
+// TOUCHED the bridge?". Kept pure — the caller does the `git log -- mcp/stdio` and passes counts in.
+export function bridgeInstallVerdict({ installedSha = "", headSha = "", headShort = "", bridgeCommits = 0, totalCommits = 0 } = {}) {
+  const short = String(installedSha || "").slice(0, 7);
+  if (!installedSha) {
+    return { ok: false, code: "unknown-version", detail: "Bridge present but has no version marker.",
+      fix: "Re-run install.sh to stamp it." };
+  }
+  if (!headSha) {
+    return { ok: true, code: "ok", detail: `installed — ${short} (no checkout to compare against)`, fix: "" };
+  }
+  if (installedSha === headSha) {
+    return { ok: true, code: "ok", detail: `installed — ${short} == repo HEAD`, fix: "" };
+  }
+  if (Number(bridgeCommits) > 0) {
+    const n = Number(bridgeCommits);
+    return {
+      ok: false,
+      code: "stale",
+      detail: `installed copy is ${short}, repo HEAD is ${headShort} — ${n} commit(s) since then changed `
+        + `mcp/stdio/. The RUNNING bridge is older than the checkout.`,
+      fix: "Re-run `bash install.sh --client <runtime>` AND relaunch the wrappers — bridge edits do "
+        + "NOT take effect from the checkout, and a relaunch is what puts the new code in memory.",
+    };
+  }
+  // Behind, but by commits that cannot affect the bridge. Say so rather than crying wolf.
+  return {
+    ok: true,
+    code: "ok",
+    detail: `installed — ${short}; repo HEAD is ${headShort} (${Number(totalCommits) || 0} commit(s) ahead, `
+      + `none touching mcp/stdio/)`,
+    fix: "",
+  };
+}

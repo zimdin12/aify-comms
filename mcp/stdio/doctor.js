@@ -35,6 +35,7 @@ import {
   describeEnv,
   envIsOnline,
   envStateIsUnknown,
+  bridgeInstallVerdict,
 } from "./doctor-predicates.js";
 
 const args = process.argv.slice(2);
@@ -117,12 +118,21 @@ function checkNativeBridge() {
       "Re-run install.sh to stamp it.");
   }
   const sha = (readFileSync(marker, "utf8").match(/^sha=(\S+)/m) || [])[1] || "";
-  if (!repo) return add("bridge-installed", true, "ok", `installed — ${sha.slice(0, 7)} (no checkout to compare against)`);
-  if (sha === repo.sha) return add("bridge-installed", true, "ok", `installed — ${sha.slice(0, 7)} == repo HEAD`);
-  const behind = sh("git", ["rev-list", "--count", `${sha}..HEAD`], repo.dir);
-  return add("bridge-installed", false, "stale",
-    `installed copy is ${sha.slice(0, 7)}, repo HEAD is ${repo.short}${behind ? ` (${behind} commit(s) behind)` : ""}.`,
-    "Re-run `bash install.sh --client <runtime>` — bridge edits do NOT take effect from the checkout.");
+  // N13: ask whether any commit since the marker TOUCHED the bridge, not merely whether the sha
+  // differs from HEAD — see bridgeInstallVerdict. The two `git log` calls are the only I/O; the
+  // verdict itself is pure and unit-tested.
+  const totalCommits = repo ? sh("git", ["rev-list", "--count", `${sha}..HEAD`], repo.dir) : "";
+  const bridgeCommits = repo
+    ? sh("git", ["rev-list", "--count", `${sha}..HEAD`, "--", "mcp/stdio"], repo.dir)
+    : "";
+  const verdict = bridgeInstallVerdict({
+    installedSha: sha,
+    headSha: repo ? repo.sha : "",
+    headShort: repo ? repo.short : "",
+    bridgeCommits: Number(bridgeCommits || 0),
+    totalCommits: Number(totalCommits || 0),
+  });
+  return add("bridge-installed", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }
 
 function checkBridgeTerminal() {
