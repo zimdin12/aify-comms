@@ -11,6 +11,30 @@
 // straggler from old data renders correctly instead of as a grey unknown.
 import { esc } from './util.js';
 
+// H1 (responsibility audit 2026-07-31): the agent status vocabulary now has ONE owner in JS.
+//
+// It is THE shared contract of this service — agents read it to decide whether to send, the
+// dashboard filters on it, the reconciler acts on it — and it was declared authoritatively in
+// `status_engine.py:19` and then hand-retyped in three more places: SESSION_FILTER_KINDS and
+// SESSION_LIVE_KINDS in app.js, and an independent `new Set([...])` of the same four values in
+// chat.js. Nothing bound any copy to the source, and the vocabulary is not served by the API, so
+// there was no runtime path by which the client could learn it either.
+//
+// The failure mode was silent by construction: `resolveStatus` ends `|| STATUS_KINDS.unknown`, so a
+// seventh server-side state would not throw — it would render as a muted grey "unknown" chip and
+// filter into nothing. Drift with a graceful face.
+//
+// MUST equal `service/status_engine.py`'s VALID_STATUSES, in order. Pinned by
+// `service/tests/test_status_vocabulary_binding.py`, which fails the suite on drift rather than
+// letting the dashboard quietly mis-render.
+export const AGENT_STATUSES = ['working', 'online', 'available', 'blocked', 'offline', 'stopped'];
+
+// The subset that means "this agent can be reached right now". Derived from the list above rather
+// than retyped: `offline` and `stopped` are the only non-live states, so stating the exclusion keeps
+// the two definitions from drifting apart the way the two hand-typed copies did.
+export const NON_LIVE_AGENT_STATUSES = ['offline', 'stopped'];
+export const LIVE_AGENT_STATUSES = AGENT_STATUSES.filter((s) => !NON_LIVE_AGENT_STATUSES.includes(s));
+
 export const STATUS_KINDS = {
   active: { label: 'online', dotKind: 'online', tone: 'ok', inputEnabled: true },
   idle: { label: 'online', dotKind: 'online', tone: 'ok', inputEnabled: true },

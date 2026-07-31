@@ -4,7 +4,7 @@
 // queue option, and the delivery-truthfulness toast ladder. Pure rail/timeline builders are
 // exported for unit testing; the page wires app state + send via createChatController().
 import { esc, relTime } from './util.js';
-import { renderStatusChip, resolveStatus } from './status.js';
+import { renderStatusChip, resolveStatus, LIVE_AGENT_STATUSES } from './status.js';
 import { toast } from './ui.js';
 import { fleetPulseHtml } from './analytics.js';
 
@@ -109,7 +109,7 @@ export function chatConversationItems(state) {
   if (scope === 'dm') items = items.filter((i) => i.kind === 'dm');
   else if (scope === 'channel') items = items.filter((i) => i.kind === 'channel');
   else if (scope === 'favorites') items = items.filter((i) => i.favorited);
-  const live = new Set(['working', 'online', 'available', 'blocked']);
+  const live = new Set(LIVE_AGENT_STATUSES);  // H1: was an independent hand-copy of the same four
   if (liveOnly) items = items.filter((i) => i.kind === 'channel' || live.has(resolveStatus(i.status).kind));
   if (unreadOnly) items = items.filter((i) => i.unread > 0);
   // Status dots filter STRICTLY (a filter should narrow): channels are exempt (no agent status),

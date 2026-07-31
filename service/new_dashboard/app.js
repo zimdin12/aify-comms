@@ -5,7 +5,7 @@ import { esc, relTime, tsMs } from './util.js';
 import { createTerminalInputPoster, createTerminalInputHandler, forceTerminalRepaint, waitForTerminalSize, wheelInputSequence } from './terminal-input.mjs';
 import { continueCliInfo, resumeMachineNote } from './cli-resume.mjs';
 import { collapseSupersededSessions, countSupersededSessions } from './sessions-list.mjs';
-import { STATUS_KINDS, resolveStatus, renderStatusChip } from './status.js';
+import { STATUS_KINDS, AGENT_STATUSES, LIVE_AGENT_STATUSES, resolveStatus, renderStatusChip } from './status.js';
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
 import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
 import { createChatController } from './chat.js';
@@ -1641,8 +1641,10 @@ function renderSessionBulkToolbar() {
 // WS-F: status multiselect filter chips for the Sessions rail.
 // Proof-based 6-state model only — `idle`/`stale` were removed in the status rewrite, so they must
 // not appear as session filter chips (dead chips that match nothing).
-const SESSION_FILTER_KINDS = ['working', 'online', 'available', 'blocked', 'offline', 'stopped'];
-const SESSION_LIVE_KINDS = ['working', 'online', 'available', 'blocked'];
+// H1: these were hand-copies of status_engine.VALID_STATUSES. They now alias the single JS
+// owner in status.js, which is bound to the Python source by a test.
+const SESSION_FILTER_KINDS = AGENT_STATUSES;
+const SESSION_LIVE_KINDS = LIVE_AGENT_STATUSES;
 function renderSessionStatusFilter() {
   const host = byId('session-status-filter');
   if (!host) return;
