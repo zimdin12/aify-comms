@@ -22174,8 +22174,22 @@ async def get_analytics(request: Request, analytics_range: str = Query("hour", a
             if status.startswith("working"):
                 working_agents += 1
 
-        env_c = await db.execute("SELECT COUNT(*) FROM environments WHERE status = 'online'")
-        online_environments = int((await env_c.fetchone())[0])
+        # N9 (bug-hunt 2026-07-31): this counted STORED status and the card it feeds claims
+        # "bridges reachable right now". Nothing ages an environment — every `UPDATE environments`
+        # writer is a registration, an explicit disable, or a `last_seen` bump — so a bridge that
+        # died uncleanly kept `status='online'` forever and was counted as reachable indefinitely.
+        # That is the same false green `aify-doctor`'s env-bridge check exists to prevent (756f3a5),
+        # surviving in the surface the operator actually watches. Derive it like every other reader:
+        # `_environment_effective_status` IS the liveness truth, and the three sibling cards in this
+        # grid were already derived — this was the only raw one.
+        env_offline_seconds = max(30, int(settings.get("environment_offline_seconds", 90) or 90))
+        env_rows_c = await db.execute("SELECT status, last_seen FROM environments")
+        online_environments = sum(
+            1
+            for env_row in await env_rows_c.fetchall()
+            if _environment_effective_status(env_row, offline_seconds=env_offline_seconds)
+            in _ENVIRONMENT_HEARTBEAT_STATUSES
+        )
 
         # ── Fleet operational analytics (2026-06-17 round: "real analytics") ──
         # Everything below is additive; all run-time math uses julianday() on the ISO TEXT

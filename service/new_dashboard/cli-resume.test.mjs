@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { continueCliInfo, CLI_RESUME_RUNTIMES } from './cli-resume.mjs';
+import { continueCliInfo, CLI_RESUME_RUNTIMES, resumeMachineNote } from './cli-resume.mjs';
 
 test('claude-code builds the claude-aify resume command', () => {
   const { command, reason } = continueCliInfo({ id: 'graph-tech-lead', runtime: 'claude-code', sessionHandle: 'd8ba8de3' });
@@ -80,4 +80,67 @@ test('null/undefined inputs never throw', () => {
   assert.equal(continueCliInfo(null, null).command, '');
   assert.equal(continueCliInfo(undefined, undefined).command, '');
   assert.ok(continueCliInfo(null, null).reason);
+});
+
+// ── N10 / N11 (bug-hunt 2026-07-31) ────────────────────────────────────────────────────────────
+// Both defects shipped in v0.1.1, in the fix that was supposed to stop this surface lying.
+
+test('N10: the machine that owns the session is carried out of the mapping', () => {
+  const { command, machine } = continueCliInfo({
+    id: 'lc-coder', runtime: 'codex', sessionHandle: 'h1', machineId: 'linux:laputa',
+  });
+  assert.ok(command, 'a command is still produced');
+  assert.equal(machine, 'linux:laputa', 'the caller must be able to say WHERE this runs');
+});
+
+test('N10: the machine note names the host, so the command is true wherever it is pasted', () => {
+  const note = resumeMachineNote('linux:laputa');
+  assert.match(note, /linux:laputa/);
+  assert.match(note, /not resume anywhere else/i);
+});
+
+test('N10: an unknown machine says so rather than implying "here"', () => {
+  const note = resumeMachineNote('');
+  assert.match(note, /unknown/i);
+  assert.doesNotMatch(note, /undefined|null/);
+});
+
+test('N10: machine survives the snake_case and session-carried spellings', () => {
+  assert.equal(continueCliInfo({ id: 'a', runtime: 'hermes', sessionHandle: 'h', machine_id: 'm-snake' }).machine, 'm-snake');
+  assert.equal(
+    continueCliInfo({ id: 'a', runtime: 'hermes', sessionHandle: 'h' }, { machineId: 'm-sess' }).machine,
+    'm-sess',
+    'the session row carries it when the agent row does not',
+  );
+});
+
+test('N10: the no-command branches still report the machine', () => {
+  // Whichever way the block renders, the operator should learn which host is involved.
+  assert.equal(continueCliInfo({ id: 'a', runtime: 'claude-code', sessionHandle: '', machineId: 'm1' }).machine, 'm1');
+  assert.equal(continueCliInfo({ id: 'a', runtime: 'pi', sessionHandle: 'h', machineId: 'm1' }).machine, 'm1');
+});
+
+// N11: 3 of the 4 live codex agents holding a handle are RESIDENT, and every one of them was handed
+// the MANAGED CODEX_HOME — a store that cannot contain their rollout.
+test('N11: a MANAGED codex session gets the managed CODEX_HOME', () => {
+  const { command } = continueCliInfo({ id: 'gsd', runtime: 'codex', sessionHandle: 'h', sessionMode: 'managed' });
+  assert.match(command, /CODEX_HOME="\$HOME\/\.local\/state\/aify-comms\/managed-codex-home"/);
+});
+
+test('N11: a RESIDENT codex session gets NO CODEX_HOME override', () => {
+  const { command } = continueCliInfo({ id: 'tech-lead', runtime: 'codex', sessionHandle: 'h', sessionMode: 'resident' });
+  assert.doesNotMatch(command, /CODEX_HOME/, 'the wrapper default ${CODEX_HOME:-$HOME/.codex} must apply');
+  assert.match(command, /codex --no-alt-screen resume --include-non-interactive h$/);
+});
+
+test('N11: an UNKNOWN session mode does not assume managed', () => {
+  // Absence of evidence is not evidence of managed. Overriding CODEX_HOME on a guess is what broke
+  // the resident case; omitting it falls back to the wrapper default, which is right more often.
+  for (const agent of [
+    { id: 'x', runtime: 'codex', sessionHandle: 'h' },
+    { id: 'x', runtime: 'codex', sessionHandle: 'h', sessionMode: '' },
+    { id: 'x', runtime: 'codex', sessionHandle: 'h', session_mode: 'resident' },
+  ]) {
+    assert.doesNotMatch(continueCliInfo(agent).command, /CODEX_HOME/, JSON.stringify(agent));
+  }
 });

@@ -639,6 +639,59 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(all_time.json()["runsByStatus"].get("failed", 0), 1)
         self.assertTrue(all_time.json()["messagesPerAllTime"])
 
+    def test_analytics_online_environments_ages_a_silent_bridge(self):
+        """N9: "Online envs" claimed reachability but counted STORED status.
+
+        Nothing in the codebase ages an environment row — every `UPDATE environments` writer is a
+        registration, an explicit disable, or a `last_seen` bump. So a bridge that died uncleanly
+        kept `status='online'` forever, and the card whose tooltip reads "Environment bridges
+        reachable right now (managed agents can be spawned on these)" counted it indefinitely.
+
+        This is the same false green `aify-doctor`'s env-bridge check exists to prevent (756f3a5):
+        it counted REGISTERED rows and reported "2 connected" with zero bridges alive.
+
+        The seeding matters: a test using only FRESH rows passes with or without the fix, which is
+        exactly how the doctor version survived so long. Both statuses that heartbeat are covered —
+        `degraded` too, because N7's lesson was that fixing only the value named in the report is
+        how the same defect comes back through the neighbouring door.
+        """
+        fresh = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        stale = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat().replace("+00:00", "Z")
+        self._execute(
+            """
+            INSERT INTO environments
+                (id, label, machine_id, os, kind, bridge_id, status, registered_at, last_seen)
+            VALUES
+                ('env-live',      'live',      'm1', 'linux', 'host', 'b1', 'online',    ?, ?),
+                ('env-silent',    'silent',    'm2', 'linux', 'host', 'b2', 'online',    ?, ?),
+                ('env-silent-2',  'silent2',   'm7', 'linux', 'host', 'b7', 'online',    ?, ?),
+                ('env-degraded',  'degraded',  'm3', 'linux', 'host', 'b3', 'degraded',  ?, ?),
+                ('env-deg-stale', 'deg-stale', 'm4', 'linux', 'host', 'b4', 'degraded',  ?, ?),
+                ('env-off',       'off',       'm5', 'linux', 'host', 'b5', 'offline',   ?, ?),
+                ('env-forgotten', 'forgotten', 'm6', 'linux', 'host', 'b6', 'forgotten', ?, ?)
+            """,
+            (
+                stale, fresh,   # env-live      → counted by BOTH
+                stale, stale,   # env-silent    → counted only by the RAW query
+                stale, stale,   # env-silent-2  → counted only by the RAW query
+                stale, fresh,   # env-degraded  → counted only by the DERIVED query
+                stale, stale,   # env-deg-stale → counted by neither
+                stale, fresh,   # env-off       → counted by neither (terminal state)
+                stale, fresh,   # env-forgotten → counted by neither (terminal state)
+            ),
+        )
+
+        resp = self.client.get("/api/v1/analytics?range=all")
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        # Reachable = a heartbeat status that is still FRESH. env-live + env-degraded only.
+        # Before the fix this returned 2 (both raw 'online' rows, stale one included).
+        self.assertEqual(
+            resp.json()["onlineEnvironments"],
+            2,
+            "a silent bridge must not be counted as reachable, and a fresh degraded one must be",
+        )
+
     def test_managed_claude_spawn_uses_settings_default_model(self):
         self._heartbeat_environment(
             id="windows:test-host:default",

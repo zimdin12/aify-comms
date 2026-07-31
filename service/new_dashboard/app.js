@@ -3,7 +3,7 @@
 // the single delegated event handler + init) until later Phase-0 slices split those too.
 import { esc, relTime, tsMs } from './util.js';
 import { createTerminalInputPoster, createTerminalInputHandler, forceTerminalRepaint, waitForTerminalSize, wheelInputSequence } from './terminal-input.mjs';
-import { continueCliInfo } from './cli-resume.mjs';
+import { continueCliInfo, resumeMachineNote } from './cli-resume.mjs';
 import { collapseSupersededSessions, countSupersededSessions } from './sessions-list.mjs';
 import { STATUS_KINDS, resolveStatus, renderStatusChip } from './status.js';
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
@@ -3416,6 +3416,7 @@ function openAgentDrawer(agentId) {
         <div class="agent-drawer-subhead">Continue in CLI</div>
         ${cliCmd
           ? `<p class="subtle">Resume this session in your own terminal — native ${esc(agent.runtime || 'runtime')} CLI.</p>
+        <p class="subtle cli-cmd-machine">${esc(resumeMachineNote(cli.machine))}</p>
         <div class="cli-cmd-row"><code class="cli-cmd">${esc(cliCmd)}</code><button class="ghost" data-copy-cli="${esc(cliCmd)}" title="Copy the resume command">Copy</button></div>`
           : `<p class="subtle">${esc(cli.reason)}</p>`}
       </div>`;
