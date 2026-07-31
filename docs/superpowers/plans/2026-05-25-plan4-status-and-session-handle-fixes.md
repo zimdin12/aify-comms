@@ -1451,7 +1451,7 @@ Expected: FAIL — redeploy.sh doesn't exist.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
-DEFAULT_SERVER="${AIFY_DEFAULT_SERVER_URL:-http://192.168.100.10:8800}"
+DEFAULT_SERVER="${AIFY_DEFAULT_SERVER_URL:-http://192.0.2.10:8800}"
 SERVER_URL="${1:-$DEFAULT_SERVER}"
 
 if [ ! -f "$REPO_ROOT/install.sh" ]; then

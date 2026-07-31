@@ -37,7 +37,7 @@
 
 ## Background — ACP wire format
 
-Hermes implements **Agent Client Protocol** (ACP). Method names use **snake_case** in `acp.meta`, but on the wire ACP follows JSON-RPC 2.0 with method names like `session/new`, `session/prompt`, `session/update`, `fs/read_text_file`, etc. (slash-separated). The Python `acp` library at `C:\Users\Administrator\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\acp\meta.py` lists:
+Hermes implements **Agent Client Protocol** (ACP). Method names use **snake_case** in `acp.meta`, but on the wire ACP follows JSON-RPC 2.0 with method names like `session/new`, `session/prompt`, `session/update`, `fs/read_text_file`, etc. (slash-separated). The Python `acp` library at `C:\Users\dev\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\acp\meta.py` lists:
 
 - **Agent methods** (bridge → hermes, request/response): `initialize`, `authenticate`, `session/new`, `session/load`, `session/list`, `session/resume`, `session/fork`, `session/prompt`, `session/cancel`, `session/close`, `session/set_mode`, `session/set_model`, `session/set_config_option`.
 - **Client methods** (hermes → bridge, request/response except `session/update` which is notification): `fs/read_text_file`, `fs/write_text_file`, `session/request_permission`, `session/update`, `terminal/create`, `terminal/kill`, `terminal/output`, `terminal/release`, `terminal/wait_for_exit`.

@@ -977,7 +977,7 @@ git commit -m "docs(hermes-resident): document the dashboard-as-gateway + HERMES
 
 - [ ] **Step 1: Reinstall the wrapper**
 
-Run: `bash install.sh --client hermes http://192.168.100.10:8800 --with-hook` (or whichever invocation matches the operator's setup).
+Run: `bash install.sh --client hermes http://192.0.2.10:8800 --with-hook` (or whichever invocation matches the operator's setup).
 Expected: writes the new `hermes-aify` wrapper to `~/.local/bin/hermes-aify`.
 
 - [ ] **Step 2: Restart any running aify environment bridge so it picks up the rebuilt MCP code**

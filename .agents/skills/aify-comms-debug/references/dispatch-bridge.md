@@ -238,8 +238,8 @@ pkill -f 'claude-aify'
 pkill -f 'omp-aify'
 cd /home/dev/aify-comms
 git pull
-bash install.sh --client codex http://192.168.100.10:8800 --with-hook
-bash install.sh --client claude http://192.168.100.10:8800 --with-hook
+bash install.sh --client codex http://192.0.2.10:8800 --with-hook
+bash install.sh --client claude http://192.0.2.10:8800 --with-hook
 # Pi/OMP wrapper install is disabled; managed Pi uses the environment bridge plus `omp --mode rpc`.
 aify-comms /path/to/workspace-root
 ```

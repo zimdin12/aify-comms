@@ -232,8 +232,8 @@ Workspace is part of the spawn spec and must be native to the environment that o
 
 Examples:
 
-- Windows bridge: `C:/Users/Administrator/echoes_of_the_fallen`
-- WSL bridge: `/mnt/c/Users/Administrator/echoes_of_the_fallen`
+- Windows bridge: `C:/Users/dev/echoes_of_the_fallen`
+- WSL bridge: `/mnt/c/Users/dev/echoes_of_the_fallen`
 - Linux bridge: `/home/user/projects/echoes`
 
 The service container should not translate paths on behalf of the bridge. The bridge advertises allowed workspace roots and validates requested workspaces locally.
@@ -320,12 +320,12 @@ Example:
 old session:
   runtime: Claude Code
   environment: Windows
-  workspace: C:/Users/Administrator/echoes_of_the_fallen
+  workspace: C:/Users/dev/echoes_of_the_fallen
 
 new session:
   runtime: Codex
   environment: WSL
-  workspace: /mnt/c/Users/Administrator/echoes_of_the_fallen
+  workspace: /mnt/c/Users/dev/echoes_of_the_fallen
 ```
 
 The bridge must validate the target workspace in the target environment. The dashboard may help map equivalent roots, but the target bridge is the authority.

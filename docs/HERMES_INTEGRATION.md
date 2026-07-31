@@ -122,7 +122,7 @@ hermes config check
 From the aify-comms repo:
 
 ```bash
-bash install.sh --client hermes http://192.168.100.10:8800 --with-hook
+bash install.sh --client hermes http://192.0.2.10:8800 --with-hook
 ```
 
 The installer:
@@ -159,7 +159,7 @@ stream guard for that launch. The old in-place Hermes source patch path remains
 available only for debugging:
 
 ```bash
-AIFY_HERMES_LEGACY_SOURCE_PATCH=1 bash install.sh --client hermes http://192.168.100.10:8800
+AIFY_HERMES_LEGACY_SOURCE_PATCH=1 bash install.sh --client hermes http://192.0.2.10:8800
 ```
 
 ## Start The Environment Bridge
@@ -168,13 +168,13 @@ Start the bridge from a directory that should be allowed as a dashboard workspac
 
 ```bash
 cd /path/to/workspace-or-parent
-aify-comms http://192.168.100.10:8800
+aify-comms http://192.0.2.10:8800
 ```
 
 You can advertise additional roots:
 
 ```bash
-aify-comms http://192.168.100.10:8800 /path/to/extra/root
+aify-comms http://192.0.2.10:8800 /path/to/extra/root
 ```
 
 The dashboard can spawn Hermes only in workspaces under the bridge's advertised roots.

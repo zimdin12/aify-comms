@@ -1,8 +1,8 @@
 """Regression tests for case-insensitive machine_id handling.
 
 Root cause: the host machine_id is "<platform>:<hostname>" (e.g.
-"win32:StevenZ-L"). Different launch paths report the hostname with
-different casing ("win32:StevenZ-L" vs "win32:STEVENZ-L"). machine_id was
+"win32:DevBox-1"). Different launch paths report the hostname with
+different casing ("win32:DevBox-1" vs "win32:DEVBOX-1"). machine_id was
 compared CASE-SENSITIVELY in bridge supersession, so a re-registered worker
 under a different casing did NOT supersede its prior bridge -> duplicate
 live bridge_instances per agent. The fix normalizes machine_id to lowercase
@@ -37,16 +37,16 @@ class _DummyWS:
 
 class NormalizeMachineIdUnitTests(unittest.TestCase):
     def test_lowercases_and_strips(self):
-        self.assertEqual(_normalize_machine_id("win32:StevenZ-L"), "win32:stevenz-l")
-        self.assertEqual(_normalize_machine_id("win32:STEVENZ-L"), "win32:stevenz-l")
-        self.assertEqual(_normalize_machine_id("  win32:StevenZ-L  "), "win32:stevenz-l")
+        self.assertEqual(_normalize_machine_id("win32:DevBox-1"), "win32:devbox-1")
+        self.assertEqual(_normalize_machine_id("win32:DEVBOX-1"), "win32:devbox-1")
+        self.assertEqual(_normalize_machine_id("  win32:DevBox-1  "), "win32:devbox-1")
 
     def test_handles_empty_and_none(self):
         self.assertEqual(_normalize_machine_id(None), "")
         self.assertEqual(_normalize_machine_id(""), "")
 
     def test_idempotent(self):
-        once = _normalize_machine_id("win32:StevenZ-L")
+        once = _normalize_machine_id("win32:DevBox-1")
         self.assertEqual(_normalize_machine_id(once), once)
 
 
@@ -101,7 +101,7 @@ class MachineIdCasingSupersessionTests(unittest.TestCase):
             sessionMode="managed",
             launchMode="managed",
             sessionHandle="codex-thread-1",
-            machineId="win32:StevenZ-L",
+            machineId="win32:DevBox-1",
             bridgeId="bridge-A",
             capabilities=["managed-run", "native-managed-run", "resume", "interrupt", "steer"],
         )
@@ -118,7 +118,7 @@ class MachineIdCasingSupersessionTests(unittest.TestCase):
             sessionMode="managed",
             launchMode="managed",
             sessionHandle="codex-thread-1",
-            machineId="win32:STEVENZ-L",
+            machineId="win32:DEVBOX-1",
             bridgeId="bridge-B",
             capabilities=["managed-run", "native-managed-run", "resume", "interrupt", "steer"],
         )
@@ -139,14 +139,14 @@ class MachineIdCasingSupersessionTests(unittest.TestCase):
             runtime="codex",
             sessionMode="managed",
             launchMode="managed",
-            machineId="win32:StevenZ-L",
+            machineId="win32:DevBox-1",
             bridgeId="bridge-S",
             capabilities=["managed-run"],
         )
         agent = self._fetchone("SELECT machine_id FROM agents WHERE id=?", ("store-worker",))
-        self.assertEqual(agent["machine_id"], "win32:stevenz-l")
+        self.assertEqual(agent["machine_id"], "win32:devbox-1")
         bridge = self._fetchone("SELECT machine_id FROM bridge_instances WHERE id=?", ("bridge-S",))
-        self.assertEqual(bridge["machine_id"], "win32:stevenz-l")
+        self.assertEqual(bridge["machine_id"], "win32:devbox-1")
 
 
 if __name__ == "__main__":

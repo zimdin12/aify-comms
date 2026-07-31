@@ -164,7 +164,7 @@ Built & tested: `hermes-apiserver-client.js`, `hermes-version.js`, `hermes-chann
 - [ ] **Step 3:** Commit fixups.
 
 ### Task 7.2: Full install redeploy (operator) + live verify
-- [ ] **Step 1:** Run the FULL redeploy for all clients (operator's standing request): `bash install.sh --client claude "http://192.168.100.10:8800"`, then `--client codex`, `--client hermes`, `--client pi`. hermes asserts api_server up.
+- [ ] **Step 1:** Run the FULL redeploy for all clients (operator's standing request): `bash install.sh --client claude "http://192.0.2.10:8800"`, then `--client codex`, `--client hermes`, `--client pi`. hermes asserts api_server up.
 - [ ] **Step 2:** Recreate ONE managed hermes agent → exactly one daemon + one sidecar (no TUI pair, no accumulation), status `ready`. Dispatch from another agent → hermes **self-replies** via comms_send, threaded back (model authenticated via `hermes login`).
 - [ ] **Step 3:** Governance live checks: (a) flip the agent to resident in the dashboard → it shows the correct resume command, the sidecar releases, and `hermes --tui --resume aify-<id>` takes over the SAME session; flip back. (b) launch a second resident with the same id while managed → rejected with the actionable error. (c) force a drifted id → `session-changed` badge + Confirm/Keep works. (d) leave a `require_reply` unanswered → reminder fires once, stops after reply.
 - [ ] **Step 4:** Regression: claude managed still delivers/self-replies; a second hermes agent gets its OWN daemon/pinned session (no collision); restart an agent twice → process count flat.

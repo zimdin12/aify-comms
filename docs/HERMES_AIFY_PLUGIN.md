@@ -57,5 +57,5 @@ null-output guard are not supplied by aify-comms.
 The old in-place source edit path remains for emergency debugging only:
 
 ```bash
-AIFY_HERMES_LEGACY_SOURCE_PATCH=1 bash install.sh --client hermes http://192.168.100.10:8800
+AIFY_HERMES_LEGACY_SOURCE_PATCH=1 bash install.sh --client hermes http://192.0.2.10:8800
 ```

@@ -35,7 +35,7 @@ function writeTranscript(homeDir, cwd, uuid, mtimeMs) {
 test("captured store id wins over env and cwd-scoped", async () => {
   const homeDir = makeHome();
   const dir = makeStoreDir();
-  const cwd = "C:/Users/Administrator/sand_castle";
+  const cwd = "C:/Users/dev/sand_castle";
   try {
     writeTranscript(homeDir, cwd, UUID_B, Date.now());
     writeClaudeSessionId({ sessionId: UUID_A, agentId: "coder-1", dir });
@@ -54,7 +54,7 @@ test("captured store id wins over env and cwd-scoped", async () => {
 test("captured store id is resolved via env.AIFY_AGENT_ID when no agentId opt", async () => {
   const homeDir = makeHome();
   const dir = makeStoreDir();
-  const cwd = "C:/Users/Administrator/sand_castle";
+  const cwd = "C:/Users/dev/sand_castle";
   try {
     writeTranscript(homeDir, cwd, UUID_B, Date.now());
     writeClaudeSessionId({ sessionId: UUID_A, agentId: "env-agent", dir });
@@ -73,7 +73,7 @@ test("captured store id is resolved via env.AIFY_AGENT_ID when no agentId opt", 
 test("env CLAUDE_SESSION_ID wins over cwd-scoped when no captured id", async () => {
   const homeDir = makeHome();
   const dir = makeStoreDir();
-  const cwd = "C:/Users/Administrator/sand_castle";
+  const cwd = "C:/Users/dev/sand_castle";
   try {
     writeTranscript(homeDir, cwd, UUID_B, Date.now());
     const a = new ClaudeAdapter();
@@ -91,8 +91,8 @@ test("env CLAUDE_SESSION_ID wins over cwd-scoped when no captured id", async () 
 test("cross-repo isolation: fresher transcript in a DIFFERENT project dir is NOT returned", async () => {
   const homeDir = makeHome();
   const dir = makeStoreDir();
-  const myCwd = "C:/Users/Administrator/sand_castle";
-  const otherCwd = "C:/Users/Administrator/other_repo";
+  const myCwd = "C:/Users/dev/sand_castle";
+  const otherCwd = "C:/Users/dev/other_repo";
   try {
     // my own dir: older transcript
     writeTranscript(homeDir, myCwd, UUID_B, Date.now() - 60000);
@@ -112,7 +112,7 @@ test("cross-repo isolation: fresher transcript in a DIFFERENT project dir is NOT
 test("cwd-scoped returns the newest .jsonl within the OWN project dir", async () => {
   const homeDir = makeHome();
   const dir = makeStoreDir();
-  const cwd = "C:/Users/Administrator/sand_castle";
+  const cwd = "C:/Users/dev/sand_castle";
   try {
     writeTranscript(homeDir, cwd, UUID_A, Date.now() - 60000);
     writeTranscript(homeDir, cwd, UUID_B, Date.now());
@@ -128,7 +128,7 @@ test("cwd-scoped returns the newest .jsonl within the OWN project dir", async ()
 test("falls back to AIFY_AGENT_CWD when cwd not passed", async () => {
   const homeDir = makeHome();
   const dir = makeStoreDir();
-  const cwd = "C:/Users/Administrator/sand_castle";
+  const cwd = "C:/Users/dev/sand_castle";
   try {
     writeTranscript(homeDir, cwd, UUID_A, Date.now());
     const a = new ClaudeAdapter();

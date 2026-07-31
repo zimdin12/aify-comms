@@ -14,7 +14,7 @@
 
 The session-mixing fixes already shipped and are correct/verified:
 - #138 claude: SessionStart hook captures each session's own id, keyed by `AIFY_AGENT_ID` (commit bc66923). **Verified live** — sc-claude holds its own handle.
-- machine_id casing normalized end-to-end (commit 334265d) — supersession no longer splits on `StevenZ-L` vs `STEVENZ-L`.
+- machine_id casing normalized end-to-end (commit 334265d) — supersession no longer splits on `DevBox-1` vs `DEVBOX-1`.
 - #135 hermes managed-bind guard (commit 6c66891) — managed agents refuse the gateway-global `most_recent` fallback.
 
 Managed **hermes** still can't deliver. Root cause = **hermes 0.15.1 restructured its gateway**, and aify's integration was built for an older hermes:
@@ -53,8 +53,8 @@ Non-issues ruled out (do not chase): provider auth (Codex OAuth logged in, `prov
 
 **Files:**
 - Create: `docs/superpowers/specs/2026-05-30-hermes-0.15.1-gateway-api.md`
-- Read: `C:\Users\Administrator\AppData\Local\hermes\hermes-agent\tui_gateway\server.py` (methods at lines 2294 session.create, 2447 session.resume, 2568 session.active_list, 2589 session.activate, 2745 session.status, 3338 prompt.submit, 3301 session.steer; native `bind_transport` at 24/490)
-- Read: `C:\Users\Administrator\AppData\Local\hermes\hermes-agent\ui-tui\src\app\useSessionLifecycle.ts` (170 session.create, 184 writeActiveSessionFile, 251 activateLiveSession→session.activate)
+- Read: `C:\Users\dev\AppData\Local\hermes\hermes-agent\tui_gateway\server.py` (methods at lines 2294 session.create, 2447 session.resume, 2568 session.active_list, 2589 session.activate, 2745 session.status, 3338 prompt.submit, 3301 session.steer; native `bind_transport` at 24/490)
+- Read: `C:\Users\dev\AppData\Local\hermes\hermes-agent\ui-tui\src\app\useSessionLifecycle.ts` (170 session.create, 184 writeActiveSessionFile, 251 activateLiveSession→session.activate)
 
 - [ ] **Step 1:** Read each method handler and record the exact params + response dict shape (keys like `session_id`, `info`, `session_key`, `cols`). Capture how `bind_transport(t)` (server.py:490) is invoked and whether a per-call transport can be supplied by a WS client (the mechanism aify needs to receive a specific session's events without displacing the TUI).
 - [ ] **Step 2:** Determine the canonical "make THIS session the one the visible TUI renders + receive its events on my WS" sequence on 0.15.1. Candidate: `session.activate {session_id}` then events flow; confirm whether a second WS client gets events for the activated session or displaces the TUI (the single-client question). Record the answer with the server.py evidence.

@@ -477,8 +477,11 @@
             <div class="help-card">
               <h3>Quick start</h3>
               <p class="subtle">Install a client, then run a bridge.</p>
-              <pre class="help-pre">bash install.sh --client claude \
-  http://192.168.100.10:8800 --with-hook</pre>
+              <!-- Filled at runtime from the page's own origin (app.js renderInstallSnippet) so the
+                   snippet is copy-pasteable on whatever host you opened the dashboard from, instead
+                   of shipping one machine's LAN address to every reader. -->
+              <pre class="help-pre" id="help-install-cmd">bash install.sh --client claude \
+  $AIFY_SERVER_URL --with-hook</pre>
               <p class="subtle">Managed (the normal team workflow — one bridge per host/runtime):</p>
               <pre class="help-pre">cd /path/to/workspace-parent
 aify-comms              # aify-comms.cmd on native Windows</pre>

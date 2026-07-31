@@ -1431,7 +1431,7 @@ def _session_capabilities_replacing_handle(capabilities: Any, session_handle: st
 def _normalize_machine_id(machine_id: Any) -> str:
     """Canonical machine_id form for storage AND comparison.
 
-    The host machine_id is "<platform>:<hostname>" (e.g. "win32:StevenZ-L").
+    The host machine_id is "<platform>:<hostname>" (e.g. "win32:DevBox-1").
     Different launch paths report the hostname with different casing, and
     machine_id is compared in bridge supersession + dispatch-claim routing.
     Comparing case-sensitively let a re-registered worker under a different

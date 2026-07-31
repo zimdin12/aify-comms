@@ -118,6 +118,26 @@ done
 # via DEFAULT_AIFY_SERVER_URL (see default_server in install_hermes_wrapper), so
 # claude was the inconsistent path. Apply the same default here so every client
 # gets a usable URL and the claude wrapper is installed (not removed).
+# INTERACTIVE PROMPT (2026-07-31). No host/network identity is baked into this repo any more —
+# it is asked for, not hardcoded. When an operator runs this by hand and gives no URL, ask, with the
+# best-known default pre-filled (an already-installed wrapper's URL, else loopback).
+#
+# STRICTLY gated on an interactive stdin: this script is also run non-interactively by the
+# wrapper-determinism tests (`--emit-*-wrappers`), by redeploy.sh, and by agents. `read` with no TTY
+# returns EOF instantly and would silently accept an empty answer, so a non-TTY run must never
+# prompt — it takes the default exactly as before.
+if [ -z "$SERVER_URL" ] && [ -t 0 ] && [ "${AIFY_NO_PROMPT:-}" != "1" ]; then
+  _prompt_default="$DEFAULT_AIFY_SERVER_URL"
+  for _w in "$HOME/.local/bin/claude-aify" "$HOME/.local/bin/codex-aify" "$HOME/.local/bin/hermes-aify"; do
+    [ -f "$_w" ] || continue
+    _found="$(grep -oE 'AIFY_SERVER_URL:-http://[^"}]+' "$_w" 2>/dev/null | head -1 | sed 's/^AIFY_SERVER_URL:-//')"
+    if [ -n "${_found:-}" ]; then _prompt_default="$_found"; break; fi
+  done
+  printf 'aify-comms service URL [%s]: ' "$_prompt_default" >&2
+  read -r _answer || _answer=""
+  SERVER_URL="${_answer:-$_prompt_default}"
+  echo "Using server URL: $SERVER_URL" >&2
+fi
 if [ -z "$SERVER_URL" ]; then
   SERVER_URL="$DEFAULT_AIFY_SERVER_URL"
 fi

@@ -197,7 +197,7 @@ The installer may have added `%USERPROFILE%\.local\bin` to the user `Path`. Remo
 ## Verify Removal
 
 ```bash
-curl http://192.168.100.10:8800/health
+curl http://192.0.2.10:8800/health
 ```
 
 This should fail if the service is fully stopped.

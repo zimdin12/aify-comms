@@ -22,7 +22,7 @@ Goal: make `hermes-aify` work on fresh hermes installs.
 
 - [ ] **Step 1: Recon**
 
-Read `install.sh` to find the hermes-install branch (search for `hermes` or `hermes-aify`). Identify where the wrapper is written/copied. Note the hermes install root probe — operator's hermes install is at `C:\Users\Administrator\AppData\Local\hermes\hermes-agent\hermes_cli\web_dist`.
+Read `install.sh` to find the hermes-install branch (search for `hermes` or `hermes-aify`). Identify where the wrapper is written/copied. Note the hermes install root probe — operator's hermes install is at `C:\Users\dev\AppData\Local\hermes\hermes-agent\hermes_cli\web_dist`.
 
 - [ ] **Step 2: Write failing smoke test**
 

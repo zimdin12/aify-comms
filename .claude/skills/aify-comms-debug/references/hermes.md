@@ -229,7 +229,7 @@ The wrapper may already be healthy: process list shows
 On native Windows, current installs run `hermes-aify.cmd` through a generated
 PowerShell shim, not Git Bash, so Hermes' Node TUI keeps a real console TTY.
 If `hermes-aify --resume <id>` exits with `hermes-tui: no TTY`, redeploy the
-Hermes wrapper and verify `C:\Users\Administrator\.local\bin\hermes-aify.cmd`
+Hermes wrapper and verify `C:\Users\dev\.local\bin\hermes-aify.cmd`
 calls `hermes-aify.ps1`.
 
 **Cause.** This is a Hermes/OpenAI SDK Responses streaming edge case, not an

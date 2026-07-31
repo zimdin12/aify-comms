@@ -122,7 +122,7 @@ Run:
 python -m unittest service.tests.test_api_v2_regressions -v
 node --check mcp/stdio/server.js
 docker compose up -d --build
-curl http://192.168.100.10:8800/health
+curl http://192.0.2.10:8800/health
 ```
 
 If host Python lacks FastAPI, run the Python tests inside the service container after copying or rebuilding.

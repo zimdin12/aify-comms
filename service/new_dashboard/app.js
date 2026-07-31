@@ -27,6 +27,16 @@ function resolveApiOrigin() {
 
 const apiOrigin = resolveApiOrigin();
 const apiBase = `${apiOrigin}/api/v1`;
+
+// The Help card's install snippet is rendered from the origin the operator actually opened the
+// dashboard on. It used to hard-code one machine's LAN IP, which was wrong for every other reader
+// (and published that address in a public repo). `apiOrigin` already resolves ?api= > stored
+// override > this page's host, so the snippet matches whatever they are really talking to.
+function renderInstallSnippet() {
+  const el = document.getElementById('help-install-cmd');
+  if (el) el.textContent = `bash install.sh --client claude \
+  ${apiOrigin} --with-hook`;
+}
 const RUN_INSPECTOR_EVENT_LIMIT = 50;
 
 const state = {
@@ -4948,3 +4958,7 @@ byId('settings-form')?.addEventListener('input', (event) => {
 byId('settings-form')?.addEventListener('change', (event) => {
   if (event.target.closest('.settings-appearance')) previewAppearance();
 });
+
+// The Help card snippet is static markup until we stamp the real origin into it. Done once at
+// module load — the card is always in the DOM, just on a hidden page until Settings/Help is opened.
+renderInstallSnippet();

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 def _normalize_machine_id_value(value: Optional[str]) -> Optional[str]:
     """Canonicalize machineId at request-parse ingress.
 
-    The host machine_id is "<platform>:<hostname>" (e.g. "win32:StevenZ-L").
+    The host machine_id is "<platform>:<hostname>" (e.g. "win32:DevBox-1").
     Different launch paths report the hostname with different casing, and the
     service compares machine_id case-sensitively in bridge supersession and
     dispatch-claim routing. Lowercasing here (platform is already lowercase;

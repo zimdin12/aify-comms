@@ -45,7 +45,7 @@
 
 **Files:**
 - Create: `docs/superpowers/specs/2026-05-30-hermes-apiserver-contract.md`
-- Read: `C:\Users\Administrator\AppData\Local\hermes\hermes-agent\gateway\platforms\api_server.py` (endpoints, headers, SSE event format, auth), `gateway\config.py` (`Platform.API_SERVER`, `API_SERVER_ENABLED`/`API_SERVER_KEY`, default port), `gateway\run.py` (`start_gateway`, daemon lifecycle, how platforms are enabled)
+- Read: `C:\Users\dev\AppData\Local\hermes\hermes-agent\gateway\platforms\api_server.py` (endpoints, headers, SSE event format, auth), `gateway\config.py` (`Platform.API_SERVER`, `API_SERVER_ENABLED`/`API_SERVER_KEY`, default port), `gateway\run.py` (`start_gateway`, daemon lifecycle, how platforms are enabled)
 
 - [ ] **Step 1:** Record EXACT shapes: for `POST /api/sessions/{id}/chat` and `/chat/stream` — request headers (`X-Hermes-Session-Id`, `X-Hermes-Session-Key`, auth header name + `API_SERVER_KEY`), request body JSON keys, response body / SSE `event:`+`data:` frame format (which events carry assistant text vs tool/status, terminal event). Same for `POST /v1/runs`, `GET /v1/runs/{id}/events`, `POST /v1/runs/{id}/stop`, `/approval`. Note how a session is created/pinned if `X-Hermes-Session-Id` names a not-yet-existing session.
 - [ ] **Step 2:** Record daemon lifecycle: exact command to start (`hermes gateway run` + flags/env to enable api_server + set key + port), how to health-check it's up (endpoint), how the TUI attaches to it (`HERMES_TUI_GATEWAY_URL`), and whether the api_server port is fixed or discovered.
@@ -171,7 +171,7 @@ git commit -m "docs(hermes): record api_server HTTP/SSE contract + daemon lifecy
 - [ ] **Step 3:** Commit fixups.
 
 ### Task F2: Full install/update integrations (operator-requested) + live round-trip
-- [ ] **Step 1:** After operator's hermes update, run the FULL redeploy for all clients: `bash install.sh --client claude "http://192.168.100.10:8800"`, then `--client codex`, `--client hermes`, `--client pi` (same URL). Confirm each completes; hermes asserts api_server up.
+- [ ] **Step 1:** After operator's hermes update, run the FULL redeploy for all clients: `bash install.sh --client claude "http://192.0.2.10:8800"`, then `--client codex`, `--client hermes`, `--client pi` (same URL). Confirm each completes; hermes asserts api_server up.
 - [ ] **Step 2:** Recreate ONE managed hermes agent. Confirm: exactly one daemon + one sidecar (NO hermes.exe pair, NO accumulation), status "ready".
 - [ ] **Step 3:** Dispatch a message to it from another agent. Confirm: reply captured + threaded back via `comms_send`/inReplyTo (model must be authenticated — `hermes login`). No TUI displacement (there's no TUI).
 - [ ] **Step 4:** Regression: claude managed (sc-claude) still delivers; a second hermes agent gets its OWN pinned session (no collision); restart an agent twice → process count stays flat (proliferation fixed).

@@ -13,7 +13,7 @@ delete process.env.CODEX_HOME;
 const { managedCodexConfigText, managedCodexEffort, prepareManagedCodexHome } = await import("../runtimes.js");
 
 const text = managedCodexConfigText({
-  workspace: "/mnt/c/Users/Administrator/sand_castle",
+  workspace: "/mnt/c/Users/dev/sand_castle",
   serverUrl: "http://localhost:8800",
   model: "gpt-5.5",
   effort: "high",
@@ -40,13 +40,13 @@ assert.doesNotMatch(text, /AIFY_MANAGED_DISPATCH = "1"/);
 assert.match(text, /env_vars = \[[^\]]*"AIFY_AGENT_ID"[^\]]*\]/);
 assert.match(text, /env_vars = \[[^\]]*"AIFY_MANAGED_VIA_WRAPPER"[^\]]*\]/);
 assert.match(text, /env_vars = \[[^\]]*"AIFY_SESSION_MODE"[^\]]*\]/);
-assert.match(text, /\[projects\."\/mnt\/c\/Users\/Administrator\/sand_castle"\]/);
+assert.match(text, /\[projects\."\/mnt\/c\/Users\/dev\/sand_castle"\]/);
 assert.doesNotMatch(text, /openmemory/);
 assert.doesNotMatch(text, /host\.docker\.internal/);
 assert.doesNotMatch(text, /8765/);
 
 const defaultText = managedCodexConfigText({
-  workspace: "/mnt/c/Users/Administrator/sand_castle",
+  workspace: "/mnt/c/Users/dev/sand_castle",
   serverUrl: "http://localhost:8800",
 });
 assert.doesNotMatch(defaultText, /^model = /m);
@@ -54,7 +54,7 @@ assert.match(defaultText, /model_reasoning_effort = "high"/);
 assert.equal(managedCodexEffort({ effort: "medium" }), "medium");
 
 const managedHome = prepareManagedCodexHome({
-  workspace: "/mnt/c/Users/Administrator/sand_castle",
+  workspace: "/mnt/c/Users/dev/sand_castle",
   serverUrl: "http://localhost:8800",
 });
 

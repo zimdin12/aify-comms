@@ -19,10 +19,10 @@ The operator approved three fix shapes via AskUserQuestion:
 
 ## Root cause 1 — Hermes-aify dashboard probe fails silently
 
-**Evidence:** `C:\Users\Administrator\.local\state\aify-comms\hermes-aify-dashboard-{49931,59721}.log` (240 bytes each, dated 2026-05-25 22:31–22:33) all contain only:
+**Evidence:** `C:\Users\dev\.local\state\aify-comms\hermes-aify-dashboard-{49931,59721}.log` (240 bytes each, dated 2026-05-25 22:31–22:33) all contain only:
 
 ```
-✗ --skip-build was passed but no web dist found at: C:\Users\Administrator\AppData\Local\hermes\hermes-agent\hermes_cli\web_dist
+✗ --skip-build was passed but no web dist found at: C:\Users\dev\AppData\Local\hermes\hermes-agent\hermes_cli\web_dist
   Pre-build first:  cd web && npm install && npm run build
   Or drop --skip-build to build automatically.
 ```

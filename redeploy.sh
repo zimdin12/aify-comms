@@ -5,7 +5,7 @@
 #
 # Usage:
 #   ./redeploy.sh                                  # uses default server URL
-#   ./redeploy.sh http://192.168.100.10:8800       # explicit URL
+#   ./redeploy.sh http://my-server:8800             # explicit URL
 #
 # Use after pulling new aify-comms changes to refresh all installed
 # *-aify wrappers without manually running install.sh per-client.
@@ -13,7 +13,22 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
-DEFAULT_SERVER="${AIFY_DEFAULT_SERVER_URL:-http://192.168.100.10:8800}"
+# Server URL precedence: explicit $1 > $AIFY_DEFAULT_SERVER_URL > the URL the installed
+# wrappers were last built with > loopback. Never a baked-in LAN address: that only ever
+# worked on one machine, and shipping it in a public repo published that host to everyone.
+detect_installed_server_url() {
+  # The wrappers bake their server URL at install time; reuse it so a re-deploy keeps
+  # pointing at whatever the operator actually chose.
+  local w
+  for w in "$HOME/.local/bin/claude-aify" "$HOME/.local/bin/codex-aify" "$HOME/.local/bin/hermes-aify"; do
+    [ -f "$w" ] || continue
+    local found
+    found="$(grep -oE 'AIFY_SERVER_URL:-http://[^"}]+' "$w" 2>/dev/null | head -1 | sed 's/^AIFY_SERVER_URL:-//')"
+    if [ -n "${found:-}" ]; then printf '%s' "$found"; return 0; fi
+  done
+  return 1
+}
+DEFAULT_SERVER="${AIFY_DEFAULT_SERVER_URL:-$(detect_installed_server_url || echo "http://127.0.0.1:8800")}"
 SERVER_URL="${1:-$DEFAULT_SERVER}"
 
 if [ ! -f "$REPO_ROOT/install.sh" ]; then

@@ -91,7 +91,7 @@ The installer verifies that the copied `node-pty` package can load its native bi
 
 The installer writes the MCP entry and optional hook to Hermes' active config
 home. On native Windows this is often `%LOCALAPPDATA%\\hermes` (for example
-`C:\\Users\\Administrator\\AppData\\Local\\hermes\\config.yaml`), not
+`C:\\Users\\dev\\AppData\\Local\\hermes\\config.yaml`), not
 `~/.hermes`. To confirm the target before or after install:
 
 ```bash

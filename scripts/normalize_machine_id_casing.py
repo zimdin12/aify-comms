@@ -3,9 +3,9 @@
 
 WHY
 ---
-The host machine_id is "<platform>:<hostname>" (e.g. "win32:StevenZ-L").
+The host machine_id is "<platform>:<hostname>" (e.g. "win32:DevBox-1").
 Different launch paths reported the hostname with different casing
-("win32:StevenZ-L" vs "win32:STEVENZ-L"). The service compared machine_id
+("win32:DevBox-1" vs "win32:DEVBOX-1"). The service compared machine_id
 CASE-SENSITIVELY in bridge supersession and dispatch-claim routing, so a
 re-registered worker under a different casing did NOT supersede its prior
 bridge -> duplicate live bridge_instances per agent and broken managed

@@ -14,7 +14,7 @@ Managed agents do not *capture* their own session id — they **guess** it from 
 
 ## Key facts (verified 2026-05-30)
 
-- claude project-dir encoding = `cwd.replace(/[^a-zA-Z0-9]/g,'-')` (e.g. `C:/Users/Administrator/sand_castle` → `C--Users-Administrator-sand-castle`).
+- claude project-dir encoding = `cwd.replace(/[^a-zA-Z0-9]/g,'-')` (e.g. `C:/Users/dev/sand_castle` → `C--Users-dev-sand-castle`).
 - MCP children (server.js, claude-channel.js) are spawned by claude with **ParentProcessId = claude pid** (verified: pids 51208/21988 → parent 47876). Hooks claude spawns the same way share that ppid. The existing agent-binding (`aify-agent-<ppid>` in TMP) already relies on this.
 - Claude hooks receive `{session_id, cwd, transcript_path}` on stdin — the one authoritative per-session signal.
 - Heartbeat: `session-handle-heartbeat.js` prefers `discoverSessionId()` over `getCurrentSessionId()` (Plan 6 A1, to defeat stale hermes env). Keep that generic order; fix INSIDE the claude adapter so other runtimes are untouched.

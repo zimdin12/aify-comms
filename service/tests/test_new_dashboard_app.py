@@ -50,6 +50,13 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn("localStorage.getItem('aify.next.apiOrigin')", script)
         self.assertNotIn("http://localhost:8800", html + script)
         self.assertNotIn("//localhost:8800", html + script)
+        # 2026-07-31: the Help card's install snippet used to bake ONE machine's LAN IP into the
+        # shipped HTML — wrong for every other reader, and it published that address in a public
+        # repo. It is now stamped from the page's own origin at runtime, with a variable (not an
+        # invented host) as the static fallback.
+        self.assertNotRegex(html, r"192\.168\.\d+\.\d+", "no LAN address may be baked into the dashboard")
+        self.assertIn('id="help-install-cmd"', html)
+        self.assertIn("function renderInstallSnippet()", script)
 
     def test_compose_exposes_service_and_dashboard_next(self):
         compose_path = ROOT / "docker-compose.yml"

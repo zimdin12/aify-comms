@@ -6,7 +6,7 @@ code was modified. Drives Task A1 of
 HTTP client + sidecar against the api_server platform.
 
 **Installed version: hermes-agent v0.15.1 (2026.5.29)** at
-`C:\Users\Administrator\AppData\Local\hermes\hermes-agent`.
+`C:\Users\dev\AppData\Local\hermes\hermes-agent`.
 
 Source studied (all read-only):
 
