@@ -540,6 +540,24 @@ fi
 # install-time default by exporting AIFY_COMMS_URL beforehand.
 export AIFY_COMMS_URL="\${AIFY_COMMS_URL:-${SERVER_URL:-http://127.0.0.1:8800}}"
 
+# Agent view / background sessions OFF for aify-driven sessions (2026-08-02).
+#
+# claude >= 2.1.139 can BACKGROUND a session (\`/bg\`, or pressing LEFT-ARROW on an empty prompt)
+# so it "keeps running without a terminal attached". That is directly incompatible with how this
+# project supervises a managed worker: the worker IS its PTY, and the server's orphan reaper acts
+# on exactly that shape —
+#
+#   "live sidecar but no console PTY = headless orphan; worker killed host-side"
+#
+# A backgrounded managed session would keep heartbeating its sidecar while its console went away,
+# which is that rule's premise, and the reaper would kill a HEALTHY worker. The trigger is a single
+# arrow key, and the dashboard console forwards arrow keys straight into the PTY.
+#
+# Scoped to the WRAPPER, deliberately: a plain \`claude\` session started by the operator keeps agent
+# view. Only sessions this project supervises give it up, because only those have a supervisor that
+# would misread the detach. Caller env still wins, so it can be re-enabled per launch for testing.
+export CLAUDE_CODE_DISABLE_AGENT_VIEW="\${CLAUDE_CODE_DISABLE_AGENT_VIEW:-1}"
+
 # Session-mode resolution: explicit flag/env > TTY auto-detect.
 # Resident = a human runs this wrapper in their own terminal (interactive
 # stdin); aify-comms-channel notifications wake the model and chat
