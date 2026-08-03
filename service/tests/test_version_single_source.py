@@ -52,6 +52,14 @@ class VersionSingleSourceTests(unittest.TestCase):
             + "\n".join(offenders),
         )
 
+    def test_claude_plugin_manifest_matches_the_version_file(self):
+        # A FIFTH place that declared its own version (0.1.0, while the plugin snapshot installed on
+        # this host said 3.6.6 and the project shipped v0.1.2). The manifest is user-visible in the
+        # plugin listing, so a stale number here misreports the release to anyone installing it.
+        import json as _json
+        manifest = _json.loads((REPO_ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], _canonical_version())
+
     def test_stamp_script_writes_the_version_field(self):
         # config.py can only report the real version if stamp.sh actually bakes it in.
         stamp_sh = (REPO_ROOT / "scripts" / "stamp.sh").read_text(encoding="utf-8")
@@ -80,3 +88,58 @@ class VersionSingleSourceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MisconfiguredStatusTests(unittest.TestCase):
+    """`misconfigured` — operator-requested 2026-08-03.
+
+    An identity that can never be started used to report a status that quietly promised
+    recovery: a resident with no wake handle read `offline` ("not here right now") and the
+    managed fallthrough reads `available` ("send to it and it will cold-start"). Both send the
+    operator hunting a delivery bug that does not exist.
+    """
+
+    def _inputs(self, **kw):
+        from service.status_engine import StatusInputs
+        base = dict(mode="managed", alive=False, in_turn=False, awaiting_input=False,
+                    worker_present=False, env_reachable=True, disabled=False,
+                    bridge_stale=False, has_live_session=False)
+        base.update(kw)
+        return StatusInputs(**base)
+
+    def test_a_defect_replaces_the_false_available_promise(self):
+        from service.status_engine import derive
+        self.assertEqual(derive(self._inputs()), "available")
+        self.assertEqual(derive(self._inputs(config_defect="runtime 'bogus' cannot be launched")),
+                         "misconfigured")
+
+    def test_a_resident_that_cannot_be_woken_is_not_merely_offline(self):
+        from service.status_engine import derive
+        r = dict(mode="resident", env_reachable=True, bridge_stale=True)
+        self.assertEqual(derive(self._inputs(**r)), "offline")
+        self.assertEqual(derive(self._inputs(**r, config_defect="no usable wake handle")),
+                         "misconfigured")
+
+    def test_a_working_agent_is_never_misconfigured(self):
+        # Ranked below every live state on purpose: an agent demonstrably doing work is not
+        # broken in any way that matters right now, and flipping a working agent to a red
+        # config badge would be worse than the promise this replaces.
+        from service.status_engine import derive
+        self.assertEqual(
+            derive(self._inputs(in_turn=True, worker_present=True, alive=True,
+                                config_defect="anything")),
+            "working",
+        )
+
+    def test_explicit_stop_still_wins(self):
+        from service.status_engine import derive
+        self.assertEqual(derive(self._inputs(disabled=True, config_defect="anything")), "stopped")
+
+    def test_misconfigured_is_in_the_vocabulary_and_counts_as_NOT_live(self):
+        from service.status_engine import VALID_STATUSES
+        self.assertIn("misconfigured", VALID_STATUSES)
+        js = (REPO_ROOT / "service" / "new_dashboard" / "status.js").read_text(encoding="utf-8")
+        self.assertIn("'misconfigured'", js)
+        non_live = js.split("NON_LIVE_AGENT_STATUSES = ")[1].split(";")[0]
+        self.assertIn("misconfigured", non_live,
+                      "must never be counted among agents you can send work to")

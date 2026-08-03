@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 VALID_STATUSES = (
-    "working", "online", "available", "blocked", "offline", "stopped",
+    "working", "online", "available", "blocked", "offline", "stopped", "misconfigured",
 )
 
 
@@ -32,6 +32,12 @@ class StatusInputs:
     bridge_stale: bool        # resident: bridge heartbeat missing (→ offline)
     has_live_session: bool    # resident: a live runtime session exists
     console_booting: bool = False  # managed: console up, sidecar not yet claimed (display online)
+    # Structurally unable to start: the identity exists but something it NEEDS in order to ever
+    # be triggered is missing (no spawn spec and no host that could cold-start it, no wake path,
+    # an unknown runtime). This is a property of the CONFIG, not of the moment — unlike offline,
+    # which says "not here right now", it says "sending to this will never work until a human
+    # fixes it". Gathered in api_v2._gather_status_inputs; empty string means fine.
+    config_defect: str = ""
 
 
 def derive(i: StatusInputs) -> str:
@@ -59,12 +65,22 @@ def derive(i: StatusInputs) -> str:
             # display `online` so the operator doesn't miss the live terminal. Routing is
             # unaffected: delivery keys on worker_present/has_live_worker, which stays False
             # until the sidecar claims, so a send during boot still queues.
+            # `available` PROMISES cold-start on the next send. If the config makes that
+            # impossible, saying `available` is a false promise that sends the operator hunting a
+            # delivery bug — the same false-green class as a verifier that cannot fail. Report the
+            # defect instead. Ranked here, below every live state, on purpose: an agent that is
+            # demonstrably working is not misconfigured in any way that matters right now.
+            if i.config_defect:
+                return "misconfigured"
             return "online" if i.console_booting else "available"
         return "offline"
     # resident: alive with a live session + fresh bridge → online; otherwise gone → offline
     # (the heartbeat going silent is the proof it's gone; there is no separate 'stale' decay).
     if i.alive and i.has_live_session and not i.bridge_stale:
         return "online"
+    # A resident with no usable wake path is not merely offline — it cannot be woken at all.
+    if i.config_defect:
+        return "misconfigured"
     return "offline"
 
 

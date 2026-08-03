@@ -27,12 +27,14 @@ import { esc } from './util.js';
 // MUST equal `service/status_engine.py`'s VALID_STATUSES, in order. Pinned by
 // `service/tests/test_status_vocabulary_binding.py`, which fails the suite on drift rather than
 // letting the dashboard quietly mis-render.
-export const AGENT_STATUSES = ['working', 'online', 'available', 'blocked', 'offline', 'stopped'];
+export const AGENT_STATUSES = ['working', 'online', 'available', 'blocked', 'offline', 'stopped', 'misconfigured'];
 
 // The subset that means "this agent can be reached right now". Derived from the list above rather
 // than retyped: `offline` and `stopped` are the only non-live states, so stating the exclusion keeps
 // the two definitions from drifting apart the way the two hand-typed copies did.
-export const NON_LIVE_AGENT_STATUSES = ['offline', 'stopped'];
+// `misconfigured` is NON-LIVE: the identity exists but cannot be started until a human fixes the
+// config, so it must never be counted among agents you can send work to.
+export const NON_LIVE_AGENT_STATUSES = ['offline', 'stopped', 'misconfigured'];
 export const LIVE_AGENT_STATUSES = AGENT_STATUSES.filter((s) => !NON_LIVE_AGENT_STATUSES.includes(s));
 
 export const STATUS_KINDS = {
@@ -52,6 +54,9 @@ export const STATUS_KINDS = {
   completed: { label: 'completed', dotKind: 'ok', tone: 'ok', inputEnabled: true },
   delivered: { label: 'delivered', dotKind: 'ok', tone: 'ok', inputEnabled: true },
   stopped: { label: 'stopped', dotKind: 'offline', tone: 'muted', inputEnabled: false },
+  // Not a transient absence — the identity cannot be started until a human fixes its config, so it
+  // is presented as a WARNING rather than a muted offline: the operator has something to do.
+  misconfigured: { label: 'misconfigured', dotKind: 'offline', tone: 'warn', inputEnabled: false },
   failed: { label: 'failed', dotKind: 'bad', tone: 'bad', inputEnabled: true },
   cancelled: { label: 'cancelled', dotKind: 'bad', tone: 'bad', inputEnabled: true },
   lost: { label: 'lost', dotKind: 'bad', tone: 'bad', inputEnabled: false },

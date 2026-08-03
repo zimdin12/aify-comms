@@ -318,6 +318,41 @@ copy_claude_assets() {
   cp -R "$SCRIPT_DIR/.claude/skills/aify-comms" "$skill_dst"
   cp -R "$SCRIPT_DIR/.claude/skills/aify-comms-debug" "$debug_skill_dst"
   cp -R "$SCRIPT_DIR/.claude/commands/." "$commands_dst/"
+  refresh_plugin_snapshot "$HOME/.claude/plugins/aify-comms" "claude"
+}
+
+# Refresh an aify-comms plugin snapshot in place (2026-08-03).
+#
+# These directories are full copies of the repo carrying the plugin manifest + MCP server, and
+# nothing was updating them. The one on this host was a git checkout from 2026-04-23 — 1360
+# commits behind — still advertising version 3.6.6 while the project shipped 0.1.x. A stale
+# snapshot is the same silent-staleness class as an un-reinstalled bridge, except it also
+# misreports the version to anyone reading the plugin listing.
+#
+# Only refreshes a directory that ALREADY exists: install.sh does not decide to start managing a
+# plugin the operator never installed. If it is a git checkout we pull the tracked files across
+# rather than deleting, so any local state the operator kept there survives.
+refresh_plugin_snapshot() {
+  local dst="$1" label="$2"
+  [ -d "$dst" ] || return 0
+  local manifest="$dst/.claude-plugin/plugin.json"
+  if [ ! -f "$manifest" ]; then
+    echo "  Skipped $label plugin refresh: $dst has no .claude-plugin/plugin.json."
+    return 0
+  fi
+  # Copy the files a plugin actually serves. Deliberately NOT a wholesale rm -rf of the
+  # directory — it may be a git checkout with the operator's own remotes/branches.
+  local part
+  for part in .claude-plugin mcp service config scripts; do
+    if [ -e "$SCRIPT_DIR/$part" ]; then
+      rm -rf "$dst/$part"
+      cp -R "$SCRIPT_DIR/$part" "$dst/$part"
+    fi
+  done
+  for part in README.md CLAUDE.md AGENTS.md DECISIONS.md VERSION install.sh; do
+    [ -f "$SCRIPT_DIR/$part" ] && cp "$SCRIPT_DIR/$part" "$dst/$part" 2>/dev/null || true
+  done
+  echo "  Refreshed $label plugin snapshot at $dst ($(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo unknown))."
 }
 
 copy_hermes_assets() {
@@ -334,6 +369,7 @@ copy_hermes_assets() {
   cp -R "$SCRIPT_DIR/.agents/skills/aify-comms" "$cat_dir/aify-comms"
   cp -R "$SCRIPT_DIR/.agents/skills/aify-comms-debug" "$cat_dir/aify-comms-debug"
   echo "  Installed aify-comms + aify-comms-debug skills to $cat_dir"
+  refresh_plugin_snapshot "$hermes_home/plugins/aify-comms" "hermes"
 }
 
 install_claude_wrapper() {

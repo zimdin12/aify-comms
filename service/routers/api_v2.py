@@ -4822,10 +4822,13 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
             not worker_present and env_reachable
             and await _managed_console_is_booting(db, aid)
         )
+        config_defect = ""
+        if not worker_present and env_reachable and not console_booting:
+            config_defect = await _agent_config_defect(db, agent_row, mode)
         return StatusInputs(mode=mode, alive=worker_present, in_turn=in_turn, awaiting_input=awaiting,
                             worker_present=worker_present, env_reachable=env_reachable, disabled=disabled,
                             bridge_stale=False, has_live_session=worker_present,
-                            console_booting=console_booting)
+                            console_booting=console_booting, config_defect=config_defect)
     # Phase I flip parity: a resident in a `*-missing-handle` wake-mode (no usable wake
     # handle — e.g. resident hermes with no live gatewayUrl, resident codex/pi without a
     # sessionHandle) CANNOT be woken, so it reads `stale` even if a bridge looks fresh
@@ -4834,7 +4837,36 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
     return StatusInputs(mode=mode, alive=worker_present, in_turn=in_turn, awaiting_input=awaiting,
                         worker_present=worker_present, env_reachable=True, disabled=disabled,
                         bridge_stale=(not worker_present) or missing_handle, has_live_session=worker_present,
-                        console_booting=False)
+                        console_booting=False,
+                        config_defect=await _agent_config_defect(db, agent_row, mode, missing_handle=missing_handle))
+
+
+async def _agent_config_defect(db, agent_row, mode: str, *, missing_handle: bool = False) -> str:
+    """Why this identity can NEVER be started, or "" if it can.
+
+    Operator-requested 2026-08-03. Both fallthroughs this feeds used to report a state that
+    quietly promises recovery: a managed identity with nothing to spawn from reported
+    `available`, which tells the operator "just send to it and it will cold-start", and a
+    resident with no wake handle reported `offline`, which reads as "not here right now".
+    Both are false, in the direction that costs the most — the operator hunts a delivery bug
+    that does not exist. This returns the DEFECT so status can say so instead.
+
+    Deliberately narrow: only conditions under which starting is structurally impossible.
+    A status that cried misconfigured on a recoverable agent would be worse than the promise it
+    replaces — and the first cut of this DID. It also flagged a managed agent with no spawn spec,
+    which is wrong: the cold-start path synthesises a spawn request from the environment, so a
+    spec-less agent starts fine. An existing parity test caught it. What remains are the two
+    conditions that no start path can route around: an unlaunchable runtime, and a resident with
+    no wake handle.
+    """
+    if mode != "managed":
+        if missing_handle:
+            return f"no usable wake handle (wakeMode={_agent_wake_mode(agent_row) or 'unknown'})"
+        return ""
+    runtime = _normalize_runtime(agent_row["runtime"] or "") if "_normalize_runtime" in globals() else str(agent_row["runtime"] or "").strip().lower()
+    if runtime not in _LAUNCHABLE_RUNTIMES:
+        return f"runtime {runtime or '(unset)'!r} cannot be launched — no adapter can start it"
+    return ""
 
 
 async def engine_status(db, agent_row, *, settings=None) -> str:
