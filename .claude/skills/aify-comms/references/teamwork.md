@@ -2,6 +2,13 @@
 
 Load this file when coordinating an autonomous team, assigning/reviewing lanes, compacting/rebriefing agents, or diagnosing why the work loop lost momentum.
 
+**These rules are about coordination, not about code.** Software examples appear throughout because
+that is the most common use, but every rule here is meant to hold for research, testing, analysis,
+design, construction, finance, or any other work split across people who cannot see each other's
+desks. Where a rule names something code-specific — a commit, a diff, a test — read it as "the
+pinned version of the source", "the artifact as written", "the check that it actually works", and
+apply the general form. If a rule only makes sense for code, it is written wrong.
+
 ## Roles
 
 - `manager`: owns priority, routing, deadlines, blockers, and dashboard-facing status. Splits work into owner-specific contracts and follows up on overdue contracts.
@@ -26,24 +33,35 @@ A good request says:
 
 Keep one contract per message when possible. If a message bundles unrelated topics, answer the blocker and propose a split.
 
-**Cite the authority as an immutable version, not as this message.** When a brief rests on a
-design, plan, or prior result, name the version the worker must build against — commit, path, and
-content hash — and say plainly that the artifact outranks the brief: *"build against THAT text; if
-you find yourself implementing something the file does not say, stop and amend the file first."* A
-message is a snapshot of someone's understanding at send time; a commit is checkable and cannot
-drift underneath the worker. Without it you get the failure where both sides are certain and
-neither is wrong: the worker built correctly against a base that moved. The same rule is why a
-worker should refuse to evaluate a change against a stale build.
+**Point at a pinned VERSION of the source, and say it outranks your message.** Whenever a task
+rests on something that can be revised — a spec, plan, drawing, dataset, price list, prior result —
+name the exact version the worker must work from, in whatever way that medium can be pinned: a
+commit and content hash, a revision letter and issue date, a snapshot timestamp, a document
+version plus page. Then say which wins: *"work from THAT text; if you find yourself doing something
+it does not say, stop and amend it first — the source is the authority now, not this message."*
+A message is a snapshot of one person's understanding at send time; a pinned artifact is checkable
+and cannot drift under the worker. Skipping this produces the argument where both sides are certain
+and neither is wrong, because they were working from different revisions. A builder working to
+superseded drawings and an analyst working from last week's figures are the same failure.
 
-**Name what is OUT of scope, especially what the worker just found.** A brief that bounds files but
-not findings invites scope creep in the most tempting form — an adjacent defect discovered
-mid-slice. Record it as its own item and say `DO NOT touch it in this slice`.
+**Name what is OUT of scope — especially something the worker just discovered.** A brief that
+bounds the work but not the findings invites scope creep in its most tempting form: an adjacent
+problem spotted mid-task, which is genuinely worth fixing and is not this job. Record it as its own
+item, then say plainly not to touch it in this pass.
 
-**Amending a dispatched contract is its own message type — label it.** If scope changes while work
-is in flight, say so in the subject (e.g. `SLICE WIDENED MID-FLIGHT`, `HOLD`, `AMENDMENT`), state
-exactly what changed, and rule explicitly on the work already done: kept, discarded, or superseded,
-with the reason. Silently sending a bigger brief makes the worker guess whether to restart, and a
-worker who guesses wrong loses the whole slice.
+**Changing a task already in flight is its own message — label it as one.** Say so in the subject
+(`SCOPE WIDENED MID-FLIGHT`, `HOLD`, `AMENDMENT`), state exactly what changed, and rule explicitly
+on the work already done: kept, discarded, or superseded, and why. Quietly sending a bigger version
+of the same brief makes the worker guess whether to restart — and a worker who guesses wrong loses
+everything done so far.
+
+**A request must carry its own reply contract.** Say who replies, what closes the task, and by
+when. Measured across 27.6k messages here: requests under 1k characters go unanswered ~12% of the
+time, versus ~3-4% for 1-3k — *after* excluding self-wakes and reminders, which legitimately need
+no reply. Short requests are not dropped because they are short; they are dropped because a brief
+message is the one most likely to omit the ask, the owner, and the completion condition, so the
+recipient never registers that a reply is owed. This is why the rule is "smallest message that lets
+the recipient act correctly", not "shortest message".
 
 ## Autonomous Loop
 
@@ -70,7 +88,7 @@ Use labels in subjects when they reduce ambiguity:
 - `[HOLD]`: grounded stop because safe progress needs a decision/evidence.
 - `[BLOCKED]`: external blocker; name owner and required unblock.
 - `[STATUS]`: evidence-backed status, not a promise.
-- `[COMMIT]`: commit result with hash and verification.
+- `[COMMIT]`: the result landed — the identifier it landed under (commit, revision, document version, order number) plus how it was verified.
 
 Do not use labels as theater. The body must include evidence or the exact ask.
 
@@ -80,12 +98,20 @@ Send the smallest message that lets the recipient act correctly. Terseness is no
 avoid both missing inputs and repeated context.
 
 - **Send the delta.** Include the new decision, result, blocker, or exact ask; do not restate an agreed plan.
-- **Do not relay.** The costliest message is one that tells party C what you already sent party B —
-  "adopted verbatim and sent", "verified at source and relayed". It reads as diligence and leaves
-  the recipient nothing to do. If A's input changed the brief, send the brief to whoever implements
-  it and let the artifact record that A shaped it; a reviewer needs the OUTCOME (landed, hash,
-  rejected + why), not a receipt for each hop. A manager who narrates every hop turns a two-party
-  handoff into a three-party thread and doubles the traffic without adding a decision.
+- **Route outcomes, not hops.** The cheapest message to write and the least useful to receive is
+  one telling party C what you already sent party B — "adopted verbatim and sent", "relayed, thanks".
+  It reads as diligence and gives the recipient nothing to do. Whoever advised you does need to
+  learn the OUTCOME — adopted and done, or rejected and why, so they neither re-raise it nor assume
+  silence meant no — but they do not need a receipt for each hop in between. A coordinator who
+  narrates every hop turns a two-party handoff into a three-party thread and doubles the traffic
+  without adding a decision. (Observed here: when one team stopped relaying through a third party,
+  its message volume halved with no loss of work in flight.)
+- **The subject line is an index entry, not the message.** Keep it to one scannable line: what
+  changed or what is being asked, plus the identifier. It is what a teammate scans in a list and
+  what a coordinator greps months later. Never let reply prefixes accumulate — rewrite the subject
+  instead of nesting `Re: … Re: … latest: …`. (Measured here: 2,021 subjects over 200 characters,
+  622 with nested `Re:`, the worst a 1,834-character subject containing an entire report. A subject
+  that long is unscannable, so it is read by nobody and searched by nobody.)
 - **Keep intent inline.** Put the owner, decision, ask, and completion condition in the message. Point to a shared path or `comms_share` artifact for bulky detail.
 - **No courtesy loop.** A terminal `APPROVE`, result, or thanks ends the thread unless it creates new work.
 - **Promises need a wake.** Before ending a turn with future work, create the follow-up contract or self-wake. Written `Next:` text is not scheduling.
@@ -122,13 +148,15 @@ creates them at kickoff; "we'll remember" is not a plan.
 - **Stuck? Peek before you re-spawn or remind.** When an agent looks stalled or owes an overdue reply, read what it is actually doing first — `comms_console_tail(agentId="...")` for a managed agent, or a focused `[STATUS]` probe for a resident — BEFORE you re-spawn it or fire a reminder. The console reveals mid-build vs waiting-at-a-prompt vs looping vs errored; reach for it as the reflex, not the filesystem.
 - **Right-size the rigor.** Scale review depth and teammate count to task complexity and risk. Do not run the full multi-reviewer gauntlet on trivial/low-risk work — more agents and more review rounds are a COST, not a virtue; spend them where they buy something. (See `references/building-software.md`.)
 - **Scope the context you hand down.** When you delegate, give each agent only the inputs that subtask needs — the specific file, the one prior result, the exact decision — not the whole thread. Broadcasting full history burns the delegate's context and tokens for no benefit, and a focused brief gets a sharper answer. If two agents don't need each other's output, don't cross-pollinate it; if one does, name the exact artifact (`comms_share` + a one-line pointer) rather than pasting it. Put shared DECISIONS everyone needs (frozen contracts, API shapes, integration order) on a team CHANNEL via `comms_channel_send`, not scattered across DMs — DMs are for owned 1:1 handoffs. (Context-scoping discipline — cf. the "Conductor" access-list idea, arXiv:2512.04388.)
-- **Some evidence is PERISHABLE — order the lane around it.** Before authorising a change, ask what
-  becomes unobtainable once it lands, and collect that first: a pre-change performance baseline, the
-  current output of a query you are about to alter, the reproduction of the bug you are about to
-  fix. Say why in the brief — *"capture it NOW, because once Slice A lands 'before' is
-  unobtainable"* — so the worker treats the ordering as a constraint rather than a preference. A
-  baseline you can no longer take is a comparison you can never make, and "we'll measure after" is
-  how a regression becomes unprovable.
+- **Some evidence is PERISHABLE — order the work around it.** Before authorising a change, ask what
+  becomes impossible to observe once it lands, and collect that FIRST: the "before" measurement, the
+  current state of the thing being replaced, the reproduction of the fault being fixed, the
+  photograph of what is about to be covered up. Put the reason in the brief — *"capture it now,
+  because once this lands 'before' is unobtainable"* — so the worker reads the ordering as a
+  constraint rather than a preference. This is the one class of mistake no amount of later effort
+  repairs: a baseline you failed to take is a comparison you can never make, and "we'll measure
+  afterwards" is how an improvement becomes unprovable and a regression becomes undetectable. The
+  wall gets closed, the market moves, the original is overwritten.
 - Check `comms_contracts` and `comms_agent_info` before assuming who is idle or stuck.
 - **Presence is not progress.** `online` proves a live worker and `lastSeen` proves a heartbeat; neither proves work or session resumption. Measure a lane by its latest evidenced output — for example a commit, push, merge, deploy, test result, or delivered artifact — and keep those states distinct.
 - If an agent is `online`/`available` and owes a contract, send a focused status probe or rebrief.
@@ -149,26 +177,54 @@ creates them at kickoff; "we'll remember" is not a plan.
   status + ETA — not a 2KB unrequested report. (Observed: a reminder fired mid-work
   triggered a 2,066-char status essay nobody asked for.)
 - Self-continue only for a known next chunk. Do not create infinite self-wake loops.
+- **A watchdog that polls faster than the thing can change is a spin loop.** Before re-waking to
+  check on something, ask how long it could possibly take to change. Wait at least that long.
+  Concrete cures overnight, a review takes minutes, a build takes as long as a build takes — polling
+  every 30 seconds cannot make any of them finish sooner, it just spends your turns and your
+  context. Three requirements for any self-wake:
+  1. **An exit condition**, written down before the first wake — what you are waiting for, and what
+     you will do when it arrives.
+  2. **Back off when nothing changed.** If a wake observes no change, the next interval must be
+     LONGER than the last. Same-interval polling is the loop.
+  3. **A give-up count.** After N consecutive no-change wakes, stop and report or escalate. An
+     agent silently watching forever looks identical to one that is working.
+
+  (Measured here: one agent self-woke 1,248 times at a median gap of 27 seconds — 10% of them under
+  4 seconds — accounting for half its entire outbound volume. Teammates on the same task doing
+  comparable work sat at 1-2%. The platform did not require this; the loop was self-inflicted, and
+  the tell was in the subjects, which had degenerated into `Re: Pending updates; latest: Re:
+  Pending updates; latest: watchdog…`.)
+- **Absence of visible output is not absence of progress.** Do not treat "no files written yet" or
+  "nothing posted yet" as evidence of a stall a few minutes in — thinking, reading, measuring and
+  waiting all look identical to idleness from outside. Check what the worker is actually doing
+  before you chase it, and give the work a plausible amount of time first.
 - If you cannot safely proceed, send `[HOLD]` with exact evidence checked and the narrow decision needed.
 - For long output, share an artifact and send a short summary.
 - Automated tests for real behavior are part of "done," not optional; architect for testability (e.g. an app-factory seam). An `[APPROVE]` should be backed by tests passing. (See `references/building-software.md`.)
 
 ## Review Discipline
 
-- Distinguish CODE REVIEW (read the diff on disk) from BEHAVIORAL VERIFICATION (run it / measure it). For any user-facing, render-, feel-, or integration-affecting change, behavioral verification is REQUIRED — code review alone misses render/feel/integration bugs. State which you did.
+- Distinguish INSPECTION (read the thing as written — the diff, the drawing, the spreadsheet, the protocol) from BEHAVIORAL VERIFICATION (run it, measure it, walk it, try it as the user would). **State which one you did**, because they fail differently: inspection catches what is wrong in the description, verification catches what is wrong in reality, and only the second catches "correct as specified, wrong in use". For anything user-facing, physical, render-, feel- or integration-affecting, behavioral verification is REQUIRED — a design can be right on paper and wrong in the room.
 - Keep rework narrow and actionable.
 - If a review finds no issue, say what was checked and what risk remains.
-- **A negative result is only evidence if the search could have found something — say what your
-  positive control was.** "No call sites" and "no matching rows" mean nothing until you show the
-  query works: *"my grep found the definition, so the search is its own positive control and that
-  absence is ADVERSE, not VOID."* Absence with a proven-live probe is a finding; absence from an
-  unvalidated probe is just silence, and the two are indistinguishable in the output. This cuts both
-  ways — a filter that matches too MUCH lies just as confidently. (Measured in this repo: a
-  `subject LIKE '%Restart%'` filter silently matched ordinary chat messages whose subjects mentioned
-  restarting, which produced a confident, published, and completely wrong conclusion about restart
-  behaviour. The fix was one column — `from_agent='dashboard'` — but nothing in the output looked
-  wrong until someone re-derived it.) Before trusting a query, check what it matched, not just how
-  many rows came back.
+- **A negative result is only evidence if your method could have found the thing. Say what proved
+  it could.** "Nothing found", "no matches", "no responses", "no defects" mean nothing on their own
+  — first show the method works, by pointing it at something you KNOW is there and watching it
+  register. Absence measured with a proven-live instrument is a finding; absence from an unverified
+  one is just silence, and the two are identical on the page. It cuts both ways: a filter that
+  matches too MUCH lies just as confidently as one that matches nothing.
+
+  Applies far outside code — a search of the records that used the wrong date range, a survey that
+  never reached the population, a test rig that was not plugged in. All report a clean "nothing
+  there."
+
+  (Self-inflicted here, twice in one session. A search filtered on subjects *containing* the word
+  "Restart" silently matched ordinary chat messages that merely mentioned restarting, producing a
+  confident and completely wrong conclusion about restart behaviour; the fix was one extra
+  condition. Later, a finding that "short messages get ignored" turned out on inspection to be
+  mostly self-addressed notes that never needed a reply — the number was real, the interpretation
+  was not, and it only survived because someone looked at WHICH rows matched.) **Check what your
+  method matched, not only how much it returned.**
 - Do not approve broad "done" claims without evidence.
 - **End every review with an explicit verdict, not prose.** Reply `inReplyTo` the work request with a clear `APPROVE` or `REVISE` as the first line (then the evidence/rework). `APPROVE` is the signal that closes the loop and lets the manager ship; `REVISE` must list the specific, checkable changes needed. A workflow keeps cycling (implement → review → revise) until a reviewer returns `APPROVE` — that token is the completion contract, so never leave a review ambiguous about which it is. (Explicit accept/revise termination — cf. "TRINITY" Verifier ACCEPT, arXiv:2512.04695.)
 
