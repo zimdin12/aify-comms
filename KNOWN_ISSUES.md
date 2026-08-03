@@ -1,25 +1,54 @@
 # Known Issues & Concerns — aify-comms
 
-Living list of known limitations, deferred work, and things to watch. Complements [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Last reviewed 2026-07-26.
+Living list of known limitations, deferred work, and things to watch. Complements [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Last reviewed 2026-08-03.
 
 > **v0.2 backlog moved out of this file.** Non-urgent findings from the v0.1 release review now live in **[docs/V0.2_PLAN.md](docs/V0.2_PLAN.md)** with their traces attached — including two behaviour changes awaiting an operator decision (the compaction dialog now spends usage limits by design; managed codex auto-approves all command/file approvals). This file stays the list of *known limitations*; that file is the *work queue*.
 
-## OPEN (2026-07-31) — Restart can leave an agent with no worker: the orphaned-claim race
+## Restart leaves an agent with no worker — PRIMARY CAUSE FIXED 2026-08-03, one path still open
 
-**Live-reproduced on `ef-manager`.** The operator hit Restart; the agent came back `available` (a
-wakeable identity with no live worker) instead of `online`, and no new terminal was ever created.
+**Live-reproduced on `ef-manager` twice, and they were not the same bug.** Both times the operator
+hit Restart, the agent came back `available` (a wakeable identity with no live worker) instead of
+`online`, and no new terminal was created. Underneath were two independent mechanisms, distinguished
+by one field: whether the dead brief was ever `claimed`.
 
-Chain, from the DB: the stop completes correctly and kills the PTY — but one second earlier the NEW
-worker's initial-brief run is CLAIMED by the OLD worker's channel sidecar, which is being torn down
-as it claims. It dies holding the claim, the run is failed 120s later, and the spawn_request fails
-with it. No `start` control is ever issued.
+### FIXED — the rotation adopted the terminal the restart was killing (`claimed_at` NULL)
+
+The deterministic one, and the one that fired on *every* restart. Traced end to end on
+`run_1785749311405_220effc1` (2026-08-03):
+
+```
+09:28:30  Restart -> spawn_request queued carrying the brief; 'stop' control enqueued for the OLD PTY
+09:28:31  spawn -> running: new session minted, initial-brief run created (queued),
+          and the rotation MIGRATED the OLD, about-to-die terminal onto that new session
+09:28:32  the stop lands; the old PTY reports 'stopped' -> the sweep, which keys on the CURRENT
+          session's terminal, sees the corpse it just inherited and fails the queued brief
+09:28:57  spawn_request failed: "Initial brief failed: Terminal stopped before ..."
+09:30:04  reaper: "live sidecar but no console PTY = headless orphan; worker killed host-side"
+```
+
+The restart killed its own brief one second after creating it. Root cause was the terminal migration
+added 2026-05-31 (adopt the terminal *this* respawn's bridge just created): it matched the agent's
+freshest live same-bridge terminal with **no lower bound on age**, and on a restart that is exactly
+the terminal being killed — ef-manager's was 10h16m old. Fixed by bounding the migration to
+terminals no older than the spawn request that ordered them. Fixed at the adoption, **not** at the
+sweep: the sweep was correct about what it saw, it was handed the wrong terminal.
+
+This is why the bug looked intermittent. It never worked; a *separate* manual cold-start produced
+the worker that showed up minutes later, and that was read as a slow restart.
+
+### STILL OPEN — the orphaned-claim race (`claimed_at` set)
+
+The slower, conditional path, seen on `run_1785537062959_4da30337` (2026-07-31T22:31). The stop
+completes correctly and kills the PTY — but one second earlier the NEW worker's initial-brief run is
+CLAIMED by the OLD worker's channel sidecar, which is being torn down as it claims. It dies holding
+the claim, the run is failed by the 300s turn-start backstop, and the spawn_request fails with it.
 
 **The mechanism is a RACE between two existing paths with the same trigger and opposite outcomes:**
 
 | path | outcome | eligible when |
 |---|---|---|
-| `_requeue_orphaned_claimed_runs` (`api_v2.py:19435`, reconcile loop) | RECOVERS — requeues so a live bridge re-claims | claim >90s old AND claim bridge stale >120s |
-| `_discard_unclaimable_active_run` (`api_v2.py:8747`) | FAILS the run, taking the spawn with it | owner bridge stale >120s |
+| `_requeue_orphaned_claimed_runs` (`api_v2.py:19418`, reconcile loop) | RECOVERS — requeues so a live bridge re-claims | claim >90s old AND claim bridge stale >120s |
+| `_discard_unclaimable_active_run` (`api_v2.py:8650`) | FAILS the run, taking the spawn with it | owner bridge stale >120s |
 
 Both gate on the same `ACTIVE_RUN_BRIDGE_STALE_SECONDS`, so the 90s grace is not the binding
 constraint and they become eligible together. Whichever fires first wins. The recovery mechanism

@@ -43,6 +43,26 @@ the operator to stop/relaunch the resident runtime.
 Removed aliases such as session `recover`/`resume` must not be reintroduced. Restart preserves
 context; Reset discards it. If only the native ID is wrong, Set handle is the smaller repair.
 
+## Restart acknowledged, but no new worker appears
+
+**Symptom:** Restart returns ok, the old backing dies, the agent settles at `available` instead of
+`online`, no new terminal is created, and the restart's own run reads `[FAILED]`.
+
+Read the failed run's `claimed_at` first — it separates two different causes, and a receipt alone
+does not:
+
+| `claimed_at` | Cause | Expected now |
+|---|---|---|
+| NULL, failed ~1s after request | The rotation adopted the predecessor terminal the restart was killing, so the predecessor's death failed the replacement's queued brief | FIXED 2026-08-03 (migration bounded by the spawn request's age). Seeing this again means the bound regressed — check `terminal_sessions.created_at` against `spawn_requests.created_at` |
+| set, failed at 120s/300s | The dying channel sidecar claimed the brief and took it to the grave | STILL OPEN — see KNOWN_ISSUES.md; requeue via the reconcile loop or re-issue the brief |
+
+Do not read the replacement worker's existence as proof the restart worked. A cold-start can produce
+a worker minutes later by a different path, which makes a restart that never worked look merely slow.
+Correlate the new terminal's `created_at` and its `spawn_request_id` with the restart you issued.
+
+A restart that succeeds can still record its run `failed`: success is judged on the agent replying,
+and a restart kills the process that would reply. Judge by the new backing, not the receipt.
+
 ## Managed ↔ resident ownership
 
 - Claude Code, Codex, and Hermes support managed and resident delivery.
