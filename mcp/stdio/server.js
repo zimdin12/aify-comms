@@ -4258,7 +4258,9 @@ server.tool(
 
 server.tool(
   "comms_compact",
-  "Compact a managed agent/session. mode=\"handoff\" creates a fresh managed backing from a portable packet and defaults to the same agent ID. mode=\"internal\" requests runtime-native in-place compaction, but currently returns unsupported unless an adapter proves native support.",
+  "DESTRUCTIVE TO CONTEXT — the target loses its live working memory and continues from a summary. " +
+    "Use when a managed agent is degraded by a long noisy session, not as routine hygiene: whatever it knew but never wrote down is gone. " +
+    "Have it record open decisions somewhere durable FIRST. Compact a managed agent/session. mode=\"handoff\" creates a fresh managed backing from a portable packet and defaults to the same agent ID. mode=\"internal\" requests runtime-native in-place compaction, but currently returns unsupported unless an adapter proves native support.",
   {
     from: z.string().describe("Manager/coordinator agent requesting the compact"),
     targetAgentId: z.string().describe("Existing managed agent to compact/continue from"),
@@ -5802,7 +5804,10 @@ server.tool(
 
 server.tool(
   "comms_remove_agent",
-  "Remove one agent identity. This intentionally unregisters the ID and stops this bridge from auto-re-registering it.",
+  "DESTRUCTIVE. Tombstones one agent identity: unregisters the ID and stops this bridge from auto-re-registering it. " +
+    "Their message history survives, but the identity stops being addressable and a live session under it is orphaned. " +
+    "This is for retiring an agent for good — NOT for restarting a stuck one (comms_restart), stopping one temporarily " +
+    "(dashboard Sessions), or clearing an inbox (comms_clear with agentId). Re-creating the same ID later is a fresh identity, not a restore.",
   {
     agentId: z.string().describe("Agent ID to remove"),
   },
@@ -5926,7 +5931,12 @@ server.tool(
 
 server.tool(
   "comms_clear",
-  "Clear messages, shared files, agents, or everything. Optional age filter.",
+  "DESTRUCTIVE AND IRREVERSIBLE. Permanently deletes data for the WHOLE hub, not just for you. " +
+    "target=\"all\" wipes every message, shared artifact and agent identity on the server — other teams included. " +
+    "There is no undo and no confirmation prompt; the only safety is this sentence. " +
+    "Do NOT use it to tidy your own inbox (messages are auto-marked read; just leave them) or to remove one agent (use comms_remove_agent). " +
+    "Scope it as narrowly as the task allows: pass agentId, and prefer olderThanHours over a bare wipe. " +
+    "If you did not explicitly decide to destroy shared history, you want a different tool.",
   {
     target: z.enum(["inbox", "shared", "agents", "all"]).describe("What to clear"),
     agentId: z.string().optional().describe("Limit to one agent for target=inbox or target=agents"),
