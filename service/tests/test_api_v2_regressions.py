@@ -11664,7 +11664,13 @@ class ApiV2RegressionTests(FastApiTestCase):
             terminal=True, runtime="hermes", terminal_runtimes=["hermes"],
             session_handle="aify-console-agent",
         )
-        now = api_v2._now()
+        # This terminal is the one the REPLACEMENT's bridge creates, so it is younger than the
+        # replacement's spawn request (claim -> create terminal -> PATCH running). Stamped
+        # explicitly ahead rather than at _now(): the migration is bounded by the spawn's own age
+        # (see api_v2, "BOUNDED BY THIS SPAWN'S OWN AGE"), _now() is second-resolution, and
+        # inserting at the same second as the spawn request would make this pass or fail on which
+        # side of a second boundary the run happened to land.
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 5))
         self._execute(
             """
             INSERT INTO terminal_sessions (
@@ -11695,6 +11701,93 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(sess_b["status"], "running")
         sess_a = self._fetchone("SELECT status FROM agent_sessions WHERE id=?", (session_a,))
         self.assertEqual(sess_a["status"], "ended", "the prior session is still ended by the rotation")
+
+    def test_rotation_does_not_adopt_the_predecessor_terminal_a_restart_is_killing(self):
+        # RESTART BUG, live-reproduced on ef-manager 2026-08-03 (dispatch run
+        # run_1785749311405_220effc1). Every dashboard Restart destroyed its own brief:
+        #
+        #   09:28:30  restart -> spawn_request queued, carrying the brief as initial_message
+        #             ...and a terminal 'stop' control enqueued for the OLD PTY
+        #   09:28:31  spawn goes running -> new session minted, initial-brief run created (queued)
+        #             ...and the rotation MIGRATED the OLD, about-to-die terminal onto it
+        #   09:28:32  the stop lands; the old PTY reports 'stopped'
+        #             -> _close_active_terminal_runs_for_terminal sees that dying terminal as the
+        #                NEW session's current terminal, so it fails the queued brief
+        #   09:28:57  spawn_request failed: "Initial brief failed: Terminal stopped before ..."
+        #   09:30:04  reaper: "live sidecar but no console PTY = headless orphan; worker killed"
+        #
+        # The migration (2026-05-31) is meant to adopt the terminal THIS respawn's bridge just
+        # created — its own comment says "a few seconds BEFORE this transition". It had no lower
+        # bound on age, so it also adopted the previous generation's terminal, which on a restart
+        # is precisely the one being killed. ef-manager's adopted terminal predated its spawn
+        # request by 10h16m.
+        #
+        # Asserts the OPERATOR-VISIBLE outcome (the brief survives the old PTY's death), not just
+        # the binding, so it fails if any other path reintroduces the same kill.
+        session_a = self._create_running_session(
+            terminal=True, runtime="hermes", terminal_runtimes=["hermes"],
+            session_handle="aify-console-agent",
+        )
+        # The predecessor's PTY has been up for a while — ef-manager's had been up 10h16m when
+        # its restart adopted it. _now() is second-resolution, so the bound cannot separate a
+        # terminal born in the SAME second as the spawn request; it does not need to, because the
+        # worker a restart replaces is by construction older than the restart that replaces it.
+        old_terminal_created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, status, requested_by, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            ("term-doomed", session_a, "console-agent", "linux:test-host:default",
+             "bridge-current", "hermes", "/workspace/repo",
+             "hermes-aify --aify-agent console-agent", "attached", "dashboard",
+             old_terminal_created, old_terminal_created),
+        )
+        self._execute(
+            "UPDATE agent_sessions SET terminal_id='term-doomed', terminal_status='attached' WHERE id=?",
+            (session_a,),
+        )
+
+        # The restart: a replacement spawn carrying the brief. Its bridge has NOT created a
+        # terminal yet — the only live terminal on this bridge is the doomed predecessor.
+        session_b = self._create_running_session(
+            terminal=True, runtime="hermes", terminal_runtimes=["hermes"],
+            session_handle="aify-console-agent",
+            initial_message="Session restart requested from Dashboard Next.",
+        )
+        self.assertNotEqual(session_a, session_b)
+
+        term = self._fetchone("SELECT session_id FROM terminal_sessions WHERE id='term-doomed'")
+        self.assertEqual(
+            term["session_id"], session_a,
+            "a terminal older than the replacement's spawn request is the PREVIOUS generation's "
+            "backing — the rotation must not adopt it as the replacement's console",
+        )
+        sess_b = self._fetchone("SELECT terminal_id FROM agent_sessions WHERE id=?", (session_b,))
+        self.assertEqual(sess_b["terminal_id"] or "", "",
+                         "the replacement waits for its own terminal, it does not inherit a corpse")
+
+        brief = self._fetchone(
+            "SELECT id, status FROM dispatch_runs WHERE target_agent='console-agent' ORDER BY rowid DESC LIMIT 1"
+        )
+        self.assertIsNotNone(brief, "the restart's initial message must produce a brief run")
+        self.assertEqual(brief["status"], "queued")
+
+        # Now the restart's own stop lands on the predecessor.
+        stopped = self.client.post(
+            "/api/v1/terminals/term-doomed/output",
+            json={"bridgeId": "bridge-current", "output": "\n[terminal exited]\n", "status": "stopped"},
+        )
+        self.assertEqual(stopped.status_code, 200, stopped.text)
+
+        after = self._fetchone("SELECT status, error_text FROM dispatch_runs WHERE id=?", (brief["id"],))
+        self.assertEqual(
+            after["status"], "queued",
+            f"the replacement's brief must SURVIVE the predecessor's death and wait for the new "
+            f"worker; got {after['status']} / {after['error_text']!r}",
+        )
 
     def test_stop_kills_managed_terminal(self):
         # operator-reported 2026-05-31: aify-comms is the lifecycle driver for

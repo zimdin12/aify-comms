@@ -11193,6 +11193,22 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
             # session, so the FK ON DELETE CASCADE could later drop a running TUI's
             # tracking. Re-point this agent's freshest LIVE, same-bridge terminal
             # onto the new session BEFORE ending the prior sessions.
+            #
+            # BOUNDED BY THIS SPAWN'S OWN AGE (2026-08-03). "A few seconds BEFORE this
+            # transition" was the intent but never a constraint, so the same-bridge match also
+            # adopted the PREVIOUS generation's terminal — and on a Restart that is precisely
+            # the terminal being killed. Live on ef-manager: the adopted terminal predated its
+            # spawn request by 10h16m, the restart's own stop landed one second later, and
+            # _close_active_terminal_runs_for_terminal (which keys on the CURRENT session's
+            # terminal) then failed the replacement's queued brief. Every dashboard Restart
+            # destroyed the brief it was created to deliver, the spawn died on "Initial brief
+            # failed", and the reaper killed the leftover sidecar as a headless orphan.
+            #
+            # A terminal this respawn produced cannot predate the spawn request that ordered
+            # it, so that is the bound: same clock (_now() on both inserts), and it still
+            # admits the whole legitimate window — bridge claims, creates the terminal, then
+            # PATCHes running. COALESCE keeps a row with no created_at migrating as before
+            # rather than silently disabling the rescue.
             migrate_bridge_id = req.bridgeId or row["claimed_by_bridge_id"] or ""
             if migrate_bridge_id:
                 live_terminal = await (await db.execute(
@@ -11202,10 +11218,12 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                       AND bridge_id = ?
                       AND id NOT LIKE 'vterm_%'
                       AND status IN ('starting', 'attached', 'running', 'active', 'idle', 'recovering')
+                      AND datetime(COALESCE(NULLIF(created_at, ''), '1970-01-01'))
+                          >= datetime(COALESCE(NULLIF(?, ''), '1970-01-01'))
                     ORDER BY datetime(COALESCE(updated_at, created_at, '1970-01-01')) DESC, rowid DESC
                     LIMIT 1
                     """,
-                    (row["agent_id"], migrate_bridge_id),
+                    (row["agent_id"], migrate_bridge_id, row["created_at"]),
                 )).fetchone()
                 if live_terminal and str(live_terminal["session_id"] or "") != session_id:
                     await db.execute(
