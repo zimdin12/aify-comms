@@ -17,10 +17,18 @@ The replacement is wired as an autouse session fixture so existing test
 files inherit the speedup with ZERO edits to their bodies.
 """
 import asyncio
+import atexit
 import shutil
 import sys
 import tempfile
 from pathlib import Path
+
+# Temp-dir hygiene (2026-08-04). These templates live for the whole pytest process, which is
+# correct — but nothing removed them at the end, so every test run left a directory behind
+# forever. Found live: 4,391 `aify-*` directories in %TEMP% going back to 2026-05-26, of which
+# ~1,010 were these two prefixes. mkdtemp with no matching cleanup is a leak even when the
+# lifetime is legitimately the whole process; atexit is where "whole process" ends.
+
 
 import pytest
 
@@ -30,6 +38,8 @@ import service.db as _db
 def _build_template() -> Path:
     """Run the real init_db once into a throwaway template file."""
     tmpdir = tempfile.mkdtemp(prefix="aify-schema-template-")
+    # Removed when this pytest process exits — see the note at the top of this file.
+    atexit.register(shutil.rmtree, tmpdir, True)
     template = Path(tmpdir) / "schema-template.db"
     # Use the genuine init_db so the template is exactly what production
     # creates (schema + every migration + backfill), checkpointed on close.

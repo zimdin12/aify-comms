@@ -24,11 +24,19 @@ This is a drop-in: a subclass keeps its existing test bodies unchanged and
 uses ``self.client`` / ``self.ws`` / ``self._db_path`` exactly as before.
 """
 import asyncio
+import atexit
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+
+# Temp-dir hygiene (2026-08-04). These templates live for the whole pytest process, which is
+# correct — but nothing removed them at the end, so every test run left a directory behind
+# forever. Found live: 4,391 `aify-*` directories in %TEMP% going back to 2026-05-26, of which
+# ~1,010 were these two prefixes. mkdtemp with no matching cleanup is a leak even when the
+# lifetime is legitimately the whole process; atexit is where "whole process" ends.
+
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -52,6 +60,8 @@ def _schema_template() -> Path:
     if _SCHEMA_TEMPLATE is not None and _SCHEMA_TEMPLATE.exists():
         return _SCHEMA_TEMPLATE
     tmpdir = tempfile.mkdtemp(prefix="aify-base-schema-template-")
+    # Removed when this pytest process exits — see the note at the top of this file.
+    atexit.register(shutil.rmtree, tmpdir, True)
     template = Path(tmpdir) / "schema-template.db"
     # ``init_db`` may have been monkeypatched (e.g. by conftest's own fast
     # copy) — reach for the genuine implementation if one was stashed.
