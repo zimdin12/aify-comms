@@ -2104,9 +2104,20 @@ async function runManagedTeardownForBridge(reason = "bridge teardown") {
   const resolved = await resolveFreshManagedTeardownTargets({
     selfBridgeId: BRIDGE_INSTANCE_ID,
     fetchOwnership: fetchManagedOwnershipForEnv,
+    // What we PROVED we owned earlier in this process's life. Used only when the live read
+    // fails, which on a full shutdown is the normal case because the service goes down first.
+    lastKnownOwnedAgentIds: confirmedManagedTeardownAgentIds,
   });
   const ownedAgentIds = resolved.agentIds;
-  confirmedManagedTeardownAgentIds = ownedAgentIds;
+  // Only remember ownership we actually verified — never overwrite a proven list with a
+  // degraded fallback, or one failed read would erode the evidence the next one relies on.
+  if (resolved.source === "fresh-ownership") confirmedManagedTeardownAgentIds = ownedAgentIds;
+  if (resolved.degraded) {
+    console.error(
+      `[aify] managed teardown (${reason}): live ownership unavailable (${resolved.error?.message || resolved.error}) — `
+      + `falling back to ${ownedAgentIds.length} agent(s) this bridge previously proved it owned: ${ownedAgentIds.join(", ")}`,
+    );
+  }
   if (resolved.skipped === "ownership-unavailable") {
     console.error(
       `[aify] managed teardown (${reason}): fresh ownership unavailable — reaping nothing (fail-safe):`,

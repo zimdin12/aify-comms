@@ -31,7 +31,30 @@ export function reconcileManagedStateWithSnapshot(remoteAgentState, agentsById =
   return removed;
 }
 
-export async function resolveFreshManagedTeardownTargets({ selfBridgeId, fetchOwnership }) {
+// `lastKnownOwnedAgentIds` (2026-08-03) is the fallback for the case that leaked in practice.
+//
+// The fresh-ownership read is the right primary source and the fail-safe is the right default:
+// never reap from a stale cache, because a managed->resident switch could make us kill a resident
+// the operator is using. But the read goes to the SERVICE, and on a full shutdown the service is
+// usually already gone — so teardown resolved "ownership-unavailable", reaped nothing, and left
+// the note "the next boot sweep handles genuine managed survivors". On a full shutdown there is no
+// next boot. Observed live: nine hermes processes (three gateway-host triads) survived the
+// operator killing every hermes they had open, the oldest by two days, none listening, holding
+// ~880MB.
+//
+// So when the live read fails we fall back to what THIS bridge instance already PROVED it owned on
+// an earlier successful read in this same process. That is evidence, not a guess, and it is
+// strictly narrower than the fresh read would have been. The residual risk — an agent that
+// switched managed->resident after our last successful read AND during shutdown — is bounded by
+// what teardown actually targets: the managed triad enumerated from this bridge's own markers and
+// a process scan scoped to its cwdRoots. A resident agent has no such triad owned by this bridge.
+//
+// With no prior successful read there is nothing proven, so the original fail-safe still applies.
+export async function resolveFreshManagedTeardownTargets({
+  selfBridgeId,
+  fetchOwnership,
+  lastKnownOwnedAgentIds = null,
+}) {
   try {
     const records = await fetchOwnership();
     const agentIds = [];
@@ -47,6 +70,17 @@ export async function resolveFreshManagedTeardownTargets({ selfBridgeId, fetchOw
 
     return { agentIds, source: "fresh-ownership" };
   } catch (error) {
+    const proven = Array.isArray(lastKnownOwnedAgentIds)
+      ? lastKnownOwnedAgentIds.map((id) => String(id || "").trim()).filter(Boolean)
+      : [];
+    if (proven.length) {
+      return {
+        agentIds: [...new Set(proven)],
+        source: "last-known-ownership",
+        degraded: true,
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
     return {
       agentIds: [],
       skipped: "ownership-unavailable",
