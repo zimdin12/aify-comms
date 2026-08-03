@@ -31,6 +31,21 @@ export const ENV_KNOWN_STATES = new Set(["online", "degraded", "offline", "forgo
 // a backstop against a broken derivation, not a second opinion on normal jitter.
 export const ENV_STALE_AFTER_MS = 10 * 60 * 1000;
 
+// Bounded tolerance for a stamp in doctor's FUTURE. The service writes `last_seen` from inside the
+// CONTAINER; doctor evaluates it on the HOST, and those clocks are not the same clock — measured
+// 4.1s apart on this machine, container ahead. With a hard `age >= 0` rule, every heartbeat newer
+// than that drift read as bogus, so a bridge beating every few seconds scored EXACTLY the same as
+// one dead for 24h and doctor's verdict depended on where in the heartbeat cycle it ran. Live
+// 2026-08-03 it printed "No environment bridge is ONLINE" while naming that row `[online, last seen
+// ...]` — the false-GREEN class this file exists to prevent, inverted into a false RED, and just as
+// bad: doctor is what this repo trusts to prove a deploy took.
+//
+// R3a's intent is preserved — a bogus far-future stamp still must not green a dead bridge — the
+// rejection simply starts past ordinary drift instead of at zero. Sized deliberately: ~7x the
+// observed skew, an order of magnitude under ENV_STALE_AFTER_MS, and below the 60s the R3a test
+// pins as bogus, so that test keeps failing the values it always failed.
+export const ENV_FUTURE_SKEW_MS = 30 * 1000;
+
 export function envLastSeenMs(env) {
   const raw = String(env?.lastSeen || "").trim();
   if (!raw) return NaN;
@@ -61,9 +76,11 @@ export function envIsOnlineAt(env, now) {
   if (Number.isNaN(seen)) return false;
   // A FUTURE lastSeen must NOT pass (review R3, 2026-07-26): `now - seen` goes negative and
   // trivially satisfies the bound, so a clock-skewed or bogus stamp would green a dead bridge — the
-  // very false green this check exists to catch. Require a non-negative age.
+  // very false green this check exists to catch. Rejection starts past ENV_FUTURE_SKEW_MS rather
+  // than at zero, because the stamping clock (container) and the judging clock (host) genuinely
+  // differ by seconds — see that constant for the false RED a zero-tolerance rule produced.
   const age = now - seen;
-  return age >= 0 && age <= ENV_STALE_AFTER_MS;
+  return age >= -ENV_FUTURE_SKEW_MS && age <= ENV_STALE_AFTER_MS;
 }
 
 export function envStateIsUnknown(env) {

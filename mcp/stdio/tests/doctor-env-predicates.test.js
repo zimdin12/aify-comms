@@ -10,6 +10,7 @@
 import assert from "node:assert/strict";
 
 import {
+  ENV_FUTURE_SKEW_MS,
   ENV_STALE_AFTER_MS,
   describeEnv,
   envIsOnline,
@@ -76,6 +77,36 @@ test("age 0 and exactly the bound are connected; one ms past it is not", () => {
 
 test("status is matched case- and whitespace-insensitively", () => {
   assert.equal(envIsOnlineAt({ id: "e", status: "  ONLINE ", lastSeen: iso(1000) }, NOW), true);
+});
+
+test("a stamp a few seconds ahead is CLOCK SKEW, not a bogus future stamp", () => {
+  // FALSE RED, live 2026-08-03. doctor reported "No environment bridge is ONLINE — dashboard-managed
+  // spawns cannot run" while printing that very row as `[online, last seen ...]`, and the bridge was
+  // heartbeating every few seconds throughout.
+  //
+  // The service writes `last_seen` from inside the CONTAINER; doctor evaluates it on the HOST. On
+  // this machine the container clock measured 4.1s AHEAD of the host, so any heartbeat newer than
+  // ~4s carried a timestamp in doctor's future, `age >= 0` rejected it, and a live bridge scored
+  // EXACTLY the same as a 24h-dead one. Whether doctor passed depended on where in the heartbeat
+  // cycle it happened to run.
+  //
+  // R3a's guard is still right — a bogus far-future stamp must not green a dead bridge — but it had
+  // zero tolerance for the ordinary container-vs-host drift this deployment always has. So the
+  // rejection now starts beyond a bounded skew allowance instead of at zero. The 60s/24h/365d cases
+  // in the R3a test above must keep failing, which is why the allowance sits well below 60s.
+  for (const ms of [1000, 4100, ENV_FUTURE_SKEW_MS]) {
+    assert.equal(
+      envIsOnlineAt({ id: "e", status: "online", lastSeen: iso(-ms) }, NOW),
+      true,
+      `a stamp ${ms}ms ahead is ordinary clock skew and must still read as connected`,
+    );
+  }
+  assert.equal(
+    envIsOnlineAt({ id: "e", status: "online", lastSeen: iso(-(ENV_FUTURE_SKEW_MS + 1)) }, NOW),
+    false,
+    "one ms past the skew allowance is a bogus stamp again",
+  );
+  assert.ok(ENV_FUTURE_SKEW_MS < 60 * 1000, "must stay under the 60s the R3a test pins as bogus");
 });
 
 test("a naive timestamp is read as UTC, not local time", () => {
