@@ -9,6 +9,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { writeAgentBindingFile } from "../binding-file.js";
+import { tmpDir } from "./_tmpdir.js";
 
 test("Claude channel dispatch content starts with a native aify-comms receipt marker", async () => {
   const { dispatchContent } = await import("../claude-channel.js");
@@ -63,8 +64,8 @@ test("Claude channel non-require_reply dispatch does NOT force a same-turn reply
 });
 
 test("a stopped resident can recover delivery without restarting Claude", { timeout: 10_000 }, async (t) => {
-  const tmpDir = mkdtempSync(path.join(os.tmpdir(), "aify-stopped-channel-"));
-  writeAgentBindingFile({ pid: process.pid, agentId: "stopped-channel-test", dir: tmpDir });
+  const stoppedTmp = tmpDir("aify-stopped-channel-");
+  writeAgentBindingFile({ pid: process.pid, agentId: "stopped-channel-test", dir: stoppedTmp });
 
   let claims = 0;
   let resolveSecondClaim;
@@ -85,8 +86,8 @@ test("a stopped resident can recover delivery without restarting Claude", { time
   const child = spawn(process.execPath, [fileURLToPath(new URL("../claude-channel.js", import.meta.url))], {
     env: {
       ...process.env,
-      TMP: tmpDir,
-      TEMP: tmpDir,
+      TMP: stoppedTmp,
+      TEMP: stoppedTmp,
       AIFY_SERVER_URL: `http://127.0.0.1:${api.address().port}`,
       CLAUDE_MCP_SERVER_URL: `http://127.0.0.1:${api.address().port}`,
       AIFY_COMMS_CHANNEL_POLL_MS: "10",
@@ -101,7 +102,7 @@ test("a stopped resident can recover delivery without restarting Claude", { time
   t.after(() => {
     child.kill("SIGTERM");
     api.close();
-    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(stoppedTmp, { recursive: true, force: true });
   });
 
   await Promise.race([

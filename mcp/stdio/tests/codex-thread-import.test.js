@@ -9,10 +9,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { tmpDir } from "./_tmpdir.js";
 
 const { findCodexThreadFiles, importCodexThreadRollout } = await import("../runtimes.js");
 
-const base = fs.mkdtempSync(path.join(os.tmpdir(), "aify-codex-thread-import-"));
+const base = tmpDir("aify-codex-thread-import-");
 try {
   const threadId = "019d9e26-071a-7521-8f7c-108789102c1b";
   const sourceHome = path.join(base, "source-home");

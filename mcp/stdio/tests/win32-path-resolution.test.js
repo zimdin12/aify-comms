@@ -16,6 +16,7 @@ import { PS_UTF8_PRELUDE } from "../win32-text.js";
 import { defaultGetCmdline as hermesGetCmdline } from "../hermes-daemon.js";
 import { defaultGetCmdline as reapGetCmdline, defaultListClaudeProcs } from "../reap-managed-claude.js";
 import { defaultListProcesses } from "../reap-managed-survivors.js";
+import { tmpDir } from "./_tmpdir.js";
 
 function makeExecutable(filePath, content) {
   fs.writeFileSync(filePath, content);
@@ -24,7 +25,7 @@ function makeExecutable(filePath, content) {
 
 // A PATH directory with the exact shape that broke in the field: non-ASCII
 // profile segment, wrapper bash script + .cmd shim side by side.
-const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-KertMõttus-"));
+const profileDir = tmpDir("aify-KertMõttus-");
 const binDir = path.join(profileDir, ".local", "bin");
 fs.mkdirSync(binDir, { recursive: true });
 makeExecutable(path.join(binDir, "claude-aify"), "#!/bin/bash\necho wrapper\n");
@@ -39,8 +40,8 @@ assert.equal(
 
 // Per-directory Windows semantics: the first PATH dir containing any match
 // wins, even when a later dir holds a "better" extension.
-const dirA = fs.mkdtempSync(path.join(os.tmpdir(), "aify-patha-"));
-const dirB = fs.mkdtempSync(path.join(os.tmpdir(), "aify-pathb-"));
+const dirA = tmpDir("aify-patha-");
+const dirB = tmpDir("aify-pathb-");
 makeExecutable(path.join(dirA, "tool.bat"), "@echo off\r\n");
 makeExecutable(path.join(dirB, "tool.exe"), "MZ");
 assert.equal(
@@ -65,7 +66,7 @@ assert.equal(
 
 // Bare extension-less file is a last resort — only returned when no PATHEXT
 // sibling exists anywhere in that directory.
-const dirC = fs.mkdtempSync(path.join(os.tmpdir(), "aify-pathc-"));
+const dirC = tmpDir("aify-pathc-");
 makeExecutable(path.join(dirC, "onlyscript"), "#!/bin/bash\n");
 assert.equal(
   resolveOnWindowsPath("onlyscript", { pathString: dirC, pathExtString: ".COM;.EXE;.BAT;.CMD" }),

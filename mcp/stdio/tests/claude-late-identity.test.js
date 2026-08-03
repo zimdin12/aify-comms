@@ -25,9 +25,10 @@ import {
   writeClaudeSessionId,
 } from "../claude-session-store.js";
 import { writeAgentBindingFile } from "../binding-file.js";
+import { tmpDir } from "./_tmpdir.js";
 
 function tmpdir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "aify-late-identity-"));
+  return tmpDir("aify-late-identity-");
 }
 
 const hookPayload = (sessionId) => JSON.stringify({

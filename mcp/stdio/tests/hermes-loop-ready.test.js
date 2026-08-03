@@ -21,9 +21,10 @@ import {
   clearLoopReady,
   loopReadyFile,
 } from "../hermes-loop-ready.js";
+import { tmpDir } from "./_tmpdir.js";
 
 function mkTmp() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "aify-loop-ready-test-"));
+  return tmpDir("aify-loop-ready-test-");
 }
 
 test("loopReadyFile: lives under the given dir with the sanitized agent name", () => {

@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { tmpDir } from "./_tmpdir.js";
 
 const originalClaudeCmd = process.env.AIFY_CLAUDE_COMMAND;
 const originalPath = process.env.PATH;
@@ -44,7 +45,7 @@ try {
     "diagnostic should include the bridge's PATH so users can see what the bridge actually sees",
   );
 
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "aify-claude-wrapper-"));
+  const tmp = tmpDir("aify-claude-wrapper-");
   const staleWrapper = path.join(tmp, "claude-aify");
   fs.writeFileSync(
     staleWrapper,

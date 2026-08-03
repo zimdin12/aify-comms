@@ -12,6 +12,7 @@ import { test } from "node:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { tmpDir } from "./_tmpdir.js";
 import {
   agentEndpoint,
   clearGatewayMarkers,
@@ -22,7 +23,7 @@ import {
 
 // Make a throwaway temp dir for the per-agent key files.
 function makeTempDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "hermes-endpoint-test-"));
+  return tmpDir("hermes-endpoint-test-");
 }
 function cleanup(dir) {
   try {

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import { ClaudeAdapter } from "../../adapters/claude.js";
+import { tmpDir } from "../_tmpdir.js";
 
 // claude project-dir encoding mirrors adapters/claude.js encodeClaudeCwd.
 function encodeClaudeCwd(cwd) {
@@ -69,8 +70,8 @@ test("ClaudeAdapter.discoverSessionId returns null or non-empty string", async (
 test("ClaudeAdapter.transcriptStat returns sentinel when sid unresolved (no newest-in-dir fallback)", async () => {
   const a = new ClaudeAdapter();
   // Isolated home + cwd so the encoded project dir is unique to this test.
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), "aify-claude-home-"));
-  const storeDir = await fs.mkdtemp(path.join(os.tmpdir(), "aify-claude-store-"));
+  const home = tmpDir("aify-claude-home-");
+  const storeDir = tmpDir("aify-claude-store-");
   const cwd = "C:/some/shared/workdir-" + Date.now();
   const projDir = path.join(home, ".claude", "projects", encodeClaudeCwd(cwd));
   await fs.mkdir(projDir, { recursive: true });

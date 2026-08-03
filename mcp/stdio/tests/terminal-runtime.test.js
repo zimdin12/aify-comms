@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { TerminalProcessManager, bridgeTerminalSupported, classifyTerminalRuntimeOutput, expandUserHome, terminalCommandWithoutResume } from "../terminal-runtime.js";
+import { tmpDir } from "./_tmpdir.js";
 
 assert.equal(typeof bridgeTerminalSupported(), "boolean");
 assert.equal(classifyTerminalRuntimeOutput("pi", "No API key found for amazon-bedrock. Use /login.").kind, "auth");
@@ -27,7 +28,7 @@ assert.equal(expandUserHome(null), "");
 assert.equal(expandUserHome("~user/path"), "~user/path");
 
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "aify-terminal-runtime-"));
+const tmp = tmpDir("aify-terminal-runtime-");
 const chunks = [];
 const exits = [];
 const heals = [];

@@ -15,10 +15,11 @@ import path from "node:path";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { HermesAdapter } from "../adapters/hermes.js";
 import { writeSessionIdMarker, clearGatewayMarkers } from "../hermes-endpoint.js";
+import { tmpDir } from "./_tmpdir.js";
 
 test("discoverSessionId reads the real id from the TUI active-session file", async () => {
   const adapter = new HermesAdapter();
-  const dir = mkdtempSync(path.join(os.tmpdir(), "aify-hermes-adapter-"));
+  const dir = tmpDir("aify-hermes-adapter-");
   const file = path.join(dir, "active.json");
   try {
     writeFileSync(file, JSON.stringify({ session_id: "20260603_120000_abc123" }));
@@ -33,7 +34,7 @@ test("discoverSessionId reads the real id from the TUI active-session file", asy
 
 test("discoverSessionId accepts a bare (non-JSON) active-session file", async () => {
   const adapter = new HermesAdapter();
-  const dir = mkdtempSync(path.join(os.tmpdir(), "aify-hermes-adapter-"));
+  const dir = tmpDir("aify-hermes-adapter-");
   const file = path.join(dir, "active.txt");
   try {
     writeFileSync(file, "7afed304\n");
@@ -104,7 +105,7 @@ test("discoverSessionId: explicit operator --resume id WINS over a stale marker 
 
 test("discoverSessionId: a SEEDED active-session file still leads over the explicit env (BUG 2)", async () => {
   const adapter = new HermesAdapter();
-  const dir = mkdtempSync(path.join(os.tmpdir(), "hermes-explicit-active-"));
+  const dir = tmpDir("hermes-explicit-active-");
   const file = path.join(dir, "active.json");
   try {
     // The wrapper's resolve-session --explicit seeds BOTH the active file and the

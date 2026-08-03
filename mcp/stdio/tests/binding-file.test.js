@@ -4,8 +4,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { bindingFilePathForPid, readAgentBindingFile, removeAgentBindingFile, writeAgentBindingFile } from "../binding-file.js";
+import { tmpDir } from "./_tmpdir.js";
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "aify-binding-file-"));
+const tmp = tmpDir("aify-binding-file-");
 const pid = 424242;
 const file = bindingFilePathForPid(pid, tmp);
 

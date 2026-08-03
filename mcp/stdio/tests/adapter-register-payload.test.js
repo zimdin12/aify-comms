@@ -10,6 +10,7 @@ import { adapterFor } from "../adapters/index.js";
 // this helper lives at mcp/stdio/register-helpers.js and is exported for
 // testing via fillSessionHandleFromAdapter.
 import { fillSessionHandleFromAdapter } from "../register-helpers.js";
+import { tmpDir } from "./_tmpdir.js";
 
 test("fillSessionHandleFromAdapter preserves caller-supplied handle", () => {
   process.env.CLAUDE_SESSION_ID = "from-env";
@@ -58,7 +59,7 @@ test("fillSessionHandleFromAdapter fills Hermes handle from the REAL env session
 });
 
 test("fillSessionHandleFromAdapter fills Hermes handle from the live TUI active-session file", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-register-hermes-"));
+  const dir = tmpDir("aify-register-hermes-");
   const activeFile = path.join(dir, "active.json");
   fs.writeFileSync(activeFile, JSON.stringify({ session_id: "20260715_live_plain_tui" }));
   process.env.AIFY_HERMES_ACTIVE_SESSION_FILE = activeFile;

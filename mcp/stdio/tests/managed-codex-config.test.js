@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { tmpDir } from "./_tmpdir.js";
 
 const originalHome = process.env.HOME;
 const originalCodexHome = process.env.CODEX_HOME;
-const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "aify-managed-codex-home-"));
+const tempHome = tmpDir("aify-managed-codex-home-");
 process.env.HOME = tempHome;
 delete process.env.CODEX_HOME;
 

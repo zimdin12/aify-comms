@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { tmpDir } from "./_tmpdir.js";
 
 const {
   buildManagedClaudeUnlockPowerShell,
@@ -34,7 +35,7 @@ assert.match(script, /marker/);
 
 const sessionId = "11111111-2222-4333-8444-555555555555";
 const originalHomeForTranscript = process.env.HOME;
-const cleanHome = fs.mkdtempSync(path.join(os.tmpdir(), "aify-claude-session-clean-"));
+const cleanHome = tmpDir("aify-claude-session-clean-");
 process.env.HOME = cleanHome;
 const cwd = "C:\\Users\\dev\\sand_castle";
 const transcriptPath = claudeSessionTranscriptPath(sessionId, cwd);
@@ -44,7 +45,7 @@ if (originalHomeForTranscript === undefined) delete process.env.HOME;
 else process.env.HOME = originalHomeForTranscript;
 fs.rmSync(cleanHome, { recursive: true, force: true });
 
-const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "aify-claude-session-"));
+const tempHome = tmpDir("aify-claude-session-");
 const originalHome = process.env.HOME;
 process.env.HOME = tempHome;
 try {

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { HermesAdapter } from "../../adapters/hermes.js";
+import { tmpDir } from "../_tmpdir.js";
 
 const sessionDiscoveryEnv = [
   "AIFY_HERMES_ACTIVE_SESSION_FILE",
@@ -95,7 +96,7 @@ test("HermesAdapter.discoverSessionId does not use gateway history for fresh liv
 test("HermesAdapter.discoverSessionId prefers TUI active-session file over stale env", async () => {
   const previousSessionId = process.env.HERMES_SESSION_ID;
   const previousActiveFile = process.env.AIFY_HERMES_ACTIVE_SESSION_FILE;
-  const dir = mkdtempSync(path.join(os.tmpdir(), "aify-hermes-active-"));
+  const dir = tmpDir("aify-hermes-active-");
   const file = path.join(dir, "active.json");
   try {
     process.env.HERMES_SESSION_ID = "stale-parent-shell-session";

@@ -3,6 +3,7 @@ import test from "node:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { tmpDir } from "./_tmpdir.js";
 import {
   claudeSessionStorePath,
   writeClaudeSessionId,
@@ -24,7 +25,7 @@ test("claudeSessionStorePath sanitizes unsafe agentId chars", () => {
 });
 
 test("store write -> read round trip returns the session id", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-claude-store-"));
+  const dir = tmpDir("aify-claude-store-");
   try {
     writeClaudeSessionId({ sessionId: "651b895f-aaaa", agentId: "coder-1", dir });
     assert.strictEqual(readClaudeSessionId({ agentId: "coder-1", dir }), "651b895f-aaaa");
@@ -34,7 +35,7 @@ test("store write -> read round trip returns the session id", () => {
 });
 
 test("store write trims the session id on read", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-claude-store-"));
+  const dir = tmpDir("aify-claude-store-");
   try {
     writeClaudeSessionId({ sessionId: "  padded-id  ", agentId: "coder-2", dir });
     assert.strictEqual(readClaudeSessionId({ agentId: "coder-2", dir }), "padded-id");
@@ -44,7 +45,7 @@ test("store write trims the session id on read", () => {
 });
 
 test("blank agentId is a no-op on write and null on read", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-claude-store-"));
+  const dir = tmpDir("aify-claude-store-");
   try {
     assert.strictEqual(writeClaudeSessionId({ sessionId: "id-x", agentId: "", dir }), false);
     assert.strictEqual(writeClaudeSessionId({ sessionId: "id-x", agentId: "   ", dir }), false);
@@ -58,7 +59,7 @@ test("blank agentId is a no-op on write and null on read", () => {
 });
 
 test("two agents keyed separately do not collide (isolation)", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-claude-store-"));
+  const dir = tmpDir("aify-claude-store-");
   try {
     writeClaudeSessionId({ sessionId: "sid-A", agentId: "agent-a", dir });
     writeClaudeSessionId({ sessionId: "sid-B", agentId: "agent-b", dir });
@@ -70,7 +71,7 @@ test("two agents keyed separately do not collide (isolation)", () => {
 });
 
 test("missing store file -> null", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-claude-store-"));
+  const dir = tmpDir("aify-claude-store-");
   try {
     assert.strictEqual(readClaudeSessionId({ agentId: "no-such-agent", dir }), null);
   } finally {
@@ -79,7 +80,7 @@ test("missing store file -> null", () => {
 });
 
 test("malformed json -> null", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-claude-store-"));
+  const dir = tmpDir("aify-claude-store-");
   try {
     fs.writeFileSync(claudeSessionStorePath("bad-json-agent", dir), "{not valid json");
     assert.strictEqual(readClaudeSessionId({ agentId: "bad-json-agent", dir }), null);
@@ -89,7 +90,7 @@ test("malformed json -> null", () => {
 });
 
 test("empty session id in store -> null", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-claude-store-"));
+  const dir = tmpDir("aify-claude-store-");
   try {
     fs.writeFileSync(
       claudeSessionStorePath("empty-sid-agent", dir),
@@ -102,7 +103,7 @@ test("empty session id in store -> null", () => {
 });
 
 test("store creates its dir if missing", () => {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), "aify-claude-store-"));
+  const base = tmpDir("aify-claude-store-");
   const dir = path.join(base, "nested", "deeper");
   try {
     writeClaudeSessionId({ sessionId: "made-the-dir", agentId: "dir-maker", dir });

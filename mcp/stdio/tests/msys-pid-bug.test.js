@@ -28,8 +28,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { tmpDir } from "./_tmpdir.js";
 
-process.env.XDG_STATE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "aify-msys-test-"));
+process.env.XDG_STATE_HOME = tmpDir("aify-msys-test-");
 
 const {
   writeRuntimeMarker,

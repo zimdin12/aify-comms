@@ -57,12 +57,13 @@ import {
   tuiDepsBuildFailureMessage,
 } from "../hermes-gateway-liveness.js";
 import { writeSessionIdMarker, readSessionIdMarker } from "../hermes-endpoint.js";
+import { tmpDir } from "./_tmpdir.js";
 
 // Isolated temp dir for the native-session-id markers so tests never touch the
 // shared process tmp dir (and so the real-id-match vs most-recent-fallback paths
 // are deterministic). Threaded into deliverRun / runPollCycle / runDeliveryLoop
 // via their `tempDir` / `markerDir` seams.
-const MARKER_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "aify-hermes-host-test-"));
+const MARKER_DIR = tmpDir("aify-hermes-host-test-");
 process.on("exit", () => {
   try {
     fs.rmSync(MARKER_DIR, { recursive: true, force: true });

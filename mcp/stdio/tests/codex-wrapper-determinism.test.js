@@ -23,6 +23,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { tmpDir } from "./_tmpdir.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..", "..");
@@ -30,7 +31,7 @@ const INSTALL_SH = path.join(REPO, "install.sh");
 
 // Render the bash codex-aify wrapper into a throwaway dir and return its text.
 function renderCodexWrapper() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-codex-wrapper-test-"));
+  const dir = tmpDir("aify-codex-wrapper-test-");
   try {
     execFileSync(
       "bash",

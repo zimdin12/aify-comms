@@ -19,9 +19,10 @@ import {
   looksLikeHermesProcess,
 } from "../hermes-daemon.js";
 import { agentEndpoint } from "../hermes-endpoint.js";
+import { tmpDir } from "./_tmpdir.js";
 
 function makeTempDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "hermes-daemon-test-"));
+  return tmpDir("hermes-daemon-test-");
 }
 function cleanup(dir) {
   try {

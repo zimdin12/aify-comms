@@ -2,6 +2,7 @@ import assert from "assert";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { tmpDir } from "./_tmpdir.js";
 
 process.env.AIFY_PI_COMMAND = process.execPath;
 
@@ -40,10 +41,10 @@ const availability = runtimeLaunchAvailability("pi");
 assert.equal(availability.available, true);
 assert.match(availability.message, /Pi launcher available/);
 
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-pi-runtime-"));
-const fakeOmp = path.join(tmpDir, "fake-omp.mjs");
-const argvCapturePath = path.join(tmpDir, "fake-omp-argv.jsonl");
-const stdinCapturePath = path.join(tmpDir, "fake-omp-stdin.jsonl");
+const runtimeTmp = tmpDir("aify-pi-runtime-");
+const fakeOmp = path.join(runtimeTmp, "fake-omp.mjs");
+const argvCapturePath = path.join(runtimeTmp, "fake-omp-argv.jsonl");
+const stdinCapturePath = path.join(runtimeTmp, "fake-omp-stdin.jsonl");
 
 async function waitFor(predicate, label, timeoutMs = 2000) {
   const started = Date.now();
@@ -157,7 +158,7 @@ rl.on("line", (line) => {
 process.env.AIFY_PI_COMMAND = fakeOmp;
 process.env.AIFY_PI_ARGV_CAPTURE = argvCapturePath;
 process.env.AIFY_PI_STDIN_CAPTURE = stdinCapturePath;
-const missingCwd = path.join(tmpDir, "missing-workspace");
+const missingCwd = path.join(runtimeTmp, "missing-workspace");
 assert.match(
   launchCwdProblem(missingCwd),
   /does not exist on this bridge host/,

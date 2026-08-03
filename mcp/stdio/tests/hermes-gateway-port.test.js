@@ -10,8 +10,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { agentPort, resolveGatewayPort } from "../hermes-endpoint.js";
+import { tmpDir } from "./_tmpdir.js";
 
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "aify-gwport-"));
+const tmp = () => tmpDir("aify-gwport-");
 
 test("colliding agents resolve to DIFFERENT free ports", async () => {
   const a = "comms-senior-dev";

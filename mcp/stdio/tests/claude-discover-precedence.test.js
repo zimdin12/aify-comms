@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { ClaudeAdapter } from "../adapters/claude.js";
 import { writeClaudeSessionId } from "../claude-session-store.js";
+import { tmpDir } from "./_tmpdir.js";
 
 const UUID_A = "aaaaaaaa-1111-2222-3333-444444444444";
 const UUID_B = "bbbbbbbb-1111-2222-3333-444444444444";
@@ -15,11 +16,11 @@ function encodeCwd(cwd) {
 }
 
 function makeHome() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "aify-claude-home-"));
+  return tmpDir("aify-claude-home-");
 }
 
 function makeStoreDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "aify-claude-discdir-"));
+  return tmpDir("aify-claude-discdir-");
 }
 
 // Write a transcript .jsonl into the cwd-scoped project dir with a controlled mtime.
