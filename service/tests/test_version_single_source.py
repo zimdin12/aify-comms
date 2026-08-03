@@ -143,3 +143,37 @@ class MisconfiguredStatusTests(unittest.TestCase):
         non_live = js.split("NON_LIVE_AGENT_STATUSES = ")[1].split(";")[0]
         self.assertIn("misconfigured", non_live,
                       "must never be counted among agents you can send work to")
+
+
+class LingeringDeliveredRunTests(unittest.TestCase):
+    """A `delivered` run whose reply already landed must be closeable.
+
+    LIVE, found 2026-08-04: seven runs were stuck at status='delivered' with BOTH
+    result_message_id and finished_at set — the reply had landed and the run was stamped
+    finished, but the status was never flipped. The oldest dated 2026-05-30.
+
+    `_close_reconcilable_delivered_runs` exists to repair exactly that (its own comment calls
+    it "class 1: reply landed but the path that linked it didn't close the run"), but its outer
+    guard was `COALESCE(finished_at,'') = ''` — and the path that sets result_message_id sets
+    finished_at at the same time. So every row in class 1 was filtered out before the class-1
+    clause was evaluated. The repair could never see what it was written to repair.
+    """
+
+    def test_class_one_is_not_gated_on_an_empty_finished_at(self):
+        import re
+        src = (REPO_ROOT / "service" / "routers" / "api_v2.py").read_text(encoding="utf-8")
+        start = src.index("async def _close_reconcilable_delivered_runs")
+        body = src[start:start + 4000]
+        where = body[body.index("WHERE status = 'delivered'"):body.index("ORDER BY requested_at ASC")]
+        # The result_message_id clause must not sit under an unconditional finished_at guard.
+        before_class1 = where[:where.index("COALESCE(result_message_id, '') != ''")]
+        self.assertNotIn(
+            "COALESCE(finished_at, '') = ''", before_class1,
+            "class 1 (reply landed) must be reachable for rows that already have finished_at — "
+            "gating it on an empty finished_at is what made 7 runs permanently unreconcilable",
+        )
+        # …and the age-based classes must KEEP their guard, so this fix does not widen them.
+        self.assertGreaterEqual(
+            where.count("COALESCE(finished_at, '') = ''"), 2,
+            "the stale/orphan classes must still require an empty finished_at",
+        )

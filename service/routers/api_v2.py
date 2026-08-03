@@ -20021,14 +20021,27 @@ async def _close_reconcilable_delivered_runs(
         SELECT id, result_message_id, require_reply, requested_at
         FROM dispatch_runs
         WHERE status = 'delivered'
-          AND COALESCE(finished_at, '') = ''
           AND (
+            -- Class 1 is evaluated REGARDLESS of finished_at (2026-08-04). It used to sit behind
+            -- an outer `finished_at = ''` guard, which excluded precisely the rows it was written
+            -- for: the path that links a reply sets result_message_id AND finished_at together, so
+            -- every run in this class was filtered out before the clause was reached. Result: a run
+            -- whose reply LANDED and which was stamped finished stayed at status='delivered'
+            -- forever, and the reconciler that exists to repair that could never see it. Found live
+            -- with 7 such rows, the oldest 2026-05-30 — permanently stuck, never once eligible.
+            -- A row that is delivered WITH a finish stamp is inconsistent by definition; that is
+            -- the repair, not a reason to skip it.
             COALESCE(result_message_id, '') != ''
             OR (
-              require_reply = 0
-              AND datetime(requested_at) <= datetime('now', ?)
+              COALESCE(finished_at, '') = ''
+              AND (
+                require_reply = 0
+                AND datetime(requested_at) <= datetime('now', ?)
+              )
             )
             OR (
+              COALESCE(finished_at, '') = ''
+              AND (
               -- #20: a require_reply run that is stale AND has no active owner
               -- to ever produce the reply is orphaned — nothing will close it
               -- otherwise, so it lingers as a false "reply pending" forever.
@@ -20047,6 +20060,7 @@ async def _close_reconcilable_delivered_runs(
               )
             )
           )
+        )
         ORDER BY requested_at ASC
         LIMIT ?
         """,
