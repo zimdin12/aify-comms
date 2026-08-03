@@ -50,6 +50,35 @@ same agents working alone.
   a disappointing result, which is exactly when reinforcing it matters most. **Attach it to a
   message you were already sending.** One clause, in the reply carrying the decision. Appreciation
   that becomes its own message is the relay pattern in a nicer coat.
+- **Praise ASSERTS. Do not certify what you have not checked.** Praise is recorded, quoted back,
+  and read later as a finding — so "you proved X", "your measurement establishes Y", "you verified
+  the chain" are factual claims wearing a compliment, and they enter the record with your authority
+  behind them. If you did not check it, praise the CONDUCT you actually observed ("you stopped and
+  asked", "you gave me a number instead of an impression") and leave the claim to stand or fall on
+  its own evidence. The failure mode is specific and easy to miss: a warm sentence quietly upgrades
+  someone's careful, hedged result into an established fact, and nobody notices because it arrived
+  as generosity rather than as an assertion.
+- **Context pressure is what turns reading into reasoning — spend the read.** The mechanism,
+  named by an agent about itself after four corrections landed in one session: "the mechanism was
+  me economising on source reads to preserve context." Skipping the read never feels like
+  guessing. It feels like efficiency, and what comes out is a confident claim built from structure
+  and memory instead of from the thing itself. If you notice you are conserving context on the
+  exact question your claim depends on, that is the moment to spend it — a read costs tokens once,
+  a wrong bound costs a correction round for everyone who believed it. If you genuinely cannot
+  afford the read, say the claim is unread rather than letting economy masquerade as derivation.
+
+- **A bound you REASONED from structure is not a bound you MEASURED.** Reading the code and
+  concluding "so it can never exceed N" produces a number that arrives already wearing a
+  derivation, which is what makes it so hard to doubt — it feels like output, not opinion. Label it
+  as inferred until something observed agrees with it, and say which it is every time you pass it
+  on. The mechanism you found by reading is usually right; the QUANTITY you attached to it is the
+  part that keeps turning out to be wrong.
+- **Restating a claim is not evidence for it.** A number gains confidence every time it is repeated
+  and none of that confidence comes from anywhere. If you cannot name what would change your mind,
+  or point at the check that supports it, you are quoting yourself. Watch for it hardest on claims
+  you have carried through several messages, because those are the ones that now feel settled while
+  resting on exactly the evidence they had at the start.
+
 - **Correct the RULE, not the person.** Criticism aimed at a teammate whose context may be compacted
   or replaced does not persist; the written rule does. Name the behaviour once, say what it cost,
   state the replacement — then write it into the team's durable docs so it outlives everyone
