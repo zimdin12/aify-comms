@@ -412,14 +412,16 @@ export class TerminalProcessManager {
         // (unambiguous-marker gate, cursor-aware navigation, no Enter fallback) — and the
         // failure still reached a live agent.
         //
-        // The asymmetry decides the default, and this repo already wrote it down in the v0.2
-        // plan's WS-8: a wrong press "silently loses context the operator explicitly chose to
-        // preserve — unrecoverable and fleet-wide", while the alternative is a STALL, which is
-        // "visible and recoverable". A feature whose failure mode is unrecoverable data loss
-        // must be opt-IN.
+        // The asymmetry is why the default is only defensible once the landing is pinned, and
+        // this repo wrote it down in the v0.2 plan's WS-8: a wrong press "silently loses context
+        // the operator explicitly chose to preserve — unrecoverable and fleet-wide", while the
+        // alternative is a STALL, which is "visible and recoverable".
         //
-        // Turn it back on per-host with AIFY_AUTO_CONFIRM_COMPACTION=1 once the mid-render
-        // landing is proven fixed by the WS-8 discriminating test — not before.
+        // ON is safe here because every guard fails CLOSED — no cursor on an option row, no
+        // target row, an implausible spread, or zero computed moves all return null, i.e. NO
+        // keystrokes. An unrecognised or half-painted frame therefore stalls; it never guesses.
+        // Kill it per-host with AIFY_AUTO_CONFIRM_COMPACTION=0 if the dialog drifts again, and
+        // treat a drift as a reason to re-pin resume-dialog-current-layout.test.js first.
         autoConfirmCompaction: process.env.AIFY_AUTO_CONFIRM_COMPACTION !== "0",
       });
       if (rule && state.answeredPrompt !== rule.name) {
