@@ -26,6 +26,25 @@ A good request says:
 
 Keep one contract per message when possible. If a message bundles unrelated topics, answer the blocker and propose a split.
 
+**Cite the authority as an immutable version, not as this message.** When a brief rests on a
+design, plan, or prior result, name the version the worker must build against — commit, path, and
+content hash — and say plainly that the artifact outranks the brief: *"build against THAT text; if
+you find yourself implementing something the file does not say, stop and amend the file first."* A
+message is a snapshot of someone's understanding at send time; a commit is checkable and cannot
+drift underneath the worker. Without it you get the failure where both sides are certain and
+neither is wrong: the worker built correctly against a base that moved. The same rule is why a
+worker should refuse to evaluate a change against a stale build.
+
+**Name what is OUT of scope, especially what the worker just found.** A brief that bounds files but
+not findings invites scope creep in the most tempting form — an adjacent defect discovered
+mid-slice. Record it as its own item and say `DO NOT touch it in this slice`.
+
+**Amending a dispatched contract is its own message type — label it.** If scope changes while work
+is in flight, say so in the subject (e.g. `SLICE WIDENED MID-FLIGHT`, `HOLD`, `AMENDMENT`), state
+exactly what changed, and rule explicitly on the work already done: kept, discarded, or superseded,
+with the reason. Silently sending a bigger brief makes the worker guess whether to restart, and a
+worker who guesses wrong loses the whole slice.
+
 ## Autonomous Loop
 
 Default lane loop:
@@ -61,6 +80,12 @@ Send the smallest message that lets the recipient act correctly. Terseness is no
 avoid both missing inputs and repeated context.
 
 - **Send the delta.** Include the new decision, result, blocker, or exact ask; do not restate an agreed plan.
+- **Do not relay.** The costliest message is one that tells party C what you already sent party B —
+  "adopted verbatim and sent", "verified at source and relayed". It reads as diligence and leaves
+  the recipient nothing to do. If A's input changed the brief, send the brief to whoever implements
+  it and let the artifact record that A shaped it; a reviewer needs the OUTCOME (landed, hash,
+  rejected + why), not a receipt for each hop. A manager who narrates every hop turns a two-party
+  handoff into a three-party thread and doubles the traffic without adding a decision.
 - **Keep intent inline.** Put the owner, decision, ask, and completion condition in the message. Point to a shared path or `comms_share` artifact for bulky detail.
 - **No courtesy loop.** A terminal `APPROVE`, result, or thanks ends the thread unless it creates new work.
 - **Promises need a wake.** Before ending a turn with future work, create the follow-up contract or self-wake. Written `Next:` text is not scheduling.
@@ -97,6 +122,13 @@ creates them at kickoff; "we'll remember" is not a plan.
 - **Stuck? Peek before you re-spawn or remind.** When an agent looks stalled or owes an overdue reply, read what it is actually doing first — `comms_console_tail(agentId="...")` for a managed agent, or a focused `[STATUS]` probe for a resident — BEFORE you re-spawn it or fire a reminder. The console reveals mid-build vs waiting-at-a-prompt vs looping vs errored; reach for it as the reflex, not the filesystem.
 - **Right-size the rigor.** Scale review depth and teammate count to task complexity and risk. Do not run the full multi-reviewer gauntlet on trivial/low-risk work — more agents and more review rounds are a COST, not a virtue; spend them where they buy something. (See `references/building-software.md`.)
 - **Scope the context you hand down.** When you delegate, give each agent only the inputs that subtask needs — the specific file, the one prior result, the exact decision — not the whole thread. Broadcasting full history burns the delegate's context and tokens for no benefit, and a focused brief gets a sharper answer. If two agents don't need each other's output, don't cross-pollinate it; if one does, name the exact artifact (`comms_share` + a one-line pointer) rather than pasting it. Put shared DECISIONS everyone needs (frozen contracts, API shapes, integration order) on a team CHANNEL via `comms_channel_send`, not scattered across DMs — DMs are for owned 1:1 handoffs. (Context-scoping discipline — cf. the "Conductor" access-list idea, arXiv:2512.04388.)
+- **Some evidence is PERISHABLE — order the lane around it.** Before authorising a change, ask what
+  becomes unobtainable once it lands, and collect that first: a pre-change performance baseline, the
+  current output of a query you are about to alter, the reproduction of the bug you are about to
+  fix. Say why in the brief — *"capture it NOW, because once Slice A lands 'before' is
+  unobtainable"* — so the worker treats the ordering as a constraint rather than a preference. A
+  baseline you can no longer take is a comparison you can never make, and "we'll measure after" is
+  how a regression becomes unprovable.
 - Check `comms_contracts` and `comms_agent_info` before assuming who is idle or stuck.
 - **Presence is not progress.** `online` proves a live worker and `lastSeen` proves a heartbeat; neither proves work or session resumption. Measure a lane by its latest evidenced output — for example a commit, push, merge, deploy, test result, or delivered artifact — and keep those states distinct.
 - If an agent is `online`/`available` and owes a contract, send a focused status probe or rebrief.
@@ -126,6 +158,17 @@ creates them at kickoff; "we'll remember" is not a plan.
 - Distinguish CODE REVIEW (read the diff on disk) from BEHAVIORAL VERIFICATION (run it / measure it). For any user-facing, render-, feel-, or integration-affecting change, behavioral verification is REQUIRED — code review alone misses render/feel/integration bugs. State which you did.
 - Keep rework narrow and actionable.
 - If a review finds no issue, say what was checked and what risk remains.
+- **A negative result is only evidence if the search could have found something — say what your
+  positive control was.** "No call sites" and "no matching rows" mean nothing until you show the
+  query works: *"my grep found the definition, so the search is its own positive control and that
+  absence is ADVERSE, not VOID."* Absence with a proven-live probe is a finding; absence from an
+  unvalidated probe is just silence, and the two are indistinguishable in the output. This cuts both
+  ways — a filter that matches too MUCH lies just as confidently. (Measured in this repo: a
+  `subject LIKE '%Restart%'` filter silently matched ordinary chat messages whose subjects mentioned
+  restarting, which produced a confident, published, and completely wrong conclusion about restart
+  behaviour. The fix was one column — `from_agent='dashboard'` — but nothing in the output looked
+  wrong until someone re-derived it.) Before trusting a query, check what it matched, not just how
+  many rows came back.
 - Do not approve broad "done" claims without evidence.
 - **End every review with an explicit verdict, not prose.** Reply `inReplyTo` the work request with a clear `APPROVE` or `REVISE` as the first line (then the evidence/rework). `APPROVE` is the signal that closes the loop and lets the manager ship; `REVISE` must list the specific, checkable changes needed. A workflow keeps cycling (implement → review → revise) until a reviewer returns `APPROVE` — that token is the completion contract, so never leave a review ambiguous about which it is. (Explicit accept/revise termination — cf. "TRINITY" Verifier ACCEPT, arXiv:2512.04695.)
 
