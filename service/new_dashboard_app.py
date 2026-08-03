@@ -6,11 +6,15 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from service.config import get_config
+
 APP_DIR = Path(__file__).resolve().parent / "new_dashboard"
 
 app = FastAPI(
     title="AIFY Comms Dashboard Next",
-    version="0.1.0",
+    # Same release version as the service — one source (repo-root VERSION, baked into the
+    # build stamp). This was independently hardcoded "0.1.0" and never moved.
+    version=get_config().version,
     description="Replacement dashboard shell for aify-comms.",
     docs_url=None,
     redoc_url=None,

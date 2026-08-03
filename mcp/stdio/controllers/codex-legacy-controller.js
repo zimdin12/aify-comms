@@ -41,6 +41,7 @@ import {
 } from "./codex-legacy-helpers.js";
 import { codexAifyReceiptFrame } from "../aify-console-markers.js";
 import { managedCodexServerRequest } from "../runtimes-rpc.js";
+import { AIFY_VERSION } from "../version.js";
 
 export class CodexLegacyController extends BaseController {
   constructor(opts) {
@@ -233,7 +234,7 @@ export class CodexLegacyController extends BaseController {
           clientInfo: {
             name: "aify-comms",
             title: "aify-comms dispatch bridge",
-            version: "4.0.0",
+            version: AIFY_VERSION,
           },
         });
         markActivity("initialize");

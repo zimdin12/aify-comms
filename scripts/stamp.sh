@@ -18,6 +18,23 @@ OUT="$REPO_ROOT/service/_build_stamp.json"
 sha="unknown"
 short="unknown"
 branch="unknown"
+version="0.0.0-dev"
+
+# Release version comes from the repo-root VERSION file, the ONE place it is written
+# (2026-08-03). Before that, four components each declared their own: the service said
+# 0.1.0 (a stale SERVICE_VERSION in .env), its own default said 4.0.0, the bridge said
+# 4.0.0 in seven hand-copied places, and the dashboard said 0.1.0 — while the actual
+# releases were v0.1, v0.1.1, v0.1.2. None of them had ever been bumped by a release.
+# Baking it into the stamp is the same trick already used for the sha: the container has
+# no .git and no repo root, but service/ IS copied into the image.
+if [ -n "${AIFY_VERSION:-}" ]; then
+  version="$AIFY_VERSION"
+elif [ -r "$REPO_ROOT/VERSION" ]; then
+  # First non-empty, non-comment line; trailing CR stripped so a CRLF checkout on Windows
+  # does not bake "0.1.2\r" into the stamp and out through the API.
+  _v="$(grep -v '^[[:space:]]*#' "$REPO_ROOT/VERSION" | grep -v '^[[:space:]]*$' | head -1 | tr -d '\r' | xargs 2>/dev/null || echo "")"
+  [ -n "$_v" ] && version="$_v"
+fi
 
 # Env overrides win (useful for CI where .git may be absent), then git.
 if [ -n "${GIT_SHA:-}" ]; then
@@ -43,9 +60,10 @@ sha="$(_json_escape "$sha")"
 short="$(_json_escape "$short")"
 branch="$(_json_escape "$branch")"
 built_at="$(_json_escape "$built_at")"
+version="$(_json_escape "$version")"
 
 cat > "$OUT" <<EOF
-{"sha":"$sha","short":"$short","branch":"$branch","built_at":"$built_at"}
+{"sha":"$sha","short":"$short","branch":"$branch","built_at":"$built_at","version":"$version"}
 EOF
 
-echo "stamp.sh: wrote $OUT (sha=$short branch=$branch)"
+echo "stamp.sh: wrote $OUT (version=$version sha=$short branch=$branch)"

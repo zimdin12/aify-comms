@@ -38,6 +38,7 @@ import {
 import { detectCodexResumeFailure } from "./codex-errors.js";
 import { codexAifyReceiptFrame } from "./aify-console-markers.js";
 import { managedCodexServerRequest } from "./runtimes-rpc.js";
+import { AIFY_VERSION } from "./version.js";
 
 const codexSessionPool = new Map();
 
@@ -239,7 +240,7 @@ export class CodexSession {
 
   async _handshake({ cwd, model, approvalPolicy, sandboxMode, runtimeState, callbacks }) {
     await this._rpc.request("initialize", {
-      clientInfo: { name: "aify-comms", title: "aify-comms dispatch bridge", version: "4.0.0" },
+      clientInfo: { name: "aify-comms", title: "aify-comms dispatch bridge", version: AIFY_VERSION },
     });
     this._rpc.notify("initialized", {});
 

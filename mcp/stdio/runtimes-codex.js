@@ -10,6 +10,7 @@ import { resolveCodexRequestCwdFor } from "./codex-errors.js";
 import { userHomeDir, tokenizeCommandString } from "./runtimes-process.js";
 import { resolveExecutable } from "./runtimes-exec.js";
 import { createWebSocketRpcClient } from "./runtimes-rpc.js";
+import { AIFY_VERSION } from "./version.js";
 
 const RUNTIME_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_SCRIPT = path.join(RUNTIME_DIR, "server.js");
@@ -483,7 +484,7 @@ async function inspectCodexLiveMarker(marker, cwd = process.cwd()) {
       clientInfo: {
         name: "aify-comms",
         title: "aify-comms marker inspector",
-        version: "4.0.0",
+        version: AIFY_VERSION,
       },
     });
     rpc.notify("initialized", {});
@@ -524,7 +525,7 @@ export async function discoverCodexLiveThreadId(runtimeConfig = {}, cwd = proces
       clientInfo: {
         name: "aify-comms",
         title: "aify-comms register bridge",
-        version: "4.0.0",
+        version: AIFY_VERSION,
       },
     });
     rpc.notify("initialized", {});

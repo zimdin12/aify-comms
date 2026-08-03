@@ -21,7 +21,13 @@ class ServiceConfig:
 
     # Identity
     name: str = "aify-comms"
-    version: str = "4.0.0"
+    # Release version. Do NOT hand-edit — the one source is the repo-root VERSION file,
+    # baked into service/_build_stamp.json by scripts/stamp.sh (the container has no repo
+    # root, same reason the sha is stamped). This default is only the never-stamped
+    # fallback, and is deliberately an obviously-unreal value: the previous default was
+    # "4.0.0", which looked plausible enough that nobody noticed it had no relationship to
+    # any release. Env SERVICE_VERSION still wins, for a one-off override.
+    version: str = "0.0.0-dev"
     description: str = "Dashboard and bridge for spawning, messaging, monitoring, and controlling headless coding agents across connected environments"
 
     # Build stamp (loaded from service/_build_stamp.json at startup; the file is
@@ -76,6 +82,9 @@ class ServiceConfig:
                 config.build_short = str(stamp.get("short", config.build_short) or "unknown")
                 config.build_branch = str(stamp.get("branch", config.build_branch) or "unknown")
                 config.built_at = str(stamp.get("built_at", config.built_at) or "")
+                # A stamp written before the version field existed has no "version" key —
+                # keep the fallback rather than blanking the identity the API reports.
+                config.version = str(stamp.get("version", config.version) or config.version)
             except (json.JSONDecodeError, OSError, ValueError, AttributeError) as e:
                 # Never raise at startup on a malformed stamp (bughunt 2026-07-03): a
                 # valid-but-non-object file (null/[]/…) previously raised uncaught.

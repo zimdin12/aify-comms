@@ -12,6 +12,7 @@ import { defaultMachineId } from "./runtimes.js";
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 import { claudeAifyReceiptLine } from "./aify-console-markers.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
+import { AIFY_VERSION } from "./version.js";
 
 loadSettingsEnv();
 
@@ -252,7 +253,7 @@ function controlContent(agentId, control) {
 }
 
 const mcp = new Server(
-  { name: "aify-comms-channel", version: "4.0.0" },
+  { name: "aify-comms-channel", version: AIFY_VERSION },
   {
     capabilities: {
       experimental: { "claude/channel": {} },

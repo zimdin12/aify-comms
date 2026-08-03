@@ -26,6 +26,7 @@ from fastapi.exceptions import RequestValidationError
 _listen_events: dict[str, asyncio.Event] = {}
 
 from pydantic import BaseModel
+from service.config import get_config
 from service.db import get_db, SQLITE_CLAIM_BUSY_TIMEOUT_MS
 from service import longpoll
 from service.usage_openai import collect_openai_pool
@@ -10166,9 +10167,11 @@ async def _has_recent_direct_delivery_for_channel_fanout(
 
 @router.get("/")
 async def root():
+    # Version comes from the loaded config (repo-root VERSION -> stamp -> config), never a
+    # literal: this endpoint claimed "4.0.0" through the v0.1, v0.1.1 and v0.1.2 releases.
     return {
         "service": "aify-comms",
-        "version": "4.0.0",
+        "version": get_config().version,
         "storage": "sqlite",
         "endpoints": {
             "agents": "/api/v1/agents",

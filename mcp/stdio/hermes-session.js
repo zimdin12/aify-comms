@@ -21,6 +21,7 @@ import {
   formatSessionUpdateAsTerminalFrame,
 } from "./hermes-acp-protocol.js";
 import { terminateProcessTree, getRuntimeConfig, quoteForDisplay } from "./runtimes.js";
+import { AIFY_VERSION } from "./version.js";
 
 const hermesSessionPool = new Map();
 
@@ -241,7 +242,7 @@ export class HermesSession {
         fs: { readTextFile: true, writeTextFile: true },
         terminal: true,
       },
-      clientInfo: { name: "aify-comms-bridge", version: "4.0.0" },
+      clientInfo: { name: "aify-comms-bridge", version: AIFY_VERSION },
     });
     this._emit("initialize", { agentInfo: initResult?.agentInfo });
 

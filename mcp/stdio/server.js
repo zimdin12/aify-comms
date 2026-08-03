@@ -95,6 +95,7 @@ import { startHermesGatewayTurnDetector } from "./hermes-gateway-turn-detector.j
 import { pinnedSessionId } from "./hermes-session-id.js";
 import { startClaudeTurnEndDetector } from "./claude-turn-end-detector.js";
 import { collectOnce as collectUsageOnce, collectConsumptionOnce } from "./usage-collector.js";
+import { AIFY_VERSION } from "./version.js";
 
 // Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
 // `omp --mode rpc --resume <session>`), that child inherits the aify
@@ -178,7 +179,10 @@ const IS_ENVIRONMENT_BRIDGE =
 const ORIGINAL_PARENT_PID = Number(process.ppid) || 0;
 const MACHINE_ID = defaultMachineId();
 const BRIDGE_INSTANCE_ID = randomUUID();
-const BRIDGE_VERSION = "4.0.0";
+// Same one source as every handshake (see version.js). This one also reaches the server as
+// `bridgeVersion` on registration and the startup banner, so a stale literal here misreported
+// the bridge's version to the control plane too, not just to MCP clients.
+const BRIDGE_VERSION = AIFY_VERSION;
 const BRIDGE_STARTED_AT = new Date().toISOString();
 
 // Compute a build tag the user can paste from an error message to prove
@@ -3725,7 +3729,7 @@ async function processRunControls(agentId, activeRun) {
 
 const server = new McpServer({
   name: "aify-comms-mcp",
-  version: "4.0.0",
+  version: AIFY_VERSION,
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
