@@ -211,6 +211,6 @@ Read `references/operations.md` only when you need:
 - dashboard operator behavior and issue/work-loop semantics
 - status meanings, role suggestions, or debug handoffs
 
-Read `references/teamwork.md` when acting as manager/tech lead, compacting/rebriefing agents, or improving autonomous team workflow.
+Read `references/teamwork.md` for message/contract/reply mechanics; `references/leading-a-team.md` when you assign work.
 
 For failure diagnosis, use the `aify-comms-debug` skill.

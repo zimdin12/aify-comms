@@ -18,6 +18,7 @@ import {
   envLastSeenMs,
   envStateIsUnknown,
   bridgeInstallVerdict,
+  skillsInstallVerdict,
 } from "../doctor-predicates.js";
 
 const NOW = Date.parse("2026-07-26T12:00:00Z");
@@ -242,6 +243,35 @@ test("bridge-installed: degenerate counts do not flip the verdict", () => {
     });
     assert.equal(v.ok, false, `bridgeCommits=${String(bridgeCommits)} must report stale`);
   }
+});
+
+test("skills-installed: a clean tree is ok and reports the count", () => {
+  const v = skillsInstallVerdict({ missing: [], differing: [], total: 12, dest: "/d" });
+  assert.equal(v.ok, true);
+  assert.match(v.detail, /12 file\(s\)/);
+});
+
+test("skills-installed: NO installed files is not-installed, never a silent pass", () => {
+  // total=0 with empty missing/differing would otherwise look identical to "clean".
+  const v = skillsInstallVerdict({ missing: [], differing: [], total: 0, dest: "/d" });
+  assert.equal(v.ok, false);
+  assert.equal(v.code, "not-installed");
+});
+
+test("skills-installed: a differing or missing file goes RED and names it", () => {
+  const diff = skillsInstallVerdict({ differing: ["aify-comms/references/teamwork.md"], total: 12 });
+  assert.equal(diff.ok, false);
+  assert.match(diff.detail, /teamwork\.md/);
+  const miss = skillsInstallVerdict({ missing: ["aify-comms/SKILL.md"], total: 12 });
+  assert.equal(miss.ok, false);
+  assert.match(miss.detail, /SKILL\.md/);
+});
+
+test("skills-installed: the fix says RESTART, not just reinstall", () => {
+  // A skill is read at session start, so install.sh alone does not make it live. This repo has
+  // mistaken "install succeeded" for "the change is running" before.
+  const v = skillsInstallVerdict({ differing: ["x"], total: 1 });
+  assert.match(v.fix, /restart/i);
 });
 
 let failed = 0;

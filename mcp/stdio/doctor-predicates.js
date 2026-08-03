@@ -147,3 +147,44 @@ export function bridgeInstallVerdict({ installedSha = "", headSha = "", headShor
     fix: "",
   };
 }
+
+// ── `skills-installed` ───────────────────────────────────────────────────────────────
+//
+// Skills are a DEPLOY PATH, and until 2026-08-03 they had no verifier. install.sh copies
+// .claude/skills/* into ~/.claude/skills/ and .agents/skills/* into the hermes tree, so editing the
+// checkout changes NOTHING for a running fleet — the identical silent-staleness failure that
+// bridge-installed exists to catch, on guidance that steers every agent's behaviour.
+//
+// This check compares CONTENT rather than a marker sha, which is strictly stronger than the bridge
+// check: it also catches a copy someone edited in place, and it cannot be fooled by a marker that
+// was stamped without the files actually landing.
+//
+// It deliberately does NOT prove the fleet is running the new text. A skill is read at session
+// start, so a RUNNING agent keeps whatever it loaded — the fix line says so, because "install.sh
+// succeeded" has been mistaken for "the change is live" in this repo before.
+export function skillsInstallVerdict({ missing = [], differing = [], total = 0, dest = "" } = {}) {
+  const miss = Array.isArray(missing) ? missing : [];
+  const diff = Array.isArray(differing) ? differing : [];
+  const where = dest ? ` (${dest})` : "";
+  if (!total) {
+    return {
+      ok: false,
+      code: "not-installed",
+      detail: `No installed skills found${where}.`,
+      fix: "Run `bash install.sh --client <claude|codex|hermes>` to install the skill trees.",
+    };
+  }
+  if (!miss.length && !diff.length) {
+    return { ok: true, code: "ok", detail: `installed skills match the checkout (${total} file(s))${where}`, fix: "" };
+  }
+  const parts = [];
+  if (diff.length) parts.push(`${diff.length} differ: ${diff.slice(0, 4).join(", ")}${diff.length > 4 ? " …" : ""}`);
+  if (miss.length) parts.push(`${miss.length} missing: ${miss.slice(0, 4).join(", ")}${miss.length > 4 ? " …" : ""}`);
+  return {
+    ok: false,
+    code: "stale",
+    detail: `installed skills do NOT match the checkout${where} — ${parts.join("; ")}`,
+    fix: "Re-run `bash install.sh --client <runtime>`, THEN restart the agents — a skill is read at "
+      + "session start, so a running agent keeps the text it already loaded.",
+  };
+}

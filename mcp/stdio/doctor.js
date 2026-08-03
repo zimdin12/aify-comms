@@ -36,6 +36,7 @@ import {
   envIsOnline,
   envStateIsUnknown,
   bridgeInstallVerdict,
+  skillsInstallVerdict,
 } from "./doctor-predicates.js";
 
 const args = process.argv.slice(2);
@@ -299,10 +300,40 @@ async function checkUsage() {
   add("usage-openai", false, r.code, r.message, r.detail);
 }
 
+// Skills are a deploy path too — see skillsInstallVerdict. install.sh copies the skill trees out of
+// the checkout, so editing .claude/skills/ changes nothing for the fleet until it is re-run.
+function checkSkillsInstalled() {
+  if (!repo) return skip("skills-installed", "no repo checkout to compare against");
+  const dest = join(homedir(), ".claude", "skills");
+  const missing = [];
+  const differing = [];
+  let total = 0;
+  const walk = (srcDir, dstDir, rel) => {
+    if (!existsSync(srcDir)) return;
+    for (const entry of readdirSync(srcDir)) {
+      const src = join(srcDir, entry);
+      const dst = join(dstDir, entry);
+      const here = rel ? `${rel}/${entry}` : entry;
+      if (statSync(src).isDirectory()) { walk(src, dst, here); continue; }
+      total += 1;
+      if (!existsSync(dst)) { missing.push(here); continue; }
+      try {
+        if (readFileSync(src, "utf8") !== readFileSync(dst, "utf8")) differing.push(here);
+      } catch { differing.push(here); }
+    }
+  };
+  for (const name of ["aify-comms", "aify-comms-debug"]) {
+    walk(join(repo.dir, ".claude", "skills", name), join(dest, name), name);
+  }
+  const v = skillsInstallVerdict({ missing, differing, total, dest });
+  return add("skills-installed", v.ok, v.code, v.detail, v.fix);
+}
+
 // ── run ──────────────────────────────────────────────────────────────────────────────
 await checkService();
 checkNativeBridge();
 checkBridgeTerminal();
+checkSkillsInstalled();
 checkRunningBridges();
 await checkAgentIdentity();
 checkWrappers();
