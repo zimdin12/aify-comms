@@ -232,6 +232,22 @@ class SpawnDeadTerminalFinalizeTests(_SpawnSeedMixin, FastApiTestCase):
         self.assertEqual(self._finalize(), 0)
         self.assertEqual(self._spawn(spawn_id)["status"], "running")
 
+    def test_a_masked_candidate_is_named_in_the_log(self):
+        """The live-sibling guard is correct but SILENT, and a masked row is otherwise
+        indistinguishable from "nothing was dead" (reviewer suggestion, 2026-08-07)."""
+        self._seed("masked", extra_live_terminal=True)
+        with self.assertLogs("aify_comms.api_v2", level="INFO") as captured:
+            self.assertEqual(self._finalize(), 0)
+        joined = " ".join(captured.output)
+        self.assertIn("0 finalized, 1 left alone", joined)
+        self.assertIn("live sibling terminal", joined)
+
+    def test_nothing_is_logged_when_there_is_nothing_to_report(self):
+        """A quiet sweep must stay quiet — this runs every 60s."""
+        self._seed("plain-dead")
+        with self.assertNoLogs("aify_comms.api_v2", level="INFO"):
+            self.assertEqual(self._finalize(), 1)
+
     def test_respects_the_grace_window(self):
         spawn_id = self._seed("just-died", died_at=api_v2._now())
         self.assertEqual(self._finalize(), 0)

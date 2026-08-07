@@ -6242,6 +6242,40 @@ async def _finalize_spawns_with_dead_terminals(
                 await _invalidate_agent_live_state(db, agent_id)
     if finalized:
         await db.commit()
+    # Name what the live-sibling guard held back (reviewer suggestion, 2026-08-07). The
+    # guard is the right call — a rebind race must not fail a healthy worker — but it is
+    # also SILENT, and a masked row is indistinguishable from "nothing was dead". This
+    # repo has been bitten by exactly that ambiguity: on the day this shipped, "0
+    # finalized" could not be told apart from "the sweep never ran" without reading the
+    # container's imports. Logged, not returned, so the tested int contract is unchanged.
+    masked_row = await (await db.execute(
+        f"""
+        SELECT COUNT(*) AS n
+        FROM spawn_requests s
+        WHERE s.status IN ('starting', 'running')
+          AND COALESCE(s.finished_at, '') = ''
+          AND COALESCE(s.session_id, '') != ''
+          AND EXISTS (
+            SELECT 1 FROM terminal_sessions dead
+            WHERE dead.session_id = s.session_id
+              AND LOWER(COALESCE(dead.status, '')) IN ({end_statuses})
+          )
+          AND EXISTS (
+            SELECT 1 FROM terminal_sessions live
+            WHERE live.session_id = s.session_id
+              AND LOWER(COALESCE(live.status, '')) NOT IN ({end_statuses})
+          )
+        """,
+        (*_TERMINAL_END_STATUSES_ORDERED, *_TERMINAL_END_STATUSES_ORDERED),
+    )).fetchone()
+    masked = int((masked_row["n"] if masked_row is not None else 0) or 0)
+    if masked:
+        logger.info(
+            "dead-terminal spawn finalize: %d finalized, %d left alone (a live sibling terminal "
+            "shares the session — rebind in progress, or a stale dead row needs pruning)",
+            finalized,
+            masked,
+        )
     return finalized
 
 

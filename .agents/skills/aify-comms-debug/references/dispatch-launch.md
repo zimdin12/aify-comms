@@ -4,11 +4,41 @@ Split out of `dispatch-bridge.md` (2026-08-03) so one symptom does not load the 
 
 ## Contents
 
+- [A managed spawn or dispatch failed and you do not know why — read the dead worker's own console](#a-managed-spawn-or-dispatch-failed-and-you-do-not-know-why-read-the-dead-workers-own-console)
 - [Managed worker "launches then dies", stuck `available` — reaped mid-boot during a slow SessionStart hook](#managed-worker-launches-then-dies-stuck-available-reaped-mid-boot-during-a-slow-sessionstart-hook)
 - [Claude managed run fails: `Session ID ... is already in use`](#claude-managed-run-fails-session-id-is-already-in-use)
 - [Managed spawned agent workspace is stored as `\home\dev\...`](#managed-spawned-agent-workspace-is-stored-as-home-dev)
 - [Claude/Pi managed run fails: `spawn "/path/to/claude-or-omp" ENOENT`](#claude-pi-managed-run-fails-spawn-path-to-claude-or-omp-enoent)
 - [Machine ID shows `win32:unknown-host`](#machine-id-shows-win32-unknown-host)
+
+## A managed spawn or dispatch failed and you do not know why — read the dead worker's own console
+
+**Symptom.** A managed worker never came up, and the failure you were handed names a category
+rather than a cause — e.g. `Cannot start managed hermes for this agent: no online environment can
+host it`. You are about to ask the operator to look at the terminal for you.
+
+**Do this first.** `comms_console_tail(agentId="<the agent>")`. Since v0.2 it does NOT need a live
+console: with the worker gone it returns that worker's **last recorded output**, marked `NOT LIVE`,
+with the one-line cause first. This is a read of what the runtime actually printed, not an
+interpretation of it.
+
+**Worked example (2026-08-07).** A managed hermes worker died 65s after spawn. The requesting agent
+was told no environment could host it — false. The console held, and still held 2.5 hours later:
+
+```
+[hermes-managed-host] fatal: hermes dashboard at http://127.0.0.1:9147/
+                      did not become ready within 60000ms: fetch failed
+```
+
+The real cause was a hermes install with no built web UI (`hermes update` → `✓ Web UI built`
+fixes it). Nobody could see the line, so it went to a human to read out loud.
+
+**Read the result honestly.** `NOT LIVE` means the worker is gone — do not treat that output as the
+state of a running session. If it says `nothing was recorded`, the worker died before printing, and
+the next reads are the spawn request's `error` and the environment bridge's own startup output.
+
+**Then, and only then, retry.** A dead worker no longer suppresses its own respawn (v0.2), so once
+you have fixed the named cause an ordinary `comms_send` cold-starts a fresh worker.
 
 ## Managed worker "launches then dies", stuck `available` — reaped mid-boot during a slow SessionStart hook
 

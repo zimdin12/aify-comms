@@ -26,6 +26,20 @@ symptom attached: wrapper-child bridges mint a fresh UUID per re-registration wh
 sidecar uses a stable derived id, so a stable id there would make the write an UPSERT
 instead of a new row. That is why the table *looks* like it leaks.
 
+**One consumer DOES use the fooled shape — carded, not fixed.** Found by
+`comms-senior-dev` reviewing the retraction, and confirmed: `rename_agent` computes
+`had_live_bridge` as `SELECT 1 FROM bridge_instances WHERE agent_id = ? AND
+COALESCE(superseded_by,'') = ''` (`api_v2.py` ~14507) with **no freshness predicate**,
+immediately after mass-retargeting every `bridge_instances` row to the new id. So a
+rename of an agent holding a long-dead-but-unsuperseded row can report a live session
+that isn't there.
+
+Consequence is an **advisory note only** — it tells the operator to relaunch an orphaned
+session — with no state damage, and `_reap_stale_orphan_bridges` ages the row out. So it
+is recorded rather than fixed: **card it if a rename ever emits a false "live session
+orphaned" note.** Fixing an unobserved defect found while writing a retraction about an
+unobserved defect is the reflex the v0.2 ledger exists to stop.
+
 ## Restart leaves an agent with no worker — PRIMARY CAUSE FIXED 2026-08-03, one path still open
 
 **Live-reproduced on `ef-manager` twice, and they were not the same bug.** Both times the operator

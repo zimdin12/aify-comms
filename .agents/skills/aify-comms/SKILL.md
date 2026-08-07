@@ -191,7 +191,7 @@ Messaging: `comms_send`, `comms_inbox`, `comms_unsend`, `comms_search`, `comms_c
 
 Runs/work: `comms_contracts`, `comms_run_status`, `comms_run_interrupt`, `comms_interrupt`, `comms_restart`. Prefer `comms_send` over lower-level `comms_dispatch`; read Operations before remote restart/reset.
 
-Consoles (managed only): `comms_console_tail` reads; `comms_console_input` is audited recovery input after a read proves an interactive blocker. **Its success response is not proof it worked** — it means the bytes reached the PTY, not that the runtime acted on them (measured: text + three bare-Enter retries all reported success while the draft never submitted). One attempt, re-read the tail, then escalate to the operator rather than retrying.
+Consoles (managed only): `comms_console_tail` reads the live console **or, when the worker is gone, its last recorded output, fatal line first** — so a failed spawn is diagnosable without the operator. `comms_console_input` is audited recovery input after a read proves an interactive blocker. **Its success response is not proof it worked** — bytes reached the PTY, not that the runtime acted. One attempt, re-read the tail, then escalate rather than retrying.
 
 Channels/files: `comms_channel_create`, `comms_channel_join`, `comms_channel_send`, `comms_channel_read`, `comms_channel_list`, `comms_share`, `comms_read`, `comms_files`.
 
