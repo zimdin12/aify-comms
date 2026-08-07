@@ -8874,6 +8874,18 @@ async def _requeue_instead_of_failing_undelivered_claim(db, run_id: str, *, reas
     is 58 steps earlier in the same pass, so recovery can never rescue a run it already
     failed. It is a DETERMINISTIC loss.
 
+    The asymmetry is even wider than the ordering, and wider still than I first wrote.
+    Recovery has exactly ONE call site — that sweep step. The failing funnel is reached from
+    the sweep (`:9114`), from two SEND paths (`:7242`, `:9191`), AND — reviewer's catch,
+    verified — from `GET /agents` itself (`list_agents`, `:13515`, one of the read-path writes
+    DECISIONS.md deliberately keeps). The dashboard polls that roster, so pre-fix the failing
+    path effectively ran on a dashboard cadence while recovery ran once a minute, strictly
+    later. Recovery was not losing a coin flip; it was being lapped.
+
+    That is why this belongs in the funnel rather than in the recovery path or in the sweep
+    order: only the funnel covers all four callers at once. Reordering the sweep would have
+    fixed one of them and left the read path and both send paths untouched.
+
     So the tie is broken here, at the single funnel every failing branch passes through:
     a run still at `claimed` with NO `delivered` event never reached the agent, and requeueing
     it is strictly better than failing it — a live bridge re-claims and delivers.

@@ -1,6 +1,6 @@
 {
   "name": "aify-comms-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "MCP client for aify-comms inter-agent communication",
   "type": "module",
   "main": "server.js",
