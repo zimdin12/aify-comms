@@ -1,8 +1,30 @@
 # Known Issues & Concerns — aify-comms
 
-Living list of known limitations, deferred work, and things to watch. Complements [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Last reviewed 2026-08-03.
+Living list of known limitations, deferred work, and things to watch. Complements [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Last reviewed 2026-08-07.
 
-> **v0.2 backlog moved out of this file.** Non-urgent findings from the v0.1 release review now live in **[docs/V0.2_PLAN.md](docs/V0.2_PLAN.md)** with their traces attached — including two behaviour changes awaiting an operator decision (the compaction dialog now spends usage limits by design; managed codex auto-approves all command/file approvals). This file stays the list of *known limitations*; that file is the *work queue*.
+> **v0.2 backlog moved out of this file.** Non-urgent findings from the v0.1 release review now live in **[docs/V0.2_PLAN.md](docs/V0.2_PLAN.md)** with their traces attached — including two behaviour changes awaiting an operator decision (the compaction dialog now spends usage limits by design; managed codex auto-approves all command/file approvals). This file stays the list of *known limitations*; that file is the *work queue*. What actually shipped in v0.2, and the findings that were **disproven or dropped**, are in **[docs/V0.2_SPEC.md](docs/V0.2_SPEC.md)**.
+
+## `bridge_instances` accumulation is BY DESIGN — a retraction (2026-08-07)
+
+Recorded because it looks like a leak every time someone new reads the table, and because
+I claimed it was one.
+
+**The claim I made and withdrew:** that leaked non-superseded `bridge_instances` rows
+defeat `_requeue_orphaned_claimed_runs` by keeping a dead claim bridge "fresh". They do
+not. That reconciler keys on `bi.id = r.claim_bridge_id` — one specific row — so sibling
+rows for the same agent cannot make the claim bridge read alive.
+
+**Why several unsuperseded rows per agent is correct.** `_record_bridge_registration`
+carves out same-terminal `managed-wrapper-child` siblings on purpose: bridge-spawned PTY
+siblings sharing a terminal must not supersede each other, and a `channel-sidecar` and a
+`managed-wrapper-child` for the same managed agent play *different* roles and must never
+kill each other. Rows age out once their heartbeat passes the 5-minute window. Measured
+live 2026-08-07: 26 rows total, max 4 for one agent, all superseded on schedule.
+
+**Do not "fix" this without a named symptom.** A related true observation, with no
+symptom attached: wrapper-child bridges mint a fresh UUID per re-registration while the
+sidecar uses a stable derived id, so a stable id there would make the write an UPSERT
+instead of a new row. That is why the table *looks* like it leaks.
 
 ## Restart leaves an agent with no worker — PRIMARY CAUSE FIXED 2026-08-03, one path still open
 
