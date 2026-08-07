@@ -8843,6 +8843,94 @@ async def _discard_superseded_active_run(db, recipient_id: str, active_run: dict
     return True
 
 
+# How many times a claimed-but-never-delivered run may be rescued before we accept that it
+# is genuinely undeliverable and let it fail. Bounded on purpose: an unbounded prefer-recovery
+# rule turns a dead run into an immortal one, which is the strand class DECISIONS.md warns
+# about ("delivery gates read raw turn_busy, bounded by exactly one ceiling"). Counted from the
+# run's OWN `requeued_orphaned_claim` events, so the bound needs no schema and survives a
+# restart.
+UNDELIVERED_CLAIM_REQUEUE_LIMIT = 3
+
+
+async def _requeue_instead_of_failing_undelivered_claim(db, run_id: str, *, reason: str) -> bool:
+    """Prefer RECOVERY over failure for a run that was claimed and never delivered.
+
+    THE RESTART BUG'S SECOND PATH (KNOWN_ISSUES, `claimed_at` set; traced on
+    `run_1785537062959_4da30337`, 2026-07-31T22:31). A restart's new initial-brief run is
+    CLAIMED by the OLD worker's channel sidecar one second before that sidecar is torn down.
+    The sidecar dies holding the claim, so the run is never delivered and the spawn fails
+    with it — the operator hits Restart and gets no worker.
+
+    Two existing paths have the same trigger and opposite outcomes:
+
+      _requeue_orphaned_claimed_runs      RECOVERS (requeue → a live bridge re-claims)
+      _discard_unclaimable_active_run     FAILS the run, taking the spawn with it
+
+    Both gate on the SAME `ACTIVE_RUN_BRIDGE_STALE_SECONDS`, so they become eligible together.
+    KNOWN_ISSUES called that a race whose coin flip recovery kept losing. Verified 2026-08-07,
+    it is worse than a race and the reason is ORDERING, not luck: inside one reconcile sweep
+    `_repair_unusable_active_runs` (which reaches the failing path) runs at `main.py:113` and
+    `_requeue_orphaned_claimed_runs` at `main.py:171`, with a commit between. The failing path
+    is 58 steps earlier in the same pass, so recovery can never rescue a run it already
+    failed. It is a DETERMINISTIC loss.
+
+    So the tie is broken here, at the single funnel every failing branch passes through:
+    a run still at `claimed` with NO `delivered` event never reached the agent, and requeueing
+    it is strictly better than failing it — a live bridge re-claims and delivers.
+
+    NOT re-attempting the reverted shape (`0b948d2` → `70e03aa`). That one superseded the
+    sidecar at terminal death, which cannot work: the claim happens one second BEFORE the
+    death, and `_discard_superseded_active_run` then failed the run instantly with no grace,
+    DELETING the rescue window. This change does the opposite — it widens the window rather
+    than closing it, and adds no new machinery: the requeue is the existing, tested one.
+
+    Deliberately narrow. Returns False (→ caller fails the run as before) unless ALL of:
+      - the run is STILL `claimed` (a `running`/`delivered`/terminal run reached the agent —
+        failing those is correct and untouched),
+      - it has NO `delivered` event (same proof `_requeue_orphaned_claimed_runs` uses),
+      - it has been rescued fewer than `UNDELIVERED_CLAIM_REQUEUE_LIMIT` times, so a
+        genuinely undeliverable run still terminates instead of cycling forever.
+    """
+    row = await (await db.execute(
+        "SELECT status, target_agent FROM dispatch_runs WHERE id = ?", (run_id,)
+    )).fetchone()
+    if not row or str(row["status"] or "").strip().lower() != "claimed":
+        return False
+    counts = await (await db.execute(
+        """
+        SELECT
+          SUM(CASE WHEN event_type = 'delivered' THEN 1 ELSE 0 END) AS delivered,
+          SUM(CASE WHEN event_type = 'requeued_orphaned_claim' THEN 1 ELSE 0 END) AS requeues
+        FROM dispatch_events
+        WHERE run_id = ?
+        """,
+        (run_id,),
+    )).fetchone()
+    if int((counts["delivered"] if counts else 0) or 0) > 0:
+        return False  # it reached the agent — failing it is the caller's correct behaviour
+    if int((counts["requeues"] if counts else 0) or 0) >= UNDELIVERED_CLAIM_REQUEUE_LIMIT:
+        return False  # rescued enough times; accept that it is undeliverable
+    await db.execute(
+        """
+        UPDATE dispatch_runs
+        SET status = 'queued', claim_bridge_id = '', claim_machine_id = '', claimed_at = ''
+        WHERE id = ? AND status = 'claimed'
+        """,
+        (run_id,),
+    )
+    await _append_dispatch_event(
+        db,
+        run_id,
+        "requeued_orphaned_claim",
+        "Requeued INSTEAD of failed: the run was claimed and never delivered, so it never "
+        f"reached the agent and a live bridge can still deliver it. Would have failed with: {reason}",
+    )
+    target_agent = str(row["target_agent"] or "").strip()
+    if target_agent:
+        await _invalidate_agent_live_state(db, target_agent)
+    return True
+
+
 async def _fail_stale_active_run(
     db,
     active_run: dict[str, Any],
@@ -8854,6 +8942,8 @@ async def _fail_stale_active_run(
     run_id = str(active_run.get("runId") or "").strip()
     if not run_id:
         return False
+    if await _requeue_instead_of_failing_undelivered_claim(db, run_id, reason=reason):
+        return True
     target_cursor = await db.execute("SELECT target_agent FROM dispatch_runs WHERE id = ?", (run_id,))
     target_row = await target_cursor.fetchone()
     target_agent = str((target_row["target_agent"] if target_row else "") or "").strip()

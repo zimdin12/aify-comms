@@ -710,7 +710,21 @@ async function pollLoop() {
         });
         await httpCall("PATCH", `/dispatch/controls/${encodeURIComponent(control.id)}`, {
           status: "completed",
-          response: "Delivered to Claude resident session",
+          // Says "channel", not "resident", and says CONTROL, not delivered (v0.2.0).
+          // This is a control (interrupt/steer) completion receipt, emitted by the channel
+          // sidecar for BOTH resident and managed claude agents — the loop above does not
+          // branch on session_mode. The old wording claimed a resident session, and the
+          // controls API surfaces `response_text` back to callers verbatim
+          // (api_v2.py ~18935/19037), so a MANAGED agent's control read back as
+          // "Delivered to Claude resident session".
+          //
+          // That is not cosmetic: it cost a real diagnosis. It was read as evidence that
+          // managed WORK takes the resident delivery path, which became the leading
+          // hypothesis for the still-open restart bug and gated a v0.2 workstream on it.
+          // Actual brief delivery never says this — `markDispatchDelivered` writes
+          // "Delivered to Claude channel bridge" with an empty summary. A receipt that
+          // names the wrong session mode is a trap for the next reader.
+          response: "Control emitted into the Claude channel session",
         });
       }
     } catch (error) {

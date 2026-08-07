@@ -40,7 +40,7 @@ is recorded rather than fixed: **card it if a rename ever emits a false "live se
 orphaned" note.** Fixing an unobserved defect found while writing a retraction about an
 unobserved defect is the reflex the v0.2 ledger exists to stop.
 
-## Restart leaves an agent with no worker — PRIMARY CAUSE FIXED 2026-08-03, one path still open
+## Restart leaves an agent with no worker — BOTH PATHS NOW FIXED (2026-08-03 and 2026-08-07)
 
 **Live-reproduced on `ef-manager` twice, and they were not the same bug.** Both times the operator
 hit Restart, the agent came back `available` (a wakeable identity with no live worker) instead of
@@ -72,7 +72,7 @@ sweep: the sweep was correct about what it saw, it was handed the wrong terminal
 This is why the bug looked intermittent. It never worked; a *separate* manual cold-start produced
 the worker that showed up minutes later, and that was read as a slow restart.
 
-### STILL OPEN — the orphaned-claim race (`claimed_at` set)
+### FIXED 2026-08-07 (v0.2.0) — the orphaned claim was a DETERMINISTIC loss, not a race
 
 The slower, conditional path, seen on `run_1785537062959_4da30337` (2026-07-31T22:31). The stop
 completes correctly and kills the PTY — but one second earlier the NEW worker's initial-brief run is
@@ -87,8 +87,14 @@ the claim, the run is failed by the 300s turn-start backstop, and the spawn_requ
 | `_discard_unclaimable_active_run` (`api_v2.py:8650`) | FAILS the run, taking the spawn with it | owner bridge stale >120s |
 
 Both gate on the same `ACTIVE_RUN_BRIDGE_STALE_SECONDS`, so the 90s grace is not the binding
-constraint and they become eligible together. Whichever fires first wins. The recovery mechanism
-exists and is correct — it simply loses the coin flip.
+constraint and they become eligible together.
+
+**CORRECTED 2026-08-07: this was never a coin flip. Recovery lost every time, and the cause is
+ORDERING.** Inside one reconcile sweep the failing path is reached at `service/main.py:113`
+(`_repair_unusable_active_runs` → `_discard_unusable_active_run`) and recovery runs 58 steps later
+at `:171`, with a `_commit_step` between them. So the failing path always gets there first and
+recovery can never rescue a run it has already failed. Calling it a race understated it and pointed
+at the wrong remedy (tie-breaking by timing rather than by outcome).
 
 **A fix was written, shipped, and REVERTED (`0b948d2` → `70e03aa`).** It superseded a managed channel
 sidecar at terminal death (mirroring the Bug D wrapper-child fix). Self-review found it made things
@@ -97,14 +103,24 @@ worse: the claim happens one second BEFORE the death, so the supersede cannot pr
 no grace, no delivered-check. The change therefore DELETED the window in which the run could be
 rescued and made the failure faster and more certain. Do not re-attempt that shape.
 
-**The fix to build:** make the failing paths PREFER RECOVERY for a run that is `claimed` with no
-`delivered` event — requeue through the existing tested mechanism instead of failing, with a bounded
-retry so a genuinely undeliverable run still terminates. This converts a race into a deterministic
-outcome and needs no new machinery.
+**Fixed as specified**, in `_fail_stale_active_run` — the single funnel EVERY failing branch
+passes through, so one seam covers them all. `_requeue_instead_of_failing_undelivered_claim` prefers
+recovery when the run is still `claimed`, has no `delivered` event, and has been rescued fewer than
+`UNDELIVERED_CLAIM_REQUEUE_LIMIT` (3) times. A run that reached the agent (`delivered` event, or
+status `running`) fails exactly as before; the rescue count comes from the run's own
+`requeued_orphaned_claim` events, so the bound needs no schema and survives a restart.
 
-Adjacent, also open: `bridge_instances` leaks per agent (ef-manager held 3 non-superseded rows at
-once); the Sessions list renders the BRIDGE INSTANCE id where the operator reads session identity;
-and a stop that succeeds is recorded `failed` when the PTY dies before the bridge acks it.
+It is the OPPOSITE of the reverted shape (`0b948d2` → `70e03aa`), which superseded the sidecar at
+terminal death: that could not work (the claim precedes the death by a second) and it CLOSED the
+rescue window. This widens it, and adds no new machinery — the requeue is the existing tested one.
+`test_undelivered_claim_prefers_requeue.py` pins both the fix and the two facts it rests on (the
+sweep ordering, and the shared staleness ceiling), so if either changes the analysis gets revisited
+instead of silently rotting.
+
+Adjacent: the Sessions list renders the BRIDGE INSTANCE id where the operator reads session
+identity, and a stop that succeeds is recorded `failed` when the PTY dies before the bridge acks
+it — both still open. The third item once listed here, `bridge_instances` leaks per agent, is
+**RETRACTED** — see the by-design section at the top of this file.
 
 ## v0.1 release review (2026-07-26) — three service-breaking fixes
 
