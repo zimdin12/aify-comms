@@ -7929,6 +7929,42 @@ async def _select_online_environment_for_runtime(
     return None
 
 
+# N8 (operator-reported twice: 2026-07-31 and 2026-08-07). `_coldstart_spawn_request_for_dispatch`
+# returns a bare False for FIVE distinct causes, and every caller rendered ONE sentence for all of
+# them: "No online environment can host managed <runtime> for this agent". On 2026-08-07 that
+# sentence was shown while the environment was demonstrably online (last_seen 9s earlier) — the
+# real cause was a spawn request already in flight. The message sent a competent agent to
+# investigate the one thing that was fine.
+#
+# Reasons are appended to the caller's existing `warnings` list behind this prefix rather than
+# changing the return type, so no call site's contract moves. Callers strip the prefix and show
+# the reason; a caller that ignores warnings behaves exactly as before.
+COLDSTART_REFUSED_PREFIX = "coldstart-refused: "
+
+
+def _coldstart_refusal(warnings: Optional[list[str]], reason: str) -> bool:
+    """Record WHY cold-start refused, then return False (the caller's expected falsey)."""
+    if warnings is not None:
+        warnings.append(f"{COLDSTART_REFUSED_PREFIX}{reason}")
+    return False
+
+def _coldstart_refusal_message(warnings: Optional[list[str]], runtime: str) -> str:
+    """Render the REAL reason cold-start refused, falling back to the generic sentence.
+
+    See COLDSTART_REFUSED_PREFIX. Falls back only when no reason was recorded, so a path that
+    somehow refuses without one degrades to the old wording rather than to silence.
+    """
+    for entry in reversed(list(warnings or [])):
+        text = str(entry or "")
+        if text.startswith(COLDSTART_REFUSED_PREFIX):
+            return f"Cannot start managed {runtime} for this agent: {text[len(COLDSTART_REFUSED_PREFIX):]}"
+    return (
+        f"Cannot start managed {runtime} for this agent; no reason was recorded. "
+        f"Check the environment bridge advertises {runtime}, and whether a spawn is already in flight."
+    )
+
+
+
 async def _coldstart_spawn_request_for_dispatch(
     db,
     agent_id: str,
@@ -7960,7 +7996,8 @@ async def _coldstart_spawn_request_for_dispatch(
     """
     normalized_runtime = _normalize_runtime(runtime or "")
     if normalized_runtime not in {"claude-code", "codex", "hermes", "opencode", "pi"}:
-        return False
+        return _coldstart_refusal(
+            warnings, f"runtime {normalized_runtime or '(unset)'!r} is not cold-startable")
 
     # Resident-safety (2026-07-06): NEVER auto-cold-start a MANAGED worker for a
     # session_mode='resident' agent — regardless of whether its resident bridge is
@@ -7978,7 +8015,10 @@ async def _coldstart_spawn_request_for_dispatch(
     # so this never blocks an intentional resident->managed transition.
     _agent_row = await (await db.execute("SELECT session_mode FROM agents WHERE id = ?", (agent_id,))).fetchone()
     if _agent_row is not None and str(_agent_row["session_mode"] or "").strip().lower() == "resident":
-        return False
+        return _coldstart_refusal(
+            warnings,
+            "this agent is RESIDENT — auto-cold-start is refused so a managed twin cannot be "
+            "forked beside a live resident session. Switch it to managed first if that is intended")
 
     # Don't pile up duplicate cold-starts — a queued/claimed/recently-running spawn_request
     # is already a (possibly mid-boot) backing for this agent. Bug D fix (2026-07-02): the
@@ -7986,7 +8026,11 @@ async def _coldstart_spawn_request_for_dispatch(
     # and the duplicate's kill-prior can murder the booting worker.
     existing = await _has_pending_or_booting_spawn_request(db, agent_id)
     if existing:
-        return False
+        return _coldstart_refusal(
+            warnings,
+            "a spawn for this agent is ALREADY IN FLIGHT (queued/claimed/starting/running) — "
+            "waiting for it rather than starting a second one that could kill the booting worker. "
+            "If it never becomes live, that spawn request is the thing to inspect")
 
     # Resolve environment/runtime/workspace from the agent's most-recent session
     # (any status). A previously-managed agent always leaves one behind.
@@ -8045,11 +8089,12 @@ async def _coldstart_spawn_request_for_dispatch(
             db, normalized_runtime, offline_seconds=offline_seconds
         )
         if environment is None:
-            return False
+            return _coldstart_refusal(
+                warnings, f"the environment bound to this agent could not be resolved")
 
     environment_id = str(environment.get("id") or "").strip()
     if not environment_id:
-        return False
+        return _coldstart_refusal(warnings, "the resolved environment has no id (corrupt row)")
 
     workspace, workspace_root = _workspace_for_environment(environment, None, fallback_workspace)
 
@@ -15639,10 +15684,8 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                     if coldstarted:
                         side_effects["managedSpawnRequested"] = True
                     else:
-                        side_effects["error"] = (
-                            "No online environment can host managed "
-                            f"{runtime} for this agent; start an environment bridge that advertises {runtime}."
-                        )
+                        side_effects["error"] = _coldstart_refusal_message(
+                            _switch_coldstart_warnings, runtime)
                 else:
                     terminal = await _ensure_managed_pty_for_dispatch(
                         db, agent_id, runtime=runtime, settings=settings, requested_by=requested_by
@@ -16317,19 +16360,23 @@ async def send_message(req: MessageSend, request: Request):
                             # so a bridge spawns the wrapper and claims this
                             # dispatch on its next poll. Only reject when no
                             # online environment can host the runtime.
+                            # N8: collect WHY so a refusal reports its real cause, not the
+                            # environment sentence that fired for all five of them.
+                            _cs_reasons: list[str] = []
                             coldstarted = await _coldstart_spawn_request_for_dispatch(
                                 db,
                                 recipient_id,
                                 runtime=runtime,
                                 settings=settings,
                                 requested_by=req.from_agent,
+                                warnings=_cs_reasons,
                             )
                             if not coldstarted and not await _has_claimable_spawn_request(db, recipient_id):
                                 not_started.append(
                                     _dispatch_fix_hint(
                                         recipient_id,
                                         row,
-                                        f"No online environment can host managed {runtime} for this agent; start an environment bridge that advertises {runtime}, or recover the session.",
+                                        _coldstart_refusal_message(_cs_reasons, runtime),
                                     )
                                 )
                                 channel_backing_failed.add(recipient_id)
@@ -16436,6 +16483,9 @@ async def send_message(req: MessageSend, request: Request):
                                 # claude never did, so the channel run sat queued with a claimer
                                 # that could never exist until the 180s backstop FAILED it.
                                 coldstarted = False
+                                # N8: declared OUTSIDE the try so a reason recorded before an
+                                # exception is still reportable.
+                                _cs_reasons_b: list[str] = []
                                 try:
                                     coldstarted = await _coldstart_spawn_request_for_dispatch(
                                         db,
@@ -16443,15 +16493,18 @@ async def send_message(req: MessageSend, request: Request):
                                         runtime=runtime,
                                         settings=settings,
                                         requested_by=req.from_agent,
+                                        warnings=_cs_reasons_b,
                                     )
-                                except Exception:
+                                except Exception as _cs_err:
                                     coldstarted = False
+                                    _cs_reasons_b.append(
+                                        f"{COLDSTART_REFUSED_PREFIX}cold-start raised: {_cs_err}")
                                 if not coldstarted and not await _has_claimable_spawn_request(db, recipient_id):
                                     not_started.append(
                                         _dispatch_fix_hint(
                                             recipient_id,
                                             row,
-                                            f"No online environment can host managed {runtime} for this agent; start an environment bridge that advertises {runtime}, or recover the session.",
+                                            _coldstart_refusal_message(_cs_reasons_b, runtime),
                                         )
                                     )
                                     channel_backing_failed.add(recipient_id)

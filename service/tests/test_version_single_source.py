@@ -177,3 +177,64 @@ class LingeringDeliveredRunTests(unittest.TestCase):
             where.count("COALESCE(finished_at, '') = ''"), 2,
             "the stale/orphan classes must still require an empty finished_at",
         )
+
+
+class ColdStartRefusalReasonTests(unittest.TestCase):
+    """N8 — a refusal must name the cause it actually hit.
+
+    `_coldstart_spawn_request_for_dispatch` returns a bare False for FIVE distinct causes and
+    every caller rendered ONE sentence for all of them: "No online environment can host managed
+    <runtime> for this agent". Reported twice by live agents. On 2026-08-07 that sentence was
+    shown while the environment was online with a 9-second-old heartbeat — the real cause was a
+    spawn already in flight, and a competent agent was sent to investigate the one thing that
+    was fine.
+    """
+
+    def test_each_refusal_records_a_distinct_reason(self):
+        from service.routers.api_v2 import _coldstart_refusal, COLDSTART_REFUSED_PREFIX
+        seen = set()
+        for reason in ("runtime 'x' is not cold-startable", "this agent is RESIDENT",
+                       "a spawn for this agent is ALREADY IN FLIGHT", "no ONLINE environment"):
+            w: list[str] = []
+            self.assertFalse(_coldstart_refusal(w, reason), "must still return falsey")
+            self.assertEqual(len(w), 1)
+            self.assertTrue(w[0].startswith(COLDSTART_REFUSED_PREFIX))
+            seen.add(w[0])
+        self.assertEqual(len(seen), 4, "each cause must produce its OWN text, not a shared one")
+
+    def test_the_message_surfaces_the_reason_not_the_environment_sentence(self):
+        from service.routers.api_v2 import _coldstart_refusal_message, _coldstart_refusal
+        w: list[str] = []
+        _coldstart_refusal(w, "a spawn for this agent is ALREADY IN FLIGHT")
+        msg = _coldstart_refusal_message(w, "hermes")
+        self.assertIn("ALREADY IN FLIGHT", msg)
+        self.assertNotIn("No online environment can host", msg,
+                         "the whole defect was blaming the environment for every cause")
+
+    def test_no_recorded_reason_degrades_to_a_message_not_to_silence(self):
+        from service.routers.api_v2 import _coldstart_refusal_message
+        for w in (None, [], ["some unrelated advisory"]):
+            msg = _coldstart_refusal_message(w, "hermes")
+            self.assertIn("hermes", msg)
+            self.assertTrue(msg.strip(), "must never be empty")
+
+    def test_the_preexisting_advisory_warning_is_not_mistaken_for_a_reason(self):
+        # `warnings` also carries the non-blocking G3 handle-collision advisory. Picking that up
+        # as the refusal cause would replace one wrong message with another.
+        from service.routers.api_v2 import _coldstart_refusal_message
+        msg = _coldstart_refusal_message(["bound handle is owned by a different live agent"], "hermes")
+        self.assertNotIn("bound handle", msg)
+
+    def test_callers_pass_a_reasons_list_they_actually_declare(self):
+        # The first cut of this fix referenced a variable that did not exist in send_message —
+        # a NameError on the failure path, i.e. only on the path nobody exercises. Assert every
+        # call to the message helper names a list declared in the same function.
+        import re
+        src = (REPO_ROOT / "service" / "routers" / "api_v2.py").read_text(encoding="utf-8")
+        for m in re.finditer(r"_coldstart_refusal_message\((\w+), runtime\)", src):
+            var = m.group(1)
+            before = src[:m.start()]
+            self.assertRegex(
+                before, rf"{var}\s*:\s*list\[str\]\s*=\s*\[\]",
+                f"{var} is passed but never declared — that is a NameError on the refusal path",
+            )
