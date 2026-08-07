@@ -4841,6 +4841,24 @@ export async function commsConsoleTailHandler({ agentId, lines }, { httpCall: ca
   try {
     const n = Math.max(1, Math.min(Number(lines || 40), 200));
     const r = await call("GET", `/agents/${encodeURIComponent(agentId)}/console?lines=${n}`);
+    if (!r.live && r.historical) {
+      // A DEAD worker's output is the case that matters most, and until v0.2 this
+      // handler threw it away: the server said "no live console" and the agent that
+      // needed the diagnosis could not reach it (2026-08-07 — the cause sat in the
+      // row for 2.5h while the operator relayed it to a human by hand). Lead with
+      // the one-line cause, and say plainly that this is a RECORDING, so nobody
+      // reads it as the state of a running session.
+      const head = r.failureLine ? `Cause: ${r.failureLine}\n\n` : "";
+      return {
+        content: [{
+          type: "text",
+          text:
+            `NOT LIVE — last recorded console of ${agentId} (terminal ${r.terminalId}, ${r.status}` +
+            `${r.stoppedAt ? ` at ${r.stoppedAt}` : ""}). This worker is gone; the output below is history.\n\n` +
+            `${head}${r.output || "(nothing was recorded)"}`,
+        }],
+      };
+    }
     if (!r.live) {
       return { content: [{ type: "text", text: r.message || `${agentId} has no live console.` }] };
     }
@@ -4889,7 +4907,11 @@ export const CONSOLE_INPUT_TOOL_DESCRIPTION =
 
 server.tool(
   "comms_console_tail",
-  "Read the last N lines of another agent's live console (read-only; managed agents).",
+  "Read the last N lines of another agent's console (read-only; managed agents). " +
+    "Works on a DEAD worker too: with no live console it returns the LAST RECORDED output of the " +
+    "agent's most recent terminal, clearly marked NOT LIVE and led by the one-line cause. " +
+    "This is the tool to reach for when a spawn or dispatch failed and you want to know WHY, " +
+    "instead of asking the operator to read the terminal for you.",
   {
     agentId: z.string().describe("Agent whose console to read"),
     lines: z.number().int().min(1).max(200).optional().describe("How many trailing lines to return. Default 40."),

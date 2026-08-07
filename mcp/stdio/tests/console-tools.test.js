@@ -127,4 +127,81 @@ assert.match(COMMS_SEND_TOOL_DESCRIPTION, /set requireReply=false/i,
   assert.match(res.content[0].text, /no live console/);
 }
 
+// --- comms_console_tail: a DEAD worker's recording is served, and marked NOT LIVE (v0.2 WS-1) ---
+// The 2026-08-07 incident: a managed hermes worker died 65s after spawn, the cause sat in
+// terminal_sessions.output for 2.5h, and this handler threw it away because live was false.
+const HERMES_FATAL_LINE =
+  "[hermes-managed-host] fatal: hermes dashboard at http://127.0.0.1:9147/ did not become ready within 60000ms: fetch failed";
+{
+  const fakeHttp = async () => ({
+    ok: true,
+    live: false,
+    historical: true,
+    terminalId: "term_1786109794427_0f32fd75",
+    status: "stopped",
+    stoppedAt: "2026-08-07T13:37:39Z",
+    failureLine: HERMES_FATAL_LINE,
+    lines: 2,
+    output: [HERMES_FATAL_LINE, "[hermes-aify] FATAL: managed gateway host did not come up."].join("\n"),
+  });
+  const res = await commsConsoleTailHandler({ agentId: "sc-architect" }, { httpCall: fakeHttp });
+  assert.ok(!res.isError, "a historical read is a successful answer, not an error");
+  const text = res.content[0].text;
+  assert.match(text, /NOT LIVE/, "must not be readable as the state of a running session");
+  assert.match(text, /term_1786109794427_0f32fd75/);
+  assert.match(text, /2026-08-07T13:37:39Z/);
+  assert.ok(
+    text.includes(`Cause: ${HERMES_FATAL_LINE}`),
+    "the one-line cause must LEAD, so the answer is useful without reading the whole dump",
+  );
+  assert.match(text, /this worker is gone/i);
+}
+
+// --- comms_console_tail: an agent that never had a terminal keeps the pre-v0.2 answer ---
+{
+  const fakeHttp = async () => ({
+    ok: true,
+    live: false,
+    historical: false,
+    message: "never-ran has no live console (it lazy-starts on a message).",
+  });
+  const res = await commsConsoleTailHandler({ agentId: "never-ran" }, { httpCall: fakeHttp });
+  assert.match(res.content[0].text, /lazy-starts/);
+  assert.doesNotMatch(res.content[0].text, /NOT LIVE/);
+}
+
+// --- comms_console_tail: a historical read with nothing recorded says so, invents nothing ---
+{
+  const fakeHttp = async () => ({
+    ok: true, live: false, historical: true,
+    terminalId: "t1", status: "failed", stoppedAt: "", failureLine: "", lines: 0, output: "",
+  });
+  const res = await commsConsoleTailHandler({ agentId: "silent" }, { httpCall: fakeHttp });
+  assert.match(res.content[0].text, /nothing was recorded/);
+  assert.doesNotMatch(res.content[0].text, /Cause:/, "no cause line when no cause was recorded");
+}
+
+// --- comms_console_tail: a LIVE console is unchanged by the historical branch ---
+{
+  const fakeHttp = async () => ({
+    ok: true, live: true, historical: false, terminalId: "term_live", status: "attached",
+    lines: 1, output: "> waiting for input",
+  });
+  const res = await commsConsoleTailHandler({ agentId: "alive" }, { httpCall: fakeHttp });
+  assert.match(res.content[0].text, /Console of alive/);
+  assert.doesNotMatch(res.content[0].text, /NOT LIVE/);
+}
+
+// --- the tool description must point agents at it for diagnosis ---
+{
+  const fs = await import("node:fs");
+  const source = fs.readFileSync(new URL("../server.js", import.meta.url), "utf8");
+  const idx = source.indexOf('"comms_console_tail"');
+  assert.ok(idx > 0, "comms_console_tail registration must exist");
+  const registration = source.slice(idx, idx + 900);
+  assert.match(registration, /DEAD worker/,
+    "an agent will not reach for this on a dead worker unless the description says it works");
+  assert.match(registration, /LAST RECORDED/);
+}
+
 console.log("console-tools.test.js: all assertions passed");
