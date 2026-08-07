@@ -2,6 +2,18 @@
 
 Short rationale log for non-obvious choices, plus the current runtime limits. If you're wondering *why* the service behaves a certain way, this file beats guessing from the code.
 
+## Worker-death cleanup is keyed on terminal STATE, not on a death EVENT (2026-08-07)
+
+**`_finalize_spawns_with_dead_terminals` asks "is this spawn's terminal in a terminal status?" rather than trusting any death path to notify it.** That is the whole point of the reconciler, and it is a correction of the shape that came before it.
+
+`report_terminal_dead` already finalized the owning `spawn_request`, with a comment explaining exactly why that matters (a `running` spawn with empty `finished_at` reads as "worker mid-boot" for 5 minutes, so the dead worker suppresses the very respawn its death requires). But `report_terminal_dead` is **one of ~26 sites that write `terminal_sessions`**, and on 2026-08-07 it was never called: `term_1786109794427_0f32fd75` reached `stopped` at 13:37:39 carrying no `console_dead_reported` event and an empty `error`, so a different path stopped it. The spawn then sat `running` for **97 minutes** and was cleared only by an unrelated "superseded by a newer live managed session" — i.e. by its eventual replacement, not by any reaper.
+
+`_fail_orphaned_running_spawn_requests` could never have caught it either, and is right not to: it skips any spawn whose claiming bridge is a currently-ONLINE env bridge, and the env bridge stayed online. Only the worker died.
+
+**So: event-based cleanup is only as complete as the last developer's memory, and state-based cleanup cannot be defeated by adding a 27th way for a terminal to die.** When a cleanup must hold for *all* paths into a state, key it on the state.
+
+The cost is that a state-based sweep can race a legitimate transition, so the guards are where the care went: it leaves the spawn alone if ANY terminal on the same session is still live (the rebind race — a respawn creates the new terminal before the session is re-pointed), it requires the death to be older than `SPAWN_DEAD_TERMINAL_GRACE_SECONDS`, and an undeterminable death time is treated as too fresh rather than as old. See `service/tests/test_spawn_dead_terminal_finalize.py`.
+
 ## A session rotation may only adopt a terminal younger than the spawn that ordered it (2026-08-03)
 
 **A managed respawn's bridge can create the console/TUI terminal a few seconds BEFORE the `running` transition mints the new session**, leaving the live terminal bound to the about-to-be-ended session and the new session with `terminal_id=''` — dashboard reads "Console not started" over a live TUI, and the terminal row hangs off an ended session where a FK cascade could later drop a running TUI's tracking. The rotation therefore re-points the agent's freshest live, same-bridge terminal onto the new session (2026-05-31). **That adoption is now bounded: the terminal must not be older than the spawn request that ordered it.**

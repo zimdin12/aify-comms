@@ -11589,7 +11589,14 @@ class ApiV2RegressionTests(FastApiTestCase):
         from service.db import get_db as _get_db
         db = await _get_db()
         try:
-            return await api_v2._is_turn_busy_fresh(db, agent_id)
+            # Retargeted at _turn_busy_state in v0.2. The old `_is_turn_busy_fresh`
+            # wrapper this called had ZERO production call sites — its docstring
+            # claimed "callers that only need the boolean use it" and none did — so it
+            # was deleted. The FRESHNESS SEMANTICS it asserted are real and belong to
+            # _turn_busy_state, which every live caller reaches, so the assertions
+            # below are kept verbatim and simply point one layer down.
+            fresh, _run_id = await api_v2._turn_busy_state(db, agent_id)
+            return fresh
         finally:
             await db.close()
 

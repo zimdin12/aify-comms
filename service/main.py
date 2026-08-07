@@ -94,6 +94,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _repair_spawn_requests_from_initial_dispatch_failures,
         _fail_orphaned_running_spawn_requests,
         _fail_running_spawns_superseded_by_current_session,
+        _finalize_spawns_with_dead_terminals,
     )
 
     db = await _get_db()
@@ -114,6 +115,11 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # ~15s dashboard poll, contending with all reads. Run them here in the 60s sweep instead.
         await _commit_step(await _repair_spawn_requests_from_initial_dispatch_failures(db))
         await _commit_step(await _fail_orphaned_running_spawn_requests(db))
+        # Runs BEFORE the superseded-by-current-session reaper: that one only clears a
+        # dead spawn once a NEWER live session exists, which is what left the 2026-08-07
+        # spawn `running` for 97 minutes (its replacement did not arrive until 15:13).
+        # This one needs no successor — the dead terminal is proof enough.
+        await _commit_step(await _finalize_spawns_with_dead_terminals(db))
         await _commit_step(await _fail_running_spawns_superseded_by_current_session(db))
         closed_delivered_total = 0
         for _ in range(10):  # hard cap: <= 10 * 500 = 5k runs per pass

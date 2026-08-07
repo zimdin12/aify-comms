@@ -30,6 +30,10 @@ from service.config import get_config
 from service.db import get_db, SQLITE_CLAIM_BUSY_TIMEOUT_MS
 from service import longpoll
 from service.usage_openai import collect_openai_pool
+from service.terminal_diagnostics import (
+    failure_tail as _terminal_failure_tail,
+    meaningful_failure_line as _terminal_failure_line,
+)
 from service.terminal_snapshot import (
     render_snapshot as _render_terminal_snapshot,
     infer_source_width as _infer_terminal_source_width,
@@ -358,6 +362,11 @@ _LAUNCHABLE_RUNTIMES = {"claude-code", "codex", "hermes", "opencode", "pi"}
 _SESSION_MODES = {"resident", "managed"}
 _DISPATCH_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 _TERMINAL_END_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
+# Deterministic, lowercase ordering of the SAME set, for SQL parameter binding. A set
+# gives no ordering guarantee across builds and an inline literal list in a query is
+# how the two managed-worker sweeps came to disagree about `degraded` (finding N7) —
+# `test_terminal_status_sets_agree` fails the suite if these two ever diverge.
+_TERMINAL_END_STATUSES_ORDERED = tuple(sorted(s.lower() for s in _TERMINAL_END_STATUSES))
 _DISPATCH_ACTIVE_STATUSES = {"queued", "claimed", "running"}
 _SPAWN_TERMINAL_STATUSES = {"running", "failed", "cancelled"}
 _SESSION_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
@@ -441,7 +450,7 @@ _TERMINAL_DEAD_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "c
 # ends, so this window now ONLY fires when an end event is DROPPED. NOTE (2026-07-26):
 # this is NO LONGER the claim-gate window. The delivery gates read the raw flag bounded
 # by TURN_BUSY_BACKSTOP_SECONDS (_turn_busy_holds_delivery); this 120s value now only
-# serves _turn_busy_state / _is_turn_busy_fresh (reminder-loop busy definition). The
+# serves _turn_busy_state (reminder-loop busy definition). The
 # STATUS staleness
 # window is the longer TURN_BUSY_BACKSTOP_SECONDS so a missed end event self-heals
 # at the single long wall-clock ceiling instead of flapping against the re-pulse
@@ -2580,7 +2589,7 @@ async def _turn_busy_state(db, agent_id: str) -> tuple[bool, str]:
 
     `fresh` is True when turn_busy=1 was updated within TURN_BUSY_STALE_SECONDS.
     `turn_run_id` is the run the bridge attributed that turn-busy pulse to (''
-    when unknown). Callers that only need the boolean use _is_turn_busy_fresh;
+    when unknown). Callers wanting only the boolean ignore the run id;
     the reminder loop needs the run id so it can tell a GENUINE other-work
     turn_busy apart from a delivered-run's OWN delivery re-pulse (which would
     otherwise make a handoff skip its own reminder forever — deadlock)."""
@@ -2597,20 +2606,6 @@ async def _turn_busy_state(db, agent_id: str) -> tuple[bool, str]:
     fresh = bool(seen and time.time() - seen <= TURN_BUSY_STALE_SECONDS)
     run_id = str((row["turn_run_id"] if "turn_run_id" in row.keys() else "") or "")
     return (fresh, run_id)
-
-
-async def _is_turn_busy_fresh(db, agent_id: str) -> bool:
-    """True when the agent is mid-turn per agent_turn_state — turn_busy=1 updated
-    within TURN_BUSY_STALE_SECONDS. This is the canonical 'busy via turn' half of
-    the shared busy definition: an agent is BUSY iff it has a claimed/running
-    dispatch run (hasActiveRun) OR a fresh turn_busy. The status engine
-    (_compute_live_status_cache) and the dispatch claim-gate already use it; this
-    helper lets the reminder loop use the SAME definition instead of hasActiveRun
-    alone, so a mid-turn agent with no tracked run (e.g. a resident claude on its
-    own turn) is not reminder-nagged while working. (holistic status review
-    Finding 2, 2026-05-31.)"""
-    fresh, _run_id = await _turn_busy_state(db, agent_id)
-    return fresh
 
 
 async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
@@ -5946,6 +5941,16 @@ async def _managed_environment_status(db, row) -> tuple[str, str, str]:
 
 SPAWN_ORPHAN_GRACE_SECONDS = 180  # matches the dispatch queued-run backstop window
 
+# Grace before a spawn is finalized because its bound terminal reached a terminal
+# status. Deliberately SHORTER than SPAWN_ORPHAN_GRACE_SECONDS: that reaper infers
+# death from a missing bridge heartbeat and must be generous, whereas this one has
+# PROOF (the terminal row itself says stopped/failed) and the cost of waiting is that
+# the dead worker keeps suppressing its own respawn. Long enough to lose a rebind
+# race — a managed respawn can create the new terminal seconds before the session is
+# re-pointed at it, and the guard below also requires that no live terminal shares
+# the session.
+SPAWN_DEAD_TERMINAL_GRACE_SECONDS = 45
+
 
 async def _fail_running_spawns_superseded_by_current_session(db) -> int:
     """Fail only running spawns proven older than the agent's current live backing.
@@ -6128,6 +6133,116 @@ async def _fail_orphaned_running_spawn_requests(db) -> int:
     if failed:
         await db.commit()
     return failed
+
+
+async def _finalize_spawns_with_dead_terminals(
+    db, *, grace_seconds: int = SPAWN_DEAD_TERMINAL_GRACE_SECONDS, limit: int = 200
+) -> int:
+    """Finalize a `running`/`starting` spawn_request whose bound terminal is DEAD.
+
+    PROVEN LIVE (2026-08-07, v0.2 WS-2). Spawn `spawn_1786109794441_a620d173` was
+    claimed 13:36:34; its terminal `term_1786109794427_0f32fd75` reached `stopped` at
+    13:37:39 after a 65s failed hermes launch. The spawn then sat `running` with an
+    empty `finished_at` for **97 minutes**, and was cleared at 15:14:38 only by an
+    unrelated "superseded by a newer live managed session" — no reconciler ever
+    touched it.
+
+    WHY the existing reapers missed it, both times for the same structural reason:
+
+    - `_fail_orphaned_running_spawn_requests` skips any spawn whose
+      `claimed_by_bridge_id` is a currently-ONLINE env bridge. The env bridge stayed
+      online the whole time — only the worker died — so that reaper is correct to
+      skip it and can never cover this shape.
+    - `report_terminal_dead` DOES finalize the spawn (and its comment explains
+      exactly why that matters). But it is ONE of the ~26 sites that write
+      `terminal_sessions`, and it was never called here: the row carries no
+      `console_dead_reported` event and an EMPTY `error`, so whichever path stopped
+      it at 13:37:39 was a different one. Finalization was bolted onto a single
+      death path out of many.
+
+    So this reconciler is deliberately **state-based, not event-based**: it keys on
+    the terminal's own recorded status rather than on any death path remembering to
+    call something. A new way for a terminal to die cannot defeat it, which is the
+    property the event-based version lacked.
+
+    Why finalizing matters beyond tidiness — `_has_pending_or_booting_spawn_request`
+    treats a `running` spawn with empty `finished_at` as "worker mid-boot" for 5
+    minutes, so for those 5 minutes the DEAD worker suppresses the very respawn its
+    death made necessary, and the requester is told a spawn is already in flight.
+
+    SAFETY — DB rows only, never a process:
+    - Only status IN ('starting','running') with an empty `finished_at`.
+    - Requires a session-bound terminal in a TERMINAL status (`_TERMINAL_END_STATUSES`).
+    - LEAVES the spawn alone if ANY terminal on the same session is still live, so a
+      rebind/respawn race (new terminal created before the session is re-pointed)
+      cannot fail a healthy worker.
+    - Requires the death to be older than `grace_seconds`; an undeterminable death
+      time is treated as too fresh and left alone (conservative).
+    - Records the terminal's own recorded cause as the spawn error, so the refusal an
+      agent later reads names what actually happened (WS-1).
+    """
+    now = _now()
+    end_statuses = ",".join("?" for _ in _TERMINAL_END_STATUSES_ORDERED)
+    cursor = await db.execute(
+        f"""
+        SELECT s.id AS spawn_id,
+               s.agent_id AS agent_id,
+               t.id AS terminal_id,
+               t.status AS terminal_status,
+               t.output AS terminal_output,
+               t.error AS terminal_error,
+               COALESCE(NULLIF(t.stopped_at, ''), t.updated_at) AS died_at
+        FROM spawn_requests s
+        JOIN terminal_sessions t ON t.session_id = s.session_id
+        WHERE s.status IN ('starting', 'running')
+          AND COALESCE(s.finished_at, '') = ''
+          AND COALESCE(s.session_id, '') != ''
+          AND LOWER(COALESCE(t.status, '')) IN ({end_statuses})
+          AND NOT EXISTS (
+            SELECT 1 FROM terminal_sessions live
+            WHERE live.session_id = s.session_id
+              AND LOWER(COALESCE(live.status, '')) NOT IN ({end_statuses})
+          )
+        ORDER BY s.created_at ASC
+        LIMIT ?
+        """,
+        (*_TERMINAL_END_STATUSES_ORDERED, *_TERMINAL_END_STATUSES_ORDERED, max(1, int(limit or 200))),
+    )
+    rows = await cursor.fetchall()
+    now_epoch = datetime.now(timezone.utc).timestamp()
+    grace = max(1, int(grace_seconds or SPAWN_DEAD_TERMINAL_GRACE_SECONDS))
+    finalized = 0
+    for row in rows:
+        died_epoch = _iso_to_epoch(str(row["died_at"] or ""))
+        if not died_epoch or (now_epoch - died_epoch) < grace:
+            continue  # too fresh, or death time undeterminable → leave it (conservative)
+        cause = _terminal_failure_line(str(row["terminal_output"] or "")) or str(row["terminal_error"] or "").strip()
+        detail = f": {cause}" if cause else " (no output was recorded)"
+        message = (
+            f"Worker terminal {row['terminal_id']} is {str(row['terminal_status'] or 'dead').lower()}"
+            f"{detail}"
+        )
+        cursor = await db.execute(
+            """
+            UPDATE spawn_requests
+            SET status = 'failed',
+                finished_at = ?,
+                error = CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END,
+                updated_at = ?
+            WHERE id = ?
+              AND status IN ('starting', 'running')
+              AND COALESCE(finished_at, '') = ''
+            """,
+            (now, message, now, row["spawn_id"]),
+        )
+        if cursor.rowcount > 0:
+            finalized += 1
+            agent_id = str(row["agent_id"] or "").strip()
+            if agent_id:
+                await _invalidate_agent_live_state(db, agent_id)
+    if finalized:
+        await db.commit()
+    return finalized
 
 
 async def _repair_spawn_requests_from_initial_dispatch_failures(db) -> int:
@@ -14077,10 +14192,19 @@ async def _resolve_live_console_terminal(db, agent_id: str):
 
 @router.get("/agents/{agent_id}/console")
 async def get_agent_console(agent_id: str, lines: int = 40):
-    """Read the tail of an agent's live console output (read-only).
+    """Read the tail of an agent's console output, live or LAST RECORDED (read-only).
 
     Side-effect-free: never starts a worker. Resolves the agent's live console
-    terminal via runtime_state; if none, returns {ok, live:false, message}.
+    terminal via runtime_state; if none, falls back to the most recent terminal the
+    agent had and returns its RECORDED tail with live=false, historical=true.
+
+    Why the fallback exists (v0.2 WS-1). Until v0.2 this returned only "no live
+    console", which made a DEAD worker's output — the case that matters most —
+    unreachable by the agent that needed it. On 2026-08-07 the cause of a failed
+    managed hermes launch sat in `terminal_sessions.output` for 2.5 hours while the
+    requesting agent was told "No online environment can host managed hermes", and
+    the operator had to relay the real error to a human. The bytes were never
+    missing; nothing would serve them.
     """
     db = await get_db()
     try:
@@ -14089,9 +14213,48 @@ async def get_agent_console(agent_id: str, lines: int = 40):
             agent_row = await (await db.execute("SELECT id FROM agents WHERE id = ?", (agent_id,))).fetchone()
             if not agent_row:
                 raise HTTPException(404, f"Agent '{agent_id}' not found")
+            # Most recent terminal this agent had, whatever its state. Ordered by
+            # created_at (not updated_at) so a late touch on an old row cannot
+            # outrank the genuinely newest attempt.
+            past = await (await db.execute(
+                """
+                SELECT id, status, output, error, stopped_at, updated_at, command
+                FROM terminal_sessions
+                WHERE agent_id = ?
+                ORDER BY datetime(COALESCE(NULLIF(created_at, ''), '1970-01-01')) DESC, rowid DESC
+                LIMIT 1
+                """,
+                (agent_id,),
+            )).fetchone()
+            recorded = str((past["output"] if past is not None else "") or "")
+            if past is not None and (recorded.strip() or str(past["error"] or "").strip()):
+                tail_lines = max(1, min(int(lines or 40), _CONSOLE_TAIL_MAX_LINES))
+                output = _terminal_failure_tail(recorded, max_lines=tail_lines)
+                cause = _terminal_failure_line(recorded) or str(past["error"] or "").strip()
+                died_at = str(past["stopped_at"] or past["updated_at"] or "")
+                status = str(past["status"] or "").strip().lower() or "unknown"
+                return {
+                    "ok": True,
+                    "live": False,
+                    "historical": True,
+                    "terminalId": str(past["id"] or ""),
+                    "status": status,
+                    "stoppedAt": died_at,
+                    "command": str(past["command"] or ""),
+                    "failureLine": cause,
+                    "lines": len(output.splitlines()) if output else 0,
+                    "output": output,
+                    "message": (
+                        f"{agent_id} has NO live console. This is the last recorded output of "
+                        f"terminal {past['id']} ({status}"
+                        + (f" at {died_at}" if died_at else "")
+                        + "), not a running session."
+                    ),
+                }
             return {
                 "ok": True,
                 "live": False,
+                "historical": False,
                 "message": f"{agent_id} has no live console (it lazy-starts on a message).",
             }
         # Drain any buffered output for this terminal so the tail is current,
@@ -14131,6 +14294,7 @@ async def get_agent_console(agent_id: str, lines: int = 40):
         return {
             "ok": True,
             "live": True,
+            "historical": False,
             "terminalId": terminal["id"],
             "status": terminal["status"] or "",
             "lines": len(selected),
