@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   OPENAI_TOKEN_EXPIRY_SKEW_SECONDS,
+  OPENAI_TOKEN_STALE_GRACE_SECONDS,
   openAiTokenExpiry,
   openAiUsageVerdict,
 } from "../doctor-predicates.js";
@@ -60,6 +61,44 @@ test("a token expiring mid-round-trip counts as stale, not revoked", () => {
     now: NOW,
   });
   assert.equal(v.code, "stale-token");
+});
+
+// ── the green is BOUNDED, or it becomes a false GREEN ────────────────────────────────
+// Self-review catch on the first cut: if the REFRESH token is itself revoked, renewal fails
+// silently, the access token stays expired forever, and an unbounded "self-heals" green would
+// report a permanently-dead login as fine — worse than the red it replaced, because a red gets
+// investigated and a green does not.
+test("expired BEYOND the grace window is a failure even with a refresh token", () => {
+  const v = openAiUsageVerdict({
+    hasToken: true,
+    tokenExp: NOW - (OPENAI_TOKEN_STALE_GRACE_SECONDS + 3600),
+    hasRefreshToken: true,
+    httpStatus: 401,
+    now: NOW,
+  });
+  assert.equal(v.ok, false, "a renewal that has not happened in a day is not self-healing");
+  assert.equal(v.code, "refresh-not-happening");
+  assert.match(v.fix, /codex login/);
+  assert.match(v.detail, /not recovering/);
+});
+
+test("just INSIDE the grace window is still treated as self-healing", () => {
+  const v = openAiUsageVerdict({
+    hasToken: true,
+    tokenExp: NOW - (OPENAI_TOKEN_STALE_GRACE_SECONDS - 3600),
+    hasRefreshToken: true,
+    httpStatus: 401,
+    now: NOW,
+  });
+  assert.equal(v.ok, true);
+  assert.equal(v.code, "stale-token");
+});
+
+test("the grace window is bounded well under the token lifetime", () => {
+  // ~10-day access tokens. A grace that approached the lifetime would make the green
+  // effectively unconditional again.
+  assert.ok(OPENAI_TOKEN_STALE_GRACE_SECONDS >= 3600, "must tolerate an ordinary lazy refresh");
+  assert.ok(OPENAI_TOKEN_STALE_GRACE_SECONDS <= 2 * 24 * 3600, "must stay far under the ~10-day lifetime");
 });
 
 // ── the genuine failures must still fail ─────────────────────────────────────────────
