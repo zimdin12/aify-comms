@@ -16,11 +16,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   OPENAI_TOKEN_EXPIRY_SKEW_SECONDS,
-  OPENAI_TOKEN_STALE_GRACE_SECONDS,
+  openAiRefreshLooksBroken,
   openAiTokenExpiry,
   openAiUsageVerdict,
 } from "../doctor-predicates.js";
-import { hasOpenAiRefreshToken } from "../usage-collector.js";
+import { hasOpenAiRefreshToken, openAiLastRefreshEpoch } from "../usage-collector.js";
 
 const NOW = 1_786_000_000;
 
@@ -48,8 +48,12 @@ test("expired token WITH a refresh token is OK — codex renews it on next use",
   assert.equal(v.ok, true, "a self-healing condition must not fail --strict");
   assert.equal(v.code, "stale-token");
   assert.match(v.detail, /no action needed/i);
-  assert.equal(v.fix, "", "must NOT tell the operator to re-authenticate — that advice was wrong");
   assert.doesNotMatch(v.detail, /codex login/);
+  // The fix text is guidance, not an instruction to re-authenticate: re-authenticating was the
+  // wrong advice on 2026-08-09, and it must not be the FIRST thing offered here. (Reviewer's
+  // wording: force a renewal, and only escalate if that fails.)
+  assert.doesNotMatch(v.fix, /^Re-authenticate/, "re-auth must not be the leading advice");
+  assert.match(v.fix, /run codex once/i);
 });
 
 test("a token expiring mid-round-trip counts as stale, not revoked", () => {
@@ -63,42 +67,68 @@ test("a token expiring mid-round-trip counts as stale, not revoked", () => {
   assert.equal(v.code, "stale-token");
 });
 
-// ── the green is BOUNDED, or it becomes a false GREEN ────────────────────────────────
-// Self-review catch on the first cut: if the REFRESH token is itself revoked, renewal fails
-// silently, the access token stays expired forever, and an unbounded "self-heals" green would
-// report a permanently-dead login as fine — worse than the red it replaced, because a red gets
-// investigated and a green does not.
-test("expired BEYOND the grace window is a failure even with a refresh token", () => {
+// ── the green has an EVIDENCE floor, not an age floor ────────────────────────────────
+// First attempt used age ("expired >24h, so renewal is not happening"). The reviewer rejected it
+// before tagging and was right: that proves only that CODEX HAS NOT RUN. An operator who does not
+// touch codex over a weekend would have been told to re-authenticate a healthy login — a brand-new
+// false RED, the very thing this change removes. doctor does not perform the refresh, so it cannot
+// infer failure from silence. Only a post-expiry `last_refresh` that STILL left an expired token
+// proves the refresh path ran and produced nothing.
+test("expired for a long time is STILL ok when codex simply has not run", () => {
   const v = openAiUsageVerdict({
     hasToken: true,
-    tokenExp: NOW - (OPENAI_TOKEN_STALE_GRACE_SECONDS + 3600),
+    tokenExp: NOW - 30 * 24 * 3600,
     hasRefreshToken: true,
+    lastRefresh: NOW - 31 * 24 * 3600, // the refresh that MINTED it; none since
     httpStatus: 401,
     now: NOW,
   });
-  assert.equal(v.ok, false, "a renewal that has not happened in a day is not self-healing");
-  assert.equal(v.code, "refresh-not-happening");
-  assert.match(v.fix, /codex login/);
-  assert.match(v.detail, /not recovering/);
-});
-
-test("just INSIDE the grace window is still treated as self-healing", () => {
-  const v = openAiUsageVerdict({
-    hasToken: true,
-    tokenExp: NOW - (OPENAI_TOKEN_STALE_GRACE_SECONDS - 3600),
-    hasRefreshToken: true,
-    httpStatus: 401,
-    now: NOW,
-  });
-  assert.equal(v.ok, true);
+  assert.equal(v.ok, true, "age alone must never fail a low-usage operator's healthy login");
   assert.equal(v.code, "stale-token");
 });
 
-test("the grace window is bounded well under the token lifetime", () => {
-  // ~10-day access tokens. A grace that approached the lifetime would make the green
-  // effectively unconditional again.
-  assert.ok(OPENAI_TOKEN_STALE_GRACE_SECONDS >= 3600, "must tolerate an ordinary lazy refresh");
-  assert.ok(OPENAI_TOKEN_STALE_GRACE_SECONDS <= 2 * 24 * 3600, "must stay far under the ~10-day lifetime");
+test("a post-expiry refresh that still left an expired token IS a failure", () => {
+  const v = openAiUsageVerdict({
+    hasToken: true,
+    tokenExp: NOW - 7200,
+    hasRefreshToken: true,
+    lastRefresh: NOW - 60, // codex ran the refresh path AFTER expiry, token still expired
+    httpStatus: 401,
+    now: NOW,
+  });
+  assert.equal(v.ok, false, "proof of a failed renewal must not read as self-healing");
+  assert.equal(v.code, "refresh-failing");
+  assert.match(v.fix, /codex login/);
+});
+
+test("openAiRefreshLooksBroken needs BOTH timestamps before it accuses anything", () => {
+  assert.equal(openAiRefreshLooksBroken({ tokenExp: NOW - 100, lastRefresh: NOW - 50 }), true);
+  assert.equal(openAiRefreshLooksBroken({ tokenExp: NOW - 100, lastRefresh: NOW - 500 }), false);
+  assert.equal(openAiRefreshLooksBroken({ tokenExp: NaN, lastRefresh: NOW }), false);
+  assert.equal(openAiRefreshLooksBroken({ tokenExp: NOW, lastRefresh: NaN }), false);
+  assert.equal(openAiRefreshLooksBroken({}), false);
+});
+
+test("the stale-token fix text tells you how to force a renewal, not to re-authenticate", () => {
+  const v = openAiUsageVerdict({
+    hasToken: true, tokenExp: NOW - 600, hasRefreshToken: true, httpStatus: 401, now: NOW,
+  });
+  assert.match(v.fix, /run codex once/i);
+  assert.match(v.fix, /still.*rejected/i, "and what to do if that does not work");
+});
+
+test("last_refresh is parsed out of the real codex stamp format", () => {
+  // Real value observed 2026-08-09, nanosecond precision.
+  const store = JSON.stringify({ last_refresh: "2026-08-09T11:45:08.099613200Z" });
+  const epoch = openAiLastRefreshEpoch(store);
+  assert.ok(Number.isFinite(epoch), "nanosecond precision must not defeat the parse");
+  assert.equal(Math.floor(epoch), 1786275908);
+});
+
+test("a missing or malformed last_refresh is NaN, so it can never accuse", () => {
+  for (const bad of ["", "{}", '{"last_refresh":""}', '{"last_refresh":"not-a-date"}', null]) {
+    assert.ok(Number.isNaN(openAiLastRefreshEpoch(bad)), `expected NaN for ${JSON.stringify(bad)}`);
+  }
 });
 
 // ── the genuine failures must still fail ─────────────────────────────────────────────

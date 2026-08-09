@@ -354,6 +354,30 @@ export function hasOpenAiRefreshToken(authJsonText) {
   return found;
 }
 
+// When did codex last RUN its refresh path? It stamps `last_refresh` on renewal. A stamp LATER
+// than the access token's own expiry is the only file-visible proof that refreshing was attempted
+// and still left an expired token — i.e. the refresh token is dead. Without it, doctor cannot tell
+// "refresh is broken" from "codex simply has not run", and guessing from age produced a false RED
+// for low-usage operators (rejected in review before tagging). Returns epoch SECONDS, or NaN.
+export function openAiLastRefreshEpoch(authJsonText) {
+  let j;
+  try { j = JSON.parse(authJsonText || "{}"); } catch { return NaN; }
+  let found = NaN;
+  const walk = (o) => {
+    if (!o || typeof o !== "object" || Number.isFinite(found)) return;
+    for (const [k, v] of Object.entries(o)) {
+      if (k === "last_refresh" && typeof v === "string" && v.trim()) {
+        const ms = Date.parse(v.trim());
+        if (Number.isFinite(ms)) { found = ms / 1000; return; }
+      }
+      if (v && typeof v === "object") walk(v);
+      if (Number.isFinite(found)) return;
+    }
+  };
+  walk(j);
+  return found;
+}
+
 // Which window is the 5-hour one and which is the weekly one? Read `limit_window_seconds` —
 // do NOT assume primary=5h / secondary=weekly (2026-07-14).
 //
@@ -495,6 +519,7 @@ export async function checkOpenAiUsageAccess({ readHermesAuth = defaultReadHerme
       hasToken: true,
       tokenExp: openAiTokenExpiry(token),
       hasRefreshToken: hasOpenAiRefreshToken(authText),
+      lastRefresh: openAiLastRefreshEpoch(authText),
       httpStatus: res ? res.status : 0,
       apiOk: false,
     });

@@ -190,25 +190,33 @@ export function openAiTokenExpiry(token) {
 // the 10-day lifetime.
 export const OPENAI_TOKEN_EXPIRY_SKEW_SECONDS = 60;
 
-// The "self-heals" green is BOUNDED, and this bound is the whole reason it is safe to be green
-// at all. Self-review of the first cut caught the hole: if the REFRESH token is itself revoked
-// or expired, codex's renewal fails silently, the access token stays expired forever, and an
-// unbounded `expired + refresh token present -> ok` would report that permanently-dead login as
-// fine. That is a false GREEN — the exact failure `756f3a5` shipped and this file exists to
-// prevent, and it would be worse than the false RED being fixed, because a red gets
-// investigated and a green does not.
+// The "self-heals" green needs a floor, or it hides a permanently-dead login: if the REFRESH
+// token is itself revoked, codex's renewal fails, the access token stays expired forever, and an
+// unconditional `expired + refresh token -> ok` reports that as fine in perpetuity. That is the
+// false GREEN `756f3a5` shipped, and it is worse than the false RED being fixed here, because a
+// red gets investigated and a green does not.
 //
-// So the claim is narrowed to what is actually true: "codex renews this on next use" is only
-// credible for a token that expired RECENTLY. Past a day, the renewal has evidently not
-// happened and is not going to. Sized like the other bounds here — far beyond any lazy-refresh
-// window (codex renews on the next call, typically minutes), an order of magnitude under the
-// ~10-day token lifetime, so a healthy fleet never reaches it.
-export const OPENAI_TOKEN_STALE_GRACE_SECONDS = 24 * 60 * 60;
+// The floor must be EVIDENCE, not age. My first attempt used age — "expired more than 24h, so
+// the renewal is not happening" — and the reviewer rejected it before tagging, correctly:
+// `expiredFor > 24h` proves only that CODEX HAS NOT RUN, not that refreshing fails. An operator
+// who does not touch codex over a weekend would have been told to re-authenticate a perfectly
+// healthy login — a brand-new false RED, of exactly the kind this whole change exists to remove.
+// doctor does not perform the refresh itself, so it cannot infer failure from silence.
+//
+// What IS evidence: codex stamps `last_refresh` when it renews. A `last_refresh` LATER than the
+// access token's own expiry means codex did run the refresh path and the store still holds an
+// expired token — the renewal produced nothing usable. That is a broken login, provable from the
+// file, with no timing guess. Absent that, the honest answer stays "not renewed yet".
+export function openAiRefreshLooksBroken({ tokenExp = NaN, lastRefresh = NaN } = {}) {
+  if (!Number.isFinite(tokenExp) || !Number.isFinite(lastRefresh)) return false;
+  return lastRefresh > tokenExp;
+}
 
 export function openAiUsageVerdict({
   hasToken = false,
   tokenExp = NaN,
   hasRefreshToken = false,
+  lastRefresh = NaN,
   httpStatus = 0,
   apiOk = false,
   now = 0,
@@ -225,30 +233,29 @@ export function openAiUsageVerdict({
   }
   const nowSeconds = Number(now) > 0 ? Number(now) : Math.floor(Date.now() / 1000);
   const expired = Number.isFinite(tokenExp) && tokenExp <= nowSeconds + OPENAI_TOKEN_EXPIRY_SKEW_SECONDS;
-  const expiredFor = Number.isFinite(tokenExp) ? nowSeconds - tokenExp : 0;
-  if (expired && hasRefreshToken && expiredFor <= OPENAI_TOKEN_STALE_GRACE_SECONDS) {
-    // Self-healing: codex refreshes on its next use. Reporting this as a failure is what
-    // produced wrong operator advice on 2026-08-09.
+  if (expired && hasRefreshToken) {
+    // PROVABLE failure: codex ran its refresh path after this token expired and the store still
+    // holds an expired token, so the renewal produced nothing usable. See openAiRefreshLooksBroken
+    // for why this is keyed on evidence rather than on how long the token has been expired.
+    if (openAiRefreshLooksBroken({ tokenExp, lastRefresh })) {
+      return {
+        ok: false,
+        code: "refresh-failing",
+        detail: "codex refreshed its OpenAI auth AFTER this access token expired and the stored "
+          + "token is still expired — the refresh token itself has most likely expired or been "
+          + "revoked, so this login cannot recover on its own.",
+        fix: "Re-authenticate with `codex login`.",
+      };
+    }
+    // Self-healing: codex renews on its next use. Reporting this as a failure is what produced
+    // wrong operator advice on 2026-08-09.
     return {
       ok: true,
       code: "stale-token",
       detail: "The cached OpenAI access token has expired, but codex holds a refresh token and "
         + "renews it on next use — no action needed. Quota may read stale until then.",
-      fix: "",
-    };
-  }
-  if (expired && hasRefreshToken) {
-    // Refresh token present but renewal has plainly not happened in a day — see
-    // OPENAI_TOKEN_STALE_GRACE_SECONDS. Treating this as self-healing would be a false GREEN.
-    const hours = Math.floor(expiredFor / 3600);
-    return {
-      ok: false,
-      code: "refresh-not-happening",
-      detail: `The OpenAI access token expired ${hours}h ago and a refresh token is present, but `
-        + "the renewal has not happened — codex renews on use, so this login is not recovering "
-        + "on its own.",
-      fix: "Re-authenticate with `codex login`. If that succeeds, the stored refresh token had "
-        + "itself expired or been revoked.",
+      fix: "Nothing, unless you need fresh quota right now — then run codex once to trigger the "
+        + "renewal. If it is still rejected after that, re-authenticate with `codex login`.",
     };
   }
   if (expired) {
