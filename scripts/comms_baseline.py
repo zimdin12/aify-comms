@@ -148,13 +148,22 @@ def collect(db_path: str, days: int) -> dict:
             pingpong += 1
             pingpong_chars += sum(m["len"] for m in t)
 
+    # Anchor the dispatch window to the SAME instant as the message window (reviewer catch,
+    # 2026-08-09). This originally used datetime('now'), which meant the message half of the
+    # baseline was reproducible and the dispatch half drifted with wall-clock — so two people
+    # running the script minutes apart would agree on closure and disagree on dispatch, which
+    # is precisely the class of confusion the anchor exists to remove.
+    # messages.timestamp is epoch MILLISECONDS; dispatch_runs.requested_at is ISO.
+    since_iso = db.execute(
+        "SELECT strftime('%Y-%m-%dT%H:%M:%SZ', ? / 1000, 'unixepoch')", (since_ms,)
+    ).fetchone()[0]
     disp = dict(db.execute(
         """
         SELECT status, COUNT(*) FROM dispatch_runs
-        WHERE requested_at > datetime('now', ?)
+        WHERE requested_at > ?
         GROUP BY status
         """,
-        (f"-{days} days",),
+        (since_iso,),
     ).fetchall())
     db.close()
 
@@ -184,6 +193,7 @@ def collect(db_path: str, days: int) -> dict:
             chars_by_type.get("response", 0) / max(by_type.get("response", 1), 1)
         ),
         "top_agents_by_chars": dict(per_agent.most_common(8)),
+        "dispatch_window_since_iso": since_iso,
         "dispatch_by_status": disp,
     }
 
