@@ -148,6 +148,105 @@ export function bridgeInstallVerdict({ installedSha = "", headSha = "", headShor
   };
 }
 
+// ── `usage-openai` staleness vs. genuine rejection ───────────────────────────────────
+//
+// FALSE RED, observed live 2026-08-09. doctor reported "the ChatGPT usage API rejected it
+// (HTTP 401) — the token is likely expired, re-authenticate with `codex login`". Three minutes
+// later the same check was GREEN with no operator action at all, because codex had refreshed
+// the token on its next use (`auth.json.last_refresh` 11:45:19Z, new access_token valid ten
+// more days). The advice was wrong: nothing needed re-authenticating.
+//
+// The mechanism: codex stores a long-lived `refresh_token` alongside a ~10-day `access_token`
+// and refreshes LAZILY, on use. So between an access token's expiry and codex's next call
+// there is a window where the on-disk token is stale but the login is perfectly healthy.
+// doctor reads that file and calls the API itself, so it lands in that window and cries wolf.
+//
+// This is the third time this repo has shipped a doctor verdict that was wrong in a
+// self-healing situation (see ENV_FUTURE_SKEW_MS for the clock-skew false RED, and
+// bridgeInstallVerdict for the alarm-fatigue argument). A check that goes red on a condition
+// that fixes itself trains the operator to skim past it — and then the one time it means
+// something it reads the same as the twenty times it did not.
+//
+// So: an EXPIRED on-disk token with a refresh token available is NOT a failure. Only report a
+// failure when the login genuinely cannot self-heal — an unexpired token the API still
+// rejects (revoked/invalid), or an expired one with no refresh token to recover from.
+// `exp` is read, not verified: we are asking "is this copy stale", not "is this signature
+// good" — the API is the authority on validity and we already called it.
+export function openAiTokenExpiry(token) {
+  const raw = String(token || "");
+  const parts = raw.split(".");
+  if (parts.length < 2) return NaN;
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString());
+    const exp = Number(payload && payload.exp);
+    return Number.isFinite(exp) ? exp : NaN;
+  } catch {
+    return NaN;
+  }
+}
+
+// Small cushion so a token expiring *during* the round-trip is treated as stale rather than
+// revoked. Sized like ENV_FUTURE_SKEW_MS: comfortably past ordinary latency, negligible against
+// the 10-day lifetime.
+export const OPENAI_TOKEN_EXPIRY_SKEW_SECONDS = 60;
+
+export function openAiUsageVerdict({
+  hasToken = false,
+  tokenExp = NaN,
+  hasRefreshToken = false,
+  httpStatus = 0,
+  apiOk = false,
+  now = 0,
+} = {}) {
+  if (apiOk) return { ok: true, code: "ok", detail: "OpenAI/ChatGPT quota is connected", fix: "" };
+  if (!hasToken) {
+    return {
+      ok: false,
+      code: "no-token",
+      detail: "No OpenAI token found — ChatGPT quota will not appear in the dashboard.",
+      fix: "Install the codex CLI and sign in (`codex login`). Hermes delegates its OpenAI auth to "
+        + "the codex store, so codex is what actually holds the token.",
+    };
+  }
+  const nowSeconds = Number(now) > 0 ? Number(now) : Math.floor(Date.now() / 1000);
+  const expired = Number.isFinite(tokenExp) && tokenExp <= nowSeconds + OPENAI_TOKEN_EXPIRY_SKEW_SECONDS;
+  if (expired && hasRefreshToken) {
+    // Self-healing: codex refreshes on its next use. Reporting this as a failure is what
+    // produced wrong operator advice on 2026-08-09.
+    return {
+      ok: true,
+      code: "stale-token",
+      detail: "The cached OpenAI access token has expired, but codex holds a refresh token and "
+        + "renews it on next use — no action needed. Quota may read stale until then.",
+      fix: "",
+    };
+  }
+  if (expired) {
+    return {
+      ok: false,
+      code: "expired-no-refresh",
+      detail: "The OpenAI access token has expired and there is no refresh token to renew it.",
+      fix: "Re-authenticate with `codex login`.",
+    };
+  }
+  const status = Number(httpStatus) || 0;
+  if (status === 401 || status === 403) {
+    return {
+      ok: false,
+      code: "rejected",
+      detail: `The OpenAI token is unexpired but the ChatGPT usage API rejected it (HTTP ${status}) — `
+        + "it has most likely been revoked.",
+      fix: "Re-authenticate with `codex login`.",
+    };
+  }
+  return {
+    ok: false,
+    code: "rejected",
+    detail: `The ChatGPT usage API did not accept the request (HTTP ${status || "?"}).`,
+    fix: "Retry; if it persists, re-authenticate with `codex login`.",
+  };
+}
+
 // ── `skills-installed` ───────────────────────────────────────────────────────────────
 //
 // Skills are a DEPLOY PATH, and until 2026-08-03 they had no verifier. install.sh copies

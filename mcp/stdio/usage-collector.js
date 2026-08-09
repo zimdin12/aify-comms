@@ -14,6 +14,7 @@
 
 import { readFileSync, readdirSync, statSync, openSync, fstatSync, readSync, closeSync } from "node:fs";
 import { join } from "node:path";
+import { openAiTokenExpiry, openAiUsageVerdict } from "./doctor-predicates.js";
 
 const ANTHROPIC_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const ANTHROPIC_USAGE_HEADERS = { "anthropic-beta": "oauth-2025-04-20" };
@@ -322,6 +323,37 @@ export function extractOpenAiToken(authJsonText) {
   return found;
 }
 
+// Does the auth store hold a refresh token, i.e. can this login renew itself without the
+// operator? Deliberately scoped to the SAME subtree that carried the OpenAI access token, so a
+// nous/anthropic refresh_token elsewhere in a shared store cannot make a dead OpenAI login look
+// recoverable — that would recreate the false-green class doctor exists to prevent, inverted.
+export function hasOpenAiRefreshToken(authJsonText) {
+  let j;
+  try { j = JSON.parse(authJsonText || "{}"); } catch { return false; }
+  let found = false;
+  const isOpenAi = (t) => {
+    try {
+      const payload = JSON.parse(Buffer.from(String(t).split(".")[1], "base64url").toString());
+      return String(payload.iss || "").includes("openai.com");
+    } catch { return false; }
+  };
+  const walk = (o) => {
+    if (!o || typeof o !== "object" || found) return;
+    const entries = Object.entries(o);
+    const access = entries.find(([k, v]) => k === "access_token" && typeof v === "string" && isOpenAi(v));
+    if (access) {
+      const refresh = entries.find(([k, v]) => k === "refresh_token" && typeof v === "string" && v.trim());
+      if (refresh) { found = true; return; }
+    }
+    for (const [, v] of entries) {
+      if (v && typeof v === "object") walk(v);
+      if (found) return;
+    }
+  };
+  walk(j);
+  return found;
+}
+
 // Which window is the 5-hour one and which is the weekly one? Read `limit_window_seconds` —
 // do NOT assume primary=5h / secondary=weekly (2026-07-14).
 //
@@ -422,8 +454,12 @@ export async function fetchCodexUsage({ readLatestRollout = defaultReadLatestRol
 //   rejected           - a token was found but the API refused it (expired -> `codex login` again)
 //   unreachable        - could not reach the API (offline / blocked); says nothing about the token
 export async function checkOpenAiUsageAccess({ readHermesAuth = defaultReadHermesAuth, fetchImpl = globalThis.fetch } = {}) {
+  let authText = "";
   let token = null;
-  try { token = extractOpenAiToken(readHermesAuth()); } catch { token = null; }
+  try {
+    authText = readHermesAuth() || "";
+    token = extractOpenAiToken(authText);
+  } catch { token = null; }
   if (!token) {
     return {
       ok: false,
@@ -449,11 +485,24 @@ export async function checkOpenAiUsageAccess({ readHermesAuth = defaultReadHerme
     };
   }
   if (!res || !res.ok) {
+    // A REJECTED token is not automatically a broken login. codex keeps a refresh_token and
+    // renews the ~10-day access token LAZILY, on its next use, so doctor can read a stale copy
+    // out of auth.json while the login is perfectly healthy. Observed live 2026-08-09: HTTP 401
+    // here, then GREEN three minutes later with no operator action — and the old wording had
+    // already told the operator to run `codex login`, which was wrong. Let the predicate decide
+    // which of those two situations this is; see doctor-predicates.js.
+    const verdict = openAiUsageVerdict({
+      hasToken: true,
+      tokenExp: openAiTokenExpiry(token),
+      hasRefreshToken: hasOpenAiRefreshToken(authText),
+      httpStatus: res ? res.status : 0,
+      apiOk: false,
+    });
     return {
-      ok: false,
-      code: "rejected",
-      message: `Found an OpenAI token, but the ChatGPT usage API rejected it (HTTP ${res ? res.status : "?"}).`,
-      detail: "The token is likely expired. Re-authenticate with `codex login`.",
+      ok: verdict.ok,
+      code: verdict.code,
+      message: verdict.detail,
+      detail: verdict.fix,
     };
   }
   return { ok: true, code: "ok", message: "OpenAI/ChatGPT usage is connected.", detail: "" };
