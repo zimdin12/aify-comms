@@ -207,6 +207,15 @@ export const OPENAI_TOKEN_EXPIRY_SKEW_SECONDS = 60;
 // access token's own expiry means codex did run the refresh path and the store still holds an
 // expired token — the renewal produced nothing usable. That is a broken login, provable from the
 // file, with no timing guess. Absent that, the honest answer stays "not renewed yet".
+//
+// KNOWN LIMIT, stated rather than papered over: on this host `last_refresh` (11:45:08Z) sits
+// beside the token it minted (`iat` 11:45:19Z), which suggests codex stamps on a SUCCESSFUL
+// renewal. If it never stamps on failure, this predicate rarely fires and a revoked refresh token
+// keeps reading `stale-token`. That is accepted deliberately: doctor does not run the refresh, so
+// it CANNOT prove the path is broken, and the reviewer's rule applies — do not fail `--strict` on
+// something you cannot prove. The operator is not left blind either, because codex surfaces a
+// revoked login directly the moment they use it. So this is a best-effort extra that catches the
+// one provable case, NOT a guarantee that a dead refresh token will be reported.
 export function openAiRefreshLooksBroken({ tokenExp = NaN, lastRefresh = NaN } = {}) {
   if (!Number.isFinite(tokenExp) || !Number.isFinite(lastRefresh)) return false;
   return lastRefresh > tokenExp;
