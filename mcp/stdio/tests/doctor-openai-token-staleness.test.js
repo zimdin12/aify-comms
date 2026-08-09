@@ -151,6 +151,71 @@ test("an unexpired token rejected with a non-auth status is not blamed on the lo
   assert.match(v.fix, /Retry/);
 });
 
+// ── the WIRING, not just the predicate (reviewer suggestion, 2026-08-09) ─────────────
+// The unit tests above prove the predicate and the scanner in isolation. This drives the real
+// composition — auth store in, fake 401 out — because "verify the contract, not just the
+// change" is a lesson this repo has already paid for.
+test("checkOpenAiUsageAccess: expired token + sibling refresh + 401 => ok/stale-token", async () => {
+  const { checkOpenAiUsageAccess } = await import("../usage-collector.js");
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const store = JSON.stringify({
+    tokens: {
+      access_token: jwt({ iss: "https://auth.openai.com", exp: nowSeconds - 600 }),
+      refresh_token: "rt-live",
+    },
+  });
+  const r = await checkOpenAiUsageAccess({
+    readHermesAuth: () => store,
+    fetchImpl: async () => ({ ok: false, status: 401 }),
+  });
+  assert.equal(r.ok, true, "a self-healing login must not fail the check");
+  assert.equal(r.code, "stale-token");
+  assert.doesNotMatch(r.message, /codex login/, "must not repeat the wrong advice");
+});
+
+test("checkOpenAiUsageAccess: UNEXPIRED token + 401 still fails as revoked", async () => {
+  const { checkOpenAiUsageAccess } = await import("../usage-collector.js");
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const store = JSON.stringify({
+    tokens: {
+      access_token: jwt({ iss: "https://auth.openai.com", exp: nowSeconds + 86_400 }),
+      refresh_token: "rt-live",
+    },
+  });
+  const r = await checkOpenAiUsageAccess({
+    readHermesAuth: () => store,
+    fetchImpl: async () => ({ ok: false, status: 401 }),
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.code, "rejected");
+  assert.match(r.detail, /codex login/);
+});
+
+test("checkOpenAiUsageAccess: expired with NO refresh token fails", async () => {
+  const { checkOpenAiUsageAccess } = await import("../usage-collector.js");
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const store = JSON.stringify({
+    tokens: { access_token: jwt({ iss: "https://auth.openai.com", exp: nowSeconds - 600 }) },
+  });
+  const r = await checkOpenAiUsageAccess({
+    readHermesAuth: () => store,
+    fetchImpl: async () => ({ ok: false, status: 401 }),
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.code, "expired-no-refresh");
+});
+
+test("doctor surfaces a non-ok OK code instead of collapsing it to 'connected'", async () => {
+  // The stale-token message is the whole point of the fix; doctor.js used to overwrite it.
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(new URL("../doctor.js", import.meta.url), "utf8");
+  const at = source.indexOf('add("usage-openai"');
+  assert.ok(at > 0);
+  const block = source.slice(Math.max(0, at - 700), at + 200);
+  assert.match(block, /code === "ok" \? "OpenAI\/ChatGPT quota is connected" : r\.message/,
+    "an ok-but-noteworthy verdict must keep its own message");
+});
+
 // ── refresh-token detection must stay scoped to the OpenAI subtree ───────────────────
 test("finds a refresh token that sits beside the OpenAI access token", () => {
   const store = JSON.stringify({

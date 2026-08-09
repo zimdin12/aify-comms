@@ -296,7 +296,15 @@ async function checkEnvBridge() {
 // ── 8. OpenAI usage (proves the connection, not the file) ────────────────────────────
 async function checkUsage() {
   const r = await checkOpenAiUsageAccess().catch((e) => ({ ok: false, code: "error", message: String(e), detail: "" }));
-  if (r.ok) return add("usage-openai", true, "ok", "OpenAI/ChatGPT quota is connected");
+  // Not every OK is the same OK. `stale-token` is green ON PURPOSE (the login self-heals, see
+  // openAiUsageVerdict) but it carries information the operator wants — the quota panel may read
+  // stale until codex renews. Collapsing every ok to "connected" threw that away, so the one
+  // message this fix exists to deliver never reached a human (reviewer catch, 2026-08-09).
+  if (r.ok) {
+    const code = r.code || "ok";
+    const detail = code === "ok" ? "OpenAI/ChatGPT quota is connected" : r.message;
+    return add("usage-openai", true, code, detail, r.detail || "");
+  }
   add("usage-openai", false, r.code, r.message, r.detail);
 }
 
