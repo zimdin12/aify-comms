@@ -1,0 +1,68 @@
+{
+  "anchored_to_max_message_ms": 1786303216069,
+  "approx_tokens": 1152830,
+  "avg_response_chars": 3114,
+  "body_chars": 4611321,
+  "chars_by_type": {
+    "approval": 7840,
+    "error": 90954,
+    "info": 115606,
+    "request": 989610,
+    "response": 3091999,
+    "review": 315312
+  },
+  "closure_definition": "explicit terminal label in last message (ACK/agree/sent excluded)",
+  "closure_rate_pct": 44.5,
+  "depth_ge6_closed": 44,
+  "depth_ge6_closure_pct": 50.6,
+  "dispatch_by_status": {
+    "completed": 1417,
+    "failed": 9
+  },
+  "dispatch_window_since_iso": "2026-08-02T19:20:16Z",
+  "messages": 1505,
+  "messages_by_type": {
+    "approval": 2,
+    "error": 34,
+    "info": 90,
+    "request": 303,
+    "response": 993,
+    "review": 83
+  },
+  "response_share_pct": 67.1,
+  "schema": 1,
+  "terminal_labels": [
+    "closed",
+    "decision",
+    "blocked",
+    "withdrawn",
+    "rework",
+    "approved",
+    "approve",
+    "merged",
+    "tagged",
+    "rejected",
+    "shipped",
+    "resolved",
+    "frozen",
+    "locked"
+  ],
+  "threads": 308,
+  "threads_active": 21,
+  "threads_closed": 137,
+  "threads_depth_ge6": 87,
+  "threads_silent_unclosed": 150,
+  "top_agents_by_chars": {
+    "ef-manager": 111464,
+    "graph-tech-lead": 111624,
+    "sc-architect": 588798,
+    "sc-claude": 376720,
+    "sc-coder": 598319,
+    "sc-designer": 166532,
+    "sc-manager": 2380010,
+    "sc-tester": 211728
+  },
+  "two_party_long_thread_chars": 1975166,
+  "two_party_long_threads": 51,
+  "window_days": 7
+}
