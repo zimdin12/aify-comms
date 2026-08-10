@@ -33,6 +33,17 @@ def _hours_ago(hours: float) -> str:
     return _iso(datetime.now(timezone.utc) - timedelta(hours=hours))
 
 
+def _hours_ago_ms(hours: float) -> int:
+    """`messages.timestamp` is epoch MILLISECONDS in production — verified, 29,854 of 29,854 rows
+    are integers and none are ISO.
+
+    These tests used to seed ISO strings here. That is why the replay reconciler's broken
+    `datetime(m.timestamp)` predicate passed its own suite for months while matching ZERO rows in
+    production: the fixture format and the real format disagreed, so the test validated a shape
+    that never occurs. Seeding what the send path actually writes is the point."""
+    return int((datetime.now(timezone.utc) - timedelta(hours=hours)).timestamp() * 1000)
+
+
 class ChannelOfflineReplayTests(FastApiTestCase):
     DB_NAME = "aify-channel-replay-test.db"
 
@@ -129,7 +140,7 @@ class ChannelOfflineReplayTests(FastApiTestCase):
 
     def _seed_channel_inbox_message(self, canonical_id: str, agent_id: str, *,
                                     channel: str = "dev", from_agent: str = "poster",
-                                    dispatch_requested: int = 1, timestamp: str = ""):
+                                    dispatch_requested: int = 1, timestamp=None):
         """Simulate the stored-only inbox copy the send path leaves for an
         offline member: a channel-source message addressed to the member with
         dispatch_requested set and NO dispatch_run."""
@@ -142,7 +153,8 @@ class ChannelOfflineReplayTests(FastApiTestCase):
             (
                 fanout_id, from_agent, agent_id, channel, "channel", "message",
                 "Roll call", "please report status", "normal", dispatch_requested,
-                timestamp or api_v2._now(),
+                # epoch ms, matching the send path — see _hours_ago_ms.
+                timestamp if timestamp is not None else _hours_ago_ms(0),
             ),
         )
         return fanout_id
@@ -241,7 +253,7 @@ class ChannelOfflineReplayTests(FastApiTestCase):
     def test_message_beyond_horizon_not_replayed(self):
         self._seed_managed_member("m-old")
         fanout = self._seed_channel_inbox_message(
-            "cmsg-5", "m-old", timestamp=_hours_ago(72)
+            "cmsg-5", "m-old", timestamp=_hours_ago_ms(72)
         )
         replayed = self._run_replay()
         self.assertEqual(replayed, [], "stale message beyond horizon → no replay")
