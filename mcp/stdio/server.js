@@ -5105,9 +5105,14 @@ server.tool(
 
 server.tool(
   "comms_search",
-  "Search inbox messages and shared artifacts by keyword.",
+  "Search an agent's messages (sent AND received) and shared artifacts by keyword. " +
+    "PASS agentId, or messages are NOT searched at all and you only get shared files — an empty " +
+    "result would then say nothing about whether the message exists. The response always reports " +
+    "what it actually searched; read it before treating an empty result as absence.",
   {
-    agentId: z.string().optional().describe("Search this agent's inbox (omit to search shared only)"),
+    agentId: z.string().optional().describe(
+      "Whose record to search — matches messages this agent SENT or RECEIVED. " +
+      "OMIT AND MESSAGES ARE NOT SEARCHED (shared artifacts only)."),
     query: z.string().describe("Search term (case-insensitive, matches subject + body)"),
     scope: z.enum(["inbox", "shared", "all"]).optional().describe("Where to search (default: all)"),
     limit: z.number().optional().describe("Max results (default: 10)"),
@@ -5120,13 +5125,24 @@ server.tool(
       const params = new URLSearchParams({ query, scope: searchScope, limit: String(maxN) });
       if (agentId) params.set("agentId", agentId);
       const r = await httpCall("GET", `/messages/search?${params}`);
-      if (!r.results.length) return { content: [{ type: "text", text: `No results for "${query}".` }] };
+      // ALWAYS say what was searched. "No results" alone was being read as "no such message
+      // exists" when messages had not been searched at all (no agentId ⇒ shared artifacts only),
+      // which let an empty result license work that had already been ruled — it failed OPEN.
+      const scopeNote = Array.isArray(r.searched) && r.searched.length
+        ? `searched: ${r.searched.join(" + ")}`
+        : "searched: nothing";
+      const warn = Array.isArray(r.skipped) && r.skipped.length
+        ? `\n⚠ NOT searched: ${r.skipped.join("; ")}. An empty result here is NOT evidence that no such message exists.`
+        : "";
+      if (!r.results.length) {
+        return { content: [{ type: "text", text: `No results for "${query}" (${scopeNote}).${warn}` }] };
+      }
       const lines = r.results.map((x) =>
         x.type === "message"
-          ? `[MSG${x.read ? "" : " NEW"}] ${x.id} | from: ${x.from} | ${x.subject}\n  ${x.preview}`
+          ? `[MSG${x.read ? "" : " NEW"}] ${x.id} | from: ${x.from}${x.to ? ` → ${x.to}` : ""} | ${x.subject}\n  ${x.preview}`
           : `[FILE] ${x.name} | from: ${x.from} | ${x.description}`
       );
-      return { content: [{ type: "text", text: lines.join("\n\n") }] };
+      return { content: [{ type: "text", text: `${lines.join("\n\n")}\n\n(${scopeNote})${warn}` }] };
     }
 
     const q = query.toLowerCase();

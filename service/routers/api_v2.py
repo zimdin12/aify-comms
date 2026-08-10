@@ -17236,17 +17236,40 @@ async def search_messages(
     try:
         q = f"%{query.lower()}%"
         results = []
+        # What was ACTUALLY consulted. Returned to the caller because an empty result from this
+        # endpoint was being read as "no such message exists" when messages had never been
+        # searched at all — see below. A search that cannot say what it searched cannot support an
+        # absence claim, and this one was being used to license work on exactly that basis.
+        searched: list[str] = []
+        skipped: list[str] = []
 
-        if agentId and scope in ("inbox", "all"):
-            cursor = await db.execute(
-                "SELECT * FROM messages WHERE to_agent = ? AND (LOWER(subject) LIKE ? OR LOWER(body) LIKE ? OR LOWER(from_agent) LIKE ?) ORDER BY timestamp DESC LIMIT ?",
-                (agentId, q, q, q, limit)
-            )
-            for row in await cursor.fetchall():
-                results.append({
-                    "type": "message", "id": row["id"], "from": row["from_agent"],
-                    "subject": row["subject"], "preview": (row["body"] or "")[:150],
-                })
+        if scope in ("inbox", "all"):
+            if agentId:
+                # BOTH DIRECTIONS. This was `to_agent = ?` only, so an agent could not find
+                # messages it had SENT. Reported 2026-08-10 by sc-manager, who searched for a term
+                # it had dispatched itself and got nothing: of 101 messages containing "P0-Q", 49
+                # were TO it (findable) and 52 were FROM it (invisible). "My own record" plainly
+                # includes what I said, not just what I was told.
+                cursor = await db.execute(
+                    "SELECT * FROM messages WHERE (to_agent = ? OR from_agent = ?) "
+                    "AND (LOWER(subject) LIKE ? OR LOWER(body) LIKE ? OR LOWER(from_agent) LIKE ?) "
+                    "ORDER BY timestamp DESC LIMIT ?",
+                    (agentId, agentId, q, q, q, limit)
+                )
+                for row in await cursor.fetchall():
+                    results.append({
+                        "type": "message", "id": row["id"], "from": row["from_agent"],
+                        "to": row["to_agent"], "subject": row["subject"],
+                        "preview": (row["body"] or "")[:150],
+                    })
+                searched.append("messages")
+            else:
+                # NO agentId MEANS MESSAGES WERE NEVER SEARCHED, and the old response gave no sign
+                # of it — it just returned artifact hits, or nothing. That silence is what makes
+                # this dangerous rather than merely limited: a caller using this to check "was
+                # this already ruled?" reads the empty result as "no", and proceeds. It FAILS
+                # OPEN. Naming the omission is the fix; the access model is unchanged.
+                skipped.append("messages (no agentId supplied — messages were NOT searched)")
 
         if scope in ("shared", "all"):
             cursor = await db.execute(
@@ -17258,8 +17281,14 @@ async def search_messages(
                     "type": "shared", "name": row["name"], "from": row["from_agent"],
                     "description": row["description"], "size": row["size"],
                 })
+            searched.append("shared")
 
-        return {"results": results[:limit], "total": len(results)}
+        return {
+            "results": results[:limit],
+            "total": len(results),
+            "searched": searched,
+            "skipped": skipped,
+        }
     finally:
         await db.close()
 
