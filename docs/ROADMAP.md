@@ -52,8 +52,39 @@ to be false. That is the rule working, not the rule being expensive.
 | item | why now |
 |---|---|
 | **Audit triage** | `comms-senior-dev` is auditing four areas: the health-surface family, SSE/stdio parity, the reconciler seam read-only, and an adversarial pass on the v0.3 code. Findings get triaged against the rule; survivors get scheduled here. |
-| **`comms_agent_info` answers about the wrong thing** | Reported with a trace: during an outage every field stayed true and none was about *production*, so a team reported a lane dead three times while a reply sat undelivered. Ask: a DEGRADED/STALE marker when the delivery path is unverified, plus an outbound-activity field. |
+| **Agent health surfaces cannot answer "what did this agent produce?"** | AUDIT FINDING 1, source-cited. See below — the fix is an outbound-activity field, and a DEGRADED marker alone would not retire the artifact. |
 | **Repair the 183 corrupted artifacts** | Script written, dry-run verified, **operator's call** — 183 files is a destructive batch and the forward bug is already fixed. |
+
+### AUDIT FINDING 1 — health surfaces answer about the wrong path
+
+`comms-senior-dev`, source-only review at `22521f6`, every claim cited.
+
+**The trace.** During an outage `comms_agent_info` kept answering normally, so a manager told the
+operator three times a lane was dead. It wasn't — the reply sat undelivered. Every field was
+individually true and none was about *production*:
+
+| field | what it actually answers |
+|---|---|
+| `unread` | inbound messages not yet read — **the wrong direction** |
+| `last read` | last message the agent **consumed** |
+| `last seen` | registration/heartbeat liveness — and `PATCH /agents/{id}` advances it, so a status-note write alone moves it |
+| `status` | worker reachability / dispatch state, not outbound productivity |
+| dispatch state | runs **targeting** the agent, not what it sent |
+
+**It corrected my assumed fix.** I had taken the reporter's ask — a DEGRADED/STALE marker — as the
+answer. The dev's argument is better: a STALE marker retires a *different* artifact ("delivery path
+verified") and still cannot say what the agent last produced. **The required fix is an
+outbound-activity field** (`lastSentMessage` / `lastCompletedRun`, from `messages.from_agent`);
+DEGRADED becomes supporting, not the whole fix.
+
+**Same family, also cited:** `comms_agents` roster (worse — no last-read at all),
+`comms_status`/`PATCH /agents/{id}` (writes `last_seen`, so a status update looks like liveness),
+`_delivery_failure_hint` (recommends `comms_agent_info` for exactly the diagnosis it cannot make),
+and `comms_run_status` (fine for a known run, wrong as a fleet-health proxy).
+
+**Non-finding worth keeping:** `comms_contracts` already joins runs to read receipts and result
+messages and exposes sent/seen/queued/working/answered/missing_reply. The move may be for
+`agent_info` to summarise or point at it rather than grow a parallel surface.
 
 ### v0.4 — mobile alerts (ntfy)
 
