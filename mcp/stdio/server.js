@@ -5416,8 +5416,22 @@ server.tool(
         if (content) {
           parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="content"\r\n\r\n${content}`);
         }
+        // NOTE THE MISSING TRAILING CRLF, and do not "tidy" it back in. The file part's header
+        // block already ends with the blank line (`\r\n\r\n`) that terminates headers. Appending
+        // another `\r\n` after the join put a THIRD CRLF between the headers and the payload, and
+        // multipart treats everything after the FIRST blank line as body — so every binary upload
+        // was stored with two extra leading bytes.
+        //
+        // Reported 2026-08-10 by graph-senior-dev-hermes with byte evidence: a 23,620-byte .log
+        // arrived as 23,622 bytes, `stored[2:] == original`, and recipient hash verification
+        // therefore failed for every shared file. Reproduced exactly from this code before
+        // changing it: payload began `0d0a`, and dropping the byte after it recovered the original.
+        //
+        // The server was never at fault — it does `file_path.write_bytes(data)` and stores
+        // faithfully whatever the multipart parser hands it. The corruption was manufactured here,
+        // in the request, which is why it looked like a storage bug from the outside.
         parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: application/octet-stream\r\n\r\n`);
-        const bodyParts = [Buffer.from(parts.join("\r\n") + "\r\n"), fileData, Buffer.from(`\r\n--${boundary}--\r\n`)];
+        const bodyParts = [Buffer.from(parts.join("\r\n")), fileData, Buffer.from(`\r\n--${boundary}--\r\n`)];
         headers["Content-Type"] = `multipart/form-data; boundary=${boundary}`;
         const res = await fetch(`${SERVER_URL}/api/v1/shared`, { method: "POST", headers, body: Buffer.concat(bodyParts) });
         const r = await res.json().catch(() => ({}));
