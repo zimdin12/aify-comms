@@ -38,7 +38,7 @@ class SearchScopeTests(FastApiTestCase):
     def setUp(self):
         super().setUp()
         for agent in ("alice", "bob"):
-            self.client.post("/api/v1/agents/register", json={
+            self.client.post("/api/v1/agents", json={
                 "agentId": agent, "name": agent, "role": "coder", "runtime": "claude-code",
             })
 
@@ -72,7 +72,7 @@ class SearchScopeTests(FastApiTestCase):
         self.assertEqual(body["total"], 2, "the record is what you said AND what you were told")
 
     def test_does_not_leak_a_conversation_the_agent_is_not_part_of(self):
-        self.client.post("/api/v1/agents/register", json={
+        self.client.post("/api/v1/agents", json={
             "agentId": "carol", "name": "carol", "role": "coder", "runtime": "claude-code"})
         self._send("bob", "carol", "P0-Q private", "P0-Q between others")
         body = self._search(query="P0-Q", agentId="alice")

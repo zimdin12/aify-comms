@@ -205,3 +205,35 @@ const HERMES_FATAL_LINE =
 }
 
 console.log("console-tools.test.js: all assertions passed");
+
+// --- formatOutboundActivity: the field that retires the false "silent lane" claim ---
+// Audit finding 1. Every other field on the health surface answers about inbound traffic or
+// registration liveness; during the 2026-08-10 outage all of them were true while a reply sat
+// undelivered, and a manager reported the lane dead three times on that evidence.
+{
+  const { formatOutboundActivity } = await import("../server.js");
+
+  assert.match(
+    formatOutboundActivity({ outbound: { lastSentAt: "2026-08-10T16:02:58Z" } }),
+    /OUTBOUND.*sent 2026-08-10T16:02:58Z/,
+    "a sent message is production and must be shown as such",
+  );
+
+  assert.match(
+    formatOutboundActivity({ outbound: { lastCompletedRunAt: "2026-08-10T16:03:00Z" } }),
+    /completed a run 2026-08-10T16:03:00Z/,
+  );
+
+  const both = formatOutboundActivity({
+    outbound: { lastSentAt: "2026-08-10T16:02:58Z", lastCompletedRunAt: "2026-08-10T16:03:00Z" },
+  });
+  assert.match(both, /sent .*; completed a run /, "both facts when both exist");
+
+  // The honesty case: a pre-fix service sends no `outbound`, and rendering that as "never sent
+  // anything" would manufacture exactly the confident-but-wrong claim this finding is about.
+  for (const missing of [{}, { outbound: {} }, undefined, null]) {
+    const out = formatOutboundActivity(missing);
+    assert.match(out, /unknown/, "absence must read as unknown");
+    assert.doesNotMatch(out, /never/i, "must not assert the agent has produced nothing");
+  }
+}

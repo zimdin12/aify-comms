@@ -2352,6 +2352,73 @@ async def _get_unread_count_map(db, agent_ids: list[str]) -> dict[str, int]:
     rows = await cursor.fetchall()
     return {row["agent_id"]: int(row["unread_count"] or 0) for row in rows}
 
+async def _get_outbound_activity_map(db, agent_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """When did each agent last PRODUCE something — send a message, finish a run?
+
+    AUDIT FINDING 1 (2026-08-10). Every field on the agent-health surface answered about INBOUND
+    or about registration liveness, and none about production:
+
+        unread      inbound messages not yet read      — the wrong direction
+        last read   the last message it CONSUMED       — the wrong direction
+        last seen   registration/heartbeat liveness    — and a bare status PATCH advances it
+        status      worker reachability                — not productivity
+
+    During an outage every one of those stayed individually true while a reply sat undelivered, so
+    a manager told the operator three times that a lane was dead. It was not.
+
+    The reporter asked for a DEGRADED/STALE marker. The reviewer argued — correctly, and this is
+    why the fix is shaped this way — that a STALE marker retires a DIFFERENT artifact ("the
+    delivery path is verified") and STILL cannot say what an agent last produced. Even a perfect
+    one leaves callers inferring productivity from inbound fields, which is exactly how the false
+    claim was made. Outbound activity is the field that retires it; STALE is complementary.
+
+    Deliberately reads `messages.from_agent` and finished runs — the two places production is
+    recorded — and nothing about delivery. Answering one question well beats answering two vaguely,
+    which is the failure being fixed.
+    """
+    if not agent_ids:
+        return {}
+    placeholders = ",".join("?" for _ in agent_ids)
+    out: dict[str, dict[str, Any]] = {a: {} for a in agent_ids}
+
+    # Last message SENT. `messages.timestamp` is epoch MILLISECONDS, not ISO — the schema's one
+    # trap, and mixing it with the ISO columns below silently sorts wrong.
+    cursor = await db.execute(
+        f"""
+        SELECT m.from_agent AS agent_id, MAX(m.timestamp) AS ts
+        FROM messages m
+        WHERE m.from_agent IN ({placeholders})
+        GROUP BY m.from_agent
+        """,
+        tuple(agent_ids),
+    )
+    for row in await cursor.fetchall():
+        ts = row["ts"]
+        if ts:
+            out.setdefault(row["agent_id"], {})["lastSentAt"] = time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(ts) / 1000)
+            )
+
+    # Last run this agent COMPLETED as the worker. Distinct from "a run targeting it exists",
+    # which the dispatch-state field already reports and which says nothing about output.
+    cursor = await db.execute(
+        f"""
+        SELECT target_agent AS agent_id, MAX(finished_at) AS ts
+        FROM dispatch_runs
+        WHERE target_agent IN ({placeholders})
+          AND status = 'completed'
+          AND COALESCE(finished_at, '') != ''
+        GROUP BY target_agent
+        """,
+        tuple(agent_ids),
+    )
+    for row in await cursor.fetchall():
+        if row["ts"]:
+            out.setdefault(row["agent_id"], {})["lastCompletedRunAt"] = str(row["ts"])
+
+    return out
+
+
 async def _get_blocking_active_run(db, agent_id: str, exclude_run_id: str = "") -> Optional[dict[str, Any]]:
     state = await _get_dispatch_state_for_agent(db, agent_id)
     active = state.get("activeRun")
@@ -3995,7 +4062,7 @@ def _status_with_dispatch(status: str, dispatch_state: Optional[dict[str, Any]])
 _LEGACY_RAW_STATUS_TO_CANONICAL = {"active": "online", "idle": "online", "stale": "offline"}
 
 
-def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optional[dict[str, Any]] = None, *, live_reason: Optional[str] = None):
+def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optional[dict[str, Any]] = None, *, live_reason: Optional[str] = None, outbound: Optional[dict[str, Any]] = None):
     runtime = _normalize_runtime(row["runtime"] or "generic")
     session_mode = _normalize_session_mode(row["session_mode"] or "resident")
     # live_reason is the derived status reason from the in-memory cache (the live_state table
@@ -4054,6 +4121,10 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
         "runtimeConfig": _json_loads_or(row["runtime_config"], {}),
         "runtimeState": _json_loads_or(row["runtime_state"], {}),
         "dispatchState": dispatch_state or {"hasActiveRun": False, "activeRun": None, "queuedRuns": 0},
+        # What this agent last PRODUCED. Every other field here answers about inbound traffic or
+        # registration liveness; see _get_outbound_activity_map for the false "silent lane" claim
+        # that absence caused. Empty dict when unknown — never a fabricated timestamp.
+        "outbound": outbound or {},
         "favorited": bool(int((row["favorited"] if "favorited" in row.keys() else 0) or 0)),
         # Dashboard rendering hint: resident sessions live in an
         # operator-launched terminal outside aify's PTY tracking — the
@@ -13533,11 +13604,12 @@ async def list_agents(request: Request):
         agent_ids = [row["id"] for row in agents]
         unread_map = await _get_unread_count_map(db, agent_ids)
         dispatch_map = await _get_dispatch_state_map(db, agent_ids)
+        outbound_map = await _get_outbound_activity_map(db, agent_ids)
         result = {}
         for row in agents:
             aid = row["id"]
             entry = _live_state_get(aid) or {}
-            payload = _agent_record_to_dict(row, entry.get("status") or row["status"], unread_map.get(aid, 0), dispatch_map.get(aid), live_reason=entry.get("reason"))
+            payload = _agent_record_to_dict(row, entry.get("status") or row["status"], unread_map.get(aid, 0), dispatch_map.get(aid), live_reason=entry.get("reason"), outbound=outbound_map.get(aid))
             # Plan 5 Section C: read-path live-worker gate — see
             # _enforce_live_worker_gate for full rationale. (In-memory correction
             # only; the writeback was removed 2026-06-18 to cut read-path writes.)
@@ -14262,8 +14334,9 @@ async def get_agent(agent_id: str, request: Request):
             raise HTTPException(404, f"Agent '{agent_id}' not found")
         unread_map = await _get_unread_count_map(db, [agent_id])
         dispatch_map = await _get_dispatch_state_map(db, [agent_id])
+        outbound_map = await _get_outbound_activity_map(db, [agent_id])
         entry = _live_state_get(agent_id) or {}
-        payload = _agent_record_to_dict(row, entry.get("status") or row["status"], unread_map.get(agent_id, 0), dispatch_map.get(agent_id), live_reason=entry.get("reason"))
+        payload = _agent_record_to_dict(row, entry.get("status") or row["status"], unread_map.get(agent_id, 0), dispatch_map.get(agent_id), live_reason=entry.get("reason"), outbound=outbound_map.get(agent_id))
         # Plan 5 Section C: read-path live-worker gate (in-memory correction only; the
         # writeback was removed 2026-06-18 to cut read-path writes — see the gate bodies).
         payload = await _enforce_live_worker_gate(payload, db, settings, agent_id)

@@ -1683,6 +1683,29 @@ async function autoRegisterConfiguredAgent(_retriesLeft = 8) {
 }
 
 
+// What did this agent last PRODUCE? Audit finding 1: nothing on the health surface answered that.
+//
+// During the 2026-08-10 outage `unread: 0`, an inbound `last read`, and an advancing `last seen`
+// were all individually true while an agent's reply sat undelivered — and a manager reported the
+// lane dead to the operator three times on that evidence. The missing field was never a liveness
+// marker; it was "what came OUT of this agent, and when".
+//
+// Says "unknown" rather than "never" when the field is absent. A pre-fix service does not send it,
+// and rendering that as "has never sent anything" would manufacture exactly the confident-but-wrong
+// claim this whole finding is about.
+export function formatOutboundActivity(info = {}) {
+  const o = (info && info.outbound) || {};
+  const sent = String(o.lastSentAt || "").trim();
+  const ran = String(o.lastCompletedRunAt || "").trim();
+  if (!sent && !ran) {
+    return "Last produced: unknown (service did not report outbound activity)";
+  }
+  const bits = [];
+  if (sent) bits.push(`sent ${sent}`);
+  if (ran) bits.push(`completed a run ${ran}`);
+  return `Last produced (OUTBOUND): ${bits.join("; ")}`;
+}
+
 function formatDispatchState(info = {}) {
   const state = info.dispatchState || {};
   const active = state.activeRun;
@@ -5262,9 +5285,14 @@ server.tool(
           `${agentId} (${info.role}) [${info.status}]\n` +
           `  Runtime: ${runtimeSummary(info)}\n` +
           `  Wake mode: ${wakeModeSummary(info)}\n` +
-          `  Unread: ${info.unread}\n` +
-          `  Last seen: ${info.lastSeen}\n` +
-          `  Last read: ${lastRead}` +
+          // INBOUND facts, labelled as such. Every one of these was individually true during the
+          // 2026-08-10 outage while a reply sat undelivered, and a manager read them as evidence
+          // the lane was dead — three times. "Unread: 0" is about what this agent has not READ.
+          `  Unread (inbound): ${info.unread}\n` +
+          `  Last seen (registration liveness, not output): ${info.lastSeen}\n` +
+          `  Last read (inbound): ${lastRead}\n` +
+          // OUTBOUND — the question everyone was actually asking, and the one nothing answered.
+          `  ${formatOutboundActivity(info)}` +
           (formatDispatchState(info) ? `\n${formatDispatchState(info)}` : "")
         }] };
       } catch (e) {
