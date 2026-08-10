@@ -9,6 +9,7 @@ import { STATUS_KINDS, AGENT_STATUSES, LIVE_AGENT_STATUSES, resolveStatus, rende
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
 import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
 import { createChatController } from './chat.js';
+import { createNotifier, readEnabled, writeEnabled, requestPermission } from './notify.mjs';
 import { THEMES, applyTheme, applyCachedTheme, previewTheme, paletteFromSettings } from './theme.js';
 import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
 
@@ -590,7 +591,36 @@ function wireRealtimeResumeReconnect() {
   }
 }
 
+// Desktop notifications. All decisions (is it for the operator, is the tab focused, has this
+// already fired) live in notify.mjs where they are unit-tested — this file keeps only the wiring,
+// because app.js is only reachable by source-regex tests that cannot fail on wrong logic.
+let notificationsEnabled = readEnabled(typeof localStorage !== 'undefined' ? localStorage : null);
+const dashboardNotifier = createNotifier({
+  isEnabled: () => notificationsEnabled,
+  isFocused: () => typeof document !== 'undefined' && document.visibilityState === 'visible',
+});
+
+async function toggleNotifications(on) {
+  if (on) {
+    // Must come from a user gesture — a page that asks on load gets denied permanently.
+    const result = await requestPermission();
+    if (result !== 'granted') {
+      toast(result === 'denied'
+        ? 'Notifications are blocked for this site — allow them in your browser settings.'
+        : 'Notification permission was not granted.');
+      return false;
+    }
+  }
+  notificationsEnabled = !!on;
+  writeEnabled(typeof localStorage !== 'undefined' ? localStorage : null, notificationsEnabled);
+  return notificationsEnabled;
+}
+
 function applyRealtimeEvent(event, data = {}) {
+  // Fire-and-forget, and deliberately BEFORE the routing below: a notification must never depend
+  // on which branch the event takes, and must never be able to break the dashboard's own handling
+  // of it. The notifier swallows its own errors and returns a reason string.
+  try { dashboardNotifier.handle(event, data); } catch {}
   if (event === 'terminal_started' && data.terminalId && data.agentId) {
     state.terminalOwners.set(String(data.terminalId), String(data.agentId));
     refreshSoon();
@@ -4577,6 +4607,25 @@ document.addEventListener('keydown', (event) => {
 });
 
 byId('refresh').addEventListener('click', refresh);
+
+// Notification toggle. The click IS the user gesture the Notification permission prompt requires —
+// asking on load gets a site denied permanently, so this is the only place permission is requested.
+(() => {
+  const btn = byId('notify-toggle');
+  if (!btn) return;
+  const paint = () => {
+    btn.textContent = notificationsEnabled ? '🔔 Notify' : '🔕 Notify';
+    btn.setAttribute('aria-pressed', notificationsEnabled ? 'true' : 'false');
+    btn.classList.toggle('active', notificationsEnabled);
+  };
+  paint();
+  btn.addEventListener('click', async () => {
+    const on = await toggleNotifications(!notificationsEnabled);
+    paint();
+    if (on) toast('Desktop notifications on — messages addressed to you, when this tab is not focused', 'ok');
+    else if (notificationsEnabled === false) toast('Desktop notifications off');
+  });
+})();
 byId('global-filter').addEventListener('input', (event) => {
   state.filter = event.target.value;
   renderAll();
