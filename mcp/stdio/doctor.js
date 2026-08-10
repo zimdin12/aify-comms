@@ -39,6 +39,7 @@ import {
   serviceBuildVerdict,
   skillsInstallVerdict,
   SERVICE_RUNTIME_PATHS,
+  SERVICE_RUNTIME_EXCLUDE_PATHS,
 } from "./doctor-predicates.js";
 
 const args = process.argv.slice(2);
@@ -107,7 +108,14 @@ async function checkService() {
   // below: two `git log` calls, pure unit-tested verdict.
   const totalCommits = sh("git", ["rev-list", "--count", `${sha}..HEAD`], repo.dir);
   const runtimeCommits = sh(
-    "git", ["rev-list", "--count", `${sha}..HEAD`, "--", ...SERVICE_RUNTIME_PATHS], repo.dir,
+    "git",
+    [
+      "rev-list", "--count", `${sha}..HEAD`, "--",
+      ...SERVICE_RUNTIME_PATHS,
+      // Tests live under a runtime path but are not runtime — nothing in the image runs pytest.
+      ...SERVICE_RUNTIME_EXCLUDE_PATHS.map((p) => `:(exclude)${p}`),
+    ],
+    repo.dir,
   );
   const verdict = serviceBuildVerdict({
     builtSha: sha,

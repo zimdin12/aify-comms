@@ -187,6 +187,21 @@ export const SERVICE_RUNTIME_PATHS = [
   "service", "mcp/sse_server.py", "config", "Dockerfile",
 ];
 
+// Third instance of the same class, found by the fix flagging its OWN commit: `service/` is a
+// runtime path, so adding `service/tests/test_service_runtime_boundary.py` demanded a container
+// rebuild. Nothing in the image runs pytest — the CMD is `uvicorn service.main:app` and the
+// Dockerfile installs no test runner — so a test-only commit cannot change what the service
+// executes. Excluded as git pathspecs by the caller; verified against the real repo (1 commit with
+// tests included, 0 with them excluded).
+//
+// Kept as an EXCLUDE list rather than by narrowing SERVICE_RUNTIME_PATHS to specific
+// subdirectories, because the safe default for a new directory under `service/` is "this is
+// runtime, demand a rebuild". Opt-out beats opt-in when the wrong answer is a false green.
+export const SERVICE_RUNTIME_EXCLUDE_PATHS = [
+  "service/tests",
+  "service/**/*.test.mjs",
+];
+
 // Copied into the image but NOT executed by the service. Kept as an explicit, reasoned allowlist
 // rather than simply omitted, so `doctor-service-staleness.test.js` can still assert that every
 // Dockerfile COPY source is accounted for SOMEWHERE. Silent omission would let a new COPY of

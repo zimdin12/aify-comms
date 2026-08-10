@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   SERVICE_IMAGE_NON_RUNTIME_PATHS,
+  SERVICE_RUNTIME_EXCLUDE_PATHS,
   SERVICE_RUNTIME_PATHS,
   bridgeInstallVerdict,
   serviceBuildVerdict,
@@ -134,6 +135,20 @@ test("host-side bridge code is NOT a service rebuild trigger", () => {
   assert.ok(!SERVICE_RUNTIME_PATHS.includes("mcp/stdio"));
   assert.ok(SERVICE_RUNTIME_PATHS.includes("mcp/sse_server.py"),
     "but the SSE transport the service does load must be");
+});
+
+test("test files under a runtime path are excluded", () => {
+  // Found by this very fix flagging its own commit: adding service/tests/... demanded a rebuild.
+  // Nothing in the image runs pytest, so a test-only commit cannot change what the service does.
+  assert.ok(SERVICE_RUNTIME_EXCLUDE_PATHS.includes("service/tests"));
+  assert.ok(SERVICE_RUNTIME_EXCLUDE_PATHS.some((p) => p.endsWith("*.test.mjs")));
+  // Excludes must sit INSIDE a runtime path, or they are pointless.
+  for (const ex of SERVICE_RUNTIME_EXCLUDE_PATHS) {
+    assert.ok(
+      SERVICE_RUNTIME_PATHS.some((rp) => ex === rp || ex.startsWith(`${rp}/`)),
+      `exclude "${ex}" is not inside any runtime path — it excludes nothing`,
+    );
+  }
 });
 
 console.log("doctor-service-staleness.test.js: all assertions passed");
