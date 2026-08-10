@@ -25,7 +25,7 @@ const BUILT = "76fb7b9aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const HEAD = "f94b884bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
 // ── the false red this exists to prevent ─────────────────────────────────────────────
-test("commits that touch NO image content are not stale", () => {
+test("commits that touch NO runtime content are not stale", () => {
   const v = serviceBuildVerdict({
     builtSha: BUILT, builtShort: "76fb7b9", headSha: HEAD, headShort: "f94b884",
     runtimeCommits: 0, totalCommits: 3,
@@ -45,7 +45,7 @@ test("the retired wording never comes back", () => {
 });
 
 // ── genuine staleness must still fail ────────────────────────────────────────────────
-test("commits that DO touch image content are stale", () => {
+test("commits that DO touch runtime content are stale", () => {
   const v = serviceBuildVerdict({
     builtSha: BUILT, builtShort: "76fb7b9", headSha: HEAD, headShort: "f94b884",
     runtimeCommits: 2, totalCommits: 5,
