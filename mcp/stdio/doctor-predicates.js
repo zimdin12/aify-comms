@@ -170,15 +170,39 @@ export function bridgeInstallVerdict({ installedSha = "", headSha = "", headShor
 // the build touched something the IMAGE actually contains?". Kept pure — the caller runs the
 // path-scoped `git log` and passes counts in, exactly as `bridgeInstallVerdict` does.
 //
-// The path list mirrors the Dockerfile's COPY lines; if that changes, this must change with
-// it, which is what `test_doctor_image_paths_match_dockerfile` in the Python suite pins.
-export const SERVICE_IMAGE_PATHS = [
-  "service", "mcp", "config", "integrations", ".agents", "install.sh", "Dockerfile",
+// RUNTIME content, not image bytes — the distinction the reviewer insisted on, and it matters.
+// The first cut mirrored the Dockerfile's COPY lines and called that "image content". Honest about
+// bytes, wrong for a verdict an operator ACTS on: the Dockerfile copies `mcp/` whole, so a
+// host-side bridge edit demanded a container rebuild for code the container never executes. That
+// is a smaller wolf-cry of the same species as the one being fixed, and it fired immediately on
+// the very commit that shipped the fix.
+//
+// So the question is "did anything the RUNNING SERVICE EXECUTES change?". Evidence for this set,
+// checked rather than assumed (and independently re-checked by the reviewer): the container's CMD
+// is `uvicorn service.main:app`; `service/main.py` dynamically loads only `/app/mcp/sse_server.py`
+// for the SSE transport; an AST scan of non-test `service/**` plus `mcp/sse_server.py` finds no
+// import of `mcp.stdio` (the `from mcp.server.fastmcp` hits are the PyPI package); and CLAUDE.md
+// documents exactly this split.
+export const SERVICE_RUNTIME_PATHS = [
+  "service", "mcp/sse_server.py", "config", "Dockerfile",
 ];
+
+// Copied into the image but NOT executed by the service. Kept as an explicit, reasoned allowlist
+// rather than simply omitted, so `doctor-service-staleness.test.js` can still assert that every
+// Dockerfile COPY source is accounted for SOMEWHERE. Silent omission would let a new COPY of
+// genuinely-runtime code slip in with doctor reporting clean — a false green, the worse direction.
+export const SERVICE_IMAGE_NON_RUNTIME_PATHS = {
+  "mcp": "partially runtime: mcp/sse_server.py is listed in SERVICE_RUNTIME_PATHS; mcp/stdio is "
+    + "host-side bridge code the container never executes (covered by the bridge-installed check)",
+  "integrations": "installer/host integration flows; no runtime consumer in service.main or "
+    + "mcp/sse_server.py",
+  ".agents": "Codex skill mirror cargo; referenced only by health/info text and tests",
+  "install.sh": "operator installer shipped for convenience; never executed by the service",
+};
 
 export function serviceBuildVerdict({
   builtSha = "", headSha = "", headShort = "", builtShort = "",
-  imageCommits = 0, totalCommits = 0,
+  runtimeCommits = 0, totalCommits = 0,
 } = {}) {
   const short = builtShort || String(builtSha || "").slice(0, 7);
   if (!builtSha) {
@@ -191,13 +215,13 @@ export function serviceBuildVerdict({
   if (builtSha === headSha) {
     return { ok: true, code: "ok", detail: `healthy — build ${short} == repo HEAD`, fix: "" };
   }
-  if (Number(imageCommits) > 0) {
-    const n = Number(imageCommits);
+  if (Number(runtimeCommits) > 0) {
+    const n = Number(runtimeCommits);
     return {
       ok: false,
       code: "stale",
       detail: `serving build ${short}, repo HEAD is ${headShort} — ${n} commit(s) since then changed `
-        + `code the image contains. The RUNNING service is older than the checkout.`,
+        + `code the service EXECUTES. The RUNNING service is older than the checkout.`,
       fix: "Rebuild: `bash scripts/stamp.sh && docker compose up -d --build`.",
     };
   }
@@ -206,7 +230,7 @@ export function serviceBuildVerdict({
     ok: true,
     code: "ok",
     detail: `healthy — build ${short}; repo HEAD is ${headShort} (${Number(totalCommits) || 0} commit(s) ahead, `
-      + `none touching image content)`,
+      + `none touching code the service executes)`,
     fix: "",
   };
 }

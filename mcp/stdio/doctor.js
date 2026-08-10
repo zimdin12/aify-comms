@@ -38,7 +38,7 @@ import {
   bridgeInstallVerdict,
   serviceBuildVerdict,
   skillsInstallVerdict,
-  SERVICE_IMAGE_PATHS,
+  SERVICE_RUNTIME_PATHS,
 } from "./doctor-predicates.js";
 
 const args = process.argv.slice(2);
@@ -100,20 +100,21 @@ async function checkService() {
     return add("service", false, "unknown-build", "healthy, but it reports no build sha.",
       "Run `scripts/stamp.sh` before `docker compose up -d --build` — otherwise /version lies.");
   }
-  // Ask whether any commit since the build TOUCHED code the image contains, not merely
+  // Ask whether any commit since the build touched code the service EXECUTES, not merely
   // whether the sha differs — see serviceBuildVerdict for the false red this replaces
-  // (a docs-only commit reported "Your service changes are NOT running"). Same shape as
-  // checkNativeBridge below: two `git log` calls, pure unit-tested verdict.
+  // (a docs-only commit reported "Your service changes are NOT running") and for why the set
+  // is runtime paths rather than Dockerfile COPY sources. Same shape as checkNativeBridge
+  // below: two `git log` calls, pure unit-tested verdict.
   const totalCommits = sh("git", ["rev-list", "--count", `${sha}..HEAD`], repo.dir);
-  const imageCommits = sh(
-    "git", ["rev-list", "--count", `${sha}..HEAD`, "--", ...SERVICE_IMAGE_PATHS], repo.dir,
+  const runtimeCommits = sh(
+    "git", ["rev-list", "--count", `${sha}..HEAD`, "--", ...SERVICE_RUNTIME_PATHS], repo.dir,
   );
   const verdict = serviceBuildVerdict({
     builtSha: sha,
     builtShort: ver.sha_short || "",
     headSha: repo.sha,
     headShort: repo.short,
-    imageCommits: Number(imageCommits || 0),
+    runtimeCommits: Number(runtimeCommits || 0),
     totalCommits: Number(totalCommits || 0),
   });
   return add("service", verdict.ok, verdict.code, verdict.detail, verdict.fix);
