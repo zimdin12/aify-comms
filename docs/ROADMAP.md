@@ -114,6 +114,32 @@ the tools that turn API JSON into conclusions, and payload-construction parity t
 intentional divergences as allowed. Agreement tests over consolidation — the same call that worked
 for the duplicated status predicates.
 
+### AUDIT FINDING 3 — the reconciler seam, before the extraction
+
+`comms-senior-dev`, read-only, with two read-only live DB probes.
+
+**Blocker 1 — FIXED (`4317117`).** `_replay_undelivered_channel_messages_on_env_recovery` gated on
+`datetime(m.timestamp)` where the column is epoch **milliseconds** — SQLite returns NULL, so the
+predicate was never true and **the reconciler had never fired**. Measured: 665 channel messages,
+0 matched broken, 115 matched corrected.
+
+Its survival is the interesting part: fixing it broke two existing tests, and the *fixtures* were
+wrong, not the fix. They seeded ISO via `api_v2._now()` while production is integer epoch-ms in
+**29,854 of 29,854** rows. The suite had been validating a shape that does not occur.
+
+**Blocker 2 — REJECTED.** `GET /agents` calling `_repair_unusable_active_runs` is a documented
+decision (DECISIONS.md, 2026-06-29): *"KEEP their read-path repairs… drives the roster status the
+operator watches live."* Not silently reversed. The adjacent point stands as an extraction
+**constraint**: a read endpoint will import a mutating reconciler once these move.
+
+**Finding 3 — ACCEPTED, pre-move.** `_repair_spawn_requests_from_initial_dispatch_failures` matches
+on target + time rather than an initial-message identity, so an unrelated earlier failed dispatch
+could kill a healthy spawn. Source-grounded overbreadth, not an active incident. Fix before its
+slice, or explicitly exclude it from the purity claim.
+
+**Also recorded, not bugs:** five load-bearing sweep orderings in `main.py` that are real but
+undeclared — they should become named phase comments plus a test.
+
 ### v0.4 — mobile alerts (ntfy)
 
 One outbound POST; no PWA, service worker, VAPID or subscription table. **Blocked on writing the
