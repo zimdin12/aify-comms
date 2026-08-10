@@ -1,0 +1,63 @@
+# HTTPS for the dashboard, so browser notifications work away from `localhost`.
+#
+# WHY THIS EXISTS. The Notification API requires a SECURE CONTEXT. `localhost` counts as one, so
+# opening the dashboard on the machine itself always worked — but reaching it over the LAN
+# (http://192.168.x.x:8801, or from a phone) does not, and the browser then refuses to let you
+# enable notifications at all. That is the entire blocker; the feature itself is unchanged.
+#
+# `tls internal` mints certificates from a local CA Caddy manages. No public domain, no ACME, no
+# port open to the internet — appropriate for a service that runs locally in a container. The cost
+# is that the CA must be trusted once per device (see README).
+#
+# OPT-IN: runs only under `docker compose --profile https up -d`. A normal `docker compose up -d`
+# never starts it, so nobody inherits a TLS layer they did not ask for.
+
+{
+	# Local CA only. Never attempts public ACME issuance, so this cannot leak a hostname to a
+	# certificate-transparency log or fail because the host is unreachable from the internet.
+	local_certs
+	admin off
+}
+
+# THE SITE ADDRESSES MUST BE NAMED. A bare `:8443` looks tidier and does not work: Caddy has no
+# name to issue a certificate FOR, so every handshake dies with TLSV1_ALERT_INTERNAL_ERROR and the
+# browser just says the connection failed. Measured exactly that before naming them.
+#
+# USE HOSTNAMES, NOT BARE IPs — measured, and the reason is Docker. A client connecting to an IP
+# sends NO SNI, so Caddy has to pick a certificate by the connection's local address. Behind
+# Docker's port forward that address is the CONTAINER's IP (172.x), not the host's 192.168.x, so
+# Caddy looks for a cert it was never asked to issue and the handshake dies with
+# TLSV1_ALERT_INTERNAL_ERROR. Verified by probing the same port with three SNI values:
+#   SNI=localhost        -> handshake OK
+#   SNI=192.168.100.10   -> TLSV1_ALERT_INTERNAL_ERROR
+#   SNI=none             -> TLSV1_ALERT_INTERNAL_ERROR
+# Listing the IP as a site address does not help; Caddy issues that certificate happily and then
+# never gets a chance to select it. A hostname is carried in SNI and survives the NAT.
+#
+# Override with HTTPS_SITES in .env. Every name you intend to REACH IT BY must be listed:
+#   HTTPS_SITES=localhost:8443, stevenz-l.local:8443, aify.lan:8443
+{$HTTPS_SITES:localhost:8443, 127.0.0.1:8443, stevenz-l:8443, stevenz-l.local:8443} {
+	tls internal
+
+	# The API and its WebSocket are proxied through the SAME origin on purpose, and this is
+	# necessary rather than tidy: an https page cannot open a `ws://` socket or fetch an `http://`
+	# API — mixed content is blocked — so without this the dashboard would load over TLS and then
+	# fail to reach the service at all. The client resolves its API origin from the page origin by
+	# default, so this needs no configuration on the dashboard side.
+	handle /api/* {
+		reverse_proxy service:8800
+	}
+	handle /ws {
+		reverse_proxy service:8800
+	}
+	handle /version {
+		reverse_proxy service:8800
+	}
+
+	# Everything else is the dashboard, including /assets/* and /health.
+	handle {
+		reverse_proxy new-dashboard:8801
+	}
+
+	encode gzip
+}

@@ -90,10 +90,54 @@ services:
       start_period: 15s
       retries: 3
 
+  # OPT-IN HTTPS. Only starts with `docker compose --profile https up -d`; a plain
+  # `docker compose up -d` never sees it, so the default deployment is unchanged.
+  #
+  # Exists for ONE reason: browser notifications need a secure context. `localhost` already is one,
+  # but reaching the dashboard over the LAN or from a phone is not, and the browser then refuses to
+  # let you enable notifications at all. Caddy terminates TLS with a locally-managed CA and proxies
+  # the dashboard, the API and the WebSocket through a SINGLE origin — necessary, not cosmetic,
+  # because an https page cannot talk to a ws:// socket or an http:// API (mixed content).
+  https-proxy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    container_name: ${COMPOSE_PROJECT_NAME:-aify-comms}-https
+    restart: ${RESTART_POLICY:-unless-stopped}
+    ports:
+      - "${HTTPS_PORT:-8443}:8443"
+    volumes:
+      - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Persisted so the local CA and issued certs survive a restart. Without this every
+      # `up` mints a NEW CA and every device has to trust it again.
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - service
+      - new-dashboard
+    networks:
+      - service-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   service-data:
     name: ${DATA_VOLUME_NAME:-aify-comms-data}
+    # KEEP THIS ON `service-data`. With DATA_VOLUME_EXTERNAL=true the database volume is managed
+    # outside compose, which is what stops `docker compose down -v` from deleting it. An edit that
+    # inserted the caddy volumes above briefly detached this line and left it on caddy-config —
+    # caught because caddy then failed to start looking for an external volume that did not exist.
+    # The louder failure was the silent one: service-data would have become compose-managed and
+    # `down -v` would have destroyed the operator's database.
     external: ${DATA_VOLUME_EXTERNAL:-false}
+  # Caddy's local CA and issued certs. NOT external: these are disposable and regenerating them
+  # only costs re-trusting the CA on each device.
+  caddy-data:
+    name: ${COMPOSE_PROJECT_NAME:-aify-comms}-caddy-data
+  caddy-config:
+    name: ${COMPOSE_PROJECT_NAME:-aify-comms}-caddy-config
 
 networks:
   service-network:
