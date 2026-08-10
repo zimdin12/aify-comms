@@ -20161,7 +20161,16 @@ async def _replay_undelivered_channel_messages_on_env_recovery(
         WHERE m.source = 'channel'
           AND m.to_agent IS NOT NULL AND m.to_agent != '' AND m.to_agent != 'dashboard'
           AND m.dispatch_requested = 1
-          AND datetime(m.timestamp) >= datetime('now', ?)
+          -- `messages.timestamp` is epoch MILLISECONDS, not ISO. `datetime(1786402075333)` returns
+          -- NULL, so this comparison was NULL — never true — and this reconciler could not match a
+          -- single row it exists to replay. Measured on the live DB: 0 candidates under the old
+          -- predicate, 115 under this one.
+          --
+          -- Same class as the `finished_at` guard that excluded its own target rows for two months,
+          -- and the sixth lexical/epoch timestamp bug recorded in this repo. Other code already
+          -- knew the shape and did it correctly (`datetime(timestamp / 1000, 'unixepoch')`), which
+          -- is what makes this a copy that drifted rather than a misunderstanding.
+          AND datetime(m.timestamp / 1000, 'unixepoch') >= datetime('now', ?)
           AND rr.message_id IS NULL
           AND NOT EXISTS (SELECT 1 FROM dispatch_runs dr WHERE dr.message_id = m.id)
         ORDER BY m.timestamp ASC
