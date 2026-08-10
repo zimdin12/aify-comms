@@ -86,6 +86,34 @@ and `comms_run_status` (fine for a known run, wrong as a fleet-health proxy).
 messages and exposes sent/seen/queued/working/answered/missing_reply. The move may be for
 `agent_info` to summarise or point at it rather than grow a parallel surface.
 
+### AUDIT FINDING 2 — SSE/stdio parity: 20 duplicated tools, 9 divergences
+
+`comms-senior-dev`, source-only, every divergence cited. Motivated by `comms_search` existing in
+both transports where I fixed one and believed I was done.
+
+**Highest wrong-belief risk:**
+
+- **`comms_agents` is weaker in SSE** — no runtime or wake-mode context, so "online + unread 0 +
+  advancing lastSeen" is *easier* to misread as a healthy lane. Same family as finding 1.
+- **`comms_register` builds a different identity.** SSE takes only agentId/role/name/cwd/model, so
+  "registered" over SSE can mean a coordination row, not a wakeable runtime-bound session.
+- **`comms_share` cannot upload binaries over SSE at all** — which bounds any transport-integrity
+  claim we make: the CRLF repair covers the stdio `filePath` path only.
+- **`comms_send`/`comms_channel_send` differ on live delivery** — SSE exposes `silent`, stdio
+  always triggers; stdio mints a `clientNonce` for retry safety and SSE does not.
+- **`comms_dispatch` has no `priority` in SSE**; **`comms_run_status` omits started/finished and
+  thread identity**; **`comms_console_tail` advertises the dead-worker fallback in stdio only.**
+
+**Non-finding:** `comms_search` is now parity-repaired in both renderers — the motivating bug is
+genuinely closed.
+
+**Recommendation, and it matches what worked before:** do **not** consolidate the transports —
+different languages, and SSE is *intentionally* reduced. Add cheap parity gates instead: a
+generated tool-inventory snapshot with an allowed-reduced list, golden renderer-agreement tests for
+the tools that turn API JSON into conclusions, and payload-construction parity tests that name
+intentional divergences as allowed. Agreement tests over consolidation — the same call that worked
+for the duplicated status predicates.
+
 ### v0.4 — mobile alerts (ntfy)
 
 One outbound POST; no PWA, service worker, VAPID or subscription table. **Blocked on writing the
