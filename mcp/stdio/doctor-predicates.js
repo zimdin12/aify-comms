@@ -250,6 +250,70 @@ export function serviceBuildVerdict({
   };
 }
 
+// ── `bridge-current`: is the RUNNING bridge executing current code? ──────────────────
+//
+// v0.2 item B1, promoted after it cost a real hour. `bridge-installed` proves the FILES on disk
+// match the checkout; it says nothing about what any live PROCESS loaded at boot. `bridge-running`
+// was supposed to close that, but it reads /proc and SKIPS on Windows — so on this host nothing
+// verified that a running wrapper executes current code.
+//
+// THE LIVE ARTIFACT: on 2026-08-10 I verified a just-shipped multipart fix through comms_share,
+// saw the OLD corrupted bytes, and nearly recorded a working fix as broken. The fix was correct;
+// my own bridge was pre-restart, and no check said so.
+//
+// The bridge already computed its build sha for the startup banner and then wrote it only to
+// stderr. Reporting it on registration makes this platform-independent: compare what each LIVE
+// bridge says it is running against the checkout, with no process inspection at all.
+//
+// Deliberately reports a RESTART, never a reinstall — the files are already current in this case,
+// so `install.sh` would change nothing and telling the operator to run it would be a wrong fix.
+export function bridgeCurrentVerdict({ environments = [], headSha = "", headShort = "" } = {}) {
+  const head = String(headSha || "");
+  if (!head) {
+    return { ok: true, code: "skipped", detail: "no checkout to compare running bridges against", fix: "" };
+  }
+  // Only ONLINE rows: a dead bridge's build is not a claim about anything running.
+  const live = environments.filter((e) => envIsOnline(e));
+  if (!live.length) {
+    return { ok: true, code: "skipped", detail: "no live environment bridge to check", fix: "" };
+  }
+  const stale = [];
+  let unknown = 0;
+  for (const env of live) {
+    const build = String(env?.metadata?.bridgeBuild || "").trim();
+    if (!build || build === "unknown" || build === "no-git" || build === "unknown-ref") {
+      unknown += 1;
+      continue;
+    }
+    // The bridge reports a 12-char prefix; compare on the shorter of the two.
+    const n = Math.min(build.length, head.length);
+    if (build.slice(0, n) !== head.slice(0, n)) {
+      stale.push(`${env?.id || "(unnamed)"} running ${build.slice(0, 7)}`);
+    }
+  }
+  if (stale.length) {
+    return {
+      ok: false,
+      code: "stale-process",
+      detail: `${stale.length} live bridge(s) are RUNNING older code than the checkout `
+        + `(repo HEAD ${headShort}): ${stale.join(", ")}. The files on disk may already be current — `
+        + "a process keeps what it loaded at boot.",
+      fix: "RESTART those bridges/wrappers. Re-running install.sh will not help if bridge-installed "
+        + "is already green — the code is on disk, just not in memory.",
+    };
+  }
+  if (unknown) {
+    return {
+      ok: true,
+      code: "partial",
+      detail: `${live.length - unknown} live bridge(s) match repo HEAD; ${unknown} did not report a `
+        + "build sha (pre-B1 bridge — restart it to start reporting)",
+      fix: "",
+    };
+  }
+  return { ok: true, code: "ok", detail: `${live.length} live bridge(s) running repo HEAD ${headShort}`, fix: "" };
+}
+
 // ── `usage-openai` staleness vs. genuine rejection ───────────────────────────────────
 //
 // FALSE RED, observed live 2026-08-09. doctor reported "the ChatGPT usage API rejected it

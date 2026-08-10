@@ -35,6 +35,7 @@ import {
   describeEnv,
   envIsOnline,
   envStateIsUnknown,
+  bridgeCurrentVerdict,
   bridgeInstallVerdict,
   serviceBuildVerdict,
   skillsInstallVerdict,
@@ -307,6 +308,15 @@ async function checkEnvBridge() {
       : "No environment bridge is registered — dashboard-managed spawns cannot run.";
     return add("env-bridge", false, "none", detail, "Start one on the host: `aify-comms`.");
   }
+  // B1: are the LIVE bridges running current code? bridge-installed only proves the files on
+  // disk; a process keeps what it loaded at boot, and bridge-running (which would catch that)
+  // skips on Windows. See bridgeCurrentVerdict.
+  const current = bridgeCurrentVerdict({
+    environments: list,
+    headSha: repo ? repo.sha : "",
+    headShort: repo ? repo.short : "",
+  });
+  add("bridge-current", current.ok, current.code, current.detail, current.fix);
   const unknown = list.filter(envStateIsUnknown);
   const detail = `${online.length} online: ${online.map((e) => e.id).join(", ")}`
     + (offline.length ? ` (${offline.length} registered but cannot host a spawn: ${offline.map(describeEnv).join(", ")})` : "")

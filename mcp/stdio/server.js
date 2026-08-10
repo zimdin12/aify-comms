@@ -2424,6 +2424,22 @@ function environmentHeartbeatPayload() {
       cwd: DEFAULT_CWD,
       wslDistro: process.env.WSL_DISTRO_NAME || "",
       bridgeStartedAt: BRIDGE_STARTED_AT,
+      // The sha of the code THIS PROCESS IS ACTUALLY RUNNING (v0.2 item B1). It was already
+      // computed for the startup banner and then only written to stderr, where nothing can read
+      // it — so the one fact that proves a running bridge is current was thrown away at boot.
+      //
+      // Why it matters here specifically: `aify-doctor`'s `bridge-running` check reads /proc and
+      // SKIPS on Windows, so on this host nothing verifies that a running wrapper executes current
+      // code. `bridge-installed` only proves the FILES on disk are current, which is a different
+      // claim — a process keeps whatever it loaded at boot.
+      //
+      // That gap has a live artifact, not a hypothetical one: on 2026-08-10 I verified a
+      // just-shipped multipart fix through comms_share, saw the OLD corrupted output, and nearly
+      // recorded a working fix as broken. My own bridge was pre-restart and nothing said so.
+      //
+      // Reporting it on registration makes the check platform-independent: the server can compare
+      // what each LIVE bridge is running against the checkout, with no process inspection at all.
+      bridgeBuild: BRIDGE_BUILD_TAG,
     },
   };
 }
