@@ -36,7 +36,9 @@ import {
   envIsOnline,
   envStateIsUnknown,
   bridgeInstallVerdict,
+  serviceBuildVerdict,
   skillsInstallVerdict,
+  SERVICE_IMAGE_PATHS,
 } from "./doctor-predicates.js";
 
 const args = process.argv.slice(2);
@@ -98,13 +100,23 @@ async function checkService() {
     return add("service", false, "unknown-build", "healthy, but it reports no build sha.",
       "Run `scripts/stamp.sh` before `docker compose up -d --build` — otherwise /version lies.");
   }
-  if (sha === repo.sha) {
-    return add("service", true, "ok", `healthy — build ${ver.sha_short} == repo HEAD`);
-  }
-  const behind = sh("git", ["rev-list", "--count", `${sha}..HEAD`], repo.dir);
-  return add("service", false, "stale",
-    `serving build ${ver.sha_short}, repo HEAD is ${repo.short}${behind ? ` (${behind} commit(s) behind)` : ""}.`,
-    "Your service changes are NOT running. Rebuild: `scripts/stamp.sh && docker compose up -d --build`.");
+  // Ask whether any commit since the build TOUCHED code the image contains, not merely
+  // whether the sha differs — see serviceBuildVerdict for the false red this replaces
+  // (a docs-only commit reported "Your service changes are NOT running"). Same shape as
+  // checkNativeBridge below: two `git log` calls, pure unit-tested verdict.
+  const totalCommits = sh("git", ["rev-list", "--count", `${sha}..HEAD`], repo.dir);
+  const imageCommits = sh(
+    "git", ["rev-list", "--count", `${sha}..HEAD`, "--", ...SERVICE_IMAGE_PATHS], repo.dir,
+  );
+  const verdict = serviceBuildVerdict({
+    builtSha: sha,
+    builtShort: ver.sha_short || "",
+    headSha: repo.sha,
+    headShort: repo.short,
+    imageCommits: Number(imageCommits || 0),
+    totalCommits: Number(totalCommits || 0),
+  });
+  return add("service", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }
 
 // ── 2. the installed bridge copy: does it match the checkout? ───────────────────────

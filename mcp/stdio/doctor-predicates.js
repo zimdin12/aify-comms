@@ -148,6 +148,69 @@ export function bridgeInstallVerdict({ installedSha = "", headSha = "", headShor
   };
 }
 
+// ── `service` staleness — the SAME lesson as bridgeInstallVerdict, one check over ─────
+//
+// N13 taught this for the bridge and the fix was never carried across to the service check,
+// which kept doing naive `built_sha === repo HEAD` and, on any difference, announced:
+//
+//     "serving build X, repo HEAD is Y (N commit(s) behind).
+//      Your service changes are NOT running. Rebuild."
+//
+// Observed live 2026-08-10 after three commits that touched only `docs/` and `scripts/`.
+// There were no service changes; the sentence was simply false, and `--strict` exited 1 on
+// it, so any script or CI gate would have failed on a documentation commit.
+//
+// FOURTH false verdict in this tool — after the counted-registrations false green
+// (`756f3a5`), the container/host clock-skew false red (ENV_FUTURE_SKEW_MS) and the OpenAI
+// token false red (openAiUsageVerdict). Same cost every time: a check that goes red on a
+// benign condition trains the operator to skim past it, and then the one time it means
+// something it reads like the twenty times it did not.
+//
+// The honest question is not "is the running sha equal to HEAD?" but "have any commits since
+// the build touched something the IMAGE actually contains?". Kept pure — the caller runs the
+// path-scoped `git log` and passes counts in, exactly as `bridgeInstallVerdict` does.
+//
+// The path list mirrors the Dockerfile's COPY lines; if that changes, this must change with
+// it, which is what `test_doctor_image_paths_match_dockerfile` in the Python suite pins.
+export const SERVICE_IMAGE_PATHS = [
+  "service", "mcp", "config", "integrations", ".agents", "install.sh", "Dockerfile",
+];
+
+export function serviceBuildVerdict({
+  builtSha = "", headSha = "", headShort = "", builtShort = "",
+  imageCommits = 0, totalCommits = 0,
+} = {}) {
+  const short = builtShort || String(builtSha || "").slice(0, 7);
+  if (!builtSha) {
+    return { ok: false, code: "unknown-build", detail: "healthy, but it reports no build sha.",
+      fix: "Run `scripts/stamp.sh` before `docker compose up -d --build` — otherwise /version lies." };
+  }
+  if (!headSha) {
+    return { ok: true, code: "ok", detail: `healthy — build ${short} (no checkout to compare against)`, fix: "" };
+  }
+  if (builtSha === headSha) {
+    return { ok: true, code: "ok", detail: `healthy — build ${short} == repo HEAD`, fix: "" };
+  }
+  if (Number(imageCommits) > 0) {
+    const n = Number(imageCommits);
+    return {
+      ok: false,
+      code: "stale",
+      detail: `serving build ${short}, repo HEAD is ${headShort} — ${n} commit(s) since then changed `
+        + `code the image contains. The RUNNING service is older than the checkout.`,
+      fix: "Rebuild: `bash scripts/stamp.sh && docker compose up -d --build`.",
+    };
+  }
+  // Behind, but by commits that cannot reach the container. Say so instead of crying wolf.
+  return {
+    ok: true,
+    code: "ok",
+    detail: `healthy — build ${short}; repo HEAD is ${headShort} (${Number(totalCommits) || 0} commit(s) ahead, `
+      + `none touching image content)`,
+    fix: "",
+  };
+}
+
 // ── `usage-openai` staleness vs. genuine rejection ───────────────────────────────────
 //
 // FALSE RED, observed live 2026-08-09. doctor reported "the ChatGPT usage API rejected it
