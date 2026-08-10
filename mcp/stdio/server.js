@@ -5139,7 +5139,11 @@ server.tool(
       }
       const lines = r.results.map((x) =>
         x.type === "message"
-          ? `[MSG${x.read ? "" : " NEW"}] ${x.id} | from: ${x.from}${x.to ? ` → ${x.to}` : ""} | ${x.subject}\n  ${x.preview}`
+          // No NEW/read marker. The search endpoint does not return read state, so `x.read` was
+          // always undefined and EVERY hit rendered as "NEW" — including messages the agent sent
+          // itself, where unread is not a meaningful property at all. Reviewer's catch. A marker
+          // that is always on carries no information and quietly misleads.
+          ? `[MSG] ${x.id} | from: ${x.from}${x.to ? ` → ${x.to}` : ""} | ${x.subject}\n  ${x.preview}`
           : `[FILE] ${x.name} | from: ${x.from} | ${x.description}`
       );
       return { content: [{ type: "text", text: `${lines.join("\n\n")}\n\n(${scopeNote})${warn}` }] };

@@ -521,10 +521,12 @@ async def comms_search(
     lines = []
     for x in results:
         if x.get("type") == "message":
-            tag = "MSG" if x.get("read") else "MSG NEW"
+            # No NEW/read marker. The search endpoint does not return read state, so this was
+            # always "MSG NEW" — including for messages the agent sent itself. A marker that is
+            # always on carries no information and quietly misleads.
             to = f" → {x['to']}" if x.get("to") else ""
             lines.append(
-                f"[{tag}] {x['id']} | from: {x['from']}{to} | {x.get('subject', '')}\n  {x.get('preview', '')}"
+                f"[MSG] {x['id']} | from: {x['from']}{to} | {x.get('subject', '')}\n  {x.get('preview', '')}"
             )
         else:
             lines.append(f"[FILE] {x['name']} | from: {x.get('from', '?')} | {x.get('description', '')}")
