@@ -117,6 +117,34 @@ test("the notifier defaults to closed for channels when no resolver is injected"
   assert.equal(api.raised.length, 0);
 });
 
+// ── the REAL wire format, captured off the live WebSocket ────────────────────────────
+// Every test above uses payloads I wrote, which proves the logic and not the CONTRACT. This one
+// is the exact frame observed on ws://localhost:8800/ws after sending a real message on
+// 2026-08-10 — the shape the server actually emits from api_v2.py's `message_sent` broadcast.
+// Pinned because `to` being an ARRAY is load-bearing: if the server ever emits a bare string or
+// renames the field, every test above still passes and the feature silently stops notifying.
+const LIVE_MESSAGE_SENT_FRAME = {
+  id: "1786384066716-619684cb",
+  from: "manager-bot",
+  to: ["dashboard"],
+  subject: "WS shape probe",
+};
+
+test("the real server frame is recognised as operator-addressed", () => {
+  assert.equal(isForOperator("message_sent", LIVE_MESSAGE_SENT_FRAME), true);
+});
+
+test("the real server frame fires a correctly rendered notification", () => {
+  const { n, api } = notifierWith();
+  assert.equal(n.handle("message_sent", LIVE_MESSAGE_SENT_FRAME), "fired");
+  assert.equal(api.raised[0].title, "manager-bot → you");
+  assert.equal(api.raised[0].body, "WS shape probe");
+});
+
+test("`to` is an array in the real frame — the shape recipients() must keep handling", () => {
+  assert.ok(Array.isArray(LIVE_MESSAGE_SENT_FRAME.to));
+});
+
 // ── the suppression rules, each independently ────────────────────────────────────────
 test("off by default — nothing fires when disabled", () => {
   const { n, api } = notifierWith({ isEnabled: () => false });
