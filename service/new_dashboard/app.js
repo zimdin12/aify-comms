@@ -598,6 +598,16 @@ let notificationsEnabled = readEnabled(typeof localStorage !== 'undefined' ? loc
 const dashboardNotifier = createNotifier({
   isEnabled: () => notificationsEnabled,
   isFocused: () => typeof document !== 'undefined' && document.visibilityState === 'visible',
+  // Channel notifications are MEMBERSHIP-gated (review finding): the dashboard can see every
+  // channel, not just the ones it joined, so "any channel_message" would notify on traffic the
+  // operator never subscribed to. Reads the same `members` array the chat UI already uses for
+  // join/leave. Returns false while the channel list is still loading — notify.mjs fails closed
+  // on purpose, and this is the source of that "unknown".
+  isChannelSubscribed: (channel) => {
+    const list = (state.chat && state.chat.channels) || [];
+    const row = list.find((c) => String(c && c.name) === String(channel));
+    return !!(row && Array.isArray(row.members) && row.members.includes('dashboard'));
+  },
 });
 
 async function toggleNotifications(on) {

@@ -42,9 +42,28 @@ function recipients(data) {
 }
 
 // Is this event FOR the operator, as opposed to fleet chatter we can see but were not sent?
-export function isForOperator(event, data) {
+//
+// `isChannelSubscribed` FAILS CLOSED by default, and that default is the point. The first cut
+// returned true for EVERY `channel_message` on the reasoning that a channel the operator reads is
+// aimed at them — but the dashboard can SEE every channel, not just the ones it joined, so that
+// notified on channels the operator never subscribed to. Caught in review.
+//
+// Closed is the correct failure direction here: the dashboard's channel list loads asynchronously,
+// so early in a session membership is simply unknown. Notifying-when-unsure would fire on
+// everything for the first seconds after every reload — the volume failure this whole feature is
+// shaped around — whereas staying quiet when unsure costs at most a missed notification for a
+// message that is still sitting in the dashboard.
+export function isForOperator(event, data, { isChannelSubscribed = () => false } = {}) {
   if (!NOTIFIABLE_EVENTS.has(String(event || ""))) return false;
-  if (event === "channel_message") return true;
+  if (event === "channel_message") {
+    const channel = String((data || {}).channel || "").trim();
+    if (!channel) return false;
+    try {
+      return !!isChannelSubscribed(channel);
+    } catch {
+      return false;
+    }
+  }
   return recipients(data || {}).includes(OPERATOR_RECIPIENT);
 }
 
@@ -86,6 +105,8 @@ export function createNotifier({
   isFocused = () => true,
   now = () => Date.now(),
   coalesceWindowMs = COALESCE_WINDOW_MS,
+  // Fails CLOSED by default — see isForOperator for why unknown membership must stay quiet.
+  isChannelSubscribed = () => false,
 } = {}) {
   const lastFired = new Map();
 
@@ -95,7 +116,7 @@ export function createNotifier({
       if (!notificationApi) return "unsupported";
       // A visible dashboard does not need a popup — the operator is already looking at it.
       if (isFocused()) return "focused";
-      if (!isForOperator(event, data)) return "not-for-operator";
+      if (!isForOperator(event, data, { isChannelSubscribed })) return "not-for-operator";
       if (notificationApi.permission !== "granted") return "no-permission";
 
       const key = coalesceKey(event, data);

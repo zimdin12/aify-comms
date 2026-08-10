@@ -63,8 +63,58 @@ test("non-message socket events never qualify", () => {
   }
 });
 
-test("channel messages qualify", () => {
-  assert.equal(isForOperator("channel_message", { channel: "sand-castle", from: "sc-manager" }), true);
+// ── channel messages: membership-gated, FAIL CLOSED ──────────────────────────────────
+// Blocking review finding: the first cut returned true for EVERY channel_message. The dashboard
+// can SEE every channel, not only the ones it joined, so that notified on channels the operator
+// never subscribed to — the volume failure this feature exists to avoid.
+test("a channel the operator is a member of qualifies", () => {
+  const member = (c) => c === "sand-castle";
+  assert.equal(
+    isForOperator("channel_message", { channel: "sand-castle", from: "sc-manager" }, { isChannelSubscribed: member }),
+    true,
+  );
+});
+
+test("a channel the operator is NOT a member of does not qualify", () => {
+  const member = (c) => c === "sand-castle";
+  assert.equal(
+    isForOperator("channel_message", { channel: "echoes", from: "ef-manager" }, { isChannelSubscribed: member }),
+    false,
+  );
+});
+
+test("unknown membership FAILS CLOSED", () => {
+  // The channel list loads asynchronously; notifying-when-unsure would fire on everything for the
+  // first seconds after every reload. Staying quiet costs at most a missed popup for a message
+  // that is still sitting in the dashboard.
+  assert.equal(isForOperator("channel_message", { channel: "sand-castle" }), false, "no resolver = closed");
+  assert.equal(
+    isForOperator("channel_message", { channel: "sand-castle" }, { isChannelSubscribed: () => undefined }),
+    false,
+  );
+});
+
+test("a membership lookup that throws fails closed rather than breaking the socket", () => {
+  const boom = () => { throw new Error("state not ready"); };
+  assert.equal(isForOperator("channel_message", { channel: "x" }, { isChannelSubscribed: boom }), false);
+});
+
+test("a channel_message with no channel name never qualifies", () => {
+  assert.equal(isForOperator("channel_message", {}, { isChannelSubscribed: () => true }), false);
+});
+
+test("the notifier honours membership end to end", () => {
+  const { n, api } = notifierWith({ isChannelSubscribed: (c) => c === "sand-castle" });
+  assert.equal(n.handle("channel_message", { channel: "echoes", from: "ef-manager", body: "x" }), "not-for-operator");
+  assert.equal(api.raised.length, 0);
+  assert.equal(n.handle("channel_message", { channel: "sand-castle", from: "sc-manager", body: "y" }), "fired");
+  assert.equal(api.raised.length, 1);
+});
+
+test("the notifier defaults to closed for channels when no resolver is injected", () => {
+  const { n, api } = notifierWith();
+  assert.equal(n.handle("channel_message", { channel: "sand-castle", from: "a", body: "b" }), "not-for-operator");
+  assert.equal(api.raised.length, 0);
 });
 
 // ── the suppression rules, each independently ────────────────────────────────────────
@@ -108,7 +158,7 @@ test("an operator-addressed message on an unfocused tab fires exactly one notifi
 });
 
 test("a channel message renders with its channel", () => {
-  const { n, api } = notifierWith();
+  const { n, api } = notifierWith({ isChannelSubscribed: () => true });
   n.handle("channel_message", { channel: "sand-castle", from: "sc-manager", body: "lane picked" });
   assert.equal(api.raised[0].title, "#sand-castle — sc-manager");
   assert.equal(api.raised[0].body, "lane picked");
