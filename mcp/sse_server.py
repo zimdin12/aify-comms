@@ -492,22 +492,43 @@ async def comms_search(
     scope: str = "all",
     limit: int = 10,
 ) -> str:
-    """Search inbox messages and shared artifacts by keyword."""
+    """Search an agent's messages (sent AND received) and shared artifacts by keyword.
+
+    PASS agentId, or messages are NOT searched at all and you only get shared files — an empty
+    result would then say nothing about whether the message exists. The reply always states what
+    was actually searched; read it before treating an empty result as absence.
+    """
     params = {"query": query, "scope": scope, "limit": str(limit)}
     if agentId:
         params["agentId"] = agentId
     r = await _api("GET", "/messages/search", params=params)
     results = r.get("results", [])
+    # SAY WHAT WAS SEARCHED. This transport had the same defect as the stdio bridge: it printed a
+    # bare 'No results' whether the record had been consulted or not. The server-side fix returns
+    # `searched`/`skipped`, but a renderer that drops them leaves the caller with the identical
+    # fail-open answer — an empty result read as "no such message exists" when messages were never
+    # looked at. Fixing one transport and not the other would have left half the fleet misled.
+    searched = r.get("searched") or []
+    skipped = r.get("skipped") or []
+    scope_note = f"searched: {' + '.join(searched)}" if searched else "searched: nothing"
+    warn = (
+        f"\n⚠ NOT searched: {'; '.join(skipped)}. "
+        "An empty result here is NOT evidence that no such message exists."
+        if skipped else ""
+    )
     if not results:
-        return f'No results for "{query}".'
+        return f'No results for "{query}" ({scope_note}).{warn}'
     lines = []
     for x in results:
         if x.get("type") == "message":
             tag = "MSG" if x.get("read") else "MSG NEW"
-            lines.append(f"[{tag}] {x['id']} | from: {x['from']} | {x.get('subject', '')}\n  {x.get('preview', '')}")
+            to = f" → {x['to']}" if x.get("to") else ""
+            lines.append(
+                f"[{tag}] {x['id']} | from: {x['from']}{to} | {x.get('subject', '')}\n  {x.get('preview', '')}"
+            )
         else:
             lines.append(f"[FILE] {x['name']} | from: {x.get('from', '?')} | {x.get('description', '')}")
-    return "\n\n".join(lines)
+    return "\n\n".join(lines) + f"\n\n({scope_note}){warn}"
 
 
 # ---------------------------------------------------------------------------
