@@ -6447,6 +6447,48 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertTrue(self._fetchall("SELECT * FROM dispatch_runs WHERE target_agent = ?", ("new-agent",)))
         self.assertEqual(self._fetchone("SELECT created_by FROM channels WHERE name = ?", ("rename-room",))["created_by"], "new-agent")
 
+    def test_rename_does_not_call_a_long_dead_bridge_live(self):
+        """`hadLiveBridge` drives an instruction, and the instruction was wrong for a dead session.
+
+        It used to ask `bridge_instances` for any row with an empty `superseded_by`. Those rows
+        accumulate BY DESIGN (KNOWN_ISSUES.md, 2026-08-07 retraction), and a bridge that died without
+        a clean supersede keeps `superseded_by = ''` until the sweep's `_reap_stale_orphan_bridges`
+        reaches it. So renaming after a crashed wrapper told the operator "A live session is still
+        running as '<old>' and is now orphaned — relaunch it" and sent them to recover something that
+        had been dead for hours.
+
+        Nothing here changes state; it is advisory text. But a wrong instruction is the same class of
+        defect as a wrong status, and it now goes through `_agent_liveness` — the same predicate, and
+        the same leases, as the dot the operator is looking at.
+        """
+        self._register("stale-owner", role="coder")
+        # A bridge row that was never superseded and has not been seen in a day: exactly the shape
+        # the old query counted as live.
+        self._execute(
+            "INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode, "
+            "registered_at, last_seen, superseded_by, session_handle, bridge_kind, terminal_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            ("bridge-long-dead", "stale-owner", "linux:test-host", "codex", "resident",
+             "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z", "", "", "resident", ""),
+        )
+
+        renamed = self.client.post(
+            "/api/v1/agents/stale-owner/rename",
+            json={"newAgentId": "fresh-owner", "requestedBy": "dashboard"},
+        )
+        self.assertEqual(renamed.status_code, 200, renamed.text)
+        body = renamed.json()
+        self.assertTrue(body["changed"])
+        self.assertFalse(
+            body["hadLiveBridge"],
+            "a bridge unseen since January is not a live session — the old predicate said it was",
+        )
+        self.assertNotIn("orphaned", body["note"],
+                         "no live session existed, so the note must not send the operator to rescue one")
+        # The parts of the note that are true regardless must survive.
+        self.assertIn("fresh-owner", body["note"])
+        self.assertIn("tombstoned", body["note"])
+
     def test_managed_dispatch_claim_rejects_stale_environment_bridge(self):
         self._heartbeat_environment(id="linux:test-host:default", bridgeId="bridge-current")
         created = self.client.post(

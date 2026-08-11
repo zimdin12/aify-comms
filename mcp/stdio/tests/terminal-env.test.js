@@ -120,4 +120,55 @@ assert.equal(claudeEnv.AIFY_MANAGED_VIA_WRAPPER, "1", "bridge-spawned claude wra
 assert.equal(hermesEnv.AIFY_MANAGED_VIA_WRAPPER, "1", "bridge-spawned hermes wrapper env must declare AIFY_MANAGED_VIA_WRAPPER=1");
 assert.equal(piEnv.AIFY_MANAGED_VIA_WRAPPER, "0", "bridge-spawned pi env must stay native managed, not wrapper-backed");
 
+
+// ── AIFY_AGENT_ROLE: a spawned tester came up as a coder ─────────────────────────────
+//
+// The spawn request carries a role. This env builder never passed it, so the inner
+// mcp/stdio/server.js child read `process.env.AIFY_AGENT_ROLE` — absent — and fell back to
+// "coder" (server.js:238). Its self-register then sent that role, and because re-register is a
+// full state refresh, the spawn's real role was overwritten. Spawn a `tester` and get a `coder`,
+// with nothing anywhere reporting a problem.
+//
+// SECOND bug in the same line, and the worse of the two: `...baseEnv` spreads the ENVIRONMENT
+// BRIDGE's own environment. If that process has AIFY_AGENT_ROLE set, every managed worker it
+// launches INHERITS it. So the role was not merely missing, it was inheritable from an unrelated
+// process — exactly why AIFY_AGENT_ID is set explicitly rather than left to inheritance.
+{
+  const withRole = terminalChildEnv({
+    baseEnv: { AIFY_AGENT_ROLE: "manager" },   // the env bridge's own role, which must not leak
+    runtime: "hermes",
+    terminal: { agentId: "sc-tester" },
+    agentInfo: { role: "tester" },
+  });
+  assert.equal(withRole.AIFY_AGENT_ROLE, "tester", "the spawn's role must reach the worker");
+
+  const unknownRole = terminalChildEnv({
+    baseEnv: { AIFY_AGENT_ROLE: "manager" },
+    runtime: "hermes",
+    terminal: { agentId: "sc-tester" },
+    agentInfo: {},
+  });
+  assert.equal(
+    unknownRole.AIFY_AGENT_ROLE, "",
+    "with no known role the variable must be CLEARED, not inherited from the environment bridge — "
+    + "an empty value makes the child fall back to its own default, a leaked one makes it lie",
+  );
+
+  const fromTerminal = terminalChildEnv({
+    baseEnv: {},
+    runtime: "hermes",
+    terminal: { agentId: "sc-tester", role: "reviewer" },
+    agentInfo: {},
+  });
+  assert.equal(fromTerminal.AIFY_AGENT_ROLE, "reviewer", "the terminal row is a valid role source too");
+
+  const whitespace = terminalChildEnv({
+    baseEnv: {},
+    runtime: "hermes",
+    terminal: { agentId: "x" },
+    agentInfo: { role: "  tester  " },
+  });
+  assert.equal(whitespace.AIFY_AGENT_ROLE, "tester");
+}
+
 console.log("terminal-env.test.js: all assertions passed");

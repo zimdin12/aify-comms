@@ -28,6 +28,49 @@ class _MachineIdNormalizingModel(BaseModel):
         return _normalize_machine_id_value(value)
 
 
+# A model NAME is passed to a runtime CLI as an argument. It is not validated against a list of
+# real models on purpose — see below — but it is validated for SHAPE, because the shape errors are
+# the ones that produce a worker nobody can diagnose.
+#
+# THE ARTIFACT: `mcptest-fakemodel-claude` was spawned 2026-07-01T13:55:53Z with model
+# `totally-fake-model-9000`. It sat `running` for 23 hours and was finally closed by a generic
+# reaper reporting "Orphaned: claiming environment bridge is no longer live" — which was not the
+# cause. The operator got a wrong diagnosis a day late for an input that was wrong on arrival.
+#
+# WHY NOT AN ALLOWLIST, which is the obvious answer: model names change constantly and a stale
+# allowlist would reject legitimate spawns, which is worse than the bug it prevents. The deep case
+# — a plausible-looking name that no provider serves — is now covered from the other end anyway:
+# v0.2.0's `_finalize_spawns_with_dead_terminals` plus `terminal_diagnostics.py` surfaces the
+# runtime's own first fatal line when the worker exits, which is the honest place to learn that a
+# provider rejected a model.
+#
+# What is left for this boundary is the class an allowlist is not needed for: strings that cannot be
+# a model name at all — whitespace inside, control characters, shell metacharacters, absurd length.
+# Those are typos and bad pastes, they are certain rather than probable, and catching them costs one
+# comparison instead of a day.
+_MODEL_MAX_LEN = 120
+_MODEL_FORBIDDEN = set(' \t\r\n"\'`;|&$<>(){}[]*?!\\')
+
+
+def _validate_model_shape(value):
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        # An empty/whitespace model means "use the runtime default" — the same as omitting it.
+        return None
+    if len(text) > _MODEL_MAX_LEN:
+        raise ValueError(f"model name is {len(text)} characters; that is not a model name")
+    bad = sorted({c for c in text if c in _MODEL_FORBIDDEN or ord(c) < 0x20})
+    if bad:
+        shown = ", ".join(repr(c) for c in bad)
+        raise ValueError(
+            f"model name contains characters a runtime CLI cannot receive as one argument ({shown}). "
+            "A model name is a single token like 'opus' or 'gpt-5.5'."
+        )
+    return text
+
+
 class AgentRegister(_MachineIdNormalizingModel):
     agentId: str
     role: str
@@ -283,6 +326,8 @@ class SpawnRequestCreate(BaseModel):
     contextPolicy: Optional[dict[str, Any]] = None
     restartPolicy: Optional[dict[str, Any]] = None
     metadata: Optional[dict[str, Any]] = None
+
+    _check_model = field_validator("model")(_validate_model_shape)
 
 
 class SpawnRequestClaim(_MachineIdNormalizingModel):

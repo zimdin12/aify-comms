@@ -21,6 +21,19 @@ export function terminalChildEnv({
     AIFY_RUNTIME: key,
     AIFY_AGENT_ID: terminal.agentId || "",
     AIFY_COMMS_AGENT_ID: terminal.agentId || "",
+    // The spawn's ROLE, and it must be set unconditionally — including to "".
+    //
+    // Two bugs lived in its absence. The visible one: the inner mcp/stdio/server.js child read
+    // `process.env.AIFY_AGENT_ROLE`, found nothing, fell back to "coder", and its self-register
+    // sent that. Re-register is a full state refresh, so the spawn's real role was overwritten —
+    // spawn a `tester`, get a `coder`, with nothing reporting a problem.
+    //
+    // The worse one: `...baseEnv` above spreads the ENVIRONMENT BRIDGE's environment, so if that
+    // process had AIFY_AGENT_ROLE set, every worker it launched inherited it. Clearing the value
+    // when the role is unknown is therefore part of the fix, not tidiness: an empty value makes the
+    // child fall back to its own default, an inherited one makes it confidently wrong. Same
+    // reasoning as AIFY_AGENT_ID being set explicitly on the line above.
+    AIFY_AGENT_ROLE: String(agentInfo?.role || terminal.role || "").trim(),
     AIFY_AGENT_CWD: workspace || "",
     AIFY_SESSION_HANDLE: handle,
     CLAUDE_SESSION_ID: baseEnv.CLAUDE_SESSION_ID || "",

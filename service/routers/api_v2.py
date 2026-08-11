@@ -14773,10 +14773,25 @@ async def rename_agent(agent_id: str, req: AgentRenameRequest, request: Request)
         # nobody). We report facts + a plain note; the dashboard can format the exact relaunch command.
         session_mode = str(agent["session_mode"] or "resident").strip().lower()
         runtime = str(agent["runtime"] or "").strip()
-        had_live_bridge = bool(await (await db.execute(
-            "SELECT 1 FROM bridge_instances WHERE agent_id = ? AND COALESCE(superseded_by,'') = '' LIMIT 1",
-            (new_agent_id,),
-        )).fetchone())
+        # "Live" needs a FRESHNESS predicate, not merely a row that was never superseded.
+        #
+        # This asked `bridge_instances` for any row with an empty `superseded_by`, which is not the
+        # same question. Those rows accumulate BY DESIGN (KNOWN_ISSUES.md, 2026-08-07 retraction) and
+        # a bridge that died without a clean supersede keeps `superseded_by = ''` until the sweep's
+        # `_reap_stale_orphan_bridges` gets to it. So a rename minutes after a crashed wrapper told
+        # the operator "A live session is still running as '<old>' and is now orphaned — relaunch it",
+        # sending them to recover a session that had already been dead for hours.
+        #
+        # `_agent_liveness` is the repo's single liveness predicate and already applies the exact
+        # leases the status engine uses, so the note now agrees with the dot the operator is looking
+        # at. Advisory text only — nothing here changes state either way — but a wrong instruction is
+        # the same class of defect as a wrong status, and this file has spent a week on that class.
+        liveness = await _agent_liveness(db, new_agent_id)
+        had_live_bridge = bool(
+            liveness.get("worker_live")
+            or liveness.get("sidecar_live")
+            or liveness.get("resident_bridge_fresh")
+        )
         note = (
             f"History + session handle preserved under '{new_agent_id}'; old id '{agent_id}' is "
             f"tombstoned (sends to it are now rejected). "
