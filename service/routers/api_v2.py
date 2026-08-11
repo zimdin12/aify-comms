@@ -27,6 +27,7 @@ _listen_events: dict[str, asyncio.Event] = {}
 
 from pydantic import BaseModel
 from service.config import get_config
+from service.api_core.validation import SAFE_NAME_RE, validate_name  # v0.5.1f: one owner
 from service.api_core.runtime import (  # v0.5.1e: single owner, resolved against the contract
     _normalize_runtime,
     _normalize_session_mode,
@@ -147,7 +148,6 @@ from service.models import (
     VirtualTerminalEnsureRequest, AgentFavoriteUpdate, AgentConsoleInputRequest,
 )
 
-SAFE_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$')
 _WINDOWS_DRIVE_CWD_RE = re.compile(r"^[a-zA-Z]:/")
 _WSL_DRIVE_CWD_RE = re.compile(r"^/mnt/[a-zA-Z](?:/|$)")
 _CONTROL_ID_COUNTER = itertools.count()
@@ -155,9 +155,6 @@ _CONTROL_ID_COUNTER = itertools.count()
 logger = logging.getLogger("aify_comms.api_v2")
 
 
-def validate_name(name: str, label: str = "name") -> None:
-    if not SAFE_NAME_RE.match(name):
-        raise HTTPException(status_code=400, detail=f"Invalid {label}: must be 1-128 alphanumeric chars, dots, hyphens, underscores.")
 
 
 class JsonApiRoute(APIRoute):
