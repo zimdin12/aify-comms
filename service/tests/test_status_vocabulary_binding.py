@@ -71,9 +71,15 @@ class StatusVocabularyBindingTests(unittest.TestCase):
         non_live = _js_array(self.status_js, "NON_LIVE_AGENT_STATUSES")
         self.assertTrue(set(non_live) <= set(VALID_STATUSES), f"unknown status in the exclusion list: {non_live}")
         # And the derivation must actually yield the intended live set.
+        #
+        # `starting` joined it on 2026-08-11 and that is a deliberate classification, not a
+        # side effect of adding a state: a managed spawn inside its boot window IS reachable —
+        # a send queues and is delivered when the worker arrives, exactly as it did when this
+        # window reported `available`. Listing it here means a future change that quietly moved
+        # it into NON_LIVE (and so stopped it being counted as sendable) has to say so.
         self.assertEqual(
             [s for s in VALID_STATUSES if s not in non_live],
-            ["working", "online", "available", "blocked"],
+            ["working", "online", "available", "blocked", "starting"],
         )
 
     def test_every_agent_status_has_a_presentation_entry(self):

@@ -27,7 +27,11 @@ import { esc } from './util.js';
 // MUST equal `service/status_engine.py`'s VALID_STATUSES, in order. Pinned by
 // `service/tests/test_status_vocabulary_binding.py`, which fails the suite on drift rather than
 // letting the dashboard quietly mis-render.
-export const AGENT_STATUSES = ['working', 'online', 'available', 'blocked', 'offline', 'stopped', 'misconfigured'];
+// `starting` (2026-08-11) is the managed boot window: a claimed spawn whose worker has not appeared
+// yet. It is LIVE — a send during boot queues and is delivered when the worker arrives — so it is
+// deliberately absent from NON_LIVE_AGENT_STATUSES below. Its chip already existed here for session
+// states, so the rendering needed no new design: dot 'working', tone 'warn', input disabled.
+export const AGENT_STATUSES = ['working', 'online', 'available', 'blocked', 'offline', 'stopped', 'misconfigured', 'starting'];
 
 // The subset that means "this agent can be reached right now". Derived from the list above rather
 // than retyped: `offline` and `stopped` are the only non-live states, so stating the exclusion keeps

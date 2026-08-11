@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 VALID_STATUSES = (
-    "working", "online", "available", "blocked", "offline", "stopped", "misconfigured",
+    "working", "online", "available", "blocked", "offline", "stopped", "misconfigured", "starting",
 )
 
 
@@ -32,6 +32,17 @@ class StatusInputs:
     bridge_stale: bool        # resident: bridge heartbeat missing (→ offline)
     has_live_session: bool    # resident: a live runtime session exists
     console_booting: bool = False  # managed: console up, sidecar not yet claimed (display online)
+    # managed: a spawn is RUNNING and its worker has not appeared yet — the earlier boot phase,
+    # before there is any console for `console_booting` to see.
+    #
+    # THE BOUND IS PART OF THE INPUT, and that is the whole safety property. This flag must be
+    # gathered as "starting AND within the startup window", never as "a spawn row says running".
+    # A spawn that never produces a worker would otherwise read `starting` forever — which is what
+    # happened to ef-manager on 2026-08-11, and rendering that as a hopeful transient would have
+    # HIDDEN it instead of surfacing it. Past the window the agent falls back to exactly what it
+    # reports today (`available`), so a broken spawn stays as visible as it was before this state
+    # existed. Same rule as `unknown-all` in aify-doctor: a state that cannot expire is a false green.
+    spawn_starting: bool = False
     # Structurally unable to start: the identity exists but something it NEEDS in order to ever
     # be triggered is missing (no spawn spec and no host that could cold-start it, no wake path,
     # an unknown runtime). This is a property of the CONFIG, not of the moment — unlike offline,
@@ -72,7 +83,25 @@ def derive(i: StatusInputs) -> str:
             # demonstrably working is not misconfigured in any way that matters right now.
             if i.config_defect:
                 return "misconfigured"
-            return "online" if i.console_booting else "available"
+            if i.console_booting:
+                return "online"
+            # The EARLIER boot phase: a spawn is running and no console exists yet. Operator-
+            # requested 2026-08-11, after watching an agent sit at `available` for 28 seconds
+            # during a restart and reasonably reading it as "the restart failed" — because that
+            # morning, an identical-looking `available` was exactly that.
+            #
+            # Ranked BELOW misconfigured and console_booting deliberately. An agent that can never
+            # start is not starting, and one whose console is already up has better evidence than
+            # a spawn row. Ranked ABOVE available because `available` promises a cold-start on the
+            # next send, while this agent is already coming up — telling the operator "idle, send
+            # something" during a boot invites a duplicate wake.
+            #
+            # It is a DISPLAY distinction only: delivery keys on worker_present, which stays false
+            # here exactly as it did when this window read `available`, so routing is unchanged and
+            # a send during boot still queues.
+            if i.spawn_starting:
+                return "starting"
+            return "available"
         return "offline"
     # resident: alive with a live session + fresh bridge → online; otherwise gone → offline
     # (the heartbeat going silent is the proof it's gone; there is no separate 'stale' decay).

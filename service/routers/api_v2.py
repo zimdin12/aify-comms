@@ -4677,6 +4677,51 @@ class _WorkerLiveness(NamedTuple):
     channel_managed_no_console: bool
 
 
+# How long a claimed spawn may report `starting` before it stops getting the benefit of the doubt.
+#
+# Measured on this deployment: managed claude-code takes ~28s from spawn-running to an attached
+# terminal (ef-manager, 2026-08-11: running 16:25:41, attached 16:26:10). 180s is generous enough for
+# the slowest runtime on a loaded host and short enough that a spawn which will never produce a
+# worker stops looking hopeful within three minutes.
+#
+# THE WINDOW IS THE POINT. Without it, the morning's genuinely-broken restart — spawn `running`, no
+# terminal, ever — would have rendered as `starting` indefinitely, which is worse than the
+# `available` it replaced: it turns a visible fault into a reassuring animation.
+SPAWN_STARTING_WINDOW_SECONDS = 180
+
+
+async def _managed_spawn_is_starting(db, agent_id: str) -> bool:
+    """True when a spawn for this agent is RUNNING, has no worker yet, and is still inside the
+    startup window.
+
+    Deliberately narrower than "a spawn row says running": the row alone is exactly the signal that
+    was wrong all morning. Requires a claim (`started_at`), so a queued-but-unclaimed spawn — which
+    nothing is starting yet — does not qualify either.
+    """
+    row = await (await db.execute(
+        """
+        SELECT started_at, updated_at, created_at
+        FROM spawn_requests
+        WHERE agent_id = ?
+          AND status = 'running'
+          AND COALESCE(started_at, '') != ''
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (agent_id,),
+    )).fetchone()
+    if not row:
+        return False
+    started = _iso_to_epoch(row["started_at"] or row["updated_at"] or row["created_at"])
+    if not started:
+        # Undeterminable age is NOT inside the window. `_iso_to_epoch` returns 0.0 on an
+        # unparseable value, and 0.0 would otherwise compute as "56 years old" — harmless here, but
+        # only by accident. Stated explicitly: an age we cannot measure must not buy an unbounded
+        # `starting`, so it falls back to what this window reported before the state existed.
+        return False
+    return (time.time() - started) <= SPAWN_STARTING_WINDOW_SECONDS
+
+
 async def _managed_console_is_booting(db, agent_id: str) -> bool:
     """True when the agent's live console came up but NO channel-sidecar has registered for it
     YET — a worker BOOTING (sidecar still coming), distinct from a sidecar that registered for
@@ -4926,10 +4971,18 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
         config_defect = ""
         if not worker_present and env_reachable and not console_booting:
             config_defect = await _agent_config_defect(db, agent_row, mode)
+        # The EARLIER boot phase than console_booting: a claimed spawn whose worker has not appeared
+        # yet, bounded by SPAWN_STARTING_WINDOW_SECONDS so a spawn that never produces one stops
+        # claiming to be on its way. Only computed when it could change the answer.
+        spawn_starting = (
+            not worker_present and env_reachable and not console_booting and not config_defect
+            and await _managed_spawn_is_starting(db, aid)
+        )
         return StatusInputs(mode=mode, alive=worker_present, in_turn=in_turn, awaiting_input=awaiting,
                             worker_present=worker_present, env_reachable=env_reachable, disabled=disabled,
                             bridge_stale=False, has_live_session=worker_present,
-                            console_booting=console_booting, config_defect=config_defect)
+                            console_booting=console_booting, config_defect=config_defect,
+                            spawn_starting=spawn_starting)
     # Phase I flip parity: a resident in a `*-missing-handle` wake-mode (no usable wake
     # handle — e.g. resident hermes with no live gatewayUrl, resident codex/pi without a
     # sessionHandle) CANNOT be woken, so it reads `stale` even if a bridge looks fresh
@@ -8502,7 +8555,13 @@ async def _ensure_managed_pty_for_dispatch(
     """
     wanted_session = str(for_session_id or "").strip()
     active = await _active_terminal_for_agent(db, agent_id, settings=settings)
-    if active and (not wanted_session or str(active.get("session_id") or "") == wanted_session):
+    # `active` is a sqlite3.Row, NOT a dict — it has no `.get()`. The first version of this line
+    # called `active.get("session_id")`, which raises AttributeError, and the caller's
+    # `except Exception: pass` swallowed it whole. Worse than a plain crash: it only triggered when
+    # an active terminal EXISTED, i.e. exactly the restart case this function was being fixed for,
+    # and only when the outgoing terminal had not yet flipped to `stopped` — so the first live test
+    # passed by luck and the second hung with no worker and no log line.
+    if active and (not wanted_session or str(active["session_id"] or "") == wanted_session):
         return active
     normalized_runtime = _normalize_runtime(runtime or "")
     if normalized_runtime not in {"claude-code", "codex", "hermes", "opencode", "pi"}:
@@ -11830,9 +11889,16 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                         # agent ends up `running` with no worker at all. Reproduced live.
                         for_session_id=str(row["session_id"] or ""),
                     )
-                except Exception:
-                    # The dispatch path's lazy spawn is our fallback.
-                    pass
+                except Exception as exc:
+                    # The dispatch path's lazy spawn is still the fallback — this must never fail a
+                    # spawn-request transition. But it must not be SILENT either: a bare `pass` here
+                    # hid an AttributeError of mine for two live restarts, during which the operator
+                    # saw an agent with no worker and the logs said nothing at all. A best-effort
+                    # step that fails invisibly is indistinguishable from one that had nothing to do.
+                    logger.warning(
+                        "eager managed PTY for %s failed (%s: %s); falling back to lazy spawn on dispatch",
+                        row["agent_id"], type(exc).__name__, exc,
+                    )
 
         # TOCTOU guard (bughunt 2026-07-03): the status check above read `current_status`
         # ONCE; between that read and this write a concurrent operator Stop/CLI-takeover
