@@ -115,28 +115,79 @@ FRAME_SENSITIVE = {
 }
 
 
+def _nested_scopes(node: ast.AST):
+    return isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef))
+
+
 def _assigned_names(nodes) -> set[str]:
-    """Local names BOUND by these statements, excluding names bound in nested scopes."""
+    """Names BOUND IN THIS SCOPE by these statements.
+
+    Stores inside a nested `def`/`lambda`/`class` bind that inner scope, NOT this one, so they are
+    skipped — counting them would let a helper-bound name look rebound by code that cannot rebind
+    it. The reviewer caught the earlier version claiming to skip nested scopes in its docstring
+    while using a flat `ast.walk` that did not.
+    """
     out: set[str] = set()
-    for stmt in nodes:
-        for sub in ast.walk(stmt):
-            if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                out.add(sub.name)
+
+    def visit(node: ast.AST) -> None:
+        for child in ast.iter_child_nodes(node):
+            if _nested_scopes(child):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    out.add(child.name)  # the def itself binds its name HERE
                 continue
-            if isinstance(sub, ast.Name) and isinstance(sub.ctx, (ast.Store, ast.AugStore)):
-                out.add(sub.id)
-            elif isinstance(sub, ast.arg):
-                out.add(sub.arg)
+            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
+                out.add(child.id)
+            visit(child)
+
+    for stmt in nodes:
+        if _nested_scopes(stmt):
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                out.add(stmt.name)
+            continue
+        if isinstance(stmt, ast.Name) and isinstance(stmt.ctx, ast.Store):
+            out.add(stmt.id)
+        visit(stmt)
     return out
 
 
 def _loaded_names(nodes) -> set[str]:
+    """Names READ by these statements, INCLUDING inside nested scopes.
+
+    Deliberately asymmetric with `_assigned_names`. A nested `def` that references the name captures
+    it from this scope, which is a genuine read of the outer local — so nested loads count. Being
+    over-inclusive here only ever refuses an extraction; being under-inclusive would bless a broken
+    one, and this gate's whole job is to fail in the safe direction.
+    """
     out: set[str] = set()
     for stmt in nodes:
         for sub in ast.walk(stmt):
             if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load):
                 out.add(sub.id)
     return out
+
+
+def _read_before_rebind(after: list[ast.stmt], name: str) -> bool:
+    """Walking the post-call statements IN ORDER: is `name` read before it is bound again?
+
+    THE ORDER BUG THE REVIEWER FOUND. The first version subtracted every name assigned anywhere
+    after the call, which hid a real violation behind a later assignment:
+
+        _w()            # binds `total`, does not hand it back
+        use(total)      # BROKEN -- reads a name that is now a helper local
+        total = 0       # ...and this later line made the check ignore the line above
+
+    Liveness is positional. A rebind only kills liveness AFTER the rebind, never before it.
+    """
+    for stmt in after:
+        loads = _loaded_names([stmt])
+        stores = _assigned_names([stmt])
+        # Within one statement a load is evaluated before the bind (`total = total + 1`), so a load
+        # in the same statement counts as a read first.
+        if name in loads:
+            return True
+        if name in stores:
+            return False
+    return False
 
 
 def live_out_violations(split_fn: ast.AST, helper_fn: ast.AST) -> list[str]:
@@ -167,9 +218,11 @@ def live_out_violations(split_fn: ast.AST, helper_fn: ast.AST) -> list[str]:
     bound_by_helper -= params
 
     rebound_at_call = _assigned_names([call_stmt])
-    read_after = _loaded_names(after)
-    # A name the caller binds again before reading is not live-out from the helper.
-    escaped = sorted((bound_by_helper & read_after) - rebound_at_call - _assigned_names(after))
+    # Positional, not set-based: a later rebind kills liveness only AFTER it, never before.
+    escaped = sorted(
+        name for name in (bound_by_helper - rebound_at_call)
+        if _read_before_rebind(after, name)
+    )
     return [
         f"`{name}` is assigned inside the helper and read by the caller afterwards, but the call "
         f"does not hand it back - after the split it is a HELPER local and the caller raises "

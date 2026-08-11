@@ -452,5 +452,85 @@ def _w():
         self.assertIn("hand it back", str(caught.exception))
 
 
+
+
+class ExtractMethodLiveOutOrderingTests(unittest.TestCase):
+    """Liveness is positional. The reviewer found the set-based version hid real violations."""
+
+    def test_a_later_rebind_does_not_excuse_an_earlier_read(self):
+        """The reviewer's exact counterexample.
+
+        The set-based check subtracted every name assigned anywhere after the call, so the trailing
+        `total = 0` made it ignore the broken `use(total)` above it.
+        """
+        original = '''
+def f():
+    total = compute()
+    use(total)
+    total = 0
+'''
+        split = '''
+def f():
+    _w()
+    use(total)
+    total = 0
+
+
+def _w():
+    total = compute()
+'''
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original, split, "_w")
+        self.assertIn("hand it back", str(caught.exception))
+
+    def test_a_rebind_BEFORE_any_read_is_genuinely_safe(self):
+        """The other direction must still pass, or the rule is just a blanket refusal."""
+        original = '''
+def f():
+    total = compute()
+    total = 0
+    use(total)
+'''
+        split = '''
+def f():
+    _w()
+    total = 0
+    use(total)
+
+
+def _w():
+    total = compute()
+'''
+        assert_extraction_preserves_behaviour(original, split, "_w")
+
+    def test_a_store_inside_a_nested_def_does_not_count_as_a_rebind(self):
+        """A nested def binds its OWN scope; it cannot rebind the caller's local."""
+        original = '''
+def f():
+    total = compute()
+
+    def inner():
+        total = 99
+        return total
+    use(total)
+'''
+        split = '''
+def f():
+    _w()
+
+    def inner():
+        total = 99
+        return total
+    use(total)
+
+
+def _w():
+    total = compute()
+'''
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original, split, "_w")
+        self.assertIn("hand it back", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
