@@ -53,7 +53,52 @@ to be false. That is the rule working, not the rule being expensive.
 |---|---|
 | **Audit triage** | `comms-senior-dev` is auditing four areas: the health-surface family, SSE/stdio parity, the reconciler seam read-only, and an adversarial pass on the v0.3 code. Findings get triaged against the rule; survivors get scheduled here. |
 | **Agent health surfaces cannot answer "what did this agent produce?"** | AUDIT FINDING 1, source-cited. See below — the fix is an outbound-activity field, and a DEGRADED marker alone would not retire the artifact. |
-| **Repair the 183 corrupted artifacts** | Script written, dry-run verified, **operator's call** — 183 files is a destructive batch and the forward bug is already fixed. |
+| ~~**Repair the 183 corrupted artifacts**~~ | **DONE.** 183 repaired, 0 still corrupted, 0 DB/disk size mismatches. Backups deleted only after `scripts/verify_crlf_repair.py` proved both facts below; manifest at `/data/crlf-repair-manifest.json`. |
+
+### AUDIT FINDING 4 — adversarial pass on v0.3.0 + v0.3.1
+
+`comms-senior-dev`, source review plus read-only DB probes. Two evidence-surface bugs, both fixed
+in v0.3.2; one recommendation measured and declined; one pre-delete guard built and satisfied.
+
+**F1 — `bridge-current` was green on no evidence. FIXED.** The check counts a live bridge that
+reports no `bridgeBuild` as *unknown* and returned `ok` regardless, so `--strict` PASSED while
+verifying nothing. Live-confirmed: this host's one online bridge reported no build. That is the
+same false green as `env-bridge` counting registered rows (`756f3a5`) — reproduced inside the check
+written to prevent that class. Split: *some* evidence with gaps stays `partial` (ok); **zero**
+evidence is now `unknown-all` and fails. A check that cannot answer must not count as one that
+answered yes.
+
+**F2 — `Last produced: unknown` blamed the wrong component. FIXED.** The renderer collapsed "a
+pre-v0.3.1 service omitted the field" and "a current service answered `{}`" into one line, so a
+fresh agent on a current service was reported as the service not answering. `_agent_record_to_dict`
+always emits the key, so key presence is the discriminator — no API change. Pinned from both sides:
+the bridge test asserts the two never render identically, and a Python test asserts the service
+never stops emitting the key.
+
+**F3 — the index recommendation, DECLINED on measurement.** The reviewer measured the outbound run
+aggregate at 27.3 ms with a temp B-tree and proposed a `(status, target_agent, finished_at DESC)`
+index. The cost is the **fan-out**, not the aggregate: same statement, 42 agents → 37 ms and a temp
+B-tree; 1 agent → **0.01 ms** on `idx_dispatch_runs_target_status`. The roster stopped calling it in
+`39e47ac`, so the only surviving caller is already index-covered and a new index on a hot write
+table would buy nothing. Recorded in the source next to the code, with the condition that reverses
+it.
+
+**F4 — do not delete the CRLF backups on the artifacts alone. SATISFIED, then deleted.** Correct:
+from a stripped file you cannot distinguish injected framing from a legitimate leading CRLF.
+`scripts/verify_crlf_repair.py` establishes the two facts that can:
+
+- **Provenance** — the newest repaired artifact was shared `17:46:24Z`; the fix (`4157299`) was
+  committed `18:12:44Z`. Every repaired artifact predates the fixed code by at least 26 minutes, so
+  no bridge could have produced a *correct* leading CRLF. This is what retires "every stripped
+  `0d0a` was framing" — the artifact itself never could.
+- **Derivability** — 183/183 backups satisfied `backup == b"\r\n" + repaired` exactly, so each was
+  reconstructible from the file beside it. Deleting destroyed no information rather than merely
+  being an acceptable risk.
+
+**Non-findings the reviewer cleared:** the notification coalesce map does not grow on a quiet tab
+(entries are only inserted on a firing path, and pruning runs on every fire); the Caddy/HTTPS
+profile has no source-level blocker; `transport-parity.test.js` declares an inventory rather than
+overclaiming parity; the share multipart test guards construction only, as recorded.
 
 ### AUDIT FINDING 1 — health surfaces answer about the wrong path
 

@@ -2402,18 +2402,24 @@ async def _get_outbound_activity_map(db, agent_ids: list[str], *, include_runs: 
     # Last run this agent COMPLETED as the worker. Distinct from "a run targeting it exists",
     # which the dispatch-state field already reports and which says nothing about output.
     #
-    # OFF BY DEFAULT ON THE ROSTER, and that is a measured decision rather than caution. This
-    # aggregate cannot use `idx_dispatch_runs_target_status(target_agent, status, requested_at)`
-    # for MAX(finished_at), so it reads every completed run per agent: measured 37 ms median /
-    # 42 ms p95 across 42 agents against 18,005 rows. `GET /agents` is the dashboard's poll path,
-    # and DECISIONS.md (2026-06-29) is explicit that cost there is what produced the last
-    # `database is locked` era.
+    # OFF BY DEFAULT ON THE ROSTER, and that is a measured decision rather than caution. The cost
+    # is not in the aggregate, it is in the FAN-OUT: with one agent SQLite searches
+    # `idx_dispatch_runs_target_status(target_agent, status, requested_at)`; with the whole roster
+    # in an `IN (...)` list it abandons that index and builds a temp B-tree over every completed
+    # run. Measured on the live DB (18,005 runs), same statement, only the parameter count differs:
     #
-    # The roster does not need it. `lastSentAt` alone answers "has this agent produced anything"
-    # — the question the false silent-lane claim turned on — and costs 2.55 ms on a covering
-    # index. The run detail belongs on the single-agent view, where someone is actually
-    # investigating one agent. Adding an index to a hot write table to make a roster field
-    # cheaper would be the wrong trade.
+    #     42 agents (roster)   37.0 ms median / 42.0 ms p95   TEMP B-TREE FOR GROUP BY
+    #      1 agent  (detail)    0.01 ms median /  0.34 ms p95  SEARCH USING idx_dispatch_runs_target_status
+    #
+    # `GET /agents` is the dashboard's poll path and DECISIONS.md (2026-06-29) is explicit that
+    # cost there is what produced the last `database is locked` era — so the roster does not run
+    # this at all. `lastSentAt` alone answers "has this agent produced anything", the question the
+    # false silent-lane claim turned on, at 2.55 ms on a covering index.
+    #
+    # The reviewer's alternative was a new index shaped `(status, target_agent, finished_at DESC)`.
+    # The 3,500× gap above is why it was not taken: the surviving caller is already index-covered,
+    # so the index would buy nothing and would be paid for on every write to a hot table. Restore
+    # the roster call and that trade changes — measure before assuming either way.
     if not include_runs:
         return out
     cursor = await db.execute(
