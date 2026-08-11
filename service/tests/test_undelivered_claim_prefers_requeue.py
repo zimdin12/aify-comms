@@ -201,14 +201,22 @@ class UndeliveredClaimPrefersRequeueTests(FastApiTestCase):
     def test_both_paths_still_share_one_staleness_ceiling(self):
         """The two paths becoming eligible together is the trigger. If they ever stop
         sharing the bound, the deterministic-loss analysis needs redoing."""
-        source = (REPO_ROOT / "service" / "routers" / "api_v2.py").read_text(encoding="utf-8")
+        source = (REPO_ROOT / "service" / "reconcilers" / "dispatch_queue.py").read_text(encoding="utf-8")
         requeue_body = source[source.index("async def _requeue_orphaned_claimed_runs"):][:4000]
-        self.assertIn("ACTIVE_RUN_BRIDGE_STALE_SECONDS", requeue_body)
+        # v0.5 slice 7: the requeue reconciler moved to service/reconcilers/dispatch_queue.py and now
+        # reads the ceiling through `_active_run_bridge_stale_seconds()`, a shim over the ONE
+        # owner in the router. The property under test is unchanged — both paths still derive from
+        # a single ACTIVE_RUN_BRIDGE_STALE_SECONDS — but it is reached by call rather than by name,
+        # which is deliberate: a second copy of that constant is the drift this test guards.
+        self.assertIn("_active_run_bridge_stale_seconds()", requeue_body)
         # Window must reach the FINAL gate — the heartbeat check is the last branch in the
         # function, and a window one character short of it made this test pass for the wrong
         # reason on the first run.
-        unclaimable_at = source.index("async def _discard_unclaimable_active_run")
-        unclaimable = source[unclaimable_at:source.index("async def _discard_unusable_active_run")]
+        # `_discard_unclaimable_active_run` did NOT move in slice 7 — this agreement now spans two
+        # files, which is precisely why it is asserted rather than assumed.
+        router = (REPO_ROOT / "service" / "routers" / "api_v2.py").read_text(encoding="utf-8")
+        unclaimable_at = router.index("async def _discard_unclaimable_active_run")
+        unclaimable = router[unclaimable_at:router.index("async def _discard_unusable_active_run")]
         self.assertIn("ACTIVE_RUN_BRIDGE_STALE_SECONDS", unclaimable)
 
     def test_the_reverted_shape_is_not_reintroduced(self):
@@ -216,6 +224,7 @@ class UndeliveredClaimPrefersRequeueTests(FastApiTestCase):
         claim precedes the death by a second) and DELETED the rescue window. This fix must
         widen the window, never close it — so the funnel must prefer requeue BEFORE it writes
         a failure."""
+        # `_fail_stale_active_run` stayed in the router; only the requeue reconciler moved.
         source = (REPO_ROOT / "service" / "routers" / "api_v2.py").read_text(encoding="utf-8")
         funnel = source[source.index("async def _fail_stale_active_run"):][:2000]
         rescue_at = funnel.index("_requeue_instead_of_failing_undelivered_claim")

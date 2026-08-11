@@ -161,7 +161,7 @@ class LingeringDeliveredRunTests(unittest.TestCase):
 
     def test_class_one_is_not_gated_on_an_empty_finished_at(self):
         import re
-        src = (REPO_ROOT / "service" / "routers" / "api_v2.py").read_text(encoding="utf-8")
+        src = (REPO_ROOT / "service" / "reconcilers" / "dispatch_queue.py").read_text(encoding="utf-8")
         start = src.index("async def _close_reconcilable_delivered_runs")
         body = src[start:start + 4000]
         where = body[body.index("WHERE status = 'delivered'"):body.index("ORDER BY requested_at ASC")]
@@ -230,7 +230,7 @@ class ColdStartRefusalReasonTests(unittest.TestCase):
         # a NameError on the failure path, i.e. only on the path nobody exercises. Assert every
         # call to the message helper names a list declared in the same function.
         import re
-        src = (REPO_ROOT / "service" / "routers" / "api_v2.py").read_text(encoding="utf-8")
+        src = (REPO_ROOT / "service" / "reconcilers" / "dispatch_queue.py").read_text(encoding="utf-8")
         for m in re.finditer(r"_coldstart_refusal_message\((\w+), runtime\)", src):
             var = m.group(1)
             before = src[:m.start()]

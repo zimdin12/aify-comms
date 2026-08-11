@@ -86,7 +86,7 @@ class ReconcilerSourceTests(unittest.TestCase):
 
     def test_the_replay_reconciler_divides_by_1000(self):
         from pathlib import Path
-        src = Path(__file__).resolve().parents[2] / "service" / "routers" / "api_v2.py"
+        src = Path(__file__).resolve().parents[2] / "service" / "reconcilers" / "dispatch_queue.py"
         text = src.read_text(encoding="utf-8", errors="replace")
         at = text.index("_replay_undelivered_channel_messages_on_env_recovery")
         body = text[at:at + 6000]
@@ -98,7 +98,7 @@ class ReconcilerSourceTests(unittest.TestCase):
         """Sweep for the whole class, not just the one instance the reviewer happened to find."""
         import re
         from pathlib import Path
-        src = Path(__file__).resolve().parents[2] / "service" / "routers" / "api_v2.py"
+        src = Path(__file__).resolve().parents[2] / "service" / "reconcilers" / "dispatch_queue.py"
         text = src.read_text(encoding="utf-8", errors="replace")
         # `datetime(<something>.timestamp)` with no /1000 — the exact broken shape.
         offenders = re.findall(r"datetime\(\s*\w*\.?timestamp\s*\)", text)
