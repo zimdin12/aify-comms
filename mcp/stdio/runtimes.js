@@ -82,7 +82,9 @@ export {
   discoverCodexLiveBinding,
 } from "./runtimes-codex.js";
 
-const RUNTIME_ALIASES = new Map([
+// Exported so the vocabulary agreement test can compare the REAL map against
+// service/contracts/vocabulary.json, rather than regex-parsing this file.
+export const RUNTIME_ALIASES = new Map([
   ["claude", "claude-code"],
   ["claude-code", "claude-code"],
   ["claude_code", "claude-code"],

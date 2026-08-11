@@ -413,25 +413,14 @@ _RUNTIME_CONFIG_LIVE_KEYS = {
     "channelEnabled",
 }
 
-_RUNTIME_ALIASES = {
-    "claude": "claude-code",
-    "claude-code": "claude-code",
-    "claude_code": "claude-code",
-    "codex": "codex",
-    "hermes": "hermes",
-    "hermes-agent": "hermes",
-    "hermes_agent": "hermes",
-    "oh-my-pi": "pi",
-    "oh_my_pi": "pi",
-    "opencode": "opencode",
-    "omp": "pi",
-    "pi": "pi",
-    "pi-agent": "pi",
-    "pi_agent": "pi",
-    "generic": "generic",
-}
-_LAUNCHABLE_RUNTIMES = {"claude-code", "codex", "hermes", "opencode", "pi"}
-_SESSION_MODES = {"resident", "managed"}
+# v0.5.1d: the vocabulary contract is the single owner of these words. Declared once in
+# service/contracts/vocabulary.json, loaded by service/api_core/vocabulary.py, and cross-checked
+# against the bridge's copy by an agreement test in each suite. Do NOT re-declare them here.
+from service.api_core.vocabulary import (
+    RUNTIME_ALIASES as _RUNTIME_ALIASES,
+    LAUNCHABLE_RUNTIMES as _LAUNCHABLE_RUNTIMES,
+    SESSION_MODES as _SESSION_MODES,
+)
 _DISPATCH_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 _TERMINAL_END_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
 # Deterministic, lowercase ordering of the SAME set, for SQL parameter binding. A set

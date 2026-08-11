@@ -1,0 +1,74 @@
+{
+  "$comment": [
+    "THE CROSS-LANGUAGE VOCABULARY CONTRACT. One home for the words this system agrees on.",
+    "",
+    "Finding H1 of the v0.2 review: 'the system's core vocabulary has no single home - it is",
+    "hand-copied across the language boundary'. It has since gone wrong twice in ways that reached",
+    "users: the runtime alias map is duplicated in Python and JS, and the agent status vocabulary in",
+    "the debug skill still taught six states months after `starting` and `misconfigured` shipped,",
+    "which meant an agent could read the skill and RESTART a worker that was already booting.",
+    "",
+    "WHY A JSON FILE AND NOT A PYTHON MODULE. The consumers are in three languages. JSON is neutral",
+    "ground that a JS test can read without parsing Python.",
+    "",
+    "WHY THE BRIDGE STILL KEEPS ITS OWN COPY. `install.sh` copies only `mcp/stdio/` into",
+    "~/.aify-comms, so a file under `service/` is simply ABSENT on the host where the bridge runs.",
+    "Making the bridge read this at runtime would break the native-copy install. So the bridge keeps",
+    "its literal map and an AGREEMENT TEST fails the suite if it ever diverges from this file - the",
+    "repo's standing rule that a duplication finding becomes an agreement test, not a forced refactor.",
+    "",
+    "Python has no such constraint: `service/api_core/vocabulary.py` loads this file and is the ONLY",
+    "Python owner. There is no second Python copy to drift."
+  ],
+
+  "agentStatuses": {
+    "$comment": "Emitted by service/status_engine.py derive(). Proof-based: no time-decay states, no `idle`, no `stale`.",
+    "values": [
+      "working",
+      "online",
+      "available",
+      "starting",
+      "blocked",
+      "offline",
+      "stopped",
+      "misconfigured"
+    ],
+    "meanings": {
+      "working": "Live worker, open turn.",
+      "online": "Live worker, between turns.",
+      "available": "Managed and cold-startable, no worker. A send auto-starts it.",
+      "starting": "A claimed spawn is coming up; no worker YET. Do NOT restart or re-send - a restart kills the boot in flight. Bounded: falls back to `available` past the spawn window.",
+      "blocked": "Live turn awaiting operator input.",
+      "offline": "No current wake path.",
+      "stopped": "Operator-disabled.",
+      "misconfigured": "Identity exists but can never start. Not send-recoverable; a human must fix the config."
+    }
+  },
+
+  "sessionModes": {
+    "values": ["resident", "managed"]
+  },
+
+  "runtimes": {
+    "$comment": "Canonical runtime ids, and every accepted input spelling that normalizes to one.",
+    "canonical": ["claude-code", "codex", "hermes", "opencode", "pi", "generic"],
+    "launchable": ["claude-code", "codex", "hermes", "opencode", "pi"],
+    "aliases": {
+      "claude": "claude-code",
+      "claude-code": "claude-code",
+      "claude_code": "claude-code",
+      "codex": "codex",
+      "hermes": "hermes",
+      "hermes-agent": "hermes",
+      "hermes_agent": "hermes",
+      "oh-my-pi": "pi",
+      "oh_my_pi": "pi",
+      "opencode": "opencode",
+      "omp": "pi",
+      "pi": "pi",
+      "pi-agent": "pi",
+      "pi_agent": "pi",
+      "generic": "generic"
+    }
+  }
+}
