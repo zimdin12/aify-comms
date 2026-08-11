@@ -268,10 +268,42 @@ copy_bridge_to_native_dir() {
     return 0
   fi
   mkdir -p "$AIFY_NATIVE_BASE/mcp"
+
+  # BUILD BESIDE, THEN SWAP. Never write into $AIFY_BRIDGE_DIR in place.
+  #
+  # THE ARTIFACT THIS RETIRES: the parallel-install incident, where `~/.aify-comms/mcp/stdio` was
+  # left holding 2 of 71 files and `aify-doctor` died MODULE_NOT_FOUND. The old shape was
+  # `rm -rf "$AIFY_BRIDGE_DIR"` followed by ~4 seconds of copying node_modules back, so for those
+  # four seconds the directory every bridge on the host executes from was empty or partial. That
+  # was written off as "don't run installs in parallel"; the honest reading is that the installer
+  # had a window in which the tree was not a valid install, and a crash, a Ctrl+C or a second
+  # installer landing in it left it that way.
+  #
+  # Staging removes the window rather than narrowing it: the copy happens beside the live tree,
+  # is checked for completeness, and only then swapped in with two renames.
+  #
+  # Measured, by interrupting each shape 1.2s into the copy of a seeded 4,200-file install:
+  #     in-place   720 of 4,200 files survive — server.js present, node_modules gutted, which is
+  #                exactly the shape that made `aify-doctor` unrunnable
+  #     staged     4,200 of 4,200 — the live tree is never touched until the swap
+  #
+  # NOT claimed, because I tested it and it did not reproduce: that the old in-place copy reliably
+  # kills a RUNNING bridge. A node process that has already loaded its modules survives the delete,
+  # and a live process holding node-pty plus importing a plain module mid-copy came through fine.
+  # The 2026-08-11 fleet outage had a different cause entirely (a bare `aify-comms` invocation
+  # superseding the live environment bridge — see the launcher's --check flag below).
+  #
+  # Also NOT fixed: a live bridge still ends up running a mix of the modules it loaded at boot and
+  # any it imports afterwards. Restart bridges after installing; `aify-comms doctor` names the ones
+  # that need it (`bridge-current`).
+  local staging="$AIFY_NATIVE_BASE/mcp/.stdio.incoming.$$"
+  local retired="$AIFY_NATIVE_BASE/mcp/.stdio.retired.$$"
+  rm -rf "$staging" "$retired"
+  mkdir -p "$staging"
   if command -v rsync >/dev/null 2>&1; then
     # Linux / WSL / macOS: rsync -a preserves symlinks (node_modules/.bin shims)
     # natively. This is the path WSL+Mac take.
-    rsync -a --delete "$src/" "$AIFY_BRIDGE_DIR/"
+    rsync -a --delete "$src/" "$staging/"
   else
     # Windows Git-Bash / MSYS (no rsync): `cp` cannot recreate POSIX symlinks
     # without symlink privilege (git core.symlinks=false, no winsymlinks), so a
@@ -283,12 +315,34 @@ copy_bridge_to_native_dir() {
     # with -L so symlink targets are copied as plain files and no symlink is ever
     # created. node_modules/.bin shims are the only symlinks and the bridge runtime
     # never uses them, so copying their targets as files is functionally identical.
-    rm -rf "$AIFY_BRIDGE_DIR"
-    mkdir -p "$AIFY_BRIDGE_DIR"
     find "$src" -type l ! -exec test -e {} \; -exec rm -f {} \; 2>/dev/null || true
-    cp -RL "$src/." "$AIFY_BRIDGE_DIR/"
+    cp -RL "$src/." "$staging/"
   fi
-  echo "  Bridge runtime installed to $AIFY_BRIDGE_DIR (native, fast load)."
+  # Sanity-gate the staged tree BEFORE it can replace a working install. A half-copied staging
+  # dir promoted over a good one would be the same outage with extra steps.
+  if [ ! -f "$staging/server.js" ] || [ ! -d "$staging/node_modules" ]; then
+    rm -rf "$staging"
+    echo "  ERROR: staged bridge copy is incomplete (no server.js or node_modules); keeping the" >&2
+    echo "         existing install at $AIFY_BRIDGE_DIR untouched." >&2
+    exit 1
+  fi
+  if [ -d "$AIFY_BRIDGE_DIR" ]; then
+    if ! mv "$AIFY_BRIDGE_DIR" "$retired" 2>/dev/null; then
+      # A process holding a handle INSIDE the directory (e.g. a bridge whose cwd is in there) can
+      # block the rename on Windows. Fall back to the old in-place behaviour rather than failing
+      # the install — but say so, because that is the path that can kill live bridges.
+      echo "  WARNING: could not move the existing bridge dir aside (a process is holding it)." >&2
+      echo "           Falling back to in-place replacement. Any RUNNING bridge may crash on its" >&2
+      echo "           next lazy import — restart your bridges and run \`aify-comms doctor\`." >&2
+      rm -rf "$AIFY_BRIDGE_DIR"
+    fi
+  fi
+  mv "$staging" "$AIFY_BRIDGE_DIR"
+  # Best-effort: the retired tree may hold files Windows still considers in use. Leaving it costs
+  # disk, not correctness, and it is named so the next install sweeps it.
+  rm -rf "$retired" 2>/dev/null || true
+  rm -rf "$AIFY_NATIVE_BASE"/mcp/.stdio.retired.* 2>/dev/null || true
+  echo "  Bridge runtime installed to $AIFY_BRIDGE_DIR (native, fast load; staged swap)."
 
   # Stamp the installed host bridge with the repo's git identity ($SCRIPT_DIR is
   # the repo checkout and HAS .git; the native copy does not). `aify-comms
@@ -2682,6 +2736,33 @@ if [ "\${1:-}" = "doctor" ]; then
   shift
   exec node "$AIFY_BRIDGE_DIR/doctor.js" "\$@"
 fi
+# \`--check\` — validate the launcher WITHOUT registering anything.
+#
+# INCIDENT 2026-08-11, and it was mine: I ran \`aify-comms\` for four seconds to confirm the
+# launcher still started after editing it. A bare invocation is not a smoke test — it starts a
+# REAL environment bridge, which by design supersedes the one already serving this environment.
+# The older bridge exited and reaped its managed gateway hosts, my four-second process then died,
+# and the host was left with NO environment bridge and nine managed agents down mid-work.
+#
+# The banner said "aify-comms bridge", which reads like a client. Nothing said running it would
+# take over from a live bridge. Both halves are fixed: this flag is the check that was actually
+# wanted, and the banner further down states what starting it does.
+#
+# It MUST be handled here, above the root parser. Placed after it, the parser rejected --check as
+# an unknown option before this branch was ever reached — caught by running it, not by reading it.
+if [ "\${1:-}" = "--check" ]; then
+  echo "aify-comms launcher check (nothing is registered, no bridge is started)"
+  echo "  server: \$SERVER_URL"
+  echo "  script: $AIFY_BRIDGE_DIR/server.js"
+  rc=0
+  command -v node >/dev/null 2>&1 || { echo "  node:   MISSING from PATH" >&2; rc=1; }
+  [ -f "$AIFY_BRIDGE_DIR/server.js" ] || { echo "  script: MISSING" >&2; rc=1; }
+  if [ "\$rc" = "0" ] && ! node --check "$AIFY_BRIDGE_DIR/server.js" >/dev/null 2>&1; then
+    echo "  script: does not parse" >&2; rc=1
+  fi
+  [ "\$rc" = "0" ] && echo "  OK — the launcher would start. Run without --check to actually start it."
+  exit "\$rc"
+fi
 if [ "\${1:-}" = "--version" ] || [ "\${1:-}" = "-V" ]; then
   # Host bridge version stamp (baked at install time). $AIFY_NATIVE_BASE and
   # $SCRIPT_DIR below are the install-time literals; everything network/git is
@@ -2768,9 +2849,12 @@ NODE
 export AIFY_SERVER_URL="\$SERVER_URL"
 export AIFY_CWD_ROOTS="\$ROOTS"
 
-echo "aify-comms bridge"
+echo "aify-comms ENVIRONMENT BRIDGE (this hosts dashboard-managed agents)"
 echo "  server: \$AIFY_SERVER_URL"
 echo "  roots:  \$AIFY_CWD_ROOTS"
+echo "  note:   starting this SUPERSEDES any bridge already serving this environment —"
+echo "          the older one exits and its managed workers are reaped. Use --check to"
+echo "          validate the launcher without starting anything."
 echo "  stop:   Ctrl+C"
 cd "\$SAFE_CWD"
 exec node "$AIFY_BRIDGE_DIR/server.js" --environment-bridge

@@ -35,11 +35,20 @@ Installed files:
 Basic usage:
 
 ```bash
-aify-comms
+aify-comms                                    # STARTS the environment bridge (see the warning below)
+aify-comms --check                            # validate the launcher WITHOUT starting or registering anything
+aify-comms doctor                             # the verifier (`aify-doctor` is the older name for it)
 aify-comms --help
 aify-comms /path/to/extra/root /another/root
 aify-comms http://host:8800 /path/to/extra/root
 ```
+
+> **`aify-comms` with no arguments is not a smoke test.** It starts a real environment bridge,
+> which **supersedes** whatever bridge is already serving this environment: the older one exits and
+> its managed workers are reaped. On 2026-08-11 a four-second `aify-comms` run — intended only to
+> confirm the launcher still started — superseded the live bridge and then died with it, leaving the
+> host with no environment bridge and nine managed agents down mid-work. Use `--check` to validate
+> the launcher; use `aify-comms doctor` to check the install.
 
 If no server URL is passed, the launcher uses `AIFY_SERVER_URL` or falls back to the URL provided during install, then `http://localhost:8800`. The current directory is always included in `AIFY_CWD_ROOTS`; `AIFY_CWD_ROOTS` and extra command-line roots add more allowed workspace boundaries. Unknown option-looking arguments fail fast instead of becoming roots, and the service also ignores flag-like roots from stale launchers.
 

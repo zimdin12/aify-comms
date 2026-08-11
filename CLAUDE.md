@@ -69,6 +69,13 @@ aify-comms doctor --json     # {ok, checks:[{id, ok, code, detail, fix}]} — fo
 aify-comms doctor --strict   # exit 1 if any check failed
 ```
 
+**Never run a bare `aify-comms` to check that something works.** It is not a client and not a smoke
+test — it starts the **environment bridge**, which supersedes the one already serving this
+environment; the older bridge exits and its managed workers are reaped. That is how the whole
+managed fleet went down on 2026-08-11, from a four-second run meant only to confirm the launcher
+still started. Use `aify-comms --check` (validates node, the script path and that it parses;
+registers nothing) or `aify-comms doctor`.
+
 `aify-doctor` is the same script under an older name and still works. It shipped first and the
 operator's objection was fair: one product should not need two command names remembered, so the
 verifier now lives under the name that already exists. The standalone binary stays because agent
