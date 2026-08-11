@@ -69,6 +69,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     # v0.5 slice 1a: these two moved out of api_v2 into their own module. Imported here in the
     # SAME commit as the move so there is never a tree with mixed old/new sources.
     # v0.5 slice 2: spawn lifecycle moved out of api_v2 in the same commit as this import change.
+    from service.reconcilers.console_binding import rebind_orphaned_live_consoles
     from service.reconcilers.spawn_lifecycle import (
         _fail_orphaned_running_spawn_requests,
         _fail_running_spawns_superseded_by_current_session,
@@ -167,6 +168,13 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # service container died holding those PTY processes; the rows
         # still show "attached" but no bridge owns them. Without this
         # the dashboard renders ghost consoles for resident agents.
+        # Cross-team report 2026-08-11: warm rotation leaves a LIVE console bound to the session it
+        # just ended, so the dashboard offers "Start console" for an agent whose PTY is alive and
+        # clicking it spawns a second one. State-based on purpose — agent_sessions is written from
+        # many sites, so keying on "live terminal, ended owner, current row unbound" cannot be
+        # defeated by a new rotation path. Runs AFTER the resurrect healer, which owns the DEAD
+        # terminal case; this one only ever touches `attached`.
+        rebound_consoles = await _commit_step(await rebind_orphaned_live_consoles(db))
         stale_resident_terminals = await _commit_step(await _reconcile_stale_managed_terminals_for_resident_agents(db))
         # Auto-close persistent workers idle longer than the configured
         # window (default 0 = disabled). Returns the closed terminals
@@ -296,6 +304,9 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "closed_delivered": closed_delivered_total,
             "reply_reminders": len(reminders.get("reminded", [])),
             "reply_reminder_skipped": len(reminders.get("skipped", [])),
+            # Reported in the sweep log so a repair is VISIBLE. A silent healer is
+            # indistinguishable from one that never ran — this repo's recurring lesson.
+            "rebound_orphaned_consoles": rebound_consoles,
             "stale_resident_terminals_cleared": stale_resident_terminals,
             "idle_workers_closed": len(closed_idle_workers),
             "orphaned_managed_runs_closed": len(closed_orphaned_managed),
