@@ -89,12 +89,54 @@ test("a pre-B1 bridge that reports no build is PARTIAL, not a failure", () => {
 });
 
 test("sentinel build values count as unknown, not stale", () => {
+  // Paired with a known-current bridge so the fleet is PARTIAL: this test is about the sentinel
+  // not being misread as a mismatched sha, which is a different question from the all-silent
+  // fleet below.
   for (const sentinel of ["unknown", "no-git", "unknown-ref", ""]) {
     const v = bridgeCurrentVerdict({
-      environments: [env("a", sentinel)], headSha: HEAD, headShort: SHORT,
+      environments: [env("cur", HEAD.slice(0, 12)), env("a", sentinel)], headSha: HEAD, headShort: SHORT,
     });
-    assert.equal(v.ok, true, `"${sentinel}" must not be read as a mismatched sha`);
+    assert.equal(v.code, "partial", `"${sentinel}" must not be read as a mismatched sha`);
+    assert.equal(v.ok, true);
   }
+});
+
+// ── AUDIT 4/4 F1: the check must not pass on no evidence ─────────────────────────────
+//
+// LIVE-CONFIRMED on this host at v0.3.1: the single online environment bridge reported no
+// `bridgeBuild`, this returned ok, and `aify-doctor --strict` PASSED — having verified nothing.
+// That is the same false green as `env-bridge` counting registered rows (756f3a5), reproduced
+// inside the check written to prevent exactly this class.
+//
+// The distinction that fixes it: SOME evidence with gaps is a partial pass; ZERO evidence is not a
+// pass at all. A check that cannot answer must not be counted as one that answered yes.
+test("when NO live bridge reports a build, the check FAILS — no evidence is not a pass", () => {
+  const v = bridgeCurrentVerdict({
+    environments: [env("a", undefined), env("b", "unknown")], headSha: HEAD, headShort: SHORT,
+  });
+  assert.equal(v.ok, false, "a check that verified nothing must not read as verified");
+  assert.equal(v.code, "unknown-all");
+  assert.match(v.detail, /nothing here verifies them/);
+  assert.match(v.detail, /no evidence either way/);
+});
+
+test("unknown-all says restart, and says install.sh alone is not it", () => {
+  const v = bridgeCurrentVerdict({ environments: [env("a", undefined)], headSha: HEAD, headShort: SHORT });
+  assert.equal(v.code, "unknown-all");
+  assert.match(v.fix, /Restart/);
+  assert.match(v.fix, /install\.sh alone will not/);
+});
+
+test("one current bridge is enough to make the rest PARTIAL rather than unknown-all", () => {
+  // The boundary between the two verdicts, pinned: the difference is whether ANY live bridge
+  // produced evidence, not how many did.
+  const v = bridgeCurrentVerdict({
+    environments: [env("cur", HEAD.slice(0, 12)), env("a", undefined), env("b", undefined)],
+    headSha: HEAD,
+    headShort: SHORT,
+  });
+  assert.equal(v.code, "partial");
+  assert.equal(v.ok, true);
 });
 
 test("no checkout, or no live bridge, skips rather than guessing", () => {

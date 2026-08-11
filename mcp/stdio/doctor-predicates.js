@@ -302,6 +302,27 @@ export function bridgeCurrentVerdict({ environments = [], headSha = "", headShor
         + "is already green — the code is on disk, just not in memory.",
     };
   }
+  // AUDIT 4/4 F1, live-confirmed on this host: the ONE online environment bridge reported no
+  // `bridgeBuild` at all, so this check returned ok and `aify-doctor --strict` PASSED — while
+  // proving nothing whatsoever about what the running bridge executes. That is the same false
+  // green as `env-bridge` counting registered rows (756f3a5), in the check written to prevent it.
+  //
+  // So the two absences must not share a verdict. Some-current-some-silent is degraded reporting
+  // on a partially proven fleet. ZERO current evidence is not a partial result, it is NO result,
+  // and a check with no result must not be counted as a passed one.
+  if (unknown === live.length) {
+    return {
+      ok: false,
+      code: "unknown-all",
+      detail: `none of the ${live.length} live bridge(s) report which build they are running, so `
+        + `nothing here verifies them against repo HEAD ${headShort}. This is NOT "they are current" `
+        + "— it is no evidence either way (every bridge predates the build-stamp report, or none "
+        + "has restarted since).",
+      fix: "Restart the bridges/wrappers. They report their build on registration from then on, "
+        + "and this check becomes real. Re-running install.sh alone will not do it — a process "
+        + "keeps what it loaded at boot.",
+    };
+  }
   if (unknown) {
     return {
       ok: true,
