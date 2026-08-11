@@ -72,6 +72,12 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     from service.reconcilers.console_binding import rebind_orphaned_live_consoles
     # v0.5 slice 3a: session reconcilers moved; imported here in the same commit as the move.
     # v0.5 slice 4.
+    from service.reconcilers.terminals import (
+        _close_idle_virtual_rpc_workers,
+        _prune_terminal_history,
+        _reconcile_resurrected_managed_consoles,
+        _reconcile_stale_managed_terminals_for_resident_agents,
+    )
     from service.reconcilers.terminal_consistency import _repair_terminal_session_consistency
     from service.reconcilers.sessions import (
         _reconcile_dead_session_status,
@@ -90,20 +96,16 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     )
     from service.routers.api_v2 import (
         _clear_turn_busy_for_dead_bridges,
-        _close_idle_virtual_rpc_workers,
         _close_orphaned_managed_runs,
         _close_reconcilable_delivered_runs,
         _sweep_unmirrored_failed_handoffs,
         _load_settings,
         _prune_orphaned_dispatch_runs,
-        _prune_terminal_history,
         _reap_undeliverable_queued_runs,
         _fail_stranded_delivered_reply_runs,
         _replay_undelivered_channel_messages_on_env_recovery,
         _reconcile_managed_worker_hygiene,
-        _reconcile_resurrected_managed_consoles,
         _reroute_orphaned_managed_channel_runs,
-        _reconcile_stale_managed_terminals_for_resident_agents,
         _reconcile_stuck_terminal_and_session_rows,
         _reconcile_ended_terminal_controls,
         _refresh_expired_agent_live_states,
@@ -184,7 +186,9 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # Auto-close persistent workers idle longer than the configured
         # window (default 0 = disabled). Returns the closed terminals
         # so the periodic-reconcile log shows them.
-        closed_idle_workers = await _commit_step(await _close_idle_virtual_rpc_workers(db, limit=200))
+        closed_idle_workers = await _commit_step(await _close_idle_virtual_rpc_workers(db, limit=200,
+            idle_close_enabled=bool(_reconcile_settings.get("worker_idle_close_enabled", False)),
+            idle_close_minutes=int(_reconcile_settings.get("worker_idle_close_minutes", 0) or 0)))
         # Tight-window cleanup for managed-mode runs whose bridge
         # didn't report failure (bridge crashed or failure PATCH was
         # dropped during a transient connection blip). 5-min default.

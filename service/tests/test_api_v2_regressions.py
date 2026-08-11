@@ -12943,7 +12943,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._close_idle_virtual_rpc_workers(db, limit=10)
+                return await api_v2._close_idle_virtual_rpc_workers(db, idle_close_enabled=True, idle_close_minutes=1, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -13008,7 +13008,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._close_idle_virtual_rpc_workers(db, limit=10)
+                return await api_v2._close_idle_virtual_rpc_workers(db, idle_close_enabled=True, idle_close_minutes=1, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -13075,7 +13075,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._close_idle_virtual_rpc_workers(db, limit=10)
+                return await api_v2._close_idle_virtual_rpc_workers(db, idle_close_enabled=True, idle_close_minutes=1, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -13135,7 +13135,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._close_idle_virtual_rpc_workers(db, limit=10)
+                return await api_v2._close_idle_virtual_rpc_workers(db, idle_close_enabled=False, idle_close_minutes=1, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -13204,7 +13204,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._close_idle_virtual_rpc_workers(db, limit=10)
+                return await api_v2._close_idle_virtual_rpc_workers(db, idle_close_enabled=True, idle_close_minutes=1, limit=10)
             finally:
                 await db.commit()
                 await db.close()
