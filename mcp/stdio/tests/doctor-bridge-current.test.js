@@ -156,4 +156,62 @@ test("one stale among several current is still reported", () => {
   assert.match(v.detail, /bad running 0000dea/);
 });
 
+
+// ── the cry-wolf case: behind HEAD, but not by anything the bridge RUNS ───────────────
+//
+// Observed 2026-08-11, minutes after shipping the check: HEAD moved by four commits — CLAUDE.md,
+// BRIDGE_SETUP.md, install.sh, a test file — and this reported the live bridge as "RUNNING older
+// code", telling the operator to restart it. Its bridge code was byte-identical. `bridge-installed`
+// had already solved exactly this for the files on disk (N13) by asking whether the commits in
+// between TOUCHED mcp/stdio; this now asks the same question of the running process.
+test("a bridge behind HEAD by NON-bridge commits only is not stale", () => {
+  const v = bridgeCurrentVerdict({
+    environments: [env("win:host", "0b2801daaaa")],
+    headSha: HEAD,
+    headShort: SHORT,
+    bridgeCommitsSince: { "0b2801daaaa": 0 },
+  });
+  assert.equal(v.ok, true);
+  assert.equal(v.code, "ok-nonbridge");
+  assert.match(v.detail, /no commit in between touched/);
+  assert.equal(v.fix, "", "there is nothing to do, so do not ask for a restart");
+});
+
+test("one commit that DOES touch the bridge still reports stale", () => {
+  const v = bridgeCurrentVerdict({
+    environments: [env("win:host", "0b2801daaaa")],
+    headSha: HEAD,
+    headShort: SHORT,
+    bridgeCommitsSince: { "0b2801daaaa": 1 },
+  });
+  assert.equal(v.ok, false);
+  assert.equal(v.code, "stale-process");
+});
+
+test("a build with NO count is stale, not clean — unanswerable is not evidence", () => {
+  // git can fail to resolve a build sha (rewritten history, unfetched commit). Falling back to
+  // "clean" there would be the unknown-all false green again, one layer down.
+  const v = bridgeCurrentVerdict({
+    environments: [env("win:host", "deadbeef1234")],
+    headSha: HEAD,
+    headShort: SHORT,
+    bridgeCommitsSince: {},
+  });
+  assert.equal(v.ok, false);
+  assert.equal(v.code, "stale-process");
+});
+
+test("stale wins over behind-by-docs when both are present", () => {
+  const v = bridgeCurrentVerdict({
+    environments: [env("docsonly", "0b2801daaaa"), env("real", "cafebabe0000")],
+    headSha: HEAD,
+    headShort: SHORT,
+    bridgeCommitsSince: { "0b2801daaaa": 0, cafebabe0000: 3 },
+  });
+  assert.equal(v.ok, false);
+  assert.equal(v.code, "stale-process");
+  assert.match(v.detail, /real running cafebab/);
+  assert.doesNotMatch(v.detail, /docsonly/, "the clean one must not be named as needing a restart");
+});
+
 console.log("doctor-bridge-current.test.js: all assertions passed");

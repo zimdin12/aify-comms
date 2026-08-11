@@ -311,10 +311,23 @@ async function checkEnvBridge() {
   // B1: are the LIVE bridges running current code? bridge-installed only proves the files on
   // disk; a process keeps what it loaded at boot, and bridge-running (which would catch that)
   // skips on Windows. See bridgeCurrentVerdict.
+  // Ask the same question bridge-installed asks of the files on disk (N13): did any commit since
+  // this bridge's build actually TOUCH `mcp/stdio`? Without it a docs-only commit made every live
+  // bridge read STALE and told the operator to restart it — a wrong instruction, and after the
+  // 2026-08-11 outage the last one to give lightly. An empty/failed count is left OUT of the map
+  // so the verdict falls through to stale: unanswerable is not clean.
+  const bridgeCommitsSince = {};
+  for (const env of list) {
+    const build = String(env?.metadata?.bridgeBuild || "").trim();
+    if (!build || bridgeCommitsSince[build] !== undefined || !repo) continue;
+    const n = sh("git", ["rev-list", "--count", `${build}..HEAD`, "--", "mcp/stdio"], repo.dir);
+    if (n !== "" && Number.isFinite(Number(n))) bridgeCommitsSince[build] = Number(n);
+  }
   const current = bridgeCurrentVerdict({
     environments: list,
     headSha: repo ? repo.sha : "",
     headShort: repo ? repo.short : "",
+    bridgeCommitsSince,
   });
   add("bridge-current", current.ok, current.code, current.detail, current.fix);
   const unknown = list.filter(envStateIsUnknown);

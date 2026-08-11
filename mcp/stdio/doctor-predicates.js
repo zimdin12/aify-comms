@@ -267,7 +267,12 @@ export function serviceBuildVerdict({
 //
 // Deliberately reports a RESTART, never a reinstall — the files are already current in this case,
 // so `install.sh` would change nothing and telling the operator to run it would be a wrong fix.
-export function bridgeCurrentVerdict({ environments = [], headSha = "", headShort = "" } = {}) {
+// `bridgeCommitsSince` maps a reported build sha -> how many commits between it and HEAD actually
+// TOUCHED `mcp/stdio`. Without it this check called a bridge stale for a docs-only commit and told
+// the operator to restart it, which is the same cry-wolf `bridge-installed` already fixed for the
+// files on disk (N13): being behind is not the question, running different CODE is. A build with
+// no entry is treated as stale, not as clean — an unanswerable delta is not evidence of currency.
+export function bridgeCurrentVerdict({ environments = [], headSha = "", headShort = "", bridgeCommitsSince = {} } = {}) {
   const head = String(headSha || "");
   if (!head) {
     return { ok: true, code: "skipped", detail: "no checkout to compare running bridges against", fix: "" };
@@ -278,6 +283,7 @@ export function bridgeCurrentVerdict({ environments = [], headSha = "", headShor
     return { ok: true, code: "skipped", detail: "no live environment bridge to check", fix: "" };
   }
   const stale = [];
+  const behindByNonBridge = [];
   let unknown = 0;
   for (const env of live) {
     const build = String(env?.metadata?.bridgeBuild || "").trim();
@@ -287,9 +293,14 @@ export function bridgeCurrentVerdict({ environments = [], headSha = "", headShor
     }
     // The bridge reports a 12-char prefix; compare on the shorter of the two.
     const n = Math.min(build.length, head.length);
-    if (build.slice(0, n) !== head.slice(0, n)) {
-      stale.push(`${env?.id || "(unnamed)"} running ${build.slice(0, 7)}`);
+    if (build.slice(0, n) === head.slice(0, n)) continue;
+    const touched = bridgeCommitsSince?.[build];
+    if (touched === 0) {
+      // Behind HEAD, but not one of those commits changed a byte the bridge executes.
+      behindByNonBridge.push(`${env?.id || "(unnamed)"} at ${build.slice(0, 7)}`);
+      continue;
     }
+    stale.push(`${env?.id || "(unnamed)"} running ${build.slice(0, 7)}`);
   }
   if (stale.length) {
     return {
@@ -329,6 +340,16 @@ export function bridgeCurrentVerdict({ environments = [], headSha = "", headShor
       code: "partial",
       detail: `${live.length - unknown} live bridge(s) match repo HEAD; ${unknown} did not report a `
         + "build sha (pre-B1 bridge — restart it to start reporting)",
+      fix: "",
+    };
+  }
+  if (behindByNonBridge.length) {
+    return {
+      ok: true,
+      code: "ok-nonbridge",
+      detail: `${live.length} live bridge(s) are running current BRIDGE code; ${behindByNonBridge.length} `
+        + `report an older sha than repo HEAD ${headShort} (${behindByNonBridge.join(", ")}) but no commit `
+        + "in between touched `mcp/stdio`, so there is nothing for a restart to pick up.",
       fix: "",
     };
   }
