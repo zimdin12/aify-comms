@@ -8254,7 +8254,10 @@ def _console_dispatch_input_body(req: DispatchRequest, *, recipient_id: str, mes
             f"From: {req.from_agent}",
             f"To: {recipient_id}",
             f"Type: {req.type}",
-            f"Subject: {subject}" if subject else "",
+            # Quoted like every other echo — see _quote_untrusted_subject. This one has
+            # From/To framing around it, so it is the least dangerous site; one rule
+            # beats four judgement calls about how much framing is enough.
+            f"Subject: {_quote_untrusted_subject(subject, 240)}" if subject else "",
             f"MessageId: {message_id}",
             "",
             body,
@@ -8418,6 +8421,27 @@ def _clip_text(text: str, limit: int = 240) -> str:
     return value[: max(limit - 1, 0)].rstrip() + "…"
 
 
+def _quote_untrusted_subject(subject: str, limit: int = 80) -> str:
+    """Render another agent's subject so it cannot read as an instruction to whoever sees it.
+
+    OPERATOR-REPORTED 2026-08-11: "when you restart agent then it gives some text ... but my agent
+    decided to restart himself after reading this."
+
+    A subject is free text written BY one agent FOR another, and these summaries strip the addressing
+    away. So `Restart lc-coder` — a request aimed at somebody else — arrives in a third agent's
+    context as a bare imperative line, and an agent that treats its context as instructions acts on
+    it. Nothing was wrong with the routing; the RENDERING made a quotation look like a command.
+
+    Quoting is the whole fix, and it must be applied wherever a foreign subject is echoed:
+    a quoted string reads as a thing being talked about, an unquoted imperative reads as a thing to
+    do. The same reasoning as the inbox safety header, applied to the one-line summaries that do not
+    carry it.
+    """
+    text = _clip_text(subject, limit) or "(no subject)"
+    # Neutralise any embedded quote so the quoting cannot be escaped by the subject itself.
+    return '"' + text.replace('"', "'") + '"'
+
+
 def _render_pending_dispatch_item(
     index: int,
     *,
@@ -8434,7 +8458,8 @@ def _render_pending_dispatch_item(
         f"=== ITEM {index} ===",
         f"From: {from_agent or 'unknown'}",
         f"Type: {message_type or 'request'}",
-        f"Subject: {subject or '(no subject)'}",
+        # QUOTED: this is somebody else's subject line, not an instruction to the reader.
+        f"Subject: {_quote_untrusted_subject(subject, 240)}",
         f"Priority: {priority or 'normal'}",
     ]
     if requested_at:
@@ -8460,7 +8485,10 @@ def _pending_dispatch_count(body: str) -> int:
 
 
 def _build_pending_dispatch_subject(count: int, latest_subject: str) -> str:
-    latest = _clip_text(latest_subject or "(no subject)", 80)
+    # QUOTED for the same reason as the item renderer: `Restart lc-coder` as a bare subject line
+    # reads as a command to whoever receives this summary, and at least one agent acted on exactly
+    # that. A quoted string is plainly a quotation.
+    latest = _quote_untrusted_subject(latest_subject, 80)
     if count <= 1:
         return latest
     return f"Pending updates ({count}); latest: {latest}"
