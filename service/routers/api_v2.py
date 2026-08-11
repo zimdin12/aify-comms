@@ -8475,26 +8475,58 @@ async def _coldstart_spawn_request_for_dispatch(
     return True
 
 
-async def _ensure_managed_pty_for_dispatch(db, agent_id: str, *, runtime: str, settings: dict[str, Any], requested_by: str):
+async def _ensure_managed_pty_for_dispatch(
+    db, agent_id: str, *, runtime: str, settings: dict[str, Any], requested_by: str,
+    for_session_id: str = "",
+):
+    """`for_session_id` scopes adoption to ONE session, and a restart is why it exists.
+
+    REPRODUCED LIVE 2026-08-11 (restarttest-claude, first attempt, deterministic). A managed
+    restart creates a new spawn and a new session, and the new spawn reaches `running` about two
+    seconds BEFORE the old worker's terminal is torn down. `_active_terminal_for_agent` picks the
+    agent's most-recently-seen session that has a terminal — which at that instant is still the OLD
+    one — so this function said "there is already a PTY" and created nothing. The restart then
+    killed that terminal, leaving:
+
+        spawn_requests.status = 'running'   with NO terminal at all, ever
+        agent status           = available
+        the operator            looking at a session that says stopped
+
+    `ef-manager` sat in exactly that state today after `graph-tech-lead` restarted it, and it took a
+    cold-start send to recover. The v0.2.0 dead-terminal finalizer cannot clean it up either,
+    because that keys on a terminal being DEAD and here none was ever created.
+
+    Adoption across dispatches WITHIN a session is the whole point of this function and is
+    unchanged. What is no longer allowed is adopting a terminal belonging to a DIFFERENT session —
+    at a restart that terminal is, by definition, the one being destroyed.
+    """
+    wanted_session = str(for_session_id or "").strip()
     active = await _active_terminal_for_agent(db, agent_id, settings=settings)
-    if active:
+    if active and (not wanted_session or str(active.get("session_id") or "") == wanted_session):
         return active
     normalized_runtime = _normalize_runtime(runtime or "")
     if normalized_runtime not in {"claude-code", "codex", "hermes", "opencode", "pi"}:
         return None
 
-    session = await (await db.execute(
-        """
-        SELECT *
-        FROM agent_sessions
-        WHERE agent_id = ?
-          AND runtime = ?
-          AND status IN ('running', 'recovering')
-        ORDER BY last_seen DESC
-        LIMIT 1
-        """,
-        (agent_id, normalized_runtime),
-    )).fetchone()
+    if wanted_session:
+        # Use the caller's session outright. Re-deriving it by `last_seen` would land on the
+        # outgoing session for the same two seconds that caused the bug above.
+        session = await (await db.execute(
+            "SELECT * FROM agent_sessions WHERE id = ? AND agent_id = ?", (wanted_session, agent_id)
+        )).fetchone()
+    else:
+        session = await (await db.execute(
+            """
+            SELECT *
+            FROM agent_sessions
+            WHERE agent_id = ?
+              AND runtime = ?
+              AND status IN ('running', 'recovering')
+            ORDER BY last_seen DESC
+            LIMIT 1
+            """,
+            (agent_id, normalized_runtime),
+        )).fetchone()
     if not session:
         return None
     if normalized_runtime == "pi" and not str(session["session_handle"] or "").strip():
@@ -11793,6 +11825,10 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                         runtime=row["runtime"],
                         settings=settings_for_pty,
                         requested_by="spawn-request",
+                        # Scope adoption to THIS spawn's session. Without it a restart adopts the
+                        # outgoing worker's terminal — which is killed two seconds later — and the
+                        # agent ends up `running` with no worker at all. Reproduced live.
+                        for_session_id=str(row["session_id"] or ""),
                     )
                 except Exception:
                     # The dispatch path's lazy spawn is our fallback.

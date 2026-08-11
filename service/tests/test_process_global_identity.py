@@ -23,7 +23,7 @@ Two globals are in scope, both named in the plan:
 
 from __future__ import annotations
 
-import re
+import ast
 import unittest
 from pathlib import Path
 
@@ -34,10 +34,78 @@ GLOBALS = {
     "_LIVE_SCREENS": "service/terminal_snapshot.py",
 }
 
-# An ASSIGNMENT at module level (column 0), which is what creates a second instance. Assignments
-# inside a function are locals and harmless; `global X` followed by mutation is fine too.
+# AST, NOT REGEX — and that distinction is the whole gate.
+#
+# The first version matched `^_LIVE_STATE_CACHE\s*=` at column 0 and single-line `from ... import`.
+# Review found two forms that fork the global and sail straight past it:
+#
+#     if SOME_FLAG:                        # executes at import time, but the assignment is
+#         _LIVE_STATE_CACHE = {}           # INDENTED, so a column-0 regex sees nothing
+#
+#     from service.routers.api_v2 import ( # a by-value import, but the name is not on the
+#         _LIVE_STATE_CACHE,               # same line as the word `import`
+#     )
+#
+# A gate against a subtle failure cannot itself be approximate. Parsing means every syntactic form
+# of the same thing is caught, including ones nobody has thought of yet.
+
+
+def _import_time_nodes(tree: ast.AST):
+    """Every node that RUNS on import: module body, and inside if/try/with/for/while — but never
+    inside a def or class, where an assignment is a local and harmless."""
+    stack = list(getattr(tree, "body", []))
+    while stack:
+        node = stack.pop()
+        yield node
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        for field in ("body", "orelse", "finalbody", "handlers"):
+            stack.extend(getattr(node, field, []) or [])
+
+
 def _module_level_assignments(text: str, name: str) -> int:
-    return len(re.findall(rf"^{re.escape(name)}\s*(?::[^=]+)?=", text, re.MULTILINE))
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return 0
+    count = 0
+    for node in _import_time_nodes(tree):
+        targets = []
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            targets = [node.target]
+        for target in targets:
+            if isinstance(target, ast.Name) and target.id == name:
+                count += 1
+            elif isinstance(target, ast.Tuple):  # a, _LIVE_STATE_CACHE = ...
+                count += sum(1 for e in target.elts if isinstance(e, ast.Name) and e.id == name)
+    return count
+
+
+def _by_value_imports(text: str, name: str) -> list[str]:
+    """`from x import NAME` at MODULE level, in any layout including parenthesised multi-line.
+
+    Module level specifically, and that scope is the finding rather than laziness. The hazard is a
+    binding that PERSISTS and goes stale: imported once at import time, it keeps pointing at
+    whatever object existed then, so a later rebind in the owner leaves this module holding a
+    corpse. A `from ... import` INSIDE a function is re-evaluated on every call and therefore cannot
+    go stale — several existing tests do exactly that and they are correct.
+
+    My first AST pass used `ast.walk`, flagged those three tests, and was wrong: strictness that
+    fails correct code teaches people to weaken the gate.
+    """
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return []
+    found = []
+    for node in _import_time_nodes(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name == name:
+                    found.append(f"from {node.module or '.'} import {name} (line {node.lineno})")
+    return found
 
 
 def _python_files() -> list[Path]:
@@ -69,7 +137,7 @@ class ProcessGlobalIdentityTests(unittest.TestCase):
         for name in GLOBALS:
             for path in _python_files():
                 text = path.read_text(encoding="utf-8", errors="replace")
-                bad = re.findall(rf"^from\s+\S+\s+import\s+[^\n]*\b{re.escape(name)}\b", text, re.MULTILINE)
+                bad = _by_value_imports(text, name)
                 with self.subTest(f"{name} in {path.name}"):
                     self.assertEqual(
                         bad, [],
@@ -106,3 +174,57 @@ class ProcessGlobalIdentityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GateCatchesTheFormsRegexMissedTests(unittest.TestCase):
+    """The reviewer found this gate could pass on two forms that DO fork a global.
+
+    The first version matched `^_LIVE_STATE_CACHE\s*=` at column 0 and single-line imports, so an
+    indented module-level assignment and a parenthesised multi-line import both sailed through. A
+    gate against a subtle failure cannot itself be approximate — hence AST.
+
+    These are the reviewer's exact two shapes, plus the ones a regex would also miss, asserted
+    against synthetic source so the gate is proven rather than assumed.
+    """
+
+    def _assign_count(self, src):
+        return _module_level_assignments(src, "_LIVE_STATE_CACHE")
+
+    def test_an_INDENTED_module_level_assignment_is_caught(self):
+        """Executes at import time and creates a second dict; the column-0 regex saw nothing."""
+        self.assertEqual(self._assign_count("if FLAG:\n    _LIVE_STATE_CACHE = {}\n"), 1)
+        self.assertEqual(self._assign_count("try:\n    _LIVE_STATE_CACHE = {}\nexcept Exception:\n    pass\n"), 1)
+        self.assertEqual(self._assign_count("for _ in range(1):\n    _LIVE_STATE_CACHE = {}\n"), 1)
+        self.assertEqual(self._assign_count("with open('x'):\n    _LIVE_STATE_CACHE = {}\n"), 1)
+
+    def test_an_assignment_inside_a_function_or_class_is_NOT_counted(self):
+        """A local named the same thing is harmless, and flagging it would train people to weaken
+        the gate."""
+        self.assertEqual(self._assign_count("def f():\n    _LIVE_STATE_CACHE = {}\n"), 0)
+        self.assertEqual(self._assign_count("class C:\n    _LIVE_STATE_CACHE = {}\n"), 0)
+        self.assertEqual(self._assign_count("async def f():\n    _LIVE_STATE_CACHE = {}\n"), 0)
+
+    def test_annotated_tuple_and_augmented_assignment_forms(self):
+        self.assertEqual(self._assign_count("_LIVE_STATE_CACHE: dict = {}\n"), 1)
+        self.assertEqual(self._assign_count("a, _LIVE_STATE_CACHE = 1, {}\n"), 1)
+
+    def test_a_MULTILINE_parenthesised_import_is_caught(self):
+        """The reviewer's second shape: still a by-value import, but the name is not on the same
+        line as the word `import`."""
+        src = "from service.routers.api_v2 import (\n    _live_state_get,\n    _LIVE_STATE_CACHE,\n)\n"
+        self.assertEqual(len(_by_value_imports(src, "_LIVE_STATE_CACHE")), 1)
+
+    def test_a_single_line_import_is_still_caught(self):
+        src = "from service.routers.api_v2 import _LIVE_STATE_CACHE\n"
+        self.assertEqual(len(_by_value_imports(src, "_LIVE_STATE_CACHE")), 1)
+
+    def test_a_FUNCTION_LOCAL_import_is_allowed(self):
+        """Re-evaluated on every call, so it can never hold a stale object. Three existing tests do
+        this correctly and my first AST pass wrongly failed them."""
+        src = "def f():\n    from service.routers.api_v2 import _LIVE_STATE_CACHE\n    return _LIVE_STATE_CACHE\n"
+        self.assertEqual(_by_value_imports(src, "_LIVE_STATE_CACHE"), [])
+
+    def test_importing_the_MODULE_is_always_fine(self):
+        src = "from service.routers import api_v2\nx = api_v2._LIVE_STATE_CACHE\n"
+        self.assertEqual(_by_value_imports(src, "_LIVE_STATE_CACHE"), [])
+        self.assertEqual(self._assign_count(src), 0)
