@@ -28,7 +28,7 @@ from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 
 
-def _agent_liveness(db, agent_id, *, agent_row=None):
+async def _agent_liveness(db, agent_id, *, agent_row=None):
     """Borrowed from the router — slice 3b, deferred.
 
     `_agent_liveness` drags `_agent_has_live_terminal`, `_has_live_channel_sidecar` and
@@ -38,7 +38,7 @@ def _agent_liveness(db, agent_id, *, agent_row=None):
     """
     from service.routers.api_v2 import _agent_liveness as _impl
 
-    return _impl(db, agent_id, agent_row=agent_row)
+    return await _impl(db, agent_id, agent_row=agent_row)
 
 
 logger = logging.getLogger(__name__)

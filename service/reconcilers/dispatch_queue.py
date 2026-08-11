@@ -36,29 +36,29 @@ from service.reconcilers.status_cache import invalidate_agent_live_state as _inv
 logger = logging.getLogger(__name__)
 
 
-def _agent_has_live_claimer(*a, **k):
+async def _agent_has_live_claimer(*a, **k):
     from service.routers.api_v2 import _agent_has_live_claimer as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
-def _append_dispatch_event(*a, **k):
+async def _append_dispatch_event(*a, **k):
     from service.routers.api_v2 import _append_dispatch_event as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
-def _coldstart_spawn_request_for_dispatch(*a, **k):
+async def _coldstart_spawn_request_for_dispatch(*a, **k):
     from service.routers.api_v2 import _coldstart_spawn_request_for_dispatch as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
-def _has_pending_or_booting_spawn_request(*a, **k):
+async def _has_pending_or_booting_spawn_request(*a, **k):
     from service.routers.api_v2 import _has_pending_or_booting_spawn_request as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
-def _mirror_undeliverable_queued_run_to_sender(*a, **k):
+async def _mirror_undeliverable_queued_run_to_sender(*a, **k):
     from service.routers.api_v2 import _mirror_undeliverable_queued_run_to_sender as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
 def _normalize_runtime(*a, **k):
@@ -66,19 +66,19 @@ def _normalize_runtime(*a, **k):
     return _i(*a, **k)
 
 
-def _create_dispatch_runs(*a, **k):
+async def _create_dispatch_runs(*a, **k):
     from service.routers.api_v2 import _create_dispatch_runs as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
-def _finalize_dispatch_runs(*a, **k):
+async def _finalize_dispatch_runs(*a, **k):
     from service.routers.api_v2 import _finalize_dispatch_runs as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
-def _managed_environment_unavailable_reason(*a, **k):
+async def _managed_environment_unavailable_reason(*a, **k):
     from service.routers.api_v2 import _managed_environment_unavailable_reason as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
 def _normalize_session_mode(*a, **k):
@@ -86,9 +86,9 @@ def _normalize_session_mode(*a, **k):
     return _i(*a, **k)
 
 
-def _has_live_channel_sidecar(*a, **k):
+async def _has_live_channel_sidecar(*a, **k):
     from service.routers.api_v2 import _has_live_channel_sidecar as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
 def _insert_messages_via_console(*a, **k):
@@ -96,9 +96,9 @@ def _insert_messages_via_console(*a, **k):
     return _i(*a, **k)
 
 
-def _load_settings(*a, **k):
+async def _load_settings(*a, **k):
     from service.routers.api_v2 import _load_settings as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
 def _default_settings():

@@ -41,24 +41,24 @@ from service.reconcilers.terminal_runs import (
 logger = logging.getLogger(__name__)
 
 
-def _append_terminal_event(*a, **k):
+async def _append_terminal_event(*a, **k):
     from service.routers.api_v2 import _append_terminal_event as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
-def _has_live_channel_sidecar(*a, **k):
+async def _has_live_channel_sidecar(*a, **k):
     from service.routers.api_v2 import _has_live_channel_sidecar as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
-def _has_live_managed_wrapper_child(*a, **k):
+async def _has_live_managed_wrapper_child(*a, **k):
     from service.routers.api_v2 import _has_live_managed_wrapper_child as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
-def _has_live_terminal_session(*a, **k):
+async def _has_live_terminal_session(*a, **k):
     from service.routers.api_v2 import _has_live_terminal_session as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
 def _json_loads_or(*a, **k):
@@ -71,19 +71,19 @@ def _normalize_runtime(*a, **k):
     return _i(*a, **k)
 
 
-def _discard_unusable_active_run(*a, **k):
+async def _discard_unusable_active_run(*a, **k):
     from service.routers.api_v2 import _discard_unusable_active_run as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
-def _get_dispatch_state_for_agent(*a, **k):
+async def _get_dispatch_state_for_agent(*a, **k):
     from service.routers.api_v2 import _get_dispatch_state_for_agent as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
-def _link_unthreaded_completion_message_for_run(*a, **k):
+async def _link_unthreaded_completion_message_for_run(*a, **k):
     from service.routers.api_v2 import _link_unthreaded_completion_message_for_run as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
 def _managed_orphan_grace_seconds():

@@ -13,8 +13,14 @@ BORROWED, on measured caller count as in slices 4-7: `_append_dispatch_event`,
 `_load_settings`, plus the constants `DEFAULT_SETTINGS` and `ACTIVE_RUN_BRIDGE_STALE_SECONDS` — each
 read through exactly one owner so no second copy can drift.
 
-`engine_status` is imported directly from the status engine, which is already a leaf module — the one
-dependency here that needed no shim at all.
+`engine_status` IS BORROWED FROM THE ROUTER WRAPPER, and this sentence used to claim the opposite —
+which the reviewer caught as a tag blocker, correctly, because the stale claim sat right on top of
+the near-miss it describes. There is a `derive` in `service.status_engine` AND an `engine_status` in
+`api_v2` (a DB-reading wrapper), they are not interchangeable, and I imported the wrong one first. It
+compiled and passed the cycle smoke test. The shim below borrows the router's, deliberately.
+
+A docstring that contradicts its own module is worse than no docstring: the next person reading this
+file would have "re-fixed" it back to the bug.
 """
 
 from __future__ import annotations
@@ -32,7 +38,7 @@ from service.reconcilers.status_cache import invalidate_agent_live_state as _inv
 logger = logging.getLogger(__name__)
 
 
-def engine_status(*a, **k):
+async def engine_status(*a, **k):
     """BORROWED, and nearly a silent bug: there is a `derive` in `service.status_engine` AND an
     `engine_status` in the router, and they are not the same function. The scan reported the name as
     undefined, I reached for the engine's `derive`, and only checking the router showed
@@ -40,32 +46,32 @@ def engine_status(*a, **k):
     Importing the wrong one would have compiled, passed a cycle smoke test, and quietly changed how
     orphaned managed runs are judged."""
     from service.routers.api_v2 import engine_status as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
-def _append_dispatch_event(*a, **k):
+async def _append_dispatch_event(*a, **k):
     from service.routers.api_v2 import _append_dispatch_event as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
-def _clear_status_state_in_turn(*a, **k):
+async def _clear_status_state_in_turn(*a, **k):
     from service.routers.api_v2 import _clear_status_state_in_turn as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
-def _mark_dispatch_run_answered(*a, **k):
+async def _mark_dispatch_run_answered(*a, **k):
     from service.routers.api_v2 import _mark_dispatch_run_answered as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
-def _mirror_missing_dispatch_handoff(*a, **k):
+async def _mirror_missing_dispatch_handoff(*a, **k):
     from service.routers.api_v2 import _mirror_missing_dispatch_handoff as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
-def _load_settings(*a, **k):
+async def _load_settings(*a, **k):
     from service.routers.api_v2 import _load_settings as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
 def _default_settings():

@@ -26,14 +26,14 @@ from service.reconcilers.status_cache import invalidate_agent_live_state as _inv
 logger = logging.getLogger(__name__)
 
 
-def _append_dispatch_event(*a, **k):
+async def _append_dispatch_event(*a, **k):
     from service.routers.api_v2 import _append_dispatch_event as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
-def _current_agent_session_row(*a, **k):
+async def _current_agent_session_row(*a, **k):
     from service.routers.api_v2 import _current_agent_session_row as _i
-    return _i(*a, **k)
+    return await _i(*a, **k)
 
 
 def _normalize_runtime(*a, **k):
