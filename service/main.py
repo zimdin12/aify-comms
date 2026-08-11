@@ -72,6 +72,14 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     from service.reconcilers.console_binding import rebind_orphaned_live_consoles
     # v0.5 slice 3a: session reconcilers moved; imported here in the same commit as the move.
     # v0.5 slice 4.
+    from service.reconcilers.terminal_runs import (
+        _close_active_terminal_runs_for_terminal,
+        _close_idle_claude_terminal_run_without_reply,
+        _close_idle_pi_terminal_run_without_reply,
+        _fail_pending_terminal_controls,
+        _reconcile_ended_terminal_controls,
+        _reconcile_stuck_terminal_and_session_rows,
+    )
     from service.reconcilers.terminals import (
         _close_idle_virtual_rpc_workers,
         _prune_terminal_history,
@@ -106,8 +114,6 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _replay_undelivered_channel_messages_on_env_recovery,
         _reconcile_managed_worker_hygiene,
         _reroute_orphaned_managed_channel_runs,
-        _reconcile_stuck_terminal_and_session_rows,
-        _reconcile_ended_terminal_controls,
         _refresh_expired_agent_live_states,
         _repair_unusable_active_runs,
         _requeue_orphaned_claimed_runs,
