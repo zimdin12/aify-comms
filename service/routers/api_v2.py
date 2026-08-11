@@ -34,6 +34,7 @@ from service.config import get_config
 # `status_cache._LIVE_STATE_CACHE`. `test_process_global_identity` enforces it and caught this exact
 # import when the move was first made.
 from service.api_core import settings as settings_core
+from service.api_core.ws import _get_ws  # v0.5.1h: accessor only; manager stays on app.state
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import SAFE_NAME_RE, validate_name  # v0.5.1f: one owner
 from service.api_core.runtime import (  # v0.5.1e: single owner, resolved against the contract
@@ -1069,11 +1070,6 @@ ACTIVE_RUN_BRIDGE_STALE_SECONDS = 120
 CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX = "Delivered to Claude resident session"
 CLAUDE_CHANNEL_DELIVERY_SUMMARY_PREFIX = "Delivered to Claude channel session"
 
-async def _get_ws(request: Request):
-    try:
-        return request.app.state.ws_manager
-    except Exception:
-        return None
 
 
 async def _broadcast_agent_status(ws, db, agent_id: str) -> None:
