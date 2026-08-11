@@ -619,5 +619,141 @@ def _w():
         assert_extraction_preserves_behaviour(original, split, "_w")
 
 
+
+
+class ExtractMethodLiveInTests(unittest.TestCase):
+    """The dual of live-outs: caller locals the helper READS but was never handed.
+
+    The reviewer found this by running it, reporting `missing_live_in PASSED_UNSAFELY`. Inline-back
+    closes perfectly — splicing the body back reproduces the original, where the name IS in scope —
+    while the split raises NameError. Fourth and final case of the proof examining the reconstructed
+    original instead of the split.
+    """
+
+    def test_a_caller_local_the_helper_reads_but_was_not_passed_is_refused(self):
+        original = '''
+def f():
+    x = compute()
+    y = x + 1
+    return y
+'''
+        split = '''
+def f():
+    x = compute()
+    y = _w()
+    return y
+
+
+def _w():
+    y = x + 1
+    return y
+'''
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original, split, "_w")
+        self.assertIn("never passed", str(caught.exception))
+
+    def test_the_same_extraction_passes_once_the_value_is_handed_over(self):
+        original = '''
+def f():
+    x = compute()
+    y = x + 1
+    return y
+'''
+        split = '''
+def f():
+    x = compute()
+    y = _w(x)
+    return y
+
+
+def _w(x):
+    y = x + 1
+    return y
+'''
+        assert_extraction_preserves_behaviour(original, split, "_w")
+
+    def test_module_level_names_are_not_live_ins(self):
+        """Globals, imports and sibling defs are in scope wherever the helper lands."""
+        original = '''
+def f():
+    y = HELPER_CONST + 1
+    return y
+'''
+        split = '''
+HELPER_CONST = 5
+
+
+def f():
+    y = _w()
+    return y
+
+
+def _w():
+    y = HELPER_CONST + 1
+    return y
+'''
+        assert_extraction_preserves_behaviour(original, split, "_w")
+
+    def test_builtins_are_not_live_ins(self):
+        original = '''
+def f(items):
+    n = len(items)
+    return n
+'''
+        split = '''
+def f(items):
+    n = _w(items)
+    return n
+
+
+def _w(items):
+    n = len(items)
+    return n
+'''
+        assert_extraction_preserves_behaviour(original, split, "_w")
+
+    def test_a_name_the_helper_binds_itself_first_is_not_a_live_in(self):
+        """Order matters here too: bound before read inside the helper means it needs nothing."""
+        original = '''
+def f():
+    t = 0
+    t = t + 1
+    return t
+'''
+        split = '''
+def f():
+    t = _w()
+    return t
+
+
+def _w():
+    t = 0
+    t = t + 1
+    return t
+'''
+        assert_extraction_preserves_behaviour(original, split, "_w")
+
+    def test_an_augmented_read_of_an_unpassed_local_is_also_a_live_in(self):
+        """`+=` reads, so it needs the value handed over just like a plain load."""
+        original = '''
+def f():
+    total = 0
+    total += 1
+    return total
+'''
+        split = '''
+def f():
+    total = 0
+    _w()
+    return total
+
+
+def _w():
+    total += 1
+'''
+        with self.assertRaises(AssertionError):
+            assert_extraction_preserves_behaviour(original, split, "_w")
+
+
 if __name__ == "__main__":
     unittest.main()

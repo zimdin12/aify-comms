@@ -42,6 +42,12 @@ NameError — but inline-back reconstructs the ORIGINAL, which is correct by def
 trip passes. The proof examines the wrong artifact for this class, so live-outs are computed
 directly from the split instead of inferred from the round trip.
 
+`live_in_violations()` is the DUAL of that, and the last of the four. If the helper READS a caller
+local it was never handed, the split raises NameError — while inline-back reconstructs the original,
+where the name is perfectly in scope. Free variables of the helper are therefore computed directly
+too. A name only counts if it is genuinely a local (or parameter) of the CALLER: one the caller never
+bound is a global or an import, and there was never anything to hand over.
+
 WITH / TRY REGIONS need no separate rule, which was worth PROBING rather than assuming. Hoisting a
 call out of a `with` or a `try` changes the reconstructed tree, so the round trip already refuses
 exactly the dangerous cases and allows the safe ones. The probe did surface a false REJECTION,
@@ -257,6 +263,83 @@ def live_out_violations(split_fn: ast.AST, helper_fn: ast.AST) -> list[str]:
     ]
 
 
+def _helper_params(helper_fn: ast.AST) -> set[str]:
+    a = helper_fn.args
+    names = {p.arg for p in list(getattr(a, "posonlyargs", [])) + list(a.args) + list(a.kwonlyargs)}
+    if a.vararg:
+        names.add(a.vararg.arg)
+    if a.kwarg:
+        names.add(a.kwarg.arg)
+    return names
+
+
+def _module_level_names(module: ast.Module) -> set[str]:
+    """Names available to the helper without being passed: module globals, imports, defs, classes."""
+    out: set[str] = set()
+    for node in module.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.add(node.name)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                out.add((alias.asname or alias.name).split(".")[0])
+        elif isinstance(node, ast.Assign):
+            out |= _assigned_names([node])
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            out.add(node.target.id)
+    return out
+
+
+def live_in_violations(helper_fn: ast.AST, module: ast.Module, caller_fn: ast.AST) -> list[str]:
+    """Caller locals the helper READS but was never handed.
+
+    THE FOURTH HOLE, and the exact dual of live-outs. The reviewer found it by running it:
+
+        def f():
+            x = compute()
+            y = _w()        # `x` is never passed
+            return y
+
+        def _w():
+            y = x + 1       # ...but the helper reads it
+
+    Inline-back closes perfectly — splicing `y = x + 1` back over the call reproduces the original —
+    while the split raises NameError, because `x` is a caller local and the helper has no `x` in
+    scope. Once again the proof examines the RECONSTRUCTED original rather than the split, so the
+    free variables of the helper have to be computed directly.
+
+    A name is a live-in if the helper LOADS it before BINDING it, it is not a parameter, not a
+    module-level name, not a builtin — AND it is genuinely a LOCAL OF THE CALLER.
+
+    That last clause is the part I got wrong first, and the test fixtures exposed it: a name the
+    helper reads which is never bound in the caller either is not a caller local at all. It is a
+    global, an import, or a sibling function that simply is not declared in the snippet. Refusing on
+    those made the check reject `n = len(items)`-shaped helpers whose only sin was calling something
+    module-level. A live-in has to have been LIVE somewhere — if the caller never bound it, there
+    was nothing to hand over.
+    """
+    import builtins
+
+    params = _helper_params(helper_fn)
+    caller_locals = _assigned_names(caller_fn.body) | _helper_params(caller_fn)
+    available = params | _module_level_names(module) | set(dir(builtins))
+    bound: set[str] = set()
+    missing: list[str] = []
+
+    for stmt in _helper_body(helper_fn):
+        loads = _loaded_names([stmt]) | _augmented_reads(stmt)
+        for name in sorted(loads):
+            if (name in caller_locals and name not in bound and name not in available
+                    and name not in missing):
+                missing.append(name)
+        bound |= _assigned_names([stmt])
+
+    return [
+        f"`{name}` is read by the helper but never passed to it - it was a CALLER local, so after "
+        f"the split the helper raises NameError. Pass it as an argument."
+        for name in missing
+    ]
+
+
 def preconditions(helper_fn: ast.AST, *, caller_is_async: bool) -> list[str]:
     """Reasons this block must NOT be extracted, beyond the escape rule.
 
@@ -453,6 +536,15 @@ def assert_extraction_preserves_behaviour(original_src: str, split_src: str, hel
             + "\nEach of these would still pass inline-back — the round trip closes while behaviour "
             "changed — so they are refused up front instead of being blessed by a proof that cannot "
             "see them."
+        )
+
+    unpassed = live_in_violations(helper, module, funcs[original.name])
+    if unpassed:
+        raise AssertionError(
+            "REFUSED: the helper reads caller locals it was not given:\n  - "
+            + "\n  - ".join(unpassed)
+            + "\nInline-back CANNOT catch this either - it reconstructs the ORIGINAL, where those "
+            "names are in scope. The SPLIT is what raises NameError."
         )
 
     leaked = live_out_violations(funcs[original.name], helper)
