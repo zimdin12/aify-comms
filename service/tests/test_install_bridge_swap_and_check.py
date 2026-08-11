@@ -111,3 +111,22 @@ def test_the_banner_states_that_starting_it_supersedes_the_live_bridge():
     assert "SUPERSEDES" in banner
     assert "managed workers are reaped" in banner
     assert "--check" in banner, "the banner should point at the non-destructive alternative"
+
+
+def test_help_advertises_the_non_destructive_paths():
+    """A worried operator asks for --help, and it must lead them AWAY from the destructive default.
+
+    Reviewer's find, joint review round 2026-08-11: the launcher implements `doctor` and `--check`
+    and warns at startup that a bare run supersedes the live bridge, but the help text listed only
+    `--version`. Someone checking whether things work would read help, see no safe option, and run
+    the bare command — which is exactly how the fleet went down.
+    """
+    body = _launcher()
+    at = body.index("Usage: aify-comms")
+    help_text = body[at : body.index("USAGE", at)]
+    assert "doctor" in help_text, "help must offer the verifier"
+    assert "--check" in help_text, "help must offer the non-registering validation"
+    assert "SUPERSEDES" in help_text, "help must say what a bare run does to the live bridge"
+    assert help_text.index("SUPERSEDES") < help_text.index("--version"), (
+        "the consequence belongs above the flag list, where it is read"
+    )

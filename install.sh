@@ -2802,10 +2802,18 @@ if [ "\${1:-}" = "--help" ] || [ "\${1:-}" = "-h" ]; then
   cat <<'USAGE'
 Usage: aify-comms [server-url] [extra-root ...]
 
-Starts the local environment bridge for dashboard-managed agents.
+STARTS the local environment bridge for dashboard-managed agents. This is not a
+client and not a smoke test: starting it SUPERSEDES any bridge already serving
+this environment — the older one exits and its managed workers are reaped.
 The current directory is always an allowed workspace root. Extra roots are
 optional safety boundaries.
 
+  doctor          Verify the install against the RUNNING system (container
+                  build, installed vs running bridge, wrappers, runtimes).
+                  Accepts --json and --strict. Same tool as `aify-doctor`.
+  --check         Validate this launcher WITHOUT starting or registering
+                  anything. Use this to confirm it works — a bare run takes
+                  over the live bridge.
   --version, -V   Print the installed host bridge SHA and check origin/main
                   and the backend for a behind-count (offline-safe).
 USAGE
