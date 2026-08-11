@@ -216,18 +216,21 @@ not after — a pure-move refactor would carry them forward silently.
 
 ## Carried, not scheduled
 
-- **B1 — bridges report their build stamp on heartbeat.** `bridge-running` and `agent-identity`
-  both SKIP on Windows, so nothing verifies a *running* wrapper executes current code. This bit me
-  twice today: once recording a working fix as broken because my own bridge was stale. Cheap and
-  platform-independent; unscheduled only because nothing has failed *because* of it.
+- ~~**B1 — bridges report their build stamp on heartbeat.**~~ **SHIPPED in v0.3.1** as
+  `bridge-current`, and it has already earned itself twice: it caught the environment bridge running
+  pre-restart code after an install, and its own first version was green-by-default (fixed v0.3.2).
+  This list said "carried" for a day after it shipped — a stale roadmap entry reads exactly like an
+  open item.
 - **`rename_agent`'s `had_live_bridge`** has no freshness predicate. Advisory note only, no state
   damage. Promote if a rename ever emits a false "live session orphaned".
 - **Two dead branches** in `api_v2.py` matching receipt summaries that D2/#162 emptied. Measured:
   the exclusion subtracts 0 from 69. Redundant guards against a removed producer.
-- **SSE renderer has no unit test.** The search bug existed in both transports; I fixed one and
-  believed I was done. Reviewer's note — worth a parity check if that function stays transport-local.
-- **`[MSG NEW]`-class markers elsewhere.** One was always-on because the data behind it never
-  existed. Worth asking where else that pattern hides.
+- ~~**SSE renderer has no unit test.**~~ **DONE** — ten tests now drive the real tool functions
+  (search scope both ways, inbox safety header, fence escaping, empty vs id-not-found, truncation
+  disclosure, error surfacing).
+- ~~**`[MSG NEW]`-class markers elsewhere.**~~ **SWEPT, nothing found.** `[NEW]`/`[read]` is
+  grounded (`read_at is not None`; 2,176 of 29,960 messages genuinely unread), `[FAILED]`/
+  `[CANCELLED]` come from terminal status, `[CRITICAL]` from quota severity.
 - **Thread-closure pilot.** Reviewed and ready, **not running** — it needs operator adoption, and
   `sc-manager` applies it, not me. Roughly half of that team's threads stop with no recorded
   outcome and we cannot tell abandoned from concluded.

@@ -9,6 +9,7 @@ import { STATUS_KINDS, AGENT_STATUSES, LIVE_AGENT_STATUSES, resolveStatus, rende
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
 import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
 import { createChatController } from './chat.js';
+import { inspectorRefreshDecision } from './inspector-refresh.mjs';
 import { createNotifier, readEnabled, writeEnabled, requestPermission } from './notify.mjs';
 import { THEMES, applyTheme, applyCachedTheme, previewTheme, paletteFromSettings } from './theme.js';
 import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
@@ -754,6 +755,45 @@ async function refresh() {
   }
 }
 
+// Re-render the open inspector drawer from current data, if its kind allows it.
+// The per-kind rule lives in `inspector-refresh.mjs` (pure + tested); this function is only the
+// wiring: map an allowed kind to the opener that rebuilds it.
+function refreshOpenInspector() {
+  const drawer = byId('inspector');
+  const decision = inspectorRefreshDecision(state.inspector, {
+    isOpen: !!drawer?.classList.contains('open'),
+    containsFocus: !!drawer && drawer.contains(document.activeElement),
+    isLoading: !!state.inspector?.loadingMore,
+  });
+  if (decision !== 'refresh') return decision;
+  const ins = state.inspector || {};
+  try {
+    switch (ins.kind) {
+      case 'agent':
+        if (ins.agentId) openAgentDrawer(ins.agentId);
+        break;
+      case 'run':
+        if (ins.runId) openRunInspector({ runId: ins.runId, source: ins.source || 'refresh', sourceMessageId: ins.sourceMessageId || '' });
+        break;
+      case 'identity-directory':
+        openIdentityDirectory();
+        break;
+      case 'history':
+        if (ins.agentId) openCompactionHistory(ins.agentId);
+        break;
+      case 'message':
+        if (ins.messageId) openMessageDetail(ins.messageId);
+        break;
+      default:
+        return 'no-opener';
+    }
+  } catch (_e) {
+    // A drawer that fails to re-render must never break the poll cycle that feeds the whole page.
+    return 'failed';
+  }
+  return decision;
+}
+
 async function _refreshImpl() {
   // Only flip the chip to "refreshing" if the cycle is actually SLOW (>500ms). Fast polls
   // (the common case) finish before this fires, so the chip stays a steady "live" instead of
@@ -841,6 +881,15 @@ async function _refreshImpl() {
   // Status chip: green while the CORE roster (agents) is fresh, even if a non-critical slice
   // blipped (don't alarm the operator over a transient). Only show "reconnecting" when the core
   // roster itself didn't refresh — we keep last-good and retry next cycle (no scary "API error").
+  // OPERATOR-REPORTED 2026-08-11: "when i have inspector open and status changes, it does not
+  // update." There was no refresh path at all — every opener rendered once and nothing re-rendered
+  // it, so the drawer was a snapshot while the rows behind it moved. Re-render it here, per poll.
+  //
+  // Which drawers may be re-rendered is NOT decided inline: `inspector-refresh.mjs` owns that, fails
+  // closed on any unclassified kind, and refuses while a form is open, focus is inside, or the
+  // drawer's own fetch is in flight. Re-rendering a form would eat what the operator was typing,
+  // which is a worse bug than a stale panel.
+  refreshOpenInspector();
   clearTimeout(slowChipTimer); // cycle finished — cancel the pending "refreshing" flip
   if (failed === 0) {
     byId('api-status').textContent = 'live';
@@ -3522,7 +3571,7 @@ async function openCompactionHistory(agentId) {
   byId('inspector-content').innerHTML = `<div class="agent-drawer"><div class="agent-drawer-head"><strong>History · ${esc(agentId)}</strong></div><p class="subtle">Loading…</p></div>`;
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
-  state.inspector = { ...state.inspector, kind: 'history', runId: '' };
+  state.inspector = { ...state.inspector, kind: 'history', runId: '', agentId };
   let rows = [];
   try {
     const res = await api('/spawn-requests');
@@ -3658,7 +3707,7 @@ function openMessageDetail(msgId) {
       ${m.subject ? `<h4 class="an-h">${esc(m.subject)}</h4>` : ''}
       <p class="chat-msg-body">${esc(m.body || m.preview || '')}</p>
     </div>`;
-  state.inspector = { ...state.inspector, kind: 'message', runId: '' };
+  state.inspector = { ...state.inspector, kind: 'message', runId: '', messageId: msgId };
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
 }

@@ -145,11 +145,20 @@ through `aify-comms-debug` rather than inventing another status.
 | `working` | Live worker, open turn | wait, steer, or interrupt the proven turn |
 | `online` | Live worker, between turns | send normally |
 | `available` | Managed and cold-startable, no worker | send normally; it auto-starts |
+| `starting` | A claimed spawn is coming up; no worker YET | wait — do NOT restart or re-send; it is already on its way |
 | `blocked` | Live turn awaiting operator input | inspect console, then answer the proven prompt |
 | `offline` | No current wake path | restore bridge/environment or switch ownership |
 | `stopped` | Operator-disabled | restart/resume only when intended |
+| `misconfigured` | Identity exists but can never start | a human must fix the config; sending will not work |
 
 There are no live `idle` or `stale` states. A long-quiet live worker remains `online`.
+
+`starting` vs `available` is worth reading carefully, because they look the same from the outside and
+the right action differs. `available` means "nothing is running, and a send will cold-start it".
+`starting` means "a spawn has been claimed and its worker has not appeared yet" — a send still
+queues and is delivered when it arrives, but a RESTART at that moment kills the boot in progress.
+It is bounded: past the spawn-in-flight window an agent that never produced a worker falls back to
+`available`, so `starting` can never hide a broken spawn indefinitely.
 
 ## Repair Hints
 
