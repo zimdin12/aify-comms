@@ -1,7 +1,7 @@
 {
   "name": "aify-agents-bridge",
   "description": "Headless agent control plane forked from aify-comms — messaging, channels, dashboard, environment bridges, and managed headless agent spawning for Claude Code, Codex, and OpenCode.",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "author": {
     "name": "zimdin12"
   },
