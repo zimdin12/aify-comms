@@ -762,7 +762,13 @@ function refreshOpenInspector() {
   const drawer = byId('inspector');
   const decision = inspectorRefreshDecision(state.inspector, {
     isOpen: !!drawer?.classList.contains('open'),
-    containsFocus: !!drawer && drawer.contains(document.activeElement),
+    // Editing focus, not mere containment: a focused BUTTON inside the drawer holds nothing that
+    // can be lost, and treating it as "busy" suppressed every refresh (browser-verified).
+    isEditingFocus: (() => {
+      const el = document.activeElement;
+      if (!el || !drawer || !drawer.contains(el)) return false;
+      return /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable === true;
+    })(),
     isLoading: !!state.inspector?.loadingMore,
   });
   if (decision !== 'refresh') return decision;

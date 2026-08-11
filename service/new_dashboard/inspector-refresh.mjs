@@ -45,7 +45,7 @@ export const FORM_INSPECTOR_KINDS = new Set([
  */
 export function inspectorRefreshDecision(inspector, {
   isOpen = false,
-  containsFocus = false,
+  isEditingFocus = false,
   isLoading = false,
 } = {}) {
   if (!isOpen) return 'closed';
@@ -56,9 +56,16 @@ export function inspectorRefreshDecision(inspector, {
     // Fail closed. A kind nobody has classified might hold input we cannot see.
     return 'unknown-kind';
   }
-  // A read-only drawer the operator is interacting with — text selected for copying, a focused
-  // "load more" button — must not be yanked out from under them mid-gesture.
-  if (containsFocus) return 'focused';
+  // ONLY an EDITING focus suppresses the refresh — not focus anywhere inside the drawer.
+  //
+  // BROWSER-VERIFIED FAILURE of my first version, 2026-08-11: clicking a row that opens a drawer
+  // leaves `document.activeElement` on a BUTTON inside it, so `containsFocus` was true immediately
+  // and forever, and the drawer NEVER refreshed. Zero DOM mutations in 11 seconds — the fix was
+  // suppressed by its own guard in the exact case it was written for (open a drawer, watch it).
+  //
+  // A focused BUTTON holds nothing that can be lost. A focused input/textarea/select or a
+  // contenteditable does. Guard the thing that actually has state, not proximity to it.
+  if (isEditingFocus) return 'editing';
   // Its own fetch is still in flight; re-entering would race it.
   if (isLoading) return 'loading';
   return 'refresh';

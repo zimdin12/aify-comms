@@ -41,10 +41,16 @@ test("a closed drawer is not work to do", () => {
   assert.equal(inspectorRefreshDecision({ kind: 'agent' }, {}), 'closed');
 });
 
-test("focus inside the drawer suppresses the refresh", () => {
-  // Even a read-only drawer must not be yanked out from under a gesture — text selected for copying,
-  // a focused "load more" button.
-  assert.equal(inspectorRefreshDecision({ kind: 'run' }, { isOpen: true, containsFocus: true }), 'focused');
+test("an EDITING focus suppresses the refresh, a focused button does not", () => {
+  // BROWSER-VERIFIED FAILURE of the first version: clicking a row that opens a drawer leaves focus
+  // on a BUTTON inside it, so a "focus anywhere inside" guard was true immediately and forever and
+  // the drawer never refreshed — zero DOM mutations in 11s, suppressed by its own guard in exactly
+  // the case it was written for. Guard the thing that holds state, not proximity to it.
+  assert.equal(inspectorRefreshDecision({ kind: 'run' }, { isOpen: true, isEditingFocus: true }), 'editing');
+  assert.equal(
+    inspectorRefreshDecision({ kind: 'run' }, { isOpen: true, isEditingFocus: false }), 'refresh',
+    'a focused button must NOT stop a read-only drawer from updating',
+  );
 });
 
 test("a drawer with its own fetch in flight is left alone", () => {
