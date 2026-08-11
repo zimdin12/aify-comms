@@ -4,13 +4,13 @@ Split out of `status.md` (2026-08-03) so one symptom does not load the whole cat
 
 ## Contents
 
-- [Status labels (proof-based 6-state model, 2026-06-18)](#status-labels-proof-based-6-state-model-2026-06-18)
+- [Status labels (proof-based 8-state model, 2026-06-18; `starting` + `misconfigured` added later)](#status-labels-proof-based-8-state-model-2026-06-18-starting--misconfigured-added-later)
 - [`derive()` is the SOLE status authority — the `status_engine` flag is GONE (2026-06-18)](#derive-is-the-sole-status-authority-the-status-engine-flag-is-gone-2026-06-18)
 - [`available→online` is prompt now (and unrelated to auto-close); resident clean-exit drops `online` fast](#available-online-is-prompt-now-and-unrelated-to-auto-close-resident-clean-exit-drops-online-fast)
 - [Session status is derived now — no more "Stopped/Stale but running"](#session-status-is-derived-now-no-more-stopped-stale-but-running)
 - [Status semantics: `working` vs `online · awaiting reply` (2026-05-31)](#status-semantics-working-vs-online-awaiting-reply-2026-05-31)
 
-## Status labels (proof-based 6-state model, 2026-06-18)
+## Status labels (proof-based 8-state model, 2026-06-18; `starting` + `misconfigured` added later)
 
 **Principle.** Status is **PROVEN, not time-assumed.** The `*-aify` wrapper is the source of
 truth for what the agent is doing (turn-start → `working`, turn-end → `online`,
@@ -29,9 +29,12 @@ state from elapsed time instead of proving it. Canonical reference:
 | `blocked` | Wrapper reported the turn is awaiting operator input/a decision (a prompt/question, not healthy generation). Liveness-gated like `working`. |
 | `offline` | Heartbeat gone — instant on a clean wrapper disconnect, otherwise within the no-heartbeat liveness window (`agent_liveness_seconds`, default 90s = 3× the 30s beat). Covers both managed (env bridge down) and resident (bridge lease lapsed). `offline` ≠ `stopped`: offline is "we lost the signal", stopped is "operator disabled it". |
 | `stopped` | Operator hard-disabled the agent (wake-disabled, `launch_mode='none'`), or set by `resident-lost` on clean close of a **resident**. A deliberate down-state, not a lost signal. (A **managed** agent whose worker/gateway is lost is NOT stopped — it rests cold-startable → `available` and re-spawns on the next send.) |
+| `starting` | A spawn has been CLAIMED and its worker has not appeared yet. No live worker, but one is on its way. **Do NOT restart or re-send** — a restart at this moment kills the boot in progress. A send still queues and is delivered when the worker arrives. Bounded: past the spawn-in-flight window an agent that never produced a worker falls back to `available`, so `starting` can never hide a broken spawn indefinitely. |
+| `misconfigured` | The identity exists but can never start — the configuration itself is unusable. Not send-recoverable and not a transient: a human must fix the config. Sending will not work and re-sending will not help. |
 
-Managed lifecycle: `available` → `working` ⇄ `online` (+ `blocked` mid-turn, `offline` when
-the heartbeat lapses, `stopped` on hard-disable). Resident lifecycle: `working` ⇄ `online`
+Managed lifecycle: `available` → `starting` → `working` ⇄ `online` (+ `blocked` mid-turn, `offline`
+when the heartbeat lapses, `stopped` on hard-disable, `misconfigured` when the identity can never
+start at all). Resident lifecycle: `working` ⇄ `online`
 (+ `blocked`, `offline` when the bridge lease lapses, `stopped` on clean close). `blocked` is
 a sub-state of an in-turn agent (not a separate down-state): the turn is live but the wrapper
 reports it as awaiting operator input rather than healthy generation. Key distinctions:
@@ -44,7 +47,7 @@ reports it as awaiting operator input rather than healthy generation. Key distin
 the proof-based rewrite. There is now ONE derivation: `service/status_engine.py` `derive()` over
 `agent_status_state`, served from `_compute_live_status_cache`. The legacy per-request
 `agent_turn_state`/`turn_busy`-window cascade no longer produces a served status (the proof-based
-`derive()` output always wins). `derive()` emits the 6-state vocabulary above — it never emits
+`derive()` output always wins). `derive()` emits the 8-state vocabulary above — it never emits
 `idle` or `stale` (both removed as time-decay states): a long-quiet live agent stays `online`,
 and a resident whose bridge lease lapsed reads `offline`, not `stale`. `working` is a pure,
 **liveness-gated** `in_turn` flag (a dead worker / gone heartbeat can't latch `working`), queued

@@ -91,7 +91,7 @@ rows in place.
 
 > **Note (2026-06-18):** the live-status cache no longer lives in the
 > `agent_live_state` SQLite table at all — it is a process-global in-memory dict
-> (`_LIVE_STATE_CACHE`, `service/routers/api_v2.py`). The table is RETAINED for
+> (`_LIVE_STATE_CACHE`, `service/reconcilers/status_cache.py` — moved there in v0.5; the router reaches it as `status_cache._LIVE_STATE_CACHE`). The table is RETAINED for
 > schema compatibility but is no longer read or written on any path (vestigial), so
 > a dump of `agent_live_state` is NOT the live status — don't debug from it. This
 > also resolved the recurring `database is locked` 503s (the table was being

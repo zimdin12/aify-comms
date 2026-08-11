@@ -201,8 +201,9 @@ failure logged without failing the message.
 
 ### v0.5 — SHIPPED. The reconcilers are out of the router
 
-`api_v2.py` **23,681 -> 20,542**. Ten slices, ~3,800 lines into eleven leaf modules
-(`service/reconcilers/*`, plus `clock.py` and `env_status.py`).
+`api_v2.py` **23,681 -> 20,545**. Ten slices, ~3,800 lines into **ten** reconciler modules under
+`service/reconcilers/`, plus two new leaf helpers (`service/clock.py`, `service/env_status.py`) —
+twelve files, not the "eleven leaf modules" an earlier draft of this line claimed.
 
 **Honest wording, which the reviewer required and is the accurate claim:** reconcilers extracted;
 **router borrows documented**. NOT "router dependency eliminated". The leaf layer still reaches back

@@ -15,6 +15,31 @@ Split out of `dispatch-bridge.md` (2026-08-03) so one symptom does not load the 
 - Send to an `available` managed claude FAILED after ~180s instead of cold-starting
 - Run failed with a "provider rate-limiting, not your request — retry shortly" notice
 - Bridge log lines: `claim timed out` / `503 database is locked` / `fetch failed` — triage (2026-07-01)
+- Whole managed fleet went down seconds after someone ran `aify-comms` (2026-08-11)
+
+## Whole managed fleet went down seconds after someone ran `aify-comms` (2026-08-11)
+
+**Symptom.** Nine managed agents went `offline`/`available` at once, with no deploy, no container
+restart, and nothing in the service log to explain it. The only preceding action was a four-second
+run of the bare `aify-comms` command, intended purely to confirm the launcher still worked.
+
+**Cause.** `aify-comms` with no arguments is **not** an info command — it execs
+`server.js --environment-bridge` and starts a real environment bridge. That new instance
+**supersedes** the bridge already serving the environment; the older one exits, and on exit it
+**reaps the managed workers it was hosting**. A four-second foreground run is therefore enough to
+take down the entire managed fleet for that environment. Exiting the new bridge does not bring the
+reaped workers back.
+
+**Do not diagnose this as an install or deploy fault.** It was first misdiagnosed as an `install.sh`
+regression, which cost a round of investigation before a repro disproved it. If a fleet drops with no
+deploy, check shell history for a bare `aify-comms` before anything else.
+
+**Fix / prevention.**
+- Inspect with `aify-comms --check` (validates node, the script path, and that it parses; registers
+  nothing and starts nothing), `aify-comms --help`, or `aify-comms doctor`.
+- Recovery is to restart the environment bridge deliberately and let the managed agents re-spawn;
+  `aify-comms doctor` `env-bridge` confirms one is actually ONLINE, not merely registered.
+- The launcher now prints a banner naming the supersede-and-reap behaviour before it starts.
 
 ## Channel-routed claude dispatches stay queued forever (resident or managed)
 

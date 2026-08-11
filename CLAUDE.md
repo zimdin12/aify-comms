@@ -38,10 +38,10 @@ The MCP stdio bridges under `mcp/stdio/` run on the **host**, not in the contain
 | Path | What |
 |------|------|
 | `service/` | FastAPI backend, SQLite persistence, dashboard HTML, dispatch logic. Rebuild container after changes. |
-| `service/terminal_snapshot.py`, `service/terminal_diagnostics.py`, `service/status_engine.py` | PURE, unit-tested service modules extracted out of `api_v2.py` for the same reason as the bridge predicates below: logic that lives in a 23k-line router is only reachable through the app, so it can only fail in production. `terminal_diagnostics.py` (which line of a dead terminal's output explains the death) is the pattern to follow for anything new — put behaviour here and import it, don't grow `api_v2.py`. |
+| `service/terminal_snapshot.py`, `service/terminal_diagnostics.py`, `service/status_engine.py` | PURE, unit-tested service modules extracted out of `api_v2.py` for the same reason as the bridge predicates below: logic that lives in a 20k-line router is only reachable through the app, so it can only fail in production. `terminal_diagnostics.py` (which line of a dead terminal's output explains the death) is the pattern to follow for anything new — put behaviour here and import it, don't grow `api_v2.py`. |
 | `service/reconcilers/` | **v0.5.** The reconcilers extracted out of `api_v2.py` — one module per responsibility (`status_cache`, `spawn_lifecycle`, `sessions`, `terminals`, `terminal_runs`, `terminal_consistency`, `dispatch_queue`, `dispatch_lifecycle`, `managed_workers`, `console_binding`). Leaf modules: they may import `service/clock.py`, `service/env_status.py` and each other, but must NOT import the router at module level. Where one still needs a router helper it BORROWS it through a function-scope shim reading exactly one owner — never a copy. Those borrows are the release's documented debt; see docs/ROADMAP.md. |
 | `service/clock.py`, `service/env_status.py` | Leaf helpers with no service dependencies, created so the reconcilers could stop importing the router for a timestamp or an environment status. |
-| `service/new_dashboard/*.mjs` | Pure dashboard modules with their own `*.test.mjs` (`terminal-input`, `cli-resume`, `sessions-list`, …). `app.js` is ~4.9k lines and only reachable by source-regex tests, which cannot fail on wrong logic — put new behaviour in a module here instead. |
+| `service/new_dashboard/*.mjs` | Pure dashboard modules with their own `*.test.mjs` (`terminal-input`, `cli-resume`, `sessions-list`, …). `app.js` is ~5.1k lines and only reachable by source-regex tests, which cannot fail on wrong logic — put new behaviour in a module here instead. |
 | `mcp/stdio/` | Host-side MCP bridges (`server.js`, `claude-channel.js`, `runtimes.js`, `runtime-markers.js`, `notify-check.js`). Restart client wrapper after changes. |
 | `mcp/stdio/*-predicates.js`, `register-identity.js` | PURE, unit-tested helpers extracted out of the bridges so their logic can fail a test instead of only failing in production. `doctor-predicates.js` (env liveness) and `register-identity.js` (resident launch-identity warning) are the pattern to follow — `doctor.js` was untestable until its predicates moved out, and the first thing the new test caught was a real bug. |
 | `mcp/sse_server.py` | SSE MCP transport (runs inside the container). Rebuild container after changes. |
@@ -57,7 +57,7 @@ The MCP stdio bridges under `mcp/stdio/` run on the **host**, not in the contain
 - **Forward-slash `cwd` on Windows** for Codex agents. The bridge auto-normalizes, but any new Codex thread must be created with a forward-slash cwd or it'll fail `thread/resume` later.
 - **Re-register is a full state refresh** for everything except `description`. Tests and dev workflows should assume session state is wiped on re-register — see DECISIONS.md.
 - **Skill files live in two places:** `.claude/skills/aify-comms*/` and `.agents/skills/aify-comms*/`. Keep them in sync when editing.
-- **The live-status cache is in-memory (`_LIVE_STATE_CACHE`, `service/routers/api_v2.py`), and the service MUST stay single-worker.** As of 2026-06-18 (`97a497a`) the derived agent-status cache is a process-global in-memory dict, not a SQLite table — this resolved the recurring `database is locked` 503s (the old `agent_live_state` table was refresh-written on every dashboard poll). It is only correct with ONE uvicorn process / one event loop, so never add `--workers > 1` without first moving the cache to a shared store (Redis) or sticky routing. The `agent_live_state` table is vestigial (retained for schema compat, read/written by nothing) — don't debug status from a table dump; use `comms_agent_info` / the dashboard. See DECISIONS.md, "Live-status cache is in-memory, not SQLite".
+- **The live-status cache is in-memory (`_LIVE_STATE_CACHE`, owned by `service/reconcilers/status_cache.py` since v0.5 — the router reaches it as `status_cache._LIVE_STATE_CACHE`, never by value), and the service MUST stay single-worker.** As of 2026-06-18 (`97a497a`) the derived agent-status cache is a process-global in-memory dict, not a SQLite table — this resolved the recurring `database is locked` 503s (the old `agent_live_state` table was refresh-written on every dashboard poll). It is only correct with ONE uvicorn process / one event loop, so never add `--workers > 1` without first moving the cache to a shared store (Redis) or sticky routing. The `agent_live_state` table is vestigial (retained for schema compat, read/written by nothing) — don't debug status from a table dump; use `comms_agent_info` / the dashboard. See DECISIONS.md, "Live-status cache is in-memory, not SQLite".
 - **Container name is `aify-comms-service`** on the `aify-comms-network` network. Compose project name is driven by `COMPOSE_PROJECT_NAME` in `.env`.
 - **No secrets in commits.** `.env` is gitignored; `config/service.json` is generated by `setup.sh`.
 
@@ -114,8 +114,9 @@ docker compose up -d --build && curl http://localhost:8800/health
 node --check mcp/stdio/server.js
 node --check mcp/stdio/runtimes.js
 
-# Python change
-python -c "import ast; ast.parse(open('service/routers/api_v2.py').read())"
+# Python change — the router is no longer the only safety-sensitive surface (v0.5 moved the
+# reconcilers out), so parse the leaf modules too, not just api_v2.py.
+python -m py_compile service/routers/api_v2.py service/reconcilers/*.py service/clock.py service/env_status.py
 ```
 
 Full end-to-end test is a two-session live round-trip. Register two agents, use `comms_send` from one to the other, verify the target wakes or receives a steer/queued turn according to capability, and verify the response is threaded back in chat.

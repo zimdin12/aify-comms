@@ -166,7 +166,8 @@ This repo is the canonical `aify-comms` codebase. The dashboard and environment 
 Important starting docs:
 
 - [AGENTS.md](AGENTS.md) — coding-agent instructions for this repo.
-- [docs/V0.2_PLAN.md](docs/V0.2_PLAN.md) — **the current work queue.** Backlog from the v0.1 release review, with the two open operator decisions at the top.
+- [docs/ROADMAP.md](docs/ROADMAP.md) — **the current work queue.** What shipped, what is carried, and what is next.
+- [docs/V0.2_PLAN.md](docs/V0.2_PLAN.md) — *historical.* Backlog from the v0.1 release review; kept as evidence, no longer the queue.
 - [docs/PRODUCT_BRIEF.md](docs/PRODUCT_BRIEF.md) — product goals and non-goals.
 - [docs/ARCHITECTURE_PLAN.md](docs/ARCHITECTURE_PLAN.md) — proposed control-plane architecture.
 - [docs/SESSION_MODEL.md](docs/SESSION_MODEL.md) — backed warm sessions, native resume, bridge-emulated resume, and CLI attach rules.
