@@ -35,6 +35,13 @@ that is no longer around them) and `yield` (which turns H into a generator and s
 yielding). A gate with a known blind spot is only honest if it refuses the inputs it cannot judge,
 so any escape OTHER than a single trailing `return` is REJECTED rather than passed.
 
+`live_out_violations()` exists for the SAME reason and is the sharper example, because the reviewer
+found it in a test in this repo that asserted a broken split was clean. If the helper binds a local
+the caller goes on to read, that name is a helper local after the split and the caller raises
+NameError — but inline-back reconstructs the ORIGINAL, which is correct by definition, so the round
+trip passes. The proof examines the wrong artifact for this class, so live-outs are computed
+directly from the split instead of inferred from the round trip.
+
 This module is test-support, not production code, and is deliberately small enough to be read in one
 sitting — the whole point is that the reviewer can verify the verifier.
 """
@@ -99,6 +106,68 @@ FRAME_SENSITIVE = {
     "locals", "globals", "vars", "exc_info", "currentframe",
     "stack", "extract_stack", "print_stack", "setprofile", "settrace",
 }
+
+
+def _assigned_names(nodes) -> set[str]:
+    """Local names BOUND by these statements, excluding names bound in nested scopes."""
+    out: set[str] = set()
+    for stmt in nodes:
+        for sub in ast.walk(stmt):
+            if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                out.add(sub.name)
+                continue
+            if isinstance(sub, ast.Name) and isinstance(sub.ctx, (ast.Store, ast.AugStore)):
+                out.add(sub.id)
+            elif isinstance(sub, ast.arg):
+                out.add(sub.arg)
+    return out
+
+
+def _loaded_names(nodes) -> set[str]:
+    out: set[str] = set()
+    for stmt in nodes:
+        for sub in ast.walk(stmt):
+            if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load):
+                out.add(sub.id)
+    return out
+
+
+def live_out_violations(split_fn: ast.AST, helper_fn: ast.AST) -> list[str]:
+    """Locals the helper binds that the CALLER still reads afterwards, without being handed back.
+
+    THE DEFECT THIS EXISTS FOR, found by the reviewer in my own "clean extraction" test:
+
+        def handler(...):
+            _accumulate(rows)              # helper binds `total`
+            label = f"{name}:{total}"      # caller reads `total` -> NameError
+
+    Inline-back CLOSES on this — splicing the helper's body back reproduces the original perfectly —
+    so the round trip called it proven while the split was broken. `total` was a caller local before
+    the extraction and is a helper local after it. Nothing about the structural proof can see that,
+    because the proof compares the RECONSTRUCTED original, not the split.
+
+    So live-outs are computed directly: names the helper binds, that the caller reads after the call
+    site, that the call does not rebind. Any such name is a defect, not a warning.
+    """
+    index = _find_call_stmt(split_fn.body, helper_fn.name)
+    call_stmt = split_fn.body[index]
+    after = split_fn.body[index + 1:]
+
+    bound_by_helper = _assigned_names(_helper_body(helper_fn))
+    # Parameters are the caller's values passed in, not new bindings escaping outward.
+    params = {a.arg for a in list(helper_fn.args.args) + list(helper_fn.args.kwonlyargs)}
+    bound_by_helper -= params
+
+    rebound_at_call = _assigned_names([call_stmt])
+    read_after = _loaded_names(after)
+    # A name the caller binds again before reading is not live-out from the helper.
+    escaped = sorted((bound_by_helper & read_after) - rebound_at_call - _assigned_names(after))
+    return [
+        f"`{name}` is assigned inside the helper and read by the caller afterwards, but the call "
+        f"does not hand it back - after the split it is a HELPER local and the caller raises "
+        f"NameError (or silently reads a stale outer binding)"
+        for name in escaped
+    ]
 
 
 def preconditions(helper_fn: ast.AST, *, caller_is_async: bool) -> list[str]:
@@ -267,6 +336,16 @@ def assert_extraction_preserves_behaviour(original_src: str, split_src: str, hel
             + "\nEach of these would still pass inline-back — the round trip closes while behaviour "
             "changed — so they are refused up front instead of being blessed by a proof that cannot "
             "see them."
+        )
+
+    leaked = live_out_violations(funcs[original.name], helper)
+    if leaked:
+        raise AssertionError(
+            "REFUSED: the split does not hand back every local the caller still needs:\n  - "
+            + "\n  - ".join(leaked)
+            + "\nInline-back CANNOT catch this - the round trip reconstructs the ORIGINAL, which is "
+            "correct by definition, while the SPLIT is what breaks. Return the value(s) and rebind "
+            "them at the call site."
         )
 
     rebuilt = inline_back(funcs[original.name], helper)

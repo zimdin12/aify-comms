@@ -44,10 +44,27 @@ def _sum_weights(rows):
 
 
 class ExtractMethodGateTests(unittest.TestCase):
-    def test_a_clean_extraction_passes(self):
-        # The helper's trailing `return total` IS an escape by the letter of the rule, so the
-        # honest shape of a value-returning extraction is checked separately below. Here the block
-        # is lifted verbatim with the assignment left in the caller.
+    def test_refuses_a_split_that_strands_a_caller_local(self):
+        """THE DEFECT THE REVIEWER FOUND IN THIS FILE, and the most important test here.
+
+        This exact split was previously asserted to PASS. It is broken: `_accumulate` binds `total`,
+        and the caller reads `total` on the next line -- which after the split is a helper local, so
+        the caller raises NameError. Inline-back closes on it happily, because the round trip
+        reconstructs the ORIGINAL (correct by definition) rather than exercising the SPLIT.
+
+        A structural proof cannot see this class at all, which is why live-outs are computed
+        directly instead of being inferred from the round trip.
+        """
+        original = '''
+def handler(payload, db):
+    name = payload["name"]
+    rows = db.query(name)
+    total = 0
+    for row in rows:
+        total += row.weight
+    label = f"{name}:{total}"
+    return label
+'''
         split = '''
 def handler(payload, db):
     name = payload["name"]
@@ -62,17 +79,32 @@ def _accumulate(rows):
     for row in rows:
         total += row.weight
 '''
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original, split, "_accumulate")
+        self.assertIn("REFUSED", str(caught.exception))
+        self.assertIn("hand it back", str(caught.exception))
+
+    def test_a_void_extraction_with_no_live_outs_passes(self):
+        """The honest VOID shape: the block binds nothing the caller goes on to read."""
         original = '''
-def handler(payload, db):
-    name = payload["name"]
-    rows = db.query(name)
-    total = 0
-    for row in rows:
-        total += row.weight
-    label = f"{name}:{total}"
-    return label
+def handler(db):
+    db.begin()
+    db.write_one()
+    db.write_two()
+    db.commit()
 '''
-        assert_extraction_preserves_behaviour(original, split, "_accumulate")
+        split = '''
+def handler(db):
+    db.begin()
+    _writes(db)
+    db.commit()
+
+
+def _writes(db):
+    db.write_one()
+    db.write_two()
+'''
+        assert_extraction_preserves_behaviour(original, split, "_writes")
 
     def test_the_value_returning_shape_passes(self):
         """The COMMON shape: helper ends `return total`, caller does `total = _sum_weights(rows)`.
@@ -116,20 +148,26 @@ def _guard(name):
         self.assertIn("not a single trailing", str(caught.exception))
 
     def test_a_dropped_statement_fails(self):
+        """No live-outs here, so the round trip is what must catch it."""
+        original = '''
+def handler(db):
+    db.begin()
+    db.write_one()
+    db.write_two()
+    db.commit()
+'''
         split = '''
-def handler(payload, db):
-    name = payload["name"]
-    rows = db.query(name)
-    _accumulate(rows)
-    label = f"{name}:{total}"
-    return label
+def handler(db):
+    db.begin()
+    _writes(db)
+    db.commit()
 
 
-def _accumulate(rows):
-    total = 0
+def _writes(db):
+    db.write_one()
 '''
         with self.assertRaises(AssertionError) as caught:
-            assert_extraction_preserves_behaviour(ORIGINAL.replace("    return label", "    return label"), split, "_accumulate")
+            assert_extraction_preserves_behaviour(original, split, "_writes")
         self.assertIn("did not reproduce the original", str(caught.exception))
 
     def test_a_reordered_statement_fails(self):

@@ -5,7 +5,7 @@ every-name scan before the move (see docs/V0.5_SLICE3.md for why a call-only sca
 
 BORROWED, NOT MOVED — decided on measured caller count, the same rule as slice 4:
 `_append_terminal_event` (36 call sites in the router), `_append_terminal_control`,
-`_has_live_channel_sidecar`, `_has_live_terminal_session`, `_json_loads_or`, and the constants
+`_has_live_channel_sidecar`, `_has_live_terminal_session`, and the constants
 `MANAGED_ORPHAN_GRACE_SECONDS` / `VIRTUAL_RPC_COMMAND_SET`. Each is read through a function-scope
 import so there is exactly one owner and no second copy that can drift. Safe in this direction: the
 router is fully loaded by the time any reconciler runs.
@@ -23,6 +23,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from service.api_core.serialization import _json_loads_or  # v0.5.1c: the leaf owner, not via the router
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -49,10 +50,6 @@ async def _has_live_terminal_session(*a, **k):
     from service.routers.api_v2 import _has_live_terminal_session as _i
     return await _i(*a, **k)
 
-
-def _json_loads_or(*a, **k):
-    from service.routers.api_v2 import _json_loads_or as _i
-    return _i(*a, **k)
 
 
 def _managed_orphan_grace_seconds():
