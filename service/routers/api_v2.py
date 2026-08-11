@@ -27,6 +27,17 @@ _listen_events: dict[str, asyncio.Event] = {}
 
 from pydantic import BaseModel
 from service.config import get_config
+from service.api_core.serialization import (  # v0.5.1c: single owner, no copy
+    _json_loads_or,
+    _clip_text,
+    _iso_from_ms,
+    _dedupe_preserve,
+    _timestamp_sort_key,
+    _normalize_machine_id,
+    _machine_ids_same_host,
+    _quote_untrusted_subject,
+    _row_require_reply,
+)
 from service.db import get_db, SQLITE_CLAIM_BUSY_TIMEOUT_MS
 from service import longpoll
 from service.usage_openai import collect_openai_pool
@@ -205,8 +216,6 @@ def _is_lock_error(exc: BaseException) -> bool:
 
 
 
-def _iso_from_ms(timestamp_ms: int) -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(max(0, int(timestamp_ms or 0)) / 1000))
 
 def _shared_dir(request: Request) -> Path:
     try:
@@ -1290,24 +1299,8 @@ async def _touch_agent(db, agent_id: str):
     )
 
 
-def _json_loads_or(value: Any, default):
-    if value in (None, ""):
-        return default
-    try:
-        return json.loads(value)
-    except Exception:
-        return default
 
 
-def _timestamp_sort_key(value: Any) -> str:
-    try:
-        raw = str(value or "").strip()
-        if not raw:
-            return ""
-        from datetime import datetime, timezone
-        return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(timezone.utc).isoformat()
-    except Exception:
-        return str(value or "")
 
 
 def _bridge_started_at(metadata: Any) -> str:
@@ -1415,64 +1408,14 @@ def _session_capabilities_replacing_handle(capabilities: Any, session_handle: st
     return result
 
 
-def _normalize_machine_id(machine_id: Any) -> str:
-    """Canonical machine_id form for storage AND comparison.
-
-    The host machine_id is "<platform>:<hostname>" (e.g. "win32:DevBox-1").
-    Different launch paths report the hostname with different casing, and
-    machine_id is compared in bridge supersession + dispatch-claim routing.
-    Comparing case-sensitively let a re-registered worker under a different
-    casing escape supersession, leaving duplicate live bridge_instances.
-    Lowercasing is safe (platform is already lowercase, only host casing
-    varies) and idempotent, so we normalize at every store/compare site.
-    """
-    return str(machine_id or "").strip().lower()
 
 
 def _machine_family(machine_id: Any) -> str:
     return str(machine_id or "").strip().split(":", 1)[0].lower()
 
 
-def _machine_ids_same_host(a: Any, b: Any) -> bool:
-    """Tolerant machine_id equality for dispatch-claim routing.
-
-    machine_id is "<platform>:<host>". On WSL the platform tag is unstable
-    across spawn contexts: the SAME machine registers as both
-    "wsl-<distro>:host" (when WSL_DISTRO_NAME is set) and "linux:host" (when it
-    isn't), because the env var is not propagated to every process. An exact
-    comparison then treats one machine as two — a WSL delivery loop
-    ("wsl-ubuntu:host") could never claim runs for a WSL-registered agent
-    ("linux:host"), so deliveries sat queued forever (observed 2026-06-02,
-    ci-senior-dev). Collapse the linux/WSL platform family so they match, while
-    keeping win32/darwin distinct (a Windows bridge must NOT claim a WSL agent's
-    runs). Fully generic: only the host component and a family collapse are
-    compared, nothing machine-specific.
-    """
-    na, nb = _normalize_machine_id(a), _normalize_machine_id(b)
-    if na == nb:
-        return True
-    if not na or not nb:
-        return False
-    fa, _, ha = na.partition(":")
-    fb, _, hb = nb.partition(":")
-    if not ha or ha != hb:
-        return False
-
-    def _fam(f: str) -> str:
-        return "linux" if f == "linux" or f.startswith("wsl") else f
-
-    return _fam(fa) == _fam(fb)
 
 
-def _dedupe_preserve(values: list[str]) -> list[str]:
-    seen = set()
-    result = []
-    for value in values:
-        if not value or value in seen:
-            continue
-        seen.add(value)
-        result.append(value)
-    return result
 
 
 def _dispatch_requires_reply(explicit: Optional[bool], *, default: bool) -> bool:
@@ -1485,8 +1428,6 @@ def _message_type_expects_reply(message_type: str) -> bool:
     return (message_type or "").strip().lower() in {"request", "review", "error"}
 
 
-def _row_require_reply(row) -> bool:
-    return bool(int((row["require_reply"] if row and "require_reply" in row.keys() else 0) or 0))
 
 
 def _is_delivery_only_claude_run(row) -> bool:
@@ -7327,32 +7268,8 @@ def _stronger_priority(left: str, right: str) -> str:
     return left_key if _PRIORITY_ORDER.get(left_key, 0) >= _PRIORITY_ORDER.get(right_key, 0) else right_key
 
 
-def _clip_text(text: str, limit: int = 240) -> str:
-    value = str(text or "").strip()
-    if len(value) <= limit:
-        return value
-    return value[: max(limit - 1, 0)].rstrip() + "…"
 
 
-def _quote_untrusted_subject(subject: str, limit: int = 80) -> str:
-    """Render another agent's subject so it cannot read as an instruction to whoever sees it.
-
-    OPERATOR-REPORTED 2026-08-11: "when you restart agent then it gives some text ... but my agent
-    decided to restart himself after reading this."
-
-    A subject is free text written BY one agent FOR another, and these summaries strip the addressing
-    away. So `Restart lc-coder` — a request aimed at somebody else — arrives in a third agent's
-    context as a bare imperative line, and an agent that treats its context as instructions acts on
-    it. Nothing was wrong with the routing; the RENDERING made a quotation look like a command.
-
-    Quoting is the whole fix, and it must be applied wherever a foreign subject is echoed:
-    a quoted string reads as a thing being talked about, an unquoted imperative reads as a thing to
-    do. The same reasoning as the inbox safety header, applied to the one-line summaries that do not
-    carry it.
-    """
-    text = _clip_text(subject, limit) or "(no subject)"
-    # Neutralise any embedded quote so the quoting cannot be escaped by the subject itself.
-    return '"' + text.replace('"', "'") + '"'
 
 
 def _render_pending_dispatch_item(
