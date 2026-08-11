@@ -103,10 +103,22 @@ async def health():
 
     It carries no URL, redacted or otherwise (C6: the topic URL grants read AND publish).
     `test_ntfy_relay.py::test_health_never_contains_the_url` asserts that.
-    """
-    from service.ntfy import get_relay
 
-    return {"status": "healthy", "ntfy": get_relay().health()}
+    THIS ENDPOINT IS THE CONTAINER'S HEALTHCHECK (`docker-compose.yml`: `curl -f .../health`), so
+    the ntfy block is wrapped: if the relay could raise here, a broken PHONE ALERT would mark the
+    whole service unhealthy and Docker would restart a container that is serving the fleet perfectly
+    well. Found reviewing my own change — the feature is advisory by design in every other respect
+    (shed on full, drop on failure, never block a send) and it must be advisory here too.
+    """
+    payload = {"status": "healthy"}
+    try:
+        from service.ntfy import get_relay
+
+        payload["ntfy"] = get_relay().health()
+    except Exception as exc:  # pragma: no cover - defensive by intent
+        logger.warning("ntfy health block unavailable (%s)", type(exc).__name__)
+        payload["ntfy"] = {"enabled": None, "error": "unavailable"}
+    return payload
 
 
 @router.get("/version")

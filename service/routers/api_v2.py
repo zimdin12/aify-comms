@@ -12592,6 +12592,28 @@ async def get_terminal(terminal_id: str, cols: Optional[int] = None, rows: Optio
             (terminal_id,),
         )).fetchall()
         term_dict = _terminal_session_to_dict(terminal)
+        # The agent's ROLE travels with the terminal, so a launch never depends on a second call.
+        #
+        # Found reviewing my own AIFY_AGENT_ROLE fix: the bridge reads the role from
+        # `GET /agents/{id}` and falls back to `{}` on ANY failure (server.js, the terminal-start
+        # control). A transient 503 or lock there silently reinstates the exact bug the fix closed —
+        # the child defaults to "coder" and its self-register overwrites the spawn's role. The
+        # fallback I wrote in terminal-env.js (`terminal.role`) was DEAD CODE, because this payload
+        # never carried one.
+        #
+        # One indexed lookup on a control path that already does several, and it makes the fallback
+        # real: the role now arrives with the terminal the bridge is already fetching.
+        try:
+            if terminal["agent_id"]:
+                agent_row = await (await db.execute(
+                    "SELECT role FROM agents WHERE id = ?", (terminal["agent_id"],)
+                )).fetchone()
+                term_dict["role"] = str((agent_row["role"] if agent_row else "") or "")
+            else:
+                term_dict["role"] = ""
+        except Exception:
+            # Never fail a terminal fetch over an advisory field.
+            term_dict["role"] = ""
         # Clean replay (2026-06-30): when the viewer passes its grid size, render the raw
         # byte log through a headless VT emulator sized to that grid and return a clean
         # current-screen snapshot. Replaying THIS (instead of the raw log) into a fresh

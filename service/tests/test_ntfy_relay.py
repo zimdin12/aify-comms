@@ -384,3 +384,44 @@ class HeaderSafetyTests(unittest.TestCase):
         """Only the header is constrained. The message text itself must reach the phone intact."""
         _, body = ntfy.build_alert("channel_message", {"channel": "c", "from": "a", "body": "héllo 🎉"})
         self.assertIn("héllo 🎉", body)
+
+
+class HealthEndpointBlastRadiusTests(unittest.TestCase):
+    """/health is the CONTAINER'S healthcheck. Phone alerts must not be able to fail it.
+
+    Found reviewing my own change: `docker-compose.yml` runs `curl -f .../health` as the healthcheck,
+    and I made that response depend on the ntfy relay. If the relay could raise there, a broken
+    optional feature would mark the whole service unhealthy and Docker would restart a container
+    serving the fleet perfectly well.
+
+    ntfy is advisory in every other respect — it sheds on a full queue, drops on failure, and never
+    blocks a send. It has to be advisory here too.
+    """
+
+    def test_a_raising_relay_does_not_break_the_healthcheck(self):
+        import asyncio as aio
+
+        from service.routers import health as health_router
+
+        original = ntfy.get_relay
+        ntfy.get_relay = lambda: (_ for _ in ()).throw(RuntimeError("relay exploded"))
+        try:
+            payload = aio.run(health_router.health())
+        finally:
+            ntfy.get_relay = original
+
+        self.assertEqual(payload["status"], "healthy",
+                         "a broken phone-alert relay must never make the service look unhealthy")
+        self.assertEqual(payload["ntfy"], {"enabled": None, "error": "unavailable"},
+                         "and it must say it could not answer, not report a healthy-looking zero state")
+
+    def test_the_normal_block_is_still_reported(self):
+        import asyncio as aio
+
+        from service.routers import health as health_router
+
+        ntfy.reset_relay_for_tests("")
+        payload = aio.run(health_router.health())
+        self.assertEqual(payload["status"], "healthy")
+        self.assertIs(payload["ntfy"]["enabled"], False)
+        self.assertIn("queueDepth", payload["ntfy"])

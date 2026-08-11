@@ -1774,6 +1774,30 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         self.assertEqual(asyncio.run(_run()), 1)
 
+    def test_terminal_payload_carries_the_agent_role(self):
+        """The role must travel WITH the terminal, or the AIFY_AGENT_ROLE fix has a silent hole.
+
+        Found reviewing my own fix. The bridge reads the role from `GET /agents/{id}` at launch and
+        falls back to `{}` on ANY failure, so a transient 503 or lock there silently reinstates the
+        original bug: the child defaults to "coder" and its self-register overwrites the spawn's
+        role. The fallback I had written in terminal-env.js (`terminal.role`) was DEAD CODE, because
+        this payload never carried one — which is worse than no fallback, since it reads as covered.
+
+        This pins the field so the bridge's fallback stays real.
+        """
+        session_id = self._create_running_session(terminal=True)
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+
+        fetched = self.client.get(f"/api/v1/terminals/{terminal_id}")
+        self.assertEqual(fetched.status_code, 200, fetched.text)
+        terminal = fetched.json()["terminal"]
+        self.assertIn("role", terminal, "the bridge's role fallback depends on this field existing")
+        agent = self.client.get(f"/api/v1/agents/{terminal['agentId']}").json()["agent"]
+        self.assertEqual(terminal["role"], agent["role"],
+                         "the terminal must report the SAME role the agent has, not a default")
+
     def test_terminal_output_broadcast_includes_agent_id(self):
         session_id = self._create_running_session(terminal=True)
         started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})

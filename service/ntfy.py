@@ -283,7 +283,17 @@ class NtfyRelay:
     def start(self, loop=None) -> None:
         if not self.enabled or self._task is not None:
             return
-        self._task = (loop or asyncio.get_event_loop()).create_task(self.run_worker())
+        # `get_running_loop`, not `get_event_loop`. The latter is deprecated and, from 3.12, RAISES
+        # when there is no running loop — so on a newer interpreter a start() from outside the
+        # lifespan would blow up instead of no-opping. The explicit fallback keeps that a quiet
+        # no-op: a relay with no worker still reports `workerAlive: false` on /health, which is the
+        # honest outcome, rather than taking the service down at startup over phone alerts.
+        try:
+            running = loop or asyncio.get_running_loop()
+        except RuntimeError:
+            logger.warning("ntfy worker not started: no running event loop")
+            return
+        self._task = running.create_task(self.run_worker())
 
     async def stop(self) -> None:
         task, self._task = self._task, None

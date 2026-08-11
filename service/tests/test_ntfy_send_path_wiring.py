@@ -121,9 +121,26 @@ class LifespanWiringTests(unittest.TestCase):
 
 
 class HealthWiringTests(unittest.TestCase):
+    def _src(self) -> str:
+        return (Path(__file__).resolve().parents[1] / "routers" / "health.py").read_text(encoding="utf-8")
+
     def test_health_exposes_the_relay_block(self):
-        src = (Path(__file__).resolve().parents[1] / "routers" / "health.py").read_text(encoding="utf-8")
-        self.assertIn('"ntfy": get_relay().health()', src)
+        src = self._src()
+        self.assertIn("get_relay().health()", src)
+        self.assertIn('payload["ntfy"]', src)
+
+    def test_the_relay_block_cannot_fail_the_container_healthcheck(self):
+        """/health is the docker healthcheck. An optional phone-alert feature must not be able to
+        make Docker restart a container that is serving the fleet. The behavioural proof is in
+        test_ntfy_relay.py::HealthEndpointBlastRadiusTests; this pins the shape so the guard cannot
+        be removed while tidying."""
+        src = code_only(self._src())
+        at = src.index('payload = {"status": "healthy"}')
+        block = src[at : at + 600]
+        self.assertIn("try:", block)
+        self.assertIn("except Exception", block)
+        self.assertLess(block.index("try:"), block.index("get_relay"),
+                        "the relay call must be INSIDE the guard, not beside it")
 
 
 if __name__ == "__main__":
