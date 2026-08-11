@@ -1693,12 +1693,24 @@ async function autoRegisterConfiguredAgent(_retriesLeft = 8) {
 // Says "unknown" rather than "never" when the field is absent. A pre-fix service does not send it,
 // and rendering that as "has never sent anything" would manufacture exactly the confident-but-wrong
 // claim this whole finding is about.
+//
+// AUDIT 4/4 F2. The first cut collapsed the two absences into one line, which reopened a smaller
+// version of the very ambiguity above: a CURRENT service reporting a known-empty `outbound: {}` for
+// a fresh agent was rendered as "the service did not report outbound activity" — false, and it
+// blames the wrong component. `_agent_record_to_dict` always emits the key (`"outbound": outbound
+// or {}`), so key PRESENCE is the discriminator and no API change is needed:
+//
+//     key absent   -> pre-v0.3.1 service; we genuinely cannot answer
+//     key present, empty -> the service answered: nothing produced yet
 export function formatOutboundActivity(info = {}) {
+  const answered = !!info && typeof info === "object" && Object.hasOwn(info, "outbound");
   const o = (info && info.outbound) || {};
   const sent = String(o.lastSentAt || "").trim();
   const ran = String(o.lastCompletedRunAt || "").trim();
   if (!sent && !ran) {
-    return "Last produced: unknown (service did not report outbound activity)";
+    return answered
+      ? "Last produced: none recorded (the service answered — no message sent, no run completed)"
+      : "Last produced: unknown (service did not report outbound activity — pre-v0.3.1 service)";
   }
   const bits = [];
   if (sent) bits.push(`sent ${sent}`);

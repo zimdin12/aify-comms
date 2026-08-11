@@ -231,9 +231,31 @@ console.log("console-tools.test.js: all assertions passed");
 
   // The honesty case: a pre-fix service sends no `outbound`, and rendering that as "never sent
   // anything" would manufacture exactly the confident-but-wrong claim this finding is about.
-  for (const missing of [{}, { outbound: {} }, undefined, null]) {
+  for (const missing of [{}, undefined, null]) {
     const out = formatOutboundActivity(missing);
     assert.match(out, /unknown/, "absence must read as unknown");
+    assert.match(out, /pre-v0\.3\.1/, "and must name the reason we cannot answer");
     assert.doesNotMatch(out, /never/i, "must not assert the agent has produced nothing");
   }
+
+  // AUDIT 4/4 F2: the two absences are NOT the same absence, and collapsing them reopened a
+  // smaller copy of the finding above. A current service answering `outbound: {}` for a fresh
+  // agent HAS answered — reporting that as "the service did not report" is false and blames the
+  // wrong component.
+  const answeredEmpty = formatOutboundActivity({ outbound: {} });
+  assert.match(answeredEmpty, /none recorded/, "a known-empty answer is a fact, not a gap");
+  assert.match(answeredEmpty, /the service answered/);
+  assert.doesNotMatch(
+    answeredEmpty,
+    /did not report/,
+    "the service DID report — saying otherwise sends the operator to debug the wrong layer",
+  );
+
+  // `_agent_record_to_dict` always emits the key, so key presence is the discriminator. If that
+  // ever stops being true this assertion is the thing that notices.
+  assert.notEqual(
+    formatOutboundActivity({ outbound: {} }),
+    formatOutboundActivity({}),
+    "known-empty and not-reported must never render identically",
+  );
 }

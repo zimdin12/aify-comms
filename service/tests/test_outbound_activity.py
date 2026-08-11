@@ -92,6 +92,20 @@ class OutboundActivityTests(FastApiTestCase):
         self.assertEqual(fresh["outbound"], {},
                          "absence must be absence — inventing a timestamp is the bug being fixed")
 
+    def test_the_KEY_is_always_present_even_when_there_is_nothing_to_report(self):
+        """AUDIT 4/4 F2 — this is a cross-component contract, not a cosmetic shape assertion.
+
+        The bridge renderer (`formatOutboundActivity`, mcp/stdio/server.js) distinguishes "the
+        service could not answer" from "the service answered: nothing produced yet" purely by
+        whether this key EXISTS, because the payload carries no other discriminator. If a future
+        edit starts omitting the key for empty values, a current service reporting a fresh agent
+        would silently start rendering as "pre-v0.3.1 service did not report outbound activity" —
+        false, and it points the operator at the wrong component.
+        """
+        fresh = self._info("bob")
+        self.assertIn("outbound", fresh)
+        self.assertIn("outbound", self._roster()["bob"])
+
     def test_the_roster_carries_the_cheap_half(self):
         """comms_agents is the same family and was flagged as WORSE — no last-read at all.
 
