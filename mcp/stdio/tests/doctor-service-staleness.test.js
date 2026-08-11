@@ -152,3 +152,46 @@ test("test files under a runtime path are excluded", () => {
 });
 
 console.log("doctor-service-staleness.test.js: all assertions passed");
+
+// ── a DIFFERENT sha that is ZERO commits behind is a contradiction, not a pass ────────
+//
+// External review of the release ladder, 2026-08-11. `doctor.js` computes both commit counts with
+// `git rev-list --count <builtSha>..HEAD`. When the built sha is not in local history — deployed
+// from an unmerged branch, a force-push, another clone — that git call FAILS, `sh()` returns "",
+// both counts arrive as 0, and this predicate fell through to "healthy — 0 commit(s) ahead".
+//
+// A false green for exactly the "serving ≠ HEAD" case the check exists to catch, inside the tool
+// whose whole theme is refusing to pass on absent evidence. Same class as `bridge-current`'s
+// unknown-all, one layer down and found by someone else.
+test("an unrelated built sha with zero commits between is UNKNOWN, not healthy", () => {
+  const v = serviceBuildVerdict({
+    builtSha: "deadbeefdeadbeefdeadbeef",
+    headSha: "cafebabecafebabecafebabe",
+    headShort: "cafebab",
+    runtimeCommits: 0,
+    totalCommits: 0,
+  });
+  assert.equal(v.ok, false, "a contradiction must not read as a clean bill of health");
+  assert.equal(v.code, "unknown-build");
+  assert.match(v.detail, /cannot both be true/);
+  assert.match(v.fix, /Fetch the branch|rebuild/i);
+});
+
+test("the same-sha case is still plainly healthy", () => {
+  // The guard must not swallow the ordinary green: identical shas legitimately have zero commits
+  // between them, and that is the most common state on a healthy host.
+  const sha = "1234567890abcdef1234567890abcdef12345678";
+  const v = serviceBuildVerdict({
+    builtSha: sha, headSha: sha, headShort: "1234567", runtimeCommits: 0, totalCommits: 0,
+  });
+  assert.equal(v.ok, true, "build == HEAD is the normal healthy case and must stay green");
+});
+
+test("a real behind-by-docs-only state is still green, not unknown", () => {
+  const v = serviceBuildVerdict({
+    builtSha: "aaaaaaaaaaaa", headSha: "bbbbbbbbbbbb", headShort: "bbbbbbb",
+    runtimeCommits: 0, totalCommits: 4,
+  });
+  assert.equal(v.ok, true, "behind by commits that cannot reach the container is not staleness");
+  assert.equal(v.code, "ok");
+});

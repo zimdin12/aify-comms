@@ -52,6 +52,45 @@ _MODEL_MAX_LEN = 120
 _MODEL_FORBIDDEN = set(' \t\r\n"\'`;|&$<>(){}[]*?!\\')
 
 
+def validate_runtime_config_model(value):
+    """THE FIFTH DOOR, found by an external review after I called four of them a boundary.
+
+    `runtimeConfig` is a free-form dict, and `mcp/stdio/terminal-env.js` reads
+    `runtimeConfig.model` as the FALLBACK for `AIFY_MANAGED_MODEL` (and for the managed CODEX_HOME
+    it prepares). So `runtimeConfig={"model": "opus; rm -rf /"}` reached a runtime CLI having passed
+    none of the four validated doors — reproduced verbatim before this fix.
+
+    That is exactly the thesis of the commit that closed the other four ("a validator on one of four
+    doors is not a boundary"), applied to a door I did not enumerate. The lesson is not "add a fifth
+    check" — it is that a free-form dict beside a validated scalar is a hole by construction, so the
+    dict's model key now goes through the SAME rule as the scalar.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, dict) or "model" not in value:
+        return value
+    cleaned = dict(value)
+    cleaned["model"] = _validate_model_shape(cleaned["model"])
+    if cleaned["model"] is None:
+        cleaned.pop("model")
+    return cleaned
+
+
+def drop_unusable_runtime_config_model(value):
+    """Self-report variant, for the same reason `drop_unusable_model_selfreport` exists: a
+    registration must never fail over a model string. An unusable value is dropped from the dict,
+    leaving the rest of the config intact — the agent keeps its effort/thinking settings and simply
+    reports no model."""
+    if not isinstance(value, dict) or "model" not in value:
+        return value
+    cleaned = dict(value)
+    if drop_unusable_model_selfreport(cleaned.get("model")) is None:
+        cleaned.pop("model")
+    else:
+        cleaned["model"] = str(cleaned["model"]).strip()
+    return cleaned
+
+
 def drop_unusable_model_selfreport(value):
     """A FOURTH ingress, and it must not be treated like the other three.
 
@@ -134,6 +173,9 @@ class AgentRegister(_MachineIdNormalizingModel):
     # `drop_unusable_model_selfreport`. Registration must never fail on a model string: an agent
     # that cannot register has no inbox, no dispatch and no status.
     _clean_model = field_validator("model")(drop_unusable_model_selfreport)
+    # Self-report, so an unusable runtimeConfig.model is DROPPED from the dict rather than failing
+    # the registration — the rest of the config (effort/thinking) survives.
+    _clean_runtime_config = field_validator("runtimeConfig")(drop_unusable_runtime_config_model)
     # Tombstone-resurrection guard (2026-06-03). The bridge stamps its own launch
     # time here (BRIDGE_STARTED_AT, ISO-8601 Z). A tombstoned agent is only
     # resurrected by a GENUINE fresh relaunch — a bridge whose bridgeStartedAt is
@@ -341,6 +383,7 @@ class AgentEnvironmentAssignRequest(BaseModel):
     # next spawn reads it — so a malformed value here reaches a runtime CLI exactly as it would via
     # SpawnRequestCreate, just one hop later and harder to trace.
     _check_model = field_validator("model")(_validate_model_shape)
+    _check_runtime_config = field_validator("runtimeConfig")(validate_runtime_config_model)
 
 
 class AgentRenameRequest(BaseModel):
@@ -374,6 +417,8 @@ class SpawnRequestCreate(BaseModel):
     metadata: Optional[dict[str, Any]] = None
 
     _check_model = field_validator("model")(_validate_model_shape)
+    # The fifth door: runtimeConfig.model is the bridge's FALLBACK for AIFY_MANAGED_MODEL.
+    _check_runtime_config = field_validator("runtimeConfig")(validate_runtime_config_model)
 
 
 class SpawnRequestClaim(_MachineIdNormalizingModel):

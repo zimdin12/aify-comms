@@ -240,6 +240,30 @@ export function serviceBuildVerdict({
       fix: "Rebuild: `bash scripts/stamp.sh && docker compose up -d --build`.",
     };
   }
+  // A DIFFERENT sha that is ZERO commits behind is a contradiction, not a clean bill of health.
+  //
+  // Found by an external review of the release ladder, 2026-08-11, and it is the same class this
+  // whole tool spent the day on. `doctor.js` computes both counts with
+  // `git rev-list --count <builtSha>..HEAD`. If the built sha is not in local history — deployed
+  // from an unmerged branch, a force-push, a divergent checkout — that git call FAILS, `sh()`
+  // returns "", both counts become 0, and control fell through to the branch below reporting
+  // "healthy — 0 commit(s) ahead". A false green for precisely the "serving ≠ HEAD" case the check
+  // exists to catch, in the instrument whose entire theme is not passing on absent evidence.
+  //
+  // Reproduced: serviceBuildVerdict({builtSha:'deadbeef…', headSha:'cafebabe…', runtimeCommits:0,
+  // totalCommits:0}) returned ok:true.
+  if (Number(totalCommits) === 0) {
+    return {
+      ok: false,
+      code: "unknown-build",
+      detail: `serving build ${short} but repo HEAD is ${headShort}, and git reports ZERO commits `
+        + "between them — which cannot both be true. The built sha is probably not in this "
+        + "checkout's history (deployed from an unmerged branch, a force-push, or a different "
+        + "clone), so nothing here can tell you whether the running service is current.",
+      fix: "Fetch the branch the container was built from, or rebuild from this checkout: "
+        + "`bash scripts/stamp.sh && docker compose up -d --build`.",
+    };
+  }
   // Behind, but by commits that cannot reach the container. Say so instead of crying wolf.
   return {
     ok: true,

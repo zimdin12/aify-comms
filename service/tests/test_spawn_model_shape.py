@@ -181,5 +181,74 @@ class SelfReportIngressTests(unittest.TestCase):
         self.assertIsNone(AgentRegister(agentId="a", role="coder", model="opus 5").model)
 
 
+
+class FifthDoorTests(unittest.TestCase):
+    """`runtimeConfig.model` — the door I did not enumerate when I called four of them a boundary.
+
+    Found by an external review of the release ladder, 2026-08-11, and it is my own thesis turned
+    back on me: `mcp/stdio/terminal-env.js` reads `runtimeConfig.model` as the FALLBACK for
+    `AIFY_MANAGED_MODEL` and for the managed CODEX_HOME it prepares, so a free-form dict beside a
+    validated scalar carried the exact payload the scalar refuses.
+
+    Reproduced before the fix:
+        SpawnRequestCreate(runtimeConfig={"model": "opus; rm -rf /"})  ->  accepted verbatim
+
+    The lesson recorded here is not "there was a fifth check to add" — it is that a free-form dict
+    next to a validated field is a hole by construction. Any NEW field that can carry a model must
+    be added to this class in the same commit.
+    """
+
+    HOSTILE = ["opus; rm -rf /", "opus 5", "$(id)", "`id`", "opus\nsonnet", "m" * 500]
+
+    def test_the_spawn_path_rejects_a_hostile_runtime_config_model(self):
+        for hostile in self.HOSTILE:
+            with self.subTest(hostile):
+                with self.assertRaises(pydantic.ValidationError):
+                    SpawnRequestCreate(**BASE, runtimeConfig={"model": hostile})
+
+    def test_the_assign_path_rejects_it_too(self):
+        from service.models import AgentEnvironmentAssignRequest
+
+        for hostile in self.HOSTILE:
+            with self.subTest(hostile):
+                with self.assertRaises(pydantic.ValidationError):
+                    AgentEnvironmentAssignRequest(environmentId="e", runtimeConfig={"model": hostile})
+
+    def test_a_good_runtime_config_survives_intact(self):
+        cfg = SpawnRequestCreate(**BASE, runtimeConfig={"model": "opus", "effort": "high"}).runtimeConfig
+        self.assertEqual(cfg, {"model": "opus", "effort": "high"})
+
+    def test_a_runtime_config_without_a_model_is_untouched(self):
+        """The dict is free-form by design — validating one key must not start policing the rest."""
+        cfg = {"effort": "xhigh", "thinking": "deep", "anything": [1, 2, 3]}
+        self.assertEqual(SpawnRequestCreate(**BASE, runtimeConfig=cfg).runtimeConfig, cfg)
+
+    def test_an_empty_model_key_is_dropped_not_kept_as_empty(self):
+        cfg = SpawnRequestCreate(**BASE, runtimeConfig={"model": "  ", "effort": "high"}).runtimeConfig
+        self.assertEqual(cfg, {"effort": "high"}, "an empty model means 'runtime default', i.e. absent")
+
+    def test_self_report_drops_the_model_key_and_keeps_the_rest(self):
+        """Registration must never fail over a model string — the same asymmetry as the scalar."""
+        from service.models import AgentRegister
+
+        agent = AgentRegister(agentId="a", role="coder",
+                              runtimeConfig={"model": "opus; rm", "effort": "high"})
+        self.assertEqual(agent.runtimeConfig, {"effort": "high"})
+
+    def test_self_report_keeps_a_good_model(self):
+        from service.models import AgentRegister
+
+        agent = AgentRegister(agentId="a", role="coder",
+                              runtimeConfig={"model": " gpt-5.5 ", "effort": "high"})
+        self.assertEqual(agent.runtimeConfig, {"model": "gpt-5.5", "effort": "high"})
+
+    def test_a_non_dict_runtime_config_does_not_crash_the_validator(self):
+        for junk in [[], "opus", 17]:
+            with self.subTest(junk):
+                # Pydantic rejects the wrong TYPE; the validator must not be what raises.
+                with self.assertRaises(pydantic.ValidationError):
+                    SpawnRequestCreate(**BASE, runtimeConfig=junk)
+
+
 if __name__ == "__main__":
     unittest.main()
