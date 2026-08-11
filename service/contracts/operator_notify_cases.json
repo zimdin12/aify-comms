@@ -1,0 +1,121 @@
+{
+  "$comment": [
+    "AGREEMENT TABLE — 'is this event addressed at the OPERATOR?' — consumed by BOTH implementations.",
+    "",
+    "AUDIT FINDING 2 is the reason this file exists. `comms_search` was implemented in two languages;",
+    "I fixed the stdio renderer, believed I was done, and found the SSE copy afterwards. The reviewer's",
+    "recommendation, which has now worked three times in this repo, is an agreement test rather than",
+    "consolidation. The rule that follows: when a predicate must exist in two languages, the CASES live",
+    "in one file and both sides are asserted against it.",
+    "",
+    "Readers:",
+    "  service/tests/test_ntfy_relay.py            -> service/ntfy.py           (Python, server-side)",
+    "  service/new_dashboard/notify.test.mjs       -> service/new_dashboard/notify.mjs (JS, browser)",
+    "",
+    "`shared` cases must produce the same answer on both sides. `allowedDifferences` must NOT: they",
+    "record where the two sides legitimately disagree, each with the reason. A case may only live",
+    "there if the disagreement comes from different AUTHORITY, never from drift."
+  ],
+
+  "shared": [
+    {
+      "name": "direct message addressed to the operator",
+      "event": "message_sent",
+      "data": { "id": "m1", "from": "sc-manager", "to": ["dashboard"], "subject": "gate 3 is red" },
+      "channelJoined": false,
+      "expected": true
+    },
+    {
+      "name": "direct message between two agents is fleet chatter",
+      "event": "message_sent",
+      "data": { "id": "m2", "from": "sc-manager", "to": ["sc-coder"], "subject": "take the lane" },
+      "channelJoined": false,
+      "expected": false
+    },
+    {
+      "name": "operator among several recipients still counts",
+      "event": "message_sent",
+      "data": { "id": "m3", "from": "sc-coder", "to": ["sc-manager", "dashboard"], "subject": "done" },
+      "channelJoined": false,
+      "expected": true
+    },
+    {
+      "name": "recipient casing must not decide it",
+      "event": "message_sent",
+      "data": { "id": "m4", "from": "sc-coder", "to": ["Dashboard"], "subject": "done" },
+      "channelJoined": false,
+      "expected": true
+    },
+    {
+      "name": "a single string recipient, not a list",
+      "event": "message_sent",
+      "data": { "id": "m5", "from": "sc-coder", "to": "dashboard", "subject": "done" },
+      "channelJoined": false,
+      "expected": true
+    },
+    {
+      "name": "channel the operator has joined",
+      "event": "channel_message",
+      "data": { "channel": "sand-castle", "from": "sc-coder", "body": "gate 3 green" },
+      "channelJoined": true,
+      "expected": true
+    },
+    {
+      "name": "channel the operator has NOT joined",
+      "event": "channel_message",
+      "data": { "channel": "minecraft", "from": "mc-manager", "body": "pack rebuilt" },
+      "channelJoined": false,
+      "expected": false
+    },
+    {
+      "name": "channel_message with no channel name",
+      "event": "channel_message",
+      "data": { "channel": "", "from": "sc-coder", "body": "orphan" },
+      "channelJoined": true,
+      "expected": false
+    },
+    {
+      "name": "fleet mechanics are never operator-addressed",
+      "event": "dispatch_queued",
+      "data": { "runId": "run_1", "targetAgentId": "sc-coder", "to": ["dashboard"] },
+      "channelJoined": true,
+      "expected": false
+    },
+    {
+      "name": "an unknown event type notifies nothing",
+      "event": "terminal_control_requested",
+      "data": { "terminalId": "t1", "to": ["dashboard"] },
+      "channelJoined": true,
+      "expected": false
+    },
+    {
+      "name": "no recipients at all",
+      "event": "message_sent",
+      "data": { "id": "m6", "from": "sc-coder", "subject": "nobody" },
+      "channelJoined": false,
+      "expected": false
+    }
+  ],
+
+  "allowedDifferences": [
+    {
+      "name": "server_authoritative_joined_channel_vs_browser_unknown_membership",
+      "event": "channel_message",
+      "data": { "channel": "sand-castle", "from": "sc-coder", "body": "gate 3 green" },
+      "channelJoined": null,
+      "python": true,
+      "javascript": false,
+      "reason": [
+        "Membership is UNKNOWN to the caller here. The browser must fail closed: the dashboard can see",
+        "every channel, not only the ones it joined, and its channel list loads asynchronously — so",
+        "notifying-when-unsure fires on everything for the first seconds after every reload, which is the",
+        "volume failure the whole feature is shaped around.",
+        "The server has no such window. It reads channel_members directly at the send site, so it is never",
+        "unsure; `channelJoined: null` on the server side means 'ask the database', and for this case the",
+        "database says joined.",
+        "This is different AUTHORITY, not disagreement. Asserting identical output here would force the",
+        "server to discard information it actually has."
+      ]
+    }
+  ]
+}

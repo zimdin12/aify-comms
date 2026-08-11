@@ -20,6 +20,7 @@ from service.routers import health, containers as containers_router
 from service.routers.api_v2 import router as api_router
 from service.db import init_db
 from service.ws import ConnectionManager
+from service.ntfy import get_relay
 
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
@@ -409,9 +410,20 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.info(f"MCP SSE server not available: {e}")
 
+    # v0.4 C3 — the ntfy drain task. It owns the network and the timeout so no request path ever
+    # does. `start()` is a no-op when AIFY_NTFY_URL is unset, which is the default, so an operator
+    # who never configures ntfy gets no task and no behaviour change at all.
+    ntfy_relay = get_relay()
+    ntfy_relay.start()
+    if ntfy_relay.enabled:
+        # C6 — `.redacted`, never the raw URL. Anyone holding the topic can read every alert sent
+        # to it and publish to it, so it is a credential and a startup log is still a log.
+        logger.info(f"ntfy mobile alerts enabled -> {ntfy_relay.redacted}")
+
     try:
         yield
     finally:
+        await ntfy_relay.stop()
         reconcile_task.cancel()
         try:
             await reconcile_task

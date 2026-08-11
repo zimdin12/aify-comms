@@ -309,3 +309,46 @@ test("a storage-less or throwing context never breaks the dashboard", () => {
   assert.equal(readEnabled(null), false);
   assert.equal(writeEnabled(null, true), false);
 });
+
+// ── AGREEMENT WITH THE SERVER-SIDE QUALIFIER (v0.4) ──────────────────────────────────
+//
+// `service/ntfy.py` has to answer the same question this module answers — "is this event addressed
+// at the operator?" — because the phone alert must fire with no tab open. That is a predicate in
+// two languages, which is audit finding 2 exactly: `comms_search` lived in both transports, I fixed
+// one and believed I was done.
+//
+// The mitigation that has now worked four times here is an agreement test, not consolidation. The
+// CASES live in one file and both suites read it, so drift fails a test instead of being discovered
+// in production months later.
+test("agrees with service/ntfy.py on every shared case", async () => {
+  const { readFileSync } = await import("node:fs");
+  const cases = JSON.parse(
+    readFileSync(new URL("../contracts/operator_notify_cases.json", import.meta.url), "utf8"),
+  );
+  for (const c of cases.shared) {
+    const actual = isForOperator(c.event, c.data, { isChannelSubscribed: () => c.channelJoined });
+    assert.equal(actual, c.expected, `shared case disagrees: ${c.name}`);
+  }
+});
+
+test("the allowed differences really are what THIS side does", async () => {
+  const { readFileSync } = await import("node:fs");
+  // A stale exemption is worse than none: it licenses a difference that is not there, so a real
+  // future divergence in that case would pass silently.
+  //
+  // The one entry is membership-unknown. This side must stay CLOSED — the dashboard can see every
+  // channel, not only joined ones, and its channel list loads asynchronously, so notifying when
+  // unsure fires on everything for the first seconds after every reload. The server has no unknown
+  // window; it reads channel_members. Different authority, not drift.
+  const cases = JSON.parse(
+    readFileSync(new URL("../contracts/operator_notify_cases.json", import.meta.url), "utf8"),
+  );
+  assert.ok(cases.allowedDifferences.length > 0);
+  for (const c of cases.allowedDifferences) {
+    const actual = isForOperator(c.event, c.data, {
+      isChannelSubscribed: () => { throw new Error("membership unknown"); },
+    });
+    assert.equal(actual, c.javascript, `allowed-difference case drifted: ${c.name}`);
+    assert.notEqual(c.python, c.javascript, "an allowed difference that is not a difference is stale");
+  }
+});

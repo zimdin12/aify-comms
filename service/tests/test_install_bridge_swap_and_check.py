@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from service.tests._source import code_only as _code_only
+
 REPO = Path(__file__).resolve().parents[2]
 INSTALL_SH = REPO / "install.sh"
 
@@ -36,12 +38,6 @@ def _copy_fn() -> str:
     text = _install_sh()
     start = text.index("copy_bridge_to_native_dir()")
     return text[start : text.index("\n}\n", start)]
-
-
-def _code_only(src: str) -> str:
-    """Comment lines stripped. These functions carry long incident write-ups that quote the very
-    commands under test, so an ordering assertion over the raw text matches the prose first."""
-    return "\n".join(l for l in src.splitlines() if not l.lstrip().startswith("#"))
 
 
 def _launcher() -> str:

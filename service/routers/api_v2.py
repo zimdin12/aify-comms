@@ -46,6 +46,7 @@ from service.terminal_snapshot import (
 )
 from service.status_engine import apply_event, derive, StatusInputs, VALID_STATUSES
 from service.dashboard_redirect import dashboard_url
+from service.ntfy import notify_operator
 from service.usage_cache import usage_set, usage_all, usage_get, derive_usage_source, consumption_set, consumption_summary
 from service.models import (
     AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
@@ -17165,6 +17166,15 @@ async def send_message(req: MessageSend, request: Request):
                 }
 
         await db.commit()
+        # v0.4 C1 — AFTER commit, so a phone can never buzz for a message that rolled back, and the
+        # enqueue can never roll one back. Deliberately OUTSIDE the `if ws:` below: the entire point
+        # of the mobile alert is to reach the operator when no dashboard is connected, so gating it
+        # on a live websocket would silence it exactly when it is the only channel left.
+        # Sync, non-raising, network-free — see service/ntfy.py.
+        notify_operator(
+            "message_sent",
+            {"id": msg_id, "from": req.from_agent, "to": recipients, "subject": req.subject},
+        )
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast("message_sent", {"id": msg_id, "from": req.from_agent, "to": recipients, "subject": req.subject})
@@ -22344,6 +22354,15 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
                 }
 
         await db.commit()
+        # v0.4 C1/C7 — post-commit, and outside the websocket gate for the same reason as the direct
+        # send. `members` was already loaded above, so the operator's membership is answered from
+        # authoritative data with no extra query: this is the asymmetry the agreement table records
+        # as allowed, where the browser has to fail closed and the server does not.
+        notify_operator(
+            "channel_message",
+            {"channel": name, "from": req.from_agent, "body": req.body[:200]},
+            channel_joined=("dashboard" in members),
+        )
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast("channel_message", {"channel": name, "from": req.from_agent, "body": req.body[:200]})

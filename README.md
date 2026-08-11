@@ -65,6 +65,41 @@ By default the service runs **without authentication** (`api_key=""`), with **CO
 
 The full audit notes live in [KNOWN_ISSUES.md](KNOWN_ISSUES.md) (security defaults section).
 
+## Notifications — hearing an agent without watching the dashboard
+
+Two independent halves. Both are **off by default** and neither notifies on fleet chatter: only
+messages addressed to you (`to: dashboard`) and channels you have actually joined qualify. That
+restraint is the feature — the fleet produced 3,883 messages in 14 days, and a notification per
+message would be switched off within the hour. Repeats from the same sender on the same subject
+coalesce into one alert per 90 seconds.
+
+**Desktop** — nothing to configure. Open the dashboard, turn notifications on in the UI, grant the
+browser permission. Works at `http://localhost:8801` with no TLS (localhost is a secure context);
+for a LAN address the browser requires HTTPS, which is what the optional
+`docker compose --profile https up -d` proxy is for. A focused tab stays quiet — you are already
+looking at it.
+
+**Phone** — one line in `.env`, using [ntfy](https://ntfy.sh):
+
+```bash
+AIFY_NTFY_URL=https://ntfy.sh/your-private-topic-name    # then: docker compose up -d
+```
+
+Install the ntfy app, subscribe to the same topic, done. No PWA, no service worker, no push
+subscriptions — the service makes one outbound POST per alert, on a background worker that is never
+on the message-send path (`docs/V0.4_SPEC.md` is the contract, and it exists because the first
+version of that sentence was ambiguous enough to permit blocking the fleet on a phone alert).
+
+> **The topic URL is a credential.** Anyone who has it can read every notification you receive and
+> publish to it. Keep it in `.env` (gitignored) — never `config/service.json`, which is generated.
+> The service never logs it and never returns it from any endpoint; `/health` reports the relay's
+> state with no URL in it at all.
+
+Check it is working with `curl -s localhost:8800/health | jq .ntfy` — `enabled`, `workerAlive`,
+`queueDepth`, `sent`, `droppedFull`, `sendFailures`, and the last success/failure times. A failed
+alert is logged and dropped, never retried: the message it describes is already delivered, and a
+retry storm against a third-party host while the fleet is busy would be the worse outcome.
+
 ## Product Direction
 
 `aify-comms` keeps the original communication core:

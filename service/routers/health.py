@@ -93,8 +93,20 @@ def _check_update(sha: str) -> dict:
 
 @router.get("/health")
 async def health():
-    """Health check endpoint. Returns 200 if service is running."""
-    return {"status": "healthy"}
+    """Health check endpoint. Returns 200 if service is running.
+
+    The `ntfy` block is v0.4 C4, and it is here because review pointed out that a send-failure
+    counter cannot see the failure that actually matters: a drain worker that has stopped produces
+    NO failures at all — the queue simply fills until the bound starts shedding alerts, with the
+    counter reading zero the whole time. So liveness and queue depth are reported alongside it, and
+    shed alerts are named rather than silent.
+
+    It carries no URL, redacted or otherwise (C6: the topic URL grants read AND publish).
+    `test_ntfy_relay.py::test_health_never_contains_the_url` asserts that.
+    """
+    from service.ntfy import get_relay
+
+    return {"status": "healthy", "ntfy": get_relay().health()}
 
 
 @router.get("/version")
