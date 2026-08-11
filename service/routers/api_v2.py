@@ -4679,15 +4679,22 @@ class _WorkerLiveness(NamedTuple):
 
 # How long a claimed spawn may report `starting` before it stops getting the benefit of the doubt.
 #
-# Measured on this deployment: managed claude-code takes ~28s from spawn-running to an attached
-# terminal (ef-manager, 2026-08-11: running 16:25:41, attached 16:26:10). 180s is generous enough for
-# the slowest runtime on a loaded host and short enough that a spawn which will never produce a
-# worker stops looking hopeful within three minutes.
-#
-# THE WINDOW IS THE POINT. Without it, the morning's genuinely-broken restart — spawn `running`, no
+# THE WINDOW IS THE POINT. Without it, this morning's genuinely-broken restart — spawn `running`, no
 # terminal, ever — would have rendered as `starting` indefinitely, which is worse than the
 # `available` it replaced: it turns a visible fault into a reassuring animation.
-SPAWN_STARTING_WINDOW_SECONDS = 180
+#
+# IT MUST MATCH THE IN-FLIGHT SUPPRESSOR, and my first cut did not. I picked 180s from measured boot
+# times while `_has_pending_or_booting_spawn_request` has counted a `running` spawn as in-flight for
+# 300s since the 2026-07-02 Bug D fix. Between those two numbers the display said `available` —
+# which PROMISES a cold-start on the next send — while the dispatcher was still refusing to start a
+# second one. Caught in review; that contradiction is the precise class this status was added to
+# remove, so the two are now one number with one reason.
+#
+# Change them together or not at all: a display that expires before the mechanism invites the
+# operator to send into a suppressed window, and one that expires after keeps a broken spawn looking
+# hopeful past the point anything is still trying.
+SPAWN_INFLIGHT_WINDOW_SECONDS = 300
+SPAWN_STARTING_WINDOW_SECONDS = SPAWN_INFLIGHT_WINDOW_SECONDS
 
 
 async def _managed_spawn_is_starting(db, agent_id: str) -> bool:
@@ -8153,7 +8160,13 @@ async def _has_pending_or_booting_spawn_request(db, agent_id: str) -> bool:
     cold-start created while one worker was still booting produced a duplicate whose
     kill-prior could murder the booting worker. Time-bound (5 min) so a stuck `running`
     orphan never blocks future autostarts (the orphan reaper frees those anyway)."""
-    running_cutoff = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 300))
+    # Shared with the `starting` display window — see SPAWN_INFLIGHT_WINDOW_SECONDS. These were two
+    # independent numbers (300 here, 180 there) and the gap between them was a window where the
+    # status said "idle, send something" while this function was still refusing to start a second
+    # worker.
+    running_cutoff = time.strftime(
+        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - SPAWN_INFLIGHT_WINDOW_SECONDS)
+    )
     # `starting` is the bridge's pre-`running` PATCH — count it with the time-bounded
     # arm so a concurrent coldstart in that sub-second window can't duplicate.
     # `running` rows with finished_at set are KNOWN-DEAD workers (report_terminal_dead
