@@ -35,6 +35,10 @@ GLOBALS = {
     # exactly the second-owner class this file exists to catch, while looking like a kindness.
     "_LIVE_STATE_CACHE": "service/reconcilers/status_cache.py",
     "_LIVE_SCREENS": "service/terminal_snapshot.py",
+    # MOVED in v0.5.1g. The settings cache is the one whose forking would be hardest to spot:
+    # a second module-level assignment gives each importer its own dict, so writers and readers
+    # silently stop sharing and every caller just sees a slightly stale settings view.
+    "_SETTINGS_CACHE": "service/api_core/settings.py",
 }
 
 # AST, NOT REGEX — and that distinction is the whole gate.

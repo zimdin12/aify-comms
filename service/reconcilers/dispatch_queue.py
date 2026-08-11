@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode  # v0.5.1e: the leaf owner, not via the router
+from service.api_core.settings import _load_settings, DEFAULT_SETTINGS  # v0.5.1g: the leaf owner
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -89,14 +90,6 @@ def _insert_messages_via_console(*a, **k):
     return _i(*a, **k)
 
 
-async def _load_settings(*a, **k):
-    from service.routers.api_v2 import _load_settings as _i
-    return await _i(*a, **k)
-
-
-def _default_settings():
-    from service.routers.api_v2 import DEFAULT_SETTINGS
-    return DEFAULT_SETTINGS
 
 
 def _active_run_bridge_stale_seconds():
@@ -133,7 +126,7 @@ async def _reap_undeliverable_queued_runs(db, *, backstop_seconds: Optional[int]
     """
     settings = await _load_settings(db)
     if backstop_seconds is None:
-        backstop_seconds = int(settings.get("queued_run_backstop_seconds", _default_settings()["queued_run_backstop_seconds"]) or 180)
+        backstop_seconds = int(settings.get("queued_run_backstop_seconds", DEFAULT_SETTINGS["queued_run_backstop_seconds"]) or 180)
     backstop_seconds = max(30, int(backstop_seconds))
     cutoff_param = f"-{backstop_seconds} seconds"
     # A run that was just requeued from an orphaned claim (_requeue_orphaned_claimed_runs)

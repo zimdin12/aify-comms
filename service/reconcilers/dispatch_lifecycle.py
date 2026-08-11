@@ -31,6 +31,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from service.api_core.settings import _load_settings, DEFAULT_SETTINGS  # v0.5.1g: the leaf owner
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -69,14 +70,6 @@ async def _mirror_missing_dispatch_handoff(*a, **k):
     return await _i(*a, **k)
 
 
-async def _load_settings(*a, **k):
-    from service.routers.api_v2 import _load_settings as _i
-    return await _i(*a, **k)
-
-
-def _default_settings():
-    from service.routers.api_v2 import DEFAULT_SETTINGS
-    return DEFAULT_SETTINGS
 
 
 def _active_run_bridge_stale_seconds():
@@ -104,7 +97,7 @@ async def _fail_stranded_delivered_reply_runs(db, *, stale_minutes: Optional[int
     """
     settings = await _load_settings(db)
     if stale_minutes is None:
-        stale_minutes = int(settings.get("stranded_reply_fail_minutes", _default_settings()["stranded_reply_fail_minutes"]) or 0)
+        stale_minutes = int(settings.get("stranded_reply_fail_minutes", DEFAULT_SETTINGS["stranded_reply_fail_minutes"]) or 0)
     if stale_minutes <= 0:
         return []  # disabled
     stale_minutes = max(10, int(stale_minutes))
