@@ -139,7 +139,7 @@ class ReconcilerSourceTests(unittest.TestCase):
 
     def _body(self) -> str:
         from pathlib import Path
-        src = Path(__file__).resolve().parents[2] / "service" / "routers" / "api_v2.py"
+        src = Path(__file__).resolve().parents[1] / "reconcilers" / "spawn_lifecycle.py"
         text = src.read_text(encoding="utf-8", errors="replace")
         at = text.index("async def _repair_spawn_requests_from_initial_dispatch_failures")
         return text[at : at + 4000]
@@ -157,7 +157,7 @@ class ReconcilerSourceTests(unittest.TestCase):
         the dispatcher generated. If someone edits one f-string, this fails instead of the feature
         quietly repairing nothing."""
         from pathlib import Path
-        src = Path(__file__).resolve().parents[2] / "service" / "routers" / "api_v2.py"
+        src = Path(__file__).resolve().parents[1] / "routers" / "api_v2.py"
         text = src.read_text(encoding="utf-8", errors="replace")
         self.assertIn('f"Spawn {row[\'agent_id\']}"', text,
                       "the dispatcher's default subject shape changed — update the reconciler with it")

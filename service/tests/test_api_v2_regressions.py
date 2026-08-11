@@ -2221,7 +2221,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         async def _run():
             db = await _get_db()
             try:
-                return await api_v2._fail_orphaned_running_spawn_requests(db)
+                return await api_v2._fail_orphaned_running_spawn_requests(db, offline_seconds=90)
             finally:
                 await db.close()
 
@@ -6781,7 +6781,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             db = await get_db()
             try:
                 await api_v2._repair_spawn_requests_from_initial_dispatch_failures(db)
-                await api_v2._fail_orphaned_running_spawn_requests(db)
+                await api_v2._fail_orphaned_running_spawn_requests(db, offline_seconds=90)
             finally:
                 await db.close()
 

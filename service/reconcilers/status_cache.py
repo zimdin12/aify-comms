@@ -199,3 +199,12 @@ async def _reap_stale_orphan_bridges(db, *, stale_seconds: int, limit: int = 500
         (_now(), f"-{stale_seconds} seconds", int(limit)),
     )
     return cur.rowcount if cur.rowcount is not None and cur.rowcount > 0 else 0
+
+
+async def invalidate_agent_live_state(db, agent_id: str) -> None:
+    # EXPIRE, don't drop (see _live_state_expire): a dropped entry is a cache MISS, and the
+    # miss-path serves the raw `agents.status` column coerced 'active' -> 'online', flickering
+    # a working agent to `online` for one poll. Expiring forces the same recompute while keeping
+    # the last DERIVED status readable in the meantime. (db kept in the signature for the ~45
+    # existing call sites; no DB write happens.)
+    _live_state_expire(agent_id)

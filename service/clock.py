@@ -12,6 +12,8 @@ association.
 from __future__ import annotations
 
 import time
+from datetime import datetime
+from typing import Any
 
 ISO_SECONDS = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -21,3 +23,13 @@ def now() -> str:
     stores and every comparison assumes. Changing it is a data migration, not a formatting choice:
     stored timestamps are compared LEXICALLY in SQL throughout."""
     return time.strftime(ISO_SECONDS, time.gmtime())
+
+
+def iso_to_epoch(value: Any) -> float:
+    text = str(value or "").strip()
+    if not text:
+        return 0.0
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0

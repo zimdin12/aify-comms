@@ -68,6 +68,13 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     from service.db import get_db as _get_db
     # v0.5 slice 1a: these two moved out of api_v2 into their own module. Imported here in the
     # SAME commit as the move so there is never a tree with mixed old/new sources.
+    # v0.5 slice 2: spawn lifecycle moved out of api_v2 in the same commit as this import change.
+    from service.reconcilers.spawn_lifecycle import (
+        _fail_orphaned_running_spawn_requests,
+        _fail_running_spawns_superseded_by_current_session,
+        _finalize_spawns_with_dead_terminals,
+        _repair_spawn_requests_from_initial_dispatch_failures,
+    )
     from service.reconcilers.status_cache import (
         _prune_superseded_bridges,
         _reap_stale_orphan_bridges,
@@ -97,10 +104,6 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _repair_unusable_active_runs,
         _requeue_orphaned_claimed_runs,
         _run_contract_reminders_once,
-        _repair_spawn_requests_from_initial_dispatch_failures,
-        _fail_orphaned_running_spawn_requests,
-        _fail_running_spawns_superseded_by_current_session,
-        _finalize_spawns_with_dead_terminals,
     )
 
     db = await _get_db()
@@ -116,11 +119,16 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             await db.commit()
             return result
 
+        # v0.5 slice 2: one settings snapshot for the pass, loaded before the first consumer that
+        # needs it. Same normalization slice 1a declared — per-pass rather than per-step.
+        _reconcile_settings = await _load_settings(db)
         repaired_active = await _commit_step(await _repair_unusable_active_runs(db, limit=500))
         # Moved off the GET /spawn-requests read path (2026-06-29): these writes ran on every
         # ~15s dashboard poll, contending with all reads. Run them here in the 60s sweep instead.
         await _commit_step(await _repair_spawn_requests_from_initial_dispatch_failures(db))
-        await _commit_step(await _fail_orphaned_running_spawn_requests(db))
+        await _commit_step(await _fail_orphaned_running_spawn_requests(
+            db, offline_seconds=int(_reconcile_settings.get("environment_offline_seconds", 90) or 90)
+        ))
         # Runs BEFORE the superseded-by-current-session reaper: that one only clears a
         # dead spawn once a NEWER live session exists, which is what left the 2026-08-07
         # spawn `running` for 97 minutes (its replacement did not arrive until 15:13).
@@ -139,12 +147,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # prune below — otherwise a crashed bridge lingers superseded_by='' forever,
         # counted "live" by every status/dispatch scan (idle-CPU + orphan re-accumulation,
         # 2026-07-11 perf report). This is the missing durable reaper.
-        # SEAM NORMALIZATION, v0.5 slice 1a (declared, not hidden under "pure move"). The reaper
-        # used to load settings itself; that read is hoisted here so ONE pass uses ONE settings
-        # snapshot. Same keys, same formula (`stale_seconds_from_settings`), same mutations — only
-        # the moment of the read changed, from per-step to per-pass. A sweep should be internally
-        # coherent rather than split into two policy epochs by a mid-pass settings edit.
-        _reconcile_settings = await _load_settings(db)
+        # Settings for this pass were loaded once at the top (slice 1a/2 normalization).
         reaped_orphan_bridges = await _commit_step(await _reap_stale_orphan_bridges(
             db, stale_seconds=stale_seconds_from_settings(_reconcile_settings)
         ))
