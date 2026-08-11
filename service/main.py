@@ -72,6 +72,10 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     from service.reconcilers.console_binding import rebind_orphaned_live_consoles
     # v0.5 slice 3a: session reconcilers moved; imported here in the same commit as the move.
     # v0.5 slice 4.
+    from service.reconcilers.managed_workers import (
+        _reconcile_managed_worker_hygiene,
+        _repair_unusable_active_runs,
+    )
     from service.reconcilers.dispatch_lifecycle import (
         _clear_turn_busy_for_dead_bridges,
         _close_orphaned_managed_runs,
@@ -119,9 +123,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     )
     from service.routers.api_v2 import (
         _load_settings,
-        _reconcile_managed_worker_hygiene,
         _refresh_expired_agent_live_states,
-        _repair_unusable_active_runs,
         _run_contract_reminders_once,
     )
 
