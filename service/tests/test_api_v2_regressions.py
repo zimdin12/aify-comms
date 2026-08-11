@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from service.db import get_db, init_db
 from service import main as service_main
+from service.reconcilers import status_cache
 from service.routers import api_v2
 from service.routers.api_v2 import router
 
@@ -1898,7 +1899,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_agents_list_uses_cached_live_status_without_recomputing_ledgers(self):
         self._register("cached-agent", runtime="codex", sessionMode="managed", launchMode="managed")
-        api_v2._LIVE_STATE_CACHE["cached-agent"] = {
+        status_cache._LIVE_STATE_CACHE["cached-agent"] = {
             "status": "offline", "reason": "cached for read path", "environment_id": "",
             "session_id": "", "terminal_id": "", "active_run_id": "",
             "refresh_after": "2099-01-01T00:00:00Z",
@@ -2606,7 +2607,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             ("4242", terminal_id),
         )
         # Seed a live_state entry so we can prove invalidation drops it.
-        api_v2._LIVE_STATE_CACHE["dead-pty-hermes"] = {
+        status_cache._LIVE_STATE_CACHE["dead-pty-hermes"] = {
             "status": "online", "reason": "", "environment_id": "",
             "session_id": "", "terminal_id": "", "active_run_id": "",
             "refresh_after": "", "updated_at": api_v2._now(),
@@ -2764,7 +2765,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self._seed_managed_claude_with_attached_terminal("orphan-claude", terminal_id)
         self._stamp_live_channel_sidecar("orphan-claude")  # worker alive
         # Stamp a cached live_state entry so we can prove invalidation drops it.
-        api_v2._LIVE_STATE_CACHE["orphan-claude"] = {
+        status_cache._LIVE_STATE_CACHE["orphan-claude"] = {
             "status": "online", "reason": "stale", "environment_id": "",
             "session_id": "", "terminal_id": "", "active_run_id": "",
             "refresh_after": "2099-01-01T00:00:00Z", "updated_at": api_v2._now(),
@@ -3529,7 +3530,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # sweep. (The /turn-start and /turn-end endpoints already invalidate.)
         self._register("hb-turn-claude", runtime="claude-code", sessionMode="resident")
         # Seed a fresh cached live_state entry with refresh_after far in the future.
-        api_v2._LIVE_STATE_CACHE["hb-turn-claude"] = {
+        status_cache._LIVE_STATE_CACHE["hb-turn-claude"] = {
             "status": "online", "reason": "cached", "environment_id": "",
             "session_id": "", "terminal_id": "", "active_run_id": "",
             "refresh_after": "2099-01-01T00:00:00Z", "updated_at": api_v2._now(),
@@ -3632,7 +3633,7 @@ class ApiV2RegressionTests(FastApiTestCase):
     def _seed_cached_live_state(self, agent_id: str, status: str = "available"):
         """Stamp a fresh, far-future cached live_state entry so a test can
         prove a code path invalidated (dropped) it."""
-        api_v2._LIVE_STATE_CACHE[agent_id] = {
+        status_cache._LIVE_STATE_CACHE[agent_id] = {
             "status": status, "reason": "seeded", "environment_id": "",
             "session_id": "", "terminal_id": "", "active_run_id": "",
             "refresh_after": "2099-01-01T00:00:00Z", "updated_at": api_v2._now(),
@@ -11049,7 +11050,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             "recon-agent", session_handle="recon-thread", bridge_id="recon-bridge", port=4111
         )
         # Freeze a stale, EXPIRED offline verdict (refresh_after well in the past).
-        api_v2._LIVE_STATE_CACHE["recon-agent"] = {
+        status_cache._LIVE_STATE_CACHE["recon-agent"] = {
             "status": "offline", "reason": "Environment is offline.",
             "environment_id": "", "session_id": "", "terminal_id": "",
             "active_run_id": "", "refresh_after": "2026-01-01T00:01:00Z",

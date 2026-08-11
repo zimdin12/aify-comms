@@ -66,6 +66,13 @@ logger = logging.getLogger(__name__)
 
 async def _run_dispatch_reconcile_once() -> dict[str, int]:
     from service.db import get_db as _get_db
+    # v0.5 slice 1a: these two moved out of api_v2 into their own module. Imported here in the
+    # SAME commit as the move so there is never a tree with mixed old/new sources.
+    from service.reconcilers.status_cache import (
+        _prune_superseded_bridges,
+        _reap_stale_orphan_bridges,
+        stale_seconds_from_settings,
+    )
     from service.routers.api_v2 import (
         _clear_turn_busy_for_dead_bridges,
         _close_idle_virtual_rpc_workers,
@@ -74,8 +81,6 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _sweep_unmirrored_failed_handoffs,
         _load_settings,
         _prune_orphaned_dispatch_runs,
-        _prune_superseded_bridges,
-        _reap_stale_orphan_bridges,
         _prune_terminal_history,
         _reap_undeliverable_queued_runs,
         _fail_stranded_delivered_reply_runs,
@@ -134,12 +139,19 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # prune below — otherwise a crashed bridge lingers superseded_by='' forever,
         # counted "live" by every status/dispatch scan (idle-CPU + orphan re-accumulation,
         # 2026-07-11 perf report). This is the missing durable reaper.
-        reaped_orphan_bridges = await _commit_step(await _reap_stale_orphan_bridges(db))
+        # SEAM NORMALIZATION, v0.5 slice 1a (declared, not hidden under "pure move"). The reaper
+        # used to load settings itself; that read is hoisted here so ONE pass uses ONE settings
+        # snapshot. Same keys, same formula (`stale_seconds_from_settings`), same mutations — only
+        # the moment of the read changed, from per-step to per-pass. A sweep should be internally
+        # coherent rather than split into two policy epochs by a mid-pass settings edit.
+        _reconcile_settings = await _load_settings(db)
+        reaped_orphan_bridges = await _commit_step(await _reap_stale_orphan_bridges(
+            db, stale_seconds=stale_seconds_from_settings(_reconcile_settings)
+        ))
         pruned_bridges = await _commit_step(await _prune_superseded_bridges(db))
         # WS4 Task 4.3: GC TERMINAL dispatch_runs whose endpoints have no live
         # owner (tombstoned/removed/unknown), past the retention TTL. Never
         # touches non-terminal runs or any run referencing a live agent.
-        _reconcile_settings = await _load_settings(db)
         pruned_orphaned_runs = await _commit_step(await _prune_orphaned_dispatch_runs(
             db,
             ttl_hours=int(

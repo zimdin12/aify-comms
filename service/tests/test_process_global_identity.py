@@ -30,7 +30,10 @@ from pathlib import Path
 SERVICE = Path(__file__).resolve().parents[1]
 
 GLOBALS = {
-    "_LIVE_STATE_CACHE": "service/routers/api_v2.py",
+    # MOVED in v0.5 slice 1a, and this line changing is the point of the gate: the owner really
+    # relocated, with no compatibility alias left assigned in api_v2.py. An alias would have created
+    # exactly the second-owner class this file exists to catch, while looking like a kindness.
+    "_LIVE_STATE_CACHE": "service/reconcilers/status_cache.py",
     "_LIVE_SCREENS": "service/terminal_snapshot.py",
 }
 
@@ -159,17 +162,35 @@ class ProcessGlobalIdentityTests(unittest.TestCase):
                 )
 
     def test_one_live_object_at_runtime(self):
-        """The static checks above cannot see a runtime rebind. This imports both owners and asserts
-        the objects are the same ones the modules expose — the property the slices must preserve."""
+        """The static checks above cannot see a runtime rebind. This imports each owner and asserts
+        the object is the same one on re-import — the property every slice must preserve.
+
+        Derived from GLOBALS rather than naming modules inline: slice 1a moved `_LIVE_STATE_CACHE`
+        and this test hardcoded `api_v2`, so it failed for the right reason but in the wrong place.
+        Nine more slices will move things; the mapping is the single place that should need editing.
+        """
+        import importlib
+
+        for name, owner in GLOBALS.items():
+            module_path = owner.removesuffix(".py").replace("/", ".")
+            with self.subTest(name):
+                module = importlib.import_module(module_path)
+                obj = getattr(module, name)
+                self.assertIsInstance(obj, dict)
+                # Re-importing must not produce a second object.
+                self.assertIs(obj, getattr(importlib.import_module(module_path), name))
+
+    def test_the_moved_owner_left_no_alias_behind(self):
+        """v0.5 slice 1a. A `_LIVE_STATE_CACHE = status_cache._LIVE_STATE_CACHE` left in api_v2 for
+        convenience would create the exact second-owner class this file exists to catch, while
+        looking like a kindness to callers. The reviewer named it as a condition of the slice."""
         import importlib
 
         api_v2 = importlib.import_module("service.routers.api_v2")
-        snapshot = importlib.import_module("service.terminal_snapshot")
-        self.assertIsInstance(api_v2._LIVE_STATE_CACHE, dict)
-        self.assertIsInstance(snapshot._LIVE_SCREENS, dict)
-        # Re-importing must not produce a second object.
-        self.assertIs(api_v2._LIVE_STATE_CACHE, importlib.import_module("service.routers.api_v2")._LIVE_STATE_CACHE)
-        self.assertIs(snapshot._LIVE_SCREENS, importlib.import_module("service.terminal_snapshot")._LIVE_SCREENS)
+        self.assertFalse(
+            hasattr(api_v2, "_LIVE_STATE_CACHE"),
+            "api_v2 must reach the cache through `status_cache._LIVE_STATE_CACHE`, not re-export it",
+        )
 
 
 if __name__ == "__main__":

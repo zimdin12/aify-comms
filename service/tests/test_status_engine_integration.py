@@ -201,7 +201,7 @@ class StatusEventIngestTests(FastApiTestCase):
         import asyncio, json
         from service.db import get_db
         from service.routers import api_v2
-        from service.routers.api_v2 import _LIVE_STATE_CACHE
+        from service.reconcilers.status_cache import _LIVE_STATE_CACHE
         self._register("e1", mode="resident")
         self.client.post("/api/v1/agents/e1/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
         self._set("status_engine", "new")

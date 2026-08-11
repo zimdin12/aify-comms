@@ -47,6 +47,26 @@ from service.terminal_snapshot import (
 from service.status_engine import apply_event, derive, StatusInputs, VALID_STATUSES
 from service.dashboard_redirect import dashboard_url
 from service.ntfy import notify_operator
+from service.clock import now as _now
+# v0.5 slice 1a. The status cache and the bridge reconcilers now live in their own module.
+#
+# FUNCTIONS are imported by name — safe, because a function object is never rebound. The CACHE DICT
+# is deliberately NOT: `from ... import _LIVE_STATE_CACHE` would bind this module to whatever object
+# existed at import time, and a later rebind in the owner would leave two dicts with reads and
+# writes landing in different ones — silently. Reach it as `status_cache._LIVE_STATE_CACHE`.
+# `service/tests/test_process_global_identity.py` fails the suite if that rule is broken.
+from service.reconcilers import status_cache
+from service.reconcilers.status_cache import (
+    BRIDGE_ORPHAN_STALE_SECONDS,
+    _live_state_drop,
+    _live_state_expire,
+    _live_state_fresh,
+    _live_state_get,
+    _live_state_set,
+    _prune_superseded_bridges,
+    _reap_stale_orphan_bridges,
+    stale_seconds_from_settings,
+)
 from service.usage_cache import usage_set, usage_all, usage_get, derive_usage_source, consumption_set, consumption_summary
 from service.models import (
     AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
@@ -132,8 +152,6 @@ def _is_lock_error(exc: BaseException) -> bool:
     return "locked" in message or "busy" in message
 
 
-def _now():
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 def _iso_to_epoch(value: Any) -> float:
     text = str(value or "").strip()
@@ -5588,64 +5606,16 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     }
 
 
-# ---- In-memory live-status cache (2026-06-18) --------------------------------------------
-# The derived agent status is a CACHE, not durable state: it is recomputed from inputs and is
-# rebuilt from scratch on restart. Storing it in SQLite made every dashboard poll refresh-WRITE
-# it (the single-writer `database is locked` storm) AND kept readers hammering the DB (blocking
-# the WAL checkpoint → WAL bloat → slow commits). It now lives in this process-global dict.
-# SAFE: the service is ONE uvicorn process / one event loop (the dashboard-next container only
-# proxies in, it never opens the DB), so dict access between `await`s is atomic — no mutex
-# needed. Lost on restart = fine (recomputed in a single reconcile pass — that's what a cache
-# is). NOTE: if the service is ever run multi-worker, this must move to a shared store (Redis)
-# or the workers need sticky routing. The agent_live_state TABLE is retained only for schema
-# compatibility; it is no longer read or written on any path.
-_LIVE_STATE_CACHE: dict[str, dict[str, Any]] = {}
 
 
-def _live_state_get(agent_id: str) -> Optional[dict[str, Any]]:
-    return _LIVE_STATE_CACHE.get(str(agent_id or "").strip())
 
 
-def _live_state_fresh(agent_id: str, *, now: Optional[str] = None) -> Optional[dict[str, Any]]:
-    """Return the cached entry only if its refresh_after is still in the future."""
-    entry = _LIVE_STATE_CACHE.get(str(agent_id or "").strip())
-    if not entry:
-        return None
-    refresh_after = str(entry.get("refresh_after") or "").strip()
-    return entry if (refresh_after and refresh_after > (now or _now())) else None
 
 
-def _live_state_set(agent_id: str, data: dict[str, Any]) -> None:
-    _LIVE_STATE_CACHE[str(agent_id or "").strip()] = data
 
 
-def _live_state_drop(agent_id: str) -> None:
-    _LIVE_STATE_CACHE.pop(str(agent_id or "").strip(), None)
 
 
-def _live_state_expire(agent_id: str) -> None:
-    """Mark a cached entry STALE without dropping it (2026-07-14, the status-flicker fix).
-
-    A DROPPED entry is a cache MISS, and the `list_agents` miss-path falls back to the raw
-    `agents.status` column — which every heartbeat stamps to 'active', and which
-    `_LEGACY_RAW_STATUS_TO_CANONICAL` coerces to **`online`**. That value never passes through
-    `derive()`, so it can contradict `in_turn=1`: a genuinely WORKING agent is served `online`
-    for one poll, and a status-sorted dashboard yanks the row down the list and back. Operator
-    report: "all working agents turn online for a second and then back to working".
-
-    The race is real because `GET /agents` takes seconds (per-agent liveness/env gates inside
-    the row loop) while the event loop is single-threaded: a heartbeat landing mid-request
-    invalidates AFTER the top-of-request refresh pass and BEFORE the per-agent read. Working
-    agents heartbeat the most, so they lose that race the most — hence *all* of them flicker.
-
-    Expiring instead keeps the last DERIVED value readable while forcing a recompute on the
-    next refresh (`_live_state_fresh` gates on `refresh_after`). Worst case becomes a slightly
-    stale but TRUE status rather than a fresh falsehood. Real eviction (agent deleted) still
-    calls `_live_state_drop` directly.
-    """
-    entry = _LIVE_STATE_CACHE.get(str(agent_id or "").strip())
-    if entry is not None:
-        entry["refresh_after"] = ""
 
 
 async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dict[str, Any]] = None, now: Optional[str] = None):
@@ -6058,7 +6028,7 @@ async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str,
     # Order: missing-from-cache first, then by oldest refresh_after — so the most-stale recompute
     # soonest when `limit` caps the batch.
     def _sort_key(aid: str):
-        entry = _LIVE_STATE_CACHE.get(aid)
+        entry = status_cache._LIVE_STATE_CACHE.get(aid)
         if not entry:
             return (0, "")
         return (1, str(entry.get("refresh_after") or ""))
@@ -20787,99 +20757,8 @@ async def _close_reconcilable_delivered_runs(
     return closed
 
 
-async def _prune_superseded_bridges(
-    db,
-    *,
-    ttl_hours: int = 24,
-    chunk: int = 2000,
-    max_chunks: int = 50,
-) -> int:
-    """Reclaim superseded bridge_instances rows (holistic-review F4, 2026-05-31).
-
-    Supersession sets `superseded_by` but nothing ever deleted the row, so the
-    table grew monotonically with every wrapper relaunch (observed: 83/98 rows
-    superseded). LIVE (non-superseded) rows are NEVER touched — only rows that
-    have been superseded for longer than `ttl_hours` (keyed on superseded_at,
-    falling back to last_seen). claim_bridge_id on dispatch_runs is a plain
-    string (no FK), and any in-flight run owned by a superseded bridge was failed
-    at supersession time, so deleting aged superseded rows orphans nothing.
-    Chunked so a live control plane is never locked for long.
-    """
-    removed = 0
-    for _ in range(max_chunks):
-        cur = await db.execute(
-            """
-            DELETE FROM bridge_instances WHERE id IN (
-                SELECT id FROM bridge_instances
-                WHERE COALESCE(superseded_by, '') != ''
-                  AND datetime(COALESCE(superseded_at, last_seen, '1970-01-01')) < datetime('now', ?)
-                ORDER BY datetime(COALESCE(superseded_at, last_seen, '1970-01-01')) ASC
-                LIMIT ?
-            )
-            """,
-            (f"-{max(1, int(ttl_hours))} hours", int(chunk)),
-        )
-        await db.commit()
-        n = cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else 0
-        removed += n
-        if n < chunk:
-            break
-    return removed
 
 
-# A bridge whose process died WITHOUT a graceful supersede (crash / host restart /
-# wrapper kill) is dead once its last_seen is this far past every liveness window.
-# The liveness beat (__HEARTBEAT_MS) fires unconditionally every ~60s while the bridge
-# process is alive, and the longest freshness window is the 150s resident lease, so
-# 300s = ~5 missed beats — a value only a dead process can reach. Kept generous on
-# purpose: superseding a still-live bridge would wrongly flip its agent offline.
-BRIDGE_ORPHAN_STALE_SECONDS = 300
-
-
-async def _reap_stale_orphan_bridges(db, *, stale_seconds: Optional[int] = None, limit: int = 500) -> int:
-    """Supersede bridge_instances rows whose owner died without a clean supersede.
-
-    THE GAP (2026-07-11, other-PC perf report): supersession only happens on a clean
-    relaunch/register, and `_prune_superseded_bridges` only DELETEs rows that are ALREADY
-    superseded. So a bridge whose process crashed/was-killed lingers `superseded_by=''`
-    with an old last_seen FOREVER — counted as "live" by every status-derivation and
-    dispatch-claim scan (all keyed `WHERE superseded_by=''`), taxing idle CPU and never
-    reaped (observed re-accumulating to dozens of orphans across the fleet).
-
-    This marks such rows `superseded_by='reaper:stale-orphan'` so they drop out of the hot
-    scans immediately; `_prune_superseded_bridges` then DELETEs them after its TTL. NEVER
-    touches a row seen within `stale_seconds` — a live bridge always beats inside that
-    window, so this can only match a dead process. Idempotent (a re-run re-selects nothing:
-    superseded rows are excluded); LIMIT-bounded; single UPDATE; commit by the caller.
-    """
-    if stale_seconds is None:
-        # Derive from settings so the window is ALWAYS beyond every configured freshness
-        # window (+60s margin), even if an operator raises resident_lease_seconds (≤3600)
-        # or agent_liveness_seconds (≤600) above the 300s floor — otherwise the reaper
-        # could supersede a bridge that `_resident_bridge_is_fresh`/the liveness gate still
-        # treats as live (2026-07-11 review). The non-configurable stale constants
-        # (channel-sidecar 180 / claimer 240 / active-run 120) all sit under the floor.
-        settings = await _load_settings(db)
-        lease = int(settings.get("resident_lease_seconds", 150) or 150)
-        liveness = int(settings.get("agent_liveness_seconds", 90) or 90)
-        stale_seconds = max(BRIDGE_ORPHAN_STALE_SECONDS, lease + 60, liveness + 60)
-    stale_seconds = max(180, int(stale_seconds or BRIDGE_ORPHAN_STALE_SECONDS))
-    cur = await db.execute(
-        """
-        UPDATE bridge_instances
-        SET superseded_by = 'reaper:stale-orphan',
-            superseded_at = ?
-        WHERE id IN (
-            SELECT id FROM bridge_instances
-            WHERE COALESCE(superseded_by, '') = ''
-              AND datetime(COALESCE(last_seen, '1970-01-01')) < datetime('now', ?)
-            ORDER BY datetime(COALESCE(last_seen, '1970-01-01')) ASC
-            LIMIT ?
-        )
-        """,
-        (_now(), f"-{stale_seconds} seconds", int(limit)),
-    )
-    return cur.rowcount if cur.rowcount is not None and cur.rowcount > 0 else 0
 
 
 async def _prune_orphaned_dispatch_runs(

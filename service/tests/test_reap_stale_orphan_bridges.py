@@ -106,16 +106,42 @@ class ReapStaleOrphanBridgesTests(FastApiTestCase):
         self.assertEqual(self._superseded_by("b-done"), "relaunch")
 
     def test_raised_resident_lease_widens_the_window(self):
-        # 2026-07-11 review: the reaper must derive its window from settings so it never
-        # supersedes a bridge a raised liveness window still treats as fresh. With the lease
-        # at 600, a 400s-old bridge (past the 300s floor) is still inside lease+60 → spared.
+        # 2026-07-11 review: the window must come from settings so the reaper never supersedes a
+        # bridge a raised liveness window still treats as fresh. With the lease at 600, a 400s-old
+        # bridge (past the 300s floor) is still inside lease+60 → spared.
+        #
+        # v0.5 slice 1a moved the DERIVATION out of the reaper into
+        # `stale_seconds_from_settings`, so the caller supplies the scalar — which is what
+        # `main.py`'s sweep now does with its per-pass settings. The formula and its inputs are
+        # unchanged; this test now exercises both halves explicitly instead of relying on the
+        # reaper to read settings itself.
+        from service.reconcilers.status_cache import stale_seconds_from_settings
+
         self.client.put("/api/v1/settings", json={"resident_lease_seconds": 600})
+        derived = stale_seconds_from_settings({"resident_lease_seconds": 600, "agent_liveness_seconds": 90})
+        self.assertEqual(derived, 660, "max(300 floor, lease+60, liveness+60)")
+
         self._seed_bridge("b-in-lease", "orphan-agent", seconds_ago=400)
         self._seed_bridge("b-past-lease", "orphan-agent", seconds_ago=700)
-        n = self._run_reaper()  # no stale_seconds → derives from settings (max(300, 660, 150)=660)
+        n = self._run_reaper(stale_seconds=derived)
         self.assertEqual(n, 1, "only the bridge past the widened window is reaped")
         self.assertEqual(self._superseded_by("b-in-lease"), "", "a bridge inside the raised lease must be spared")
         self.assertEqual(self._superseded_by("b-past-lease"), "reaper:stale-orphan")
+
+    def test_the_derivation_never_returns_less_than_the_floor(self):
+        """The safety direction of the seam move: a caller that supplies nothing, or settings that
+        would compute SMALLER than the floor, must not narrow the window — a narrower window can
+        supersede a bridge the liveness gate still calls live."""
+        from service.reconcilers.status_cache import (
+            BRIDGE_ORPHAN_STALE_SECONDS,
+            stale_seconds_from_settings,
+        )
+
+        self.assertEqual(stale_seconds_from_settings({}), max(BRIDGE_ORPHAN_STALE_SECONDS, 210, 150))
+        self.assertGreaterEqual(
+            stale_seconds_from_settings({"resident_lease_seconds": 1, "agent_liveness_seconds": 1}),
+            BRIDGE_ORPHAN_STALE_SECONDS,
+        )
 
     def test_mixed_fleet_only_stale_live_orphans_reaped(self):
         self._seed_bridge("m-stale1", "orphan-agent", seconds_ago=700)
