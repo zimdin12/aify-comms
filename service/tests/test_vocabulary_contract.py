@@ -84,13 +84,25 @@ class VocabularyContractTests(unittest.TestCase):
     def test_launchable_is_a_subset_of_canonical(self):
         self.assertTrue(LAUNCHABLE_RUNTIMES <= CANONICAL_RUNTIMES)
 
-    def test_the_router_normalizer_uses_the_contract(self):
-        """The point of a single owner is that the live code path reads it."""
+    def test_the_live_code_path_reads_the_contract(self):
+        """The point of a single owner is that the live code path reads it.
+
+        The assertion follows the OWNER, not the file it used to live in: v0.5.1e moved the
+        normalizers to `service/api_core/runtime.py`, so that is where the alias map must be read.
+        The router still owns the launchable set and session modes at its own call sites.
+        """
+        from service.api_core import runtime as runtime_core
         from service.routers import api_v2
 
-        self.assertIs(api_v2._RUNTIME_ALIASES, RUNTIME_ALIASES)
+        self.assertIs(runtime_core._RUNTIME_ALIASES, RUNTIME_ALIASES)
+        self.assertIs(runtime_core._SESSION_MODES, SESSION_MODES)
         self.assertIs(api_v2._SESSION_MODES, SESSION_MODES)
         self.assertIs(api_v2._LAUNCHABLE_RUNTIMES, LAUNCHABLE_RUNTIMES)
+        self.assertFalse(
+            hasattr(api_v2, "_RUNTIME_ALIASES"),
+            "the router should no longer import the alias map -- its only consumer moved out, and "
+            "importing a name nobody reads makes a module look like an owner it is not",
+        )
 
     def test_normalize_runtime_still_behaves_identically(self):
         """Structural change: the mapping moved, the answers must not."""

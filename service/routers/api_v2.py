@@ -27,6 +27,11 @@ _listen_events: dict[str, asyncio.Event] = {}
 
 from pydantic import BaseModel
 from service.config import get_config
+from service.api_core.runtime import (  # v0.5.1e: single owner, resolved against the contract
+    _normalize_runtime,
+    _normalize_session_mode,
+    _runtime_capability_for_environment,
+)
 from service.api_core.serialization import (  # v0.5.1c: single owner, no copy
     _json_loads_or,
     _clip_text,
@@ -417,7 +422,9 @@ _RUNTIME_CONFIG_LIVE_KEYS = {
 # service/contracts/vocabulary.json, loaded by service/api_core/vocabulary.py, and cross-checked
 # against the bridge's copy by an agreement test in each suite. Do NOT re-declare them here.
 from service.api_core.vocabulary import (
-    RUNTIME_ALIASES as _RUNTIME_ALIASES,
+    # RUNTIME_ALIASES is deliberately absent: its only consumer, _normalize_runtime, moved to
+    # service/api_core/runtime.py in v0.5.1e, and importing a name nobody reads is how a module
+    # keeps looking like the owner of something it no longer touches.
     LAUNCHABLE_RUNTIMES as _LAUNCHABLE_RUNTIMES,
     SESSION_MODES as _SESSION_MODES,
 )
@@ -1298,9 +1305,6 @@ def _bridge_started_at(metadata: Any) -> str:
     return ""
 
 
-def _normalize_session_mode(mode: Any) -> str:
-    value = str(mode or "resident").strip().lower()
-    return value if value in _SESSION_MODES else "resident"
 
 
 def _resume_command_for(runtime: Any, session_handle: Any, agent_id: Any = "") -> str:
@@ -1329,9 +1333,6 @@ def _resume_command_for(runtime: Any, session_handle: Any, agent_id: Any = "") -
         return ""
 
 
-def _normalize_runtime(runtime: Any) -> str:
-    key = str(runtime or "generic").strip().lower()
-    return _RUNTIME_ALIASES.get(key, key or "generic")
 
 
 def _runtime_handle_from_state(runtime: Any, runtime_state: Any) -> str:
@@ -5205,12 +5206,6 @@ async def _repair_current_session_freshness(db) -> int:
 
 
 
-def _runtime_capability_for_environment(environment: dict[str, Any], runtime: str) -> Optional[dict[str, Any]]:
-    normalized = _normalize_runtime(runtime)
-    for item in environment.get("runtimes") or []:
-        if _normalize_runtime(item.get("runtime") or "") == normalized:
-            return item
-    return None
 
 
 def _environment_supports_terminal(environment: dict[str, Any], runtime: str) -> bool:
