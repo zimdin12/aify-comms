@@ -14366,7 +14366,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                return await _reconcile_duplicate_resident_sessions(db)
+                return await _reconcile_duplicate_resident_sessions(db, lease_seconds=150)
             finally:
                 await db.close()
 
@@ -14633,7 +14633,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                return await api_v2._reconcile_dead_session_status(db)
+                return await api_v2._reconcile_dead_session_status(db, lease_seconds=150)
             finally:
                 await db.close()
         return asyncio.run(_run())

@@ -70,6 +70,11 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     # SAME commit as the move so there is never a tree with mixed old/new sources.
     # v0.5 slice 2: spawn lifecycle moved out of api_v2 in the same commit as this import change.
     from service.reconcilers.console_binding import rebind_orphaned_live_consoles
+    # v0.5 slice 3a: session reconcilers moved; imported here in the same commit as the move.
+    from service.reconcilers.sessions import (
+        _reconcile_dead_session_status,
+        _reconcile_duplicate_resident_sessions,
+    )
     from service.reconcilers.spawn_lifecycle import (
         _fail_orphaned_running_spawn_requests,
         _fail_running_spawns_superseded_by_current_session,
@@ -93,8 +98,6 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _reap_undeliverable_queued_runs,
         _fail_stranded_delivered_reply_runs,
         _replay_undelivered_channel_messages_on_env_recovery,
-        _reconcile_dead_session_status,
-        _reconcile_duplicate_resident_sessions,
         _reconcile_managed_worker_hygiene,
         _reconcile_resurrected_managed_consoles,
         _reroute_orphaned_managed_channel_runs,
@@ -258,11 +261,11 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # set when case (a) reads terminal_status. Keyed only on bridge heartbeat for
         # the resident case — never on the derived 'stale' — so a live resident with
         # a fresh bridge is never stopped.
-        dead_sessions_stopped = await _commit_step(await _reconcile_dead_session_status(db, limit=500))
+        dead_sessions_stopped = await _commit_step(await _reconcile_dead_session_status(db, lease_seconds=int(_reconcile_settings.get("resident_lease_seconds", 150) or 150), limit=500))
         # Collapse duplicate/stale resident sessions to one-per-agent so the
         # dashboard stops showing 2+ resident_* rows the operator can't tell apart
         # (2026-06-03). Keeps the freshest; retires the rest.
-        deduped_resident_sessions = await _commit_step(await _reconcile_duplicate_resident_sessions(db))
+        deduped_resident_sessions = await _commit_step(await _reconcile_duplicate_resident_sessions(db, lease_seconds=int(_reconcile_settings.get("resident_lease_seconds", 150) or 150)))
         # Self-heal wedged 'stopping' PTYs + ended-but-not-closed sessions (2026-06-18 audit).
         stuck_rows = await _commit_step(await _reconcile_stuck_terminal_and_session_rows(db))
         ended_terminal_controls_failed = await _commit_step(await _reconcile_ended_terminal_controls(db, limit=500))
