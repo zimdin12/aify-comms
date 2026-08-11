@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from service.api_core.serialization import _json_loads_or  # v0.5.1c: the leaf owner, not via the router
+from service.api_core.runtime import _normalize_runtime  # v0.5.1e: the leaf owner, not via the router
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -62,10 +63,6 @@ async def _has_live_terminal_session(*a, **k):
     return await _i(*a, **k)
 
 
-
-def _normalize_runtime(*a, **k):
-    from service.routers.api_v2 import _normalize_runtime as _i
-    return _i(*a, **k)
 
 
 async def _discard_unusable_active_run(*a, **k):

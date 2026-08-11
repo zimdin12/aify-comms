@@ -4,7 +4,7 @@ v0.5 slice 6, extracted from `service/routers/api_v2.py`. Dependency table measu
 every-name scan before the move.
 
 BORROWED FROM THE ROUTER rather than moved, on measured caller count as in slices 4 and 5:
-`_append_dispatch_event`, `_current_agent_session_row`, `_normalize_runtime`, the two idle-prompt
+`_append_dispatch_event`, `_current_agent_session_row`, the two idle-prompt
 hint helpers, and the constants `_TERMINAL_END_STATUSES`, `_TERMINAL_ACTIVE_STATUSES` and
 `STUCK_STOPPING_GRACE_SECONDS`. Each read through exactly one owner so no second copy can drift —
 `_TERMINAL_END_STATUSES` in particular is the set whose duplication produced finding N7.
@@ -19,6 +19,7 @@ import logging
 import time
 from typing import Any, Optional
 
+from service.api_core.runtime import _normalize_runtime  # v0.5.1e: the leaf owner, not via the router
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -35,10 +36,6 @@ async def _current_agent_session_row(*a, **k):
     from service.routers.api_v2 import _current_agent_session_row as _i
     return await _i(*a, **k)
 
-
-def _normalize_runtime(*a, **k):
-    from service.routers.api_v2 import _normalize_runtime as _i
-    return _i(*a, **k)
 
 
 def _terminal_idle_prompt_hint(*a, **k):

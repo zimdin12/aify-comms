@@ -29,6 +29,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from service.api_core.runtime import _normalize_runtime, _normalize_session_mode  # v0.5.1e: the leaf owner, not via the router
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -61,10 +62,6 @@ async def _mirror_undeliverable_queued_run_to_sender(*a, **k):
     return await _i(*a, **k)
 
 
-def _normalize_runtime(*a, **k):
-    from service.routers.api_v2 import _normalize_runtime as _i
-    return _i(*a, **k)
-
 
 async def _create_dispatch_runs(*a, **k):
     from service.routers.api_v2 import _create_dispatch_runs as _i
@@ -80,10 +77,6 @@ async def _managed_environment_unavailable_reason(*a, **k):
     from service.routers.api_v2 import _managed_environment_unavailable_reason as _i
     return await _i(*a, **k)
 
-
-def _normalize_session_mode(*a, **k):
-    from service.routers.api_v2 import _normalize_session_mode as _i
-    return _i(*a, **k)
 
 
 async def _has_live_channel_sidecar(*a, **k):

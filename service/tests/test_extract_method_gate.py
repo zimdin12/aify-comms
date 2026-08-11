@@ -532,5 +532,92 @@ def _w():
         self.assertIn("hand it back", str(caught.exception))
 
 
+
+
+class ExtractMethodAugAssignTests(unittest.TestCase):
+    """`+=` reads before it writes, but the AST marks the target Store-only.
+
+    The reviewer found this by RUNNING the gate against the shape, not by reading it, and reported
+    `augassign PASSED_UNSAFELY`. It is the same live-out class as the first two, wearing Python's
+    compound-assignment form.
+    """
+
+    def test_augassign_after_the_call_is_a_read(self):
+        original = '''
+def f():
+    total = compute()
+    total += 1
+'''
+        split = '''
+def f():
+    _w()
+    total += 1
+
+
+def _w():
+    total = compute()
+'''
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original, split, "_w")
+        self.assertIn("hand it back", str(caught.exception))
+
+    def test_augassign_through_a_subscript_reads_the_base(self):
+        original = '''
+def f(i):
+    totals = compute()
+    totals[i] += 1
+'''
+        split = '''
+def f(i):
+    _w()
+    totals[i] += 1
+
+
+def _w():
+    totals = compute()
+'''
+        with self.assertRaises(AssertionError):
+            assert_extraction_preserves_behaviour(original, split, "_w")
+
+    def test_augassign_through_an_attribute_reads_the_base(self):
+        original = '''
+def f():
+    acc = compute()
+    acc.total += 1
+'''
+        split = '''
+def f():
+    _w()
+    acc.total += 1
+
+
+def _w():
+    acc = compute()
+'''
+        with self.assertRaises(AssertionError):
+            assert_extraction_preserves_behaviour(original, split, "_w")
+
+    def test_augassign_on_an_unrelated_name_is_still_fine(self):
+        """The rule must not become a blanket refusal of any `+=` after a call."""
+        original = '''
+def f(counter):
+    scratch = compute()
+    use(scratch)
+    counter += 1
+'''
+        split = '''
+def f(counter):
+    scratch = _w()
+    use(scratch)
+    counter += 1
+
+
+def _w():
+    scratch = compute()
+    return scratch
+'''
+        assert_extraction_preserves_behaviour(original, split, "_w")
+
+
 if __name__ == "__main__":
     unittest.main()

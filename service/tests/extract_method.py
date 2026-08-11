@@ -166,6 +166,32 @@ def _loaded_names(nodes) -> set[str]:
     return out
 
 
+def _augmented_reads(stmt: ast.stmt) -> set[str]:
+    """Names an augmented assignment READS, which the AST marks only as a Store.
+
+    THE THIRD LIVE-OUT HOLE, found by the reviewer and confirmed by running it: in `total += 1` the
+    target `total` is a `Name` with `ctx=Store`, so `_loaded_names` never sees a load — but `+=`
+    reads the old value before writing the new one. The ordered scan therefore treated it as a clean
+    rebind and passed a broken split:
+
+        _w()            # binds `total`, does not hand it back
+        total += 1      # reads a name that is now a helper local
+
+    Compound targets (`total[i] += 1`, `obj.total += 1`) already register their base as a Load, but
+    they are resolved here too so the rule does not depend on that incidental detail.
+    """
+    out: set[str] = set()
+    for sub in ast.walk(stmt):
+        if not isinstance(sub, ast.AugAssign):
+            continue
+        target = sub.target
+        while isinstance(target, (ast.Subscript, ast.Attribute)):
+            target = target.value
+        if isinstance(target, ast.Name):
+            out.add(target.id)
+    return out
+
+
 def _read_before_rebind(after: list[ast.stmt], name: str) -> bool:
     """Walking the post-call statements IN ORDER: is `name` read before it is bound again?
 
@@ -179,7 +205,7 @@ def _read_before_rebind(after: list[ast.stmt], name: str) -> bool:
     Liveness is positional. A rebind only kills liveness AFTER the rebind, never before it.
     """
     for stmt in after:
-        loads = _loaded_names([stmt])
+        loads = _loaded_names([stmt]) | _augmented_reads(stmt)
         stores = _assigned_names([stmt])
         # Within one statement a load is evaluated before the bind (`total = total + 1`), so a load
         # in the same statement counts as a read first.
