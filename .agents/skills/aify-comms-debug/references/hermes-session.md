@@ -167,7 +167,7 @@ Current boot cleanup also treats a live resident wrapper as authoritative proces
 evidence. Its associated process family is protected even if backend ownership
 metadata is stale, so restarting an environment bridge must not reap the resident
 gateway/TUI. If the WebSocket drops during a bridge restart, compare the installed
-and running bridge with `aify-doctor --json`; a stale bridge is the first suspect.
+and running bridge with `aify-comms doctor --json`; a stale bridge is the first suspect.
 
 ## Many `hermes.exe` processes for a few hermes agents
 

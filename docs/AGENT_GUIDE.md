@@ -50,7 +50,7 @@ python3 -m py_compile service/models.py service/db.py service/routers/api_v2.py 
 docker compose exec -T service python -m unittest service.tests.test_api_v2_regressions service.tests.test_main_websocket_auth -q
 ```
 
-`install.sh` verifies that the installed `node-pty` native module can actually be loaded and rebuilds it when necessary; package presence alone is not PTY evidence. After a host-bridge update, rerun the installer and restart the bridge, then require `aify-doctor --json` to show the installed and running bridge are current. For container updates, compare `/version` with the intended commit; a healthy endpoint does not prove the running container uses the rebuilt image.
+`install.sh` verifies that the installed `node-pty` native module can actually be loaded and rebuilds it when necessary; package presence alone is not PTY evidence. After a host-bridge update, rerun the installer and restart the bridge, then require `aify-comms doctor --json` to show the installed and running bridge are current. For container updates, compare `/version` with the intended commit; a healthy endpoint does not prove the running container uses the rebuilt image.
 
 For Dashboard Next edits, syntax-check the maintained ES-module client directly:
 

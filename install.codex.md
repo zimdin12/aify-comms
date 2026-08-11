@@ -20,7 +20,7 @@ bash install.sh --client codex --with-hook
 
 Restart Codex after install.
 
-The installer verifies that the copied `node-pty` package can load its native binary and automatically rebuilds it when the package exists but the binary is missing or unloadable. Use `aify-doctor --json` after installation; checking only `node_modules/node-pty` is not sufficient proof that managed Console PTYs can start.
+The installer verifies that the copied `node-pty` package can load its native binary and automatically rebuilds it when the package exists but the binary is missing or unloadable. Use `aify-comms doctor --json` after installation; checking only `node_modules/node-pty` is not sufficient proof that managed Console PTYs can start.
 
 For dashboard-managed spawns, also connect an environment bridge on the machine that should run Codex. The installer adds the `aify-comms` launcher for this:
 

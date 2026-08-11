@@ -104,7 +104,7 @@ exist while its delivery owner is dead; prove both before calling the agent `onl
 ## Environment Bridges
 
 - `aify-comms --help` shows launcher usage. The current directory is an allowed workspace root; extra roots are optional boundaries.
-- After install/update, run `aify-doctor --json`. Package presence does not prove the installed `node-pty` can load or that the running bridge uses it.
+- After install/update, run `aify-comms doctor --json`. Package presence does not prove the installed `node-pty` can load or that the running bridge uses it.
 - A newer bridge instance supersedes the older instance for its environment. Current bridge identity owns new terminal controls; stale controls must not cross that boundary.
 - Killing or forgetting an environment does not delete agent identities, chat, spawn specs, or historical sessions.
 - Never terminate a process from a stale bridge/session row. Confirm current process ancestry and activity first.

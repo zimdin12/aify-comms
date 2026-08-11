@@ -2671,6 +2671,17 @@ if [ -z "\$SAFE_CWD" ] || [ ! -d "\$SAFE_CWD" ]; then
 fi
 
 SERVER_URL="\${AIFY_SERVER_URL:-$default_server}"
+# \`aify-comms doctor\` — the verifier, reachable under the name people already know.
+# It shipped as a separate \`aify-doctor\` binary and the operator's objection to that was fair:
+# one product should not need two command names remembered. Same script either way; the old name
+# stays because ~40 references in docs, skills and agent habits point at it.
+#
+# Safe as a subcommand: MCP clients launch this wrapper with NO arguments for the stdio bridge,
+# so a first argument of "doctor" can never come from that path.
+if [ "\${1:-}" = "doctor" ]; then
+  shift
+  exec node "$AIFY_BRIDGE_DIR/doctor.js" "\$@"
+fi
 if [ "\${1:-}" = "--version" ] || [ "\${1:-}" = "-V" ]; then
   # Host bridge version stamp (baked at install time). $AIFY_NATIVE_BASE and
   # $SCRIPT_DIR below are the install-time literals; everything network/git is
@@ -4193,7 +4204,8 @@ DOCTOR_PATH="$DOCTOR_BIN_DIR/aify-doctor"
   echo "exec node \"$AIFY_BRIDGE_DIR/doctor.js\" \"\$@\""
 } > "$DOCTOR_PATH"
 chmod +x "$DOCTOR_PATH" 2>/dev/null || true
-echo "Verifier installed: aify-doctor   (\`aify-doctor --json\` for scripted/agent checks)"
+echo "Verifier installed: aify-comms doctor   (\`aify-comms doctor --json\` for scripted/agent checks)"
+echo "                    aify-doctor         (same thing, kept as an alias)"
 
 echo ""
 echo "=== Installation complete ==="

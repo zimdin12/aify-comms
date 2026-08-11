@@ -33,27 +33,27 @@ If you are an agent doing this work, read this section first. **Every flow here 
 So **do not report success from the absence of an error.** Every flow ends the same way:
 
 ```bash
-aify-doctor            # human-readable
-aify-doctor --json     # {ok, checks:[{id, ok, code, detail, fix}]} — parse this
-aify-doctor --strict   # exit 1 if anything failed (use in scripts/CI)
+aify-comms doctor            # human-readable
+aify-comms doctor --json     # {ok, checks:[{id, ok, code, detail, fix}]} — parse this
+aify-comms doctor --strict   # exit 1 if anything failed (use in scripts/CI)
 ```
 
-`aify-doctor` proves each claim against the running system (build stamps, process start times, process environments, a live API call). It is installed by `install.sh`. **Done means `ok: true`** — or a check whose `fix` you have deliberately deferred and reported.
+`aify-comms doctor` proves each claim against the running system (build stamps, process start times, process environments, a live API call). It is installed by `install.sh`. **Done means `ok: true`** — or a check whose `fix` you have deliberately deferred and reported.
 
 | Flow | Do | Then |
 |---|---|---|
-| **1. Install the client integration** (bridge + wrapper for a runtime) | `bash install.sh --client <claude\|codex\|hermes> http://<service>:8800 --with-hook` | `aify-doctor` → `wrappers`, `bridge-installed` green. Restart the client so it loads the new bridge. |
-| **2. Install / run the service** (container) | `./setup.sh` (first time), then `bash scripts/stamp.sh && docker compose up -d --build` | `aify-doctor` → `service` must read **`build <sha> == repo HEAD`**. `curl :8800/health` alone is NOT enough — a healthy container can be serving last week's code. |
-| **3. Update local integrations** (after `git pull`) | `bash install.sh --client <runtime>` — this re-copies `mcp/stdio/` into `~/.aify-comms`. **Editing the checkout does nothing on its own.** | `aify-doctor` → `bridge-installed` must equal repo HEAD, **and `bridge-running` must be green**. If it lists agents, they are still executing the old code and must be restarted before your change is real. |
-| **4. Update the container** | `git pull && bash scripts/stamp.sh && docker compose up -d --build` | `aify-doctor` → `service` == repo HEAD. Skipping `stamp.sh` makes `/version` lie about what is deployed. |
+| **1. Install the client integration** (bridge + wrapper for a runtime) | `bash install.sh --client <claude\|codex\|hermes> http://<service>:8800 --with-hook` | `aify-comms doctor` → `wrappers`, `bridge-installed` green. Restart the client so it loads the new bridge. |
+| **2. Install / run the service** (container) | `./setup.sh` (first time), then `bash scripts/stamp.sh && docker compose up -d --build` | `aify-comms doctor` → `service` must read **`build <sha> == repo HEAD`**. `curl :8800/health` alone is NOT enough — a healthy container can be serving last week's code. |
+| **3. Update local integrations** (after `git pull`) | `bash install.sh --client <runtime>` — this re-copies `mcp/stdio/` into `~/.aify-comms`. **Editing the checkout does nothing on its own.** | `aify-comms doctor` → `bridge-installed` must equal repo HEAD, **and `bridge-running` must be green**. If it lists agents, they are still executing the old code and must be restarted before your change is real. |
+| **4. Update the container** | `git pull && bash scripts/stamp.sh && docker compose up -d --build` | `aify-comms doctor` → `service` == repo HEAD. Skipping `stamp.sh` makes `/version` lie about what is deployed. |
 
 Two rules that cost real hours to learn:
 
-1. **Installing does not reload a running bridge.** A process keeps the code it loaded at startup. After any bridge change, the agents using it must restart — `aify-doctor`'s `bridge-running` check tells you exactly which ones haven't. (`--resume <handle>` preserves an agent's conversation, so the restart is cheap.)
-2. **Always launch a registered agent with its id** (`--aify-agent <id>`). Without it the agent works in every visible way but has no status at all. `aify-doctor`'s `agent-identity` check catches it; a plain, unregistered `claude-aify` session is legitimately id-less and is not flagged.
+1. **Installing does not reload a running bridge.** A process keeps the code it loaded at startup. After any bridge change, the agents using it must restart — `aify-comms doctor`'s `bridge-running` check tells you exactly which ones haven't. (`--resume <handle>` preserves an agent's conversation, so the restart is cheap.)
+2. **Always launch a registered agent with its id** (`--aify-agent <id>`). Without it the agent works in every visible way but has no status at all. `aify-comms doctor`'s `agent-identity` check catches it; a plain, unregistered `claude-aify` session is legitimately id-less and is not flagged.
 3. **When a managed worker dies, its own console holds the answer — and an agent can read it** (v0.2). `comms_console_tail(agentId="…")` no longer needs a live console: with the worker gone it returns that worker's last recorded output, marked `NOT LIVE`, with the fatal line first. So the agent that hit the failure can diagnose it instead of asking you to read a terminal. The same data is at `GET /agents/<id>/console` (`live:false, historical:true, failureLine`). This exists because on 2026-08-07 a managed hermes worker died 65s after spawn, the cause (`hermes dashboard … did not become ready`) sat in the database for 2.5 hours, and the requesting agent was told something false while a human read the real error out loud.
 
-The OpenAI quota panel additionally needs the **`codex` CLI signed in** (`codex login`) — hermes holds no OpenAI token of its own, it delegates to codex's store. `install.sh` prints a `[usage] OK` / `[usage] WARNING` verdict, and `aify-doctor` re-checks it by actually calling the API (an expired token passes a file check and fails for real).
+The OpenAI quota panel additionally needs the **`codex` CLI signed in** (`codex login`) — hermes holds no OpenAI token of its own, it delegates to codex's store. `install.sh` prints a `[usage] OK` / `[usage] WARNING` verdict, and `aify-comms doctor` re-checks it by actually calling the API (an expired token passes a file check and fails for real).
 
 ## Security — read before exposing beyond localhost
 

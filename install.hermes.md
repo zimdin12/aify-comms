@@ -87,7 +87,7 @@ bash install.sh --client hermes --with-hook
 
 Restart Hermes after install.
 
-The installer verifies that the copied `node-pty` package can load its native binary and automatically rebuilds it when the package exists but the binary is missing or unloadable. Use `aify-doctor --json` after installation; checking only `node_modules/node-pty` is not sufficient proof that managed Console PTYs can start.
+The installer verifies that the copied `node-pty` package can load its native binary and automatically rebuilds it when the package exists but the binary is missing or unloadable. Use `aify-comms doctor --json` after installation; checking only `node_modules/node-pty` is not sufficient proof that managed Console PTYs can start.
 
 The installer writes the MCP entry and optional hook to Hermes' active config
 home. On native Windows this is often `%LOCALAPPDATA%\\hermes` (for example
