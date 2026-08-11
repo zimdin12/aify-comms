@@ -75,13 +75,19 @@ always emits the key, so key presence is the discriminator — no API change. Pi
 the bridge test asserts the two never render identically, and a Python test asserts the service
 never stops emitting the key.
 
-**F3 — the index recommendation, DECLINED on measurement.** The reviewer measured the outbound run
-aggregate at 27.3 ms with a temp B-tree and proposed a `(status, target_agent, finished_at DESC)`
-index. The cost is the **fan-out**, not the aggregate: same statement, 42 agents → 37 ms and a temp
-B-tree; 1 agent → **0.01 ms** on `idx_dispatch_runs_target_status`. The roster stopped calling it in
-`39e47ac`, so the only surviving caller is already index-covered and a new index on a hot write
-table would buy nothing. Recorded in the source next to the code, with the condition that reverses
-it.
+**F3 — the index recommendation, DECLINED on measurement; my first phrasing of the decline was
+too strong.** The reviewer measured the outbound run aggregate at 27.3 ms with a temp B-tree and
+proposed a `(status, target_agent, finished_at DESC)` index. The dominant cost is the **fan-out**,
+not the aggregate: same statement, 42 agents → 37 ms and a temp B-tree; a low-history single agent
+→ 0.004 ms. The roster stopped calling it in `39e47ac`.
+
+But "the surviving caller is already index-covered" was wrong, and the reviewer caught it:
+`idx_dispatch_runs_target_status` does not include `finished_at`, so the single-agent cost scales
+with **that agent's** history — `sc-claude` (3,109 runs) 3.84 ms, `sc-manager` (7,383 runs)
+**13.19 ms**. Still declined, on the real distinction: 13 ms on a deliberately-opened detail view is
+fine; 13 ms on a 2-second poll across 42 agents is the lock class. Reversal conditions are recorded
+in the source — run detail returning to a hot path, or a latency target on a heavy agent's detail
+view.
 
 **F4 — do not delete the CRLF backups on the artifacts alone. SATISFIED, then deleted.** Correct:
 from a stripped file you cannot distinguish injected framing from a legitimate leading CRLF.

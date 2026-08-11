@@ -2416,10 +2416,22 @@ async def _get_outbound_activity_map(db, agent_ids: list[str], *, include_runs: 
     # this at all. `lastSentAt` alone answers "has this agent produced anything", the question the
     # false silent-lane claim turned on, at 2.55 ms on a covering index.
     #
-    # The reviewer's alternative was a new index shaped `(status, target_agent, finished_at DESC)`.
-    # The 3,500× gap above is why it was not taken: the surviving caller is already index-covered,
-    # so the index would buy nothing and would be paid for on every write to a hot table. Restore
-    # the roster call and that trade changes — measure before assuming either way.
+    # The reviewer's alternative was a new index shaped `(status, target_agent, finished_at DESC)`,
+    # declined for the surviving detail path — but "index-covered" would be too strong and the
+    # reviewer was right to push back on it. `idx_dispatch_runs_target_status` does not include
+    # `finished_at`, so it assists the target/status SEARCH and MAX() still reads that agent's
+    # matching rows. The single-agent cost therefore scales with ONE AGENT'S history, not the
+    # table's — measured live, same plan throughout:
+    #
+    #     agent with ~0 completed runs      0.004 ms
+    #     sc-claude,   3,109 completed       3.84 ms median /  4.83 ms p95
+    #     sc-manager,  7,383 completed      13.19 ms median / 16.20 ms p95
+    #
+    # 13 ms on a detail view someone opened deliberately is acceptable; 13 ms on a 2-second poll
+    # across 42 agents is the lock class. That is the whole distinction. Reverse this decision if
+    # either (a) run detail returns to a hot/poll path, or (b) a single heavy agent's detail view
+    # gets a latency target this exceeds — then an index or a materialized outbound table earns
+    # its write cost. Measure first; the 3,500× spread above is why assuming does not work here.
     if not include_runs:
         return out
     cursor = await db.execute(
