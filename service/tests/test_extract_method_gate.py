@@ -210,5 +210,67 @@ def _w():
         self.assertIn("exactly one call", str(caught.exception))
 
 
+
+
+class ExtractMethodPreconditionTests(unittest.TestCase):
+    """The reject classes the reviewer listed. Each one PASSES inline-back while changing
+    behaviour, which is exactly why refusing them up front is the only honest option."""
+
+    def _refuse(self, original, split, helper, needle):
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original, split, helper)
+        self.assertIn("REFUSED", str(caught.exception))
+        self.assertIn(needle, str(caught.exception))
+
+    def test_refuses_global(self):
+        self._refuse(
+            "def f():\n    global g\n    g = 1\n",
+            "def f():\n    _w()\n\n\ndef _w():\n    global g\n    g = 1\n",
+            "_w", "global")
+
+    def test_refuses_nonlocal(self):
+        self._refuse(
+            "def f():\n    x = 1\n    nonlocal_marker = x\n",
+            "def f():\n    x = 1\n    _w()\n\n\ndef _w():\n    nonlocal x\n    x = 2\n",
+            "_w", "nonlocal")
+
+    def test_refuses_del(self):
+        self._refuse(
+            "def f():\n    x = 1\n    del x\n",
+            "def f():\n    x = 1\n    _w(x)\n\n\ndef _w(x):\n    del x\n",
+            "_w", "del")
+
+    def test_refuses_a_nested_closure(self):
+        self._refuse(
+            "def f():\n    a = 1\n    cb = lambda: a\n",
+            "def f():\n    a = 1\n    cb = _w(a)\n\n\ndef _w(a):\n    cb = lambda: a\n    return cb\n",
+            "_w", "capture")
+
+    def test_refuses_frame_introspection(self):
+        self._refuse(
+            "def f():\n    snapshot = locals()\n",
+            "def f():\n    snapshot = _w()\n\n\ndef _w():\n    snapshot = locals()\n    return snapshot\n",
+            "_w", "frame-sensitive")
+
+    def test_refuses_await_extracted_out_of_a_sync_function(self):
+        self._refuse(
+            "def f(db):\n    rows = 1\n",
+            "def f(db):\n    rows = _w(db)\n\n\nasync def _w(db):\n    rows = await db.q()\n    return rows\n",
+            "_w", "is sync")
+
+    def test_refuses_await_in_a_non_async_helper(self):
+        self._refuse(
+            "async def f(db):\n    rows = await db.q()\n",
+            "async def f(db):\n    rows = _w(db)\n\n\ndef _w(db):\n    rows = await db.q()\n    return rows\n",
+            "_w", "not `async def`")
+
+    def test_allows_a_clean_async_extraction(self):
+        assert_extraction_preserves_behaviour(
+            "async def f(db):\n    rows = await db.q()\n    return rows\n",
+            "async def f(db):\n    rows = await _w(db)\n    return rows\n\n\n"
+            "async def _w(db):\n    rows = await db.q()\n    return rows\n",
+            "_w")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -93,6 +93,64 @@ def escapes(block: list[ast.stmt]) -> list[str]:
     return found
 
 
+#: Names whose behaviour depends on the CALL FRAME, so moving code under a new frame changes them.
+#: A helper adds a stack frame: tracebacks, `inspect.stack()`, and bare `locals()` all shift.
+FRAME_SENSITIVE = {
+    "locals", "globals", "vars", "exc_info", "currentframe",
+    "stack", "extract_stack", "print_stack", "setprofile", "settrace",
+}
+
+
+def preconditions(helper_fn: ast.AST, *, caller_is_async: bool) -> list[str]:
+    """Reasons this block must NOT be extracted, beyond the escape rule.
+
+    Every entry is a case where inline-back would still close — the round trip reproduces the
+    original — while real behaviour changed. That is the whole reason this list exists: the proof
+    is structural, so anything NON-structural has to be refused up front rather than blessed.
+
+    Deliberately conservative. For an empty-behaviour-changelog series, wrongly refusing a safe
+    extraction costs a manual review; wrongly allowing an unsafe one ships a silent defect.
+    """
+    body = _helper_body(helper_fn)
+    reasons: list[str] = []
+
+    def walk_stmts(nodes):
+        for stmt in nodes:
+            for sub in ast.walk(stmt):
+                yield sub
+
+    for sub in walk_stmts(body):
+        # Rebinding module/enclosing scope from a new function is not the same binding operation.
+        if isinstance(sub, ast.Global):
+            reasons.append(f"`global {', '.join(sub.names)}` — rebinding module scope from a new frame")
+        if isinstance(sub, ast.Nonlocal):
+            reasons.append(f"`nonlocal {', '.join(sub.names)}` — the enclosing scope is no longer enclosing")
+        # `del x` cannot be expressed through a return value; if x is live after B, silently wrong.
+        if isinstance(sub, ast.Delete):
+            reasons.append("`del` — deletion cannot travel back through a return value")
+        # A closure defined in B captures F's locals; moved into H it captures H's instead.
+        if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+            reasons.append(
+                f"defines a nested {type(sub).__name__} — it would capture the HELPER's locals, not the original's"
+            )
+        # Frame-sensitive builtins: a new frame is exactly what breaks them.
+        if isinstance(sub, ast.Call):
+            fn = sub.func
+            name = fn.id if isinstance(fn, ast.Name) else (fn.attr if isinstance(fn, ast.Attribute) else None)
+            if name in FRAME_SENSITIVE:
+                reasons.append(f"calls `{name}()` — frame-sensitive, and extraction adds a frame")
+
+    # An `await` in the block forces H to be async and the call site to await it. If the caller is
+    # sync there is no correct extraction at all.
+    has_await = any(isinstance(s, (ast.Await, ast.AsyncFor, ast.AsyncWith)) for s in walk_stmts(body))
+    if has_await and not caller_is_async:
+        reasons.append("contains `await`/`async for`/`async with` but the original function is sync")
+    if has_await and not isinstance(helper_fn, ast.AsyncFunctionDef):
+        reasons.append("contains `await` but the extracted helper is not `async def`")
+
+    return sorted(set(reasons))
+
+
 def _find_call_stmt(body: list[ast.stmt], helper: str) -> int:
     """Index of the single statement in `body` that calls `helper`. Exactly one must exist."""
     hits = [
@@ -199,6 +257,16 @@ def assert_extraction_preserves_behaviour(original_src: str, split_src: str, hel
             "original function, so behaviour changed — and inline-back would still reproduce the "
             "original, meaning this gate CANNOT see it. Restructure the split (hoist the early "
             "exit into the caller) or leave the block in place."
+        )
+
+    blocked = preconditions(helper, caller_is_async=isinstance(original, ast.AsyncFunctionDef))
+    if blocked:
+        raise AssertionError(
+            "REFUSED: the extracted block is not structurally movable:\n  - "
+            + "\n  - ".join(blocked)
+            + "\nEach of these would still pass inline-back — the round trip closes while behaviour "
+            "changed — so they are refused up front instead of being blessed by a proof that cannot "
+            "see them."
         )
 
     rebuilt = inline_back(funcs[original.name], helper)
