@@ -54,6 +54,7 @@ from service.models import (
     AgentRuntimeStateUpdate, AgentSessionHandleUpdate, AgentSessionResolveRequest, AgentReadyUpdate, AgentSessionModeSwitchRequest, AgentResidentLostRequest, ConversationClearRequest, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
     DispatchControlRequest, DispatchControlClaimRequest, DispatchControlUpdate,
     EnvironmentHeartbeat, EnvironmentControlRequest, EnvironmentControlClaim, EnvironmentControlUpdate, EnvironmentRootsUpdate,
+    validate_model_shape,
     AgentEnvironmentAssignRequest, AgentRenameRequest, SpawnRequestCreate, SpawnRequestClaim, SpawnRequestUpdate, SessionControlRequest, AgentControlRequest,
     ConsoleStartRequest, TerminalControlRequest, TerminalControlClaim, TerminalControlUpdate, TerminalDeadReport, TerminalOutputRequest,
     VirtualTerminalEnsureRequest, AgentFavoriteUpdate, AgentConsoleInputRequest,
@@ -22474,6 +22475,24 @@ async def update_settings(request: Request):
                     continue
                 num = max(num, float(_SETTINGS_MIN.get(key, 0)))
                 value = int(num) if isinstance(default, int) else num
+            elif key.endswith("_model"):
+                # THE THIRD MODEL INGRESS, and the one with the longest fuse. `managed_*_model`
+                # settings are substituted into a spawn AFTER Pydantic has validated the request
+                # (see create_spawn_request), and `_apply_managed_runtime_defaults` writes them onto
+                # agents and spawn_specs — so a malformed value set here reaches a runtime CLI for
+                # every future managed spawn of that runtime, with no request to trace it back to.
+                #
+                # Same shape rule as the request models, so there is one definition of "that is not
+                # a model name" rather than three that can drift.
+                #
+                # Raises rather than the `continue` the numeric branches use: a silently ignored
+                # numeric clamps to something sane, but silently ignoring this would leave the
+                # operator believing they had changed the fleet's model. Reporting success for work
+                # not done is the failure this repo keeps paying for.
+                try:
+                    value = validate_model_shape(value) or ""
+                except ValueError as exc:
+                    raise HTTPException(400, f'Setting "{key}": {exc}') from exc
             await db.execute(
                 "INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)",
                 (key, json.dumps(value))

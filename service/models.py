@@ -52,6 +52,42 @@ _MODEL_MAX_LEN = 120
 _MODEL_FORBIDDEN = set(' \t\r\n"\'`;|&$<>(){}[]*?!\\')
 
 
+def drop_unusable_model_selfreport(value):
+    """A FOURTH ingress, and it must not be treated like the other three.
+
+    `AgentRegister.model` is an agent's self-report about the runtime it is already running, and it
+    reaches a CLI later via `agentInfo.model` -> `AIFY_MANAGED_MODEL`. So it is a real ingress. But
+    the failure modes are not symmetric:
+
+      a REQUEST that sets policy (spawn, environment assign, settings) should be REJECTED — the
+        caller is choosing something, and a 400 tells them it was not accepted;
+      a SELF-REPORT must never be able to fail its own registration. An agent that cannot register
+        is dead: no inbox, no dispatch, no status. Trading a whole live agent for a cosmetically
+        bad model string is a worse outcome than the bug.
+
+    So this DROPS an unusable value instead of rejecting it or repairing it. Dropping means "we do
+    not know this agent's model", and the launch falls back to the runtime default. Repairing would
+    be the wrong choice for the same reason `terminal_diagnostics` refuses to guess: "opus 5"
+    mangled into "opus5" is a confident answer nobody can trace, while absence is honest.
+    """
+    if value is None:
+        return None
+    try:
+        return _validate_model_shape(value)
+    except ValueError:
+        return None
+
+
+def validate_model_shape(value):
+    """Public because a boundary is only a boundary if EVERY ingress uses it.
+
+    Review caught this: the first cut attached the validator to `SpawnRequestCreate` only and I
+    described it as "every path gets it". `AgentEnvironmentAssignRequest(model="opus;rm")` was
+    accepted verbatim and written to `spawn_specs.model`, from where the next spawn picks it up. A
+    validator on one of three doors is not validation."""
+    return _validate_model_shape(value)
+
+
 def _validate_model_shape(value):
     if value is None:
         return None
@@ -93,6 +129,11 @@ class AgentRegister(_MachineIdNormalizingModel):
     managedWrapperChild: Optional[bool] = False
     autoRegister: Optional[bool] = False
     restoreDeleted: Optional[bool] = False
+
+    # Self-report, so an unusable value is DROPPED rather than rejected — see
+    # `drop_unusable_model_selfreport`. Registration must never fail on a model string: an agent
+    # that cannot register has no inbox, no dispatch and no status.
+    _clean_model = field_validator("model")(drop_unusable_model_selfreport)
     # Tombstone-resurrection guard (2026-06-03). The bridge stamps its own launch
     # time here (BRIDGE_STARTED_AT, ISO-8601 Z). A tombstoned agent is only
     # resurrected by a GENUINE fresh relaunch — a bridge whose bridgeStartedAt is
@@ -295,6 +336,11 @@ class AgentEnvironmentAssignRequest(BaseModel):
     model: Optional[str] = None
     runtimeConfig: Optional[dict[str, Any]] = None
     requestedBy: Optional[str] = None
+
+    # The bypass review found. This path writes `model` into `spawn_specs.model`, from where the
+    # next spawn reads it — so a malformed value here reaches a runtime CLI exactly as it would via
+    # SpawnRequestCreate, just one hop later and harder to trace.
+    _check_model = field_validator("model")(_validate_model_shape)
 
 
 class AgentRenameRequest(BaseModel):

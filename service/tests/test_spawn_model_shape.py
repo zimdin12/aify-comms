@@ -101,5 +101,85 @@ class ModelShapeTests(unittest.TestCase):
         self.assertIn("gpt-5.5", message)
 
 
+class EveryIngressTests(unittest.TestCase):
+    """REWORK from review: I attached the validator to one request model and called it "every path".
+
+    The probe that broke that claim: `AgentEnvironmentAssignRequest(model="opus;rm")` was accepted
+    verbatim and written to `spawn_specs.model`, from where the next spawn reads it. A validator on
+    one of three doors is not a boundary.
+
+    These tests exist to make the completeness claim testable rather than asserted. If a NEW request
+    model or settings key can carry a model, add it here in the same commit.
+    """
+
+    def test_the_environment_assign_path_rejects_the_same_shapes(self):
+        from service.models import AgentEnvironmentAssignRequest
+
+        for hostile in ["opus 5", "opus;rm", "opus\nsonnet", "$(id)", "m" * 500]:
+            with self.subTest(hostile):
+                with self.assertRaises(pydantic.ValidationError):
+                    AgentEnvironmentAssignRequest(environmentId="e", model=hostile)
+
+    def test_the_environment_assign_path_still_accepts_real_names(self):
+        from service.models import AgentEnvironmentAssignRequest
+
+        self.assertEqual(AgentEnvironmentAssignRequest(environmentId="e", model=" opus ").model, "opus")
+        self.assertIsNone(AgentEnvironmentAssignRequest(environmentId="e").model)
+
+    def test_one_definition_of_the_rule_for_every_rejecting_ingress(self):
+        """Three doors with three copies of "that is not a model name" would drift. Same helper."""
+        from service.models import SpawnRequestCreate, AgentEnvironmentAssignRequest, validate_model_shape
+
+        for hostile in ["opus 5", "a`b", "x" * 300]:
+            with self.subTest(hostile):
+                with self.assertRaises(ValueError):
+                    validate_model_shape(hostile)
+                with self.assertRaises(pydantic.ValidationError):
+                    SpawnRequestCreate(**BASE, model=hostile)
+                with self.assertRaises(pydantic.ValidationError):
+                    AgentEnvironmentAssignRequest(environmentId="e", model=hostile)
+
+
+class SelfReportIngressTests(unittest.TestCase):
+    """The FOURTH ingress, which review did not name and which must NOT reject.
+
+    `AgentRegister.model` is an agent's report about the runtime it is already running, and it
+    reaches a CLI via `agentInfo.model` -> `AIFY_MANAGED_MODEL`. But an agent that cannot register
+    is dead — no inbox, no dispatch, no status — so trading a live agent for a bad model string is
+    worse than the bug. Unusable values are DROPPED, which means "unknown model, use the runtime
+    default", not repaired into a confident guess nobody can trace.
+    """
+
+    def test_registration_survives_an_unusable_model(self):
+        from service.models import AgentRegister
+
+        for hostile in ["opus 5", "opus;rm", "m" * 500]:
+            with self.subTest(hostile):
+                agent = AgentRegister(agentId="a", role="coder", model=hostile)
+                self.assertIsNone(agent.model, "an unusable self-reported model becomes unknown")
+
+    def test_a_NON_ASCII_single_token_is_kept_everywhere(self):
+        """My first draft of the test above expected "日本語" to be dropped. It is wrong to drop it:
+        it is one token with no forbidden characters, so it reaches a CLI as one argument perfectly
+        well. The rule is "can this be a single argument", not "is this English" — a provider is free
+        to name a model in any script, and rejecting that would be a bug in this validator rather
+        than protection."""
+        from service.models import AgentRegister
+
+        self.assertEqual(AgentRegister(agentId="a", role="coder", model="日本語").model, "日本語")
+        self.assertEqual(_make("модель-1").model, "модель-1")
+
+    def test_a_good_self_reported_model_is_kept(self):
+        from service.models import AgentRegister
+
+        self.assertEqual(AgentRegister(agentId="a", role="coder", model=" gpt-5.5 ").model, "gpt-5.5")
+
+    def test_it_is_dropped_not_REPAIRED(self):
+        """Repairing "opus 5" into "opus5" would launch a runtime with a model nobody chose."""
+        from service.models import AgentRegister
+
+        self.assertIsNone(AgentRegister(agentId="a", role="coder", model="opus 5").model)
+
+
 if __name__ == "__main__":
     unittest.main()

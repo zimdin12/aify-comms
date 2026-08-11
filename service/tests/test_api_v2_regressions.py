@@ -581,6 +581,36 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(updated.json()["active_managed_run_stale_minutes"], 6)
         self.assertEqual(updated.json()["resident_lease_seconds"], 180)
 
+    def test_settings_reject_a_malformed_managed_model(self):
+        """The THIRD model ingress, and the one with the longest fuse.
+
+        `managed_*_model` is substituted into a spawn AFTER Pydantic has validated the request, and
+        `_apply_managed_runtime_defaults` writes it onto agents and spawn_specs. So a malformed value
+        set here reaches a runtime CLI for every future managed spawn of that runtime, with no
+        request to trace it back to. Review found this bypass after I claimed "every path gets it"
+        with a validator on one request model.
+
+        It 400s rather than silently skipping like the numeric branches: a clamped number is still a
+        number, but silently ignoring this would leave the operator believing they had changed the
+        fleet's model.
+        """
+        base = self.client.get("/api/v1/settings").json()
+        for hostile in ["opus 5", "opus;rm -rf /", "m" * 500, "$(id)"]:
+            with self.subTest(hostile):
+                r = self.client.put("/api/v1/settings", json={"managed_claude_model": hostile})
+                self.assertEqual(r.status_code, 400, f"{hostile!r} must be refused, not stored")
+                self.assertIn("managed_claude_model", r.text)
+        # Refusal must not have partially applied anything.
+        after = self.client.get("/api/v1/settings").json()
+        self.assertEqual(after["managed_claude_model"], base["managed_claude_model"])
+        # A real name still works, and so does clearing it back to the runtime default.
+        r = self.client.put("/api/v1/settings", json={"managed_claude_model": "  opus  "})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["managed_claude_model"], "opus", "surrounding whitespace is trimmed")
+        r = self.client.put("/api/v1/settings", json={"managed_claude_model": ""})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["managed_claude_model"], "")
+
     def test_settings_reject_bad_coercions(self):
         # bughunt 2026-07-03: a bool setting must NOT accept the STRING "false" as True
         # (bool("false") is truthy), and a numeric setting must reject a non-finite float.
