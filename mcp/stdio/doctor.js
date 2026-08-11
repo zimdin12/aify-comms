@@ -395,7 +395,11 @@ if (asJson) {
   console.log(`aify-doctor — service ${SERVER_URL}${repo ? `, repo HEAD ${repo.short}` : " (no checkout to compare against)"}`);
   console.log("");
   for (const c of checks) {
-    const mark = c.code === "skipped" ? "–" : c.ok ? "✓" : "✗";
+    // `partial` gets its own mark. It is OK — it must not fail --strict — but a plain ✓ beside
+    // "0 live bridge(s) match repo HEAD" reads as a clean pass when the check is actually saying
+    // it cannot tell yet. Same lesson as the stale-token verdict whose message doctor used to
+    // collapse into "connected": a check must not look more confident than it is.
+    const mark = c.code === "skipped" ? "–" : c.code === "partial" ? "~" : c.ok ? "✓" : "✗";
     console.log(`  ${mark} ${c.id.padEnd(18)} ${c.detail}`);
     if (!c.ok && c.fix) console.log(`      → ${c.fix}`);
   }
