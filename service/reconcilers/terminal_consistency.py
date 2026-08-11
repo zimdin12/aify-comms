@@ -23,18 +23,18 @@ from service.clock import now as _now
 logger = logging.getLogger(__name__)
 
 
-def _append_terminal_event(*args, **kwargs):
+async def _append_terminal_event(*args, **kwargs):
     """Borrowed — 36 call sites in the router. See the module docstring."""
     from service.routers.api_v2 import _append_terminal_event as _impl
 
-    return _impl(*args, **kwargs)
+    return await _impl(*args, **kwargs)
 
 
-def _clear_console_terminal_binding(*args, **kwargs):
+async def _clear_console_terminal_binding(*args, **kwargs):
     """Borrowed — 9 call sites in the router."""
     from service.routers.api_v2 import _clear_console_terminal_binding as _impl
 
-    return _impl(*args, **kwargs)
+    return await _impl(*args, **kwargs)
 
 
 def _virtual_rpc_command_set():

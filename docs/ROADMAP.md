@@ -199,7 +199,42 @@ timeout" — that phrasing permits awaiting an HTTP call on the send path. Requi
 enqueue-after-commit, background worker, timeout **in the worker**, coalescing, redacted URL,
 failure logged without failing the message.
 
-### Own release — extract the reconcilers
+### v0.5 — SHIPPED. The reconcilers are out of the router
+
+`api_v2.py` **23,681 -> 20,542**. Ten slices, ~3,800 lines into eleven leaf modules
+(`service/reconcilers/*`, plus `clock.py` and `env_status.py`).
+
+**Honest wording, which the reviewer required and is the accurate claim:** reconcilers extracted;
+**router borrows documented**. NOT "router dependency eliminated". The leaf layer still reaches back
+for one liveness family and a handful of append/normalize helpers, each through a function-scope shim
+reading exactly one owner — no copies, no drift, but a real remaining edge.
+
+Three gates held on every slice: sweep-ordering (7 load-bearing pairs), import identity (AST), route
+inventory (128 routes, unchanged end to end). Every slice carried a dependency scan BEFORE the move,
+a verbatim scripted extraction, an undefined-name sweep, a cycle smoke test, and a readback over the
+artifacts that reconciler actually mutates.
+
+**What the process caught, which is the reason to keep it:** a call-only dependency scan missed three
+constants and cost 372 red tests (slice 2) — the scan now walks every name; the undefined-name sweep
+found something on five consecutive slices; and in slices 8+9 `engine_status` resolved to a
+*plausible but wrong* function (`status_engine.derive` vs the router's DB-reading wrapper) which
+compiled and passed the cycle smoke test. Only reading the router caught that one.
+
+**DEFERRED, tracked, not forgotten:** 1b (status core) and 3b (liveness family). Both are "a small
+function anchored to a large unmoved cluster".
+
+### Post-v0.5 — the consolidation the borrows are waiting for
+
+Reviewer-specified order: **liveness family first** (`_agent_liveness`, `_agent_has_live_terminal`,
+`_has_live_channel_sidecar`, `_resident_bridge_is_fresh`, `_has_live_managed_wrapper_child`,
+`_has_live_terminal_session`), **then** the append/normalize helpers (`_append_terminal_event` — 36
+call sites — `_append_dispatch_event`, `_normalize_runtime`), **then** constants into leaf owners.
+
+The 3b shim in `service/reconcilers/sessions.py` has a removal gate tied to the liveness step: it
+must not survive that consolidation. A shim that keeps working is exactly how a deferral becomes
+permanent.
+
+### Superseded — the original extraction plan
 
 43 functions, 3,530 lines, 15% of `api_v2.py`. **10 slices**, sized to the reviewer's bound (5–8
 functions or 400–700 lines; ≥200-line functions anchor their own). Slice 1 is status-cache +

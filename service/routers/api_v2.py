@@ -5188,7 +5188,10 @@ async def _managed_environment_status(db, row) -> tuple[str, str, str]:
     return environment_id, env_status, env_bridge
 
 
-SPAWN_ORPHAN_GRACE_SECONDS = 180  # matches the dispatch queued-run backstop window
+# OWNED BY service/reconcilers/spawn_lifecycle.py since v0.5 slice 2. Imported rather than
+# re-declared: two literals with the same value today is precisely how finding N7 happened.
+# Caught by my own pre-tag review, which is the only reason it is not shipping duplicated.
+from service.reconcilers.spawn_lifecycle import SPAWN_ORPHAN_GRACE_SECONDS  # noqa: E402
 
 # Grace before a spawn is finalized because its bound terminal reached a terminal
 # status. Deliberately SHORTER than SPAWN_ORPHAN_GRACE_SECONDS: that reaper infers
