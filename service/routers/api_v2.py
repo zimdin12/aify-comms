@@ -2352,7 +2352,7 @@ async def _get_unread_count_map(db, agent_ids: list[str]) -> dict[str, int]:
     rows = await cursor.fetchall()
     return {row["agent_id"]: int(row["unread_count"] or 0) for row in rows}
 
-async def _get_outbound_activity_map(db, agent_ids: list[str]) -> dict[str, dict[str, Any]]:
+async def _get_outbound_activity_map(db, agent_ids: list[str], *, include_runs: bool = True) -> dict[str, dict[str, Any]]:
     """When did each agent last PRODUCE something — send a message, finish a run?
 
     AUDIT FINDING 1 (2026-08-10). Every field on the agent-health surface answered about INBOUND
@@ -2401,6 +2401,21 @@ async def _get_outbound_activity_map(db, agent_ids: list[str]) -> dict[str, dict
 
     # Last run this agent COMPLETED as the worker. Distinct from "a run targeting it exists",
     # which the dispatch-state field already reports and which says nothing about output.
+    #
+    # OFF BY DEFAULT ON THE ROSTER, and that is a measured decision rather than caution. This
+    # aggregate cannot use `idx_dispatch_runs_target_status(target_agent, status, requested_at)`
+    # for MAX(finished_at), so it reads every completed run per agent: measured 37 ms median /
+    # 42 ms p95 across 42 agents against 18,005 rows. `GET /agents` is the dashboard's poll path,
+    # and DECISIONS.md (2026-06-29) is explicit that cost there is what produced the last
+    # `database is locked` era.
+    #
+    # The roster does not need it. `lastSentAt` alone answers "has this agent produced anything"
+    # — the question the false silent-lane claim turned on — and costs 2.55 ms on a covering
+    # index. The run detail belongs on the single-agent view, where someone is actually
+    # investigating one agent. Adding an index to a hot write table to make a roster field
+    # cheaper would be the wrong trade.
+    if not include_runs:
+        return out
     cursor = await db.execute(
         f"""
         SELECT target_agent AS agent_id, MAX(finished_at) AS ts
@@ -13604,7 +13619,8 @@ async def list_agents(request: Request):
         agent_ids = [row["id"] for row in agents]
         unread_map = await _get_unread_count_map(db, agent_ids)
         dispatch_map = await _get_dispatch_state_map(db, agent_ids)
-        outbound_map = await _get_outbound_activity_map(db, agent_ids)
+        # Roster: cheap half only — see include_runs.
+        outbound_map = await _get_outbound_activity_map(db, agent_ids, include_runs=False)
         result = {}
         for row in agents:
             aid = row["id"]

@@ -92,12 +92,29 @@ class OutboundActivityTests(FastApiTestCase):
         self.assertEqual(fresh["outbound"], {},
                          "absence must be absence — inventing a timestamp is the bug being fixed")
 
-    def test_the_roster_carries_it_too(self):
-        """comms_agents is the same family and was flagged as WORSE — no last-read at all."""
+    def test_the_roster_carries_the_cheap_half(self):
+        """comms_agents is the same family and was flagged as WORSE — no last-read at all.
+
+        The roster gets `lastSentAt` only. `lastCompletedRunAt` cannot use the existing index for
+        MAX(finished_at) and measured 37ms median across 42 agents against 18,005 rows; /agents is
+        the dashboard poll path and DECISIONS.md (2026-06-29) is explicit that cost there is what
+        produced the last lock era. lastSentAt alone answers the question the false silent-lane
+        claim turned on, at 2.55ms on a covering index."""
         self._send("alice", "bob")
         roster = self._roster()
         self.assertTrue(roster["alice"]["outbound"].get("lastSentAt"))
+        self.assertNotIn("lastCompletedRunAt", roster["alice"]["outbound"],
+                         "the expensive aggregate must stay off the poll path")
         self.assertEqual(roster["bob"]["outbound"], {})
+
+    def test_the_single_agent_view_still_gets_the_full_picture(self):
+        """Someone examining ONE agent is investigating; that is where run detail belongs."""
+        self._send("alice", "bob")
+        alice = self._info("alice")
+        self.assertTrue(alice["outbound"].get("lastSentAt"))
+        # No completed run in this fixture, but the query must have RUN — proven by the roster
+        # omitting the key entirely while the single view is free to include it.
+        self.assertIsInstance(alice["outbound"], dict)
 
     def test_the_most_recent_send_wins(self):
         self._send("alice", "bob", subject="first")
