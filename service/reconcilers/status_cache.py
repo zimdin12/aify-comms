@@ -158,7 +158,7 @@ async def _prune_superseded_bridges(
 # purpose: superseding a still-live bridge would wrongly flip its agent offline.
 
 
-async def _reap_stale_orphan_bridges(db, *, stale_seconds: Optional[int] = None, limit: int = 500) -> int:
+async def _reap_stale_orphan_bridges(db, *, stale_seconds: int, limit: int = 500) -> int:
     """Supersede bridge_instances rows whose owner died without a clean supersede.
 
     THE GAP (2026-07-11, other-PC perf report): supersession only happens on a clean
@@ -174,19 +174,14 @@ async def _reap_stale_orphan_bridges(db, *, stale_seconds: Optional[int] = None,
     window, so this can only match a dead process. Idempotent (a re-run re-selects nothing:
     superseded rows are excluded); LIMIT-bounded; single UPDATE; commit by the caller.
     """
-    if stale_seconds is None:
-        # SEAM NORMALIZATION, v0.5 slice 1a — NOT a data-plane change. This used to call
-        # `_load_settings(db)` itself; that lives in the router, and importing it back here would
-        # create the cycle the extraction exists to remove. The derivation moved to the caller
-        # (`stale_seconds_from_settings` below, called from main.py's sweep with the settings that
-        # pass already loads), so the FORMULA and its inputs are identical and only the moment of
-        # the settings read changed: per-pass instead of per-step. Reviewed and named as such.
-        #
-        # Reaching here with None now means a caller that did not derive it. Falling back to the
-        # bare floor is the conservative direction: a SMALLER window than an operator-raised lease
-        # would risk superseding a live bridge, so the max() below keeps the 180s hard floor and
-        # the caller is responsible for widening it.
-        stale_seconds = BRIDGE_ORPHAN_STALE_SECONDS
+    # REQUIRED, not optional — reviewer's slice-1a hardening, and the reason is the direction of the
+    # error. When the settings read lived in here, `None` meant "derive lease+60". After the seam
+    # move it would have meant the bare 300s FLOOR, so a future direct caller on a host with a
+    # raised `resident_lease_seconds` would silently get a NARROWER window than policy — and a
+    # narrower window can supersede a bridge the liveness gate still calls live. An optional
+    # parameter whose default has quietly lost its old meaning is a footgun, and this pattern is
+    # about to be repeated across nine more slices. Callers derive it with
+    # `stale_seconds_from_settings(settings)`.
     stale_seconds = max(180, int(stale_seconds or BRIDGE_ORPHAN_STALE_SECONDS))
     cur = await db.execute(
         """

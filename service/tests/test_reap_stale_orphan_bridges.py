@@ -62,6 +62,9 @@ class ReapStaleOrphanBridgesTests(FastApiTestCase):
         )
 
     def _run_reaper(self, **kwargs):
+        # `stale_seconds` is REQUIRED as of slice 1a; default to the floor for the tests that are
+        # about the QUERY rather than the derivation (the derivation has its own tests).
+        kwargs.setdefault("stale_seconds", 300)
         async def _run():
             db = await get_db()
             try:
