@@ -42,6 +42,13 @@ NameError — but inline-back reconstructs the ORIGINAL, which is correct by def
 trip passes. The proof examines the wrong artifact for this class, so live-outs are computed
 directly from the split instead of inferred from the round trip.
 
+WITH / TRY REGIONS need no separate rule, which was worth PROBING rather than assuming. Hoisting a
+call out of a `with` or a `try` changes the reconstructed tree, so the round trip already refuses
+exactly the dangerous cases and allows the safe ones. The probe did surface a false REJECTION,
+though: a call nested inside a `with` resolved to the enclosing `with` statement, so the inliner
+replaced the whole block and the commonest safe shape looked like a behaviour change. `_find_call_site`
+is depth-aware for that reason — in a 684-line handler almost every extractable block is nested.
+
 This module is test-support, not production code, and is deliberately small enough to be read in one
 sitting — the whole point is that the reviewer can verify the verifier.
 """
@@ -149,9 +156,10 @@ def live_out_violations(split_fn: ast.AST, helper_fn: ast.AST) -> list[str]:
     So live-outs are computed directly: names the helper binds, that the caller reads after the call
     site, that the call does not rebind. Any such name is a defect, not a warning.
     """
-    index = _find_call_stmt(split_fn.body, helper_fn.name)
-    call_stmt = split_fn.body[index]
-    after = split_fn.body[index + 1:]
+    block, index = _find_call_site(split_fn, helper_fn.name)
+    call_stmt = block[index]
+    # Only statements in the SAME block after the call are guaranteed to run with those bindings.
+    after = block[index + 1:]
 
     bound_by_helper = _assigned_names(_helper_body(helper_fn))
     # Parameters are the caller's values passed in, not new bindings escaping outward.
@@ -220,26 +228,56 @@ def preconditions(helper_fn: ast.AST, *, caller_is_async: bool) -> list[str]:
     return sorted(set(reasons))
 
 
-def _find_call_stmt(body: list[ast.stmt], helper: str) -> int:
-    """Index of the single statement in `body` that calls `helper`. Exactly one must exist."""
-    hits = [
-        i
-        for i, stmt in enumerate(body)
-        if any(
-            isinstance(n, ast.Call)
-            and (
-                (isinstance(n.func, ast.Name) and n.func.id == helper)
-                or (isinstance(n.func, ast.Attribute) and n.func.attr == helper)
-            )
-            for n in ast.walk(stmt)
+#: Statement fields that hold a nested block of statements.
+_BLOCK_FIELDS = ("body", "orelse", "finalbody")
+
+
+def _calls(stmt: ast.stmt, helper: str) -> bool:
+    return any(
+        isinstance(n, ast.Call)
+        and (
+            (isinstance(n.func, ast.Name) and n.func.id == helper)
+            or (isinstance(n.func, ast.Attribute) and n.func.attr == helper)
         )
-    ]
-    if len(hits) != 1:
+        for n in ast.walk(stmt)
+    )
+
+
+def _find_call_site(fn: ast.AST, helper: str) -> tuple[list[ast.stmt], int]:
+    """The (block, index) of the single statement calling `helper`, AT ANY DEPTH.
+
+    Depth matters, and getting it wrong made the gate useless on real code. The first version only
+    looked at the function's TOP-LEVEL statements, so a call nested inside a `with` resolved to the
+    enclosing `with` statement — and the inliner then replaced the whole `with` block with the
+    helper's body. That made a perfectly safe extraction (the call staying INSIDE the context
+    manager, which is the common shape) fail as if it were a behaviour change. In a 684-line handler
+    almost every extractable block is nested inside something.
+
+    Innermost wins: the deepest block containing exactly one calling statement.
+    """
+    found: list[tuple[list[ast.stmt], int]] = []
+
+    def descend(block: list[ast.stmt]) -> None:
+        for index, stmt in enumerate(block):
+            if not _calls(stmt, helper):
+                continue
+            deeper_before = len(found)
+            for field in _BLOCK_FIELDS:
+                nested = getattr(stmt, field, None)
+                if isinstance(nested, list) and nested and isinstance(nested[0], ast.stmt):
+                    descend(nested)
+            for handler in getattr(stmt, "handlers", []) or []:
+                descend(handler.body)
+            if len(found) == deeper_before:
+                found.append((block, index))  # nothing deeper claimed it
+
+    descend(fn.body)
+    if len(found) != 1:
         raise AssertionError(
-            f"expected exactly one call to {helper!r} in the split function, found {len(hits)}. "
+            f"expected exactly one call to {helper!r} in the split function, found {len(found)}. "
             "Inline-back is only defined for a single call site."
         )
-    return hits[0]
+    return found[0]
 
 
 def _helper_body(helper_fn: ast.AST) -> list[ast.stmt]:
@@ -265,8 +303,8 @@ def inline_back(split_fn: ast.AST, helper_fn: ast.AST) -> ast.AST:
     no other escape anywhere in the helper (`_returns_only_at_tail`).
     """
     result = copy.deepcopy(split_fn)
-    index = _find_call_stmt(result.body, helper_fn.name)
-    call_stmt = result.body[index]
+    block, index = _find_call_site(result, helper_fn.name)
+    call_stmt = block[index]
     body = _helper_body(helper_fn)
 
     if body and isinstance(body[-1], ast.Return) and isinstance(call_stmt, (ast.Assign, ast.AnnAssign)):
@@ -289,7 +327,7 @@ def inline_back(split_fn: ast.AST, helper_fn: ast.AST) -> ast.AST:
             rebound = ast.Assign(targets=copy.deepcopy(targets), value=copy.deepcopy(returned))
             body = body[:-1] + [rebound]
 
-    result.body[index:index + 1] = body
+    block[index:index + 1] = body
     return result
 
 

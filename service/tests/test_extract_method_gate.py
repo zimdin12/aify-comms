@@ -310,5 +310,147 @@ class ExtractMethodPreconditionTests(unittest.TestCase):
             "_w")
 
 
+
+
+class ExtractMethodRegionTests(unittest.TestCase):
+    """with/try boundary rules — which turned out to need NO new machinery.
+
+    The reviewer listed these as blocking. Probing them first, rather than building rules on
+    assumption, showed inline-back already decides every one of them correctly: hoisting a call OUT
+    of a `with` or `try` region changes the reconstructed tree, so the round trip fails on exactly
+    the dangerous cases and passes on the safe ones.
+
+    What the probe DID find was a false rejection: a call nested inside a `with` was resolved to the
+    enclosing `with` statement, so the inliner replaced the whole block. That made the commonest safe
+    shape look like a behaviour change. `_find_call_site` is depth-aware now, and
+    `test_call_that_stays_inside_a_with_is_allowed` is the regression pin for it.
+    """
+
+    WITH_ORIGINAL = '''
+def f(conn):
+    with conn:
+        a()
+        b()
+'''
+
+    def test_call_hoisted_OUT_of_a_with_is_refused(self):
+        """The context manager is no longer active across the work. Real behaviour change."""
+        split = '''
+def f(conn):
+    _w()
+    with conn:
+        pass
+
+
+def _w():
+    a()
+    b()
+'''
+        with self.assertRaises(AssertionError):
+            assert_extraction_preserves_behaviour(self.WITH_ORIGINAL, split, "_w")
+
+    def test_call_that_stays_inside_a_with_is_allowed(self):
+        """The common, safe shape — and the one a depth-blind inliner wrongly rejected."""
+        split = '''
+def f(conn):
+    with conn:
+        _w()
+
+
+def _w():
+    a()
+    b()
+'''
+        assert_extraction_preserves_behaviour(self.WITH_ORIGINAL, split, "_w")
+
+    def test_moving_the_whole_with_statement_is_allowed(self):
+        original = '''
+def f(conn):
+    before()
+    with conn:
+        a()
+'''
+        split = '''
+def f(conn):
+    before()
+    _w(conn)
+
+
+def _w(conn):
+    with conn:
+        a()
+'''
+        assert_extraction_preserves_behaviour(original, split, "_w")
+
+    def test_call_hoisted_OUT_of_a_try_is_refused(self):
+        """Exceptions would no longer reach the handler that used to catch them."""
+        original = '''
+def f():
+    try:
+        risky()
+    except ValueError:
+        handle()
+'''
+        split = '''
+def f():
+    _w()
+    try:
+        pass
+    except ValueError:
+        handle()
+
+
+def _w():
+    risky()
+'''
+        with self.assertRaises(AssertionError):
+            assert_extraction_preserves_behaviour(original, split, "_w")
+
+    def test_call_that_stays_inside_the_try_region_is_allowed(self):
+        original = '''
+def f():
+    try:
+        risky()
+        more()
+    except ValueError:
+        handle()
+'''
+        split = '''
+def f():
+    try:
+        _w()
+    except ValueError:
+        handle()
+
+
+def _w():
+    risky()
+    more()
+'''
+        assert_extraction_preserves_behaviour(original, split, "_w")
+
+    def test_live_outs_are_checked_in_the_nested_block_not_the_function_top_level(self):
+        """A stranded local inside a `with` must still be caught."""
+        original = '''
+def f(conn):
+    with conn:
+        total = compute()
+        use(total)
+'''
+        split = '''
+def f(conn):
+    with conn:
+        _w()
+        use(total)
+
+
+def _w():
+    total = compute()
+'''
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original, split, "_w")
+        self.assertIn("hand it back", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
