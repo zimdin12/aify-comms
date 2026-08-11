@@ -6396,16 +6396,39 @@ async def _repair_spawn_requests_from_initial_dispatch_failures(db) -> int:
     repaired = 0
     for spawn in await cursor.fetchall():
         started_at = spawn["started_at"] or spawn["updated_at"] or spawn["created_at"]
+        # AUDIT FINDING 3. This used to take the FIRST run to the agent at or after started_at,
+        # which is time proximity, not identity: a manager's unrelated question landing a second
+        # after the spawn started WAS the spawn's brief as far as this query could tell, and if it
+        # failed the healthy spawn was killed with "Initial brief failed: are you up?".
+        #
+        # The identity was available all along — the brief is created from the spawn row itself
+        # (see the dispatch at `_create_dispatch_runs` in the spawn-claim path), so from_agent,
+        # subject and body reconstruct it exactly. The time bound stays, but as a BOUND now rather
+        # than as the thing doing the identifying.
+        #
+        # The two defaults below must track that call site: `created_by or "dashboard"` and
+        # `subject or f"Spawn {agent_id}"`. If either drifts, this silently matches nothing and the
+        # reconciler stops repairing rather than repairing wrongly — quieter, still broken.
+        # test_spawn_initial_dispatch_identity.py fails on that drift.
         run_cursor = await db.execute(
             """
             SELECT *
             FROM dispatch_runs
             WHERE target_agent = ?
               AND requested_at >= ?
+              AND from_agent = ?
+              AND subject = ?
+              AND body = ?
             ORDER BY requested_at ASC
             LIMIT 1
             """,
-            (spawn["agent_id"], started_at),
+            (
+                spawn["agent_id"],
+                started_at,
+                spawn["created_by"] or "dashboard",
+                spawn["subject"] or f"Spawn {spawn['agent_id']}",
+                spawn["initial_message"],
+            ),
         )
         run = await run_cursor.fetchone()
         if not run or str(run["status"] or "").lower() not in {"failed", "cancelled"}:
