@@ -71,6 +71,8 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     # v0.5 slice 2: spawn lifecycle moved out of api_v2 in the same commit as this import change.
     from service.reconcilers.console_binding import rebind_orphaned_live_consoles
     # v0.5 slice 3a: session reconcilers moved; imported here in the same commit as the move.
+    # v0.5 slice 4.
+    from service.reconcilers.terminal_consistency import _repair_terminal_session_consistency
     from service.reconcilers.sessions import (
         _reconcile_dead_session_status,
         _reconcile_duplicate_resident_sessions,
