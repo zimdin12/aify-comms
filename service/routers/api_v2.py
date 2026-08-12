@@ -96,6 +96,7 @@ from service.clock import now as _now
 from service.reconcilers import status_cache
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.env_status import environment_effective_status as _environment_effective_status
+from service.env_status import _ENVIRONMENT_HEARTBEAT_STATUSES
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 # v0.5 slice 2: the spawn-lifecycle reconcilers moved to their own module.
 from service.reconcilers.managed_workers import (
@@ -3277,7 +3278,10 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
 #: Stored environment statuses that still claim a HEARTBEATING bridge, and must therefore be aged
 #: against `last_seen`. `degraded` belongs here: a degraded bridge is reduced-capability, not
 #: dead — so when it stops heartbeating it is just as offline as an `online` one.
-_ENVIRONMENT_HEARTBEAT_STATUSES = {"online", "degraded"}
+# NOT declared here. v0.5 slice 2 moved this to service/env_status.py and left a COPY behind --
+# equal values, two objects, and nothing would have failed if one had been edited. The reviewer
+# ruled at the time that a moved constant gets exactly one owner and never a second copy; this is
+# that ruling finally applied. It is imported beside its only user, _environment_effective_status.
 
 
 
