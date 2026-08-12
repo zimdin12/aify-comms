@@ -6215,57 +6215,7 @@ _UNTHREADED_HANDOFF_WINDOW_MS = 24 * 60 * 60 * 1000
 
 
 
-async def _link_unthreaded_completion_message_for_run(db, row) -> bool:
-    if not row:
-        return False
-    is_active_claude_terminal_turn = (
-        str((row["dispatch_mode"] if "dispatch_mode" in row.keys() else "") or "").strip().lower() == "terminal"
-        and _normalize_runtime(str((row["runtime"] if "runtime" in row.keys() else "") or "")) == "claude-code"
-        and str((row["status"] if "status" in row.keys() else "") or "").strip().lower() in {"claimed", "running"}
-    )
-    if not bool(int((row["require_reply"] if "require_reply" in row.keys() else 0) or 0)) and not is_active_claude_terminal_turn:
-        return False
-    if str((row["result_message_id"] if "result_message_id" in row.keys() else "") or "").strip():
-        return False
-    from_agent = str(row["from_agent"] or "").strip()
-    target_agent = str(row["target_agent"] or "").strip()
-    if not from_agent or not target_agent:
-        return False
-    requested_ms = int(_iso_to_epoch(str(row["requested_at"] or "")) * 1000)
-    if not requested_ms:
-        return False
-    cursor = await db.execute(
-        """
-        SELECT id, type, subject, body, timestamp
-        FROM messages
-        WHERE from_agent = ?
-          AND to_agent = ?
-          AND source = 'direct'
-          AND COALESCE(in_reply_to, '') = ''
-          AND timestamp >= ?
-        ORDER BY timestamp ASC, id ASC
-        LIMIT 50
-        """,
-        (target_agent, from_agent, requested_ms),
-    )
-    for message in await cursor.fetchall():
-        if not _message_satisfies_reply_contract(message["type"], subject=message["subject"], body=message["body"]):
-            continue
-        await _mark_dispatch_run_answered(
-            db,
-            row["id"],
-            message["id"],
-            str(row["status"] or ""),
-            str(row["execution_mode"] or ""),
-        )
-        await _append_dispatch_event(
-            db,
-            row["id"],
-            "handoff",
-            f"Unthreaded completion message {message['id']} linked during reconcile",
-        )
-        return True
-    return False
+# _link_unthreaded_completion_message_for_run moved to service/reconcilers/managed_workers.py in v0.5.3.
 
 
 def _auto_handoff_subject_for_run(row) -> str:

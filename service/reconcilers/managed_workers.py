@@ -31,6 +31,7 @@ from typing import Any, Optional
 from service.api_core.serialization import _json_loads_or  # v0.5.1c: the leaf owner, not via the router
 from service.api_core.runtime import _normalize_runtime  # v0.5.1e: the leaf owner, not via the router
 from service.api_core.events import _append_terminal_event  # v0.5.1i: the leaf owner
+from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -72,9 +73,67 @@ async def _get_dispatch_state_for_agent(*a, **k):
     return await _i(*a, **k)
 
 
-async def _link_unthreaded_completion_message_for_run(*a, **k):
-    from service.routers.api_v2 import _link_unthreaded_completion_message_for_run as _i
+async def _mark_dispatch_run_answered(*a, **k):
+    from service.routers.api_v2 import _mark_dispatch_run_answered as _i
     return await _i(*a, **k)
+
+
+def _message_satisfies_reply_contract(*a, **k):
+    from service.routers.api_v2 import _message_satisfies_reply_contract as _i
+    return _i(*a, **k)
+
+
+async def _link_unthreaded_completion_message_for_run(db, row) -> bool:
+    if not row:
+        return False
+    is_active_claude_terminal_turn = (
+        str((row["dispatch_mode"] if "dispatch_mode" in row.keys() else "") or "").strip().lower() == "terminal"
+        and _normalize_runtime(str((row["runtime"] if "runtime" in row.keys() else "") or "")) == "claude-code"
+        and str((row["status"] if "status" in row.keys() else "") or "").strip().lower() in {"claimed", "running"}
+    )
+    if not bool(int((row["require_reply"] if "require_reply" in row.keys() else 0) or 0)) and not is_active_claude_terminal_turn:
+        return False
+    if str((row["result_message_id"] if "result_message_id" in row.keys() else "") or "").strip():
+        return False
+    from_agent = str(row["from_agent"] or "").strip()
+    target_agent = str(row["target_agent"] or "").strip()
+    if not from_agent or not target_agent:
+        return False
+    requested_ms = int(_iso_to_epoch(str(row["requested_at"] or "")) * 1000)
+    if not requested_ms:
+        return False
+    cursor = await db.execute(
+        """
+        SELECT id, type, subject, body, timestamp
+        FROM messages
+        WHERE from_agent = ?
+          AND to_agent = ?
+          AND source = 'direct'
+          AND COALESCE(in_reply_to, '') = ''
+          AND timestamp >= ?
+        ORDER BY timestamp ASC, id ASC
+        LIMIT 50
+        """,
+        (target_agent, from_agent, requested_ms),
+    )
+    for message in await cursor.fetchall():
+        if not _message_satisfies_reply_contract(message["type"], subject=message["subject"], body=message["body"]):
+            continue
+        await _mark_dispatch_run_answered(
+            db,
+            row["id"],
+            message["id"],
+            str(row["status"] or ""),
+            str(row["execution_mode"] or ""),
+        )
+        await _append_dispatch_event(
+            db,
+            row["id"],
+            "handoff",
+            f"Unthreaded completion message {message['id']} linked during reconcile",
+        )
+        return True
+    return False
 
 
 def _managed_orphan_grace_seconds():
