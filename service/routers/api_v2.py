@@ -962,8 +962,9 @@ def _dispatch_reply_state(row) -> str:
     return "awaiting"
 
 
-def _dispatch_reply_pending(row) -> bool:
-    return _dispatch_reply_state(row) == "pending"
+# _dispatch_reply_pending moved to service/routers/dispatch_messages/shared.py in v0.5.3 — the
+# dispatch+messages package was its only consumer. `_dispatch_reply_state`, which it calls, is still
+# router-owned and stays borrowed there.
 
 
 def _is_operator_closed_contract(row) -> bool:

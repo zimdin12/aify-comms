@@ -92,10 +92,8 @@ async def _dispatch_conversation_context(*a, **k):
     return await _impl(*a, **k)
 
 
-def _dispatch_reply_pending(*a, **k):
-    from service.routers.api_v2 import _dispatch_reply_pending as _impl
-
-    return _impl(*a, **k)
+def _dispatch_reply_pending(row) -> bool:
+    return _dispatch_reply_state(row) == "pending"
 
 
 def _dispatch_reply_state(*a, **k):
