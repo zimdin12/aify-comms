@@ -84,7 +84,6 @@ from service.routers.dispatch_messages.shared import (
     _dispatch_reply_pending,
     _dispatch_reply_state,
     _dispatch_requires_reply,
-    _fail_pending_controls_for_run,
     _finalize_dispatch_runs,
     _get_blocking_active_run,
     _get_dispatch_state_for_agent,
@@ -129,6 +128,7 @@ from service.api_core.dispatch_start import (
     _coldstart_spawn_request_for_dispatch,
     _ensure_managed_pty_for_dispatch,
 )
+from service.api_core.active_run_discard import _fail_pending_controls_for_run
 
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.dispatch")
 

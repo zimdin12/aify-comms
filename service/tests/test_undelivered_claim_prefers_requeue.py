@@ -27,6 +27,50 @@ from service.db import get_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 from service.tests._base import FastApiTestCase
 from service.api_core.recovery_writes import UNDELIVERED_CLAIM_REQUEUE_LIMIT
+from service.api_core import active_run_discard  # v0.5.4: call the OWNER
+
+
+def _owner_of(function_name: str) -> Path:
+    """The single service module defining `function_name`, found by AST.
+
+    v0.5.4: the two probes below named `service/control_plane.py` and sliced its text. Both broke when
+    `_discard_unclaimable_active_run` and `_fail_stale_active_run` moved to
+    `service/api_core/active_run_discard.py` — loudly, which is the correct failure for a probe that
+    asserts a PRESENCE, and better than the alternative: an absence-assertion pinned to a file that no
+    longer holds its subject passes forever.
+
+    They now locate the owner instead, and require exactly one definition. Two copies would let a probe
+    pick one at random and guard the wrong body — the `_ANSI_RE` case, where one module declared the
+    same name twice with different values and every check built on it saw only the later one.
+    """
+    import ast as _ast
+
+    owners = []
+    for path in sorted((REPO_ROOT / "service").rglob("*.py")):
+        if "__pycache__" in path.parts or "tests" in path.parts:
+            continue
+        for node in _ast.parse(path.read_text(encoding="utf-8", errors="replace")).body:
+            if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)) and node.name == function_name:
+                owners.append(path)
+    assert len(owners) == 1, f"{function_name} must have exactly one definition; found {owners}"
+    return owners[0]
+
+
+def _body_of(function_name: str) -> str:
+    """The function's own source span — by AST, not by slicing to the next `async def`.
+
+    The old form sliced from one function to a named neighbour, which silently depends on the two
+    staying adjacent and in that order. Relocation reorders definitions; an AST span does not care.
+    """
+    import ast as _ast
+
+    path = _owner_of(function_name)
+    source = path.read_text(encoding="utf-8", errors="replace")
+    for node in _ast.parse(source).body:
+        if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)) and node.name == function_name:
+            return _ast.get_source_segment(source, node) or ""
+    raise AssertionError(f"{function_name} not found in {path}")
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -62,7 +106,7 @@ class UndeliveredClaimPrefersRequeueTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                result = await api_v2._fail_stale_active_run(
+                result = await active_run_discard._fail_stale_active_run(
                     db,
                     {"runId": run_id},
                     reason="owner bridge stopped heartbeating",
@@ -217,12 +261,11 @@ class UndeliveredClaimPrefersRequeueTests(FastApiTestCase):
         # is not hypothetical: `_ANSI_RE` was declared twice in one module in v0.5.3 with different
         # values.
         self.assertIn("ACTIVE_RUN_BRIDGE_STALE_SECONDS", requeue_body)
-        # `_discard_unclaimable_active_run` did NOT move — this agreement spans two files, which is
-        # precisely why it is asserted rather than assumed.
-        router = (REPO_ROOT / "service" / "control_plane.py").read_text(encoding="utf-8")
-        unclaimable_at = router.index("async def _discard_unclaimable_active_run")
-        unclaimable = router[unclaimable_at:router.index("async def _discard_unusable_active_run")]
-        self.assertIn("ACTIVE_RUN_BRIDGE_STALE_SECONDS", unclaimable)
+        # The agreement spans two MODULES and neither is named here on purpose: in v0.5.4
+        # `_discard_unclaimable_active_run` moved to `service/api_core/active_run_discard.py`, and a
+        # probe that names its subject's current home has to be edited every time the subject moves —
+        # or worse, keeps passing while pointed somewhere harmless.
+        self.assertIn("ACTIVE_RUN_BRIDGE_STALE_SECONDS", _body_of("_discard_unclaimable_active_run"))
         # ONE owner. Both readers naming the same constant only matters if there is one of it.
         import ast
 
@@ -250,9 +293,9 @@ class UndeliveredClaimPrefersRequeueTests(FastApiTestCase):
         claim precedes the death by a second) and DELETED the rescue window. This fix must
         widen the window, never close it — so the funnel must prefer requeue BEFORE it writes
         a failure."""
-        # `_fail_stale_active_run` stayed in the router; only the requeue reconciler moved.
-        source = (REPO_ROOT / "service" / "control_plane.py").read_text(encoding="utf-8")
-        funnel = source[source.index("async def _fail_stale_active_run"):][:2000]
+        # `_fail_stale_active_run` moved to `service/api_core/active_run_discard.py` in v0.5.4, with
+        # the four other ways an active run gets discarded. Found rather than named.
+        funnel = _body_of("_fail_stale_active_run")
         rescue_at = funnel.index("_requeue_instead_of_failing_undelivered_claim")
         fail_write_at = funnel.index("SET status = 'failed'")
         self.assertLess(rescue_at, fail_write_at, "the rescue must be attempted before the failure is written")

@@ -49,6 +49,7 @@ from service.reconcilers.terminal_runs import (
     _close_idle_pi_terminal_run_without_reply,
 )
 from service.api_core.channel_delivery import _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
+from service.api_core.active_run_discard import _discard_unusable_active_run
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +63,6 @@ logger = logging.getLogger(__name__)
 
 
 
-async def _discard_unusable_active_run(*a, **k):
-    from service.control_plane import _discard_unusable_active_run as _i
-    return await _i(*a, **k)
 
 
 

@@ -655,10 +655,6 @@ def _dispatch_fix_hint(*a, **k):
 
 
 
-async def _fail_pending_controls_for_run(*a, **k):
-    from service.control_plane import _fail_pending_controls_for_run as _impl
-
-    return await _impl(*a, **k)
 
 
 async def _finalize_dispatch_runs(*a, **k):
