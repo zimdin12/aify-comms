@@ -27,6 +27,7 @@ from service.api_core.terminal_text import _ANSI_RE, _terminal_awaiting_input_hi
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
+from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
 
 logger = logging.getLogger(__name__)
 
@@ -100,9 +101,6 @@ def _terminal_end_statuses():
     return _TERMINAL_END_STATUSES
 
 
-def _terminal_active_statuses():
-    from service.control_plane import _TERMINAL_ACTIVE_STATUSES
-    return _TERMINAL_ACTIVE_STATUSES
 
 
 def _stuck_stopping_grace_seconds():
@@ -214,7 +212,7 @@ async def _close_idle_claude_terminal_run_without_reply(db, row, *, quiet_second
     if not terminal:
         return False
     terminal_status = str(terminal["status"] or "").strip().lower()
-    if terminal_status not in _terminal_active_statuses():
+    if terminal_status not in _TERMINAL_ACTIVE_STATUSES:
         return False
     hint = _terminal_idle_prompt_hint(terminal["output"] or "")
     if not hint:
@@ -287,7 +285,7 @@ async def _close_idle_pi_terminal_run_without_reply(db, row, *, quiet_seconds: i
     if not terminal:
         return False
     terminal_status = str(terminal["status"] or "").strip().lower()
-    if terminal_status not in _terminal_active_statuses():
+    if terminal_status not in _TERMINAL_ACTIVE_STATUSES:
         return False
     hint = _terminal_pi_idle_prompt_hint(terminal["output"] or "")
     if not hint:

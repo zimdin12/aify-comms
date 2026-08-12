@@ -39,6 +39,28 @@ REPO = Path(__file__).resolve().parent.parent.parent
 SEARCH = ("service/routers/**/*.py", "service/reconcilers/*.py")
 
 
+def _accessor_in(tree: ast.AST) -> list[tuple[str, str]]:
+    """(accessor_name, borrowed_constant_name) for every `_borrowed_*` accessor in one tree.
+
+    Split out of `_accessors()` so the DETECTOR can be run against a known input. The vacuity guard
+    below used to assert the live population was large, which made it a tripwire on the refactor that
+    is deliberately shrinking that population; asserting the detector still recognises the shape is
+    the property that actually matters and it survives the population reaching zero.
+    """
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if not node.name.startswith("_borrowed_"):
+            continue
+        imported = None
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.ImportFrom) and sub.module == "service.control_plane":
+                imported = sub.names[0].asname or sub.names[0].name
+        found.append((node.name, imported))
+    return found
+
+
 def _accessors() -> list[tuple[str, str, str]]:
     """(module_path, accessor_name, borrowed_constant_name) for every `_borrowed_*` accessor."""
     found = []
@@ -50,16 +72,8 @@ def _accessors() -> list[tuple[str, str, str]]:
                 tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
             except SyntaxError:
                 continue
-            for node in ast.walk(tree):
-                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    continue
-                if not node.name.startswith("_borrowed_"):
-                    continue
-                imported = None
-                for sub in ast.walk(node):
-                    if isinstance(sub, ast.ImportFrom) and sub.module == "service.control_plane":
-                        imported = sub.names[0].asname or sub.names[0].name
-                found.append((path.relative_to(REPO).as_posix(), node.name, imported))
+            for name, imported in _accessor_in(tree):
+                found.append((path.relative_to(REPO).as_posix(), name, imported))
     return found
 
 
@@ -116,8 +130,35 @@ class BorrowedAccessorsTests(unittest.TestCase):
         self.assertEqual(mismatched, [], "\n  ".join([""] + mismatched))
 
     def test_the_scan_finds_the_accessors(self):
-        """A check over an empty list passes vacuously."""
-        self.assertGreater(len(_accessors()), 20, "accessor discovery looks broken")
+        """A check over an empty list passes vacuously — but the list is SUPPOSED to reach empty.
+
+        This asserted `> 20` and failed at exactly 20 the moment a v0.5.4 slice retired three more
+        accessors. The guard was right in intent and wrong in mechanism: retiring these accessors is
+        the WORK, so any floor under a shrinking population is a tripwire on progress that has to be
+        edited downward every slice until someone edits it to `> 0` and it stops guarding anything.
+
+        What actually needs proving is that DISCOVERY works, which is a property of the detector and
+        not of how many accessors happen to survive today. So the detector is run against a synthetic
+        accessor whose shape is known, and the live scan is only required to be self-consistent. When
+        the last real accessor goes, this test keeps working and keeps meaning something.
+        """
+        synthetic = (
+            "def _borrowed_synthetic_probe():\n"
+            '    """Shaped exactly like the real ones."""\n'
+            "    from service.control_plane import _SYNTHETIC_PROBE_CONSTANT\n"
+            "\n"
+            "    return _SYNTHETIC_PROBE_CONSTANT\n"
+        )
+        found = _accessor_in(ast.parse(synthetic))
+        self.assertEqual(
+            found,
+            [("_borrowed_synthetic_probe", "_SYNTHETIC_PROBE_CONSTANT")],
+            "the accessor detector no longer recognises the borrowed-accessor shape, so the two "
+            "checks above would pass over an empty list while real accessors went unexamined",
+        )
+        # Self-consistency of the live scan: every discovered accessor must carry both halves.
+        for module_path, accessor, constant in _accessors():
+            self.assertTrue(accessor, f"{module_path}: discovered an accessor with no name")
 
 
 if __name__ == "__main__":

@@ -66,6 +66,7 @@ from service.models import ConsoleStartRequest, SessionControlRequest
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 # Retired borrows: these now have a real owner in the spawn-requests domain.
 from service.routers.spawn_requests import _spawn_request_to_dict, _spawn_spec_to_dict
+from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
 
 logger = logging.getLogger("aify_comms.routers.sessions")
 
@@ -144,11 +145,6 @@ def _borrowed_session_delete_allowed_statuses():
 
 
 
-def _borrowed_terminal_active_statuses():
-    """BORROWED constant: one owner, never a copy — a forked status set is finding N7."""
-    from service.control_plane import _TERMINAL_ACTIVE_STATUSES
-
-    return _TERMINAL_ACTIVE_STATUSES
 
 
 
@@ -967,7 +963,7 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
             (session_id,),
         )).fetchall()
         for term_row in live_terminals:
-            if str(term_row["status"] or "").strip().lower() in _borrowed_terminal_active_statuses():
+            if str(term_row["status"] or "").strip().lower() in _TERMINAL_ACTIVE_STATUSES:
                 await _append_terminal_control(
                     db,
                     terminal_id=term_row["id"],

@@ -63,6 +63,7 @@ from service.models import (
     TerminalOutputRequest,
 )
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
+from service.api_core.terminal_output import _append_terminal_output
 
 logger = logging.getLogger("aify_comms.routers.terminals")
 
@@ -72,35 +73,14 @@ router = domain_router()
 # Owned here since v0.5.3: `_terminal_status_transition` below is its only reader, so it moved with
 # the function rather than staying in the router behind an accessor. `_TERMINAL_ACTIVE_STATUSES` is
 # NOT in the same position — api_v2 still reads it — so that one is borrowed, not copied.
-_TERMINAL_MONOTONIC_STATUSES = {"stopping", "stopped", "failed", "lost", "ended", "completed", "cancelled"}
+# _TERMINAL_MONOTONIC_STATUSES moved to service/api_core/terminal_status.py in v0.5.4.
 
 
-def _terminal_status_transition(current_status: str, next_status: str) -> str:
-    current = str(current_status or "").strip().lower()
-    next_value = str(next_status or "").strip().lower()
-    if not next_value:
-        return ""
-    if current in _TERMINAL_MONOTONIC_STATUSES and next_value in _borrowed_terminal_active_statuses():
-        return ""
-    return next_value
+# _terminal_status_transition moved to service/api_core/terminal_status.py in v0.5.4.
 
 
 
-def _trim_terminal_output(text: str, max_chars: int = 65536) -> str:
-    value = str(text or "")
-    if len(value) <= max_chars:
-        return value
-    tail = value[-max_chars:]
-    # Start the kept tail at a clean LINE boundary (2026-06-07). A raw char-count slice
-    # routinely cuts mid-line or — worse — mid-ANSI-escape-sequence, so when the dashboard
-    # seeds a FRESH xterm with this buffer the leading bytes are a broken escape that xterm
-    # misparses into on-screen garbage (part of the "glitchy console" report). Dropping at
-    # most the first partial line makes the seed parse cleanly. If the whole window is one
-    # huge line (no newline), fall back to the raw tail rather than return empty.
-    newline = tail.find("\n")
-    if 0 <= newline < len(tail) - 1:
-        return tail[newline + 1:]
-    return tail
+# _trim_terminal_output moved to service/api_core/terminal_output.py in v0.5.4.
 
 
 
@@ -123,11 +103,6 @@ def _borrowed_terminal_end_statuses():
 
 
 
-def _borrowed_terminal_active_statuses():
-    """BORROWED constant: one owner, never a copy — a forked status set is finding N7."""
-    from service.control_plane import _TERMINAL_ACTIVE_STATUSES
-
-    return _TERMINAL_ACTIVE_STATUSES
 
 
 
@@ -183,52 +158,7 @@ def _terminal_event_to_dict(row) -> dict[str, Any]:
     }
 
 
-async def _append_terminal_output(db, terminal, output: str, *, status: str = "", seq: Optional[int] = None):
-    chunk = str(output or "")
-    if not chunk and not status:
-        return
-    current = terminal["output"] if "output" in terminal.keys() else ""
-    next_output = _trim_terminal_output(f"{current or ''}{chunk}")
-
-    # LIVE SCREEN (2026-07-14). Feed this chunk into the terminal's persistent screen, the way a
-    # real terminal consumes bytes. The console renders from THAT, not from a replay of the
-    # stored log — because the stored log is a 64KB TAIL and claude never clears the screen (zero
-    # ESC[2J fleet-wide; it paints one line per frame), so replaying a suffix into a blank screen
-    # can only ever rebuild part of it. That is the scrambled / half-empty / "old state stuck on
-    # screen" console, and why Refresh did not help: it re-rendered the same broken buffer.
-    # Best-effort and non-fatal: on any failure the screen is dropped and the reader falls back to
-    # the replay path, i.e. exactly today's behaviour. Never worse.
-    if chunk:
-        try:
-            keys = terminal.keys()
-            _feed_live_terminal_screen(
-                str(terminal["id"]),
-                chunk,
-                cols=(terminal["cols"] if "cols" in keys else 0),
-                rows=(terminal["rows"] if "rows" in keys else 0),
-                seed=str(current or ""),  # only used when the screen does not exist yet
-            )
-        except Exception:
-            logger.debug("live screen feed failed for terminal=%s", terminal["id"], exc_info=True)
-    updates = ["output = ?", "updated_at = ?"]
-    params: list[Any] = [next_output, _now()]
-    if seq is not None:
-        updates.append("output_seq = ?")
-        params.append(int(seq))
-    next_status = _terminal_status_transition(terminal["status"] if "status" in terminal.keys() else "", status)
-    if next_status:
-        updates.append("status = ?")
-        params.append(next_status)
-        if next_status in {"stopped", "failed"}:
-            updates.append("stopped_at = COALESCE(stopped_at, ?)")
-            params.append(_now())
-    params.append(terminal["id"])
-    await db.execute(
-        f"UPDATE terminal_sessions SET {', '.join(updates)} WHERE id = ?",
-        tuple(params),
-    )
-    if chunk:
-        await _append_terminal_event(db, terminal["id"], "terminal_output", chunk[-2000:])
+# _append_terminal_output moved to service/api_core/terminal_output.py in v0.5.4.
 
 
 async def _claim_terminal_controls_once(req: TerminalControlClaim):

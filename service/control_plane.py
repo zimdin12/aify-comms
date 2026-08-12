@@ -307,7 +307,10 @@ logger = logging.getLogger("aify_comms.api_v2")
 # and the two queue classes. It declares no routes and owns no router.
 # One router-owned console path still appends terminal output; it follows the helper to its new
 # owner rather than keeping a second copy here.
-from service.routers.terminals import _append_terminal_output  # noqa: E402
+from service.api_core.terminal_output import _append_terminal_output  # noqa: E402
+# v0.5.4: was imported from service.routers.terminals. The carrier reaching a LEAF through a
+# ROUTER is the dependency direction this slice exists to reverse — leaving it would have kept
+# the queue blocked while looking fixed.
 
 
 def _is_lock_error(exc: BaseException) -> bool:
@@ -326,7 +329,7 @@ _MANUAL_STATUSES = {"stopped"}
 
 # _TERMINAL_MONOTONIC_STATUSES moved to service/routers/terminals.py in v0.5.3 with its only
 # reader, _terminal_status_transition. _TERMINAL_ACTIVE_STATUSES below STAYS: api_v2 still reads it.
-_TERMINAL_ACTIVE_STATUSES = {"starting", "attached", "running", "active", "idle"}
+# _TERMINAL_ACTIVE_STATUSES moved to service/api_core/terminal_status.py in v0.5.4.
 _RUNTIME_CONFIG_LIVE_KEYS = {
     "appServerUrl",
     "remoteAuthTokenEnv",
@@ -2551,6 +2554,7 @@ async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str,
 # re-declared: two literals with the same value today is precisely how finding N7 happened.
 # Caught by my own pre-tag review, which is the only reason it is not shipping duplicated.
 from service.reconcilers.spawn_lifecycle import SPAWN_ORPHAN_GRACE_SECONDS  # noqa: E402
+from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
 
 # Grace before a spawn is finalized because its bound terminal reached a terminal
 # status. Deliberately SHORTER than SPAWN_ORPHAN_GRACE_SECONDS: that reaper infers
@@ -2640,7 +2644,8 @@ def _workspace_for_environment(environment: dict[str, Any], requested_workspace:
 # _terminal_control_to_dict moved to service/routers/terminals.py in v0.5.3.
 
 
-# _trim_terminal_output moved to service/routers/terminals.py in v0.5.3.
+# _trim_terminal_output moved to service/routers/terminals.py in v0.5.3, then on to
+# service/api_core/terminal_output.py in v0.5.4.
 
 
 def _row_get(row, key, default=None):
