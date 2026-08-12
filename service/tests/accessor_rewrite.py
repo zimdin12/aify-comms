@@ -18,16 +18,23 @@ Both came from the same idea: "apply the regex to everything except the accessor
 by splitting the text on a marker string. Marker-splitting is guesswork about where a function
 begins and ends, and it was wrong in two different ways.
 
-THE FIX IS TO ASK THE PARSER. `ast` knows exactly which line ranges belong to a `_borrowed_*`
-function; those lines are excluded and every other line is rewritten. Line-based rather than
-`ast.unparse`, deliberately: unparsing would reformat the whole file and destroy the byte-identity
-this series proves every slice against.
+THE FIX IS TO ASK THE PARSER, TWICE OVER — and it took three rounds of review to get both halves:
+
+  WHICH lines are off-limits: `ast` gives the exact range of every `_borrowed_*` function.
+  WHAT may be replaced: `tokenize` gives NAME tokens, so comments and string literals are never
+  touched. A constant name appearing inside SQL text or a JSON key is DATA, and rewriting it would
+  change behaviour, not just formatting.
+
+And nothing is reconstructed by hand. Untouched spans are copied verbatim out of the original source
+by absolute offset — no `ast.unparse` (it would reformat the file) and no synthesised newlines (the
+first token-aware attempt invented them and put a blank line between every original line). The
+byte-identity this series proves every slice against has to hold for the tool that performs the
+slices.
 """
 
 from __future__ import annotations
 
 import ast
-import re
 
 
 def accessor_line_ranges(source: str) -> list[tuple[int, int]]:
@@ -64,9 +71,13 @@ def rewrite(source: str, constants: list[str]) -> str:
     up as data in SQL text, JSON keys, regex sources, telemetry names and diagnostic messages, and
     silently rewriting them changes what the program does.
 
-    So the replacement domain is Python NAME tokens only. `tokenize` decides what is a name; every
-    other token -- comments, strings of every quoting style, whitespace, blank-line runs, non-ASCII
-    -- is emitted back exactly as it was read.
+    So the replacement domain is Python NAME tokens only. `tokenize` decides what is a name.
+
+    And nothing is SYNTHESISED on the way out. The first token-aware version rebuilt the file from
+    token strings plus invented gap newlines, which double-emitted line breaks and put a blank line
+    between every original line -- a whitespace change across untouched code. Every span is now
+    copied verbatim out of the original source by absolute offset, so comments, strings of every
+    quoting style, indentation, blank-line runs, tabs and non-ASCII come back byte for byte.
     """
     if not constants:
         return source
@@ -79,23 +90,39 @@ def rewrite(source: str, constants: list[str]) -> str:
     import io as _io
     import tokenize as _tokenize
 
-    out = []
-    last_end = (1, 0)
-    for token in _tokenize.generate_tokens(_io.StringIO(source).readline):
-        start_row, start_col = token.start
-        # everything between the previous token and this one, verbatim
-        if start_row > last_end[0]:
-            out.append("\n" * (start_row - last_end[0]))
-            last_end = (start_row, 0)
-        if start_col > last_end[1]:
-            out.append(source.split("\n")[start_row - 1][last_end[1]:start_col])
+    # ABSOLUTE-OFFSET SLICING. The first token-aware version reconstructed the file from token
+    # strings plus synthesised gap newlines, and double-emitted line breaks: it appended "\n" for
+    # the row change AND the NEWLINE/NL token itself, so a blank line appeared between every
+    # original line. That is a whitespace change across untouched code -- it destroys the
+    # byte-identity evidence this series proves each slice with, and it can move line-sensitive
+    # source probes.
+    #
+    # So nothing is synthesised. Every span between tokens is copied verbatim out of the ORIGINAL
+    # source, and each token is either replaced (an unprotected matching NAME) or copied verbatim
+    # too. Untouched means untouched, byte for byte.
+    line_starts = [0]
+    for line in source.splitlines(keepends=True):
+        line_starts.append(line_starts[-1] + len(line))
 
-        text = token.string
-        if (token.type == _tokenize.NAME and text in targets
-                and not is_protected(start_row)):
-            text = f"{accessor_name(text)}()"
-        out.append(text)
-        last_end = token.end
+    def offset(row: int, col: int) -> int:
+        return line_starts[row - 1] + col
+
+    out = []
+    pos = 0
+    for token in _tokenize.generate_tokens(_io.StringIO(source).readline):
+        start = offset(*token.start)
+        end = offset(*token.end)
+        if start < pos:          # tokenize emits some zero-width markers out of order
+            continue
+        out.append(source[pos:start])
+        if (token.type == _tokenize.NAME
+                and token.string in targets
+                and not is_protected(token.start[0])):
+            out.append(f"{accessor_name(token.string)}()")
+        else:
+            out.append(source[start:end])
+        pos = end
+    out.append(source[pos:])
     return "".join(out)
 
 

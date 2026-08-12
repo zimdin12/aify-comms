@@ -221,5 +221,77 @@ class AccessorRewriteTokenDomainTests(unittest.TestCase):
         self.assertIn("obj._borrowed_listen_events()", out)
 
 
+
+
+class AccessorRewriteExactOutputTests(unittest.TestCase):
+    """Compare the WHOLE output string, not fragments.
+
+    Every earlier test in this file used `assertIn`, and that is exactly how the reviewer's second
+    blocker hid: the reconstruction was inserting a blank line between every original line, and each
+    `assertIn` still found its fragment. Substring checks cannot see what was ADDED.
+
+    These fixtures assert the complete result, so any change to an untouched span — a blank line, an
+    indent, a comment, a byte of unicode — is a failure.
+    """
+
+    def test_a_mixed_file_is_reproduced_exactly_except_the_code_reference(self):
+        source = (
+            "# header mentioning _CONST\n"
+            "\n"
+            "\n"
+            "TEXT = '_CONST'\n"
+            "\n"
+            "def handler(x):  # trailing _CONST\n"
+            '    """Doc with _CONST inside."""\n'
+            "    sql = \"SELECT _CONST FROM t\"\n"
+            "    label = f'name _CONST is {_CONST}'\n"
+            "    note = 'café — ünïcode'\n"
+            "\n"
+            "    return _CONST\n"
+        )
+        expected = (
+            "# header mentioning _CONST\n"
+            "\n"
+            "\n"
+            "TEXT = '_CONST'\n"
+            "\n"
+            "def handler(x):  # trailing _CONST\n"
+            '    """Doc with _CONST inside."""\n'
+            "    sql = \"SELECT _CONST FROM t\"\n"
+            "    label = f'name _CONST is {_borrowed_const()}'\n"
+            "    note = 'café — ünïcode'\n"
+            "\n"
+            "    return _borrowed_const()\n"
+        )
+        self.assertEqual(rewrite(source, ["_CONST"]), expected)
+
+    def test_a_constant_that_does_not_appear_is_a_byte_for_byte_no_op(self):
+        source = (
+            "import os\n"
+            "\n"
+            "\n"
+            "def f():\n"
+            "    # nothing to see\n"
+            "    return os.getcwd()\n"
+        )
+        self.assertEqual(rewrite(source, ["_MISSING_CONST"]), source)
+
+    def test_blank_line_runs_are_preserved_exactly(self):
+        """Two blank lines must stay two — the bug turned every gap into an extra line."""
+        source = "def a():\n    return _CONST\n\n\ndef b():\n    pass\n"
+        out = rewrite(source, ["_CONST"])
+        self.assertEqual(out, "def a():\n    return _borrowed_const()\n\n\ndef b():\n    pass\n")
+
+    def test_a_file_with_no_trailing_newline_is_preserved(self):
+        source = "def a():\n    return _CONST"
+        self.assertEqual(rewrite(source, ["_CONST"]), "def a():\n    return _borrowed_const()")
+
+    def test_crlf_and_tabs_survive(self):
+        """This repo has mangled bytes six times; whitespace forms are not academic here."""
+        source = "def a():\n\tif True:\n\t\treturn _CONST\n"
+        self.assertEqual(rewrite(source, ["_CONST"]),
+                         "def a():\n\tif True:\n\t\treturn _borrowed_const()\n")
+
+
 if __name__ == "__main__":
     unittest.main()
