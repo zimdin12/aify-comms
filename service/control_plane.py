@@ -1,6 +1,22 @@
-"""
-aify-comms v2 API — SQLite backend.
-Drop-in replacement for api.py with identical endpoint signatures.
+"""The live control plane: the helpers, constants and queues the route domains share.
+
+~140 helpers, two queue classes and the constants behind status, dispatch, terminals, spawn and
+console. It declares NO routes and owns no router — `service/routers/api_v2.py` is the composition
+surface, and it is 53 lines of `include_router` with no re-export of anything here, so a stale
+`from service.routers.api_v2 import <helper>` fails loudly instead of quietly resolving.
+
+This file was `service/routers/api_v2.py`, 20,545 lines at its peak, until v0.5 moved the
+reconcilers out and v0.5.2 moved the route domains out. By the end of that it declared zero routes:
+a helper library living at a router's address. v0.5.3 moved it here and left the composition behind.
+
+Its header until then still read "aify-comms v2 API — drop-in replacement for api.py", describing a
+migration finished long before any of this. That was worth fixing rather than carrying: a file this
+central whose first three lines are wrong teaches every reader something false before they reach the
+code.
+
+IT IS STILL FAR TOO BIG. Splitting 140 helpers by responsibility is a v0.6 question and deliberately
+not a rename's job. Until then: put NEW behaviour in a leaf (`service/api_core/`,
+`service/reconcilers/`, `service/status_engine.py`) and import it — do not grow this file.
 """
 import asyncio
 import json
