@@ -62,7 +62,14 @@ splices the body. Checked directly, in a deliberately narrow dialect — no defa
 `**kwargs`, no positional-only or keyword-only parameters. Those are all expressible and all add ways
 to be subtly wrong, and a mechanically-generated extraction needs none of them.
 
-A NOTE ON WHAT THIS TOOL IS. Five separate false PASSES were found in it, three of them by the
+SAME-NAME HANDOFF ONLY is the sixth and subtlest rule. Supplying the right parameter with the WRONG
+caller value (`_w(y)` where the parameter is `x`) is legal Python, so there is no TypeError to catch,
+and inline-back reconstructs the original exactly while the split computes with a different value.
+Because `inline_back` splices the body without substituting arguments, the only handoff it models
+correctly is one where the argument NAME matches the parameter name. Expressions, attributes and
+differently-named variables are refused rather than guessed at.
+
+A NOTE ON WHAT THIS TOOL IS. Six separate false PASSES were found in it, four of them by the
 reviewer running a shape rather than reading the code. That record is the argument for treating it as
 a conservative gate over a narrow extraction dialect, NOT as a general Python equivalence prover. For
 the hot handlers it is necessary and not sufficient: the reviewer's standing requirement is this gate
@@ -420,6 +427,38 @@ def call_signature_violations(split_fn: ast.AST, helper_fn: ast.AST) -> list[str
     for name in params:
         if name not in covered:
             problems.append(f"required parameter `{name}` is never supplied by the call")
+
+    # SAME-NAME HANDOFF ONLY. The sixth false PASS: supplying the RIGHT parameter with the WRONG
+    # caller value.
+    #
+    #     z = _w(y)      # parameter is `x`, caller value is `y`
+    #     z = _w(x=y)    # keyword right, value wrong
+    #
+    # Both are legal Python, so there is no TypeError to catch, and inline-back splices `z = x + 1`
+    # and reconstructs the original perfectly. The split quietly computes with a different value.
+    # Silent behaviour drift is the worst thing this gate can miss.
+    #
+    # `inline_back` does not perform argument SUBSTITUTION -- it splices the body as-is -- so the
+    # only handoff it models correctly is one where the argument has the same name as the parameter.
+    # Anything else (an expression, an attribute, a differently-named variable) is refused rather
+    # than guessed at. That false-rejects safe aliasing; it does not silently swap a value.
+    for param, arg in zip(params, call.args):
+        if not (isinstance(arg, ast.Name) and arg.id == param):
+            rendered = ast.unparse(arg)
+            problems.append(
+                f"parameter `{param}` is supplied with `{rendered}` rather than the same-name "
+                f"caller variable `{param}`. inline-back splices the body without substituting "
+                f"arguments, so it cannot see a value swap"
+            )
+    for kw in call.keywords:
+        if kw.arg is None:
+            continue
+        if not (isinstance(kw.value, ast.Name) and kw.value.id == kw.arg):
+            rendered = ast.unparse(kw.value)
+            problems.append(
+                f"keyword `{kw.arg}=` is supplied with `{rendered}` rather than the same-name "
+                f"caller variable `{kw.arg}`"
+            )
     return problems
 
 

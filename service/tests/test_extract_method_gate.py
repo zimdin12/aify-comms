@@ -863,5 +863,73 @@ def _w({params}):
                 self.assertIn("dialect", str(caught.exception))
 
 
+
+
+class ExtractMethodSameNameBindingTests(unittest.TestCase):
+    """Supplying the RIGHT parameter with the WRONG caller value.
+
+    The sixth false PASS, and the most dangerous of the six, because it is legal Python: there is no
+    TypeError to catch. `_w(y)` where the parameter is `x` type-checks fine, inline-back splices
+    `z = x + 1` and reconstructs the original exactly, and the split quietly computes with a
+    different value. Silent behaviour drift is the worst thing a structural gate can miss.
+
+    inline_back does NOT substitute arguments -- it splices the body as written -- so the only
+    handoff it models correctly is same-name. Everything else is refused rather than guessed at.
+    """
+
+    ORIGINAL = '''
+def f():
+    x = compute_x()
+    y = compute_y()
+    z = x + 1
+    return z
+'''
+
+    def _split(self, call):
+        return f'''
+def f():
+    x = compute_x()
+    y = compute_y()
+    z = {call}
+    return z
+
+
+def _w(x):
+    z = x + 1
+    return z
+'''
+
+    def test_a_wrong_positional_value_is_refused(self):
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(self.ORIGINAL, self._split("_w(y)"), "_w")
+        self.assertIn("same-name", str(caught.exception))
+
+    def test_a_wrong_keyword_value_is_refused(self):
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(self.ORIGINAL, self._split("_w(x=y)"), "_w")
+        self.assertIn("same-name", str(caught.exception))
+
+    def test_an_expression_argument_is_refused(self):
+        """`_w(x + 1)` would need real substitution to verify; refused instead of guessed."""
+        with self.assertRaises(AssertionError):
+            assert_extraction_preserves_behaviour(self.ORIGINAL, self._split("_w(x + 1)"), "_w")
+
+    def test_an_attribute_argument_is_refused(self):
+        with self.assertRaises(AssertionError):
+            assert_extraction_preserves_behaviour(self.ORIGINAL, self._split("_w(o.x)"), "_w")
+
+    def test_the_correct_same_name_positional_passes(self):
+        assert_extraction_preserves_behaviour(self.ORIGINAL, self._split("_w(x)"), "_w")
+
+    def test_the_correct_same_name_keyword_passes(self):
+        assert_extraction_preserves_behaviour(self.ORIGINAL, self._split("_w(x=x)"), "_w")
+
+    def test_a_zero_parameter_helper_is_unaffected(self):
+        assert_extraction_preserves_behaviour(
+            'def f():\n    t = 0\n    return t\n',
+            'def f():\n    t = _w()\n    return t\n\n\ndef _w():\n    t = 0\n    return t\n',
+            "_w")
+
+
 if __name__ == "__main__":
     unittest.main()
