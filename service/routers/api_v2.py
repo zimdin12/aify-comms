@@ -179,7 +179,13 @@ logger = logging.getLogger("aify_comms.api_v2")
 
 
 
-router = APIRouter(tags=["api"], route_class=JsonApiRoute)
+router = domain_router(tags=["api"])
+
+# v0.5.2b: the first extracted route DOMAIN. Included here rather than in main.py so it keeps
+# the same /api/v1 prefix and the same position in the surface the metadata gate snapshots.
+from service.routers.usage import router as _usage_router  # noqa: E402
+
+router.include_router(_usage_router)
 
 
 def _is_lock_error(exc: BaseException) -> bool:
@@ -8835,60 +8841,14 @@ async def update_environment_roots(environment_id: str, req: EnvironmentRootsUpd
 # by the dashboards + comms_usage. In-memory only (single-worker invariant) — see
 # service/usage_cache.py and docs/superpowers/specs/2026-06-26-usage-quota-stats-design.md.
 
-@router.post("/usage")
-async def post_usage(request: Request):
-    body = await request.json()
-    source_id = str((body or {}).get("source_id") or "").strip()
-    if not source_id:
-        raise HTTPException(400, "source_id is required")
-    payload = dict(body)
-    payload["updated_at"] = _now()
-    usage_set(source_id, payload)
-    return {"ok": True, "source_id": source_id}
 
 
-_OPENAI_POOL_TTL_SECONDS = 120.0
-_OPENAI_POOL_CACHE: dict[str, Any] = {"at": 0.0, "pool": None}
 
 
-@router.get("/usage")
-async def get_usage():
-    """Usage pools — collected BY THE SERVICE for OpenAI, so a fix costs no agent restart.
-
-    The collector used to live only in the environment bridge, so every quota fix required
-    restarting it — which cycles the operator's managed agents. Quota is a file read plus one HTTP
-    GET; it has no business costing a restart. Bridge posts are still accepted (other hosts), but
-    a fresh service-side reading wins.
-    """
-    pools = usage_all()
-    try:
-        now = time.monotonic()
-        if now - float(_OPENAI_POOL_CACHE["at"] or 0) > _OPENAI_POOL_TTL_SECONDS:
-            fresh = await collect_openai_pool()
-            _OPENAI_POOL_CACHE["at"] = now
-            _OPENAI_POOL_CACHE["pool"] = fresh
-        fresh = _OPENAI_POOL_CACHE["pool"]
-        if fresh:
-            fresh = dict(fresh)
-            fresh["updated_at"] = _now()
-            fresh["stale"] = False
-            pools = [p for p in pools if p.get("source_id") != fresh["source_id"]] + [fresh]
-    except Exception:
-        logger.debug("service-side OpenAI usage collection failed; keeping bridge-posted pool", exc_info=True)
-    return {"pools": pools}
 
 
-@router.post("/usage/consumption")
-async def post_usage_consumption(request: Request):
-    body = await request.json()
-    rows = (body or {}).get("rows") or []
-    consumption_set(rows)
-    return {"ok": True, "count": len(rows)}
 
 
-@router.get("/usage/consumption")
-async def get_usage_consumption():
-    return consumption_summary()
 
 
 @router.patch("/agents/{agent_id}/usage-source")

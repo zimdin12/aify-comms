@@ -48,6 +48,9 @@ GLOBALS = {
     # Moved with the appenders in v0.5.1i. Mutable state again: it drives the prune cadence,
     # so two copies would each count to the threshold separately and prune at the wrong times.
     "_terminal_event_counts": "service/api_core/events.py",
+    # Moved with the first route DOMAIN in v0.5.2b. Two copies would give two quota caches and
+    # the only symptom would be usage readings that disagree depending which path served them.
+    "_OPENAI_POOL_CACHE": "service/routers/usage.py",
 }
 
 # AST, NOT REGEX — and that distinction is the whole gate.
