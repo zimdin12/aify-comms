@@ -47,7 +47,7 @@ from service.api_core.events import (
 # router without the SQLite lock-retry. See service/api_core/routing.py.
 from service.api_core.routing import JsonApiRoute, domain_router
 from service.api_core.ws import _get_ws  # v0.5.1h: accessor only; manager stays on app.state
-from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
+from service.api_core.settings import DEFAULT_SETTINGS, _invalidate_settings_cache, _load_settings
 from service.api_core.validation import SAFE_NAME_RE, validate_name  # v0.5.1f: one owner
 from service.api_core.runtime import (  # v0.5.1e: single owner, resolved against the contract
     _normalize_runtime,
@@ -181,11 +181,23 @@ logger = logging.getLogger("aify_comms.api_v2")
 
 router = domain_router(tags=["api"])
 
-# v0.5.2b: the first extracted route DOMAIN. Included here rather than in main.py so it keeps
-# the same /api/v1 prefix and the same position in the surface the metadata gate snapshots.
+# v0.5.2b: extracted route DOMAINS are included here rather than in main.py so they keep the same
+# /api/v1 prefix and the same metadata surface. NOT the same absolute position: include order
+# does move a domain's routes within app.routes. Absolute order is deliberately not an
+# invariant -- the property that can actually change meaning is pattern-shadows-literal, and
+# that is what the shadow-pair gate pins.
 from service.routers.usage import router as _usage_router  # noqa: E402
+from service.routers.settings import router as _settings_router  # noqa: E402
+# `rotate` calls the settings HANDLER, not the loader, so it follows the handler to its new
+# module rather than being rewritten to _load_settings -- that would be a behaviour change.
+from service.routers.settings import get_settings  # noqa: E402
+from service.routers.contracts import router as _contracts_router  # noqa: E402
+from service.routers.stats import router as _stats_router  # noqa: E402
 
 router.include_router(_usage_router)
+router.include_router(_settings_router)
+router.include_router(_contracts_router)
+router.include_router(_stats_router)
 
 
 def _is_lock_error(exc: BaseException) -> bool:
@@ -1287,37 +1299,6 @@ def _contract_state(row, *, settings: dict[str, Any], now_s: Optional[float] = N
     }
 
 
-def _contract_row_to_dict(row, *, settings: dict[str, Any], now_s: Optional[float] = None) -> dict[str, Any]:
-    state = _contract_state(row, settings=settings, now_s=now_s)
-    body = str((row["message_body"] if row and "message_body" in row.keys() else "") or row["body"] or "")
-    result_body = str((row["result_body"] if row and "result_body" in row.keys() else "") or "")
-    result_message_id = str(row["result_message_id"] or "").strip()
-    reply_state = _dispatch_reply_state(row)
-    if state["replyExpected"] and reply_state == "not_required":
-        reply_state = "sent" if result_message_id else "awaiting"
-    return {
-        "id": row["id"],
-        "messageId": row["message_id"] or "",
-        "from": row["from_agent"],
-        "targetAgentId": row["target_agent"],
-        "type": row["message_type"],
-        "subject": row["subject"] or "",
-        "preview": body[:420],
-        "priority": row["priority"] or "normal",
-        "status": row["status"],
-        "runtime": row["runtime"] or "",
-        "requireReply": _row_require_reply(row),
-        "replyState": reply_state,
-        "resultMessageId": result_message_id,
-        "resultPreview": result_body[:420],
-        "requestedAt": row["requested_at"],
-        "claimedAt": row["claimed_at"],
-        "startedAt": row["started_at"],
-        "finishedAt": row["finished_at"],
-        "sourceReadAt": row["source_read_at"] or "",
-        "lastReminderAt": row["last_reminder_at"] or "",
-        **state,
-    }
 
 
 def _serialize_dispatch_run_row(row, *, blocked_by=None, include_body: bool = False, include_events=None, include_controls=None) -> dict[str, Any]:
@@ -5296,58 +5277,10 @@ async def _compute_agent_status(row, db=None):
 
 
 
-def _invalidate_settings_cache() -> None:
-    settings_core._SETTINGS_CACHE["value"] = None
-    settings_core._SETTINGS_CACHE["at"] = 0.0
 
 
 
 
-async def _apply_managed_runtime_defaults(db, settings: dict[str, Any]) -> None:
-    defaults = [
-        ("claude-code", settings.get("managed_claude_model", DEFAULT_SETTINGS["managed_claude_model"]), settings.get("managed_claude_effort") or DEFAULT_SETTINGS["managed_claude_effort"]),
-        ("codex", settings.get("managed_codex_model", DEFAULT_SETTINGS["managed_codex_model"]), settings.get("managed_codex_effort") or DEFAULT_SETTINGS["managed_codex_effort"]),
-        ("pi", settings.get("managed_pi_model", DEFAULT_SETTINGS["managed_pi_model"]), settings.get("managed_pi_effort") or DEFAULT_SETTINGS["managed_pi_effort"]),
-    ]
-    for runtime, model, effort in defaults:
-        model = str(model or "").strip()
-        effort = str(effort or "").strip()
-        await db.execute(
-            """
-            UPDATE agents
-            SET model = ?
-            WHERE runtime = ?
-              AND (session_mode = 'managed' OR launch_mode = 'managed' OR managed_by != '')
-            """,
-            (model, runtime),
-        )
-        cursor = await db.execute(
-            """
-            SELECT id, runtime_config
-            FROM agents
-            WHERE runtime = ?
-              AND (session_mode = 'managed' OR launch_mode = 'managed' OR managed_by != '')
-            """,
-            (runtime,),
-        )
-        for row in await cursor.fetchall():
-            runtime_config = _json_loads_or(row["runtime_config"], {})
-            runtime_config["effort"] = effort
-            await db.execute(
-                "UPDATE agents SET runtime_config = ? WHERE id = ?",
-                (json.dumps(runtime_config), row["id"]),
-            )
-        await db.execute("UPDATE spawn_specs SET model = ? WHERE runtime = ?", (model, runtime))
-        spec_cursor = await db.execute("SELECT id, metadata FROM spawn_specs WHERE runtime = ?", (runtime,))
-        for row in await spec_cursor.fetchall():
-            metadata = _json_loads_or(row["metadata"], {})
-            runtime_config = metadata.get("runtimeConfig") if isinstance(metadata.get("runtimeConfig"), dict) else {}
-            runtime_config = {**runtime_config, "effort": effort}
-            metadata = {**metadata, "runtimeConfig": runtime_config}
-            await db.execute(
-                "UPDATE spawn_specs SET metadata = ?, updated_at = ? WHERE id = ?",
-                (json.dumps(metadata), _now(), row["id"]),
-            )
 
 
 async def _drain_and_flip_pi_resident_agents() -> None:
@@ -17495,106 +17428,6 @@ def _contract_list_query(
     """
 
 
-@router.get("/contracts")
-async def list_work_contracts(
-    request: Request,
-    agentId: Optional[str] = None,
-    fromAgent: Optional[str] = None,
-    state: Optional[str] = Query(None, pattern="^(open|overdue|working|queued|seen|sent|missing_reply|failed|answered|closed)$"),
-    category: Optional[str] = Query(None, pattern="^(direct|channel|self_wake)$"),
-    includeClosed: bool = Query(False),
-    limit: int = Query(120, ge=1, le=500),
-):
-    db = await get_db()
-    try:
-        settings = await _load_settings(db)
-        where = []
-        params: list[Any] = []
-        if agentId:
-            where.append("AND r.target_agent = ?")
-            params.append(agentId)
-        if fromAgent:
-            where.append("AND r.from_agent = ?")
-            params.append(fromAgent)
-        if category == "direct":
-            where.append("AND r.from_agent != r.target_agent AND COALESCE(m.source, 'direct') != 'channel'")
-        elif category == "channel":
-            where.append("AND COALESCE(m.source, '') = 'channel'")
-        elif category == "self_wake":
-            where.append("AND r.from_agent = r.target_agent")
-        stale_hours = max(1, int(settings.get("contract_stale_hours", 24) or 24))
-        normalized_state = str(state or "").strip().lower()
-        if normalized_state == "open":
-            where.append("AND COALESCE(r.result_message_id, '') = '' AND r.status NOT IN ('completed','failed','cancelled')")
-        elif normalized_state == "answered":
-            where.append("AND COALESCE(r.result_message_id, '') != ''")
-        elif normalized_state == "closed":
-            where.append("AND COALESCE(r.result_message_id, '') = '' AND r.status = 'completed' AND r.require_reply = 0")
-        elif normalized_state == "missing_reply":
-            where.append("AND COALESCE(r.result_message_id, '') = '' AND r.status = 'completed'")
-        elif normalized_state == "failed":
-            where.append("AND COALESCE(r.result_message_id, '') = '' AND r.status IN ('failed','cancelled')")
-        elif normalized_state == "working":
-            where.append("AND COALESCE(r.result_message_id, '') = '' AND r.status IN ('claimed','running')")
-        elif normalized_state == "queued":
-            where.append("AND COALESCE(r.result_message_id, '') = '' AND r.status = 'queued'")
-        elif normalized_state == "overdue":
-            reminder_minutes = max(1, int(settings.get("reply_reminder_minutes", DEFAULT_SETTINGS["reply_reminder_minutes"]) or DEFAULT_SETTINGS["reply_reminder_minutes"]))
-            where.append("AND COALESCE(r.result_message_id, '') = '' AND r.status NOT IN ('completed','failed','cancelled') AND datetime(r.requested_at) <= datetime('now', ?)")
-            params.append(f"-{reminder_minutes} minutes")
-        elif normalized_state == "seen":
-            where.append("AND COALESCE(r.result_message_id, '') = '' AND r.status NOT IN ('queued','claimed','running','completed','failed','cancelled') AND COALESCE(rr.read_at, '') != ''")
-        elif normalized_state == "sent":
-            where.append("AND COALESCE(r.result_message_id, '') = '' AND r.status NOT IN ('queued','claimed','running','completed','failed','cancelled') AND COALESCE(rr.read_at, '') = ''")
-
-        closed_state_requested = normalized_state in {"answered", "closed", "missing_reply", "failed"}
-        if includeClosed or closed_state_requested:
-            where.append(
-                """
-                AND (
-                    COALESCE(r.result_message_id, '') = ''
-                    OR r.status IN ('queued','claimed','running')
-                    OR datetime(COALESCE(r.finished_at, r.requested_at)) >= datetime('now', ?)
-                )
-                """
-            )
-            params.append(f"-{stale_hours} hours")
-        else:
-            where.append(
-                """
-                AND COALESCE(r.result_message_id, '') = ''
-                AND r.status NOT IN ('completed','failed','cancelled')
-                """
-            )
-        params.append(limit)
-        cursor = await db.execute(_contract_list_query(where_sql="\n".join(where)), params)
-        now_s = time.time()
-        rows = [_contract_row_to_dict(row, settings=settings, now_s=now_s) for row in await cursor.fetchall()]
-        if normalized_state == "open":
-            rows = [row for row in rows if row["state"] in {"sent", "seen", "queued", "working", "overdue"}]
-        elif normalized_state:
-            rows = [row for row in rows if row["state"] == normalized_state]
-
-        summary = {
-            "total": len(rows),
-            "open": sum(1 for row in rows if row["state"] in {"sent", "seen", "queued", "working", "overdue"}),
-            "overdue": sum(1 for row in rows if row["overdue"]),
-            "working": sum(1 for row in rows if row["state"] == "working"),
-            "queued": sum(1 for row in rows if row["state"] == "queued"),
-            "missingReply": sum(1 for row in rows if row["state"] == "missing_reply"),
-            "answered": sum(1 for row in rows if row["state"] == "answered"),
-            "selfWake": sum(1 for row in rows if row["category"] == "self_wake"),
-            "channel": sum(1 for row in rows if row["category"] == "channel"),
-        }
-        return {"ok": True, "summary": summary, "contracts": rows, "settings": {
-            "replyContractsEnabled": bool(settings.get("reply_contracts_enabled", True)),
-            "replyReminderMinutes": int(settings.get("reply_reminder_minutes", DEFAULT_SETTINGS["reply_reminder_minutes"]) or DEFAULT_SETTINGS["reply_reminder_minutes"]),
-            "replyReminderRepeatMinutes": int(settings.get("reply_reminder_repeat_minutes", DEFAULT_SETTINGS["reply_reminder_repeat_minutes"]) or DEFAULT_SETTINGS["reply_reminder_repeat_minutes"]),
-            "replyReminderMaxCount": max(0, int(settings.get("reply_reminder_max_count", 0) or 0)),
-            "contractStaleHours": int(settings.get("contract_stale_hours", 24) or 24),
-        }}
-    finally:
-        await db.close()
 
 
 def _contract_reminder_due(
@@ -17853,48 +17686,8 @@ async def _run_contract_reminders_once(
     return {"ok": True, "dryRun": dry_run, "reminded": reminded, "skipped": skipped}
 
 
-@router.post("/contracts/reminders/run")
-async def run_contract_reminders(
-    request: Request,
-    runId: Optional[str] = None,
-    dryRun: bool = Query(False),
-    limit: int = Query(50, ge=1, le=200),
-):
-    db = await get_db()
-    try:
-        payload = await _run_contract_reminders_once(db, request=request, run_id=runId, dry_run=dryRun, limit=limit)
-        await db.commit()
-        return payload
-    finally:
-        await db.close()
 
 
-@router.post("/contracts/hygiene/repair-read-receipts")
-async def repair_contract_read_receipts(request: Request, limit: int = Query(500, ge=1, le=2000)):
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            """
-            SELECT *
-            FROM dispatch_runs
-            WHERE COALESCE(message_id, '') != ''
-              AND status IN ('claimed','running','completed','failed','cancelled')
-            ORDER BY requested_at DESC
-            LIMIT ?
-            """,
-            (limit,),
-        )
-        now = _now()
-        repaired = 0
-        for row in await cursor.fetchall():
-            repaired += await _mark_dispatch_source_messages_read(db, row, row["target_agent"], now)
-        await db.commit()
-        ws = await _get_ws(request)
-        if ws and repaired:
-            await ws.broadcast("contract_read_receipts_repaired", {"count": repaired})
-        return {"ok": True, "repaired": repaired}
-    finally:
-        await db.close()
 
 
 @router.patch("/dispatch/runs/{run_id}")
@@ -18873,278 +18666,14 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
 
 # ─── Settings ────────────────────────────────────────────────────────────────
 
-@router.get("/settings")
-async def get_settings(request: Request):
-    db = await get_db()
-    try:
-        cursor = await db.execute("SELECT key, value FROM settings")
-        saved = {}
-        for row in await cursor.fetchall():
-            try:
-                saved[row["key"]] = json.loads(row["value"])
-            except Exception:
-                saved[row["key"]] = row["value"]
-        return {**DEFAULT_SETTINGS, **saved}
-    finally:
-        await db.close()
 
 
-# Per-key server-side floors for settings consumed server-side that would break behavior at
-# zero/negative (audit 2026-06-28 — PUT /settings previously accepted ANY value for a known
-# key; the min/max in the dashboards were advisory only, so a raw API/MCP caller could set e.g.
-# max_shared_size_mb=0 and zero out all uploads). Keys not listed are merely floored at 0.
-_SETTINGS_MIN = {
-    "max_shared_size_mb": 1,
-    "dashboard_refresh_seconds": 5,
-    "agent_liveness_seconds": 10,
-    "environment_offline_seconds": 10,
-    "resident_lease_seconds": 10,
-    "max_messages_per_agent": 1,
-    "retention_days": 1,
-    # 0 is meaningful (= every reminder full); listed for documentation only —
-    # unlisted numeric keys are floored at 0 anyway.
-    "reply_reminder_full_every": 0,
-}
 
 
-@router.put("/settings")
-async def update_settings(request: Request):
-    body = await request.json()
-    db = await get_db()
-    try:
-        for key, value in body.items():
-            if key not in DEFAULT_SETTINGS:
-                continue
-            default = DEFAULT_SETTINGS[key]
-            # Validate/clamp numeric settings (bool first — bool is a subclass of int).
-            if isinstance(default, bool):
-                # Bughunt 2026-07-03: a raw API/MCP caller sending the STRING "false"
-                # got bool("false")==True (any non-empty string is truthy) — silently
-                # flipping a boolean setting on. Only accept an actual JSON bool; also
-                # accept the case-insensitive "true"/"false" strings a form might send.
-                if isinstance(value, bool):
-                    pass
-                elif isinstance(value, str) and value.strip().lower() in ("true", "false"):
-                    value = value.strip().lower() == "true"
-                else:
-                    continue  # reject anything ambiguous for a bool setting
-            elif isinstance(default, (int, float)) and not isinstance(value, bool):
-                try:
-                    num = float(value)
-                except (TypeError, ValueError):
-                    continue  # reject non-numeric for a numeric setting
-                # Reject NaN AND ±inf (bughunt 2026-07-03: a JSON `1e999` literal parses
-                # to float('inf'); the old `num != num` NaN guard missed it, and int(inf)
-                # then raised OverflowError → HTTP 500).
-                if not math.isfinite(num):
-                    continue
-                num = max(num, float(_SETTINGS_MIN.get(key, 0)))
-                value = int(num) if isinstance(default, int) else num
-            elif key.endswith("_model"):
-                # THE THIRD MODEL INGRESS, and the one with the longest fuse. `managed_*_model`
-                # settings are substituted into a spawn AFTER Pydantic has validated the request
-                # (see create_spawn_request), and `_apply_managed_runtime_defaults` writes them onto
-                # agents and spawn_specs — so a malformed value set here reaches a runtime CLI for
-                # every future managed spawn of that runtime, with no request to trace it back to.
-                #
-                # Same shape rule as the request models, so there is one definition of "that is not
-                # a model name" rather than three that can drift.
-                #
-                # Raises rather than the `continue` the numeric branches use: a silently ignored
-                # numeric clamps to something sane, but silently ignoring this would leave the
-                # operator believing they had changed the fleet's model. Reporting success for work
-                # not done is the failure this repo keeps paying for.
-                try:
-                    value = validate_model_shape(value) or ""
-                except ValueError as exc:
-                    raise HTTPException(400, f'Setting "{key}": {exc}') from exc
-            await db.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)",
-                (key, json.dumps(value))
-            )
-        _invalidate_settings_cache()
-        settings = await _load_settings(db)
-        if any(str(key).startswith("managed_") for key in body.keys()):
-            await _apply_managed_runtime_defaults(db, settings)
-        await db.commit()
-        ws = await _get_ws(request)
-        if ws: await ws.broadcast("settings_updated")
-        return await get_settings(request)
-    finally:
-        await db.close()
 
 
 # ─── Stats ───────────────────────────────────────────────────────────────────
 
-@router.get("/stats")
-async def get_stats(request: Request):
-    db = await get_db()
-    try:
-        # Read-path-write fix (2026-06-29): _repair_unusable_active_runs scanned the runs table on
-        # every poll of this stats endpoint. It already runs in the 60s reconcile loop AND on every
-        # GET /agents poll (the constantly-polled live roster), so the copy here was redundant
-        # write-txn contention — removed so /stats is a pure read.
-        agents_c = await db.execute("SELECT COUNT(*) FROM agents")
-        agents = (await agents_c.fetchone())[0]
-
-        environments_c = await db.execute("SELECT COUNT(*) FROM environments WHERE status != 'forgotten'")
-        environments = (await environments_c.fetchone())[0]
-
-        spawn_c = await db.execute("SELECT status, COUNT(*) as cnt FROM spawn_requests GROUP BY status")
-        spawn_by_status = {row["status"]: row["cnt"] for row in await spawn_c.fetchall()}
-
-        sessions_c = await db.execute("SELECT COUNT(*) FROM agent_sessions WHERE status IN ('starting','running')")
-        active_sessions = (await sessions_c.fetchone())[0]
-
-        total_c = await db.execute("SELECT COUNT(*) FROM messages WHERE source = 'direct'")
-        total = (await total_c.fetchone())[0]
-
-        # Unread direct inbox messages for currently registered agents only
-        unread_c = await db.execute(
-            """
-            SELECT COUNT(*)
-            FROM messages m
-            JOIN agents a ON a.id = m.to_agent
-            LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = m.to_agent
-            WHERE m.to_agent IS NOT NULL AND m.source = 'direct' AND r.message_id IS NULL
-            """
-        )
-        unread = (await unread_c.fetchone())[0]
-
-        channel_unread_c = await db.execute(
-            """
-            SELECT COUNT(*)
-            FROM messages m
-            JOIN agents a ON a.id = m.to_agent
-            LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = m.to_agent
-            WHERE m.to_agent IS NOT NULL AND m.source = 'channel' AND r.message_id IS NULL
-            """
-        )
-        channel_unread = (await channel_unread_c.fetchone())[0]
-
-        orphan_unread_c = await db.execute(
-            """
-            SELECT COUNT(*)
-            FROM messages m
-            LEFT JOIN agents a ON a.id = m.to_agent
-            LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = m.to_agent
-            WHERE m.to_agent IS NOT NULL AND a.id IS NULL AND r.message_id IS NULL
-            """
-        )
-        orphan_unread = (await orphan_unread_c.fetchone())[0]
-
-        # Today
-        today_start = int(time.mktime(time.strptime(time.strftime("%Y-%m-%d"), "%Y-%m-%d")) * 1000)
-        today_c = await db.execute("SELECT COUNT(*) FROM messages WHERE timestamp >= ?", (today_start,))
-        today = (await today_c.fetchone())[0]
-        since_24h_ms = int((time.time() - 24 * 60 * 60) * 1000)
-        since_24h_iso = _iso_from_ms(since_24h_ms)
-        direct_24h_c = await db.execute(
-            "SELECT COUNT(*) FROM messages WHERE source = 'direct' AND timestamp >= ?",
-            (since_24h_ms,),
-        )
-        direct_24h = (await direct_24h_c.fetchone())[0]
-        channel_24h_c = await db.execute(
-            "SELECT COUNT(*) FROM messages WHERE source = 'channel' AND to_agent IS NULL AND timestamp >= ?",
-            (since_24h_ms,),
-        )
-        channel_24h = (await channel_24h_c.fetchone())[0]
-        active_pairs_c = await db.execute(
-            """
-            SELECT COUNT(*) FROM (
-                SELECT
-                    CASE WHEN from_agent < to_agent THEN from_agent ELSE to_agent END AS a,
-                    CASE WHEN from_agent < to_agent THEN to_agent ELSE from_agent END AS b
-                FROM messages
-                WHERE source = 'direct'
-                  AND to_agent IS NOT NULL
-                  AND timestamp >= ?
-                GROUP BY a, b
-            )
-            """,
-            (since_24h_ms,),
-        )
-        active_pairs_24h = (await active_pairs_c.fetchone())[0]
-        run_failures_24h_c = await db.execute(
-            "SELECT COUNT(*) FROM dispatch_runs WHERE status IN ('failed','cancelled') AND COALESCE(finished_at, requested_at) >= ?",
-            (since_24h_iso,),
-        )
-        run_failures_24h = (await run_failures_24h_c.fetchone())[0]
-        failed_spawns_24h_c = await db.execute(
-            "SELECT COUNT(*) FROM spawn_requests WHERE status = 'failed' AND updated_at >= ?",
-            (since_24h_iso,),
-        )
-        failed_spawns_24h = (await failed_spawns_24h_c.fetchone())[0]
-        completed_runs_24h_c = await db.execute(
-            "SELECT COUNT(*) FROM dispatch_runs WHERE status = 'completed' AND COALESCE(finished_at, requested_at) >= ?",
-            (since_24h_iso,),
-        )
-        completed_runs_24h = (await completed_runs_24h_c.fetchone())[0]
-
-        # By type
-        type_c = await db.execute("SELECT type, COUNT(*) as cnt FROM messages WHERE source = 'direct' GROUP BY type")
-        by_type = {row["type"]: row["cnt"] for row in await type_c.fetchall()}
-
-        # By agent
-        agent_c = await db.execute("SELECT to_agent, COUNT(*) as cnt FROM messages WHERE to_agent IS NOT NULL GROUP BY to_agent")
-        by_agent = {row["to_agent"]: row["cnt"] for row in await agent_c.fetchall()}
-
-        # Shared
-        shared_c = await db.execute("SELECT COUNT(*) as cnt, COALESCE(SUM(size),0) as total_size FROM shared_artifacts")
-        shared_row = await shared_c.fetchone()
-
-        dispatch_c = await db.execute(
-            """
-            SELECT status, COUNT(*) as cnt
-            FROM dispatch_runs
-            GROUP BY status
-            """
-        )
-        dispatch_by_status = {row["status"]: row["cnt"] for row in await dispatch_c.fetchall()}
-        reply_pending_c = await db.execute(
-            """
-            SELECT COUNT(*)
-            FROM dispatch_runs
-            WHERE require_reply = 1
-              AND status IN ('completed', 'failed', 'cancelled')
-              AND COALESCE(result_message_id, '') = ''
-              AND NOT (
-                  runtime = 'claude-code'
-                  AND status = 'completed'
-                  AND COALESCE(summary, '') LIKE 'Delivered to Claude resident session%'
-              )
-            """
-        )
-        reply_pending = (await reply_pending_c.fetchone())[0]
-
-        return {
-            "agents": agents,
-            "environments": environments,
-            "spawn_requests_total": sum(spawn_by_status.values()),
-            "spawn_requests_by_status": spawn_by_status,
-            "active_sessions": active_sessions,
-            "total_messages": total,
-            "unread_messages": unread,
-            "channel_unread_messages": channel_unread,
-            "orphan_unread_messages": orphan_unread,
-            "messages_today": today,
-            "direct_messages_24h": direct_24h,
-            "channel_posts_24h": channel_24h,
-            "active_dm_pairs_24h": active_pairs_24h,
-            "run_failures_24h": run_failures_24h,
-            "failed_spawns_24h": failed_spawns_24h,
-            "completed_runs_24h": completed_runs_24h,
-            "messages_by_type": by_type,
-            "messages_by_agent": by_agent,
-            "shared_files": shared_row["cnt"],
-            "shared_size_bytes": shared_row["total_size"],
-            "shared_size_mb": round(shared_row["total_size"] / 1048576, 2),
-            "dispatch_runs_total": sum(dispatch_by_status.values()),
-            "dispatch_runs_by_status": dispatch_by_status,
-            "dispatch_reply_pending": reply_pending,
-        }
-    finally:
-        await db.close()
 
 
 @router.get("/analytics")

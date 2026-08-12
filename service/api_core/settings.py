@@ -236,3 +236,11 @@ async def _load_settings(db):
     _SETTINGS_CACHE["value"] = dict(settings)
     _SETTINGS_CACHE["at"] = time.monotonic()
     return settings
+
+
+# Moved here in v0.5.2c: the invalidator belongs with the cache it invalidates. It had been
+# left in the router when the cache moved in v0.5.1g, which meant the router still looked like
+# the owner of settings-cache lifecycle while owning none of the state.
+def _invalidate_settings_cache() -> None:
+    _SETTINGS_CACHE["value"] = None
+    _SETTINGS_CACHE["at"] = 0.0

@@ -187,7 +187,7 @@ class FastApiTestCase(unittest.TestCase):
         # The live-status cache is a PROCESS-GLOBAL dict (2026-06-18: status moved out of the
         # DB into memory). Clear it per test so cross-test state never leaks.
         from service.reconcilers.status_cache import _LIVE_STATE_CACHE
-        from service.routers.api_v2 import _invalidate_settings_cache
+        from service.api_core.settings import _invalidate_settings_cache
         _LIVE_STATE_CACHE.clear()
         # The production process has one database, but this unittest base points
         # the shared app at a fresh SQLite file for every test.  Do not let a
