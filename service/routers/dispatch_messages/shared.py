@@ -85,6 +85,7 @@ from service.env_status import environment_effective_status as _environment_effe
 from service.models import DispatchClaimRequest
 from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES
 from service.api_core.capabilities import _row_capabilities
+from service.api_core.dispatch_state import _DISPATCH_TERMINAL_STATUSES
 
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.shared")
 
@@ -367,14 +368,9 @@ async def _dispatch_conversation_context(db, row, *, limit: int = 8) -> list[dic
     return context
 
 
-def _dispatch_reply_pending(row) -> bool:
-    return _dispatch_reply_state(row) == "pending"
+# _dispatch_reply_pending moved to service/api_core/reply_contract.py in v0.5.4.
 
 
-def _dispatch_reply_state(*a, **k):
-    from service.control_plane import _dispatch_reply_state as _impl
-
-    return _impl(*a, **k)
 
 
 async def _has_claimable_steerable_run(
@@ -467,10 +463,6 @@ async def _mark_dispatch_source_messages_read(*a, **k):
 
 
 
-def _pending_dispatch_count(*a, **k):
-    from service.control_plane import _pending_dispatch_count as _impl
-
-    return _impl(*a, **k)
 
 
 
@@ -576,18 +568,8 @@ def _borrowed_turn_busy_backstop_seconds():
 
 
 
-def _borrowed_dispatch_terminal_statuses():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import _DISPATCH_TERMINAL_STATUSES
-
-    return _DISPATCH_TERMINAL_STATUSES
 
 
-def _borrowed_merged_dispatch_header():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import _MERGED_DISPATCH_HEADER
-
-    return _MERGED_DISPATCH_HEADER
 
 
 def _borrowed_unthreaded_handoff_window_ms():
@@ -680,10 +662,6 @@ async def _has_claimable_spawn_request(*a, **k):
 
 
 
-def _is_delivery_only_claude_run(*a, **k):
-    from service.control_plane import _is_delivery_only_claude_run as _impl
-
-    return _impl(*a, **k)
 
 
 async def _managed_environment_unavailable_reason(*a, **k):
@@ -883,7 +861,7 @@ async def _link_reply_message_to_dispatch_run(
     )
     handoff_note = (
         f"Result reply linked after run completion from {from_agent}"
-        if current_status in _borrowed_dispatch_terminal_statuses()
+        if current_status in _DISPATCH_TERMINAL_STATUSES
         else f"Result reply recorded from {from_agent}"
     )
     await _append_dispatch_event(db, replied_run["id"], "handoff", handoff_note)

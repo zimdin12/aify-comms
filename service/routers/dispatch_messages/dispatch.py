@@ -66,8 +66,6 @@ from service.routers.dispatch_messages.shared import (
     _append_terminal_control,
     _auto_handoff_subject_for_run,
     _auto_return_resident_to_managed_if_possible,
-    _borrowed_dispatch_terminal_statuses,
-    _borrowed_merged_dispatch_header,
     _borrowed_unthreaded_handoff_window_ms,
     _bridge_claim_block_reason,
     _clear_turn_busy_if_no_open_reply_owing_run,
@@ -80,8 +78,6 @@ from service.routers.dispatch_messages.shared import (
     _delete_messages_where,
     _dispatch_conversation_context,
     _dispatch_fix_hint,
-    _dispatch_reply_pending,
-    _dispatch_reply_state,
     _dispatch_requires_reply,
     _finalize_dispatch_runs,
     _get_blocking_active_run,
@@ -90,7 +86,6 @@ from service.routers.dispatch_messages.shared import (
     _has_claimable_spawn_request,
     _has_claimable_steerable_run,
     _has_live_managed_wrapper_child,
-    _is_delivery_only_claude_run,
     _is_replaceable_auto_handoff_message,
     _link_reply_message_to_dispatch_run,
     _machine_ids_same_host,
@@ -102,7 +97,6 @@ from service.routers.dispatch_messages.shared import (
     _message_satisfies_reply_contract,
     _message_type_expects_reply,
     _mirror_missing_dispatch_handoff,
-    _pending_dispatch_count,
     _preflight_live_send_recipients,
     _primary_result_message_id,
     _record_channel_sidecar_heartbeat,
@@ -129,6 +123,14 @@ from service.api_core.dispatch_start import (
 )
 from service.api_core.active_run_discard import _fail_pending_controls_for_run
 from service.api_core.execution_mode import _agent_execution_mode
+from service.api_core.reply_contract import (
+    _dispatch_reply_pending,
+    _dispatch_reply_state,
+)
+from service.api_core.dispatch_text import _pending_dispatch_count
+from service.api_core.dispatch_state import _is_delivery_only_claude_run
+from service.api_core.dispatch_text import _MERGED_DISPATCH_HEADER
+from service.api_core.dispatch_state import _DISPATCH_TERMINAL_STATUSES
 
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.dispatch")
 
@@ -834,7 +836,7 @@ async def _mirror_dashboard_run_summary_to_chat(db, row) -> Optional[str]:
 def _serialize_dispatch_run_row(row, *, blocked_by=None, include_body: bool = False, include_events=None, include_controls=None) -> dict[str, Any]:
     body_text = str((row["body"] if row and "body" in row.keys() else "") or "")
     merged_from_agents = []
-    if body_text.startswith(_borrowed_merged_dispatch_header()):
+    if body_text.startswith(_MERGED_DISPATCH_HEADER):
         merged_from_agents = _dedupe_preserve(
             match.group(1).strip()
             for match in re.finditer(r"^From:\s*(.+)$", body_text, flags=re.MULTILINE)
@@ -1609,7 +1611,7 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
         current_status = str(row["status"] or "").strip().lower()
         requested_status = str(req.status or "").strip().lower()
         effective_status = req.status
-        if current_status in _borrowed_dispatch_terminal_statuses() and requested_status != current_status:
+        if current_status in _DISPATCH_TERMINAL_STATUSES and requested_status != current_status:
             effective_status = None
 
         if effective_status:
@@ -1618,7 +1620,7 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
             if effective_status == "running" and not row["started_at"]:
                 updates.append("started_at = ?")
                 params.append(now)
-            if effective_status in _borrowed_dispatch_terminal_statuses():
+            if effective_status in _DISPATCH_TERMINAL_STATUSES:
                 updates.append("finished_at = ?")
                 params.append(now)
         if req.summary is not None:

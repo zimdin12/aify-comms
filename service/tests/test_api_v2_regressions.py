@@ -4268,7 +4268,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # in chat (the dashboard rendered it as if it were Claude's
         # actual reply). _is_delivery_only_claude_run only matched the
         # resident-session prefix and missed the channel-session one.
-        from service.control_plane import _is_delivery_only_claude_run
+        from service.api_core.dispatch_state import _is_delivery_only_claude_run
         class _R(dict):
             def keys(self): return super().keys()
         channel_row = _R({

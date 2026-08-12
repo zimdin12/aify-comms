@@ -312,6 +312,15 @@ from service.api_core.terminal_ownership import (  # v0.5.4: moved out; the carr
     _active_terminal_for_agent,
     _release_stale_terminal_owner,
 )
+from service.api_core.dispatch_state import (  # v0.5.4: moved out; the carrier is a CALLER
+    _DISPATCH_TERMINAL_STATUSES,
+    _is_delivery_only_claude_run,
+)
+from service.api_core.dispatch_text import (  # v0.5.4: moved out; the carrier is a CALLER
+    _MERGED_DISPATCH_HEADER,
+    _pending_dispatch_count,
+)
+from service.api_core.reply_contract import _dispatch_reply_state  # v0.5.4: moved out
 from service.api_core.execution_mode import _agent_execution_mode  # v0.5.4: moved out
 from service.api_core.active_run_discard import (  # v0.5.4: moved out; the carrier is a CALLER
     _discard_superseded_active_run,
@@ -376,7 +385,7 @@ from service.api_core.vocabulary import (
     LAUNCHABLE_RUNTIMES as _LAUNCHABLE_RUNTIMES,
     SESSION_MODES as _SESSION_MODES,
 )
-_DISPATCH_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+# _DISPATCH_TERMINAL_STATUSES moved to service/api_core/dispatch_state.py in v0.5.4.
 _TERMINAL_END_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
 # Deterministic, lowercase ordering of the SAME set, for SQL parameter binding. A set
 # gives no ordering guarantee across builds and an inline literal list in a query is
@@ -627,8 +636,8 @@ MANAGED_ORPHAN_GRACE_SECONDS = 90
 
 # ACTIVE_RUN_BRIDGE_STALE_SECONDS moved to service/api_core/liveness.py in v0.5.4, with the
 # predicates that apply it — a threshold apart from its predicate is how they drift.
-CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX = "Delivered to Claude resident session"
-CLAUDE_CHANNEL_DELIVERY_SUMMARY_PREFIX = "Delivered to Claude channel session"
+# CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX moved to service/api_core/dispatch_state.py in v0.5.4.
+# CLAUDE_CHANNEL_DELIVERY_SUMMARY_PREFIX moved to service/api_core/dispatch_state.py in v0.5.4.
 
 
 
@@ -688,39 +697,10 @@ def _runtime_state_with_handle(runtime: Any, runtime_state: Any, session_handle:
 
 
 
-def _is_delivery_only_claude_run(row) -> bool:
-    if not row:
-        return False
-    if str((row["runtime"] if "runtime" in row.keys() else "") or "").strip() != "claude-code":
-        return False
-    if str((row["status"] if "status" in row.keys() else "") or "").strip().lower() != "completed":
-        return False
-    summary = str((row["summary"] if "summary" in row.keys() else "") or "").strip()
-    # Both resident and channel bridges write a delivery-receipt summary
-    # for runs they handed off to the Claude session. The summary is NOT
-    # the agent's actual reply — it's just confirmation the dispatch
-    # reached the bridge. Without including the channel prefix here, the
-    # mirror function persisted the receipt as a fake "Re: Hello"
-    # response with body "Delivered to Claude channel session; awaiting
-    # explicit reply" — observed live as the misleading reply operator
-    # caught.
-    return (
-        summary.startswith(CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX)
-        or summary.startswith(CLAUDE_CHANNEL_DELIVERY_SUMMARY_PREFIX)
-    )
+# _is_delivery_only_claude_run moved to service/api_core/dispatch_state.py in v0.5.4.
 
 
-def _dispatch_reply_state(row) -> str:
-    if str((row["result_message_id"] if row else "") or "").strip():
-        return "sent"
-    if not _row_require_reply(row):
-        return "not_required"
-    if _is_delivery_only_claude_run(row):
-        return "awaiting"
-    status = str((row["status"] if row else "") or "").strip().lower()
-    if status in _DISPATCH_TERMINAL_STATUSES:
-        return "pending"
-    return "awaiting"
+# _dispatch_reply_state moved to service/api_core/reply_contract.py in v0.5.4.
 
 
 # _dispatch_reply_pending moved to service/routers/dispatch_messages/shared.py in v0.5.3 — the
@@ -2894,7 +2874,7 @@ async def _append_dispatch_control(
 
 
 _PRIORITY_ORDER = {"normal": 0, "high": 1, "urgent": 2}
-_MERGED_DISPATCH_HEADER = "[AIFY PENDING DISPATCHES]"
+# _MERGED_DISPATCH_HEADER moved to service/api_core/dispatch_text.py in v0.5.4.
 _MERGED_DISPATCH_FOOTER = "[/AIFY PENDING DISPATCHES]"
 _DISPATCH_BUFFER_CAP = 10
 
@@ -2912,11 +2892,7 @@ def _stronger_priority(left: str, right: str) -> str:
 # _render_pending_dispatch_item moved to service/api_core/dispatch_text.py in v0.5.4.
 
 
-def _pending_dispatch_count(body: str) -> int:
-    text = str(body or "")
-    if text.startswith(_MERGED_DISPATCH_HEADER):
-        return len(re.findall(r"^=== ITEM \d+ ===$", text, flags=re.MULTILINE))
-    return 1 if text.strip() else 0
+# _pending_dispatch_count moved to service/api_core/dispatch_text.py in v0.5.4.
 
 
 # _build_pending_dispatch_subject moved to service/api_core/dispatch_text.py in v0.5.4.

@@ -19,6 +19,10 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
+from service.api_core.dispatch_state import (
+    _DISPATCH_TERMINAL_STATUSES,
+    _is_delivery_only_claude_run,
+)
 from service.api_core.serialization import _row_require_reply
 from service.api_core.settings import DEFAULT_SETTINGS
 
@@ -155,3 +159,29 @@ def _contract_reminder_body(row, *, full: bool = True) -> str:
         f"Read it first if needed: {read_hint}\n"
         "If blocked, reply with the blocker, what you checked, and your next action."
     )
+
+
+# v0.5.4: `_dispatch_reply_state` arrived from the control plane and `_dispatch_reply_pending` from
+# `routers/dispatch_messages/shared.py` — two modules, one subject, which is why they are together now.
+#
+# READ THE SOURCE MODULE'S `def` CAREFULLY. My first attempt at this slice moved what looked like these
+# two functions out of `dispatch_messages/shared.py`. Three of the four names I took from that module
+# were delegating BORROW SHIMS, not implementations, so the leaves ended up importing the control plane
+# — the one direction this architecture forbids — and every gate stayed green. Only
+# `_dispatch_reply_pending` was a real body there. The rest came from the carrier, where they lived.
+
+def _dispatch_reply_state(row) -> str:
+    if str((row["result_message_id"] if row else "") or "").strip():
+        return "sent"
+    if not _row_require_reply(row):
+        return "not_required"
+    if _is_delivery_only_claude_run(row):
+        return "awaiting"
+    status = str((row["status"] if row else "") or "").strip().lower()
+    if status in _DISPATCH_TERMINAL_STATUSES:
+        return "pending"
+    return "awaiting"
+
+
+def _dispatch_reply_pending(row) -> bool:
+    return _dispatch_reply_state(row) == "pending"

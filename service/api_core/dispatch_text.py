@@ -147,3 +147,21 @@ def _is_provider_rate_limit_error(text: str) -> bool:
     # (word-bounded) — so "code 429"/"429 Too Many Requests" match but "exited with code 4290"
     # or a token count like "529 tokens" do not.
     return bool(re.search(r"\b(429|529)\b", t))
+
+
+# v0.5.4: `_MERGED_DISPATCH_HEADER` and `_pending_dispatch_count` arrived from the control plane.
+#
+# The constant is here as a NEUTRAL owner, not as a follower. Two functions read it and only one of them
+# moved: `_append_pending_dispatch_body` (69 lines, and it also reads _DISPATCH_BUFFER_CAP and
+# _MERGED_DISPATCH_FOOTER) stays in the carrier for now, so it imports this. A constant with a reader on
+# each side of a boundary belongs to neither of them — it belongs where the vocabulary lives, which for
+# the marker that identifies a merged dispatch body is the module that parses dispatch body text.
+
+_MERGED_DISPATCH_HEADER = "[AIFY PENDING DISPATCHES]"
+
+
+def _pending_dispatch_count(body: str) -> int:
+    text = str(body or "")
+    if text.startswith(_MERGED_DISPATCH_HEADER):
+        return len(re.findall(r"^=== ITEM \d+ ===$", text, flags=re.MULTILINE))
+    return 1 if text.strip() else 0

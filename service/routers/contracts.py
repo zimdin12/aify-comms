@@ -26,6 +26,7 @@ from service.api_core.ws import _get_ws
 from service.clock import now as _now
 from service.db import get_db
 from service.models import validate_model_shape
+from service.api_core.reply_contract import _dispatch_reply_state
 
 logger = logging.getLogger("aify_comms.routers.contracts")
 
@@ -39,11 +40,6 @@ def _contract_state(*a, **k):
     return _impl(*a, **k)
 
 
-def _dispatch_reply_state(*a, **k):
-    """BORROWED: also used by `_dispatch_reply_pending` and `_serialize_dispatch_run_row`."""
-    from service.control_plane import _dispatch_reply_state as _impl
-
-    return _impl(*a, **k)
 
 
 

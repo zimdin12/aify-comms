@@ -57,8 +57,6 @@ from service.routers.dispatch_messages.shared import (
     _append_terminal_control,
     _auto_handoff_subject_for_run,
     _auto_return_resident_to_managed_if_possible,
-    _borrowed_dispatch_terminal_statuses,
-    _borrowed_merged_dispatch_header,
     _borrowed_unthreaded_handoff_window_ms,
     _bridge_claim_block_reason,
     _clear_turn_busy_if_no_open_reply_owing_run,
@@ -71,8 +69,6 @@ from service.routers.dispatch_messages.shared import (
     _delete_messages_where,
     _dispatch_conversation_context,
     _dispatch_fix_hint,
-    _dispatch_reply_pending,
-    _dispatch_reply_state,
     _dispatch_requires_reply,
     _finalize_dispatch_runs,
     _get_blocking_active_run,
@@ -81,7 +77,6 @@ from service.routers.dispatch_messages.shared import (
     _has_claimable_spawn_request,
     _has_claimable_steerable_run,
     _has_live_managed_wrapper_child,
-    _is_delivery_only_claude_run,
     _is_replaceable_auto_handoff_message,
     _link_reply_message_to_dispatch_run,
     _machine_ids_same_host,
@@ -93,7 +88,6 @@ from service.routers.dispatch_messages.shared import (
     _message_satisfies_reply_contract,
     _message_type_expects_reply,
     _mirror_missing_dispatch_handoff,
-    _pending_dispatch_count,
     _preflight_live_send_recipients,
     _primary_result_message_id,
     _record_channel_sidecar_heartbeat,
@@ -120,6 +114,12 @@ from service.api_core.dispatch_start import (
 )
 from service.api_core.active_run_discard import _fail_pending_controls_for_run
 from service.api_core.execution_mode import _agent_execution_mode
+from service.api_core.reply_contract import (
+    _dispatch_reply_pending,
+    _dispatch_reply_state,
+)
+from service.api_core.dispatch_text import _pending_dispatch_count
+from service.api_core.dispatch_state import _is_delivery_only_claude_run
 
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.messages")
 

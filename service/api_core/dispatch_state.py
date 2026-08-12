@@ -65,3 +65,45 @@ async def _get_dispatch_state_map(db, agent_ids: list[str]) -> dict[str, dict[st
         agent_id: _format_dispatch_state(active_by_agent.get(agent_id), queued_counts.get(agent_id, 0))
         for agent_id in agent_ids
     }
+
+
+# v0.5.4: `_DISPATCH_TERMINAL_STATUSES` and `_is_delivery_only_claude_run` arrived from the control
+# plane, and the two constants below arrived WITH the function rather than neutrally.
+#
+# The distinction is readership, measured rather than assumed. `_DISPATCH_TERMINAL_STATUSES` has three
+# carrier readers and two of them stay (`_mirror_missing_dispatch_handoff`, `_contract_state`), so it is
+# a neutral owner here and the carrier imports it. The two CLAUDE_*_DELIVERY_SUMMARY_PREFIX constants
+# have exactly ONE reader each — the function that moved — so they follow it, which is the v0.5.4
+# constant rule rather than the v0.5.3 accessor rule.
+#
+# WHY THE PREFIXES MATTER, kept from the original comment because it records a live defect: both the
+# resident and channel bridges write a delivery-receipt summary for runs they handed to a Claude
+# session. That summary is NOT the agent's reply. Without the CHANNEL prefix checked here, the mirror
+# persisted a receipt as a fake "Re: ..." response whose body was "Delivered to Claude channel session;
+# awaiting explicit reply" — the misleading reply the operator caught in production.
+
+_DISPATCH_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX = "Delivered to Claude resident session"
+CLAUDE_CHANNEL_DELIVERY_SUMMARY_PREFIX = "Delivered to Claude channel session"
+
+
+def _is_delivery_only_claude_run(row) -> bool:
+    if not row:
+        return False
+    if str((row["runtime"] if "runtime" in row.keys() else "") or "").strip() != "claude-code":
+        return False
+    if str((row["status"] if "status" in row.keys() else "") or "").strip().lower() != "completed":
+        return False
+    summary = str((row["summary"] if "summary" in row.keys() else "") or "").strip()
+    # Both resident and channel bridges write a delivery-receipt summary
+    # for runs they handed off to the Claude session. The summary is NOT
+    # the agent's actual reply — it's just confirmation the dispatch
+    # reached the bridge. Without including the channel prefix here, the
+    # mirror function persisted the receipt as a fake "Re: Hello"
+    # response with body "Delivered to Claude channel session; awaiting
+    # explicit reply" — observed live as the misleading reply operator
+    # caught.
+    return (
+        summary.startswith(CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX)
+        or summary.startswith(CLAUDE_CHANNEL_DELIVERY_SUMMARY_PREFIX)
+    )
