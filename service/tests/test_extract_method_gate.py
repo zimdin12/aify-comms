@@ -1298,6 +1298,50 @@ class ExtractMultipleBlocksTests(unittest.TestCase):
             assert_extractions_preserve_behaviour(self.ORIGINAL, self.SPLIT, ["_first", "_nope"])
         self.assertIn("_nope", str(caught.exception))
 
+    def test_a_helper_that_calls_another_helper_in_the_list_is_refused(self):
+        """Direct siblings only — enforced, not merely documented.
+
+        The reviewer noticed this docstring once claimed the helpers were inlined "innermost calls
+        first". They are not; they are inlined in the order supplied. For the analytics split that
+        is harmless because all three helpers are called directly by the handler, so narrowing the
+        sentence would have been enough for today.
+
+        A caveat in a docstring is exactly what the next person does not read, though, so the
+        narrower contract is checked instead. Verifying a nested extraction in supplied order would
+        make the verdict depend on argument order rather than on the code — which is a verifier
+        that can be argued with, and the whole point of this one is that it cannot.
+        """
+        original = (
+            "def f(n):\n"
+            "    a = []\n"
+            "    for i in range(n):\n"
+            "        a.append(i)\n"
+            "    return a\n"
+        )
+        nested = (
+            "def f(n):\n"
+            "    a = _outer(n)\n"
+            "    return a\n"
+            "\n"
+            "\n"
+            "def _outer(n):\n"
+            "    a = _inner(n)\n"
+            "    return a\n"
+            "\n"
+            "\n"
+            "def _inner(n):\n"
+            "    a = []\n"
+            "    for i in range(n):\n"
+            "        a.append(i)\n"
+            "    return a\n"
+        )
+        with self.assertRaises(AssertionError) as caught:
+            assert_extractions_preserve_behaviour(original, nested, ["_outer", "_inner"])
+        message = str(caught.exception)
+        self.assertIn("REFUSED", message)
+        self.assertIn("_outer", message)
+        self.assertIn("_inner", message)
+
 
 if __name__ == "__main__":
     unittest.main()

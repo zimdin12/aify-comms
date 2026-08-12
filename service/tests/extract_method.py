@@ -903,10 +903,20 @@ def assert_extractions_preserve_behaviour(
     step. It works, and it rots: every fixture is a second copy of a function that is still being
     edited, and a stale one proves the wrong thing while staying green.
 
-    So the proof generalises instead of multiplying. Inline ALL the helpers back — innermost calls
-    first, so a helper extracted out of another helper collapses before its parent — and require the
+    So the proof generalises instead of multiplying. Inline ALL the helpers back and require the
     single result to equal the original. One fixture, one comparison, and it stays exact however many
     blocks come out later.
+
+    DIRECT SIBLING EXTRACTIONS ONLY, and that is now ENFORCED rather than documented. An earlier
+    draft of this docstring claimed the helpers were inlined "innermost calls first, so a helper
+    extracted out of another helper collapses before its parent". They are not: they are inlined in
+    the order supplied. The reviewer caught the gap between the sentence and the code.
+
+    Narrowing the claim would have been enough for today — all three analytics helpers are called
+    directly by the handler — but a caveat in a docstring is exactly the kind of thing the next
+    person does not read. So a helper that calls another helper in the same list is REFUSED. If
+    nested extraction is ever wanted, the fix is a real topological order with its own tests, not a
+    sentence promising one.
 
     Every per-helper safety check still runs against every helper individually: escapes,
     preconditions, call signature, live-ins and live-outs. Those examine the SPLIT, which is the
@@ -922,6 +932,19 @@ def assert_extractions_preserve_behaviour(
         raise AssertionError(f"extracted helper(s) {missing} not found in the split source")
 
     caller = funcs[original.name]
+
+    # Direct siblings only — see the docstring. Inlining happens in the supplied order, so a helper
+    # that calls another helper in the same list would collapse in the wrong order and the round
+    # trip's verdict would depend on argument order rather than on the code.
+    for helper_name in helper_names:
+        for other in helper_names:
+            if other != helper_name and _helper_call_anywhere(funcs[helper_name], other):
+                raise AssertionError(
+                    f"REFUSED: {helper_name!r} calls {other!r}, and both are in the same extraction "
+                    "list. This verifier inlines in the order given, not in dependency order, so a "
+                    "nested extraction would be proved in the wrong order. Verify nested helpers "
+                    "separately, or add a real topological order with its own tests."
+                )
 
     for helper_name in helper_names:
         helper = funcs[helper_name]
@@ -973,3 +996,16 @@ def assert_extractions_preserve_behaviour(
             "This is the whole proof - if the round trip does not close, something other than a "
             "pure block-lift happened (a reordered statement, a changed name, a dropped line)."
         )
+
+
+def _helper_call_anywhere(fn: ast.AST, helper: str) -> bool:
+    """Does `fn` call `helper` anywhere in its body?
+
+    Used only to refuse nested extractions in `assert_extractions_preserve_behaviour`. Deliberately
+    a plain call search rather than the depth-aware single-site resolver: here the question is
+    whether a dependency exists at all, not where to splice.
+    """
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == helper:
+            return True
+    return False
