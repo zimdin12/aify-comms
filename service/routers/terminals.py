@@ -71,10 +71,10 @@ logger = logging.getLogger("aify_comms.routers.terminals")
 router = domain_router()
 
 
-# Owned here since v0.5.3: `_terminal_status_transition` below is its only reader, so it moved with
-# the function rather than staying in the router behind an accessor. `_TERMINAL_ACTIVE_STATUSES` is
-# NOT in the same position — api_v2 still reads it — so that one is borrowed, not copied.
-# _TERMINAL_MONOTONIC_STATUSES moved to service/api_core/terminal_status.py in v0.5.4.
+# _TERMINAL_MONOTONIC_STATUSES moved to service/api_core/terminal_status.py in v0.5.4, together
+# with `_terminal_status_transition` and `_TERMINAL_ACTIVE_STATUSES`. This module owned it for one
+# release on the grounds that its only reader lived here; the reader left, and a constant does not
+# stay behind its reader.
 
 
 # _terminal_status_transition moved to service/api_core/terminal_status.py in v0.5.4.

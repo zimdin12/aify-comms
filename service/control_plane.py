@@ -340,9 +340,11 @@ def _is_lock_error(exc: BaseException) -> bool:
 
 _MANUAL_STATUSES = {"stopped"}
 
-# _TERMINAL_MONOTONIC_STATUSES moved to service/routers/terminals.py in v0.5.3 with its only
-# reader, _terminal_status_transition. _TERMINAL_ACTIVE_STATUSES below STAYS: api_v2 still reads it.
-# _TERMINAL_ACTIVE_STATUSES moved to service/api_core/terminal_status.py in v0.5.4.
+# Both terminal status sets now live in service/api_core/terminal_status.py, and the history is
+# kept because the reasoning was overtaken twice. v0.5.3 moved _TERMINAL_MONOTONIC_STATUSES to
+# service/routers/terminals.py with its only reader and recorded that _TERMINAL_ACTIVE_STATUSES
+# had to STAY because the carrier read it; v0.5.4 moved both to a neutral leaf, because "the
+# carrier reads it" was never a reason to own a constant — it is a reason to import one.
 _RUNTIME_CONFIG_LIVE_KEYS = {
     "appServerUrl",
     "remoteAuthTokenEnv",
