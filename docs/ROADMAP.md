@@ -235,6 +235,63 @@ The 3b shim in `service/reconcilers/sessions.py` has a removal gate tied to the 
 must not survive that consolidation. A shim that keeps working is exactly how a deferral becomes
 permanent.
 
+### v0.5.3 — SHIPPED. The router monolith is decomposed, and the debt is now visible
+
+`service/routers/api_v2.py` **20,545 -> `service/control_plane.py` 6,964 + a 53-line composition
+module**. 103 route handlers in the old carrier -> **0**. Routes **124 -> 124**, snapshot byte-equal.
+
+The route domains moved out (usage, settings, contracts, stats, shared, analytics, environments,
+spawn_requests, channels, sessions, terminals, meta, maintenance, plus the `dispatch_messages` and
+`agents` packages), all 18 movable borrows were retired by hand one per commit, and the leftover
+helper library — which by then declared no routes at all — was renamed to what it actually is.
+`service/routers/api_v2.py` is now nothing but `include_router` calls, with **no compatibility
+re-export**, so a stale `from service.routers.api_v2 import <helper>` fails loudly.
+
+**TWO NUMBERS WENT THE WRONG WAY, and the release says so rather than burying them:**
+
+| | v0.5.0 | v0.5.3 |
+|---|---|---|
+| borrow shims into the carrier | ~131 | **275** |
+| non-test source files >1000 lines | 5 | **12** |
+| non-test source lines | 66,567 | 72,554 (**+9.0%**) |
+
+Extracting a domain that still needs control-plane helpers *creates* shims; retiring 18 removed far
+less than extraction added. And splitting one 20k-line file into domains cannot avoid producing
+several files over 1000 lines — the seven new ones are all extracted domains. The growth is
+docstrings, gates and explicit shims, not duplicated logic, but it is growth.
+
+**The defensible claim:** the worst single file went from 31% of the repo to 9.6%, and the thing
+that made this codebase expensive — 339 units in one file, every edit touching a 20k-line module —
+is gone. **NOT** "the file-size rule is satisfied". It is not.
+
+**What the process caught, which is again the argument for keeping it:** `_ANSI_RE` declared twice
+in one module with *different* patterns (runtime was never wrong; the dead declaration sat four
+lines above the function it appeared to govern, and the fork gate could not see it because its scan
+collapsed duplicates into a dict); a silent-422 class where a moved handler lost its model import
+and FastAPI demoted the body to a query param; route snapshots that were gitignored and so could
+never run from a clean clone; and three more false-pass holes in the extract-method gate, all found
+by running it on real code rather than reading it.
+
+### v0.6 — the decomposition inventory this release makes visible
+
+Not scheduled, and deliberately not smuggled into v0.5.3 as cleanup. The reviewer's ruling is that
+these are v0.6 scope:
+
+- **12 non-test source files over 1000 lines.** `service/control_plane.py` 6,964 ·
+  `mcp/stdio/server.js` 6,330 · `service/new_dashboard/app.js` 5,081 ·
+  `mcp/stdio/hermes-managed-host.js` 3,016 · `service/routers/dispatch_messages/dispatch.py` 1,715 ·
+  `service/routers/agents/shared.py` 1,460 · `mcp/stdio/pi-session.js` 1,299 ·
+  `service/routers/dispatch_messages/messages.py` 1,223 · `service/routers/agents/identity.py` 1,157 ·
+  `service/routers/dispatch_messages/shared.py` 1,114 · `service/routers/sessions.py` 1,031 ·
+  `service/routers/terminals.py` 1,020.
+- **275 control-plane import lines** across 50 modules. Splitting `control_plane.py` by
+  responsibility is the way that number comes down; retiring shims one at a time is not.
+- **`_compute_live_status_cache` (551 lines)** is the largest single function left and is explicitly
+  OFF-LIMITS until a separate hot-mutator plan exists. It is the process-global, single-worker
+  live-status cache.
+- **Further `get_analytics` splits** only under the approved loop-only / single-return dialect. Three
+  blocks came out in v0.5.3 (314 -> 280 lines); the rest need seams that do not exist yet.
+
 ### Superseded — the original extraction plan
 
 43 functions, 3,530 lines, 15% of `api_v2.py`. **10 slices**, sized to the reviewer's bound (5–8
