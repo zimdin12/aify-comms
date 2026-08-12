@@ -43,7 +43,11 @@ from fastapi import HTTPException, Query, Request
 
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
-from service.api_core.records import _agent_session_to_dict, _environment_record_to_dict, _terminal_session_to_dict
+from service.api_core.records import (
+    _agent_session_to_dict,
+    _environment_record_to_dict,
+    _terminal_session_to_dict,
+)
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 from service.api_core.serialization import _iso_from_ms, _json_loads_or
 from service.api_core.capabilities import _default_console_command, _environment_supports_terminal
@@ -67,7 +71,12 @@ from service.reconcilers.status_cache import invalidate_agent_live_state as _inv
 # Retired borrows: these now have a real owner in the spawn-requests domain.
 from service.routers.spawn_requests import _spawn_request_to_dict, _spawn_spec_to_dict
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
-from service.api_core.workspace import _normalize_workspace_for_environment, _workspace_for_environment, _workspace_root_for
+from service.api_core.workspace import (
+    _normalize_workspace_for_environment,
+    _workspace_for_environment,
+    _workspace_root_for,
+)
+from service.api_core.dispatch_start import _coldstart_spawn_request_for_dispatch
 
 logger = logging.getLogger("aify_comms.routers.sessions")
 
@@ -139,10 +148,6 @@ def _borrowed_session_delete_allowed_statuses():
 
 
 
-async def _coldstart_spawn_request_for_dispatch(*a, **k):
-    from service.control_plane import _coldstart_spawn_request_for_dispatch as _impl
-
-    return await _impl(*a, **k)
 
 
 

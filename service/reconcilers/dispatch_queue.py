@@ -59,6 +59,7 @@ from service.api_core.channel_delivery import (
     _CHANNEL_SIDECAR_DELIVERY_RUNTIMES,
     _insert_messages_via_console,
 )
+from service.api_core.dispatch_start import _coldstart_spawn_request_for_dispatch
 
 logger = logging.getLogger(__name__)
 
@@ -142,9 +143,6 @@ async def _agent_has_live_claimer(db, agent_row, *, settings: Optional[dict[str,
 
 
 
-async def _coldstart_spawn_request_for_dispatch(*a, **k):
-    from service.control_plane import _coldstart_spawn_request_for_dispatch as _i
-    return await _i(*a, **k)
 
 
 

@@ -144,17 +144,32 @@ class EnsureManagedPtyRowAccessTests(unittest.TestCase):
 
     def test_the_production_comparison_uses_indexing(self):
         """Source-pinned because the callable path needs a live DB and a bridge; the defect was
-        purely the accessor, and this is the cheapest honest guard against it returning."""
+        purely the accessor, and this is the cheapest honest guard against it returning.
+
+        v0.5.4: this probe FOUND its subject failing rather than passing vacuously — it named
+        `control_plane.py` and raised ValueError when `_ensure_managed_pty_for_dispatch` moved to
+        `api_core/dispatch_start.py`. That is the correct degradation for a presence assertion and it
+        is why the absence-assertion class was the dangerous one. Still, failing on every move is a
+        cost with no benefit, so it now SEARCHES the service tree and requires exactly one definition
+        — a second copy would let this pick one at random and guard the wrong body.
+        """
         from pathlib import Path
 
         from service.tests._source import code_only
 
-        src = code_only(
-            (Path(__file__).resolve().parents[1] / "control_plane.py").read_text(
-                encoding="utf-8", errors="replace"
-            )
+        needle = "async def _ensure_managed_pty_for_dispatch"
+        root = Path(__file__).resolve().parents[1]
+        owners = [
+            path for path in sorted(root.rglob("*.py"))
+            if "__pycache__" not in path.parts and "tests" not in path.parts
+            and needle in code_only(path.read_text(encoding="utf-8", errors="replace"))
+        ]
+        self.assertEqual(
+            len(owners), 1,
+            f"{needle} must have exactly one definition; found {[p.name for p in owners]}",
         )
-        at = src.index("async def _ensure_managed_pty_for_dispatch")
+        src = code_only(owners[0].read_text(encoding="utf-8", errors="replace"))
+        at = src.index(needle)
         body = src[at : at + 2500]
         self.assertIn('active["session_id"]', body)
         self.assertNotIn('active.get(', body, "Row does not support .get() — this raises")

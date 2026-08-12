@@ -36,6 +36,7 @@ from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _iso_from_ms
 from service.api_core.settings import _load_settings
 from service.api_core.liveness import _resident_bridge_is_fresh
+from service.api_core import dispatch_start  # v0.5.4: call the OWNER, not the carrier alias
 
 
 # Back-compat alias: a few tests below reference _DummyWS directly.
@@ -14764,7 +14765,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             db = await get_db()
             try:
                 settings = await _load_settings(db)
-                created = await api_v2._coldstart_spawn_request_for_dispatch(
+                created = await dispatch_start._coldstart_spawn_request_for_dispatch(
                     db, agent_id, runtime="codex", settings=settings, requested_by="test",
                 )
                 await db.commit()

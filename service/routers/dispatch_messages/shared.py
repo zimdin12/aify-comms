@@ -627,10 +627,6 @@ async def _auto_return_resident_to_managed_if_possible(*a, **k):
 
 
 
-async def _coldstart_spawn_request_for_dispatch(*a, **k):
-    from service.control_plane import _coldstart_spawn_request_for_dispatch as _impl
-
-    return await _impl(*a, **k)
 
 
 async def _create_dispatch_runs(*a, **k):
@@ -657,10 +653,6 @@ def _dispatch_fix_hint(*a, **k):
     return _impl(*a, **k)
 
 
-async def _ensure_managed_pty_for_dispatch(*a, **k):
-    from service.control_plane import _ensure_managed_pty_for_dispatch as _impl
-
-    return await _impl(*a, **k)
 
 
 async def _fail_pending_controls_for_run(*a, **k):

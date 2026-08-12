@@ -74,6 +74,7 @@ from service.api_core.channel_delivery import (
     _insert_messages_via_console,
 )
 from service.api_core.workspace import _normalize_workspace_for_environment, _workspace_root_for
+from service.api_core.dispatch_start import _ensure_managed_pty_for_dispatch
 
 logger = logging.getLogger("aify_comms.routers.spawn_requests")
 
@@ -156,10 +157,6 @@ async def _create_dispatch_runs(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _ensure_managed_pty_for_dispatch(*a, **k):
-    from service.control_plane import _ensure_managed_pty_for_dispatch as _impl
-
-    return await _impl(*a, **k)
 
 
 def _runtime_state_with_handle(*a, **k):

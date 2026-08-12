@@ -56,6 +56,7 @@ from service.ntfy import notify_operator
 # comment is here so the next person does not "tidy away" an import that looks unused.
 from service.models import ChannelCreate, ChannelJoin, ChannelMessage
 from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES
+from service.api_core.dispatch_start import _coldstart_spawn_request_for_dispatch
 
 logger = logging.getLogger("aify_comms.routers.channels")
 
@@ -67,10 +68,6 @@ _CHANNEL_FANOUT_DEDUP_WINDOW_MS = 30_000
 
 
 
-async def _coldstart_spawn_request_for_dispatch(*a, **k):
-    from service.control_plane import _coldstart_spawn_request_for_dispatch as _impl
-
-    return await _impl(*a, **k)
 
 
 async def _create_dispatch_runs(*a, **k):

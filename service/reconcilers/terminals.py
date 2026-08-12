@@ -24,7 +24,10 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from service.api_core.serialization import _json_loads_or  # v0.5.1c: the leaf owner, not via the router
-from service.api_core.events import _append_terminal_control, _append_terminal_event  # v0.5.1i: the leaf owner
+from service.api_core.events import (
+    _append_terminal_control,
+    _append_terminal_event,
+)
 from service.api_core.liveness import _has_live_channel_sidecar, _has_live_terminal_session
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 from service.clock import now as _now

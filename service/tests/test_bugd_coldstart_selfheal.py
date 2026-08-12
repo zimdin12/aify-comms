@@ -27,6 +27,7 @@ from service import control_plane as api_v2  # v0.5.3: helpers live in the contr
 
 from service.tests._base import FastApiTestCase
 from service.api_core.settings import _load_settings
+from service.api_core import dispatch_start  # v0.5.4: call the OWNER, not the carrier alias
 
 
 ENV_ID = "linux:test-host:default"
@@ -125,7 +126,7 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
             db = await get_db()
             try:
                 settings = await _load_settings(db)
-                created = await api_v2._coldstart_spawn_request_for_dispatch(
+                created = await dispatch_start._coldstart_spawn_request_for_dispatch(
                     db, agent_id, runtime=runtime, settings=settings, requested_by="test",
                 )
                 await db.commit()

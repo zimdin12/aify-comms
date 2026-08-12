@@ -118,10 +118,6 @@ async def _auto_return_resident_to_managed_if_possible(*a, **k):
 
 
 
-async def _coldstart_spawn_request_for_dispatch(*a, **k):
-    from service.control_plane import _coldstart_spawn_request_for_dispatch as _impl
-
-    return await _impl(*a, **k)
 
 
 async def _compute_agent_status(*a, **k):
@@ -138,10 +134,6 @@ async def _compute_live_status_cache(*a, **k):
 
 
 
-async def _ensure_managed_pty_for_dispatch(*a, **k):
-    from service.control_plane import _ensure_managed_pty_for_dispatch as _impl
-
-    return await _impl(*a, **k)
 
 
 

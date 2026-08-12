@@ -3,7 +3,12 @@
 import re
 import unittest
 
-from service.terminal_snapshot import drop_live_screen, feed_live_screen, render_live_screen, render_snapshot
+from service.terminal_snapshot import (
+    drop_live_screen,
+    feed_live_screen,
+    render_live_screen,
+    render_snapshot,
+)
 
 
 def _visible(s: str) -> str:
