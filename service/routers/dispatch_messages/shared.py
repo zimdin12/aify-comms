@@ -76,6 +76,7 @@ from service.env_status import environment_effective_status as _environment_effe
 # Imported for the ANNOTATION as much as the call: under postponed evaluation an unresolved
 # model name does not fail import, it fails a type-hint gate or a request at runtime.
 from service.models import DispatchClaimRequest
+from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES
 
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.shared")
 
@@ -146,14 +147,14 @@ async def _bridge_claim_block_reason(
     # Plan 6 follow-up (2026-05-26): wrapper-child bridges (the in-process
     # mcp/stdio/server.js that runs INSIDE a *-aify wrapper PTY) legitimately
     # have a different bridge_id from the environment bridge. They claim
-    # channel-mode runs for managed-via-wrapper agents (see _borrowed_channel_claim_runtimes()
+    # channel-mode runs for managed-via-wrapper agents (see _CHANNEL_CLAIM_RUNTIMES
     # at line 290 and dispatch-execution.js supportedExecutionModes). Without
     # this carve-out, every wrapper-child claim hits "environment_bridge_not_current"
     # at line 1701 because the env bridge_id != the wrapper-child bridge_id —
     # and managed codex/hermes dispatches sit queued forever even when the
     # wrapper PTY is alive and its inner MCP server has registered. Detect a
     # wrapper-child claim by: (a) the request includes 'channel' in executionModes;
-    # (b) the runtime is in _borrowed_channel_claim_runtimes() (managed-via-wrapper-eligible);
+    # (b) the runtime is in _CHANNEL_CLAIM_RUNTIMES (managed-via-wrapper-eligible);
     # (c) the claimant bridge is registered for this agent (in bridge_instances).
     # Operator-observed 2026-05-26 with graph-tester-pi before Pi was moved
     # back to native RPC: inner MCP bridge
@@ -164,7 +165,7 @@ async def _bridge_claim_block_reason(
     bridge_terminal_id = str((row["terminal_id"] if row and "terminal_id" in row.keys() else "") or "").strip()
     is_wrapper_child_claim = (
         "channel" in supported_modes
-        and runtime in _borrowed_channel_claim_runtimes()
+        and runtime in _CHANNEL_CLAIM_RUNTIMES
         and bridge_kind == "managed-wrapper-child"
     )
     # Standalone channel sidecar (Task 1.5/1.5b): the per-agent
@@ -180,7 +181,7 @@ async def _bridge_claim_block_reason(
     # delivery would silently never happen.
     is_channel_sidecar_claim = (
         "channel" in supported_modes
-        and runtime in _borrowed_channel_claim_runtimes()
+        and runtime in _CHANNEL_CLAIM_RUNTIMES
         and str(bridge_kind_hint or "").strip().lower() == "channel-sidecar"
     )
 
@@ -567,18 +568,8 @@ def _borrowed_turn_busy_backstop_seconds():
 
 
 
-def _borrowed_channel_claim_runtimes():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import _CHANNEL_CLAIM_RUNTIMES
-
-    return _CHANNEL_CLAIM_RUNTIMES
 
 
-def _borrowed_channel_managed_runtimes():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import _CHANNEL_MANAGED_RUNTIMES
-
-    return _CHANNEL_MANAGED_RUNTIMES
 
 
 def _borrowed_dispatch_terminal_statuses():
@@ -621,10 +612,6 @@ async def _append_dispatch_control(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _apply_channel_routing_to_claude_runs(*a, **k):
-    from service.control_plane import _apply_channel_routing_to_claude_runs as _impl
-
-    return await _impl(*a, **k)
 
 
 async def _auto_return_resident_to_managed_if_possible(*a, **k):
@@ -707,10 +694,6 @@ async def _has_claimable_spawn_request(*a, **k):
 
 
 
-def _insert_messages_via_console(*a, **k):
-    from service.control_plane import _insert_messages_via_console as _impl
-
-    return _impl(*a, **k)
 
 
 def _is_delivery_only_claude_run(*a, **k):

@@ -44,6 +44,7 @@ from service.reconcilers.terminal_runs import (
     _close_idle_claude_terminal_run_without_reply,
     _close_idle_pi_terminal_run_without_reply,
 )
+from service.api_core.channel_delivery import _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
 
 logger = logging.getLogger(__name__)
 
@@ -129,9 +130,6 @@ def _managed_orphan_grace_seconds():
     return MANAGED_ORPHAN_GRACE_SECONDS
 
 
-def _channel_sidecar_delivery_runtimes():
-    from service.control_plane import _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
-    return _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
 
 
 async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
@@ -176,9 +174,9 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
           AND t.status IN ('starting','attached','running','active','idle','recovering')
           AND t.id NOT LIKE 'vterm_%'
         """.format(
-            placeholders=",".join("?" for _ in _channel_sidecar_delivery_runtimes())
+            placeholders=",".join("?" for _ in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES)
         ),
-        tuple(_channel_sidecar_delivery_runtimes()),
+        tuple(_CHANNEL_SIDECAR_DELIVERY_RUNTIMES),
     )
     rows = await cursor.fetchall()
     now = _now()
@@ -296,9 +294,9 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
         WHERE a.session_mode = 'managed'
           AND a.runtime IN ({placeholders})
         """.format(
-            placeholders=",".join("?" for _ in _channel_sidecar_delivery_runtimes())
+            placeholders=",".join("?" for _ in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES)
         ),
-        tuple(_channel_sidecar_delivery_runtimes()),
+        tuple(_CHANNEL_SIDECAR_DELIVERY_RUNTIMES),
     )
     orphan_agents = await orphan_cursor.fetchall()
     for agent in orphan_agents:

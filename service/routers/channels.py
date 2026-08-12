@@ -55,6 +55,7 @@ from service.ntfy import notify_operator
 # the endpoint 422s at request time. That is the v0.5.2g defect; two gates now catch it, and this
 # comment is here so the next person does not "tidy away" an import that looks unused.
 from service.models import ChannelCreate, ChannelJoin, ChannelMessage
+from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES
 
 logger = logging.getLogger("aify_comms.routers.channels")
 
@@ -64,12 +65,6 @@ router = domain_router()
 _CHANNEL_FANOUT_DEDUP_WINDOW_MS = 30_000
 
 
-def _channel_claim_runtimes():
-    """BORROWED: nine users remain in the router. A copied runtime set is exactly the drift
-    that produced finding N7, so it is read through one owner."""
-    from service.control_plane import _CHANNEL_CLAIM_RUNTIMES
-
-    return _CHANNEL_CLAIM_RUNTIMES
 
 
 async def _coldstart_spawn_request_for_dispatch(*a, **k):
@@ -529,7 +524,7 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
                 # below is permanently False, so coldstarting on it would duplicate-spawn
                 # a LIVE worker on every channel post. Those runtimes spawn on claim,
                 # same as the direct-send path.
-                if member_runtime not in _channel_claim_runtimes():
+                if member_runtime not in _CHANNEL_CLAIM_RUNTIMES:
                     continue
                 if await _has_live_managed_wrapper_child(db, recipient_id):
                     continue

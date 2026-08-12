@@ -47,6 +47,7 @@ from service.api_core.managed_env import _has_pending_or_booting_spawn_request
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
+from service.api_core.channel_delivery import _CHANNEL_FLAG_GATED_RUNTIMES, _CHANNEL_MANAGED_RUNTIMES, _CHANNEL_SIDECAR_DELIVERY_RUNTIMES, _insert_messages_via_console
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +105,7 @@ async def _agent_has_live_claimer(db, agent_row, *, settings: Optional[dict[str,
     #   2. No lease has EVER been recorded ⇒ fall back to the channel-sidecar
     #        heartbeat (pre-existing/older loops + the lazy-claim contract: a
     #        not-yet-polled healthy claimer must NOT be treated as deaf).
-    if runtime in _channel_sidecar_delivery_runtimes():
+    if runtime in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES:
         if await _has_recorded_claimer_lease(db, agent_row["id"]):
             return await _has_live_claimer_lease(db, agent_row["id"])
         return await _has_live_channel_sidecar(db, agent_row["id"])
@@ -199,28 +200,16 @@ async def _managed_environment_unavailable_reason(*a, **k):
 
 
 
-def _insert_messages_via_console(*a, **k):
-    from service.control_plane import _insert_messages_via_console as _i
-    return _i(*a, **k)
 
 
 
 
 
 
-def _channel_flag_gated_runtimes():
-    from service.control_plane import _CHANNEL_FLAG_GATED_RUNTIMES
-    return _CHANNEL_FLAG_GATED_RUNTIMES
 
 
-def _channel_sidecar_delivery_runtimes():
-    from service.control_plane import _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
-    return _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
 
 
-def _channel_managed_runtimes():
-    from service.control_plane import _CHANNEL_MANAGED_RUNTIMES
-    return _CHANNEL_MANAGED_RUNTIMES
 
 
 async def _reap_undeliverable_queued_runs(db, *, backstop_seconds: Optional[int] = None, limit: int = 200) -> list[dict[str, str]]:
@@ -665,7 +654,7 @@ async def _reroute_orphaned_managed_channel_runs(db, *, limit: int = 200) -> int
     settings = await _load_settings(db)
     if _insert_messages_via_console(settings):
         return 0
-    channel_runtimes = sorted(_channel_managed_runtimes() | _channel_flag_gated_runtimes())
+    channel_runtimes = sorted(_CHANNEL_MANAGED_RUNTIMES | _CHANNEL_FLAG_GATED_RUNTIMES)
     if not channel_runtimes:
         return 0
     rt_ph = ",".join("?" for _ in channel_runtimes)

@@ -66,6 +66,7 @@ from service.db import SQLITE_CLAIM_BUSY_TIMEOUT_MS, get_db
 from service.env_status import environment_effective_status as _environment_effective_status
 from service.models import SpawnRequestClaim, SpawnRequestCreate, SpawnRequestUpdate
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
+from service.api_core.channel_delivery import _apply_channel_routing_to_claude_runs, _insert_messages_via_console
 
 logger = logging.getLogger("aify_comms.routers.spawn_requests")
 
@@ -160,16 +161,8 @@ def _runtime_state_with_handle(*a, **k):
     return _impl(*a, **k)
 
 
-async def _apply_channel_routing_to_claude_runs(*a, **k):
-    from service.control_plane import _apply_channel_routing_to_claude_runs as _impl
-
-    return await _impl(*a, **k)
 
 
-def _insert_messages_via_console(*a, **k):
-    from service.control_plane import _insert_messages_via_console as _impl
-
-    return _impl(*a, **k)
 
 
 def _normalize_workspace_for_environment(*a, **k):

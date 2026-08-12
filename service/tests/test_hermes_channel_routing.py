@@ -20,10 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent))
 
-from service.control_plane import (
-    _CHANNEL_CLAIM_RUNTIMES,
-    _agent_execution_mode,
-)
+from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES
+from service.control_plane import _agent_execution_mode
 
 
 def _managed_hermes_row(*, channel_enabled: bool, session_handle: str = "", caps=None):
@@ -139,7 +137,7 @@ def test_managed_claude_channel_behavior_unchanged():
 
 def test_managed_claude_in_channel_managed_runtimes():
     """Guard: claude remains the unconditional channel-managed runtime."""
-    from service.control_plane import _CHANNEL_MANAGED_RUNTIMES
+    from service.api_core.channel_delivery import _CHANNEL_MANAGED_RUNTIMES
 
     assert "claude-code" in _CHANNEL_MANAGED_RUNTIMES
 

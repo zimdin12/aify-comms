@@ -47,10 +47,8 @@ from service.db import init_db  # noqa: E402
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now  # noqa: E402
 from service.routers.api_v2 import router
 from service.api_core.liveness import _has_live_channel_sidecar  # noqa: E402
-from service.control_plane import (
-    _apply_channel_routing_to_claude_runs,
-    _now,
-)
+from service.api_core.channel_delivery import _apply_channel_routing_to_claude_runs
+from service.control_plane import _now
 # v0.5.2m: ONLY this one moved. The other three are still router-owned, so the import stays split
 # rather than being redirected wholesale -- pointing them all at the package would aim them at
 # borrow shims instead of the real owners.

@@ -388,11 +388,6 @@ def _borrowed_terminal_output_writes():
 
 
 
-def _borrowed_channel_claim_runtimes():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import _CHANNEL_CLAIM_RUNTIMES
-
-    return _CHANNEL_CLAIM_RUNTIMES
 
 
 def _borrowed_console_tail_max_bytes():
