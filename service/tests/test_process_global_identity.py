@@ -39,6 +39,15 @@ GLOBALS = {
     # a second module-level assignment gives each importer its own dict, so writers and readers
     # silently stop sharing and every caller just sees a slightly stale settings view.
     "_SETTINGS_CACHE": "service/api_core/settings.py",
+    # MOVED in v0.5.1i, and it is not a constant despite the SHOUTING_CASE: it is an
+    # itertools.count() that mints control ids. Two module-level assignments would give two
+    # importers two independent counters, and the symptom would not be an error -- it would be
+    # DUPLICATE control ids from different call paths, found much later as controls that seem
+    # to collide.
+    "_CONTROL_ID_COUNTER": "service/api_core/events.py",
+    # Moved with the appenders in v0.5.1i. Mutable state again: it drives the prune cadence,
+    # so two copies would each count to the threshold separately and prune at the wrong times.
+    "_terminal_event_counts": "service/api_core/events.py",
 }
 
 # AST, NOT REGEX — and that distinction is the whole gate.
@@ -180,7 +189,16 @@ class ProcessGlobalIdentityTests(unittest.TestCase):
             with self.subTest(name):
                 module = importlib.import_module(module_path)
                 obj = getattr(module, name)
-                self.assertIsInstance(obj, dict)
+                # NOT `isinstance(obj, dict)`. That was incidental to every tracked global being a
+                # dict, and it broke the moment v0.5.1i registered `_CONTROL_ID_COUNTER`, an
+                # itertools.count(). The property under test is IDENTITY across re-import; what the
+                # object must not be is an immutable scalar, because for those "same object" is
+                # meaningless (Python interns small ints and short strings) and the gate would pass
+                # vacuously on a forked value.
+                self.assertNotIsInstance(
+                    obj, (int, float, bool, str, bytes, tuple, frozenset, type(None)),
+                    f"{name} is an immutable scalar; identity across re-import proves nothing for it",
+                )
                 # Re-importing must not produce a second object.
                 self.assertIs(obj, getattr(importlib.import_module(module_path), name))
 
@@ -197,8 +215,6 @@ class ProcessGlobalIdentityTests(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class GateCatchesTheFormsRegexMissedTests(unittest.TestCase):
@@ -253,3 +269,7 @@ class GateCatchesTheFormsRegexMissedTests(unittest.TestCase):
         src = "from service.routers import api_v2\nx = api_v2._LIVE_STATE_CACHE\n"
         self.assertEqual(_by_value_imports(src, "_LIVE_STATE_CACHE"), [])
         self.assertEqual(self._assign_count(src), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

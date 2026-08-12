@@ -18,16 +18,11 @@ import json
 import logging
 from typing import Any, Optional
 
+from service.api_core.events import _append_terminal_event  # v0.5.1i: the leaf owner
 from service.clock import now as _now
 
 logger = logging.getLogger(__name__)
 
-
-async def _append_terminal_event(*args, **kwargs):
-    """Borrowed — 36 call sites in the router. See the module docstring."""
-    from service.routers.api_v2 import _append_terminal_event as _impl
-
-    return await _impl(*args, **kwargs)
 
 
 async def _clear_console_terminal_binding(*args, **kwargs):

@@ -34,6 +34,15 @@ from service.config import get_config
 # `status_cache._LIVE_STATE_CACHE`. `test_process_global_identity` enforces it and caught this exact
 # import when the move was first made.
 from service.api_core import settings as settings_core
+# v0.5.1i: single owner. The COUNTER is reached through the module, never by value.
+from service.api_core import events as events_core
+from service.api_core.events import (
+    _append_dispatch_event,
+    _append_terminal_control,
+    _append_terminal_event,
+    _TERMINAL_EVENT_CAP,
+    _TERMINAL_EVENT_PRUNE_EVERY,
+)
 from service.api_core.ws import _get_ws  # v0.5.1h: accessor only; manager stays on app.state
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import SAFE_NAME_RE, validate_name  # v0.5.1f: one owner
@@ -159,7 +168,6 @@ from service.models import (
 
 _WINDOWS_DRIVE_CWD_RE = re.compile(r"^[a-zA-Z]:/")
 _WSL_DRIVE_CWD_RE = re.compile(r"^/mnt/[a-zA-Z](?:/|$)")
-_CONTROL_ID_COUNTER = itertools.count()
 
 logger = logging.getLogger("aify_comms.api_v2")
 
@@ -5684,45 +5692,10 @@ async def _preflight_live_send_recipients(
     return launchable, not_started
 
 
-async def _append_dispatch_event(db, run_id: str, event_type: str, body: str = ""):
-    await db.execute(
-        "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
-        (run_id, event_type, body or "", _now())
-    )
 
 
-_TERMINAL_EVENT_CAP = 500
-_TERMINAL_EVENT_PRUNE_EVERY = 200
-_terminal_event_counts: dict[str, int] = {}
 
 
-async def _append_terminal_event(db, terminal_id: str, event_type: str, body: str = ""):
-    await db.execute(
-        "INSERT INTO terminal_events (terminal_id, event_type, body, created_at) VALUES (?,?,?,?)",
-        (terminal_id, event_type, body or "", _now()),
-    )
-    # terminal_events gets a row per flushed output chunk and is only ever read
-    # back LIMIT ~200; without pruning it grows unbounded per terminal for the
-    # life of the DB. Amortize the prune (every Nth insert) to keep it bounded
-    # without paying a DELETE on every chunk.
-    count = _terminal_event_counts.get(terminal_id, 0) + 1
-    if count >= _TERMINAL_EVENT_PRUNE_EVERY:
-        _terminal_event_counts[terminal_id] = 0
-        await db.execute(
-            """
-            DELETE FROM terminal_events
-            WHERE terminal_id = ?
-              AND id NOT IN (
-                SELECT id FROM terminal_events
-                WHERE terminal_id = ?
-                ORDER BY id DESC
-                LIMIT ?
-              )
-            """,
-            (terminal_id, terminal_id, _TERMINAL_EVENT_CAP),
-        )
-    else:
-        _terminal_event_counts[terminal_id] = count
 
 
 async def _clear_console_terminal_binding(db, agent_id: str, terminal_id: str, *, now: Optional[str] = None) -> None:
@@ -5767,74 +5740,6 @@ async def _clear_console_terminal_binding(db, agent_id: str, terminal_id: str, *
     await _invalidate_agent_live_state(db, agent_id)
 
 
-async def _append_terminal_control(
-    db,
-    *,
-    terminal_id: str,
-    environment_id: str,
-    bridge_id: str,
-    action: str,
-    requested_by: str = "dashboard",
-    body: str = "",
-    cols: int = 0,
-    rows: int = 0,
-) -> str:
-    control_id = f"termctl_{int(time.time() * 1000)}_{next(_CONTROL_ID_COUNTER):06d}_{uuid.uuid4().hex[:8]}"
-    if str(action or "").strip().lower() == "resize":
-        cursor = await db.execute(
-            """
-            INSERT INTO terminal_controls (
-                id, terminal_id, environment_id, bridge_id, action, body, cols, rows,
-                status, requested_by, requested_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-            ON CONFLICT(terminal_id) WHERE action = 'resize' AND status = 'pending'
-            DO UPDATE SET
-                environment_id = excluded.environment_id,
-                bridge_id = excluded.bridge_id,
-                body = excluded.body,
-                cols = excluded.cols,
-                rows = excluded.rows,
-                requested_by = excluded.requested_by,
-                requested_at = excluded.requested_at
-            RETURNING id
-            """,
-            (
-                control_id,
-                terminal_id,
-                environment_id,
-                bridge_id,
-                "resize",
-                body or "",
-                int(cols or 0),
-                int(rows or 0),
-                "pending",
-                requested_by or "dashboard",
-                _now(),
-            ),
-        )
-        row = await cursor.fetchone()
-        return str(row["id"])
-    await db.execute(
-        """
-        INSERT INTO terminal_controls (
-            id, terminal_id, environment_id, bridge_id, action, body, cols, rows, status, requested_by, requested_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-        """,
-        (
-            control_id,
-            terminal_id,
-            environment_id,
-            bridge_id,
-            action,
-            body or "",
-            int(cols or 0),
-            int(rows or 0),
-            "pending",
-            requested_by or "dashboard",
-            _now(),
-        ),
-    )
-    return control_id
 
 
 def _terminal_status_transition(current_status: str, next_status: str) -> str:

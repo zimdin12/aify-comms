@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from service.api_core.settings import _load_settings, DEFAULT_SETTINGS  # v0.5.1g: the leaf owner
+from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -49,10 +50,6 @@ async def engine_status(*a, **k):
     from service.routers.api_v2 import engine_status as _i
     return await _i(*a, **k)
 
-
-async def _append_dispatch_event(*a, **k):
-    from service.routers.api_v2 import _append_dispatch_event as _i
-    return await _i(*a, **k)
 
 
 async def _clear_status_state_in_turn(*a, **k):

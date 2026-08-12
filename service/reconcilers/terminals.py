@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from service.api_core.serialization import _json_loads_or  # v0.5.1c: the leaf owner, not via the router
+from service.api_core.events import _append_terminal_control, _append_terminal_event  # v0.5.1i: the leaf owner
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -31,14 +32,6 @@ from service.reconcilers.status_cache import invalidate_agent_live_state as _inv
 logger = logging.getLogger(__name__)
 
 
-async def _append_terminal_event(*a, **k):
-    from service.routers.api_v2 import _append_terminal_event as _i
-    return await _i(*a, **k)
-
-
-async def _append_terminal_control(*a, **k):
-    from service.routers.api_v2 import _append_terminal_control as _i
-    return await _i(*a, **k)
 
 
 async def _has_live_channel_sidecar(*a, **k):

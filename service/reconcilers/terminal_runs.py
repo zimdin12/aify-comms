@@ -20,16 +20,13 @@ import time
 from typing import Any, Optional
 
 from service.api_core.runtime import _normalize_runtime  # v0.5.1e: the leaf owner, not via the router
+from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 
 logger = logging.getLogger(__name__)
 
-
-async def _append_dispatch_event(*a, **k):
-    from service.routers.api_v2 import _append_dispatch_event as _i
-    return await _i(*a, **k)
 
 
 async def _current_agent_session_row(*a, **k):
