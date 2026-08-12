@@ -12,6 +12,14 @@
 //
 // It must fail if an extracted span is the wrong function, if untouched whitespace moves, or if the
 // import-deletion mask is broad enough to hide an edit. There are tests for each of those below.
+//
+// ONE PRISTINE FIXTURE, A GROWING PLAN. The first version of this proof compared against a per-slice
+// snapshot, which went stale the moment the next slice touched app.js — a proof that can only run once is
+// a receipt, not a gate. It now reconstructs app.js as it was before ANY extraction, from the current
+// app.js plus every module extracted since, so it keeps proving the WHOLE extraction history was pure and
+// the fixture never needs updating.
+
+const NL = String.fromCharCode(10);
 
 /** Locate a top-level `function NAME(...) {` ... `}` span by brace matching from column 0. */
 export function functionSpan(source, name) {
@@ -34,46 +42,73 @@ export function functionSpan(source, name) {
 }
 
 /**
- * Rebuild the pre-slice file from the post-slice file plus the extracted module.
+ * Rebuild the PRISTINE file (before any extraction) from the current file plus every extracted module.
  *
- * `plan` is explicit rather than inferred, so the proof cannot quietly adapt to whatever the edit did:
- *   marker      the comment line(s) left where the extracted function was; replaced by its body
- *   names       every extracted function, in the ORIGINAL file's order
- *   importLine  the exact import statement added to the consumer; removed
- *   reinsert    names that were removed leaving NO marker, with the line index to restore them at
+ * `extractions` is explicit rather than inferred, so the proof cannot quietly adapt to whatever the edits
+ * did. One entry per slice:
+ *   module      key into `modules` for the extracted module's source
+ *   importLine  the exact import statement that slice added to the consumer; removed
+ *   importWas   what that line replaced, if it edited an existing import instead of adding one
+ *   items       [{ name, at, marker }] — `at` is the PRISTINE line index the body is restored to,
+ *               `marker` the comment line left behind (null if the body was removed leaving nothing)
  */
-export function reconstruct({ after, module: extracted, plan }) {
+export function reconstruct({ after, modules, extractions }) {
   let lines = after.split("\n");
 
-  const importAt = lines.indexOf(plan.importLine);
-  if (importAt === -1) {
-    throw new Error(`import line not found verbatim in the consumer: ${plan.importLine}`);
-  }
-  lines.splice(importAt, 1);
-
-  const markerAt = lines.findIndex((l) => l === plan.marker[0]);
-  if (markerAt === -1) throw new Error("marker comment not found in the consumer");
-  for (let k = 1; k < plan.marker.length; k += 1) {
-    if (lines[markerAt + k] !== plan.marker[k]) {
-      throw new Error(`marker comment line ${k} does not match; the mask would hide an edit`);
+  // 1. remove every import line the extractions added, and restore any line they replaced.
+  for (const step of extractions) {
+    if (step.importLine != null) {
+      const at = lines.indexOf(step.importLine);
+      if (at === -1) throw new Error(`import line not found verbatim: ${step.importLine}`);
+      lines.splice(at, 1, ...(step.importWas == null ? [] : [step.importWas]));
     }
   }
 
-  const bodies = plan.names.map((name) => {
-    const span = functionSpan(extracted, name);
-    if (!span) throw new Error(`${name} not found in the extracted module`);
-    // The single declared substitution: `export ` prepended in the new module.
-    return span.text.replace(/^export\s+/, "");
-  });
-
-  // marker -> the primary body; any additional names are restored at their recorded indices.
-  lines.splice(markerAt, plan.marker.length, ...bodies[0].split("\n"));
-  for (let i = 1; i < bodies.length; i += 1) {
-    const at = plan.reinsert[plan.names[i]];
-    if (at == null) throw new Error(`no reinsert index recorded for ${plan.names[i]}`);
-    lines.splice(at, 0, ...bodies[i].split("\n"));
+  // 2. collect every item across every slice, then process them in ASCENDING pristine order.
+  //
+  // Marker removal and body insertion are PAIRED per item rather than done in two passes. Two passes was
+  // my first attempt and it was wrong: removing a marker shifts every later index, so a body's recorded
+  // pristine index no longer addressed the right place.
+  //
+  // ASCENDING is the correct order and I got it backwards first. To place a body at its pristine index,
+  // everything ABOVE that index must already be pristine — so the lowest index is restored first. Going
+  // descending, inserting at 1068 while an 8-line body at 1041 was still missing put it eight lines too
+  // high, and the reconstruction diff pointed straight at it.
+  const items = [];
+  for (const step of extractions) {
+    const source = modules[step.module];
+    if (source == null) throw new Error(`no source supplied for module ${step.module}`);
+    for (const item of step.items) {
+      const span = functionSpan(source, item.name);
+      if (!span) throw new Error(`${item.name} not found in ${step.module}`);
+      items.push({
+        name: item.name,
+        at: item.at,
+        // `marker` may be several lines: a comment explaining a move is not always one sentence, and a
+        // plan that removes only its first line leaves the rest behind — which showed up as a
+        // reconstruction one line too long.
+        marker: item.marker == null ? [] : [].concat(item.marker),
+        // The single declared substitution: `export ` prepended in the extracted module.
+        body: span.text.replace(/^export\s+/, "").split(NL),
+      });
+    }
   }
-  return lines.join("\n");
+  items.sort((a, b) => a.at - b.at);
+
+  for (const item of items) {
+    if (item.marker.length) {
+      const at = lines.indexOf(item.marker[0]);
+      if (at === -1) throw new Error(`marker not found verbatim for ${item.name}: ${item.marker[0]}`);
+      for (let k = 1; k < item.marker.length; k += 1) {
+        if (lines[at + k] !== item.marker[k]) {
+          throw new Error(`marker line ${k} does not match for ${item.name}; the mask would hide an edit`);
+        }
+      }
+      lines.splice(at, item.marker.length);
+    }
+    lines.splice(item.at, 0, ...item.body);
+  }
+  return lines.join(NL);
 }
 
 /**

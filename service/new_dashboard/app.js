@@ -1,7 +1,7 @@
 // Dashboard Next SPA entry. ES module (DASHBOARD_REBUILD_PLAN §0.1): pure cores live in
 // sibling modules and are imported here; app.js remains the orchestrator (render + actions +
 // the single delegated event handler + init) until later Phase-0 slices split those too.
-import { esc, relTime, tsMs } from './util.js';
+import { esc, fileSizeLabel, relTime, tsMs, usageFmtTokens, usageResetLabel } from './util.js';
 import { createTerminalInputPoster, createTerminalInputHandler, forceTerminalRepaint, waitForTerminalSize, wheelInputSequence } from './terminal-input.mjs';
 import { continueCliInfo, resumeMachineNote } from './cli-resume.mjs';
 import { collapseSupersededSessions, countSupersededSessions } from './sessions-list.mjs';
@@ -303,12 +303,7 @@ function mountChatConsole(agentId, hostEl) {
 async function loadFiles() {
   try { const res = await api('/shared'); state.files = res.files || res || []; } catch (_) { /* keep prior */ }
 }
-function fileSizeLabel(bytes) {
-  const n = Number(bytes || 0);
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1048576).toFixed(1)} MB`;
-}
+// fileSizeLabel moved to ./util.js in v0.5.4.
 function renderFiles() {
   const host = byId('files-list');
   if (!host) return;
@@ -1200,21 +1195,8 @@ async function loadAnalytics(force = false) {
   }
 }
 
-function usageResetLabel(iso) {
-  try {
-    const ms = new Date(iso) - new Date();
-    if (!(ms > 0)) return 'resets soon';
-    const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
-    return h > 0 ? `resets in ${h}h ${m}m` : `resets in ${m}m`;
-  } catch { return ''; }
-}
-function usageFmtTokens(n) {
-  n = Number(n || 0);
-  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
-  return String(n);
-}
+// usageResetLabel moved to ./util.js in v0.5.4.
+// usageFmtTokens moved to ./util.js in v0.5.4.
 // Usage/quota Pools band + Consumption section (2026-06-26). Advisory — read-only.
 function renderUsagePools() {
   const host = byId('usage-pools');

@@ -31,3 +31,36 @@ export const relTime = (iso) => {
   if (hours < 48) return `${hours}h`;
   return `${Math.round(hours / 24)}d`;
 };
+
+
+// v0.5.4: three pure value-to-string formatters arrived from app.js, which could not test them — importing
+// app.js executes module-scope browser code and throws before a test can reach anything in it.
+//
+// They belong here rather than in a new module because this file's docstring already claims exactly the
+// property they have, and because `esc`/`tsMs`/`relTime` are the same kind of thing. Note the header above
+// asserted "safe to import anywhere and unit-test directly" while NOTHING tested it — the claim was true
+// and unenforced, which is how a true claim becomes a stale one. `util.test.mjs` now covers all six.
+
+export function fileSizeLabel(bytes) {
+  const n = Number(bytes || 0);
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1048576).toFixed(1)} MB`;
+}
+
+export function usageResetLabel(iso) {
+  try {
+    const ms = new Date(iso) - new Date();
+    if (!(ms > 0)) return 'resets soon';
+    const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+    return h > 0 ? `resets in ${h}h ${m}m` : `resets in ${m}m`;
+  } catch { return ''; }
+}
+
+export function usageFmtTokens(n) {
+  n = Number(n || 0);
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+  return String(n);
+}

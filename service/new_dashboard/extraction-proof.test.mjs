@@ -1,15 +1,19 @@
-// Proves the settings-fields extraction was a PURE FILE SPLIT, and proves the prover can fail.
+// Proves EVERY app.js extraction so far was a pure file split, and proves the prover can fail.
 //
-// The extracted module's own tests show the moved code works. They cannot show that nothing ELSE in a
-// 5,000-line file changed — a whitespace edit two functions away, a line dropped during the splice, an
-// import inserted in the wrong place. So this reconstructs the pre-slice `app.js` from the post-slice
-// `app.js` plus the extracted module, and requires the result to be byte-identical to the recorded
-// pre-slice text.
+// The extracted modules' own tests show the moved code works. They cannot show that nothing ELSE in a
+// 5,000-line file changed — a whitespace edit two functions away, a line dropped during a splice, an
+// import inserted in the wrong place. So this reconstructs app.js as it was before ANY extraction, from
+// the current app.js plus every module extracted since, and requires byte-identity.
 //
-// The pre-slice source is a TRACKED FIXTURE rather than a `git show`. A proof that needs `.git` does not
-// run from `git archive`, and that exact mistake shipped a route-surface gate in v0.5 that had never been
-// in the repo at all: `.gitignore`'s bare `data/` matched `service/tests/data/`, the snapshots were
-// untracked, and the gate raised FileNotFoundError on a clean clone while passing locally.
+// ONE PRISTINE FIXTURE, A GROWING PLAN. The first version compared against a per-slice snapshot and went
+// stale the moment slice 2 touched app.js — a proof that can only run once is a receipt, not a gate. The
+// fixture below never changes; each slice appends an entry to EXTRACTIONS. So this keeps proving the whole
+// history, and a later slice cannot quietly undo an earlier one.
+//
+// The fixture is TRACKED, not a `git show`. A proof that needs `.git` does not run from `git archive`, and
+// that exact mistake shipped a route-surface gate in v0.5 that had never been in the repo at all:
+// `.gitignore`'s bare `data/` matched `service/tests/data/`, the snapshots were untracked, and the gate
+// raised FileNotFoundError on a clean clone while passing locally.
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -23,60 +27,109 @@ import { functionSpan, moduleScopeBrowserRefs, reconstruct } from "./extraction-
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = (p) => fs.readFileSync(path.join(HERE, p), "utf-8");
 
-const PLAN = {
-  names: ["settingsFieldHtml", "themePreviewTilesHtml"],
-  importLine: "import { settingsFieldHtml } from './settings-fields.mjs';",
-  marker: [
-    "// settingsFieldHtml moved to ./settings-fields.mjs in v0.5.4 (with themePreviewTilesHtml, which",
-    "// only it calls and which stays private there).",
-  ],
-  // themePreviewTilesHtml was removed leaving no marker; it is restored at its original line index.
-  reinsert: { themePreviewTilesHtml: 1041 },
-};
+const PRISTINE = "fixtures/app.before-settings-fields.js";
 
-test("app.js reconstructs byte-identically from the split plus the extracted module", () => {
-  const rebuilt = reconstruct({
-    after: read("app.js"),
-    module: read("settings-fields.mjs"),
-    plan: PLAN,
+/** One entry per extraction slice, in order. `at` values are indices into the PRISTINE file. */
+const EXTRACTIONS = [
+  {
+    module: "settings-fields.mjs",
+    importLine: "import { settingsFieldHtml } from './settings-fields.mjs';",
+    items: [
+      {
+        name: "settingsFieldHtml",
+        at: 1068,
+        marker: [
+          "// settingsFieldHtml moved to ./settings-fields.mjs in v0.5.4 (with themePreviewTilesHtml, which",
+          "// only it calls and which stays private there).",
+        ],
+      },
+      { name: "themePreviewTilesHtml", at: 1041, marker: null },
+    ],
+  },
+  {
+    module: "util.js",
+    // This slice EDITED an existing import rather than adding a line, so the proof restores the old text.
+    importLine:
+      "import { esc, fileSizeLabel, relTime, tsMs, usageFmtTokens, usageResetLabel } from './util.js';",
+    importWas: "import { esc, relTime, tsMs } from './util.js';",
+    items: [
+      // Indices are 0-based positions in the PRISTINE fixture, MEASURED from it rather than copied from
+      // the extraction script's output — my first values came from the post-slice-1 file and were wrong by
+      // one and by forty-six. The proof caught it, which is the point of it being position-sensitive.
+      { name: "fileSizeLabel", at: 304, marker: "// fileSizeLabel moved to ./util.js in v0.5.4." },
+      { name: "usageResetLabel", at: 1248, marker: "// usageResetLabel moved to ./util.js in v0.5.4." },
+      { name: "usageFmtTokens", at: 1256, marker: "// usageFmtTokens moved to ./util.js in v0.5.4." },
+    ],
+  },
+];
+
+const MODULES = () => ({
+  "settings-fields.mjs": read("settings-fields.mjs"),
+  "util.js": read("util.js"),
+});
+
+function rebuild(overrides = {}) {
+  return reconstruct({
+    after: overrides.after ?? read("app.js"),
+    modules: overrides.modules ?? MODULES(),
+    extractions: overrides.extractions ?? EXTRACTIONS,
   });
-  const expected = read("fixtures/app.before-settings-fields.js");
+}
+
+test("app.js reconstructs byte-identically from every extraction to date", () => {
   assert.equal(
-    rebuilt,
-    expected,
-    "reconstruction differs from the pre-slice app.js, so the split changed something outside the "
-      + "extracted spans",
+    rebuild(),
+    read(PRISTINE),
+    "reconstruction differs from the pre-extraction app.js, so some slice changed something outside the "
+      + "spans it declared",
   );
 });
 
-test("the reconstruction fixture is TRACKED, not ignored", () => {
-  // Guards the v0.5 failure directly: a fixture matched by .gitignore passes here and does not exist in
-  // the candidate tree.
-  const rel = "service/new_dashboard/fixtures/app.before-settings-fields.js";
-  const out = execFileSyncSafe("git", ["check-ignore", rel]);
-  assert.equal(out.ignored, false, `${rel} is git-ignored, so this proof would not exist on a clean clone`);
+test("the second slice's marker comment is missing from app.js for one of its items", () => {
+  // A guard on the plan itself: the marker text is asserted verbatim by reconstruct(), so if a slice's
+  // marker were mistyped here the proof would throw rather than silently skip that body.
+  const source = read("app.js");
+  for (const step of EXTRACTIONS) {
+    for (const item of step.items) {
+      if (item.marker == null) continue;
+      assert.ok(
+        source.includes([].concat(item.marker)[0]),
+        `${item.name}'s marker is not in app.js verbatim, so the plan and the file disagree`,
+      );
+    }
+  }
 });
 
-function execFileSyncSafe(cmd, args) {
+test("the reconstruction fixture is TRACKED, not ignored", () => {
+  const rel = `service/new_dashboard/${PRISTINE}`;
+  assert.equal(
+    isGitIgnored(rel),
+    false,
+    `${rel} is git-ignored, so this proof would not exist on a clean clone`,
+  );
+});
+
+function isGitIgnored(rel) {
   // `git check-ignore` exits 1 when the path is NOT ignored, which is the success case here. Written with
   // a static import because this file is ESM and `require` is not defined in it — my first version used
   // `require` and the test failed on the harness rather than on the property.
   try {
-    execFileSync(cmd, args, { cwd: path.join(HERE, "..", ".."), stdio: "pipe" });
-    return { ignored: true };
+    execFileSync("git", ["check-ignore", rel], { cwd: path.join(HERE, "..", ".."), stdio: "pipe" });
+    return true;
   } catch {
-    return { ignored: false };
+    return false;
   }
 }
 
-test("the extracted module has NO module-scope browser globals", () => {
-  const hits = moduleScopeBrowserRefs(read("settings-fields.mjs"));
-  assert.deepEqual(
-    hits,
-    [],
-    "an extracted module with module-scope browser code is as unimportable as app.js, which defeats the "
-      + `point of extracting it: ${JSON.stringify(hits)}`,
-  );
+test("every extracted module has NO module-scope browser globals", () => {
+  for (const [name, source] of Object.entries(MODULES())) {
+    assert.deepEqual(
+      moduleScopeBrowserRefs(source),
+      [],
+      `${name} has module-scope browser code, which makes it as unimportable as app.js and defeats the `
+        + "point of extracting into it",
+    );
+  }
 });
 
 test("the purity check can actually SEE a module-scope browser global", () => {
@@ -88,18 +141,18 @@ test("the purity check can actually SEE a module-scope browser global", () => {
 
 test("the purity check ignores browser globals INSIDE a function body", () => {
   // A function that touches the DOM when CALLED is fine; only module scope runs on import.
-  const hits = moduleScopeBrowserRefs("function f() {\n  return document.title;\n}\n");
-  assert.deepEqual(hits, []);
+  assert.deepEqual(moduleScopeBrowserRefs("function f() {\n  return document.title;\n}\n"), []);
 });
 
-test("reconstruction REFUSES when the wrong function is substituted", () => {
-  // Swapping the order changes which body lands at the marker and which is re-inserted, and the plan no
-  // longer has an index for the one that moved. It throws rather than returning a merely-different string,
-  // which is the better failure: a proof that cannot map its inputs must stop, not disagree.
-  const swapped = { ...PLAN, names: ["themePreviewTilesHtml", "settingsFieldHtml"] };
-  assert.throws(
-    () => reconstruct({ after: read("app.js"), module: read("settings-fields.mjs"), plan: swapped }),
-    /no reinsert index recorded for settingsFieldHtml/,
+test("reconstruction FAILS when a body is restored at the wrong line", () => {
+  const shifted = EXTRACTIONS.map((step) => ({
+    ...step,
+    items: step.items.map((item, i) => (i === 0 ? { ...item, at: item.at + 1 } : item)),
+  }));
+  assert.notEqual(
+    rebuild({ extractions: shifted }),
+    read(PRISTINE),
+    "an off-by-one in a restore index must break reconstruction, or the proof is not position-sensitive",
   );
 });
 
@@ -112,30 +165,28 @@ test("reconstruction FAILS when whitespace outside the extracted spans moves", (
   assert.ok(original.includes(needle), "the tamper target must exist in app.js");
   const tampered = original.replace(needle, "const  SETTINGS_SCHEMA = [");
   assert.notEqual(tampered, original, "the tamper must actually change the source");
-
-  const rebuilt = reconstruct({ after: tampered, module: read("settings-fields.mjs"), plan: PLAN });
-  assert.notEqual(
-    rebuilt,
-    read("fixtures/app.before-settings-fields.js"),
-    "an edit outside the extracted spans must break reconstruction",
-  );
+  assert.notEqual(rebuild({ after: tampered }), read(PRISTINE));
 });
 
-test("reconstruction FAILS when the marker comment does not match verbatim", () => {
-  const tampered = read("app.js").replace(PLAN.marker[1], "// only it calls.");
+test("reconstruction REFUSES when a marker comment does not match verbatim", () => {
+  const marker = [].concat(EXTRACTIONS[1].items[0].marker)[0];
+  const tampered = read("app.js").replace(marker, "// fileSizeLabel moved.");
   assert.throws(
-    () => reconstruct({ after: tampered, module: read("settings-fields.mjs"), plan: PLAN }),
-    /marker comment line 1 does not match/,
+    () => rebuild({ after: tampered }),
+    /marker not found verbatim for fileSizeLabel/,
     "a loosened marker mask could hide an edit, so a changed marker must throw rather than adapt",
   );
 });
 
-test("reconstruction FAILS when the import line is absent", () => {
-  const tampered = read("app.js").replace(PLAN.importLine, "import { settingsFieldHtml } from './x.mjs';");
-  assert.throws(
-    () => reconstruct({ after: tampered, module: read("settings-fields.mjs"), plan: PLAN }),
-    /import line not found verbatim/,
-  );
+test("reconstruction REFUSES when an added import line is absent", () => {
+  const tampered = read("app.js").replace(EXTRACTIONS[0].importLine, "import { x } from './y.mjs';");
+  assert.throws(() => rebuild({ after: tampered }), /import line not found verbatim/);
+});
+
+test("reconstruction REFUSES when an extracted function is missing from its module", () => {
+  const modules = MODULES();
+  modules["util.js"] = modules["util.js"].replace("export function fileSizeLabel", "function fileSizeLabelX");
+  assert.throws(() => rebuild({ modules }), /fileSizeLabel not found in util\.js/);
 });
 
 test("functionSpan finds a whole brace-matched body, not the first closing brace", () => {

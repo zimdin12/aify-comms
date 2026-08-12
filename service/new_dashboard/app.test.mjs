@@ -20,7 +20,16 @@ test("app.js loads as an ES module (Phase 0.1) and imports the extracted pure co
   const html = read("index.html");
   assert.match(html, /<script type="module" src="\/assets\/app\.js">/, "index.html must load app.js as a module");
   const source = read("app.js");
-  assert.match(source, /import \{ esc, relTime, tsMs \} from '\.\/util\.js'/);
+  // v0.5.4: pinned the EXACT import list, so every extraction that adds a name to util.js edited this
+  // line. What the test cares about is that app.js imports its pure cores from util.js rather than
+  // redefining them, not which names exist this week — so it asserts the source module and requires the
+  // long-standing three to be among the imported names.
+  const utilImport = source.match(/import \{([^}]*)\} from '\.\/util\.js'/);
+  assert.ok(utilImport, "app.js must import its pure cores from util.js");
+  const utilNames = utilImport[1].split(',').map((n) => n.trim());
+  for (const name of ['esc', 'relTime', 'tsMs']) {
+    assert.ok(utilNames.includes(name), `${name} must still come from util.js, not be redefined`);
+  }
   assert.match(source, /from '\.\/terminal-input\.mjs'/);
   assert.match(source, /from '\.\/status\.js'/);
   assert.match(source, /from '\.\/console-chooser\.js'/);
