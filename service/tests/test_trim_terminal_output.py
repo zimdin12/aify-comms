@@ -1,7 +1,7 @@
 """_trim_terminal_output keeps the tail starting at a clean LINE boundary so the dashboard
 never seeds a fresh xterm with a half-line / truncated ANSI escape (glitchy console, 2026-06-07)."""
 
-from service.routers.api_v2 import _trim_terminal_output
+from service.routers.terminals import _trim_terminal_output
 
 
 def test_short_output_unchanged():

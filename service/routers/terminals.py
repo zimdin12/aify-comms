@@ -74,11 +74,21 @@ def _terminal_status_transition(*a, **k):
 
 
 
-def _trim_terminal_output(*a, **k):
-    """BORROWED: still used by router-owned console code."""
-    from service.routers.api_v2 import _trim_terminal_output as _impl
-
-    return _impl(*a, **k)
+def _trim_terminal_output(text: str, max_chars: int = 65536) -> str:
+    value = str(text or "")
+    if len(value) <= max_chars:
+        return value
+    tail = value[-max_chars:]
+    # Start the kept tail at a clean LINE boundary (2026-06-07). A raw char-count slice
+    # routinely cuts mid-line or — worse — mid-ANSI-escape-sequence, so when the dashboard
+    # seeds a FRESH xterm with this buffer the leading bytes are a broken escape that xterm
+    # misparses into on-screen garbage (part of the "glitchy console" report). Dropping at
+    # most the first partial line makes the seed parse cleanly. If the whole window is one
+    # huge line (no newline), fall back to the raw tail rather than return empty.
+    newline = tail.find("\n")
+    if 0 <= newline < len(tail) - 1:
+        return tail[newline + 1:]
+    return tail
 
 
 
