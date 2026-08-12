@@ -48,6 +48,7 @@ const GATEWAY = "hermes-gateway.mjs";
 const ENV = "hermes-env.mjs";
 const SESSION = "hermes-active-session.mjs";
 const REPORTING = "hermes-run-reporting.mjs";
+const INFLIGHT = "hermes-inflight.mjs";
 
 /** Indices are 0-based positions in the PRISTINE fixture, measured from it. */
 const EXTRACTIONS = [
@@ -102,6 +103,17 @@ const EXTRACTIONS = [
     ],
   },
   {
+    module: INFLIGHT,
+    items: [
+      { name: "REPULSE_MS", at: 174, marker: "// REPULSE_MS moved to ./hermes-inflight.mjs in v0.5.4." },
+      { name: "TURN_START_TIMEOUT_MS", at: 175, marker: "// TURN_START_TIMEOUT_MS moved to ./hermes-inflight.mjs in v0.5.4." },
+      { name: "REPULSE_WINDOW_MS", at: 194, marker: "// REPULSE_WINDOW_MS moved to ./hermes-inflight.mjs in v0.5.4." },
+      { name: "fetchRunStatus", at: 919, marker: "// fetchRunStatus moved to ./hermes-inflight.mjs in v0.5.4." },
+      { name: "makeInFlightProbe", at: 1595, marker: "// makeInFlightProbe moved to ./hermes-inflight.mjs in v0.5.4.", pristineExported: true },
+      { name: "makeInFlightPulse", at: 1731, marker: "// makeInFlightPulse moved to ./hermes-inflight.mjs in v0.5.4.", pristineExported: true },
+    ],
+  },
+  {
     module: REPORTING,
     items: [
       { name: "CHANNEL_BRIDGE_PREFIX", at: 110, marker: "// CHANNEL_BRIDGE_PREFIX moved to ./hermes-run-reporting.mjs in v0.5.4 with its only reader." },
@@ -131,6 +143,7 @@ const MODULES = () => ({
   [ENV]: read(ENV),
   [SESSION]: read(SESSION),
   [REPORTING]: read(REPORTING),
+  [INFLIGHT]: read(INFLIGHT),
 });
 
 // Import lines the extractions added, in their CURRENT form. The env line is shared by both slices — the
@@ -171,6 +184,7 @@ function hostWithoutSliceImports() {
     '} from "./hermes-gateway.mjs";',
     '} from "./hermes-active-session.mjs";',
     '} from "./hermes-run-reporting.mjs";',
+    '} from "./hermes-inflight.mjs";',
   ]) {
     const close = lines.findIndex((l) => l.startsWith(from));
     assert.notEqual(close, -1, `the import block ending in ${from} must be present verbatim`);

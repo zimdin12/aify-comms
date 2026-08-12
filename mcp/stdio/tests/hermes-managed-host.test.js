@@ -46,9 +46,11 @@ import {
 } from "../hermes-active-session.mjs";
 import { runResolveSessionCli } from "../hermes-active-session.mjs";
 import {
-  deliverRun,
   makeInFlightProbe,
   makeInFlightPulse,
+} from "../hermes-inflight.mjs";
+import {
+  deliverRun,
   makeTeardown,
   noTuiAttachedMessage,
   runCli,
