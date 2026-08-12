@@ -7339,47 +7339,7 @@ async def _agent_has_live_claimer(db, agent_row, *, settings: Optional[dict[str,
         return False
 
 
-async def _mirror_undeliverable_queued_run_to_sender(db, row, *, reason: str) -> Optional[str]:
-    """Write a reply/handoff message from the target back to the original sender
-    so an undeliverable queued run (Task 3.2) surfaces instead of vanishing.
-
-    Mirrors the shape of `_mirror_missing_dispatch_handoff` but works for a
-    QUEUED run that never reached the agent (no result handoff path applies).
-    Skips dashboard senders (the dashboard reads the failed run directly).
-    """
-    from_agent = str((row["target_agent"] if row else "") or "").strip()
-    to_agent = str((row["from_agent"] if row else "") or "").strip()
-    if not to_agent or to_agent == "dashboard" or not from_agent:
-        return None
-    subject = str((row["subject"] if row else "") or (row["id"] if row else "") or "dispatch").strip()
-    ts = int(time.time() * 1000)
-    message_id = f"{ts}-{uuid.uuid4().hex[:8]}"
-    body = (
-        "Your queued message was never delivered: the target has no live worker "
-        f"(no live claimer) and the run was failed by the queued-run backstop.\n\n{reason}"
-    )
-    await db.execute(
-        """
-        INSERT INTO messages (
-            id, from_agent, to_agent, source, type, subject, body, priority,
-            dispatch_requested, in_reply_to, timestamp
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-        """,
-        (
-            message_id,
-            from_agent,
-            to_agent,
-            "direct",
-            "error",
-            f"[NOT DELIVERED] {subject}",
-            body,
-            str((row["priority"] if row else "") or "normal"),
-            0,
-            str((row["message_id"] if row and "message_id" in row.keys() else "") or "") or None,
-            ts,
-        ),
-    )
-    return message_id
+# _mirror_undeliverable_queued_run_to_sender moved to service/reconcilers/dispatch_queue.py in v0.5.3.
 
 
 

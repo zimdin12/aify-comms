@@ -3,21 +3,23 @@
 v0.5 slice 7, extracted from `service/routers/api_v2.py`. Dependency table measured with the
 every-name scan before the move.
 
-THIS SLICE BORROWS THE MOST — thirteen functions and four constants — and that is the honest shape of
-the dispatch seam rather than a shortcut. Each borrowed name is either a many-caller helper
-(`_append_dispatch_event`, `_create_dispatch_runs`, `_load_settings`) or a constant whose duplication
-would be a drift hazard. Moving them would convert a 471-line relocation into a rewrite of the
-dispatch core, which is not what an empty-behaviour-changelog release does.
+THIS SLICE BORROWS THE MOST — eight functions and three constants as of v0.5.3, down from thirteen
+and four at extraction — and that is the honest shape of the dispatch seam rather than a shortcut.
+`_load_settings`, `_append_dispatch_event` and the runtime normalizers were repointed at their leaf
+owners in v0.5.1e/g/i; `_mirror_undeliverable_queued_run_to_sender` was retired into this module in
+v0.5.3 because this file held its only caller. Each name still borrowed is either a many-caller helper
+(`_create_dispatch_runs`, `_finalize_dispatch_runs`, `_agent_has_live_claimer`) or a constant whose
+duplication would be a drift hazard. Moving them would convert a 471-line relocation into a rewrite
+of the dispatch core, which is not what an empty-behaviour-changelog release does.
 
-`_load_settings` is borrowed here rather than seamed, and that is a DEPARTURE from slices 1a/2/3a/5
-worth flagging to review: three of these five read settings, two of them for several keys each and
-one inside a loop over environments. Hoisting all of that to the caller would change more than the
-moment of a read. The borrow keeps behaviour identical; the seam can be applied later per-function
-once each one's keys are settled.
+The `_load_settings` DEPARTURE noted at extraction — borrowed rather than seamed, because three of
+these five read settings and one does it inside a loop over environments — was resolved by the leaf
+extraction rather than by the seam: `service/api_core/settings.py` owns it now, so the read happens
+in the same place it always did and no caller had to hoist anything.
 
-Those borrows are the visible debt of the extraction. Together with slice 3b's `_agent_liveness` and
-slice 4/5/6's terminal helpers, they are the decision waiting at the end of slice 10: consolidate, or
-accept a router that leaf modules still reach into.
+The remaining borrows are the visible debt of this extraction. Together with slice 3b's
+`_agent_liveness` and slice 4/5/6's terminal helpers, they are the decision waiting at the end of
+slice 10: consolidate, or accept a router that leaf modules still reach into.
 """
 
 from __future__ import annotations
@@ -55,9 +57,47 @@ async def _has_pending_or_booting_spawn_request(*a, **k):
     return await _i(*a, **k)
 
 
-async def _mirror_undeliverable_queued_run_to_sender(*a, **k):
-    from service.routers.api_v2 import _mirror_undeliverable_queued_run_to_sender as _i
-    return await _i(*a, **k)
+async def _mirror_undeliverable_queued_run_to_sender(db, row, *, reason: str) -> Optional[str]:
+    """Write a reply/handoff message from the target back to the original sender
+    so an undeliverable queued run (Task 3.2) surfaces instead of vanishing.
+
+    Mirrors the shape of `_mirror_missing_dispatch_handoff` but works for a
+    QUEUED run that never reached the agent (no result handoff path applies).
+    Skips dashboard senders (the dashboard reads the failed run directly).
+    """
+    from_agent = str((row["target_agent"] if row else "") or "").strip()
+    to_agent = str((row["from_agent"] if row else "") or "").strip()
+    if not to_agent or to_agent == "dashboard" or not from_agent:
+        return None
+    subject = str((row["subject"] if row else "") or (row["id"] if row else "") or "dispatch").strip()
+    ts = int(time.time() * 1000)
+    message_id = f"{ts}-{uuid.uuid4().hex[:8]}"
+    body = (
+        "Your queued message was never delivered: the target has no live worker "
+        f"(no live claimer) and the run was failed by the queued-run backstop.\n\n{reason}"
+    )
+    await db.execute(
+        """
+        INSERT INTO messages (
+            id, from_agent, to_agent, source, type, subject, body, priority,
+            dispatch_requested, in_reply_to, timestamp
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            message_id,
+            from_agent,
+            to_agent,
+            "direct",
+            "error",
+            f"[NOT DELIVERED] {subject}",
+            body,
+            str((row["priority"] if row else "") or "normal"),
+            0,
+            str((row["message_id"] if row and "message_id" in row.keys() else "") or "") or None,
+            ts,
+        ),
+    )
+    return message_id
 
 
 
