@@ -6788,76 +6788,7 @@ def _wake_agent(agent_id: str):
 
 
 
-async def _agent_has_live_claimer(db, agent_row, *, settings: Optional[dict[str, Any]] = None) -> bool:
-    """WS3 (2026-06-02): True when SOME process can claim + deliver a dispatch to
-    this agent right now — the runtime-agnostic "live claimer" deliverability
-    predicate used by the queued-run backstop (Task 3.2). (Task 3.3 deaf-target
-    fail-fast was BLOCKED — see report — because a healthy wrapper-backed managed
-    agent legitimately has a live console but no yet-registered claimer before its
-    first /dispatch/claim poll, so this predicate cannot distinguish a deaf target
-    from a not-yet-polled-healthy one at SEND time. The backstop reaper applies it
-    only AFTER a long age window, where that ambiguity has resolved.)
-
-    A live claimer is one of:
-      - managed sidecar-delivery runtimes (claude-code / hermes): a fresh,
-        non-superseded channel-sidecar bridge heartbeat (the claude-channel.js /
-        hermes delivery loop that actually claims) — the SAME signal as the
-        Task 3.1 status gate.
-      - resident: a fresh resident bridge (its MCP bridge or its channel sidecar).
-      - native managed (codex / pi / opencode): any fresh, non-superseded
-        bridge_instances row for the agent (the managed env bridge / RPC worker
-        that claims via /dispatch/claim).
-
-    NOTE deliberately distinct from "available for cold lazy-autostart": a managed
-    agent that is registered but has NO worker yet has no claimer here, but the
-    send path still queues to it so the bridge can spawn-on-claim. This predicate
-    only proves a claimer is ALIVE RIGHT NOW — callers decide whether absence is
-    a fail-fast (up-but-deaf) or a benign cold start.
-    """
-    if agent_row is None:
-        return False
-    settings = settings or await _load_settings(db)
-    runtime = _normalize_runtime(agent_row["runtime"] or "")
-    session_mode = _normalize_session_mode(agent_row["session_mode"] or "resident")
-    if session_mode == "resident":
-        return await _resident_bridge_is_fresh(
-            db, agent_row, lease_seconds=int(settings.get("resident_lease_seconds", 150) or 150)
-        )
-    # Managed sidecar-delivery runtimes: the channel-sidecar / delivery loop IS
-    # the claimer. WS5 Task 5.1 (2026-06-02): PREFER the explicit claimer lease.
-    # A lease is the positive "the loop is a live claimer right now" signal the
-    # delivery loop POSTs on ready and clears on teardown — it resolves the
-    # lazy-claim ambiguity that BLOCKED the Task 3.3/5.1b deaf-target fail-fast.
-    # Precedence:
-    #   1. A lease has been recorded ⇒ the lease is AUTHORITATIVE:
-    #        acquired+fresh ⇒ deliverable; released/stale ⇒ NOT deliverable
-    #        (immediately — no waiting for the 180s sidecar staleness window).
-    #   2. No lease has EVER been recorded ⇒ fall back to the channel-sidecar
-    #        heartbeat (pre-existing/older loops + the lazy-claim contract: a
-    #        not-yet-polled healthy claimer must NOT be treated as deaf).
-    if runtime in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES:
-        if await _has_recorded_claimer_lease(db, agent_row["id"]):
-            return await _has_live_claimer_lease(db, agent_row["id"])
-        return await _has_live_channel_sidecar(db, agent_row["id"])
-    # Native managed (codex / pi / opencode): a fresh, non-superseded bridge row
-    # for the agent is the claiming worker. Channel sidecar also counts (defensive).
-    if await _has_live_channel_sidecar(db, agent_row["id"]):
-        return True
-    try:
-        stale_param = f"-{ACTIVE_RUN_BRIDGE_STALE_SECONDS} seconds"
-        cursor = await db.execute(
-            """
-            SELECT 1 FROM bridge_instances
-            WHERE agent_id = ?
-              AND COALESCE(superseded_by, '') = ''
-              AND datetime(last_seen) > datetime('now', ?)
-            LIMIT 1
-            """,
-            (agent_row["id"], stale_param),
-        )
-        return await cursor.fetchone() is not None
-    except Exception:
-        return False
+# _agent_has_live_claimer moved to service/reconcilers/dispatch_queue.py in v0.5.3.
 
 
 # _mirror_undeliverable_queued_run_to_sender moved to service/reconcilers/dispatch_queue.py in v0.5.3.

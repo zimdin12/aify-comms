@@ -3,12 +3,15 @@
 v0.5 slice 7, extracted from `service/routers/api_v2.py`. Dependency table measured with the
 every-name scan before the move.
 
-THIS SLICE BORROWS THE MOST — eight functions and three constants as of v0.5.3, down from thirteen
-and four at extraction — and that is the honest shape of the dispatch seam rather than a shortcut.
-`_load_settings`, `_append_dispatch_event` and the runtime normalizers were repointed at their leaf
-owners in v0.5.1e/g/i; `_mirror_undeliverable_queued_run_to_sender` was retired into this module in
-v0.5.3 because this file held its only caller. Each name still borrowed is either a many-caller helper
-(`_create_dispatch_runs`, `_finalize_dispatch_runs`, `_agent_has_live_claimer`) or a constant whose
+THIS SLICE BORROWS THE MOST — ten functions and four constants as of v0.5.3, and the function count
+went UP rather than down, which is worth stating plainly. `_load_settings`, `_append_dispatch_event`
+and the runtime normalizers were repointed at their leaf owners in v0.5.1e/g/i, and two helpers
+(`_mirror_undeliverable_queued_run_to_sender`, `_agent_has_live_claimer`) were RETIRED into this
+module in v0.5.3 because this file held their only callers. But `_agent_has_live_claimer` calls three
+router-owned helpers of its own, so retiring it traded one borrow for three. That is the right trade
+— a 70-line predicate now lives with its caller instead of 700 lines away — but it is a trade, not a
+free win, and the borrow table is the place to admit it. Each name still borrowed is either a many-caller helper
+(`_create_dispatch_runs`, `_finalize_dispatch_runs`, `_insert_messages_via_console`) or a constant whose
 duplication would be a drift hazard. Moving them would convert a 471-line relocation into a rewrite
 of the dispatch core, which is not what an empty-behaviour-changelog release does.
 
@@ -41,9 +44,91 @@ from service.reconcilers.status_cache import invalidate_agent_live_state as _inv
 logger = logging.getLogger(__name__)
 
 
-async def _agent_has_live_claimer(*a, **k):
-    from service.routers.api_v2 import _agent_has_live_claimer as _i
+async def _has_live_claimer_lease(*a, **k):
+    from service.routers.api_v2 import _has_live_claimer_lease as _i
     return await _i(*a, **k)
+
+
+async def _has_recorded_claimer_lease(*a, **k):
+    from service.routers.api_v2 import _has_recorded_claimer_lease as _i
+    return await _i(*a, **k)
+
+
+def _resident_bridge_is_fresh(*a, **k):
+    from service.routers.api_v2 import _resident_bridge_is_fresh as _i
+    return _i(*a, **k)
+
+
+async def _agent_has_live_claimer(db, agent_row, *, settings: Optional[dict[str, Any]] = None) -> bool:
+    """WS3 (2026-06-02): True when SOME process can claim + deliver a dispatch to
+    this agent right now — the runtime-agnostic "live claimer" deliverability
+    predicate used by the queued-run backstop (Task 3.2). (Task 3.3 deaf-target
+    fail-fast was BLOCKED — see report — because a healthy wrapper-backed managed
+    agent legitimately has a live console but no yet-registered claimer before its
+    first /dispatch/claim poll, so this predicate cannot distinguish a deaf target
+    from a not-yet-polled-healthy one at SEND time. The backstop reaper applies it
+    only AFTER a long age window, where that ambiguity has resolved.)
+
+    A live claimer is one of:
+      - managed sidecar-delivery runtimes (claude-code / hermes): a fresh,
+        non-superseded channel-sidecar bridge heartbeat (the claude-channel.js /
+        hermes delivery loop that actually claims) — the SAME signal as the
+        Task 3.1 status gate.
+      - resident: a fresh resident bridge (its MCP bridge or its channel sidecar).
+      - native managed (codex / pi / opencode): any fresh, non-superseded
+        bridge_instances row for the agent (the managed env bridge / RPC worker
+        that claims via /dispatch/claim).
+
+    NOTE deliberately distinct from "available for cold lazy-autostart": a managed
+    agent that is registered but has NO worker yet has no claimer here, but the
+    send path still queues to it so the bridge can spawn-on-claim. This predicate
+    only proves a claimer is ALIVE RIGHT NOW — callers decide whether absence is
+    a fail-fast (up-but-deaf) or a benign cold start.
+    """
+    if agent_row is None:
+        return False
+    settings = settings or await _load_settings(db)
+    runtime = _normalize_runtime(agent_row["runtime"] or "")
+    session_mode = _normalize_session_mode(agent_row["session_mode"] or "resident")
+    if session_mode == "resident":
+        return await _resident_bridge_is_fresh(
+            db, agent_row, lease_seconds=int(settings.get("resident_lease_seconds", 150) or 150)
+        )
+    # Managed sidecar-delivery runtimes: the channel-sidecar / delivery loop IS
+    # the claimer. WS5 Task 5.1 (2026-06-02): PREFER the explicit claimer lease.
+    # A lease is the positive "the loop is a live claimer right now" signal the
+    # delivery loop POSTs on ready and clears on teardown — it resolves the
+    # lazy-claim ambiguity that BLOCKED the Task 3.3/5.1b deaf-target fail-fast.
+    # Precedence:
+    #   1. A lease has been recorded ⇒ the lease is AUTHORITATIVE:
+    #        acquired+fresh ⇒ deliverable; released/stale ⇒ NOT deliverable
+    #        (immediately — no waiting for the 180s sidecar staleness window).
+    #   2. No lease has EVER been recorded ⇒ fall back to the channel-sidecar
+    #        heartbeat (pre-existing/older loops + the lazy-claim contract: a
+    #        not-yet-polled healthy claimer must NOT be treated as deaf).
+    if runtime in _channel_sidecar_delivery_runtimes():
+        if await _has_recorded_claimer_lease(db, agent_row["id"]):
+            return await _has_live_claimer_lease(db, agent_row["id"])
+        return await _has_live_channel_sidecar(db, agent_row["id"])
+    # Native managed (codex / pi / opencode): a fresh, non-superseded bridge row
+    # for the agent is the claiming worker. Channel sidecar also counts (defensive).
+    if await _has_live_channel_sidecar(db, agent_row["id"]):
+        return True
+    try:
+        stale_param = f"-{_active_run_bridge_stale_seconds()} seconds"
+        cursor = await db.execute(
+            """
+            SELECT 1 FROM bridge_instances
+            WHERE agent_id = ?
+              AND COALESCE(superseded_by, '') = ''
+              AND datetime(last_seen) > datetime('now', ?)
+            LIMIT 1
+            """,
+            (agent_row["id"], stale_param),
+        )
+        return await cursor.fetchone() is not None
+    except Exception:
+        return False
 
 
 
@@ -137,6 +222,11 @@ def _active_run_bridge_stale_seconds():
 def _channel_flag_gated_runtimes():
     from service.routers.api_v2 import _CHANNEL_FLAG_GATED_RUNTIMES
     return _CHANNEL_FLAG_GATED_RUNTIMES
+
+
+def _channel_sidecar_delivery_runtimes():
+    from service.routers.api_v2 import _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
+    return _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
 
 
 def _channel_managed_runtimes():
