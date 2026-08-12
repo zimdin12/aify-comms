@@ -16,6 +16,10 @@ import time
 
 from service.db import get_db
 from service.routers import api_v2
+# v0.5.2i: the clean-history set moved with the sessions domain. The delete-allowed set it is
+# compared against is still router-owned, so this test deliberately reads each from ITS OWNER
+# -- the assertion is about the RELATIONSHIP between the two sets, not about one file.
+from service.routers import sessions as sessions_router
 
 from service.tests._base import FastApiTestCase
 
@@ -94,11 +98,11 @@ class SessionsListIsCurrentNotHistoryTests(FastApiTestCase):
     def test_hidden_set_is_narrower_than_the_delete_set(self):
         """Pin the distinction so the two sets cannot be collapsed again."""
         self.assertTrue(
-            api_v2.SESSION_CLEAN_HISTORY_STATUSES < api_v2._SESSION_DELETE_ALLOWED_STATUSES,
+            sessions_router.SESSION_CLEAN_HISTORY_STATUSES < api_v2._SESSION_DELETE_ALLOWED_STATUSES,
             "the hidden set must be a strict subset of the deletable set",
         )
         for actionable in ("stopped", "failed", "lost"):
-            self.assertNotIn(actionable, api_v2.SESSION_CLEAN_HISTORY_STATUSES)
+            self.assertNotIn(actionable, sessions_router.SESSION_CLEAN_HISTORY_STATUSES)
 
     def test_include_ended_restores_history(self):
         self._seed("s2-live", "a2", "running", last_seen_ago=100, ended=False)
@@ -140,7 +144,7 @@ class SessionsListIsCurrentNotHistoryTests(FastApiTestCase):
         """Both the list filter and the history prune must mean the same thing by "terminal"; if
         they drift, the list would hide rows the prune keeps (or vice versa)."""
         self.assertEqual(
-            api_v2.SESSION_CLEAN_HISTORY_STATUSES, {"ended", "completed", "cancelled"},
+            sessions_router.SESSION_CLEAN_HISTORY_STATUSES, {"ended", "completed", "cancelled"},
         )
 
 

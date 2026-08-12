@@ -22,8 +22,6 @@ BORROW TABLE, and the retirement map that stops this being permanent:
     _normalize_workspace_for_environment    3 users   retires with: sessions
     _wake_agent                             3 users   retires with: channels, dispatch, messages
     _managed_terminal_backing_enabled       2 users   retires with: dispatch, messages
-    _spawn_request_to_dict                  2 users   retires with: sessions
-    _spawn_spec_to_dict                     2 users   retires with: sessions
     _workspace_root_for                     2 users   retires with: sessions
 
 Read that as: most of this debt retires when `agents`, `dispatch` and `messages` move, which are the
@@ -70,6 +68,66 @@ from service.reconcilers.status_cache import invalidate_agent_live_state as _inv
 logger = logging.getLogger("aify_comms.routers.spawn_requests")
 
 router = domain_router()
+
+
+# v0.5.2i: RETIRED BORROWS. Both were borrowed from the router until the sessions
+# domain moved; their real owner is here, and this module is now that owner.
+def _spawn_request_to_dict(row, spec: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    payload = {
+        "id": row["id"],
+        "spawnSpecId": row["spawn_spec_id"],
+        "createdBy": row["created_by"] or "",
+        "environmentId": row["environment_id"],
+        "agentId": row["agent_id"],
+        "role": row["role"] or "coder",
+        "name": row["name"] or "",
+        "runtime": row["runtime"],
+        "workspace": row["workspace"] or "",
+        "workspaceRoot": row["workspace_root"] or "",
+        "initialMessage": row["initial_message"] or "",
+        "priority": row["priority"] or "normal",
+        "subject": row["subject"] or "",
+        "mode": row["mode"] or "managed-warm",
+        "resumePolicy": row["resume_policy"] or "native_first",
+        "status": row["status"] or "queued",
+        "claimedByBridgeId": row["claimed_by_bridge_id"] or "",
+        "claimMachineId": row["claim_machine_id"] or "",
+        "processId": row["process_id"] or "",
+        "sessionHandle": row["session_handle"] or "",
+        "sessionId": row["session_id"] or "",
+        "error": row["error"] or "",
+        "createdAt": row["created_at"] or "",
+        "updatedAt": row["updated_at"] or "",
+        "claimedAt": row["claimed_at"] or "",
+        "startedAt": row["started_at"] or "",
+        "finishedAt": row["finished_at"] or "",
+    }
+    if spec is not None:
+        payload["spawnSpec"] = spec
+    return payload
+
+
+def _spawn_spec_to_dict(row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "agentId": row["agent_id"],
+        "environmentId": row["environment_id"],
+        "runtime": row["runtime"],
+        "workspace": row["workspace"] or "",
+        "model": row["model"] or "",
+        "profile": row["profile"] or "",
+        "mode": row["mode"] or "managed-warm",
+        "systemPrompt": row["system_prompt"] or "",
+        "instructions": row["standing_instructions"] or "",
+        "envVars": _json_loads_or(row["env_vars"], {}),
+        "channelIds": _json_loads_or(row["channel_ids"], []),
+        "budgetPolicy": _json_loads_or(row["budget_policy"], {}),
+        "contextPolicy": _json_loads_or(row["context_policy"], {}),
+        "restartPolicy": _json_loads_or(row["restart_policy"], {}),
+        "metadata": _json_loads_or(row["metadata"], {}),
+        "createdAt": row["created_at"] or "",
+        "updatedAt": row["updated_at"] or "",
+    }
 
 # Domain-local: after the handlers moved, nothing outside this module referenced either.
 _SPAWN_TERMINAL_STATUSES = {"running", "failed", "cancelled"}
@@ -142,16 +200,6 @@ def _managed_terminal_backing_enabled(*a, **k):
     return _impl(*a, **k)
 
 
-def _spawn_request_to_dict(*a, **k):
-    from service.routers.api_v2 import _spawn_request_to_dict as _impl
-
-    return _impl(*a, **k)
-
-
-def _spawn_spec_to_dict(*a, **k):
-    from service.routers.api_v2 import _spawn_spec_to_dict as _impl
-
-    return _impl(*a, **k)
 
 
 def _workspace_root_for(*a, **k):
