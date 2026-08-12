@@ -26,6 +26,7 @@ from fastapi import HTTPException, Request
 
 from service import longpoll
 from service.api_core.routing import domain_router
+from service.api_core.records import _environment_record_to_dict
 from service.api_core.serialization import _json_loads_or, _timestamp_sort_key
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.settings import _load_settings
@@ -48,11 +49,6 @@ logger = logging.getLogger("aify_comms.routers.environments")
 router = domain_router()
 
 
-def _environment_record_to_dict(*a, **k):
-    """BORROWED: nine users outside this domain, so it keeps one owner in the router."""
-    from service.control_plane import _environment_record_to_dict as _impl
-
-    return _impl(*a, **k)
 
 
 # A superseded env bridge polls env-control every ~3s, so it claims its stop

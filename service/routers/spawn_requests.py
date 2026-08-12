@@ -55,6 +55,7 @@ from service.api_core.runtime import (
     _normalize_session_mode,
     _runtime_capability_for_environment,
 )
+from service.api_core.records import _environment_record_to_dict
 from service.api_core.serialization import _json_loads_or
 from service.api_core.capabilities import _default_capabilities_for, _managed_via_wrapper_for_runtime
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
@@ -137,10 +138,6 @@ _SPAWN_MODES = {"managed-warm"}
 
 
 
-def _environment_record_to_dict(*a, **k):
-    from service.control_plane import _environment_record_to_dict as _impl
-
-    return _impl(*a, **k)
 
 
 

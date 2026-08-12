@@ -25,6 +25,7 @@ from service.api_core.events import _append_terminal_event
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.runtime import _normalize_session_mode
 from service.api_core.runtime import _runtime_capability_for_environment
+from service.api_core.records import _agent_session_to_dict, _environment_record_to_dict, _terminal_session_to_dict
 from service.api_core.serialization import _json_loads_or
 from service.api_core.serialization import _normalize_machine_id
 from service.api_core.serialization import _timestamp_sort_key
@@ -80,10 +81,6 @@ def _agent_record_to_dict(*a, **k):
     return _impl(*a, **k)
 
 
-def _agent_session_to_dict(*a, **k):
-    from service.control_plane import _agent_session_to_dict as _impl
-
-    return _impl(*a, **k)
 
 
 async def _agent_tombstone(*a, **k):
@@ -142,10 +139,6 @@ async def _ensure_managed_pty_for_dispatch(*a, **k):
     return await _impl(*a, **k)
 
 
-def _environment_record_to_dict(*a, **k):
-    from service.control_plane import _environment_record_to_dict as _impl
-
-    return _impl(*a, **k)
 
 
 async def _fail_active_runs_for_superseded_bridges(
@@ -387,10 +380,6 @@ async def _stop_virtual_terminals_for_superseded_bridges(
             await _invalidate_agent_live_state(db, owner_agent)
 
 
-def _terminal_session_to_dict(*a, **k):
-    from service.control_plane import _terminal_session_to_dict as _impl
-
-    return _impl(*a, **k)
 
 
 async def _touch_current_agent_session(*a, **k):

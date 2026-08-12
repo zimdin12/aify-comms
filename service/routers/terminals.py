@@ -35,6 +35,7 @@ from service import longpoll
 from service.api_core.events import _append_terminal_control, _append_terminal_event
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_session_mode
+from service.api_core.records import _terminal_session_to_dict
 from service.api_core.serialization import _iso_from_ms, _json_loads_or
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.ws import _get_ws
@@ -174,10 +175,6 @@ def _terminal_control_to_dict(
     }
 
 
-def _terminal_session_to_dict(*a, **k):
-    from service.control_plane import _terminal_session_to_dict as _impl
-
-    return _impl(*a, **k)
 
 
 def _terminal_event_to_dict(row) -> dict[str, Any]:

@@ -43,6 +43,7 @@ from fastapi import HTTPException, Query, Request
 
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.records import _agent_session_to_dict, _environment_record_to_dict, _terminal_session_to_dict
 from service.api_core.serialization import _iso_from_ms, _json_loads_or
 from service.api_core.capabilities import _default_console_command, _environment_supports_terminal
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
@@ -169,24 +170,12 @@ async def _coldstart_spawn_request_for_dispatch(*a, **k):
     return await _impl(*a, **k)
 
 
-def _agent_session_to_dict(*a, **k):
-    from service.control_plane import _agent_session_to_dict as _impl
-
-    return _impl(*a, **k)
-
-
-def _environment_record_to_dict(*a, **k):
-    from service.control_plane import _environment_record_to_dict as _impl
-
-    return _impl(*a, **k)
 
 
 
 
-def _terminal_session_to_dict(*a, **k):
-    from service.control_plane import _terminal_session_to_dict as _impl
 
-    return _impl(*a, **k)
+
 
 
 async def _append_dispatch_control(*a, **k):
