@@ -92,10 +92,45 @@ async def _bridge_claim_block_reason(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _dispatch_conversation_context(*a, **k):
-    from service.routers.api_v2 import _dispatch_conversation_context as _impl
-
-    return await _impl(*a, **k)
+async def _dispatch_conversation_context(db, row, *, limit: int = 8) -> list[dict[str, Any]]:
+    from_agent = str((row["from_agent"] if row else "") or "").strip()
+    target_agent = str((row["target_agent"] if row else "") or "").strip()
+    if not from_agent or not target_agent:
+        return []
+    current_message_ids = set(_dispatch_source_message_ids(row))
+    cursor = await db.execute(
+        """
+        SELECT id, from_agent, to_agent, type, subject, body, priority, timestamp, in_reply_to
+        FROM messages
+        WHERE source = 'direct'
+          AND (
+            (from_agent = ? AND to_agent = ?)
+            OR (from_agent = ? AND to_agent = ?)
+          )
+        ORDER BY timestamp DESC, rowid DESC
+        LIMIT ?
+        """,
+        (from_agent, target_agent, target_agent, from_agent, max(1, int(limit or 8)) + len(current_message_ids)),
+    )
+    rows = await cursor.fetchall()
+    context = []
+    for message in reversed(rows):
+        if message["id"] in current_message_ids:
+            continue
+        context.append({
+            "id": message["id"],
+            "from": message["from_agent"],
+            "to": message["to_agent"],
+            "type": message["type"],
+            "subject": message["subject"],
+            "body": message["body"] or "",
+            "priority": message["priority"],
+            "timestamp": message["timestamp"],
+            "inReplyTo": message["in_reply_to"],
+        })
+        if len(context) >= limit:
+            break
+    return context
 
 
 def _dispatch_reply_pending(row) -> bool:
@@ -131,6 +166,12 @@ def _is_replaceable_auto_handoff_message(existing_message, replied_run) -> bool:
         and str((existing_message["in_reply_to"] if "in_reply_to" in existing_message.keys() else "") or "").strip()
         == str((replied_run["message_id"] if "message_id" in replied_run.keys() else "") or "").strip()
     )
+
+
+def _dispatch_source_message_ids(*a, **k):
+    from service.routers.api_v2 import _dispatch_source_message_ids as _impl
+
+    return _impl(*a, **k)
 
 
 async def _mark_dispatch_source_messages_read(*a, **k):
