@@ -1,0 +1,2 @@
+# Route shadowing pairs — an EARLIER pattern route that would swallow a LATER literal path.
+# Pinned because registration order changes meaning here and nowhere else.

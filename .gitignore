@@ -62,8 +62,12 @@ mcp/stdio/.messages/
 *.log
 logs/
 
-# Data (persisted in volumes, not git)
-data/
+# Data (persisted in volumes, not git). ANCHORED to the repo root on purpose: a bare `data/`
+# also matched service/tests/data/, which silently un-tracked the route-surface SNAPSHOTS that
+# test_route_inventory.py and test_route_metadata_inventory.py compare against. The tests then
+# passed locally off ignored files and failed on a clean clone with FileNotFoundError -- so the
+# central gate of the v0.5.x domain phase was not actually in the repository.
+/data/
 v1-export.json
 
 # Debug dumps
