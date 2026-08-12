@@ -72,6 +72,7 @@ import {  // v0.5.4: moved out; the host is now a CALLER of the session module
   activeListRowsLocal,
   ensureStableSession,
   runResolveSessionCli,
+  startResumeMarkerSync,
   sessionKeyFor,
   waitForActiveSession,
 } from "./hermes-active-session.mjs";
@@ -1110,55 +1111,7 @@ export function classifyClaimError(err, counter = { count: 0 }, { grace = CLAIM_
 // to aify, so the next launch resolves the live session. Pure READ of gateway truth + marker write;
 // never throws into delivery. An empty active_list (gateway idle/restarting) leaves the marker
 // UNCHANGED — clearing is resolve's job, not this beat's.
-export function startResumeMarkerSync(opts = {}) {
-  const {
-    agentId,
-    intervalMs = 20_000,
-    tempDir = TMP_DIR,
-    openWs = openGatewayWsClient,
-    readGatewayUrl = readGatewayUrlMarker,
-    readMarker = readSessionIdMarker,
-    writeMarker = writeSessionIdMarker,
-    httpCall = makeAifyHttpCall(AIFY_SERVER_URL, AIFY_API_KEY),
-    nextId = (() => { let n = 1; return () => n++; })(),
-  } = opts;
-  const id = String(agentId || "").trim();
-  if (!id || !Number.isFinite(intervalMs) || intervalMs <= 0) return () => {};
-  let stopped = false;
-
-  const tick = async () => {
-    if (stopped) return;
-    const gw = readGatewayUrl(id, { tempDir });
-    const wsUrl = gw && gw.gatewayUrl;
-    if (!wsUrl) return;
-    let cli = null;
-    try {
-      cli = await openWs(wsUrl);
-      const listResp = await cli.request(
-        buildSessionActiveListFrame({ id: nextId(), currentSessionId: "" }),
-      );
-      const row = pickMostRecentSessionRow(listResp);
-      const durable = row ? String(rowResumeKey(row) || "").trim() : "";
-      if (!durable) return; // empty active_list → leave the marker as-is (never clear here)
-      let current = "";
-      try { current = String(readMarker(id, { tempDir }) || "").trim(); } catch { current = ""; }
-      if (durable === current) return;
-      try { writeMarker(id, durable, { tempDir }); } catch { /* best-effort */ }
-      try {
-        await httpCall("PATCH", `/agents/${encodeURIComponent(id)}/session-handle`, { sessionHandle: durable });
-      } catch { /* best-effort */ }
-    } catch {
-      /* best-effort: a gateway hiccup never disturbs delivery */
-    } finally {
-      try { cli?.close?.(); } catch { /* ignore */ }
-    }
-  };
-
-  const timer = setInterval(() => { tick().catch(() => {}); }, intervalMs);
-  if (typeof timer.unref === "function") timer.unref();
-  tick().catch(() => {}); // fire once promptly so a first launch captures fast
-  return () => { stopped = true; clearInterval(timer); };
-}
+// startResumeMarkerSync moved to ./hermes-active-session.mjs in v0.5.4.
 
 export async function runDeliveryLoop(agentId, deps = {}) {
   const {

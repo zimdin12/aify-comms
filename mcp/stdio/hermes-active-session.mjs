@@ -33,10 +33,12 @@ import { spawnSync as nodeSpawnSync } from "node:child_process";
 import {
   clearSessionMarker as defaultClearSessionMarker,
   isUsableSessionId,
+  readGatewayUrlMarker,
   readSessionIdMarker,
   writeSessionIdMarker,
 } from "./hermes-endpoint.js";
 import { HERMES_CMD, TMP_DIR, resolveHermesPython } from "./hermes-env.mjs";
+import { AIFY_API_KEY, AIFY_SERVER_URL, makeAifyHttpCall } from "./aify-http.mjs";
 import { openGatewayWsClient, sleep } from "./hermes-gateway.mjs";
 import {
   buildSessionActiveListFrame,
@@ -499,4 +501,67 @@ export async function runResolveSessionCli(agentId, deps = {}) {
   }
   out((resolved || "") + "\n");
   return { agentId: id, resolved: resolved || "", source };
+}
+
+
+// v0.5.4: `startResumeMarkerSync` arrived from the host, two slices after it was first considered.
+//
+// It was DECLINED then for one reason: it needs `makeAifyHttpCall`, which `runDeliveryLoop` also uses and
+// which had no owner — an HTTP helper is neither session identity nor environment. Rather than drag it in to
+// improve a line count, the blocker was recorded and paid off separately: `aify-http.mjs` now owns the aify
+// client, so this function's closure is itself alone and every dependency is an already-extracted module.
+//
+// It belongs here because keeping the resume marker in step with the session hermes actually has is the same
+// subject as choosing that session in the first place. `waitForActiveSession` answers "which session"; this
+// keeps the recorded answer true while the session lives, so a later resume does not point at a session that
+// has moved on.
+
+export function startResumeMarkerSync(opts = {}) {
+  const {
+    agentId,
+    intervalMs = 20_000,
+    tempDir = TMP_DIR,
+    openWs = openGatewayWsClient,
+    readGatewayUrl = readGatewayUrlMarker,
+    readMarker = readSessionIdMarker,
+    writeMarker = writeSessionIdMarker,
+    httpCall = makeAifyHttpCall(AIFY_SERVER_URL, AIFY_API_KEY),
+    nextId = (() => { let n = 1; return () => n++; })(),
+  } = opts;
+  const id = String(agentId || "").trim();
+  if (!id || !Number.isFinite(intervalMs) || intervalMs <= 0) return () => {};
+  let stopped = false;
+
+  const tick = async () => {
+    if (stopped) return;
+    const gw = readGatewayUrl(id, { tempDir });
+    const wsUrl = gw && gw.gatewayUrl;
+    if (!wsUrl) return;
+    let cli = null;
+    try {
+      cli = await openWs(wsUrl);
+      const listResp = await cli.request(
+        buildSessionActiveListFrame({ id: nextId(), currentSessionId: "" }),
+      );
+      const row = pickMostRecentSessionRow(listResp);
+      const durable = row ? String(rowResumeKey(row) || "").trim() : "";
+      if (!durable) return; // empty active_list → leave the marker as-is (never clear here)
+      let current = "";
+      try { current = String(readMarker(id, { tempDir }) || "").trim(); } catch { current = ""; }
+      if (durable === current) return;
+      try { writeMarker(id, durable, { tempDir }); } catch { /* best-effort */ }
+      try {
+        await httpCall("PATCH", `/agents/${encodeURIComponent(id)}/session-handle`, { sessionHandle: durable });
+      } catch { /* best-effort */ }
+    } catch {
+      /* best-effort: a gateway hiccup never disturbs delivery */
+    } finally {
+      try { cli?.close?.(); } catch { /* ignore */ }
+    }
+  };
+
+  const timer = setInterval(() => { tick().catch(() => {}); }, intervalMs);
+  if (typeof timer.unref === "function") timer.unref();
+  tick().catch(() => {}); // fire once promptly so a first launch captures fast
+  return () => { stopped = true; clearInterval(timer); };
 }

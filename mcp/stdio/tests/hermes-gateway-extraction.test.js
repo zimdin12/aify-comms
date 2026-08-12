@@ -100,6 +100,7 @@ const EXTRACTIONS = [
       { name: "ensureStableSession", at: 755, marker: "// ensureStableSession moved to ./hermes-active-session.mjs in v0.5.4.", pristineExported: true },
       { name: "defaultWriteActiveSessionFile", at: 300, marker: "// defaultWriteActiveSessionFile moved to ./hermes-active-session.mjs in v0.5.4." },
       { name: "waitForActiveSession", at: 1155, marker: "// waitForActiveSession moved to ./hermes-active-session.mjs in v0.5.4.", pristineExported: true },
+      { name: "startResumeMarkerSync", at: 2034, marker: "// startResumeMarkerSync moved to ./hermes-active-session.mjs in v0.5.4.", pristineExported: true },
       { name: "runResolveSessionCli", at: 2791, marker: "// runResolveSessionCli moved to ./hermes-active-session.mjs in v0.5.4.", pristineExported: true },
     ],
   },

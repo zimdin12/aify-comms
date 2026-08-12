@@ -2,7 +2,7 @@
 // startResumeMarkerSync keeps the durable resume marker + aify handle tracking the TUI's live
 // session, independent of aify-comms delivery — fixing "fresh (untitled) session on every restart".
 import assert from "node:assert/strict";
-import { startResumeMarkerSync } from "../hermes-managed-host.js";
+import { startResumeMarkerSync } from "../hermes-active-session.mjs";
 
 const tick = (ms = 40) => new Promise((r) => setTimeout(r, ms));
 
