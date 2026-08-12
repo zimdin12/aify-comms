@@ -27,6 +27,8 @@ import { functionSpan, moduleScopeBrowserRefs, reconstruct } from "./extraction-
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = (p) => fs.readFileSync(path.join(HERE, p), "utf-8");
 
+const LF = String.fromCharCode(10);
+
 const PRISTINE = "fixtures/app.before-settings-fields.js";
 
 /** One entry per extraction slice, in order. `at` values are indices into the PRISTINE file. */
@@ -216,6 +218,54 @@ test("reconstruction REFUSES when an extracted function is missing from its modu
   const modules = MODULES();
   modules["util.js"] = modules["util.js"].replace("export function fileSizeLabel", "function fileSizeLabelX");
   assert.throws(() => rebuild({ modules }), /fileSizeLabel not found in util\.js/);
+});
+
+test("a PRE-EXISTING export round-trips unchanged", () => {
+  // Required before touching mcp/stdio/hermes-managed-host.js, where 11 functions in the first cluster are
+  // already `export function`. Their spans are byte-identical with no substitution at all, so the prover
+  // must NOT strip a keyword the pristine file contained. Proven both directions on a synthetic pair.
+  const pristine = ["const before = 1;", "export function pub(a) {", "  return a;", "}", "const after = 2;", ""].join(LF);
+  const host = ["const before = 1;", "// pub moved to ./mod.mjs.", "const after = 2;", ""].join(LF);
+  const mod = ["export function pub(a) {", "  return a;", "}", ""].join(LF);
+
+  const kept = reconstruct({
+    after: host,
+    modules: { "mod.mjs": mod },
+    extractions: [{
+      module: "mod.mjs",
+      items: [{ name: "pub", at: 1, marker: "// pub moved to ./mod.mjs.", pristineExported: true }],
+    }],
+  });
+  assert.equal(kept, pristine, "a pre-existing export must be preserved verbatim");
+
+  // And the default must still STRIP, or every app.js slice would regress.
+  const stripped = reconstruct({
+    after: host,
+    modules: { "mod.mjs": mod },
+    extractions: [{
+      module: "mod.mjs",
+      items: [{ name: "pub", at: 1, marker: "// pub moved to ./mod.mjs." }],
+    }],
+  });
+  assert.match(stripped, /^function pub\(a\) \{$/m, "the default treats `export ` as the added substitution");
+  assert.notEqual(stripped, pristine);
+});
+
+test("reconstruction REFUSES when pristineExported disagrees with the module", () => {
+  // The declaration and the file must not be allowed to drift apart — that is the failure this prover is
+  // for. Claiming a pre-existing export for a private function is caught, not silently honoured.
+  const mod = ["function priv(a) {", "  return a;", "}", ""].join(LF);
+  assert.throws(
+    () => reconstruct({
+      after: ["// priv moved.", ""].join(LF),
+      modules: { "mod.mjs": mod },
+      extractions: [{
+        module: "mod.mjs",
+        items: [{ name: "priv", at: 0, marker: "// priv moved.", pristineExported: true }],
+      }],
+    }),
+    /priv is declared pristineExported but its span in mod\.mjs has no export/,
+  );
 });
 
 test("functionSpan finds a whole brace-matched body, not the first closing brace", () => {

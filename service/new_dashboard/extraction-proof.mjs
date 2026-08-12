@@ -49,8 +49,10 @@ export function functionSpan(source, name) {
  *   module      key into `modules` for the extracted module's source
  *   importLine  the exact import statement that slice added to the consumer; removed
  *   importWas   what that line replaced, if it edited an existing import instead of adding one
- *   items       [{ name, at, marker }] — `at` is the PRISTINE line index the body is restored to,
- *               `marker` the comment line left behind (null if the body was removed leaving nothing)
+ *   items       [{ name, at, marker, pristineExported }] — `at` is the PRISTINE line index the body is
+ *               restored to, `marker` the comment line(s) left behind (null if the body was removed
+ *               leaving nothing), `pristineExported` true when the SOURCE file already exported the
+ *               function so its `export ` keyword must be preserved rather than stripped
  */
 export function reconstruct({ after, modules, extractions }) {
   let lines = after.split("\n");
@@ -90,6 +92,31 @@ export function reconstruct({ after, modules, extractions }) {
     for (const item of step.items) {
       const span = functionSpan(source, item.name);
       if (!span) throw new Error(`${item.name} not found in ${step.module}`);
+      // DID THE PRISTINE FILE EXPORT THIS FUNCTION?
+      //
+      // `pristineExported` describes the SOURCE FILE, not the edit, and that distinction is the whole
+      // point. My first version asked "was `export ` added?" — which reads naturally and is the wrong
+      // question, because it has no answer for a function where nothing happened either way.
+      // `themePreviewTilesHtml` was private in app.js and is still private in settings-fields.mjs: no
+      // export was added, and none exists to strip. The cross-check rejected it immediately, which is the
+      // prover doing its job on its own plan.
+      //
+      // Asking about the pristine file covers all three cases with one flag:
+      //   private -> published   pristine has no `export `, span does  -> strip it
+      //   already public         pristine HAS `export `, span does     -> keep it
+      //   private -> private     neither has it                        -> strip is a no-op
+      //
+      // `mcp/stdio/hermes-managed-host.js` needs the middle case: 11 functions in its gateway cluster are
+      // already `export function`, so their spans are byte-identical with NO substitution, and stripping
+      // the keyword would corrupt the reconstruction of code nobody changed.
+      const pristineExported = item.pristineExported ?? false;
+      const hasExport = /^export\s+/.test(span.text);
+      if (pristineExported && !hasExport) {
+        throw new Error(
+          `${item.name} is declared pristineExported but its span in ${step.module} has no export `
+            + "keyword, so the declaration and the module disagree",
+        );
+      }
       items.push({
         name: item.name,
         at: item.at,
@@ -97,8 +124,7 @@ export function reconstruct({ after, modules, extractions }) {
         // plan that removes only its first line leaves the rest behind — which showed up as a
         // reconstruction one line too long.
         marker: item.marker == null ? [] : [].concat(item.marker),
-        // The single declared substitution: `export ` prepended in the extracted module.
-        body: span.text.replace(/^export\s+/, "").split(NL),
+        body: (pristineExported ? span.text : span.text.replace(/^export\s+/, "")).split(NL),
       });
     }
   }
