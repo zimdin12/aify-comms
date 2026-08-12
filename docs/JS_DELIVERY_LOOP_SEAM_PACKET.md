@@ -1,6 +1,7 @@
 # `runDeliveryLoop` — seam decomposition packet
 
-**Status:** submitted for ruling. No extraction performed. Measured on `dba70935`.
+**Status:** submitted for ruling. Measured on `dba70935`; §4b amended at `2b298afd` after the reviewer chose
+option (i). No extraction performed from the loop body itself.
 
 The reviewer's ruling: do not move `runDeliveryLoop`'s 619 lines as one body; write a seam packet with seven
 specific measurements and get a ruling before anything moves. This is that packet.
@@ -107,6 +108,34 @@ Measured from the source, in execution order:
 | loop-owned closures | the 8 in §5 |
 | injected, must stay injected | the 55-line destructured parameter list — `spawnImpl`, `sleepImpl`, `httpCall`, `procExit`, `installTeardown`, `startLivenessHeartbeatImpl`, `clearMarkers`, `maxIterations` and the rest. These exist so tests can drive the loop without a gateway; a seam must not capture them. |
 | host-only, must NOT ride along | `runCli` (37), `runEnsureHostCli` (48) — argv parsing and CLI entry. **`runCli` calls `runDeliveryLoop`**, so CLI and loop are one connected component; the boundary is that the CLI owns argv and process lifetime, the loop owns delivery. |
+
+---
+
+## 4b. `runPollCycle` belongs to this packet, not to a slice
+
+Amended after the reviewer chose option (i) — handle the loop's top-level callees as ordinary relocations
+first. Two were candidates; only one qualified.
+
+`makeTeardown` (35 lines) moved in `2b298afd` because it captures nothing: `gatewayChild`, `clearMarkers` and
+`state` are all parameters, it calls no other function, it imports nothing.
+
+`runPollCycle` did NOT, and the reviewer's condition is why — "if closure pulls `deliverRun` or loop-owned
+mutable state, stop and packet it instead of laundering a loop seam through ordinary relocation." Measured:
+
+```
+runPollCycle          102   closure: 4 functions / 379 lines
+  deliverRun          251   <- the live delivery path
+  classifyClaimError   16
+  noTuiAttachedMessage 10
+```
+
+So being a top-level function was never the relevant property. `runPollCycle` is delivery-path orchestration
+whose closure is most of the delivery core, and relocating it would move `deliverRun` under a name that does
+not say so. It is a subject of THIS packet.
+
+That makes the delivery core a single connected component of ~970 lines — `runDeliveryLoop` 619 +
+`deliverRun` 251 + `runPollCycle` 102 minus overlap — reachable only through the loop, and the §5 finding
+applies to all of it.
 
 ---
 
