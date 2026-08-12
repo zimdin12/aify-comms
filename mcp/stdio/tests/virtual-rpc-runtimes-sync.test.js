@@ -29,11 +29,34 @@ const bridgeSet = new Set(
 );
 assert.ok(bridgeSet.size > 0, "bridge VIRTUAL_RPC_RUNTIMES must be non-empty");
 
-// 2. Parse service-side VIRTUAL_RPC_COMMANDS_BY_RUNTIME from service/control_plane.py
-const controlPlanePath = path.join(repoRoot, "service", "control_plane.py");
-const apiV2Text = fs.readFileSync(controlPlanePath, "utf-8");
-const serviceMatch = apiV2Text.match(/^VIRTUAL_RPC_COMMANDS_BY_RUNTIME\s*=\s*\{([^}]+)\}/m);
-assert.ok(serviceMatch, "could not locate VIRTUAL_RPC_COMMANDS_BY_RUNTIME in service/control_plane.py");
+// 2. Parse service-side VIRTUAL_RPC_COMMANDS_BY_RUNTIME — by FINDING it, not by naming a file.
+//
+// This pinned `service/routers/api_v2.py`, then `service/control_plane.py`, and broke again in
+// v0.5.4 when the constant moved to `service/api_core/virtual_rpc.py`. A probe that names the file
+// its subject currently lives in breaks on every move — or worse, silently scans a file that no
+// longer contains the pattern and passes while guarding nothing. Search the service tree instead,
+// and require exactly one definition so a forked copy fails loudly rather than being picked at
+// random.
+const DECL = /^VIRTUAL_RPC_COMMANDS_BY_RUNTIME\s*=\s*\{([^}]+)\}/m;
+function pythonFiles(dir) {
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "__pycache__" || entry.name === "tests") continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...pythonFiles(full));
+    else if (entry.name.endsWith(".py")) out.push(full);
+  }
+  return out;
+}
+const owners = pythonFiles(path.join(repoRoot, "service"))
+  .filter((f) => DECL.test(fs.readFileSync(f, "utf-8")));
+assert.equal(
+  owners.length, 1,
+  `VIRTUAL_RPC_COMMANDS_BY_RUNTIME must have exactly one definition; found ${JSON.stringify(owners)}`,
+);
+const apiV2Text = fs.readFileSync(owners[0], "utf-8");
+const serviceMatch = apiV2Text.match(DECL);
+assert.ok(serviceMatch, `could not locate VIRTUAL_RPC_COMMANDS_BY_RUNTIME in ${owners[0]}`);
 const serviceSet = new Set(
   serviceMatch[1]
     .split(",")

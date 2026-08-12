@@ -6,6 +6,7 @@ declares NO tags — the parent applies `tags=["api"]` once when api_v2 includes
 
 from __future__ import annotations
 
+from service.api_core.virtual_rpc import VIRTUAL_PI_RPC_COMMAND
 import asyncio
 import json
 import logging
@@ -53,8 +54,6 @@ from service.routers.agents.shared import (  # noqa: F401
     _borrowed_shell_placeholder_handle_re,
     _borrowed_terminal_end_statuses,
     _borrowed_terminal_output_writes,
-    _borrowed_virtual_pi_rpc_command,
-    _borrowed_virtual_rpc_commands_by_runtime,
     _borrowed_windows_drive_cwd_re,
     _borrowed_wsl_drive_cwd_re,
     _broadcast_agent_status,
@@ -191,7 +190,7 @@ async def get_agent_pi_session_state(agent_id: str):
                 "SELECT * FROM terminal_sessions WHERE id = ?",
                 (virtual_terminal_id,),
             )).fetchone()
-            if row and (row["command"] or "") == _borrowed_virtual_pi_rpc_command():
+            if row and (row["command"] or "") == VIRTUAL_PI_RPC_COMMAND:
                 status = str(row["status"] or "").strip().lower()
                 if status in {"starting", "running", "recovering", "active", "idle"}:
                     bridge_owned = True

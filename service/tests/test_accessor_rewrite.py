@@ -298,7 +298,7 @@ class AccessorRewriteExactOutputTests(unittest.TestCase):
 class AccessorRewriteRealRepoShapesTests(unittest.TestCase):
     """The 14 accessors that a name-prefix check did not protect.
 
-    Earlier slices wrote borrow accessors under their own naming — `_virtual_rpc_command_set()`,
+    Earlier slices wrote borrow accessors under their own naming — `VIRTUAL_RPC_COMMAND_SET`,
     `_terminal_end_statuses()`, `_active_run_bridge_stale_seconds()` — long before `_borrowed_*`
     became the convention. The first structural check keyed on that prefix and therefore did not see
     them, so running the rewriter over those modules corrupted their import lines. That is the same

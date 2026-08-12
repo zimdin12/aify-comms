@@ -20,6 +20,7 @@ from typing import Any, Optional
 
 from service.api_core.events import _append_terminal_event  # v0.5.1i: the leaf owner
 from service.routers.terminals import _clear_console_terminal_binding
+from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 from service.clock import now as _now
 
 logger = logging.getLogger(__name__)
@@ -27,12 +28,6 @@ logger = logging.getLogger(__name__)
 
 
 
-def _virtual_rpc_command_set():
-    """Borrowed constant. Read through a function so there is exactly one owner and no second copy
-    that could drift — the `_TERMINAL_END_STATUSES_ORDERED` reasoning from slice 2."""
-    from service.control_plane import VIRTUAL_RPC_COMMAND_SET
-
-    return VIRTUAL_RPC_COMMAND_SET
 
 
 async def _repair_terminal_session_consistency(db) -> int:
@@ -142,9 +137,9 @@ async def _repair_terminal_session_consistency(db) -> int:
         JOIN agent_sessions s ON s.terminal_id = t.id
         WHERE t.status IN ({",".join("?" for _ in active_statuses)})
           AND s.terminal_status IN ('stopped', 'failed')
-          AND t.command NOT IN ({",".join("?" for _ in _virtual_rpc_command_set())})
+          AND t.command NOT IN ({",".join("?" for _ in VIRTUAL_RPC_COMMAND_SET)})
         """,
-        (*active_statuses, *_virtual_rpc_command_set()),
+        (*active_statuses, *VIRTUAL_RPC_COMMAND_SET),
     )
     mismatch_rows = await mismatch_cursor.fetchall()
     for row in mismatch_rows:

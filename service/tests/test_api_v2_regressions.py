@@ -19,6 +19,7 @@ from service.api_core.liveness import _has_live_terminal_session
 from service.api_core.liveness import _has_live_channel_sidecar
 from service.api_core.turn_state import TURN_BUSY_STALE_SECONDS, _turn_busy_state
 from service.api_core.settings import DEFAULT_SETTINGS
+from service.api_core.virtual_rpc import VIRTUAL_PI_RPC_COMMAND
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 # v0.5.2l: dispatch run serialization moved into the dispatch+messages package.
 from service.routers.dispatch_messages import dispatch as dispatch_router
@@ -3746,7 +3747,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             ("term_cs_recon", "sess_cs_pi", "cs-pi", "linux:test-host:default", "",
-             "pi", "/workspace/repo", api_v2.VIRTUAL_PI_RPC_COMMAND, "", "stopped",
+             "pi", "/workspace/repo", VIRTUAL_PI_RPC_COMMAND, "", "stopped",
              "dashboard", now, now, None, ""),
         )
         self._seed_cached_live_state("cs-pi", status="online")

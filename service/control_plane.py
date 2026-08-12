@@ -125,6 +125,14 @@ from service.api_core.agent_sessions import (  # v0.5.4: moved out; the control 
     _touch_agent,
     _touch_current_agent_session,
 )
+from service.api_core.virtual_rpc import (  # v0.5.4: moved out; the control plane is now a CALLER
+    VIRTUAL_CODEX_RPC_COMMAND,
+    VIRTUAL_HERMES_RPC_COMMAND,
+    VIRTUAL_OPENCODE_RPC_COMMAND,
+    VIRTUAL_PI_RPC_COMMAND,
+    VIRTUAL_RPC_COMMANDS_BY_RUNTIME,
+    VIRTUAL_RPC_COMMAND_SET,
+)
 from service.api_core.recovery_writes import (  # v0.5.4: moved out; the control plane is now a CALLER
     UNDELIVERED_CLAIM_REQUEUE_LIMIT,
     _record_channel_sidecar_heartbeat,
@@ -269,8 +277,9 @@ _WSL_DRIVE_CWD_RE = re.compile(r"^/mnt/[a-zA-Z](?:/|$)")
 
 logger = logging.getLogger("aify_comms.api_v2")
 
-
-
+# The VIRTUAL_*_RPC_COMMAND sentinels and their map/set moved to
+# service/api_core/virtual_rpc.py in v0.5.4 — a neutral leaf, because five
+# unrelated subsystems compare against them.
 
 
 
@@ -5038,17 +5047,12 @@ async def _cancel_nonterminal_runs_for_agents(
 
 
 
-VIRTUAL_PI_RPC_COMMAND = "aify://virtual-rpc/pi"
-VIRTUAL_HERMES_RPC_COMMAND = "aify://virtual-rpc/hermes"
-VIRTUAL_CODEX_RPC_COMMAND = "aify://virtual-rpc/codex"
-VIRTUAL_OPENCODE_RPC_COMMAND = "aify://virtual-rpc/opencode"
-VIRTUAL_RPC_COMMANDS_BY_RUNTIME = {
-    "pi": VIRTUAL_PI_RPC_COMMAND,
-    "hermes": VIRTUAL_HERMES_RPC_COMMAND,
-    "codex": VIRTUAL_CODEX_RPC_COMMAND,
-    "opencode": VIRTUAL_OPENCODE_RPC_COMMAND,
-}
-VIRTUAL_RPC_COMMAND_SET = set(VIRTUAL_RPC_COMMANDS_BY_RUNTIME.values())
+
+
+
+
+
+
 
 
 

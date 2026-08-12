@@ -29,6 +29,7 @@ from service.api_core.records import _agent_session_to_dict, _environment_record
 from service.api_core.dispatch_text import (  # v0.5.4 owner; re-exported for this package
     _coldstart_refusal_message,
 )
+from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 from service.api_core.serialization import _json_loads_or
 from service.api_core.serialization import _normalize_machine_id
 from service.api_core.serialization import _timestamp_sort_key
@@ -306,10 +307,10 @@ async def _stop_virtual_terminals_for_superseded_bridges(
         SELECT id, agent_id FROM terminal_sessions
         WHERE bridge_id IN ({placeholders})
           AND agent_id = ?
-          AND command IN ({",".join("?" for _ in _borrowed_virtual_rpc_command_set())})
+          AND command IN ({",".join("?" for _ in VIRTUAL_RPC_COMMAND_SET)})
           AND status NOT IN ('stopped', 'failed')
         """,
-        (*superseded_bridge_ids, agent_id, *_borrowed_virtual_rpc_command_set()),
+        (*superseded_bridge_ids, agent_id, *VIRTUAL_RPC_COMMAND_SET),
     )
     rows = await cursor.fetchall()
     for row in rows:
@@ -379,30 +380,10 @@ def _borrowed_terminal_output_writes():
     return TERMINAL_OUTPUT_WRITES
 
 
-def _borrowed_virtual_pi_rpc_command():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import VIRTUAL_PI_RPC_COMMAND
-
-    return VIRTUAL_PI_RPC_COMMAND
 
 
-def _borrowed_virtual_rpc_commands_by_runtime():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import VIRTUAL_RPC_COMMANDS_BY_RUNTIME
-
-    return VIRTUAL_RPC_COMMANDS_BY_RUNTIME
 
 
-def _borrowed_virtual_rpc_command_set():
-    """BORROWED constant: one owner, never a copy (finding N7).
-
-    Derived from the map above, and read by `_worker_liveness_for` in the router plus four other
-    modules through accessors of their own — so it stays router-owned even though its heaviest
-    reader moved here in v0.5.3.
-    """
-    from service.control_plane import VIRTUAL_RPC_COMMAND_SET
-
-    return VIRTUAL_RPC_COMMAND_SET
 
 
 

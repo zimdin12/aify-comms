@@ -22,7 +22,7 @@ THE FIX IS TO ASK THE PARSER, TWICE OVER — and it took three rounds of review 
 
   WHICH lines are off-limits: `ast` gives the exact range of every borrow accessor, recognised by
   SHAPE. A name-prefix check missed 14 accessors that earlier slices wrote under their own naming
-  (`_virtual_rpc_command_set()`, `_terminal_end_statuses()`, ...) and corrupted their imports.
+  (`VIRTUAL_RPC_COMMAND_SET`, `_terminal_end_statuses()`, ...) and corrupted their imports.
   WHAT may be replaced: `tokenize` gives NAME tokens, so comments and string literals are never
   touched. A constant name appearing inside SQL text or a JSON key is DATA, and rewriting it would
   change behaviour, not just formatting.
@@ -44,7 +44,7 @@ def is_constant_accessor(node: ast.AST) -> bool:
 
     RECOGNISED BY SHAPE, NOT BY NAME. The first version matched `_borrowed_*`, and that missed 14
     accessors written by earlier slices under their own convention -- `_active_run_bridge_stale_
-    seconds()`, `_virtual_rpc_command_set()`, `_terminal_end_statuses()` and friends. Running the
+    seconds()`, `VIRTUAL_RPC_COMMAND_SET`, `_terminal_end_statuses()` and friends. Running the
     rewriter over those files corrupted their import lines, which is the same failure the prefix
     check was introduced to prevent.
 

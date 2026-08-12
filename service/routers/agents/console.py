@@ -6,6 +6,7 @@ declares NO tags — the parent applies `tags=["api"]` once when api_v2 includes
 
 from __future__ import annotations
 
+from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMANDS_BY_RUNTIME
 from service.api_core.terminal_text import _ANSI_RE
 import asyncio
 import json
@@ -54,8 +55,6 @@ from service.routers.agents.shared import (  # noqa: F401
     _borrowed_shell_placeholder_handle_re,
     _borrowed_terminal_end_statuses,
     _borrowed_terminal_output_writes,
-    _borrowed_virtual_pi_rpc_command,
-    _borrowed_virtual_rpc_commands_by_runtime,
     _borrowed_windows_drive_cwd_re,
     _borrowed_wsl_drive_cwd_re,
     _broadcast_agent_status,
@@ -157,11 +156,11 @@ async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureReque
         if not bridge_id:
             raise HTTPException(400, "bridgeId is required")
         runtime = _normalize_runtime(req.runtime or agent["runtime"] or "pi")
-        virtual_command = _borrowed_virtual_rpc_commands_by_runtime().get(runtime)
+        virtual_command = VIRTUAL_RPC_COMMANDS_BY_RUNTIME.get(runtime)
         if not virtual_command:
             raise HTTPException(
                 409,
-                f'Virtual terminal is available for runtimes {sorted(_borrowed_virtual_rpc_commands_by_runtime())} only (got runtime="{runtime}")',
+                f'Virtual terminal is available for runtimes {sorted(VIRTUAL_RPC_COMMANDS_BY_RUNTIME)} only (got runtime="{runtime}")',
             )
 
         env_row = await (await db.execute(

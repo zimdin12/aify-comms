@@ -44,12 +44,14 @@ from fastapi import HTTPException, Query, Request
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.records import _agent_session_to_dict, _environment_record_to_dict, _terminal_session_to_dict
+from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 from service.api_core.serialization import _iso_from_ms, _json_loads_or
 from service.api_core.capabilities import _default_console_command, _environment_supports_terminal
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.api_core.agent_sessions import _touch_current_agent_session
+from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMANDS_BY_RUNTIME
 from service.clock import now as _now
 import sqlite3
 from service.api_core.events import _append_terminal_control, _append_terminal_event
@@ -128,19 +130,9 @@ def _workspace_root_for(*a, **k):
 
 
 
-def _borrowed_virtual_rpc_commands_by_runtime():
-    """BORROWED constant: one owner, never a copy — a forked status set is finding N7."""
-    from service.control_plane import VIRTUAL_RPC_COMMANDS_BY_RUNTIME
-
-    return VIRTUAL_RPC_COMMANDS_BY_RUNTIME
 
 
 
-def _borrowed_virtual_rpc_command_set():
-    """BORROWED constant: one owner, never a copy — a forked status set is finding N7."""
-    from service.control_plane import VIRTUAL_RPC_COMMAND_SET
-
-    return VIRTUAL_RPC_COMMAND_SET
 
 
 
@@ -479,7 +471,7 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
                     virtual_status = str(virtual_terminal["status"] or "").strip().lower()
                     virtual_command = str(virtual_terminal["command"] or "")
                     if (
-                        virtual_command in _borrowed_virtual_rpc_command_set()
+                        virtual_command in VIRTUAL_RPC_COMMAND_SET
                         and virtual_status in {"starting", "running", "recovering", "active", "idle"}
                     ):
                         attach_now = _now()
@@ -543,7 +535,7 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
             terminal_id = f"vterm_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
             now = _now()
             bridge_id = str(environment.get("bridgeId") or "").strip()
-            virtual_command = _borrowed_virtual_rpc_commands_by_runtime()["pi"]
+            virtual_command = VIRTUAL_RPC_COMMANDS_BY_RUNTIME["pi"]
             requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
             await db.execute(
                 """

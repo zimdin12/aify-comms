@@ -36,6 +36,7 @@ from service.api_core.events import _append_terminal_control, _append_terminal_e
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_session_mode
 from service.api_core.records import _terminal_session_to_dict
+from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 from service.api_core.serialization import _iso_from_ms, _json_loads_or
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.ws import _get_ws
@@ -111,11 +112,6 @@ def _borrowed_terminal_output_writes():
 
 
 
-def _borrowed_virtual_rpc_command_set():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import VIRTUAL_RPC_COMMAND_SET
-
-    return VIRTUAL_RPC_COMMAND_SET
 
 
 
@@ -465,7 +461,7 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
         new_bridge_id = str(req.bridgeId or "").strip()
         existing_bridge_id = str(terminal["bridge_id"] or "").strip()
         terminal_command = str(terminal["command"] or "")
-        is_virtual_rpc = terminal_command in _borrowed_virtual_rpc_command_set()
+        is_virtual_rpc = terminal_command in VIRTUAL_RPC_COMMAND_SET
         if new_bridge_id and existing_bridge_id and new_bridge_id != existing_bridge_id:
             if is_virtual_rpc:
                 # Transfer ownership of the synth terminal to the new bridge.

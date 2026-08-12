@@ -26,6 +26,7 @@ from typing import Any, Optional
 from service.api_core.serialization import _json_loads_or  # v0.5.1c: the leaf owner, not via the router
 from service.api_core.events import _append_terminal_control, _append_terminal_event  # v0.5.1i: the leaf owner
 from service.api_core.liveness import _has_live_channel_sidecar, _has_live_terminal_session
+from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -45,9 +46,6 @@ def _managed_orphan_grace_seconds():
     return MANAGED_ORPHAN_GRACE_SECONDS
 
 
-def _virtual_rpc_command_set():
-    from service.control_plane import VIRTUAL_RPC_COMMAND_SET
-    return VIRTUAL_RPC_COMMAND_SET
 
 
 async def _prune_terminal_history(
@@ -286,7 +284,7 @@ async def _close_idle_virtual_rpc_workers(db, *, idle_close_enabled: bool, idle_
         LEFT JOIN agents a ON a.id = t.agent_id
         WHERE t.status IN ('starting', 'attached', 'running', 'recovering', 'active', 'idle')
           AND (
-            t.command IN ({",".join("?" for _ in _virtual_rpc_command_set())})
+            t.command IN ({",".join("?" for _ in VIRTUAL_RPC_COMMAND_SET)})
             OR t.command LIKE '%-aify%'
             OR t.command LIKE 'opencode%'
           )
@@ -307,7 +305,7 @@ async def _close_idle_virtual_rpc_workers(db, *, idle_close_enabled: bool, idle_
         ORDER BY t.updated_at ASC
         LIMIT ?
         """,
-        (*_virtual_rpc_command_set(), f"-{minutes} minutes", limit),
+        (*VIRTUAL_RPC_COMMAND_SET, f"-{minutes} minutes", limit),
     )
     rows = await cursor.fetchall()
     now = _now()
@@ -318,7 +316,7 @@ async def _close_idle_virtual_rpc_workers(db, *, idle_close_enabled: bool, idle_
         command = str(row["command"] or "").strip()
         if not terminal_id:
             continue
-        is_virtual_rpc = command in _virtual_rpc_command_set()
+        is_virtual_rpc = command in VIRTUAL_RPC_COMMAND_SET
         has_bridge_owner = bool(str(row["environment_id"] or "").strip() and str(row["bridge_id"] or "").strip())
         next_status = "stopped" if is_virtual_rpc or not has_bridge_owner else "stopping"
         await db.execute(
