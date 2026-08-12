@@ -49,6 +49,7 @@ const ENV = "hermes-env.mjs";
 const SESSION = "hermes-active-session.mjs";
 const REPORTING = "hermes-run-reporting.mjs";
 const INFLIGHT = "hermes-inflight.mjs";
+const AIFYHTTP = "aify-http.mjs";
 
 /** Indices are 0-based positions in the PRISTINE fixture, measured from it. */
 const EXTRACTIONS = [
@@ -103,6 +104,16 @@ const EXTRACTIONS = [
     ],
   },
   {
+    module: AIFYHTTP,
+    items: [
+      { name: "coerceLoopbackToIPv4", at: 95, marker: "// coerceLoopbackToIPv4 moved to ./aify-http.mjs in v0.5.4." },
+      { name: "AIFY_SERVER_URL", at: 99, marker: "// AIFY_SERVER_URL moved to ./aify-http.mjs in v0.5.4." },
+      { name: "AIFY_API_KEY", at: 102, marker: "// AIFY_API_KEY moved to ./aify-http.mjs in v0.5.4." },
+      { name: "HTTP_TIMEOUT_MS", at: 119, marker: "// HTTP_TIMEOUT_MS moved to ./aify-http.mjs in v0.5.4." },
+      { name: "makeAifyHttpCall", at: 342, marker: "// makeAifyHttpCall moved to ./aify-http.mjs in v0.5.4." },
+    ],
+  },
+  {
     module: INFLIGHT,
     items: [
       { name: "REPULSE_MS", at: 174, marker: "// REPULSE_MS moved to ./hermes-inflight.mjs in v0.5.4." },
@@ -144,6 +155,7 @@ const MODULES = () => ({
   [SESSION]: read(SESSION),
   [REPORTING]: read(REPORTING),
   [INFLIGHT]: read(INFLIGHT),
+  [AIFYHTTP]: read(AIFYHTTP),
 });
 
 // Import lines the extractions added, in their CURRENT form. The env line is shared by both slices — the
@@ -185,6 +197,7 @@ function hostWithoutSliceImports() {
     '} from "./hermes-active-session.mjs";',
     '} from "./hermes-run-reporting.mjs";',
     '} from "./hermes-inflight.mjs";',
+    '} from "./aify-http.mjs";',
   ]) {
     const close = lines.findIndex((l) => l.startsWith(from));
     assert.notEqual(close, -1, `the import block ending in ${from} must be present verbatim`);

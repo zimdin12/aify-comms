@@ -47,6 +47,11 @@ import {  // v0.5.4: neutral owner
   TMP_DIR,
   resolveHermesPython,
 } from "./hermes-env.mjs";
+import {  // v0.5.4: moved out; the aify HTTP client has a neutral owner
+  AIFY_API_KEY,
+  AIFY_SERVER_URL,
+  makeAifyHttpCall,
+} from "./aify-http.mjs";
 import {  // v0.5.4: moved out; the host is now a CALLER of the in-flight module
   REPULSE_MS,
   REPULSE_WINDOW_MS,
@@ -138,14 +143,10 @@ const IS_MAIN =
   Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 // Windows + Docker Desktop: force IPv4 loopback (see claude-channel.js).
-function coerceLoopbackToIPv4(url) {
-  return String(url || "").replace(/^(https?:\/\/)localhost(?=[:\/]|$)/i, "$1127.0.0.1");
-}
+// coerceLoopbackToIPv4 moved to ./aify-http.mjs in v0.5.4.
 
-const AIFY_SERVER_URL = coerceLoopbackToIPv4(
-  process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "",
-).replace(/\/+$/, "");
-const AIFY_API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";
+// AIFY_SERVER_URL moved to ./aify-http.mjs in v0.5.4.
+// AIFY_API_KEY moved to ./aify-http.mjs in v0.5.4.
 
 // MACHINE_ID moved to ./hermes-env.mjs in v0.5.4.
 // Per-agent channel-sidecar bridge id (holistic-review F1, 2026-05-31). A
@@ -159,7 +160,7 @@ const POLL_MS = Math.max(
   500,
   Number(process.env.AIFY_COMMS_CHANNEL_POLL_MS || process.env.AIFY_HERMES_CHANNEL_POLL_MS || 3000),
 );
-const HTTP_TIMEOUT_MS = Math.max(1000, Number(process.env.AIFY_HTTP_TIMEOUT_MS || 20000));
+// HTTP_TIMEOUT_MS moved to ./aify-http.mjs in v0.5.4.
 // READY_TIMEOUT_MS moved to ./hermes-gateway.mjs in v0.5.4.
 // RPC_TIMEOUT_MS moved to ./hermes-gateway.mjs in v0.5.4.
 // COLD-START DELIVERY RACE (2026-05-31): on the first dispatch after a cold
@@ -326,32 +327,7 @@ function readBoundAgentId() {
 }
 
 // Default aify httpCall(method, endpoint, body) against ${baseUrl}/api/v1.
-function makeAifyHttpCall(baseUrl, apiKey) {
-  return async function httpCall(method, endpoint, body = null) {
-    if (!baseUrl) return null;
-    const url = `${baseUrl}/api/v1${endpoint}`;
-    const options = { method, headers: {} };
-    if (apiKey) options.headers["X-API-Key"] = apiKey;
-    if (body) {
-      options.headers["Content-Type"] = "application/json";
-      options.body = JSON.stringify(body);
-    }
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
-    try {
-      const res = await fetch(url, { ...options, signal: controller.signal });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        const error = new Error(`HTTP ${res.status}: ${text}`);
-        error.status = res.status;
-        throw error;
-      }
-      return res.json().catch(() => ({}));
-    } finally {
-      clearTimeout(timeout);
-    }
-  };
-}
+// makeAifyHttpCall moved to ./aify-http.mjs in v0.5.4.
 
 // ---------------------------------------------------------------------------
 // 1. GATEWAY HOST — hidden `hermes dashboard --tui` child + token scrape.
