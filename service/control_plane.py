@@ -126,6 +126,9 @@ from service.api_core.agent_sessions import (  # v0.5.4: moved out; the control 
     _touch_current_agent_session,
 )
 from service.api_core.liveness import (  # v0.5.4: moved out; the control plane is now a CALLER
+    _has_live_claimer_lease,
+    _has_recorded_claimer_lease,
+    _resident_bridge_is_fresh,
     ACTIVE_RUN_BRIDGE_STALE_SECONDS,
     CHANNEL_SIDECAR_STALE_SECONDS,
     CONSOLE_WORKING_LEASE_SECONDS,
@@ -528,7 +531,7 @@ def _channel_managed_eligible(runtime: str, runtime_config: Any) -> bool:
 # A clean `claimer-release` makes the lease not-live IMMEDIATELY (no wait);
 # this window only backstops a MISSED release. Kept longer than the sidecar
 # stale window so the lease is never the FIRST signal to expire on a live loop.
-CLAIMER_LEASE_STALE_SECONDS = 240
+# CLAIMER_LEASE_STALE_SECONDS moved to service/api_core/liveness.py in v0.5.4 with its only reader.
 
 # Workstream B2 (2026-06-01): grace before a managed claude with a LIVE sidecar
 # but a DEAD console PTY is treated as a headless orphan worker. Must exceed the
@@ -546,42 +549,10 @@ MANAGED_ORPHAN_GRACE_SECONDS = 90
 # _claimer_lease_row moved to service/api_core/liveness.py in v0.5.4.
 
 
-async def _has_live_claimer_lease(db, agent_id: str) -> bool:
-    """WS5 Task 5.1 (2026-06-02): True when the agent has a currently-LIVE
-    delivery-loop claimer lease.
-
-    A lease is the POSITIVE "a loop is a live claimer RIGHT NOW" signal the
-    delivery loop POSTs on becoming ready (`claimer-acquire`) and clears on
-    teardown (`claimer-release`). This is the disambiguator that unblocks the
-    Task 5.1b deaf-target fail-fast: unlike the channel-sidecar heartbeat (which
-    a not-yet-polled healthy loop has not written yet), a lease is set the moment
-    the loop is ready and cleared the moment it exits.
-
-    True ONLY when the lease state is 'acquired' AND its last refresh is within
-    CLAIMER_LEASE_STALE_SECONDS (backstop for a missed release after a crash).
-    A 'released' lease ⇒ False IMMEDIATELY (no staleness wait). No lease row ⇒
-    False (caller must treat absence-of-lease as 'fall back to the sidecar check',
-    NOT as deaf — see `_has_recorded_claimer_lease`).
-    """
-    row = await _claimer_lease_row(db, agent_id)
-    if not row:
-        return False
-    if str(row["state"] or "").strip().lower() != "acquired":
-        return False
-    updated = _iso_to_epoch(str(row["updated_at"] or ""))
-    if not updated:
-        return False
-    age = datetime.now(timezone.utc).timestamp() - updated
-    return age <= CLAIMER_LEASE_STALE_SECONDS
+# _has_live_claimer_lease moved to service/api_core/liveness.py in v0.5.4.
 
 
-async def _has_recorded_claimer_lease(db, agent_id: str) -> bool:
-    """WS5 Task 5.1: True when a lease has EVER been recorded for this agent
-    (acquired OR released). Used to decide whether the lease is AUTHORITATIVE
-    (so a released/stale lease ⇒ deaf) vs whether to fall back to the
-    sidecar/bridge-freshness check (no lease ever ⇒ pre-existing/older loop or a
-    lazy claimer that has not polled — must NOT be treated as deaf)."""
-    return await _claimer_lease_row(db, agent_id) is not None
+# _has_recorded_claimer_lease moved to service/api_core/liveness.py in v0.5.4.
 
 
 
@@ -1333,36 +1304,7 @@ async def _get_blocking_active_run(db, agent_id: str, exclude_run_id: str = "") 
     return active
 
 
-async def _resident_bridge_is_fresh(db, row, *, lease_seconds: int) -> bool:
-    lease = max(15, int(lease_seconds or 150))
-    bridge_id = str(_json_loads_or(row["runtime_state"], {}).get("bridgeInstanceId") or "").strip()
-    if bridge_id:
-        cursor = await db.execute(
-            "SELECT last_seen, superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
-            (bridge_id, row["id"]),
-        )
-        bridge = await cursor.fetchone()
-        if bridge and not str((bridge["superseded_by"] if "superseded_by" in bridge.keys() else "") or "").strip():
-            seen_s = _iso_to_epoch((bridge["last_seen"] or ""))
-            if seen_s and time.time() - seen_s <= lease:
-                return True
-    # Fallback (operator-reported 2026-05-31, sc-manager): an IDLE resident
-    # claude's MCP bridge is NOT heartbeated — the turn-busy heartbeat only fires
-    # during an active turn, and the session-handle heartbeat only POSTs when the
-    # session id CHANGES. So a live-but-idle resident goes stale after the lease
-    # and the dashboard shows it dead. Its channel sidecar (claude-channel.js) is
-    # a CHILD of the live session and polls /dispatch/claim every ~3s, so a fresh,
-    # non-superseded channel-sidecar bridge is proof the resident session is
-    # alive. Treat that as fresh too. (If the session dies, the sidecar child dies
-    # and its bridge goes stale — so this never masks a genuinely dead resident.)
-    # KEPT (Task A' #154, 2026-06-01): still needed even with the 30s liveness
-    # beat. Residents are operator-launched and may run a MIXED bridge version
-    # that predates liveness-heartbeat.js, so the resident MCP bridge can still
-    # go stale while idle; a live channel sidecar is the proof-of-life fallback.
-    # Removal probe broke test_idle_resident_with_live_sidecar_is_not_stale.
-    if await _has_live_channel_sidecar(db, row["id"]):
-        return True
-    return False
+# _resident_bridge_is_fresh moved to service/api_core/liveness.py in v0.5.4.
 
 
 # _agent_has_live_terminal moved to service/api_core/liveness.py in v0.5.4.

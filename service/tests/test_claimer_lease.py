@@ -32,6 +32,7 @@ from service.db import get_db, init_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 from service.reconcilers import dispatch_queue
 from service.routers.api_v2 import router
+from service.api_core.liveness import _has_live_claimer_lease
 
 
 class _DummyWS:
@@ -92,7 +93,7 @@ class ClaimerLeaseStoreTests(unittest.TestCase):
         async def _go():
             db = await get_db()
             try:
-                return await api_v2._has_live_claimer_lease(db, agent_id)
+                return await _has_live_claimer_lease(db, agent_id)
             finally:
                 await db.close()
 

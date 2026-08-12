@@ -34,6 +34,7 @@ from service.api_core.events import _append_terminal_control
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _iso_from_ms
 from service.api_core.settings import _load_settings
+from service.api_core.liveness import _resident_bridge_is_fresh
 
 
 # Back-compat alias: a few tests below reference _DummyWS directly.
@@ -11666,7 +11667,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         db = await _get_db()
         try:
             row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-            return await api_v2._resident_bridge_is_fresh(db, row, lease_seconds=lease_seconds)
+            return await _resident_bridge_is_fresh(db, row, lease_seconds=lease_seconds)
         finally:
             await db.close()
 

@@ -37,6 +37,11 @@ from typing import Any, Optional
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode  # v0.5.1e: the leaf owner, not via the router
 from service.api_core.settings import _load_settings, DEFAULT_SETTINGS  # v0.5.1g: the leaf owner
 from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
+from service.api_core.liveness import (  # v0.5.4: the leaf owner
+    _has_live_claimer_lease,
+    _has_recorded_claimer_lease,
+    _resident_bridge_is_fresh,
+)
 from service.api_core.liveness import ACTIVE_RUN_BRIDGE_STALE_SECONDS, _has_live_channel_sidecar
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
@@ -45,19 +50,10 @@ from service.reconcilers.status_cache import invalidate_agent_live_state as _inv
 logger = logging.getLogger(__name__)
 
 
-async def _has_live_claimer_lease(*a, **k):
-    from service.control_plane import _has_live_claimer_lease as _i
-    return await _i(*a, **k)
 
 
-async def _has_recorded_claimer_lease(*a, **k):
-    from service.control_plane import _has_recorded_claimer_lease as _i
-    return await _i(*a, **k)
 
 
-def _resident_bridge_is_fresh(*a, **k):
-    from service.control_plane import _resident_bridge_is_fresh as _i
-    return _i(*a, **k)
 
 
 async def _agent_has_live_claimer(db, agent_row, *, settings: Optional[dict[str, Any]] = None) -> bool:
