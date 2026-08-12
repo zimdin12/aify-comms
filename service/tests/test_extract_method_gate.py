@@ -227,9 +227,23 @@ def outer():
         self.assertEqual(escapes(block), [])
 
     def test_break_and_yield_are_escapes(self):
+        """CHANGED in v0.5.3, and it is the only pre-existing assertion in this file I have relaxed.
+
+        It used to assert that `for i in x: break` contains an escape. That was over-conservative
+        and wrong: the loop is INSIDE the block, so the `break` moves with the loop it targets and
+        means exactly what it meant before. Extracting the analytics agent leaderboard — whose loop
+        skips rows with `continue` — was refused because of it.
+
+        The dangerous shape is a `break`/`continue` whose loop stays behind in the CALLER, and that
+        is what the assertion now pins, alongside `yield`, which is never loop-scoped.
+        `ExtractMethodLoopBoundedEscapeTests` covers both directions end to end.
+        """
         import ast
 
-        self.assertIn("Break", escapes(ast.parse("for i in x:\n    break\n").body))
+        self.assertEqual(escapes(ast.parse("for i in x:\n    break\n").body), [],
+                         "a break bound by a loop inside the block moves with that loop")
+        self.assertIn("Break", escapes(ast.parse("if cond:\n    break\n").body))
+        self.assertIn("Continue", escapes(ast.parse("continue\n").body))
         self.assertIn("Yield", escapes(ast.parse("y = (yield 1)\n").body))
 
     def test_two_call_sites_are_rejected_as_undefined(self):
@@ -1032,6 +1046,141 @@ def _w(x):
             'def f():\n    t = 0\n    return t\n',
             'def f():\n    t = _w()\n    return t\n\n\ndef _w():\n    t = 0\n    return t\n',
             "_w")
+
+
+class ExtractMethodComprehensionScopeTests(unittest.TestCase):
+    """A comprehension's own target is not a read of an outer local. Holes 11 and 12.
+
+    Both were found extracting the remaining analytics blocks, and hole 11 was MINE — introduced
+    while fixing the eighth. `sorted(float(r["mins"]) for r in rows)` reports `r` as read by a flat
+    walk, but `r` is bound in the comprehension's own scope. `get_analytics` has three separate
+    comprehensions using `r`, so the live-in check concluded a helper was reading a caller local
+    and refused a correct extraction.
+
+    The boundary follows Python rather than approximating it: the FIRST generator's iterable is
+    evaluated in the enclosing scope, everything else inside. Approximating in the other direction
+    would hide a genuine read, which is the failure that matters.
+    """
+
+    def test_a_comprehension_target_is_not_a_live_in(self):
+        original = (
+            "def f(rows):\n"
+            "    r = 0\n"
+            "    vals = sorted(float(r['m']) for r in rows)\n"
+            "    return vals, r\n"
+        )
+        split = (
+            "def f(rows):\n"
+            "    r = 0\n"
+            "    vals = _w(rows)\n"
+            "    return vals, r\n"
+            "\n"
+            "\n"
+            "def _w(rows):\n"
+            "    vals = sorted(float(r['m']) for r in rows)\n"
+            "    return vals\n"
+        )
+        assert_extraction_preserves_behaviour(original, split, "_w")
+
+    def test_a_genuine_outer_read_beside_a_comprehension_is_still_caught(self):
+        """Scoping the target must not blind the check to a real read of the same name."""
+        original = (
+            "def f(rows):\n"
+            "    r = 2\n"
+            "    vals = [r] + [q for q in rows]\n"
+            "    return vals\n"
+        )
+        split = (
+            "def f(rows):\n"
+            "    r = 2\n"
+            "    vals = _w(rows)\n"
+            "    return vals\n"
+            "\n"
+            "\n"
+            "def _w(rows):\n"
+            "    vals = [r] + [q for q in rows]\n"
+            "    return vals\n"
+        )
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original, split, "_w")
+        self.assertIn("`r`", str(caught.exception))
+
+
+class ExtractMethodLoopBoundedEscapeTests(unittest.TestCase):
+    """`break`/`continue` bound by a loop that MOVES WITH the block are not escapes. Hole 12.
+
+    Found extracting the analytics agent leaderboard, whose loop skips rows with `continue`. That
+    `continue` targets a loop entirely inside the extracted block, so after the move it targets the
+    same loop and means the same thing. The shape the rule exists for is the opposite — a
+    `break`/`continue` whose loop stays behind in the caller — and it is still refused.
+    """
+
+    def test_continue_inside_a_loop_in_the_block_is_allowed(self):
+        original = (
+            "def f(rows):\n"
+            "    out = []\n"
+            "    for row in rows:\n"
+            "        if not row:\n"
+            "            continue\n"
+            "        out.append(row)\n"
+            "    return out\n"
+        )
+        split = (
+            "def f(rows):\n"
+            "    out = _w(rows)\n"
+            "    return out\n"
+            "\n"
+            "\n"
+            "def _w(rows):\n"
+            "    out = []\n"
+            "    for row in rows:\n"
+            "        if not row:\n"
+            "            continue\n"
+            "        out.append(row)\n"
+            "    return out\n"
+        )
+        assert_extraction_preserves_behaviour(original, split, "_w")
+
+    def test_a_continue_whose_loop_stays_behind_is_still_refused(self):
+        """The dangerous direction. The loop is in the CALLER; the block is only its body."""
+        original = (
+            "def f(rows):\n"
+            "    out = []\n"
+            "    for row in rows:\n"
+            "        if not row:\n"
+            "            continue\n"
+            "        out.append(row)\n"
+            "    return out\n"
+        )
+        split = (
+            "def f(rows):\n"
+            "    out = []\n"
+            "    for row in rows:\n"
+            "        _w(row, out)\n"
+            "    return out\n"
+            "\n"
+            "\n"
+            "def _w(row, out):\n"
+            "    if not row:\n"
+            "        continue\n"
+            "    out.append(row)\n"
+        )
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original, split, "_w")
+        self.assertIn("Continue", str(caught.exception))
+
+    def test_a_return_inside_a_loop_is_still_an_escape(self):
+        """Loop scoping applies to break/continue only. A return still exits the wrong function."""
+        import ast as _ast
+
+        self.assertIn("Return", escapes(_ast.parse("for x in y:\n    return 1\n").body))
+        self.assertIn("Yield", escapes(_ast.parse("for x in y:\n    z = (yield x)\n").body))
+
+    def test_break_in_a_loops_else_belongs_to_an_outer_loop(self):
+        import ast as _ast
+
+        self.assertIn(
+            "Break", escapes(_ast.parse("for x in y:\n    pass\nelse:\n    break\n").body))
 
 
 class ExtractMethodBindingOrderTests(unittest.TestCase):

@@ -119,26 +119,66 @@ def escapes(block: list[ast.stmt]) -> list[str]:
     A `return` inside a nested `def` within the block is that inner function's own return and is
     not an escape from the block — walking blindly would reject safe extractions, so nested scopes
     are skipped explicitly.
+
+    THE SAME IS TRUE OF `break`/`continue` INSIDE A LOOP THAT IS ITSELF IN THE BLOCK, which is the
+    twelfth hole and was found extracting the analytics agent leaderboard:
+
+        for row in rows:
+            if not row["agent"]:
+                continue        # bound by the loop above, which is moving WITH it
+            ...
+
+    That `continue` targets a loop entirely inside the extracted block, so after the move it still
+    targets the same loop and means exactly what it meant. The danger the rule exists for is the
+    opposite shape — a `break`/`continue` whose loop stays behind in the caller — and that one is
+    still refused, because the enclosing loop is not part of the block being walked.
+
+    `return` and `yield` are NOT loop-scoped and stay unconditional: a `return` anywhere other than
+    the tail exits the helper instead of the caller, and inline-back cannot see the difference.
     """
     found: list[str] = []
+    LOOPS = (ast.For, ast.AsyncFor, ast.While)
 
-    def walk(node: ast.AST, *, top: bool) -> None:
+    def walk(node: ast.AST, *, in_loop: bool) -> None:
         for child in ast.iter_child_nodes(node):
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
                 continue  # its own scope; its returns are not our escapes
-            if isinstance(child, ESCAPES):
+            if isinstance(child, (ast.Break, ast.Continue)):
+                if not in_loop:
+                    found.append(type(child).__name__)
+            elif isinstance(child, ESCAPES):
                 found.append(type(child).__name__)
-            walk(child, top=False)
+            # A loop's `orelse` runs when the loop finishes; a break inside it belongs to any
+            # OUTER loop, not this one, so it is walked with the enclosing flag.
+            if isinstance(child, LOOPS):
+                for sub in child.body:
+                    walk_stmt(sub, in_loop=True)
+                for sub in child.orelse:
+                    walk_stmt(sub, in_loop=in_loop)
+            else:
+                walk(child, in_loop=in_loop)
+
+    def walk_stmt(stmt: ast.stmt, *, in_loop: bool) -> None:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return
+        if isinstance(stmt, (ast.Break, ast.Continue)):
+            if not in_loop:
+                found.append(type(stmt).__name__)
+        elif isinstance(stmt, ESCAPES):
+            found.append(type(stmt).__name__)
+        if isinstance(stmt, LOOPS):
+            for sub in stmt.body:
+                walk_stmt(sub, in_loop=True)
+            for sub in stmt.orelse:
+                walk_stmt(sub, in_loop=in_loop)
+        else:
+            walk(stmt, in_loop=in_loop)
 
     for stmt in block:
         # A nested def/class at the TOP of the block is its own scope too. The recursive walk
         # already skips them as children; missing them here let `def inner(): return 1` count as
         # an escape and would have rejected a safe extraction.
-        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            continue
-        if isinstance(stmt, ESCAPES):
-            found.append(type(stmt).__name__)
-        walk(stmt, top=True)
+        walk_stmt(stmt, in_loop=False)
     return found
 
 
@@ -161,11 +201,29 @@ def _assigned_names(nodes) -> set[str]:
     skipped — counting them would let a helper-bound name look rebound by code that cannot rebind
     it. The reviewer caught the earlier version claiming to skip nested scopes in its docstring
     while using a flat `ast.walk` that did not.
+
+    A COMPREHENSION binds its target in its OWN scope, not this one — the dual of hole 11, and the
+    same mistake in the other direction. Counting `r` from `[... for r in rows]` as bound here made
+    the live-OUT check believe the helper had produced a local the caller still needed, and refused
+    a correct extraction for the same reason the live-IN check did.
+
+    A WALRUS inside a comprehension is the exception that has to be kept: PEP 572 binds `y` in
+    `[y := x for x in rows]` in the ENCLOSING scope. Blanket-skipping comprehensions would lose it,
+    and losing a real binding is the direction that blesses a broken split rather than refusing a
+    safe one — so comprehensions are descended into for walrus targets only.
     """
     out: set[str] = set()
 
+    def walrus_targets(node: ast.AST) -> None:
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.NamedExpr) and isinstance(sub.target, ast.Name):
+                out.add(sub.target.id)
+
     def visit(node: ast.AST) -> None:
         for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
+                walrus_targets(child)
+                continue
             if _nested_scopes(child):
                 if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                     out.add(child.name)  # the def itself binds its name HERE
@@ -175,6 +233,9 @@ def _assigned_names(nodes) -> set[str]:
             visit(child)
 
     for stmt in nodes:
+        if isinstance(stmt, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
+            walrus_targets(stmt)
+            continue
         if _nested_scopes(stmt):
             if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 out.add(stmt.name)
@@ -192,12 +253,52 @@ def _loaded_names(nodes) -> set[str]:
     it from this scope, which is a genuine read of the outer local — so nested loads count. Being
     over-inclusive here only ever refuses an extraction; being under-inclusive would bless a broken
     one, and this gate's whole job is to fail in the safe direction.
+
+    COMPREHENSION TARGETS ARE THE ONE EXCEPTION, and it is not over-inclusiveness — it is a wrong
+    answer. THE ELEVENTH HOLE, and mine: I introduced it fixing the eighth.
+
+        reply_mins = sorted(float(r["mins"]) for r in rows if r["mins"] is not None)
+
+    A flat walk reports `r` as read. It is not read from this scope: a comprehension has its OWN
+    scope and `r` is bound in it. When some enclosing function happens to have its own `r` — and in
+    `get_analytics` three separate comprehensions do — the live-in check concluded the helper was
+    reading a caller local and refused a correct extraction.
+
+    So comprehension bodies are walked with their targets bound. The FIRST generator's iterable is
+    deliberately walked in the ENCLOSING scope, because that is where Python evaluates it; the
+    remaining iterables, the conditions and the element expression are evaluated inside. Getting
+    that boundary wrong in the other direction would hide a genuine read, so it follows the language
+    rather than being approximated.
     """
     out: set[str] = set()
+
+    def visit(node: ast.AST, bound: frozenset) -> None:
+        if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
+            generators = node.generators
+            if generators:
+                visit(generators[0].iter, bound)          # evaluated in the ENCLOSING scope
+            inner = set(bound)
+            for index, generator in enumerate(generators):
+                inner |= _assigned_names([generator.target])
+                if index > 0:
+                    visit(generator.iter, frozenset(inner))
+                for condition in generator.ifs:
+                    visit(condition, frozenset(inner))
+            if isinstance(node, ast.DictComp):
+                visit(node.key, frozenset(inner))
+                visit(node.value, frozenset(inner))
+            else:
+                visit(node.elt, frozenset(inner))
+            return
+        if isinstance(node, ast.Name):
+            if isinstance(node.ctx, ast.Load) and node.id not in bound:
+                out.add(node.id)
+            return
+        for child in ast.iter_child_nodes(node):
+            visit(child, bound)
+
     for stmt in nodes:
-        for sub in ast.walk(stmt):
-            if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load):
-                out.add(sub.id)
+        visit(stmt, frozenset())
     return out
 
 
