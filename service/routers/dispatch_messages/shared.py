@@ -30,9 +30,11 @@ from typing import Any, Optional
 from fastapi import HTTPException, Query, Request
 
 from service import longpoll
+from service.api_core.execution_mode import _auto_return_resident_to_managed_if_possible
+from service.api_core.spawn_request_state import _has_claimable_spawn_request
 from service.api_core.events import _append_dispatch_event, _append_terminal_event
 from service.api_core.routing import domain_router
-from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.runtime import _NATIVE_MANAGED_RUNTIMES, _normalize_runtime, _normalize_session_mode
 from service.api_core.dispatch_text import (  # v0.5.4 owner; re-exported for this package
     _auto_handoff_subject_for_run,
     _coldstart_refusal_message,
@@ -50,7 +52,7 @@ from service.api_core.serialization import (
     _timestamp_sort_key,
 )
 from service.api_core.capabilities import _managed_via_wrapper_for_runtime
-from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
+from service.api_core.settings import DEFAULT_SETTINGS, _load_settings, _managed_terminal_backing_enabled
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.api_core.liveness import _has_live_managed_wrapper_child
@@ -187,17 +189,6 @@ async def _append_dispatch_control(*a, **k):
 
 
 
-async def _auto_return_resident_to_managed_if_possible(*a, **k):
-    from service.control_plane import _auto_return_resident_to_managed_if_possible as _impl
-
-    return await _impl(*a, **k)
-
-
-
-
-
-
-
 
 async def _create_dispatch_runs(*a, **k):
     from service.control_plane import _create_dispatch_runs as _impl
@@ -243,29 +234,11 @@ async def _get_recipient_info(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _has_claimable_spawn_request(*a, **k):
-    from service.control_plane import _has_claimable_spawn_request as _impl
-
-    return await _impl(*a, **k)
-
-
-
-
-
-
-
 
 async def _managed_environment_unavailable_reason(*a, **k):
     from service.control_plane import _managed_environment_unavailable_reason as _impl
 
     return await _impl(*a, **k)
-
-
-def _managed_terminal_backing_enabled(*a, **k):
-    from service.control_plane import _managed_terminal_backing_enabled as _impl
-
-    return _impl(*a, **k)
-
 
 
 

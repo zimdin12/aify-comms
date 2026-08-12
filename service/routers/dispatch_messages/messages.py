@@ -23,9 +23,10 @@ from typing import Any, Optional
 from fastapi import HTTPException, Query, Request
 
 from service import longpoll
+from service.api_core.spawn_request_state import _has_claimable_spawn_request
 from service.api_core.events import _append_dispatch_event, _append_terminal_event
 from service.api_core.routing import domain_router
-from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.runtime import _NATIVE_MANAGED_RUNTIMES, _normalize_runtime, _normalize_session_mode
 from service.api_core.dispatch_text import COLDSTART_REFUSED_PREFIX
 from service.api_core.serialization import (
     _clip_text,
@@ -36,7 +37,7 @@ from service.api_core.serialization import (
     _row_require_reply,
     _timestamp_sort_key,
 )
-from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
+from service.api_core.settings import DEFAULT_SETTINGS, _load_settings, _managed_terminal_backing_enabled
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.clock import iso_to_epoch as _iso_to_epoch
@@ -57,11 +58,9 @@ from service.api_core.recovery_writes import _record_channel_sidecar_heartbeat
 from service.api_core.serialization import _machine_ids_same_host
 from service.routers.dispatch_messages.shared import (
     VALID_STATUSES,
-    _NATIVE_MANAGED_RUNTIMES,
     _append_dispatch_control,
     _append_terminal_control,
     _auto_handoff_subject_for_run,
-    _auto_return_resident_to_managed_if_possible,
     _borrowed_unthreaded_handoff_window_ms,
     _clear_turn_busy_if_no_open_reply_owing_run,
     _close_reconcilable_delivered_runs,
@@ -75,12 +74,10 @@ from service.routers.dispatch_messages.shared import (
     _finalize_dispatch_runs,
     _get_blocking_active_run,
     _get_recipient_info,
-    _has_claimable_spawn_request,
     _has_live_managed_wrapper_child,
     _is_replaceable_auto_handoff_message,
     _link_reply_message_to_dispatch_run,
     _managed_environment_unavailable_reason,
-    _managed_terminal_backing_enabled,
     _managed_via_wrapper_for_runtime,
     _mark_dispatch_run_answered,
     _message_satisfies_reply_contract,
@@ -106,8 +103,9 @@ from service.api_core.dispatch_start import (
     _coldstart_spawn_request_for_dispatch,
     _ensure_managed_pty_for_dispatch,
 )
+from service.api_core.spawn_request_state import _has_claimable_spawn_request
 from service.api_core.active_run_discard import _fail_pending_controls_for_run
-from service.api_core.execution_mode import _agent_execution_mode
+from service.api_core.execution_mode import _agent_execution_mode, _auto_return_resident_to_managed_if_possible
 from service.api_core.reply_contract import (
     _dispatch_reply_pending,
     _dispatch_reply_state,

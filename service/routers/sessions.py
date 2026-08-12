@@ -41,6 +41,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
 
+from service.api_core.spawn_request_state import _has_claimable_spawn_request
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.records import (
@@ -76,6 +77,7 @@ from service.api_core.workspace import (
     _workspace_for_environment,
     _workspace_root_for,
 )
+from service.api_core.spawn_request_state import _has_claimable_spawn_request
 from service.api_core.dispatch_start import _coldstart_spawn_request_for_dispatch
 
 logger = logging.getLogger("aify_comms.routers.sessions")
@@ -103,16 +105,6 @@ async def _get_blocking_active_run(*a, **k):
     from service.control_plane import _get_blocking_active_run as _impl
 
     return await _impl(*a, **k)
-
-
-
-async def _has_claimable_spawn_request(*a, **k):
-    """BORROWED: still used by handlers that have not moved."""
-    from service.control_plane import _has_claimable_spawn_request as _impl
-
-    return await _impl(*a, **k)
-
-
 
 
 

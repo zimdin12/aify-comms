@@ -39,3 +39,15 @@ def _runtime_capability_for_environment(environment: dict[str, Any], runtime: st
         if _normalize_runtime(item.get("runtime") or "") == normalized:
             return item
     return None
+
+
+#: Runtimes whose managed worker is driven NATIVELY by the bridge — an app-server or persistent RPC
+#: session — as opposed to the channel-sidecar runtimes in `api_core/channel_delivery.py`. v0.5.4: moved
+#: out of the control plane, whose only claim on it was history; its readers are the dispatch_messages
+#: package and `service/db.py`.
+#:
+#: A LITERAL, not a contract read, and that is worth flagging rather than fixing here: `_normalize_runtime`
+#: below resolves spellings against `service/contracts/vocabulary.json` while this set hardcodes four
+#: words. Reconciling the two is a behaviour question (the contract could disagree), so it is left alone
+#: by a structural slice.
+_NATIVE_MANAGED_RUNTIMES = {"codex", "pi", "opencode", "hermes"}

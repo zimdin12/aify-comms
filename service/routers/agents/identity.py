@@ -55,7 +55,6 @@ from service.routers.agents.shared import (
     _append_terminal_control,
     _append_terminal_event,
     _apply_status_event,
-    _auto_return_resident_to_managed_if_possible,
     _borrowed_console_tail_max_bytes,
     _borrowed_console_tail_max_lines,
     _borrowed_list_agents_refresh_limit,

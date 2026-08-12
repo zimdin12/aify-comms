@@ -62,7 +62,7 @@ from service.api_core.capabilities import (
     _default_capabilities_for,
     _managed_via_wrapper_for_runtime,
 )
-from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
+from service.api_core.settings import DEFAULT_SETTINGS, _load_settings, _managed_terminal_backing_enabled
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
@@ -165,15 +165,6 @@ def _wake_agent(*a, **k):
     from service.control_plane import _wake_agent as _impl
 
     return _impl(*a, **k)
-
-
-def _managed_terminal_backing_enabled(*a, **k):
-    from service.control_plane import _managed_terminal_backing_enabled as _impl
-
-    return _impl(*a, **k)
-
-
-
 
 
 

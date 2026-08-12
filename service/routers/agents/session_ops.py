@@ -16,6 +16,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
 
+from service.api_core.execution_mode import _auto_return_resident_to_managed_if_possible
 from service.api_core.runtime_state import _runtime_state_replacing_handle
 from service.api_core.routing import domain_router
 
@@ -39,7 +40,6 @@ from service.routers.agents.shared import (
     _append_terminal_control,
     _append_terminal_event,
     _apply_status_event,
-    _auto_return_resident_to_managed_if_possible,
     _borrowed_console_tail_max_bytes,
     _borrowed_console_tail_max_lines,
     _borrowed_list_agents_refresh_limit,

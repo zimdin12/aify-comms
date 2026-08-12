@@ -323,7 +323,10 @@ from service.api_core.dispatch_text import (  # v0.5.4: moved out; the carrier i
     _pending_dispatch_count,
 )
 from service.api_core.reply_contract import _dispatch_reply_state  # v0.5.4: moved out
-from service.api_core.execution_mode import _agent_execution_mode  # v0.5.4: moved out
+from service.api_core.execution_mode import (  # v0.5.4: both moved out of this file
+    _agent_execution_mode,
+    _auto_return_resident_to_managed_if_possible,
+)
 from service.api_core.active_run_discard import (  # v0.5.4: moved out; the carrier is a CALLER
     _discard_superseded_active_run,
     _discard_unclaimable_active_run,
@@ -491,7 +494,6 @@ OFFLINE_CACHE_REVALIDATE_SECONDS = 180
 # wrapper-backed channel path by managed_via_wrapper; otherwise these runtimes
 # are claimed by the bridge's native controller. PTY-input is a legacy
 # explicit opt-in only (insert_messages_via_console=true).
-_NATIVE_MANAGED_RUNTIMES = {"codex", "pi", "opencode", "hermes"}
 # Managed Claude uses a live Claude Code channel bridge. It is not a native
 # managed runtime adapter and must not be claimed by the generic managed loop.
 # Membership controls two distinct behaviors:
@@ -556,9 +558,6 @@ _NATIVE_MANAGED_RUNTIMES = {"codex", "pi", "opencode", "hermes"}
 # codex/pi: their wrapper-child / RPC worker IS the claimer, so PTY liveness
 # already equals deliverability.
 # _CHANNEL_SIDECAR_DELIVERY_RUNTIMES moved to service/api_core/channel_delivery.py in v0.5.4.
-
-def _managed_terminal_backing_enabled(settings: dict[str, Any]) -> bool:
-    return bool(settings.get("managed_terminal_backing_enabled", DEFAULT_SETTINGS["managed_terminal_backing_enabled"]))
 
 
 # _managed_via_wrapper_for_runtime moved to service/api_core/capabilities.py in v0.5.4.
@@ -938,21 +937,6 @@ async def _agent_liveness(db, agent_id: str, *, agent_row=None) -> dict[str, boo
 
 # _session_handle_live_owner moved to service/api_core/agent_sessions.py in v0.5.4.
 
-
-
-
-async def _auto_return_resident_to_managed_if_possible(
-    db,
-    row,
-    *,
-    settings: dict[str, Any],
-    force: bool = False,
-    reason: str = "resident_lease_expired",
-):
-    # Manual ownership model: resident<->managed changes happen only through
-    # PATCH /agents/{id}/session-mode. Keep the helper as a compatibility
-    # no-op for older call sites while the automatic paths are removed.
-    return row, ""
 
 
 
@@ -2588,18 +2572,6 @@ async def flush_terminal_output_writes_for_tests() -> None:
 
 # _active_terminal_for_agent moved to service/api_core/terminal_ownership.py in v0.5.4.
 
-
-async def _has_claimable_spawn_request(db, agent_id: str) -> bool:
-    """True when a queued/claimed spawn_request already backs this agent.
-
-    A claimable spawn_request means a bridge will (or already did) spawn the
-    worker, so the dispatch can safely sit queued instead of being rejected.
-    """
-    row = await (await db.execute(
-        "SELECT id FROM spawn_requests WHERE agent_id = ? AND status IN ('queued','claimed') LIMIT 1",
-        (agent_id,),
-    )).fetchone()
-    return bool(row)
 
 
 # _has_pending_or_booting_spawn_request moved to service/api_core/managed_env.py in v0.5.4.

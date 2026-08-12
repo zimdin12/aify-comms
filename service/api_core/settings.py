@@ -244,3 +244,7 @@ async def _load_settings(db):
 def _invalidate_settings_cache() -> None:
     _SETTINGS_CACHE["value"] = None
     _SETTINGS_CACHE["at"] = 0.0
+
+
+def _managed_terminal_backing_enabled(settings: dict[str, Any]) -> bool:
+    return bool(settings.get("managed_terminal_backing_enabled", DEFAULT_SETTINGS["managed_terminal_backing_enabled"]))

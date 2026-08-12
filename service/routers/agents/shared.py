@@ -17,6 +17,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
 
+from service.api_core.execution_mode import _auto_return_resident_to_managed_if_possible
 from service.api_core.routing import domain_router
 
 from service.api_core.events import _append_dispatch_event
@@ -107,17 +108,6 @@ async def _append_dispatch_control(*a, **k):
     from service.control_plane import _append_dispatch_control as _impl
 
     return await _impl(*a, **k)
-
-
-async def _auto_return_resident_to_managed_if_possible(*a, **k):
-    from service.control_plane import _auto_return_resident_to_managed_if_possible as _impl
-
-    return await _impl(*a, **k)
-
-
-
-
-
 
 
 
