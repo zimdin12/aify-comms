@@ -224,7 +224,7 @@ class DomainRouterHarnessTests(unittest.TestCase):
 
         with self.assertRaises(TypeError) as caught:
             domain_router(route_class=APIRoute)
-        self.assertIn("lock-retry", str(caught.exception))
+        self.assertIn("write-lock retry", str(caught.exception))
 
     def test_the_factory_still_forwards_ordinary_router_options(self):
         """A harness nobody can configure is a harness nobody will use."""
