@@ -43,7 +43,18 @@ SEARCH_GLOBS = (
 )
 
 
-def _tracked_files() -> set[str]:
+def _tracked_files() -> set[str] | None:
+    """Tracked paths, or None when there is no git metadata to ask.
+
+    THIS GATE NEEDS `.git`, which is a real limit and worth stating rather than discovering. It
+    passes in a clean CLONE and cannot run in a bare `git archive` extraction — the very shape the
+    reviewer used to catch the bug this test exists for. So a missing repository is a documented
+    SKIP with a stated reason, not a failure and definitely not a silent pass: an environment that
+    cannot gather the evidence must say so out loud, per this repo's standing rule that no evidence
+    is not a pass.
+    """
+    if not (REPO / ".git").exists():
+        return None
     out = subprocess.run(
         ["git", "ls-files"], cwd=REPO, capture_output=True, text=True, check=True
     ).stdout
@@ -82,6 +93,8 @@ def _named_fixtures() -> list[tuple[str, str]]:
 class FixturesAreTrackedTests(unittest.TestCase):
     def test_every_fixture_a_test_reads_is_tracked_by_git(self):
         tracked = _tracked_files()
+        if tracked is None:
+            self.skipTest("no .git metadata here (archive extraction) - this gate needs a checkout")
         offenders = [
             f"{fixture}  (read by {test})"
             for fixture, test in _named_fixtures()
@@ -104,6 +117,8 @@ class FixturesAreTrackedTests(unittest.TestCase):
         considers load-bearing, and survives someone rewriting the discovery logic.
         """
         tracked = _tracked_files()
+        if tracked is None:
+            self.skipTest("no .git metadata here (archive extraction) - this gate needs a checkout")
         for name in (
             "route_inventory.txt",
             "route_metadata_inventory.txt",

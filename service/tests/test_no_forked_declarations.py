@@ -61,9 +61,39 @@ def _module_level(path: Path) -> dict[str, ast.AST]:
 
 
 def _is_delegating_shim(node: ast.AST) -> bool:
+    """A shim is: optional docstring, ONE import from the router, ONE return of that import.
+
+    STRUCTURAL, not a substring match. The first version exempted any function whose source merely
+    CONTAINED `from service.routers.api_v2 import`, which the reviewer pointed out would
+    false-exempt a future "shim" that had grown real logic around the delegation — and a function
+    with its own logic is a second implementation, which is exactly the fork this file exists to
+    catch. Recognising the shape means the exemption cannot be earned by an import line alone.
+    """
     if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
         return False
-    return "from service.routers.api_v2 import" in ast.unparse(node)
+
+    body = list(node.body)
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
+            and isinstance(body[0].value.value, str):
+        body = body[1:]  # docstring
+
+    if len(body) != 2:
+        return False
+    importer, returner = body
+    if not isinstance(importer, ast.ImportFrom) or importer.module != "service.routers.api_v2":
+        return False
+    if not isinstance(returner, ast.Return) or returner.value is None:
+        return False
+
+    call = returner.value
+    if isinstance(call, ast.Await):
+        call = call.value
+    if not isinstance(call, ast.Call):
+        return False
+
+    # It must call the alias it just imported, and nothing else.
+    aliases = {(a.asname or a.name) for a in importer.names}
+    return isinstance(call.func, ast.Name) and call.func.id in aliases
 
 
 def _leaf_paths() -> list[Path]:
