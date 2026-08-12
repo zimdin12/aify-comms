@@ -37,6 +37,9 @@ from service.api_core.dispatch_text import (  # v0.5.4 owner; re-exported for th
     _auto_handoff_subject_for_run,
     _coldstart_refusal_message,
 )
+from service.api_core.reply_contract import (  # v0.5.4 owner; re-exported for this package
+    _message_satisfies_reply_contract,
+)
 from service.api_core.serialization import (
     _clip_text,
     _dedupe_preserve,
@@ -452,10 +455,6 @@ async def _mark_dispatch_source_messages_read(*a, **k):
     return await _impl(*a, **k)
 
 
-def _message_satisfies_reply_contract(*a, **k):
-    from service.control_plane import _message_satisfies_reply_contract as _impl
-
-    return _impl(*a, **k)
 
 
 def _pending_dispatch_count(*a, **k):

@@ -19,6 +19,7 @@ from typing import Any, Optional
 from fastapi import HTTPException, Query, Request
 
 from service.api_core.routing import domain_router
+from service.api_core.reply_contract import _contract_list_query
 from service.api_core.serialization import _iso_from_ms, _row_require_reply
 from service.api_core.settings import DEFAULT_SETTINGS, _invalidate_settings_cache, _load_settings
 from service.api_core.ws import _get_ws
@@ -45,15 +46,6 @@ def _dispatch_reply_state(*a, **k):
     return _impl(*a, **k)
 
 
-def _contract_list_query(*a, **k):
-    """BORROWED from the router: still used by handlers that have not moved yet.
-
-    Function-scope import, so there is no module-level cycle — `api_v2` imports this domain at
-    import time, and this reaches back only when called, long after the router is loaded.
-    """
-    from service.control_plane import _contract_list_query as _impl
-
-    return _impl(*a, **k)
 
 
 async def _run_contract_reminders_once(*a, **k):

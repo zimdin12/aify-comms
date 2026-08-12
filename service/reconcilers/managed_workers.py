@@ -28,6 +28,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from service.api_core.reply_contract import _message_satisfies_reply_contract
 from service.api_core.serialization import _json_loads_or  # v0.5.1c: the leaf owner, not via the router
 from service.api_core.runtime import _normalize_runtime  # v0.5.1e: the leaf owner, not via the router
 from service.api_core.events import _append_terminal_event  # v0.5.1i: the leaf owner
@@ -78,9 +79,6 @@ async def _mark_dispatch_run_answered(*a, **k):
     return await _i(*a, **k)
 
 
-def _message_satisfies_reply_contract(*a, **k):
-    from service.control_plane import _message_satisfies_reply_contract as _i
-    return _i(*a, **k)
 
 
 async def _link_unthreaded_completion_message_for_run(db, row) -> bool:

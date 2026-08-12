@@ -111,6 +111,13 @@ from service.clock import now as _now
 from service.reconcilers import status_cache
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.env_status import environment_effective_status as _environment_effective_status
+from service.api_core.reply_contract import (  # v0.5.4: moved out; the control plane is now a CALLER
+    _contract_list_query,
+    _contract_reminder_body,
+    _contract_reminder_full_every,
+    _is_operator_closed_contract,
+    _message_satisfies_reply_contract,
+)
 from service.api_core.dispatch_text import (  # v0.5.4: moved out; the control plane is now a CALLER
     COLDSTART_REFUSED_PREFIX,
     _auto_handoff_subject_for_run,
@@ -927,16 +934,7 @@ def _dispatch_reply_state(row) -> str:
 # router-owned and stays borrowed there.
 
 
-def _is_operator_closed_contract(row) -> bool:
-    if not row:
-        return False
-    status = str((row["status"] if "status" in row.keys() else "") or "").strip().lower()
-    summary = str((row["summary"] if "summary" in row.keys() else "") or "").strip()
-    return (
-        status == "completed"
-        and not _row_require_reply(row)
-        and summary.startswith("Closed from Work Loop by dashboard operator.")
-    )
+# _is_operator_closed_contract moved to service/api_core/reply_contract.py in v0.5.4.
 
 
 def _contract_reply_expected(row) -> bool:
@@ -5566,27 +5564,13 @@ async def _mark_dispatch_source_messages_read(db, row, agent_id: str, read_at: s
 # _is_replaceable_auto_handoff_message moved to service/routers/dispatch_messages/shared.py in v0.5.3.
 
 
-_HANDOFF_REPLY_TYPES = {"response", "review", "error", "approval"}
-_COMPLETION_INFO_RE = re.compile(
-    r"\b(done|complete(?:d)?|finished|fixed|pushed|committed|shipped|merged|resolved|verified|ready|answered)\b",
-    re.I,
-)
+# _HANDOFF_REPLY_TYPES moved to service/api_core/reply_contract.py in v0.5.4 with its
+# only reader, _message_satisfies_reply_contract (sole-reader move).
+# _COMPLETION_INFO_RE moved to service/api_core/reply_contract.py in v0.5.4 with its
+# only reader, _message_satisfies_reply_contract (sole-reader move).
 
 
-def _message_satisfies_reply_contract(reply_type: str, subject: str = "", body: str = "") -> bool:
-    msg_type = str(reply_type or "").strip().lower()
-    if msg_type in _HANDOFF_REPLY_TYPES:
-        return True
-    # `info` closes a run ONLY when it signals completion (keyword) — an agent
-    # may thread an `info` "ack / I'm looking" WITHOUT claiming the work is done,
-    # which intentionally leaves the run open (see
-    # test_threaded_non_answer_message_does_not_close_reply_contract). Reviewed
-    # 2026-05-31 (holistic review "F4"): this is deliberate, NOT a stuck-run bug —
-    # the operator-observed "Pending updates (N)" pile-up was QUEUED (never
-    # claimed) runs, fixed by the release + channel-sidecar self-heal fixes.
-    if msg_type == "info" and _COMPLETION_INFO_RE.search(f"{subject or ''}\n{body or ''}"):
-        return True
-    return False
+# _message_satisfies_reply_contract moved to service/api_core/reply_contract.py in v0.5.4.
 
 
 async def _clear_turn_busy_if_no_open_reply_owing_run(db, target_agent: str, exclude_run_id: str) -> bool:
@@ -6252,42 +6236,7 @@ def _wake_agent(agent_id: str):
 
 
 
-def _contract_list_query(
-    *,
-    where_sql: str = "",
-    order_sql: str = "ORDER BY r.requested_at DESC",
-    limit_sql: str = "LIMIT ?",
-) -> str:
-    return f"""
-        SELECT
-            r.*,
-            m.source AS message_source,
-            m.body AS message_body,
-            m.timestamp AS message_timestamp,
-            rr.read_at AS source_read_at,
-            result.body AS result_body,
-            result.timestamp AS result_timestamp,
-            COALESCE(reminder.reminder_count, 0) AS reminder_count,
-            COALESCE(reminder.last_reminder_at, '') AS last_reminder_at
-        FROM dispatch_runs r
-        LEFT JOIN messages m ON m.id = r.message_id
-        LEFT JOIN read_receipts rr ON rr.message_id = r.message_id AND rr.agent_id = r.target_agent
-        LEFT JOIN messages result ON result.id = r.result_message_id
-        LEFT JOIN (
-            SELECT run_id, COUNT(*) AS reminder_count, MAX(created_at) AS last_reminder_at
-            FROM dispatch_events
-            WHERE event_type = 'reply_reminder'
-            GROUP BY run_id
-        ) reminder ON reminder.run_id = r.id
-        WHERE (
-            r.require_reply = 1
-            OR r.message_type IN ('request','review','error')
-            OR (r.priority IN ('high','urgent') AND r.message_type NOT IN ('info','response','approval'))
-        )
-        {where_sql}
-        {order_sql}
-        {limit_sql}
-    """
+# _contract_list_query moved to service/api_core/reply_contract.py in v0.5.4.
 
 
 
@@ -6316,11 +6265,7 @@ def _contract_reminder_due(
     return True, ""
 
 
-def _contract_reminder_full_every(settings: dict[str, Any]) -> int:
-    try:
-        return max(0, int(settings.get("reply_reminder_full_every", DEFAULT_SETTINGS["reply_reminder_full_every"]) or 0))
-    except (TypeError, ValueError):
-        return int(DEFAULT_SETTINGS["reply_reminder_full_every"])
+# _contract_reminder_full_every moved to service/api_core/reply_contract.py in v0.5.4.
 
 
 def _contract_reminder_is_full(reminder_number: int, *, settings: dict[str, Any]) -> bool:
@@ -6336,57 +6281,7 @@ def _contract_reminder_is_full(reminder_number: int, *, settings: dict[str, Any]
     return reminder_number % full_every == 0
 
 
-def _contract_reminder_body(row, *, full: bool = True) -> str:
-    message_id = str(row["message_id"] or "").strip()
-    target = str(row["target_agent"] or "").strip()
-    sender = str(row["from_agent"] or "").strip()
-    subject = str(row["subject"] or "").strip() or "(no subject)"
-    read_hint = (
-        f'comms_inbox(agentId="{target}", messageId="{message_id}")'
-        if message_id
-        else f'comms_run_status(runId="{row["id"]}")'
-    )
-    # The snippet MUST be a valid comms_send call: `body` is a REQUIRED zod field
-    # (mcp/stdio/server.js:4472 `body: z.string()`), so it cannot be omitted. An earlier attempt
-    # here moved the body out of the call and described it in prose — that produced a snippet an
-    # agent could not run at all, which is strictly worse than a conventional placeholder. Keep the
-    # placeholder inside the call.
-    #
-    # NO subject-based matching claim. `_link_reply_message_to_dispatch_run` matches on
-    # `WHERE target_agent = ? AND message_id = ?` keyed on the reply's inReplyTo — it never reads
-    # the subject. A previous version of this text told the agent "the subject matches it to the
-    # run", which is simply false; do not re-add any variant of it.
-    #
-    # HONEST LIMIT for a run with no source message: every DASHBOARD-originated run
-    # (Restart/Stop/Start) has no message row, so there is no id to thread to and the reply CANNOT
-    # be linked by the matcher. Such a run is closed by the reconcile completed-without-reply path,
-    # not by threading. Say so plainly rather than implying an anchor exists.
-    reply_hint = (
-        f'comms_send(from="{target}", to="{sender}", type="response", inReplyTo="{message_id}", '
-        f'subject="Re: {subject}", body="<answer, blocker, or result>")'
-        if message_id and sender
-        else (
-            f'comms_send(from="{target}", to="{sender or "dashboard"}", type="response", '
-            f'subject="Re: {subject}", body="<answer, blocker, or result>") '
-            f'(operator-initiated — no source message to thread to)'
-        )
-    )
-    if not full:
-        # LIGHT reminder (operator decision 2026-07-02): one line — the owed
-        # message id + subject + the same comms_send/inReplyTo wiring the full
-        # format uses, so the recipient can still reply to the right message.
-        # No original body, no boilerplate. The message row itself still
-        # carries in_reply_to, so threading is identical to a full reminder.
-        return f'Reply owed to {message_id or row["id"]}: "{subject}" — {reply_hint}'
-    # Terse on purpose (2026-06-18): efficacy comes from the reply ANCHOR, not prose. The
-    # sender/subject/ids are already in the agent's inbox, so we don't restate them at length —
-    # that was ~210 tokens of context burn per reminder (the system already reminds rarely).
-    return (
-        f'aify-comms reminder: "{subject}" from {sender} still needs an explicit reply (run {row["id"]}).\n'
-        f"Reply to the ORIGINAL, not this nudge: {reply_hint}\n"
-        f"Read it first if needed: {read_hint}\n"
-        "If blocked, reply with the blocker, what you checked, and your next action."
-    )
+# _contract_reminder_body moved to service/api_core/reply_contract.py in v0.5.4.
 
 
 async def _run_contract_reminders_once(
