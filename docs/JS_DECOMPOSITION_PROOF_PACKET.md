@@ -1,6 +1,8 @@
 # JS decomposition — proof packet
 
-**Status:** submitted for review, no extraction performed. Measured on `7a767baf`.
+**Status:** approved by the reviewer with amendments; first slice landed. Measured on `7a767baf`,
+**corrected twice since — see §3.1.** The headline number in the first version of this document was
+wrong by 4.8×, and both corrections came from running a check rather than reading the code.
 
 The reviewer's standing ruling is that JS is last and needs a reviewed proof packet before any
 extraction, and specifically that it must not start on "tests pass". This document is that packet. It
@@ -107,10 +109,60 @@ Call graph over the 192 top-level functions, `document`/`window`/`location`/`nav
  89 TRANSITIVELY PURE — 1,090 lines
 ```
 
-**1,090 lines is the extractable surface of app.js under a pure-split rule.** That is the honest ceiling
-for this file without behavioural rewrites, and it is ~21% of it. Getting `app.js` under 1,000 lines is
-therefore **not achievable by pure splitting alone** — I am stating that up front rather than
-discovering it at slice four. It would need either DOM-parameterising the render layer (a behavioural
+**That figure was wrong. The real number is 229 lines.** Two constraints were missing, both found by
+running the extraction rather than by reading the analysis — see §3.1 before quoting any number from this
+section.
+
+### 3.1 Two corrections to the extractable surface
+
+**(i) Inline HTML handlers.** `app.js` renders markup containing `onclick="foo()"` attributes, and those
+resolve against the GLOBAL scope, not module scope. Moving such a function into a module makes the
+attribute reference a name that no longer exists — the button silently stops working, with nothing to
+catch it, because the dashboard's only app.js tests read source text.
+
+```
+55 of 192 functions are referenced from inline on*= handler attributes
+24 of them are in the transitively-pure set (265 lines) and CANNOT move
+```
+
+**(ii) Module-scope aliases and mutable state.** The first purity pass seeded on browser global NAMES. It
+missed `byId`, a module-scope `const byId = (id) => document.getElementById(id)`, and it missed the 14
+module-scope `let`/`var` bindings including `state`. So functions like `renderDiagnosticsSummary` and
+`renderUsageConsumption` were classified pure while calling `byId(...)` and reading `state`. I found this
+while extracting them: reading the bodies I was about to move showed the DOM access the detector had not.
+
+Re-measured with aliases and module-scope mutable bindings as impurity seeds, and inline-bound clusters
+excluded:
+
+```
+192 top-level functions
+131 transitively impure
+ 61 transitively pure (532 lines)
+ 18 of those inline-bound
+ 31 MOVABLE — 229 lines
+```
+
+**229 lines of 5,082.** So pure splitting takes `app.js` to roughly 4,850, not 3,990. The ceiling
+conclusion below is unchanged in direction and much stronger in degree, and this is why the operator
+decision in the open question is now unavoidable rather than merely advisable.
+
+The largest movable clusters, all verified free of inline references:
+
+| lines | cluster | public root |
+|---|---|---|
+| 49 | `settingsFieldHtml` + `themePreviewTilesHtml` | `settingsFieldHtml` — **EXTRACTED, slice 1** |
+| 23 | `applyRenderedWidth` | `applyRenderedWidth` |
+| 19 | `environmentRoots` + `environmentStartCommand` | both |
+| 19 | `renderEventBody` + `renderRunEvent` | (none — internal) |
+| 12 | `selectedDiagnostics` | `selectedDiagnostics` |
+| 11 | `lookup` | `lookup` |
+
+**229 lines is the extractable surface of app.js under a pure-split rule** (the 1,090 figure above is
+retained, struck through by §3.1, because a packet that silently swapped its own headline number would be
+the "documentation inherits the intention" failure this project keeps catching). That is the honest ceiling
+without behavioural rewrites, and it is ~4.5% of the file. Getting `app.js` under 1,000 lines is therefore
+**not achievable by pure splitting** — stated up front rather than discovered at slice four. It would need
+either DOM-parameterising the render layer (a behavioural
 change, out of scope for 0.5.x) or splitting the impure half into modules that are still only
 source-testable (which buys structure but no coverage, and is the thing this packet is supposed to
 avoid).
@@ -253,3 +305,28 @@ I see them:
 My recommendation is **(a) now, (b) proposed separately**, and explicitly not (c) — the line count is a
 proxy for the real goal, and (c) optimises the proxy at the expense of the goal. That said, the target is
 the operator's to set, and this is flagged before any extraction rather than after.
+
+**Reviewer ruling (received):** (a) now, (b) as a separate later proposal, (c) rejected for this track
+unless the operator explicitly says the numeric target beats the testability goal. The reviewer also ruled
+that the first pure slice does not need to wait for operator escalation, because it improves the real goal
+and forecloses nothing — but that no claim may be made that `app.js` will reach 1,000.
+
+**After §3.1 this is sharper than when the ruling was given.** At 1,090 lines, option (a) would have taken
+app.js from 5,082 to ~3,990 — a real dent. At the corrected 229, option (a) lands it at ~4,850, so the
+operator is being asked to accept that `app.js` stays ~4.8× over the threshold for the whole of v0.5.x.
+That is the decision, stated plainly, with the measurement behind it.
+
+---
+
+## Slice 1 — landed
+
+`service/new_dashboard/settings-fields.mjs`: `settingsFieldHtml` exported, `themePreviewTilesHtml` private.
+49 lines. Dashboard suite **194 → 219**.
+
+What the slice actually bought, which is the argument for the whole track: the first executable assertion
+ever run against a line of `app.js` **found a latent defect**. `settingsFieldHtml` interpolates `item.key`
+into `id="..."` and `for="..."` with no `esc()`, while the neighbouring `data-setting-key` IS escaped — so a
+key containing a quote injects arbitrary attributes. It is not reachable today (`SETTINGS_SCHEMA` is a
+hardcoded const of developer-authored literals) and v0.5.x is structural-only, so it is PINNED as current
+behaviour with its reachability recorded, and reported for its own behaviour tag. No source-reading test
+could have found it.

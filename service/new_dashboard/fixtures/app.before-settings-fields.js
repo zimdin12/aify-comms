@@ -12,7 +12,6 @@ import { createChatController } from './chat.js';
 import { inspectorRefreshDecision } from './inspector-refresh.mjs';
 import { createNotifier, readEnabled, writeEnabled, requestPermission } from './notify.mjs';
 import { THEMES, applyTheme, applyCachedTheme, previewTheme, paletteFromSettings } from './theme.js';
-import { settingsFieldHtml } from './settings-fields.mjs';
 import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
 
 function resolveApiOrigin() {
@@ -1040,6 +1039,14 @@ const SETTINGS_SCHEMA = [
   ] },
 ];
 
+function themePreviewTilesHtml(selectedKey) {
+  const selected = THEMES[selectedKey] ? selectedKey : 'default';
+  return `<div class="theme-preview-grid" id="theme-preview-grid">${Object.entries(THEMES).map(([key, t]) => `
+    <button type="button" class="theme-preview${key === selected ? ' active' : ''}" data-theme-choice="${esc(key)}" title="Use ${esc(t.label)} color scheme">
+      <b>${esc(t.label)}</b>
+      <span class="theme-preview-swatches"><span style="background:${esc(t.accent)}"></span><span style="background:${esc(t.secondary)}"></span><span style="background:${esc(t.tertiary)}"></span></span>
+    </button>`).join('')}</div>`;
+}
 
 // Short tab labels for the settings tab bar (the full group names are long).
 const SETTINGS_TAB_LABELS = {
@@ -1059,8 +1066,47 @@ const HELP_TAB = 'Help';
 // One aligned field row: label (+hint) on the left, control on the right. Toggles render a real
 // switch. The theme picker spans the full width (select + preview tiles). Same input ids +
 // data-setting-* attrs as before so saveSettings/previewAppearance/theme tiles keep working.
-// settingsFieldHtml moved to ./settings-fields.mjs in v0.5.4 (with themePreviewTilesHtml, which
-// only it calls and which stays private there).
+function settingsFieldHtml(item, value, settings = {}) {
+  const id = `set-${item.key}`;
+  const hint = item.hint ? `<span class="field-hint">${esc(item.hint)}</span>` : '';
+  // Associate the label with its input (for/id) so screen readers announce the field name.
+  const labelBlock = `<label class="field-label" for="${id}">${esc(item.label)}${hint}</label>`;
+  const bounds = `${item.min != null ? ` min="${item.min}"` : ''}${item.max != null ? ` max="${item.max}"` : ''}`;
+
+  if (item.type === 'toggle') {
+    return `<div class="settings-field"><label class="field-label" for="${id}">${esc(item.label)}${hint}</label>`
+      + `<div class="field-control"><label class="switch"><input type="checkbox" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="toggle"${value === true ? ' checked' : ''}><span class="switch-slider"></span></label></div></div>`;
+  }
+  if (item.type === 'theme') {
+    const key = THEMES[value] ? value : 'default';
+    const opts = Object.entries(THEMES).map(([k, t]) => `<option value="${esc(k)}"${k === key ? ' selected' : ''}>${esc(t.label)}</option>`).join('');
+    return `<div class="settings-field settings-field-wide">${labelBlock}`
+      + `<div class="field-control"><select id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="theme">${opts}</select></div>`
+      + `<div class="settings-field-extra">${themePreviewTilesHtml(key)}</div></div>`;
+  }
+  if (item.type === 'color') {
+    const preset = paletteFromSettings(settings, settings.dashboard_theme);
+    const fallback = item.key === 'dashboard_secondary_color' ? preset.secondary : item.key === 'dashboard_tertiary_color' ? preset.tertiary : preset.accent;
+    const hex = /^#[0-9a-fA-F]{6}$/.test(String(value || '')) ? value : fallback;
+    return `<div class="settings-field">${labelBlock}<div class="field-control field-control-color"><input type="color" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="color" value="${esc(hex)}"><code class="field-color-hex">${esc(hex)}</code></div></div>`;
+  }
+  let control;
+  if (item.type === 'select') {
+    const opts = (item.options || []).map((o) => {
+      const label = (item.optionLabels && item.optionLabels[o] != null) ? item.optionLabels[o] : (o === '' ? '(default)' : o);
+      return `<option value="${esc(o)}"${String(value ?? '') === String(o) ? ' selected' : ''}>${esc(label)}</option>`;
+    }).join('');
+    control = `<select id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="select">${opts}</select>`;
+  } else if (item.type === 'number') {
+    control = `<input type="number" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="number" value="${esc(value ?? '')}"${bounds}>`;
+  } else if (item.type === 'csv') {
+    const text = Array.isArray(value) ? value.join(', ') : (value ?? '');
+    control = `<input type="text" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="csv" value="${esc(text)}">`;
+  } else {
+    control = `<input type="text" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="text" value="${esc(value ?? '')}">`;
+  }
+  return `<div class="settings-field">${labelBlock}<div class="field-control">${control}</div></div>`;
+}
 
 function activeSettingsTab() {
   const tabs = [...SETTINGS_SCHEMA.map((g) => g.group), HELP_TAB];

@@ -12,14 +12,26 @@ _DASH = ROOT / "service" / "new_dashboard"
 
 
 def _dashboard_js() -> str:
-    """Combined Dashboard Next client JS. Phase 0.1 (DASHBOARD_REBUILD_PLAN) split app.js
-    into ES modules (util.js / status.js / console-chooser.js + the app.js orchestrator), so
-    source-presence assertions must scan all of them, not just app.js."""
+    """Combined Dashboard Next client JS — EVERY client module, discovered, not listed.
+
+    Phase 0.1 (DASHBOARD_REBUILD_PLAN) split app.js into ES modules, and the fix at that time was to add
+    the three new names to a hardcoded tuple. That worked and did not last: v0.5.4's first JS extraction
+    moved `settingsFieldHtml` into `settings-fields.mjs`, four of these presence assertions went red, and
+    the list would have needed editing again — once per extraction, forever, with a silent false PASS
+    waiting whenever an assertion's subject moved to a module nobody added.
+
+    So the source set is now DISCOVERED: every `.js` and `.mjs` under service/new_dashboard except tests
+    and fixtures. A file that ships to the browser is in scope automatically. Fixtures are excluded
+    deliberately — `fixtures/app.before-*.js` is a pre-extraction snapshot, and including it would let a
+    marker satisfy these assertions from a copy of the OLD file, which is the most literal possible way for
+    a gate to pass while guarding nothing.
+    """
     parts = []
-    for name in ("app.js", "util.js", "status.js", "console-chooser.js"):
-        path = _DASH / name
-        if path.exists():
-            parts.append(path.read_text(encoding="utf-8"))
+    for path in sorted(_DASH.rglob("*.js")) + sorted(_DASH.rglob("*.mjs")):
+        if "fixtures" in path.parts or path.name.endswith((".test.js", ".test.mjs")):
+            continue
+        parts.append(path.read_text(encoding="utf-8", errors="replace"))
+    assert parts, f"no dashboard client modules found under {_DASH}"
     return "\n".join(parts)
 
 
