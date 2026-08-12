@@ -711,67 +711,10 @@ def _runtime_state_with_handle(runtime: Any, runtime_state: Any, session_handle:
 # _is_operator_closed_contract moved to service/api_core/reply_contract.py in v0.5.4.
 
 
-def _contract_reply_expected(row) -> bool:
-    if not row:
-        return False
-    if _is_operator_closed_contract(row):
-        return False
-    # Send creation has already normalized type defaults plus the explicit requireReply
-    # override into this field. Re-inferring from type/priority here made an explicit
-    # requireReply=false request actionable again and recreated reminder/reply debt.
-    return _row_require_reply(row)
+# _contract_reply_expected moved to service/api_core/reply_contract.py in v0.5.4.
 
 
-def _contract_state(row, *, settings: dict[str, Any], now_s: Optional[float] = None) -> dict[str, Any]:
-    now_s = now_s or time.time()
-    requested_s = _iso_to_epoch((row["requested_at"] if row and "requested_at" in row.keys() else "") or "")
-    age_minutes = max(0.0, (now_s - requested_s) / 60.0) if requested_s else 0.0
-    status = str((row["status"] if row and "status" in row.keys() else "") or "").strip().lower()
-    result_message_id = str((row["result_message_id"] if row and "result_message_id" in row.keys() else "") or "").strip()
-    reply_expected = _contract_reply_expected(row)
-    reminder_minutes = max(1, int(settings.get("reply_reminder_minutes", DEFAULT_SETTINGS["reply_reminder_minutes"]) or DEFAULT_SETTINGS["reply_reminder_minutes"]))
-    reminder_count = int((row["reminder_count"] if row and "reminder_count" in row.keys() else 0) or 0)
-    source_read_at = str((row["source_read_at"] if row and "source_read_at" in row.keys() else "") or "").strip()
-    same_agent = str((row["from_agent"] if row else "") or "") == str((row["target_agent"] if row else "") or "")
-
-    if result_message_id:
-        state = "answered"
-    elif status in {"failed", "cancelled"}:
-        state = "failed"
-    elif status == "completed":
-        state = "missing_reply" if reply_expected else "closed"
-    elif status in {"claimed", "running"}:
-        state = "working"
-    elif status == "queued":
-        state = "queued"
-    elif source_read_at:
-        state = "seen"
-    else:
-        state = "sent"
-
-    overdue = bool(
-        reply_expected
-        and not result_message_id
-        and status not in _DISPATCH_TERMINAL_STATUSES
-        and age_minutes >= reminder_minutes
-    )
-    if overdue:
-        state = "overdue"
-
-    category = "self_wake" if same_agent else "direct"
-    source = str((row["message_source"] if row and "message_source" in row.keys() else "") or "").strip().lower()
-    if source == "channel":
-        category = "channel"
-
-    return {
-        "state": state,
-        "replyExpected": reply_expected,
-        "overdue": overdue,
-        "ageMinutes": round(age_minutes, 1),
-        "reminderCount": reminder_count,
-        "category": category,
-        "actionable": bool(reply_expected and not result_message_id and category != "self_wake"),
-    }
+# _contract_state moved to service/api_core/reply_contract.py in v0.5.4.
 
 
 
@@ -2356,6 +2299,12 @@ from service.api_core.capabilities import (
 )
 from service.api_core.liveness import TURN_BUSY_BACKSTOP_SECONDS
 from service.api_core.claim_gating import _dispatch_source_message_ids
+from service.api_core.reply_contract import _contract_reminder_due
+from service.api_core.dispatch_buffer import (
+    _DISPATCH_BUFFER_CAP,
+    _append_pending_dispatch_body,
+    _dispatch_buffer_full_hint,
+)
 
 # Grace before a spawn is finalized because its bound terminal reached a terminal
 # status. Deliberately SHORTER than SPAWN_ORPHAN_GRACE_SECONDS: that reaper infers
@@ -2851,8 +2800,8 @@ async def _append_dispatch_control(
 
 _PRIORITY_ORDER = {"normal": 0, "high": 1, "urgent": 2}
 # _MERGED_DISPATCH_HEADER moved to service/api_core/dispatch_text.py in v0.5.4.
-_MERGED_DISPATCH_FOOTER = "[/AIFY PENDING DISPATCHES]"
-_DISPATCH_BUFFER_CAP = 10
+# _MERGED_DISPATCH_FOOTER moved to service/api_core/dispatch_text.py in v0.5.4.
+# _DISPATCH_BUFFER_CAP moved to service/api_core/dispatch_buffer.py in v0.5.4.
 
 
 def _stronger_priority(left: str, right: str) -> str:
@@ -2874,105 +2823,10 @@ def _stronger_priority(left: str, right: str) -> str:
 # _build_pending_dispatch_subject moved to service/api_core/dispatch_text.py in v0.5.4.
 
 
-def _append_pending_dispatch_body(
-    existing_run,
-    *,
-    from_agent: str,
-    message_type: str,
-    subject: str,
-    body: str,
-    priority: str,
-    requested_at: str,
-    message_id: str = "",
-    in_reply_to: str = "",
-) -> Optional[tuple[str, int]]:
-    """
-    Returns (merged_body, item_count) on success, or None if the buffer cap
-    is already at _DISPATCH_BUFFER_CAP and the new item cannot be appended.
-    """
-    existing_body = str(existing_run["body"] or "")
-    if existing_body.startswith(_MERGED_DISPATCH_HEADER):
-        current_count = _pending_dispatch_count(existing_body)
-        if current_count >= _DISPATCH_BUFFER_CAP:
-            return None
-        count = current_count + 1
-        new_item = _render_pending_dispatch_item(
-            count,
-            from_agent=from_agent,
-            message_type=message_type,
-            subject=subject,
-            body=body,
-            priority=priority,
-            message_id=message_id,
-            in_reply_to=in_reply_to,
-            requested_at=requested_at,
-        )
-        merged_body = existing_body.replace(_MERGED_DISPATCH_FOOTER, f"\n\n{new_item}\n{_MERGED_DISPATCH_FOOTER}")
-        return merged_body, count
-
-    first_item = _render_pending_dispatch_item(
-        1,
-        from_agent=str(existing_run["from_agent"] or ""),
-        message_type=str(existing_run["message_type"] or ""),
-        subject=str(existing_run["subject"] or ""),
-        body=str(existing_run["body"] or ""),
-        priority=str(existing_run["priority"] or "normal"),
-        message_id=str(existing_run["message_id"] or ""),
-        in_reply_to=str(existing_run["in_reply_to"] or ""),
-        requested_at=str(existing_run["requested_at"] or ""),
-    )
-    second_item = _render_pending_dispatch_item(
-        2,
-        from_agent=from_agent,
-        message_type=message_type,
-        subject=subject,
-        body=body,
-        priority=priority,
-        message_id=message_id,
-        in_reply_to=in_reply_to,
-        requested_at=requested_at,
-    )
-    merged_body = "\n".join([
-        _MERGED_DISPATCH_HEADER,
-        f"Additional dispatches arrived while another run was active (cap: {_DISPATCH_BUFFER_CAP} items).",
-        "Process the buffered items in order. For message-backed items, use comms_inbox(...) if you need the full original text.",
-        "",
-        first_item,
-        "",
-        second_item,
-        _MERGED_DISPATCH_FOOTER,
-    ]).strip()
-    return merged_body, 2
+# _append_pending_dispatch_body moved to service/api_core/dispatch_buffer.py in v0.5.4.
 
 
-def _dispatch_buffer_full_hint(
-    recipient_id: str,
-    row,
-    *,
-    from_agent: str,
-    current_count: int,
-    recipient_status: str,
-    has_active_run: bool,
-) -> dict[str, Any]:
-    runtime = _normalize_runtime((row["runtime"] if row else "") or "generic")
-    session_mode = _normalize_session_mode((row["session_mode"] if row else "") or "resident")
-    return {
-        "targetAgentId": recipient_id,
-        "reason": "buffer_full",
-        "runtime": runtime,
-        "sessionMode": session_mode,
-        "bufferCap": _DISPATCH_BUFFER_CAP,
-        "bufferedCount": current_count,
-        "recipientStatus": recipient_status,
-        "hasActiveRun": has_active_run,
-        "fromAgent": from_agent,
-        "fix": (
-            f"Target agent already has {current_count} buffered dispatches from {from_agent} "
-            f"(cap: {_DISPATCH_BUFFER_CAP}). Wait for the current run to drain, "
-            f"interrupt the active run with comms_run_interrupt, or call "
-            f"comms_agent_info to inspect the queue before retrying."
-        ),
-    }
+# _dispatch_buffer_full_hint moved to service/api_core/dispatch_buffer.py in v0.5.4.
 
 
 async def _find_mergeable_queued_run(
@@ -3848,28 +3702,7 @@ def _wake_agent(agent_id: str):
 
 
 
-def _contract_reminder_due(
-    row,
-    *,
-    settings: dict[str, Any],
-    now_s: Optional[float] = None,
-    ignore_repeat: bool = False,
-) -> tuple[bool, str]:
-    if not settings.get("reply_contracts_enabled", True):
-        return False, "reply contract reminders are disabled"
-    state = _contract_state(row, settings=settings, now_s=now_s)
-    if not state["overdue"]:
-        return False, f'contract state is {state["state"]}'
-    max_count = max(0, int(settings.get("reply_reminder_max_count", 0) or 0))
-    if max_count and state["reminderCount"] >= max_count:
-        return False, f"max reminders reached ({state['reminderCount']}/{max_count})"
-    last_reminder_at = str((row["last_reminder_at"] if row and "last_reminder_at" in row.keys() else "") or "").strip()
-    if last_reminder_at and not ignore_repeat:
-        repeat_minutes = max(1, int(settings.get("reply_reminder_repeat_minutes", DEFAULT_SETTINGS["reply_reminder_repeat_minutes"]) or DEFAULT_SETTINGS["reply_reminder_repeat_minutes"]))
-        last_s = _iso_to_epoch(last_reminder_at)
-        if last_s and ((now_s or time.time()) - last_s) < repeat_minutes * 60:
-            return False, f"last reminder was less than {repeat_minutes} minutes ago"
-    return True, ""
+# _contract_reminder_due moved to service/api_core/reply_contract.py in v0.5.4.
 
 
 # _contract_reminder_full_every moved to service/api_core/reply_contract.py in v0.5.4.

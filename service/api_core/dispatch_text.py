@@ -11,9 +11,11 @@ control plane at all, so the constant follows its function and the control plane
 among several. `_coldstart_refusal` still reads it and imports it from here.
 
 `_dispatch_buffer_full_hint` was deliberately LEFT BEHIND even though it is a pure leaf and would
-have fitted. Its `_DISPATCH_BUFFER_CAP` is also read by `_append_pending_dispatch_body` and
-`_create_dispatch_runs` — dispatch-core functions, not text — so pulling the cap in here would make a
-formatting module the owner of a queue limit. It moves when the dispatch core does.
+have fitted, because its `_DISPATCH_BUFFER_CAP` is a QUEUE LIMIT and making a formatting module own
+one would have been filing by convenience. That reasoning held: in v0.5.4 the cap and both its
+functions went to `api_core/dispatch_buffer.py` instead, and this module kept only the markers.
+`_MERGED_DISPATCH_FOOTER` arrived here at the same time, beside the header it pairs with — the two
+are one vocabulary and splitting a delimiter pair across modules is how one of them gets edited alone.
 """
 
 from __future__ import annotations
@@ -165,3 +167,6 @@ def _pending_dispatch_count(body: str) -> int:
     if text.startswith(_MERGED_DISPATCH_HEADER):
         return len(re.findall(r"^=== ITEM \d+ ===$", text, flags=re.MULTILINE))
     return 1 if text.strip() else 0
+
+
+_MERGED_DISPATCH_FOOTER = "[/AIFY PENDING DISPATCHES]"

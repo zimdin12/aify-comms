@@ -28,17 +28,13 @@ from service.db import get_db
 from service.models import validate_model_shape
 from service.api_core.reply_contract import _dispatch_reply_state
 from service.api_core.claim_gating import _mark_dispatch_source_messages_read
+from service.api_core.reply_contract import _contract_state
 
 logger = logging.getLogger("aify_comms.routers.contracts")
 
 router = domain_router()
 
 
-def _contract_state(*a, **k):
-    """BORROWED: also used by `_contract_reminder_due`, which has not moved."""
-    from service.control_plane import _contract_state as _impl
-
-    return _impl(*a, **k)
 
 
 
