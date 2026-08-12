@@ -34,6 +34,7 @@ from service.api_core.runtime import _normalize_runtime  # v0.5.1e: the leaf own
 from service.api_core.events import _append_terminal_event  # v0.5.1i: the leaf owner
 from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
 from service.api_core.liveness import _has_live_channel_sidecar, _has_live_managed_wrapper_child, _has_live_terminal_session
+from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -61,9 +62,6 @@ async def _discard_unusable_active_run(*a, **k):
     return await _i(*a, **k)
 
 
-async def _get_dispatch_state_for_agent(*a, **k):
-    from service.control_plane import _get_dispatch_state_for_agent as _i
-    return await _i(*a, **k)
 
 
 async def _mark_dispatch_run_answered(*a, **k):

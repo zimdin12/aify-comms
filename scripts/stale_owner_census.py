@@ -37,36 +37,41 @@ import sys
 
 CARRIER = "service.control_plane"
 
-#: Every name moved out of the control plane in v0.5.4, with its current owner.
-MOVED: dict[str, str] = {}
-for _module, _names in {
-    "service.api_core.capabilities": [
-        "_default_capabilities_for", "_managed_via_wrapper_for_runtime", "_default_console_command",
-        "_environment_supports_terminal", "_has_hermes_gateway_url", "_environment_uses_windows_paths",
-        "_managed_env_reachable", "_has_live_rpc_controller",
-    ],
-    "service.api_core.records": [
-        "_agent_session_to_dict", "_environment_record_to_dict", "_terminal_session_to_dict",
-    ],
-    "service.api_core.dispatch_text": [
-        "_render_pending_dispatch_item", "_build_pending_dispatch_subject", "_format_dispatch_state",
-        "_coldstart_refusal_message", "_auto_handoff_subject_for_run", "_is_provider_rate_limit_error",
-        "COLDSTART_REFUSED_PREFIX",
-    ],
-    "service.api_core.reply_contract": [
-        "_contract_reminder_body", "_contract_list_query", "_is_operator_closed_contract",
-        "_message_satisfies_reply_contract", "_contract_reminder_full_every",
-        "_HANDOFF_REPLY_TYPES", "_COMPLETION_INFO_RE",
-    ],
-    "service.api_core.liveness": [
-        "_has_live_managed_wrapper_child", "_has_live_channel_sidecar", "_has_live_terminal_session",
-        "_agent_has_live_terminal", "_console_working_lease_fresh", "_claimer_lease_row",
-        "_bridge_is_superseded", "CONSOLE_WORKING_LEASE_SECONDS", "CHANNEL_SIDECAR_STALE_SECONDS",
-        "ACTIVE_RUN_BRIDGE_STALE_SECONDS",
-    ],
-}.items():
-    for _n in _names:
-        MOVED[_n] = _module
+#: Every name a leaf module OWNS, mapped to that module — DERIVED, not hand-listed.
+#:
+#: This map was a literal dict for three slices and went stale immediately: it covered five owner
+#: modules while `agent_sessions`, `turn_state` and `dispatch_state` had already landed, so the census
+#: reported "clean" while never looking at 15 of the moved names. A hand-maintained list of what to
+#: check is a check that silently narrows every time the code moves — the same green-on-the-wrong-
+#: artifact shape as the security probe that scanned one file by name.
+#:
+#: Deriving it from the leaf modules themselves means a new leaf is covered the moment it exists, and
+#: it also picks up names moved in EARLIER releases (api_core/serialization.py and friends), which is
+#: how the stale `_quote_untrusted_subject` consumer surfaced.
+def _owned_names() -> dict[str, str]:
+    owners: dict[str, str] = {}
+    for dirpath, dirnames, filenames in os.walk(os.path.join("service", "api_core")):
+        dirnames[:] = [d for d in dirnames if d != "__pycache__"]
+        for fn in sorted(filenames):
+            if not fn.endswith(".py") or fn == "__init__.py":
+                continue
+            path = os.path.join(dirpath, fn).replace("\\", "/")
+            module = path[: -len(".py")].replace("/", ".")
+            try:
+                tree = ast.parse(io.open(path, encoding="utf-8").read())
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+            for node in tree.body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    owners.setdefault(node.name, module)
+                elif isinstance(node, ast.Assign):
+                    for t in node.targets:
+                        if isinstance(t, ast.Name):
+                            owners.setdefault(t.id, module)
+    return owners
+
+
+MOVED: dict[str, str] = _owned_names()
 
 
 def _python_files():

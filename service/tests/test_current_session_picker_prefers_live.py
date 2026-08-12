@@ -31,6 +31,7 @@ import asyncio
 import time
 
 from service.db import get_db
+from service.api_core.agent_sessions import _current_agent_session_row
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 from service.tests._base import FastApiTestCase
@@ -68,7 +69,7 @@ class CurrentSessionPickerPrefersLiveTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                row = await api_v2._current_agent_session_row(db, agent_id)
+                row = await _current_agent_session_row(db, agent_id)
                 return dict(row) if row else None
             finally:
                 await db.close()

@@ -34,6 +34,7 @@ from typing import Any, Optional
 from service.api_core.settings import _load_settings, DEFAULT_SETTINGS  # v0.5.1g: the leaf owner
 from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
 from service.api_core.liveness import ACTIVE_RUN_BRIDGE_STALE_SECONDS
+from service.api_core.turn_state import _clear_status_state_in_turn
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -53,9 +54,6 @@ async def engine_status(*a, **k):
 
 
 
-async def _clear_status_state_in_turn(*a, **k):
-    from service.control_plane import _clear_status_state_in_turn as _i
-    return await _i(*a, **k)
 
 
 async def _mark_dispatch_run_answered(*a, **k):

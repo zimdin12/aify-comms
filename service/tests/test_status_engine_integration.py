@@ -73,7 +73,8 @@ class StatusEventIngestTests(FastApiTestCase):
         self.client.post("/api/v1/agents/a2/status-event", json={"kind": "turn_start", "runId": "r1"})
         import asyncio
         from service.db import get_db
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
+        from service.api_core.turn_state import _clear_turn_busy_if_no_open_reply_owing_run
+        from service import control_plane as api_v2
         async def run():
             db = await get_db()
             try:
@@ -122,11 +123,12 @@ class StatusEventIngestTests(FastApiTestCase):
         self.assertEqual(int(self._state("rl1")["in_turn"]), 1)  # heartbeat turnBusy set in_turn
         import asyncio
         from service.db import get_db
+        from service.api_core.turn_state import _clear_turn_busy_if_no_open_reply_owing_run
         from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
         async def run():
             db = await get_db()
             try:
-                await api_v2._clear_turn_busy_if_no_open_reply_owing_run(db, "rl1", "r1")
+                await _clear_turn_busy_if_no_open_reply_owing_run(db, "rl1", "r1")
                 await db.commit()
                 tb = await (await db.execute("SELECT turn_busy FROM agent_turn_state WHERE agent_id='rl1'")).fetchone()
                 it = await (await db.execute("SELECT in_turn FROM agent_status_state WHERE agent_id='rl1'")).fetchone()

@@ -55,6 +55,8 @@ from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.api_core.liveness import _has_live_managed_wrapper_child
 from service.api_core.agent_sessions import _agent_tombstone, _touch_agent, _touch_current_agent_session
+from service.api_core.dispatch_state import _get_dispatch_state_for_agent
+from service.api_core.turn_state import _clear_turn_busy_if_no_open_reply_owing_run
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
 from service.db import SQLITE_CLAIM_BUSY_TIMEOUT_MS, get_db
@@ -634,10 +636,6 @@ async def _auto_return_resident_to_managed_if_possible(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _clear_turn_busy_if_no_open_reply_owing_run(*a, **k):
-    from service.control_plane import _clear_turn_busy_if_no_open_reply_owing_run as _impl
-
-    return await _impl(*a, **k)
 
 
 
@@ -696,10 +694,6 @@ async def _get_blocking_active_run(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _get_dispatch_state_for_agent(*a, **k):
-    from service.control_plane import _get_dispatch_state_for_agent as _impl
-
-    return await _impl(*a, **k)
 
 
 async def _get_recipient_info(*a, **k):

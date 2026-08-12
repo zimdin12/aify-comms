@@ -17,6 +17,7 @@ from service import main as service_main
 from service.reconcilers import status_cache
 from service.api_core.liveness import _has_live_terminal_session
 from service.api_core.liveness import _has_live_channel_sidecar
+from service.api_core.turn_state import TURN_BUSY_STALE_SECONDS, _turn_busy_state
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 # v0.5.2l: dispatch run serialization moved into the dispatch+messages package.
 from service.routers.dispatch_messages import dispatch as dispatch_router
@@ -2979,7 +2980,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             "STATUS backstop must be the single LONG ceiling (>=30m), not the short claim window",
         )
         self.assertGreater(
-            api_v2.TURN_BUSY_BACKSTOP_SECONDS, api_v2.TURN_BUSY_STALE_SECONDS,
+            api_v2.TURN_BUSY_BACKSTOP_SECONDS, TURN_BUSY_STALE_SECONDS,
             "status backstop (long) must be DECOUPLED from the short claim window (120s)",
         )
         self._heartbeat_environment()
@@ -3003,7 +3004,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # turn_busy set by a START event, aged PAST the old 120s window but well
         # WITHIN the long ceiling, with NO re-pulse.
         aged = api_v2._iso_from_ms(int(
-            (datetime.now(timezone.utc).timestamp() - (api_v2.TURN_BUSY_STALE_SECONDS + 90)) * 1000
+            (datetime.now(timezone.utc).timestamp() - (TURN_BUSY_STALE_SECONDS + 90)) * 1000
         ))
         self._execute(
             """
@@ -11708,7 +11709,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             # was deleted. The FRESHNESS SEMANTICS it asserted are real and belong to
             # _turn_busy_state, which every live caller reaches, so the assertions
             # below are kept verbatim and simply point one layer down.
-            fresh, _run_id = await api_v2._turn_busy_state(db, agent_id)
+            fresh, _run_id = await _turn_busy_state(db, agent_id)
             return fresh
         finally:
             await db.close()

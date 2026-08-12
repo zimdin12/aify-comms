@@ -43,6 +43,8 @@ from service.api_core.vocabulary import SESSION_MODES as _SESSION_MODES
 from service.api_core.ws import _get_ws
 from service.api_core.liveness import _has_live_terminal_session
 from service.api_core.agent_sessions import _agent_tombstone, _session_handle_live_owner, _touch_current_agent_session
+from service.api_core.dispatch_state import _get_dispatch_state_for_agent, _get_dispatch_state_map
+from service.api_core.turn_state import _clear_status_state_in_turn
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
 from service.db import get_db
@@ -102,10 +104,6 @@ async def _auto_return_resident_to_managed_if_possible(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _clear_status_state_in_turn(*a, **k):
-    from service.control_plane import _clear_status_state_in_turn as _impl
-
-    return await _impl(*a, **k)
 
 
 
@@ -213,16 +211,8 @@ async def _get_blocking_active_run(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _get_dispatch_state_for_agent(*a, **k):
-    from service.control_plane import _get_dispatch_state_for_agent as _impl
-
-    return await _impl(*a, **k)
 
 
-async def _get_dispatch_state_map(*a, **k):
-    from service.control_plane import _get_dispatch_state_map as _impl
-
-    return await _impl(*a, **k)
 
 
 async def _get_unread_count_map(*a, **k):
