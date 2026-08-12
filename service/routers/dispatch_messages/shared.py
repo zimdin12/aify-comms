@@ -57,6 +57,7 @@ from service.api_core.liveness import _has_live_managed_wrapper_child
 from service.api_core.agent_sessions import _agent_tombstone, _touch_agent, _touch_current_agent_session
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.turn_state import _clear_turn_busy_if_no_open_reply_owing_run
+from service.api_core.recovery_writes import _record_channel_sidecar_heartbeat
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
 from service.db import SQLITE_CLAIM_BUSY_TIMEOUT_MS, get_db
@@ -469,10 +470,6 @@ def _row_capabilities(*a, **k):
     return _impl(*a, **k)
 
 
-async def _record_channel_sidecar_heartbeat(*a, **k):
-    from service.control_plane import _record_channel_sidecar_heartbeat as _impl
-
-    return await _impl(*a, **k)
 
 
 async def _release_stale_console_owner_for_claim(db, owner_session, req: DispatchClaimRequest) -> Optional[dict[str, Any]]:

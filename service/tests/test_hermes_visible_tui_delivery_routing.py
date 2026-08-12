@@ -58,6 +58,7 @@ from service.routers.agents.shared import _record_bridge_registration  # noqa: E
 
 
 from service.tests._base import FastApiTestCase
+from service.api_core.recovery_writes import _record_channel_sidecar_heartbeat
 
 
 def _run(coro):
@@ -210,7 +211,7 @@ class HermesVisibleTuiDeliveryTests(FastApiTestCase):
                     ),
                 )
                 await db.commit()
-                await api_v2._record_channel_sidecar_heartbeat(
+                await _record_channel_sidecar_heartbeat(
                     db,
                     bridge_id="hermes-managed-host-win32:test-host",
                     agent_id=agent_id,

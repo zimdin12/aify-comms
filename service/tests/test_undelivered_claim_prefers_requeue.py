@@ -26,6 +26,7 @@ from pathlib import Path
 from service.db import get_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 from service.tests._base import FastApiTestCase
+from service.api_core.recovery_writes import UNDELIVERED_CLAIM_REQUEUE_LIMIT
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -133,7 +134,7 @@ class UndeliveredClaimPrefersRequeueTests(FastApiTestCase):
     def test_the_rescue_is_bounded_and_then_the_run_fails(self):
         self._seed_run(
             "run_bounded",
-            events=("requeued_orphaned_claim",) * api_v2.UNDELIVERED_CLAIM_REQUEUE_LIMIT,
+            events=("requeued_orphaned_claim",) * UNDELIVERED_CLAIM_REQUEUE_LIMIT,
         )
         self.assertTrue(self._fail_stale("run_bounded"))
         self.assertEqual(
@@ -143,7 +144,7 @@ class UndeliveredClaimPrefersRequeueTests(FastApiTestCase):
 
     def test_the_bound_is_reached_by_repeated_rescue_not_only_by_seeding(self):
         self._seed_run("run_cycle")
-        for attempt in range(api_v2.UNDELIVERED_CLAIM_REQUEUE_LIMIT):
+        for attempt in range(UNDELIVERED_CLAIM_REQUEUE_LIMIT):
             self.assertTrue(self._fail_stale("run_cycle"))
             self.assertEqual(self._run_row("run_cycle")["status"], "queued", f"attempt {attempt}")
             # A live bridge re-claims it; the sidecar dies again.

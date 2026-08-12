@@ -46,6 +46,7 @@ from service.api_core.agent_sessions import _agent_tombstone, _session_handle_li
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent, _get_dispatch_state_map
 from service.api_core.turn_state import _clear_status_state_in_turn
 from service.api_core.managed_env import _has_pending_or_booting_spawn_request, _managed_owning_environment_row
+from service.api_core.recovery_writes import _record_channel_sidecar_heartbeat
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
 from service.db import get_db
@@ -246,10 +247,6 @@ def _machine_family(machine_id: Any) -> str:
 
 
 
-async def _record_channel_sidecar_heartbeat(*a, **k):
-    from service.control_plane import _record_channel_sidecar_heartbeat as _impl
-
-    return await _impl(*a, **k)
 
 
 async def _refresh_expired_agent_live_states(*a, **k):

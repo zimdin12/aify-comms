@@ -90,9 +90,31 @@ def scan(name):
         }
         declared_lines = {ln for p, ln in declarations if p == path}
 
+        # Alias-attribute reads are reads. `api_v2.SOME_CONST` is an ast.Attribute, not an
+        # ast.Name, so a Name-only walk reports "0 readers" for a constant two tests are using.
+        # Found while measuring UNDELIVERED_CLAIM_REQUEUE_LIMIT: the tool said no test read it,
+        # and `test_undelivered_claim_prefers_requeue` reads it twice. Same blind spot the census
+        # had — the sole-reader VERDICT depends on this being complete, so it has to see both forms.
+        carrier_aliases = set()
         for node in ast.walk(tree):
-            if not (isinstance(node, ast.Name) and node.id == name and isinstance(node.ctx, ast.Load)):
-                continue
+            if isinstance(node, ast.ImportFrom) and node.module == "service":
+                for a in node.names:
+                    if a.name == "control_plane":
+                        carrier_aliases.add(a.asname or a.name)
+            elif isinstance(node, ast.Import):
+                for a in node.names:
+                    if a.name == "service.control_plane" and a.asname:
+                        carrier_aliases.add(a.asname)
+
+        reads = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id == name and isinstance(node.ctx, ast.Load):
+                reads.append(node)
+            elif (isinstance(node, ast.Attribute) and node.attr == name
+                  and isinstance(node.value, ast.Name) and node.value.id in carrier_aliases):
+                reads.append(node)
+
+        for node in reads:
             if node.lineno in seen_import_lines or node.lineno in declared_lines:
                 continue
             fn = _enclosing_function(tree, node)
