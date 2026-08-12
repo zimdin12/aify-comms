@@ -293,5 +293,81 @@ class AccessorRewriteExactOutputTests(unittest.TestCase):
                          "def a():\n\tif True:\n\t\treturn _borrowed_const()\n")
 
 
+
+
+class AccessorRewriteRealRepoShapesTests(unittest.TestCase):
+    """The 14 accessors that a name-prefix check did not protect.
+
+    Earlier slices wrote borrow accessors under their own naming — `_virtual_rpc_command_set()`,
+    `_terminal_end_statuses()`, `_active_run_bridge_stale_seconds()` — long before `_borrowed_*`
+    became the convention. The first structural check keyed on that prefix and therefore did not see
+    them, so running the rewriter over those modules corrupted their import lines. That is the same
+    failure the protection exists to prevent, reintroduced by matching a NAME instead of a SHAPE.
+
+    This is the third distinct instance today of substring/naming standing in for structure. The
+    rule is now in the tool itself: an accessor is recognised by what it DOES.
+    """
+
+    OLD_STYLE = (
+        "def _active_run_bridge_stale_seconds():\n"
+        "    from service.routers.api_v2 import ACTIVE_RUN_BRIDGE_STALE_SECONDS\n"
+        "\n"
+        "    return ACTIVE_RUN_BRIDGE_STALE_SECONDS\n"
+    )
+
+    def test_an_accessor_without_the_borrowed_prefix_is_protected(self):
+        source = "def h(age):\n    return age < ACTIVE_RUN_BRIDGE_STALE_SECONDS\n\n\n" + self.OLD_STYLE
+        out = rewrite(source, ["ACTIVE_RUN_BRIDGE_STALE_SECONDS"])
+        ast.parse(out)
+        accessor = out.split("def _active_run_bridge_stale_seconds")[1]
+        self.assertIn("import ACTIVE_RUN_BRIDGE_STALE_SECONDS", accessor)
+        self.assertIn("return ACTIVE_RUN_BRIDGE_STALE_SECONDS", accessor)
+        self.assertIn("_borrowed_active_run_bridge_stale_seconds()",
+                      out.split("def _active_run_bridge_stale_seconds")[0])
+
+    def test_a_delegating_shim_is_protected_too(self):
+        """Shims import a FUNCTION and call it; they must not be rewritten either."""
+        shim = ("def _helper(*a, **k):\n"
+                "    from service.routers.api_v2 import _helper as _impl\n"
+                "\n"
+                "    return _impl(*a, **k)\n")
+        source = "def h():\n    return SOME_CONST\n\n\n" + shim
+        out = rewrite(source, ["SOME_CONST", "_impl"])
+        ast.parse(out)
+        self.assertIn("return _impl(*a, **k)", out)
+
+    def test_every_accessor_in_the_live_repo_is_recognised(self):
+        """Run the detector over the real modules, not a fixture.
+
+        If this ever finds an accessor-shaped function the detector misses, the rewriter would
+        corrupt it — so the assertion is that the live tree contains no such blind spot.
+        """
+        import glob
+        from pathlib import Path
+
+        from service.tests.accessor_rewrite import is_constant_accessor
+
+        repo = Path(__file__).resolve().parent.parent.parent
+        missed = []
+        for pattern in ("service/routers/**/*.py", "service/reconcilers/*.py"):
+            for path in repo.glob(pattern):
+                if path.name == "api_v2.py" or "__pycache__" in path.parts:
+                    continue
+                tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+                for node in ast.walk(tree):
+                    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        continue
+                    src = ast.unparse(node)
+                    looks_like = ("from service.routers.api_v2 import" in src
+                                  and len(node.body) <= 3)
+                    if looks_like and not is_constant_accessor(node):
+                        missed.append(f"{path.relative_to(repo).as_posix()}: {node.name}")
+        self.assertEqual(
+            missed, [],
+            "accessor-shaped functions the detector does not recognise — the rewriter would "
+            "corrupt these:\n  " + "\n  ".join(missed),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

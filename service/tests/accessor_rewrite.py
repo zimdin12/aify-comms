@@ -20,7 +20,9 @@ begins and ends, and it was wrong in two different ways.
 
 THE FIX IS TO ASK THE PARSER, TWICE OVER — and it took three rounds of review to get both halves:
 
-  WHICH lines are off-limits: `ast` gives the exact range of every `_borrowed_*` function.
+  WHICH lines are off-limits: `ast` gives the exact range of every borrow accessor, recognised by
+  SHAPE. A name-prefix check missed 14 accessors that earlier slices wrote under their own naming
+  (`_virtual_rpc_command_set()`, `_terminal_end_statuses()`, ...) and corrupted their imports.
   WHAT may be replaced: `tokenize` gives NAME tokens, so comments and string literals are never
   touched. A constant name appearing inside SQL text or a JSON key is DATA, and rewriting it would
   change behaviour, not just formatting.
@@ -37,13 +39,53 @@ from __future__ import annotations
 import ast
 
 
+def is_constant_accessor(node: ast.AST) -> bool:
+    """A function whose entire job is to hand back one name imported from the router.
+
+    RECOGNISED BY SHAPE, NOT BY NAME. The first version matched `_borrowed_*`, and that missed 14
+    accessors written by earlier slices under their own convention -- `_active_run_bridge_stale_
+    seconds()`, `_virtual_rpc_command_set()`, `_terminal_end_statuses()` and friends. Running the
+    rewriter over those files corrupted their import lines, which is the same failure the prefix
+    check was introduced to prevent.
+
+    Matching a naming convention is guesswork about intent. The shape is the fact: optional
+    docstring, exactly one `from ... import X`, exactly one `return X` (constant accessor) or
+    `return X(...)` (delegating shim).
+    """
+    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return False
+    body = [
+        stmt for stmt in node.body
+        if not (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant)
+                and isinstance(stmt.value.value, str))
+    ]
+    if len(body) != 2:
+        return False
+    importer, returner = body
+    # ANY module, not just api_v2. `build_accessor` takes an `owner` parameter, so pinning the
+    # source module here would have silently unprotected every accessor that borrows from a leaf --
+    # and it did exactly that to this file's own fixtures the moment the check was written.
+    if not isinstance(importer, ast.ImportFrom):
+        return False
+    if not isinstance(returner, ast.Return):
+        return False
+    value = returner.value
+    if isinstance(value, ast.Await):
+        value = value.value
+    aliases = {(a.asname or a.name) for a in importer.names}
+    # `return X` (a constant accessor) or `return _impl(...)` (a delegating shim) -- protect both.
+    if isinstance(value, ast.Name):
+        return value.id in aliases
+    if isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
+        return value.func.id in aliases
+    return False
+
+
 def accessor_line_ranges(source: str) -> list[tuple[int, int]]:
-    """1-based inclusive line ranges of every `_borrowed_*` function, including its decorators."""
+    """1-based inclusive line ranges of every borrow accessor/shim, including its decorators."""
     ranges = []
     for node in ast.walk(ast.parse(source)):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        if not node.name.startswith("_borrowed_"):
+        if not is_constant_accessor(node):
             continue
         start = node.lineno
         if node.decorator_list:
