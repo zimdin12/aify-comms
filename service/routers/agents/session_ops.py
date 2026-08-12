@@ -16,6 +16,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
 
+from service.api_core.runtime_state import _runtime_state_replacing_handle
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.session_ops")
@@ -88,9 +89,6 @@ from service.routers.agents.shared import (
     _repair_unusable_active_runs,
     _row_status_note,
     _runtime_capability_for_environment,
-    _runtime_handle_from_state,
-    _runtime_state_replacing_handle,
-    _runtime_state_with_handle,
     _sanitize_session_handle,
     _session_capabilities_replacing_handle,
     _session_handle_live_owner,

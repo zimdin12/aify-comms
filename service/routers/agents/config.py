@@ -6,6 +6,7 @@ declares NO tags — the parent applies `tags=["api"]` once when api_v2 includes
 
 from __future__ import annotations
 
+from service.api_core.runtime_state import _runtime_handle_from_state, _runtime_state_with_handle
 from service.api_core.virtual_rpc import VIRTUAL_PI_RPC_COMMAND
 import asyncio
 import json
@@ -89,9 +90,6 @@ from service.routers.agents.shared import (
     _repair_unusable_active_runs,
     _row_status_note,
     _runtime_capability_for_environment,
-    _runtime_handle_from_state,
-    _runtime_state_replacing_handle,
-    _runtime_state_with_handle,
     _sanitize_session_handle,
     _session_capabilities_replacing_handle,
     _session_handle_live_owner,

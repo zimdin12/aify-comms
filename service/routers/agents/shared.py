@@ -193,13 +193,6 @@ def _row_status_note(*a, **k):
     return _impl(*a, **k)
 
 
-def _runtime_state_with_handle(*a, **k):
-    from service.control_plane import _runtime_state_with_handle as _impl
-
-    return _impl(*a, **k)
-
-
-
 
 # _stop_virtual_terminals_for_superseded_bridges moved to service/api_core/bridge_supersede.py in v0.5.4.
 
@@ -723,25 +716,6 @@ async def _record_claimer_lease(db, agent_id: str, *, action: str, bridge_id: st
 
 # _resolve_live_console_terminal moved to service/api_core/agent_terminal_ops.py in v0.5.4.
 
-
-def _runtime_handle_from_state(runtime: Any, runtime_state: Any) -> str:
-    state = runtime_state if isinstance(runtime_state, dict) else _json_loads_or(runtime_state, {})
-    normalized = _normalize_runtime(runtime)
-    if normalized == "codex":
-        return str(state.get("threadId") or state.get("sessionId") or "").strip()
-    if normalized == "pi":
-        return str(state.get("sessionId") or state.get("threadId") or state.get("sessionFile") or "").strip()
-    if normalized == "hermes":
-        return str(state.get("sessionId") or state.get("threadId") or state.get("sessionKey") or "").strip()
-    return str(state.get("sessionId") or state.get("threadId") or "").strip()
-
-
-def _runtime_state_replacing_handle(runtime: Any, runtime_state: Any, session_handle: str) -> dict[str, Any]:
-    state = runtime_state if isinstance(runtime_state, dict) else _json_loads_or(runtime_state, {})
-    result = dict(state or {})
-    result.pop("sessionId", None)
-    result.pop("threadId", None)
-    return _runtime_state_with_handle(runtime, result, session_handle)
 
 
 def _sanitize_session_handle(session_handle: Any) -> str:

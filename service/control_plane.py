@@ -664,24 +664,6 @@ _SHELL_PLACEHOLDER_HANDLE_RE = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$")
 
 
 
-def _runtime_state_with_handle(runtime: Any, runtime_state: Any, session_handle: str) -> dict[str, Any]:
-    state = runtime_state if isinstance(runtime_state, dict) else _json_loads_or(runtime_state, {})
-    result = dict(state or {})
-    handle = str(session_handle or "").strip()
-    if not handle:
-        return result
-    if _normalize_runtime(runtime) == "codex":
-        result["threadId"] = handle
-    else:
-        result["sessionId"] = handle
-    return result
-
-
-
-
-
-
-
 
 # _machine_family moved to service/routers/agents/shared.py in v0.5.3 — the agents package was its
 # only consumer once the domains moved, so the borrow shim became the last thing keeping it here.

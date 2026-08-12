@@ -49,6 +49,7 @@ from typing import Any, Optional
 from fastapi import HTTPException, Query, Request
 
 from service import longpoll
+from service.api_core.runtime_state import _runtime_state_with_handle
 from service.api_core.routing import domain_router
 from service.api_core.runtime import (
     _normalize_runtime,
@@ -155,17 +156,6 @@ async def _create_dispatch_runs(*a, **k):
     from service.control_plane import _create_dispatch_runs as _impl
 
     return await _impl(*a, **k)
-
-
-
-
-def _runtime_state_with_handle(*a, **k):
-    from service.control_plane import _runtime_state_with_handle as _impl
-
-    return _impl(*a, **k)
-
-
-
 
 
 
