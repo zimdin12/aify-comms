@@ -162,3 +162,67 @@ every other `mcp/stdio` change in this series has been in.
 Nothing blocking. The two resolutions in §3 are my proposals rather than measurements; if the reviewer
 prefers `_teardownState` exported from the gateway module instead of pulling `installShutdownTeardown` in,
 or prefers the shared constants staying in the host, say so and the slice follows that instead.
+
+---
+
+## 5. Verified execution plan (reviewer-approved shape, dependencies resolved)
+
+Everything below is measured against `e883b5b2`, not planned. The slice is mechanical from here.
+
+### The corrected sweep, and why the first one was useless
+
+The JS analogue of the Python symtable sweep must run before extraction. My first version reported **197
+unresolvable identifiers** — noise, because it scanned comment prose (`ASYNCHRONOUSLY`, `above`, `and`) and
+counted function parameters as free names. Worse, its module-scope scan matched `^(const|let|var)` and so
+**missed every `export const`**, which is how `MAX_REENSURE_WITHOUT_RECOVERY` landed in the "unknown" list
+while being a declared public constant of the file.
+
+Corrected — comments stripped, `export const` included, restricted to names the HOST actually provides —
+the cluster needs exactly **13 names**, and none of them is a function outside the cluster:
+
+| name | kind | disposition |
+|---|---|---|
+| `GATEWAY_PROBE_TIMEOUT_MS` | const, sole reader in cluster | → `hermes-gateway.mjs` |
+| `READY_TIMEOUT_MS` | const, sole reader in cluster | → `hermes-gateway.mjs` |
+| `RPC_TIMEOUT_MS` | const, sole reader in cluster | → `hermes-gateway.mjs` |
+| `_teardownState` | shared mutable, both readers in cluster | → `hermes-gateway.mjs` |
+| `MAX_REENSURE_WITHOUT_RECOVERY` | **exported**, readers on both sides | → `hermes-gateway.mjs`, host imports back |
+| `HERMES_CMD` | const, 2 host readers | → `hermes-env.mjs` (neutral) |
+| `MACHINE_ID` | const, 1 host reader | → `hermes-env.mjs` (neutral) |
+| `RUNTIME` | const, 5 host readers | → `hermes-env.mjs` (neutral) |
+| `fs`, `os`, `path` | node builtins | re-imported in the new module |
+| `isTuiDepsBuildFailure`, `tuiDepsBuildFailureMessage` | from `hermes-gateway-liveness.js` | re-imported |
+
+### Why two constants with readers on both sides go to DIFFERENT places
+
+`MAX_REENSURE_WITHOUT_RECOVERY` and `RUNTIME` are both read on each side of the boundary, and they get
+opposite treatment. That is not inconsistency — the rule is about the right OWNER, not about the direction:
+
+- the re-ensure budget **is a gateway concept**, so `hermes-gateway.mjs` owns it and the host imports it
+  back. Host-importing-from-new-module is the correct direction; the host becomes a caller, which is the
+  whole point.
+- `RUNTIME`/`MACHINE_ID`/`HERMES_CMD` are **environment identity**, with no gateway meaning. A gateway
+  module owning them would make the host import identity constants from a gateway, which is a worse lie
+  than an extra file. Hence the neutral module.
+
+The forbidden direction is the NEW module importing upward from the file it is draining — not the reverse.
+
+### No import cycle
+
+`hermes-gateway-liveness.js` mentions `hermes-managed-host.js` only in a comment; it imports nothing from
+it. So `hermes-gateway.mjs` may import from it freely.
+
+### Prover plan
+
+`e883b5b2` added `pristineExported` for exactly this file. Of the 15 cluster members, **12 are already
+`export function`** in the pristine source and must round-trip with the keyword intact; the 3 internals
+(`waitForIndexToken`, `scrapeToken`, `sleep`) and `installShutdownTeardown` are private and stay private, so
+they take the default. A pristine fixture of `hermes-managed-host.js` is tracked alongside the app.js one.
+
+### Deployment, per the reviewer's ruling
+
+Land the code; do not hold it for a reinstall. The receipt must say: **`mcp/stdio` host code is inert until
+`install.sh` is re-run and wrappers relaunch — the tests prove repo code, not live bridge state.** Wrappers
+will not be relaunched as part of a structural slice while managed agents are live; live activation is a
+separate operator action with its own `doctor` readback (`bridge-installed` / `bridge-current`).
+
