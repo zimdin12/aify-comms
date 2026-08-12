@@ -217,10 +217,6 @@ async def _delete_messages_where(*a, **k):
     return await _impl(*a, **k)
 
 
-def _dispatch_fix_hint(*a, **k):
-    from service.control_plane import _dispatch_fix_hint as _impl
-
-    return _impl(*a, **k)
 
 
 

@@ -185,10 +185,6 @@ async def _refresh_expired_agent_live_states(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _remove_agent_record(*a, **k):
-    from service.control_plane import _remove_agent_record as _impl
-
-    return await _impl(*a, **k)
 
 
 def _row_status_note(*a, **k):

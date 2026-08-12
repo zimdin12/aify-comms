@@ -29,6 +29,7 @@ from service.db import get_db
 # would mean the scope of what gets deleted is read from the wrong place.
 from service.models import ClearRequest
 from service.routers.settings import get_settings
+from service.api_core.agent_removal import _remove_agent_record
 
 logger = logging.getLogger("aify_comms.routers.maintenance")
 
@@ -42,11 +43,6 @@ async def _delete_messages_where(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _remove_agent_record(*a, **k):
-    """BORROWED: retires with agents."""
-    from service.control_plane import _remove_agent_record as _impl
-
-    return await _impl(*a, **k)
 
 
 @router.post("/clear")

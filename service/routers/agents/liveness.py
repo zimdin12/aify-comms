@@ -85,7 +85,6 @@ from service.routers.agents.shared import (
     _record_channel_sidecar_heartbeat,
     _record_claimer_lease,
     _refresh_expired_agent_live_states,
-    _remove_agent_record,
     _render_live_terminal_screen,
     _render_terminal_snapshot,
     _repair_unusable_active_runs,
@@ -133,6 +132,7 @@ from service.api_core.agent_terminal_ops import (
     _resolve_live_console_terminal,
 )
 from service.api_core.agent_sessions import _adopt_live_resident_driver
+from service.api_core.agent_removal import _remove_agent_record
 
 # Domain-local MODEL: defined in api_v2 rather than models.py, and its only user is the handler
 # below. It moves with the handler instead of becoming a cross-module import.

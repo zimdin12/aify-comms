@@ -80,7 +80,6 @@ from service.routers.dispatch_messages.shared import (
     _create_dispatch_runs,
     _delete_messages_by_ids,
     _delete_messages_where,
-    _dispatch_fix_hint,
     _dispatch_requires_reply,
     _finalize_dispatch_runs,
     _get_blocking_active_run,
@@ -141,6 +140,7 @@ from service.api_core.claim_gating import (
 from service.api_core.claim_gating import _mark_dispatch_source_messages_read
 from service.api_core.agent_sessions import _adopt_live_resident_driver
 from service.dispatch_claim import _claim_dispatch_once
+from service.api_core.dispatch_hint import _dispatch_fix_hint
 
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.dispatch")
 

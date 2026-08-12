@@ -774,36 +774,7 @@ async def _delete_messages_where(db, where_clause: str, params: tuple[Any, ...] 
 # _tombstone_agent moved to service/api_core/agent_sessions.py in v0.5.4.
 
 
-async def _remove_agent_record(
-    db,
-    agent_id: str,
-    *,
-    removed_by: str = "",
-    reason: str = "",
-) -> int:
-    cursor = await db.execute("SELECT runtime_state FROM agents WHERE id = ?", (agent_id,))
-    row = await cursor.fetchone()
-    runtime_state = _json_loads_or(row["runtime_state"], {}) if row else {}
-    bridge_id = str(runtime_state.get("bridgeInstanceId") or "").strip()
-    await _cancel_nonterminal_runs_for_agents(
-        db,
-        [agent_id],
-        summary=f'Agent "{agent_id}" was removed before the run could finish.',
-        event_type="agent_removed",
-    )
-    await _tombstone_agent(db, agent_id, removed_by=removed_by, bridge_id=bridge_id, reason=reason)
-    await db.execute("DELETE FROM bridge_instances WHERE agent_id = ?", (agent_id,))
-    # channel_members has no FK on agent_id, so removing an agent left GHOST memberships
-    # (bughunt 2026-07-03): they permanently inflate memberCount AND every later channel
-    # send INSERTs an undeliverable inbox row for the deleted agent (unbounded per-post
-    # growth). Clean them up here.
-    await db.execute("DELETE FROM channel_members WHERE agent_id = ?", (agent_id,))
-    cursor = await db.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
-    # Evict the in-memory derived-status entry too (audit 2026-06-28): SQLite per-agent rows
-    # cascade-delete, but _LIVE_STATE_CACHE is a process-global dict and would otherwise keep a
-    # stale (never-served) entry forever — small unbounded leak across removed agent ids.
-    _live_state_drop(agent_id)
-    return cursor.rowcount or 0
+# _remove_agent_record moved to service/api_core/agent_removal.py in v0.5.4.
 
 
 # _default_capabilities_for moved to service/api_core/capabilities.py in v0.5.4.
@@ -871,96 +842,7 @@ async def _managed_environment_unavailable_reason(db, row) -> Optional[str]:
     return None
 
 
-def _dispatch_fix_hint(recipient_id: str, row, reason: str) -> dict[str, Any]:
-    runtime = _normalize_runtime((row["runtime"] if row else "") or "generic")
-    session_mode = _normalize_session_mode((row["session_mode"] if row else "") or "resident")
-    role = (row["role"] if row else "") or "coder"
-    capabilities = _row_capabilities(row) if row else []
-    session_handle = str((row["session_handle"] if row else "") or "").strip()
-
-    hint: dict[str, Any] = {
-        "targetAgentId": recipient_id,
-        "reason": reason,
-        "runtime": runtime,
-        "sessionMode": session_mode,
-        "capabilities": capabilities,
-    }
-
-    if row is None:
-        hint["fix"] = "Register the target agent first, then try triggering again."
-        return hint
-
-    if session_mode == "resident" and "resident bridge" in reason:
-        runtime_name = {
-            "claude-code": "Claude",
-            "codex": "Codex",
-            "hermes": "Hermes",
-            "opencode": "OpenCode",
-            "pi": "Oh My Pi",
-        }.get(runtime, runtime)
-        hint["fix"] = (
-            f"Restart the visible resident wrapper for this {runtime_name} session, then re-register from inside that same wrapper with comms_register. "
-            "Raw /api/v1/agents metadata updates do not create the resident bridge heartbeat. "
-            "Use Dashboard Switch to managed if the visible resident terminal should not own delivery."
-        )
-        hint["suggestedCommands"] = [
-            f'comms_register(agentId="{recipient_id}", role="{role}", runtime="{runtime}")',
-            f'comms_agent_info(agentId="{recipient_id}")',
-        ]
-        return hint
-
-    if runtime == "codex" and session_mode == "resident" and not session_handle:
-        hint["fix"] = "Restart Codex, then re-register from the exact live Codex session you want to wake."
-        hint["suggestedCommands"] = [
-            f'comms_register(agentId="{recipient_id}", role="{role}", runtime="codex")',
-            f'comms_agent_info(agentId="{recipient_id}")',
-        ]
-        return hint
-
-    if runtime == "claude-code" and session_mode == "resident" and "resident-run" not in capabilities:
-        hint["fix"] = "Start Claude with claude-aify, then re-register from that exact live Claude session."
-        hint["suggestedCommands"] = [
-            "claude-aify",
-            f'comms_register(agentId="{recipient_id}", role="{role}", runtime="claude-code")',
-            f'comms_agent_info(agentId="{recipient_id}")',
-        ]
-        return hint
-
-    if runtime == "opencode" and session_mode == "resident":
-        hint["fix"] = (
-            "Resident OpenCode sessions are presence-only. Spawn a persistent OpenCode agent from a connected dashboard environment."
-        )
-        hint["suggestedCommands"] = [
-            f'comms_envs()',
-            f'comms_spawn(from="<your-agent>", agentId="{recipient_id}-teammate", role="{role}", runtime="opencode")',
-            f'comms_agent_info(agentId="{recipient_id}")',
-        ]
-        return hint
-
-    if runtime == "pi" and session_mode == "resident":
-        hint["fix"] = (
-            "Resident Oh My Pi sessions are presence-only. Spawn a persistent Pi agent from a connected dashboard environment."
-        )
-        hint["suggestedCommands"] = [
-            f'comms_envs()',
-            f'comms_spawn(from="<your-agent>", agentId="{recipient_id}-teammate", role="{role}", runtime="pi")',
-            f'comms_agent_info(agentId="{recipient_id}")',
-        ]
-        return hint
-
-    if runtime not in _LAUNCHABLE_RUNTIMES:
-        hint["fix"] = "This target is message-only right now. Check comms_agent_info before suggesting any runtime-specific reinstall or restart steps."
-        hint["suggestedCommands"] = [f'comms_agent_info(agentId="{recipient_id}")']
-        return hint
-
-    if session_mode == "managed" and (row["launch_mode"] or "detached") == "none":
-        hint["fix"] = "Enable launch mode or recreate this agent as an environment-managed session."
-        hint["suggestedCommands"] = [f'comms_agent_info(agentId="{recipient_id}")']
-        return hint
-
-    hint["fix"] = "Inspect the target runtime/session with comms_agent_info, then retry with runtime-specific steps."
-    hint["suggestedCommands"] = [f'comms_agent_info(agentId="{recipient_id}")']
-    return hint
+# _dispatch_fix_hint moved to service/api_core/dispatch_hint.py in v0.5.4.
 
 
 # _format_dispatch_state moved to service/api_core/dispatch_text.py in v0.5.4.
@@ -2305,6 +2187,7 @@ from service.api_core.dispatch_buffer import (
     _append_pending_dispatch_body,
     _dispatch_buffer_full_hint,
 )
+from service.api_core.dispatch_hint import _dispatch_fix_hint
 
 # Grace before a spawn is finalized because its bound terminal reached a terminal
 # status. Deliberately SHORTER than SPAWN_ORPHAN_GRACE_SECONDS: that reaper infers
@@ -3395,49 +3278,7 @@ async def _mirror_missing_dispatch_handoff(db, row) -> Optional[str]:
 
 
 
-async def _cancel_nonterminal_runs_for_agents(
-    db,
-    agent_ids: list[str],
-    *,
-    summary: str,
-    event_type: str,
-) -> int:
-    targets = _dedupe_preserve([str(agent_id or "").strip() for agent_id in agent_ids if str(agent_id or "").strip()])
-    if not targets:
-        return 0
-
-    cancelled = 0
-    finished_at = _now()
-    chunk_size = 250
-    for i in range(0, len(targets), chunk_size):
-        chunk = targets[i : i + chunk_size]
-        placeholders = ",".join("?" for _ in chunk)
-        cursor = await db.execute(
-            f"""
-            SELECT id
-            FROM dispatch_runs
-            WHERE target_agent IN ({placeholders})
-              AND status IN ('queued', 'claimed', 'running')
-            """,
-            chunk,
-        )
-        rows = await cursor.fetchall()
-        if not rows:
-            continue
-        for row in rows:
-            await db.execute(
-                "UPDATE dispatch_runs SET status = 'cancelled', summary = ?, finished_at = ? WHERE id = ?",
-                (summary, finished_at, row["id"]),
-            )
-            await _append_dispatch_event(db, row["id"], event_type, summary)
-            await _fail_pending_controls_for_run(
-                db,
-                row["id"],
-                handled_at=finished_at,
-                response_text=summary,
-            )
-            cancelled += 1
-    return cancelled
+# _cancel_nonterminal_runs_for_agents moved to service/api_core/agent_removal.py in v0.5.4.
 
 
 
