@@ -16,6 +16,8 @@ from service.db import get_db, init_db
 from service import main as service_main
 from service.reconcilers import status_cache
 from service.routers import api_v2
+# v0.5.2l: dispatch run serialization moved into the dispatch+messages package.
+from service.routers.dispatch_messages import dispatch as dispatch_router
 from service.routers.api_v2 import router
 
 from service.tests._base import FastApiTestCase, DummyWS, PRE_PLAN4_SETTINGS
@@ -3310,7 +3312,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             self._fetchone("SELECT id FROM dispatch_controls WHERE run_id = ?", ("run_hermes_active",)),
             "channel-owned Hermes must not receive an unconsumed bridge control",
         )
-        serialized = api_v2._serialize_dispatch_run_row(self._fetchone("SELECT * FROM dispatch_runs WHERE id = ?", (queued_id,)))
+        serialized = dispatch_router._serialize_dispatch_run_row(self._fetchone("SELECT * FROM dispatch_runs WHERE id = ?", (queued_id,)))
         self.assertTrue(serialized["steerIfBusy"])
 
     def test_explicit_queue_to_busy_steerable_target_waits_for_turn_end(self):

@@ -45,12 +45,14 @@ def _call_sites() -> list[int]:
     return [m.start() for m in re.finditer(r"^\s*notify_operator\(", src, re.MULTILINE)]
 
 
-def _channels_source() -> str:
-    """v0.5.2h moved the channel fan-out into its own domain module.
+def _messages_source() -> str:
+    """v0.5.2l moved the DIRECT-message notify site into the dispatch+messages package."""
+    path = Path(__file__).resolve().parents[1] / "routers" / "dispatch_messages" / "messages.py"
+    return code_only(path.read_text(encoding="utf-8", errors="replace"))
 
-    The DIRECT-message notify site is still in api_v2, so probes for that one deliberately keep
-    reading api_v2. Only the channel-specific assertions follow the code.
-    """
+
+def _channels_source() -> str:
+    """v0.5.2h moved the channel fan-out into its own domain module."""
     path = Path(__file__).resolve().parents[1] / "routers" / "channels.py"
     return code_only(path.read_text(encoding="utf-8", errors="replace"))
 
@@ -59,13 +61,20 @@ class SendPathWiringTests(unittest.TestCase):
     def setUp(self):
         self.src = _source()
         self.channels_src = _channels_source()
-        # "Both send paths" now spans two modules. Counting only api_v2 would have quietly become
-        # "one path notifies", which is the half-fixed shape this file exists to prevent.
+        # "Both send paths" now spans THREE modules: api_v2 kept none of them in the end -- the
+        # direct-message site went to the dispatch+messages package (v0.5.2l) and the channel site
+        # to channels.py (v0.5.2h). Counting only api_v2 would have silently become "no path
+        # notifies" while still passing an is-it-awaited check, which is the half-fixed shape this
+        # file exists to prevent.
         #
         # Each site carries ITS OWN source. A flat list of offsets was wrong the moment the sites
-        # lived in two files: an offset from channels.py indexed into api_v2's text would slice
-        # unrelated code and the ordering assertions would be measuring nothing.
+        # lived in more than one file: an offset from one module indexed into another's text would
+        # slice unrelated code and the ordering assertions would measure nothing while passing.
+        self.messages_src = _messages_source()
         self.sites = [(self.src, at) for at in _call_sites()] + [
+            (self.messages_src, m.start())
+            for m in re.finditer(r"^\s*notify_operator\(", self.messages_src, re.MULTILINE)
+        ] + [
             (self.channels_src, m.start())
             for m in re.finditer(r"^\s*notify_operator\(", self.channels_src, re.MULTILINE)
         ]
@@ -82,6 +91,7 @@ class SendPathWiringTests(unittest.TestCase):
         # Widened in v0.5.2h: the rule is about the CALL, so it must hold in every module that
         # makes one, not only the module that happened to hold them all originally.
         self.assertNotIn("await notify_operator", self.channels_src)
+        self.assertNotIn("await notify_operator", self.messages_src)
 
     def test_every_call_site_is_after_a_commit(self):
         """C1. Searches backwards from each call for the nearest `db.commit()` and the nearest
@@ -116,7 +126,7 @@ class SendPathWiringTests(unittest.TestCase):
                       "membership must come from the loaded member list, not be omitted or guessed")
 
     def test_the_import_is_the_sync_helper(self):
-        self.assertIn("from service.ntfy import notify_operator", self.src)
+        self.assertIn("from service.ntfy import notify_operator", self.messages_src)
 
 
 class LifespanWiringTests(unittest.TestCase):
