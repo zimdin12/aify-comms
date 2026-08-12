@@ -143,10 +143,61 @@ def _dispatch_reply_state(*a, **k):
     return _impl(*a, **k)
 
 
-async def _has_claimable_steerable_run(*a, **k):
-    from service.routers.api_v2 import _has_claimable_steerable_run as _impl
+async def _has_claimable_steerable_run(
+    db,
+    *,
+    agent_row,
+    supported_modes: set[str],
+    agent_runtime: str,
+) -> bool:
+    """True when the turn-busy claim gate should be BYPASSED because a queued
+    channel/resident run can be steered (injected) into a mid-turn target.
 
-    return await _impl(*a, **k)
+    Used only by the /dispatch/claim turn-busy gate (send-deadlock fix,
+    2026-06-02). The carve-out fires when BOTH hold:
+
+      * the TARGET can accept a mid-turn inject — `steer` is in its computed
+        capabilities (_row_capabilities). For claude that means a managed or
+        channelEnabled-resident session; a plain resident claude without
+        channelEnabled, or a resident codex/opencode/pi, has no `steer` and is
+        NOT bypassed. This is the SAME predicate the send-time steer path uses
+        (line ~6770: `active_run and "steer" in capabilities`), so the gate and
+        the steer route agree on who is injectable.
+      * there is at least one QUEUED run in channel/resident execution mode that
+        this bridge's supported_modes can actually claim. A managed (headless)
+        run is never injectable, so it stays queued behind the turn as before.
+
+    Returning False preserves the original "wait for the turn to end" behavior.
+    """
+    capabilities = _row_capabilities(agent_row)
+    if "steer" not in capabilities:
+        return False
+    target_agent = str((agent_row["id"] if agent_row else "") or "")
+    if not target_agent:
+        return False
+    cursor = await db.execute(
+        """
+        SELECT execution_mode, requested_runtime, queue_if_busy, steer_if_busy
+        FROM dispatch_runs
+        WHERE target_agent = ? AND status = 'queued'
+        ORDER BY requested_at ASC
+        LIMIT 25
+        """,
+        (target_agent,),
+    )
+    for run in await cursor.fetchall():
+        if bool(run["queue_if_busy"]) or not bool(run["steer_if_busy"]):
+            continue
+        run_execution_mode = str((run["execution_mode"] or "managed")).strip().lower()
+        if run_execution_mode not in {"channel", "resident"}:
+            continue
+        if supported_modes and run_execution_mode not in supported_modes:
+            continue
+        requested_runtime = str(run["requested_runtime"] or "").strip()
+        if requested_runtime and _normalize_runtime(requested_runtime) != agent_runtime:
+            continue
+        return True
+    return False
 
 
 def _is_replaceable_auto_handoff_message(existing_message, replied_run) -> bool:
@@ -188,6 +239,12 @@ def _message_satisfies_reply_contract(*a, **k):
 
 def _pending_dispatch_count(*a, **k):
     from service.routers.api_v2 import _pending_dispatch_count as _impl
+
+    return _impl(*a, **k)
+
+
+def _row_capabilities(*a, **k):
+    from service.routers.api_v2 import _row_capabilities as _impl
 
     return _impl(*a, **k)
 

@@ -4908,61 +4908,7 @@ async def _has_pending_or_booting_spawn_request(db, agent_id: str) -> bool:
     return bool(row)
 
 
-async def _has_claimable_steerable_run(
-    db,
-    *,
-    agent_row,
-    supported_modes: set[str],
-    agent_runtime: str,
-) -> bool:
-    """True when the turn-busy claim gate should be BYPASSED because a queued
-    channel/resident run can be steered (injected) into a mid-turn target.
-
-    Used only by the /dispatch/claim turn-busy gate (send-deadlock fix,
-    2026-06-02). The carve-out fires when BOTH hold:
-
-      * the TARGET can accept a mid-turn inject — `steer` is in its computed
-        capabilities (_row_capabilities). For claude that means a managed or
-        channelEnabled-resident session; a plain resident claude without
-        channelEnabled, or a resident codex/opencode/pi, has no `steer` and is
-        NOT bypassed. This is the SAME predicate the send-time steer path uses
-        (line ~6770: `active_run and "steer" in capabilities`), so the gate and
-        the steer route agree on who is injectable.
-      * there is at least one QUEUED run in channel/resident execution mode that
-        this bridge's supported_modes can actually claim. A managed (headless)
-        run is never injectable, so it stays queued behind the turn as before.
-
-    Returning False preserves the original "wait for the turn to end" behavior.
-    """
-    capabilities = _row_capabilities(agent_row)
-    if "steer" not in capabilities:
-        return False
-    target_agent = str((agent_row["id"] if agent_row else "") or "")
-    if not target_agent:
-        return False
-    cursor = await db.execute(
-        """
-        SELECT execution_mode, requested_runtime, queue_if_busy, steer_if_busy
-        FROM dispatch_runs
-        WHERE target_agent = ? AND status = 'queued'
-        ORDER BY requested_at ASC
-        LIMIT 25
-        """,
-        (target_agent,),
-    )
-    for run in await cursor.fetchall():
-        if bool(run["queue_if_busy"]) or not bool(run["steer_if_busy"]):
-            continue
-        run_execution_mode = str((run["execution_mode"] or "managed")).strip().lower()
-        if run_execution_mode not in {"channel", "resident"}:
-            continue
-        if supported_modes and run_execution_mode not in supported_modes:
-            continue
-        requested_runtime = str(run["requested_runtime"] or "").strip()
-        if requested_runtime and _normalize_runtime(requested_runtime) != agent_runtime:
-            continue
-        return True
-    return False
+# _has_claimable_steerable_run moved to service/routers/dispatch_messages/shared.py in v0.5.3.
 
 
 async def _select_online_environment_for_runtime(
