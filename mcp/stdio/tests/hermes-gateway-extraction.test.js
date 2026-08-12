@@ -94,15 +94,21 @@ const EXTRACTIONS = [
       { name: "rowRealIdLocal", at: 291, marker: "// rowRealIdLocal moved to ./hermes-active-session.mjs in v0.5.4." },
       { name: "stampForSessionId", at: 311, marker: "// stampForSessionId moved to ./hermes-active-session.mjs in v0.5.4." },
       { name: "sessionKeyFor", at: 325, marker: "// sessionKeyFor moved to ./hermes-active-session.mjs in v0.5.4." },
-      { name: "resolveHermesPython", at: 726, marker: "// resolveHermesPython moved to ./hermes-active-session.mjs in v0.5.4.", pristineExported: true },
       { name: "ensureStableSession", at: 755, marker: "// ensureStableSession moved to ./hermes-active-session.mjs in v0.5.4.", pristineExported: true },
+      { name: "defaultWriteActiveSessionFile", at: 300, marker: "// defaultWriteActiveSessionFile moved to ./hermes-active-session.mjs in v0.5.4." },
       { name: "waitForActiveSession", at: 1155, marker: "// waitForActiveSession moved to ./hermes-active-session.mjs in v0.5.4.", pristineExported: true },
+      { name: "runResolveSessionCli", at: 2791, marker: "// runResolveSessionCli moved to ./hermes-active-session.mjs in v0.5.4.", pristineExported: true },
     ],
   },
   {
     module: ENV,
     items: [
       { name: "TMP_DIR", at: 163, marker: "// TMP_DIR moved to ./hermes-env.mjs in v0.5.4." },
+      // resolveHermesPython went to the SESSION module first and moved here a slice later, once the reviewer
+      // asked whether the members were session-identity or merely session-adjacent. The plan records where a
+      // body lives NOW, not where it passed through — a plan that tracked the journey would have to be
+      // rewritten every time an owner was corrected, which is the opposite of what it is for.
+      { name: "resolveHermesPython", at: 726, marker: "// resolveHermesPython moved to ./hermes-active-session.mjs in v0.5.4.", pristineExported: true },
     ],
   },
 ];
@@ -113,16 +119,29 @@ const MODULES = () => ({ [GATEWAY]: read(GATEWAY), [ENV]: read(ENV), [SESSION]: 
 // gateway created it, the session slice added TMP_DIR to it — so it is pinned once, as it stands now.
 const IMPORT_EDITS = [
   {
-    added: 'import { HERMES_CMD, MACHINE_ID, RUNTIME, TMP_DIR } from "./hermes-env.mjs";  // v0.5.4: neutral owner',
+    // The env import became a multi-line block when resolveHermesPython joined it, so it is pinned as one.
+    addedBlock: [
+      "import {  // v0.5.4: neutral owner",
+      "  HERMES_CMD,",
+      "  MACHINE_ID,",
+      "  RUNTIME,",
+      "  TMP_DIR,",
+      "  resolveHermesPython,",
+      '} from "./hermes-env.mjs";',
+    ],
   },
 ];
 
 function hostWithoutSliceImports() {
   const lines = read("hermes-managed-host.js").split(String.fromCharCode(10));
   for (const edit of IMPORT_EDITS) {
-    const at = lines.indexOf(edit.added);
-    assert.notEqual(at, -1, `import line not found verbatim: ${edit.added}`);
-    lines.splice(at, 1);
+    const block = edit.addedBlock ?? [edit.added];
+    const at = lines.indexOf(block[0]);
+    assert.notEqual(at, -1, `import line not found verbatim: ${block[0]}`);
+    for (let k = 1; k < block.length; k += 1) {
+      assert.equal(lines[at + k], block[k], `import block line ${k} does not match`);
+    }
+    lines.splice(at, block.length);
   }
   // The gateway import is a multi-line block; find and drop it as a unit.
   // Find each block by its TERMINATOR and walk BACK to the opener. My first version took the first

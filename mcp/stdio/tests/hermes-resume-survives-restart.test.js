@@ -5,7 +5,7 @@
 // must NOT be cleared — clearing a still-resumable marker is the very "lost history on
 // restart" bug. Guards against a Plan-3 (durable-marker) regression.
 import assert from "node:assert/strict";
-import { runResolveSessionCli } from "../hermes-managed-host.js";
+import { runResolveSessionCli } from "../hermes-active-session.mjs";
 
 const DURABLE = "20260605_054210_abc123";
 

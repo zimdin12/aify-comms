@@ -40,13 +40,19 @@ import { fileURLToPath } from "url";
 import { loadSettingsEnv } from "./load-env.js";
 import { readAgentBindingFile } from "./binding-file.js";
 import { defaultMachineId } from "./runtimes.js";
-import { HERMES_CMD, MACHINE_ID, RUNTIME, TMP_DIR } from "./hermes-env.mjs";  // v0.5.4: neutral owner
+import {  // v0.5.4: neutral owner
+  HERMES_CMD,
+  MACHINE_ID,
+  RUNTIME,
+  TMP_DIR,
+  resolveHermesPython,
+} from "./hermes-env.mjs";
 import {  // v0.5.4: moved out; the host is now a CALLER of the session module
   ATTACH_POLL_MS,
   ATTACH_WAIT_MS,
   activeListRowsLocal,
   ensureStableSession,
-  resolveHermesPython,
+  runResolveSessionCli,
   sessionKeyFor,
   waitForActiveSession,
 } from "./hermes-active-session.mjs";
@@ -288,13 +294,7 @@ const NO_TUI_GRACE_MS = Math.max(
 // and that hermes' Python wrapper reads (_read_tui_active_session_file → .session_id).
 // Byte-compatible so the in-session bridge reads a real handle at launch instead of
 // the stale launch-time id. Best-effort; the caller swallows throws.
-function defaultWriteActiveSessionFile(filePath, sessionId) {
-  const p = String(filePath || "").trim();
-  const sid = String(sessionId || "").trim();
-  if (!p || !sid) return;
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, JSON.stringify({ session_id: sid }), { mode: 0o600 });
-}
+// defaultWriteActiveSessionFile moved to ./hermes-active-session.mjs in v0.5.4.
 
 // Freshness stamp of the row whose real id is `recentId` within an active_list
 // response (so the fallback can compare the CHOSEN most-recent session against
@@ -2070,176 +2070,7 @@ export async function runEnsureHostCli(agentId, deps = {}) {
 // loop converges on the new session even though the launch-time resume id is now
 // historical. Launch resolves the BEST id known at launch; runtime convergence is
 // owned by the loop + the TUI's active-file writes, not by re-exec'ing the TUI.
-export async function runResolveSessionCli(agentId, deps = {}) {
-  const {
-    out = (s) => process.stdout.write(s),
-    err = (s) => process.stderr.write(s),
-    // Injectable seams for tests.
-    openClient,
-    readMarker = readSessionIdMarker,
-    writeMarker = writeSessionIdMarker,
-    // DEAD-MARKER CLEAR (session_key fix, 2026-06-04): when no resumable session
-    // is found we return "" (start fresh) AND clear the stale marker so the dead
-    // id stops recurring on the next send-driven spawn. Injectable for tests.
-    clearMarker = defaultClearSessionMarker,
-    writeActiveSessionFile = defaultWriteActiveSessionFile,
-    tempDir = TMP_DIR,
-    activeSessionFile = String(process.env.AIFY_HERMES_ACTIVE_SESSION_FILE || "").trim(),
-    // EXPLICIT-RESUME mode (BUG 2, 2026-06-03): when the operator passes
-    // `hermes-aify --resume <id>`, <id> is AUTHORITATIVE. We SKIP the gateway
-    // active_list query entirely and just SEED the per-agent active-session file
-    // + overwrite the session marker with <id>, so the in-session bridge's
-    // discoverSessionId reads <id> (primary: active-file) and the stale marker
-    // can never override it. This guarantees the registered handle == the visible
-    // TUI's resumed session, instead of falling through to a stale marker.
-    explicitId = "",
-  } = deps;
-  const id = String(agentId || "").trim();
-  if (!id) throw new Error("resolve-session requires an agentId");
-
-  // Guard against an UNEXPANDED placeholder (e.g. `--resume "${HERMES_SESSION_ID}"`
-  // when the var is unset) — treat it as "no explicit" and fall through to
-  // active_list resolution, never seed a poison id (2026-06-04).
-  const explicit = String(explicitId || "").trim();
-  const explicitUsable = !!(explicit && isUsableSessionId(explicit));
-
-  // Read the gateway URL the wrapper already resolved + exported (ensure-host ran
-  // first). Without a gateway we cannot query ground truth.
-  const wsUrl = String(
-    deps.gatewayUrl || process.env.AIFY_HERMES_GATEWAY_URL || process.env.HERMES_TUI_GATEWAY_URL || "",
-  ).trim();
-
-  // EXPLICIT-RESUME: an operator/spawner `--resume <id>`. It is AUTHORITATIVE only when we
-  // CANNOT validate it (no gateway to consult) — then seed the marker + active file as before.
-  // When a gateway IS reachable we DO NOT seed blindly: <id> becomes the marker candidate and
-  // is DB-validated below. A dead key (e.g. an empty session hermes GC'd — the "session not
-  // found → stranded console" bug) then falls through to a CLEAN fresh start + marker clear
-  // instead of launching `hermes --resume <dead-id>`, which errors and strands the console.
-  if (explicitUsable && !wsUrl) {
-    try { writeMarker(id, explicit, { tempDir }); } catch { /* best-effort */ }
-    if (activeSessionFile) {
-      try { writeActiveSessionFile(activeSessionFile, explicit); } catch { /* best-effort */ }
-    }
-    err(`[hermes-managed-host] resolve-session: agent '${id}' → ${explicit} (explicit-resume; no gateway to validate; seeded marker + active file).\n`);
-    out(explicit + "\n");
-    return { agentId: id, resolved: explicit, source: "explicit-resume" };
-  }
-
-  // The actual marker FILE content (for the write-skip comparison below — the candidate may
-  // be an explicit id that differs from the file).
-  const fileMarker = (() => {
-    try {
-      return String(readMarker(id, { tempDir }) || "").trim();
-    } catch {
-      return "";
-    }
-  })();
-  // The id to resolve: an explicit `--resume` wins as the CANDIDATE, else the saved marker.
-  // Either way it is DB-validated below, so a dead candidate clears and starts fresh.
-  const marker = explicitUsable ? explicit : fileMarker;
-
-  if (!wsUrl) {
-    // No gateway to consult — fall back to the marker as-is (best we know).
-    out((marker || "") + "\n");
-    return { agentId: id, resolved: marker || "", source: marker ? "marker(no-gateway)" : "none" };
-  }
-
-  let client = null;
-  let resolved = "";
-  let source = "none";
-  let dbConsulted = false; // true only after a successful session.list query
-  try {
-    client = openClient
-      ? await openClient(wsUrl)
-      : await openGatewayWsClient(wsUrl);
-    let rid = 1;
-    const listResp = await client.request(
-      buildSessionActiveListFrame({ id: rid++, currentSessionId: "" }),
-    );
-    // SESSION-STABILITY fix (2026-06-04, the "fresh session on every restart" bug):
-    // a session is RESUMABLE if it exists in the gateway SessionDB (`session.list`)
-    // -- `hermes --tui --resume <key>` LOADS it from the DB. `active_list` only holds
-    // CURRENTLY-LIVE sessions, which is EMPTY after any gateway/aify-comms restart, so
-    // resolving the marker against active_list found "no live session" every restart
-    // -> fresh + cleared marker -> the agent abandoned its history and minted a new
-    // session each launch (verified: fresh gateway active_list=0, session.list=69
-    // incl. the real session). Consult the DB so a marker survives restarts.
-    let dbResp = null;
-    try {
-      dbResp = await client.request(buildSessionListFrame({ id: rid++ }));
-      dbConsulted = true;
-    } catch { dbResp = null; dbConsulted = false; /* DB list unavailable -> fall back to active_list, do NOT clear the marker */ }
-    // RESUME resolution (session_key fix, 2026-06-04): the marker / visible-TUI
-    // resume id MUST be the DURABLE `session_key`, not the ephemeral runtime sid
-    // (`--resume` / session.resume require the durable key; the ephemeral is dead
-    // on the next attach → gateway 4007 "session not found"). We resolve the
-    // matched ROW and extract `rowResumeKey`, so even when the marker holds a
-    // stale ephemeral id that still matches a live row, we persist that row's
-    // durable key. (Delivery — prompt.submit/steer — stays on the ephemeral sid;
-    // that split lives in the loop's waitForActiveSession, untouched here.)
-    // (a) PREFER the marker when it is RESUMABLE FROM THE DB (stable across
-    //     restarts) -- match session.list first, then the live active_list.
-    const markerDbRow = marker && dbResp ? pickSessionRowById(dbResp, marker) : null;
-    const markerRow = markerDbRow || (marker ? pickSessionRowById(listResp, marker) : null);
-    if (markerRow) {
-      resolved = rowResumeKey(markerRow);
-      source = markerDbRow ? "marker(db-resumable)" : "marker(live)";
-    } else {
-      // (b) no marker / marker gone from the DB -> most-recent LIVE session (the
-      //     running-gateway case; never resurrects an arbitrary historical row).
-      const recentRow = pickMostRecentSessionRow(listResp);
-      const recentKey = recentRow ? rowResumeKey(recentRow) : "";
-      if (recentKey) {
-        resolved = recentKey;
-        source = "active_list(most-recent)";
-      }
-    }
-  } catch (e) {
-    err(`[hermes-managed-host] resolve-session: active_list query failed (${e?.message || e}); falling back to marker.\n`);
-    resolved = marker || "";
-    source = marker ? "marker(query-failed)" : "none";
-  } finally {
-    try { client?.close?.(); } catch { /* ignore */ }
-  }
-
-  if (resolved) {
-    // Converge launch == loop == marker == active-session file. Best-effort. Compare against
-    // the FILE content (not the candidate, which may be an explicit id) so a resolved id is
-    // persisted even when it equals the explicit candidate but differs from the saved marker.
-    if (resolved !== fileMarker) {
-      try { writeMarker(id, resolved, { tempDir }); } catch { /* best-effort */ }
-    }
-    if (activeSessionFile) {
-      try { writeActiveSessionFile(activeSessionFile, resolved); } catch { /* best-effort */ }
-    }
-    err(`[hermes-managed-host] resolve-session: agent '${id}' → ${resolved} (${source}).\n`);
-  } else {
-    // FRESH-FALLBACK + DEAD-MARKER CLEAR (session_key fix, 2026-06-04): no live
-    // row yielded a usable resume key. The wrapper treats "" as "start fresh".
-    // Clear the stale marker so the dead id stops recurring on the next
-    // send-driven spawn (a spawn that resumed a dead ephemeral id is exactly the
-    // 4007 "session not found" loop this fix breaks). Only clear here — never
-    // when a resumable id WAS found above. Best-effort; never blocks launch.
-    // (Skip the clear on a query failure, where `marker` was kept as the
-    // best-known fallback rather than resolving to nothing.)
-    //
-    // CRITICAL (session-stability): only clear when we POSITIVELY confirmed the
-    // marker is gone from the DB (`dbConsulted` — session.list succeeded and did
-    // NOT contain it). If session.list was unavailable we CANNOT prove the marker
-    // is dead, so we must NOT clear it — clearing a still-resumable marker is the
-    // very "lost history on restart" bug this fix exists to prevent.
-    if (source !== "marker(query-failed)" && marker && dbConsulted) {
-      // clearSessionMarker takes a BARE dir (not the { tempDir } options shape
-      // that read/writeSessionIdMarker use). Pass the dir directly.
-      try { clearMarker(id, tempDir); } catch { /* best-effort */ }
-      err(`[hermes-managed-host] resolve-session: agent '${id}' marker not in SessionDB (cleared stale marker; will start fresh).\n`);
-    } else {
-      err(`[hermes-managed-host] resolve-session: agent '${id}' has no resumable session yet (will start fresh; marker kept${marker ? "" : " (none)"}).\n`);
-    }
-  }
-  out((resolved || "") + "\n");
-  return { agentId: id, resolved: resolved || "", source };
-}
+// runResolveSessionCli moved to ./hermes-active-session.mjs in v0.5.4.
 
 // ---------------------------------------------------------------------------
 // argv dispatch.

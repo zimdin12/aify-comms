@@ -39,11 +39,12 @@ import {
   shouldApplyGatewayTurnEnd,
   teardownGatewayHost,
 } from "../hermes-gateway.mjs";
+import { resolveHermesPython } from "../hermes-env.mjs";
 import {
   ensureStableSession,
-  resolveHermesPython,
   waitForActiveSession,
 } from "../hermes-active-session.mjs";
+import { runResolveSessionCli } from "../hermes-active-session.mjs";
 import {
   deliverRun,
   makeInFlightProbe,
@@ -54,7 +55,6 @@ import {
   runDeliveryLoop,
   runEnsureHostCli,
   runPollCycle,
-  runResolveSessionCli,
 } from "../hermes-managed-host.js";
 import {
   isTuiDepsBuildFailure,
