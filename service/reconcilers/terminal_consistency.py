@@ -19,17 +19,12 @@ import logging
 from typing import Any, Optional
 
 from service.api_core.events import _append_terminal_event  # v0.5.1i: the leaf owner
+from service.routers.terminals import _clear_console_terminal_binding
 from service.clock import now as _now
 
 logger = logging.getLogger(__name__)
 
 
-
-async def _clear_console_terminal_binding(*args, **kwargs):
-    """Borrowed — 9 call sites in the router."""
-    from service.routers.api_v2 import _clear_console_terminal_binding as _impl
-
-    return await _impl(*args, **kwargs)
 
 
 def _virtual_rpc_command_set():

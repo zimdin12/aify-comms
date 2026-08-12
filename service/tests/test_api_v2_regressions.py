@@ -1707,7 +1707,13 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(started.status_code, 200, started.text)
         terminal_id = started.json()["terminal"]["id"]
 
-        with patch.object(api_v2, "get_db", side_effect=sqlite3.OperationalError("database is locked")):
+        # v0.5.2j: this endpoint moved to the terminals domain, which holds its OWN `get_db`
+        # binding. Patching api_v2 would no longer reach the code under test -- the request
+        # would succeed and the assertion would fail for the wrong reason. The subject of the
+        # test is JsonApiRoute turning a lock error into JSON, and that is unchanged.
+        from service.routers import terminals as terminals_router
+
+        with patch.object(terminals_router, "get_db", side_effect=sqlite3.OperationalError("database is locked")):
             response = self.client.post(
                 f"/api/v1/terminals/{terminal_id}/output",
                 json={"bridgeId": "bridge-current", "output": "x", "status": "attached"},
