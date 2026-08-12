@@ -291,8 +291,10 @@ from service.models import (
     VirtualTerminalEnsureRequest, AgentFavoriteUpdate, AgentConsoleInputRequest,
 )
 
-_WINDOWS_DRIVE_CWD_RE = re.compile(r"^[a-zA-Z]:/")
-_WSL_DRIVE_CWD_RE = re.compile(r"^/mnt/[a-zA-Z](?:/|$)")
+# _WINDOWS_DRIVE_CWD_RE moved to service/api_core/registration_gates.py in v0.5.4 —
+# zero carrier readers, every consumer was a borrow accessor.
+# _WSL_DRIVE_CWD_RE moved to service/api_core/registration_gates.py in v0.5.4 —
+# zero carrier readers, every consumer was a borrow accessor.
 
 logger = logging.getLogger("aify_comms.api_v2")
 

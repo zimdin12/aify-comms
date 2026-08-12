@@ -76,6 +76,10 @@ from service.terminal_snapshot import render_snapshot as _render_terminal_snapsh
 import re
 import sqlite3
 from service.api_core.capabilities import _has_codex_live_app_server
+from service.api_core.bridge_supersede import (
+    _fail_active_runs_for_superseded_bridges,
+    _stop_virtual_terminals_for_superseded_bridges,
+)
 
 logger = logging.getLogger("aify_comms.routers.agents.shared")
 
@@ -139,73 +143,7 @@ async def _compute_live_status_cache(*a, **k):
 
 
 
-async def _fail_active_runs_for_superseded_bridges(
-    db,
-    *,
-    agent_id: str,
-    machine_id: str,
-    superseding_bridge_id: str,
-    finished_at: str,
-    superseded_bridge_ids: Optional[list[str]] = None,
-) -> list[str]:
-    # Scope-narrowed: only fail runs whose claim_bridge_id is in the explicit
-    # superseded-bridge list. Callers without an explicit list fall back to
-    # the legacy "any bridge_id different from the new one" behavior.
-    if superseded_bridge_ids is not None:
-        if not superseded_bridge_ids:
-            return []
-        placeholders = ",".join("?" for _ in superseded_bridge_ids)
-        cursor = await db.execute(
-            f"""
-            SELECT id, claim_bridge_id
-            FROM dispatch_runs
-            WHERE target_agent = ?
-              AND status IN ('claimed', 'running')
-              AND claim_machine_id = ?
-              AND claim_bridge_id IN ({placeholders})
-            """,
-            (agent_id, machine_id, *superseded_bridge_ids),
-        )
-    else:
-        cursor = await db.execute(
-            """
-            SELECT id, claim_bridge_id
-            FROM dispatch_runs
-            WHERE target_agent = ?
-              AND status IN ('claimed', 'running')
-              AND claim_machine_id = ?
-              AND COALESCE(claim_bridge_id, '') != ?
-            """,
-            (agent_id, machine_id, superseding_bridge_id),
-        )
-    rows = await cursor.fetchall()
-    if not rows:
-        return []
-
-    affected_run_ids: list[str] = []
-    for row in rows:
-        affected_run_ids.append(row["id"])
-        previous_bridge_id = (row["claim_bridge_id"] or "").strip()
-        owner_label = previous_bridge_id or "legacy-unowned"
-        await db.execute(
-            """
-            UPDATE dispatch_runs
-            SET status = 'failed', error_text = ?, finished_at = ?
-            WHERE id = ?
-            """,
-            (
-                f'Run was owned by superseded bridge instance "{owner_label}" and was replaced by "{superseding_bridge_id}" during re-registration',
-                finished_at,
-                row["id"],
-            ),
-        )
-        await _append_dispatch_event(
-            db,
-            row["id"],
-            "failed",
-            f"Register supersession: {owner_label} -> {superseding_bridge_id}",
-        )
-    return affected_run_ids
+# _fail_active_runs_for_superseded_bridges moved to service/api_core/bridge_supersede.py in v0.5.4.
 
 
 async def _get_blocking_active_run(*a, **k):
@@ -236,8 +174,7 @@ def _is_lock_error(*a, **k):
     return _impl(*a, **k)
 
 
-def _machine_family(machine_id: Any) -> str:
-    return str(machine_id or "").strip().split(":", 1)[0].lower()
+# _machine_family moved to service/api_core/registration_gates.py in v0.5.4.
 
 
 
@@ -272,78 +209,7 @@ def _runtime_state_with_handle(*a, **k):
 
 
 
-async def _stop_virtual_terminals_for_superseded_bridges(
-    db,
-    *,
-    agent_id: str,
-    superseded_bridge_ids: list[str],
-    now: str,
-) -> None:
-    """Mark synthesized virtual rpc terminal_sessions stopped when the
-    bridge that owned them is superseded.
-
-    Operator-reported symptom (2026-05-22): after restarting aify-comms,
-    multiple managed pi/hermes agents flipped to `online` immediately
-    even though no message had been sent and the bridge had freshly
-    started — its in-memory PiSession pool was empty so there was no
-    actual omp process behind the terminal_session row. Stale rows
-    survive bridge restarts; the worker-detection rule then trusts the
-    DB and reports `online`. Cleaning them up at supersession time is
-    the right correctness fix.
-    """
-    if not superseded_bridge_ids:
-        return
-    placeholders = ",".join("?" for _ in superseded_bridge_ids)
-    # Defense-in-depth (code review I6, 2026-05-22): scope by agent_id
-    # too. Each bridge process today has exactly one AIFY_AGENT_ID so
-    # bridge_id is unique per agent, but if multi-agent bridges land
-    # later this prevents cross-agent terminal slaughter.
-    cursor = await db.execute(
-        f"""
-        SELECT id, agent_id FROM terminal_sessions
-        WHERE bridge_id IN ({placeholders})
-          AND agent_id = ?
-          AND command IN ({",".join("?" for _ in VIRTUAL_RPC_COMMAND_SET)})
-          AND status NOT IN ('stopped', 'failed')
-        """,
-        (*superseded_bridge_ids, agent_id, *VIRTUAL_RPC_COMMAND_SET),
-    )
-    rows = await cursor.fetchall()
-    for row in rows:
-        terminal_id = str(row["id"] or "").strip()
-        owner_agent = str(row["agent_id"] or "").strip()
-        await db.execute(
-            """
-            UPDATE terminal_sessions
-            SET status = 'stopped',
-                stopped_at = COALESCE(stopped_at, ?),
-                updated_at = ?,
-                error = CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END
-            WHERE id = ?
-            """,
-            (now, now, "Superseded by bridge re-registration; in-memory worker pool empty after restart.", terminal_id),
-        )
-        await _append_terminal_event(
-            db,
-            terminal_id,
-            "virtual_rpc_stopped_on_bridge_supersession",
-            json.dumps({"agentId": owner_agent, "supersededBridgeIds": superseded_bridge_ids}),
-        )
-        if owner_agent:
-            # Clear the agent's virtualTerminal* pointers so dashboard
-            # status correctly reports `available` until the next dispatch
-            # spawns a fresh worker.
-            agent_row = await (await db.execute("SELECT runtime_state FROM agents WHERE id = ?", (owner_agent,))).fetchone()
-            if agent_row:
-                rs = _json_loads_or(agent_row["runtime_state"], {}) or {}
-                if str(rs.get("virtualTerminalId") or "").strip() == terminal_id:
-                    rs.pop("virtualTerminal", None)
-                    rs.pop("virtualTerminalId", None)
-                    await db.execute(
-                        "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
-                        (json.dumps(rs), now, owner_agent),
-                    )
-            await _invalidate_agent_live_state(db, owner_agent)
+# _stop_virtual_terminals_for_superseded_bridges moved to service/api_core/bridge_supersede.py in v0.5.4.
 
 
 
@@ -433,18 +299,8 @@ def _borrowed_terminal_end_statuses():
     return _TERMINAL_END_STATUSES
 
 
-def _borrowed_windows_drive_cwd_re():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import _WINDOWS_DRIVE_CWD_RE
-
-    return _WINDOWS_DRIVE_CWD_RE
 
 
-def _borrowed_wsl_drive_cwd_re():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import _WSL_DRIVE_CWD_RE
-
-    return _WSL_DRIVE_CWD_RE
 
 
 def _borrowed_listen_events():
@@ -556,166 +412,13 @@ async def _broadcast_engine_status(ws, db, agent_id: str, *, settings=None) -> N
         pass
 
 
-async def _enforce_env_reachable_gate(
-    payload: dict[str, Any],
-    db,
-    settings: dict[str, Any],
-    agent_id: str,
-) -> dict[str, Any]:
-    """Read-boundary correction #2 (2026-06-12 status audit): a cached LIVE/available
-    status must not outlive its owning ENVIRONMENT. `agent_live_state.refresh_after` is
-    keyed on heartbeat freshness, and nothing invalidates dependent agents when an env
-    bridge dies (env death is computed-on-read from last_seen age — there is no
-    transition event) — so a managed agent could keep serving cached `online`/`available`
-    for the full refresh window after its machine went dark. (Masked until today: the
-    read-path cache upserts were rolled back on close, hiding the staleness behind
-    constant recomputes.) Sibling of `_enforce_live_worker_gate`: when the cached status
-    claims the env is usable but the env row no longer reads online/degraded, recompute
-    fresh — the full derivation applies the offline policy."""
-    status = str(payload.get("status") or "").lower()
-    if status not in {"online", "ready", "idle", "working", "available"}:
-        return payload
-    if str(payload.get("sessionMode") or "").lower() != "managed":
-        return payload
-    env_id = str((payload.get("runtimeState") or {}).get("environmentId") or "").strip()
-    if not env_id:
-        # The binding may live on the session row instead of runtime_state — the cached
-        # live-state entry carries whichever environment the derivation actually used.
-        _ls = _live_state_get(agent_id)
-        env_id = str((_ls or {}).get("environment_id") or "").strip()
-    env_row = None
-    if env_id:
-        env_row = await (await db.execute(
-            "SELECT * FROM environments WHERE id = ?", (env_id,)
-        )).fetchone()
-    else:
-        # No quick binding anywhere — resolve the owning env the same way the offline
-        # derivation does (machine_id + runtime), so an agent with no session row and no
-        # runtime_state binding still gets gated against its real environment.
-        agent_row = await (await db.execute(
-            "SELECT * FROM agents WHERE id = ?", (agent_id,)
-        )).fetchone()
-        if agent_row is None:
-            return payload
-        env_row = await _managed_owning_environment_row(db, agent_row, resolved_environment_id="")
-        if env_row is None:
-            return payload
-    offline_seconds = max(30, int(settings.get("environment_offline_seconds", 90) or 90))
-    if env_row and _environment_effective_status(env_row, offline_seconds=offline_seconds) in {"online", "degraded"}:
-        return payload
-    # Env is gone but the cached status predates its death → correct it IN-MEMORY for this
-    # response. READ-ONLY (2026-06-18): the previous invalidate + _refresh_agent_live_state +
-    # commit ran on the hot read path per agent — a per-poll write storm that starved SQLite's
-    # single writer (`database is locked`, fleet-wide). A managed agent whose owning environment
-    # is not online/degraded is `offline` (the same conclusion _compute_live_status_cache's
-    # managed_env_bridge_offline branch reaches); set it here without persisting. The 60s
-    # reconcile sweep persists the correction (env death has no transition event, so the sweep
-    # is the durable re-derivation path).
-    env_label = env_id or "owning environment"
-    payload["status"] = "offline"
-    payload["statusRaw"] = "offline"
-    payload["statusNote"] = f'Environment "{env_label}" is offline; only its bridge can host this managed worker.'
-    return payload
+# _enforce_env_reachable_gate moved to service/api_core/registration_gates.py in v0.5.4.
 
 
-async def _enforce_live_worker_gate(
-    payload: dict[str, Any],
-    db,
-    settings: dict[str, Any],
-    agent_id: str,
-) -> dict[str, Any]:
-    """Plan 5 Section C (2026-05-25): downgrade cached `online` to `available`
-    for managed wrapper-backed agents that have no non-terminated
-    `terminal_sessions` row.
-
-    Why this lives at the read boundary (not in the cache):
-    `_compute_live_status_cache` already consults `terminal_sessions` when it
-    runs, but `agent_live_state.refresh_after` is keyed on heartbeat
-    freshness via `_status_refresh_after` — NOT worker presence. When the
-    wrapper PTY exits but a parallel heartbeat keeps the agent alive (e.g.
-    another bridge polling the same agent), `refresh_after` stays in the
-    future and `_refresh_expired_agent_live_states` never re-validates.
-    Cached `status='online'` then persists indefinitely.
-
-    Observed 2026-05-25: graph-senior-dev (codex managed) —
-    `agent_live_state.status='online'` `terminal_id=''`
-    `updated_at=19:29:10Z` `refresh_after=19:30:28Z` (long past), but the
-    API still returned `online` because the cache row never fell behind a
-    fresh-enough heartbeat to trigger a recompute.
-
-    This gate is a final-step correction at the API boundary. Cache stays
-    for performance; the writeback below keeps subsequent reads honest
-    without re-running the terminal_sessions check.
-    """
-    if payload.get("status") not in {"online", "ready"}:
-        return payload
-    session_mode = str(payload.get("sessionMode") or "").lower()
-    if session_mode != "managed":
-        return payload
-    runtime = str(payload.get("runtime") or "").lower()
-    if not _managed_via_wrapper_for_runtime(settings, runtime):
-        return payload
-    if await _has_live_terminal_session(db, agent_id):
-        return payload
-    payload["status"] = "available"
-    payload["statusRaw"] = "available"
-    payload["statusNote"] = "no-live-worker (Plan 5 read-path gate)"
-    # READ-ONLY (2026-06-18): the cache writeback was REMOVED. This gate runs on the hot
-    # read path (GET /agents | /agents/{id}) per agent; persisting the downgrade here meant
-    # up to N writes per roster poll, which starved SQLite's single writer and 503'd the
-    # fleet's claim/heartbeat writes (`database is locked`). The downgrade is computed
-    # in-memory for THIS response; the 60s reconcile sweep persists the same correction
-    # (it re-derives via _compute_live_status_cache, which applies the identical
-    # terminal_sessions check). A read re-running the gate is just a couple of cheap reads.
-    return payload
+# _enforce_live_worker_gate moved to service/api_core/registration_gates.py in v0.5.4.
 
 
-async def _fresh_same_mode_bridge_conflict(
-    db,
-    *,
-    agent_id: str,
-    machine_id: str,
-    new_bridge_id: str,
-    session_mode: str,
-    lease_seconds: int,
-):
-    """Return a LIVE same-mode bridge that a new registration would race.
-
-    Phase 4 race guard (2026-05-31, operator-chosen hard-error model). A fresh,
-    non-superseded bridge for the SAME (agent, machine) and the SAME resident
-    session_mode, owned by a DIFFERENT bridge_id, means a second live wrapper is
-    about to claim an identity already being driven — silently superseding it
-    would kill the first wrapper's work. We surface that as a 409 (unless the
-    caller passes force=true to take over deliberately).
-
-    Scope is RESIDENT-only: managed bridges intentionally use latest-launch-wins
-    to reap zombie wrappers, and the visible-TUI managed model runs a legitimate
-    sidecar + wrapper-child pair concurrently — neither should trip this guard.
-    Returns the conflicting bridge row, or None when there is no live conflict.
-    """
-    if _normalize_session_mode(session_mode or "") != "resident":
-        return None
-    normalized_machine = _normalize_machine_id(machine_id)
-    cutoff = max(15, int(lease_seconds or 150))
-    cursor = await db.execute(
-        """
-        SELECT id, last_seen, bridge_kind, session_handle
-        FROM bridge_instances
-        WHERE agent_id = ?
-          AND machine_id = ?
-          AND id != ?
-          AND session_mode = 'resident'
-          AND COALESCE(bridge_kind, '') != 'channel-sidecar'
-          AND COALESCE(superseded_by, '') = ''
-        ORDER BY last_seen DESC
-        """,
-        (agent_id, normalized_machine, str(new_bridge_id or "").strip()),
-    )
-    for bridge in await cursor.fetchall():
-        seen_s = _iso_to_epoch((bridge["last_seen"] or ""))
-        if seen_s and (time.time() - seen_s) <= cutoff:
-            return bridge
-    return None
+# _fresh_same_mode_bridge_conflict moved to service/api_core/registration_gates.py in v0.5.4.
 
 
 async def _get_outbound_activity_map(db, agent_ids: list[str], *, include_runs: bool = True) -> dict[str, dict[str, Any]]:
@@ -1332,37 +1035,4 @@ async def _upsert_resident_agent_session(
     return session_id
 
 
-def _validate_registration_cwd(
-    *,
-    agent_id: str,
-    runtime: str,
-    session_mode: str,
-    machine_id: str,
-    cwd: str,
-    runtime_config: Optional[dict[str, Any]] = None,
-) -> None:
-    normalized_runtime = _normalize_runtime(runtime)
-    normalized_session_mode = _normalize_session_mode(session_mode)
-    resolved_cwd = str(cwd or "").strip()
-    family = _machine_family(machine_id)
-    if not resolved_cwd or normalized_runtime != "codex" or normalized_session_mode != "resident":
-        return
-    if not _has_codex_live_app_server(runtime_config):
-        return
-    if family in {"linux", "darwin", "wsl"} and _borrowed_windows_drive_cwd_re().match(resolved_cwd):
-        hint = '/mnt/<drive>/...' if family in {"linux", "wsl"} else "/Users/..."
-        raise HTTPException(
-            400,
-            (
-                f'Invalid cwd "{resolved_cwd}" for codex live agent "{agent_id}" on {family}. '
-                f'Use a native host path such as "{hint}", not a Windows drive-letter path.'
-            ),
-        )
-    if family == "win32" and _borrowed_wsl_drive_cwd_re().match(resolved_cwd):
-        raise HTTPException(
-            400,
-            (
-                f'Invalid cwd "{resolved_cwd}" for codex live agent "{agent_id}" on Windows. '
-                'Use forward-slash drive-letter form like "C:/repo", not a "/mnt/..." WSL path.'
-            ),
-        )
+# _validate_registration_cwd moved to service/api_core/registration_gates.py in v0.5.4.

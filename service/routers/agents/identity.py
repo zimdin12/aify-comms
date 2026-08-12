@@ -58,8 +58,6 @@ from service.routers.agents.shared import (
     _borrowed_runtime_config_live_keys,
     _borrowed_shell_placeholder_handle_re,
     _borrowed_terminal_end_statuses,
-    _borrowed_windows_drive_cwd_re,
-    _borrowed_wsl_drive_cwd_re,
     _broadcast_agent_status,
     _broadcast_engine_status,
     _clear_status_state_in_turn,
@@ -67,12 +65,9 @@ from service.routers.agents.shared import (
     _compute_agent_status,
     _compute_live_status_cache,
     _default_capabilities_for,
-    _enforce_env_reachable_gate,
-    _enforce_live_worker_gate,
     _environment_effective_status,
     _environment_record_to_dict,
     _fail_active_runs_for_superseded_bridges,
-    _fresh_same_mode_bridge_conflict,
     _get_blocking_active_run,
     _get_dispatch_state_for_agent,
     _get_dispatch_state_map,
@@ -88,7 +83,6 @@ from service.routers.agents.shared import (
     _json_loads_or,
     _live_state_get,
     _load_settings,
-    _machine_family,
     _managed_owning_environment_row,
     _managed_via_wrapper_for_runtime,
     _merge_runtime_policy_for_wrapper_reregister,
@@ -123,7 +117,6 @@ from service.routers.agents.shared import (
     _timestamp_sort_key,
     _touch_current_agent_session,
     _upsert_resident_agent_session,
-    _validate_registration_cwd,
     apply_event,
     derive,
     engine_status,
@@ -139,6 +132,13 @@ from service.api_core.terminal_ownership import _active_terminal_for_agent
 from service.api_core.dispatch_start import (
     _coldstart_spawn_request_for_dispatch,
     _ensure_managed_pty_for_dispatch,
+)
+from service.api_core.registration_gates import (
+    _enforce_env_reachable_gate,
+    _enforce_live_worker_gate,
+    _fresh_same_mode_bridge_conflict,
+    _machine_family,
+    _validate_registration_cwd,
 )
 
 router = domain_router()
