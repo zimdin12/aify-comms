@@ -8,65 +8,166 @@ import {
 } from "../hermes-turn-repulse.js";
 
 // --- startInFlightRepulse -------------------------------------------------
+//
+// DETERMINISTIC, by a manual scheduler. These four tests used real setTimeout with 25-55ms margins
+// and asserted on Date.now() deltas and pulse COUNTS, so they failed roughly one run in N under the
+// parallel bridge suite on a loaded machine.
+//
+// That was a release-gate defect, not a nuisance: this repo gates tags on suite-green, and a test
+// that fails intermittently teaches everyone to re-run until green -- which is exactly how a real
+// failure gets waved through. The reviewer ruled out widening the margins (still wall-clock) and
+// quarantining (removes the gate), so the timer moved to the boundary instead. Same treatment that
+// made terminal_diagnostics and the status engine testable.
+//
+// Nothing here sleeps. Ticks are driven explicitly, so the assertions can be exact counts rather
+// than ">= 2 in 55ms, probably".
 
-test("startInFlightRepulse pulses every interval while in flight", async () => {
-  const calls = [];
-  let inFlight = true;
+function manualScheduler() {
+  let fn = null;
+  let cleared = false;
+  return {
+    scheduler: {
+      setInterval: (callback) => {
+        fn = callback;
+        return { unref() {} };
+      },
+      clearInterval: () => {
+        cleared = true;
+        fn = null;
+      },
+    },
+    // Drive one interval and let the async tick body settle.
+    async tick() {
+      if (!fn) return;
+      await fn();
+    },
+    get cleared() {
+      return cleared;
+    },
+    get scheduled() {
+      return fn !== null;
+    },
+  };
+}
+
+test("startInFlightRepulse pulses on each tick while in flight", async () => {
+  const m = manualScheduler();
+  let calls = 0;
   const stop = startInFlightRepulse({
     intervalMs: 10,
-    isInFlight: () => inFlight,
-    pulse: async () => calls.push(Date.now()),
+    isInFlight: () => true,
+    pulse: async () => { calls += 1; },
+    scheduler: m.scheduler,
   });
-  await new Promise((r) => setTimeout(r, 55));
+  await m.tick();
+  await m.tick();
+  await m.tick();
   stop();
-  assert.ok(calls.length >= 2, `expected >=2 pulses in 55ms@10ms; got ${calls.length}`);
+  assert.strictEqual(calls, 3, "exactly one pulse per tick while in flight");
 });
 
 test("startInFlightRepulse stops pulsing the moment isInFlight goes false", async () => {
-  const calls = [];
+  const m = manualScheduler();
+  let calls = 0;
   let inFlight = true;
   const stop = startInFlightRepulse({
     intervalMs: 10,
     isInFlight: () => inFlight,
-    pulse: async () => calls.push(1),
+    pulse: async () => { calls += 1; },
+    scheduler: m.scheduler,
   });
-  await new Promise((r) => setTimeout(r, 25));
+  await m.tick();
+  assert.strictEqual(calls, 1);
   inFlight = false;
-  const at = calls.length;
-  await new Promise((r) => setTimeout(r, 40));
+  await m.tick();
+  await m.tick();
   stop();
-  assert.strictEqual(calls.length, at, `no pulses after in-flight=false; got ${calls.length - at} extra`);
+  assert.strictEqual(calls, 1, "no pulses after in-flight went false");
 });
 
 test("startInFlightRepulse awaits an async isInFlight (pending-promise probe)", async () => {
-  const calls = [];
+  const m = manualScheduler();
+  let calls = 0;
   let inFlight = false;
   const stop = startInFlightRepulse({
     intervalMs: 10,
     isInFlight: async () => inFlight,
-    pulse: async () => calls.push(1),
+    pulse: async () => { calls += 1; },
+    scheduler: m.scheduler,
   });
-  await new Promise((r) => setTimeout(r, 35));
-  assert.strictEqual(calls.length, 0, "async in-flight=false must not pulse");
+  await m.tick();
+  assert.strictEqual(calls, 0, "async in-flight=false must not pulse");
   inFlight = true;
-  await new Promise((r) => setTimeout(r, 35));
+  await m.tick();
+  await m.tick();
   stop();
-  assert.ok(calls.length >= 2, `async in-flight=true must resume pulses; got ${calls.length}`);
+  assert.strictEqual(calls, 2, "async in-flight=true must resume pulses");
+});
+
+test("startInFlightRepulse treats a throwing probe as not-in-flight", async () => {
+  const m = manualScheduler();
+  let calls = 0;
+  const stop = startInFlightRepulse({
+    intervalMs: 10,
+    isInFlight: async () => { throw new Error("probe fail"); },
+    pulse: async () => { calls += 1; },
+    scheduler: m.scheduler,
+  });
+  await m.tick();
+  stop();
+  assert.strictEqual(calls, 0, "a failed probe must not pulse");
 });
 
 test("startInFlightRepulse swallows pulse errors (never kills the timer)", async () => {
+  const m = manualScheduler();
   let ticks = 0;
   const stop = startInFlightRepulse({
     intervalMs: 10,
     isInFlight: () => true,
     pulse: async () => {
-      ticks++;
+      ticks += 1;
       throw new Error("net fail");
     },
+    scheduler: m.scheduler,
   });
-  await new Promise((r) => setTimeout(r, 35));
+  await m.tick();
+  await m.tick();
   stop();
-  assert.ok(ticks >= 2, `timer must keep firing despite pulse throwing; ticks=${ticks}`);
+  assert.strictEqual(ticks, 2, "the beat must survive a throwing pulse");
+});
+
+test("stop() clears the timer and prevents further pulses", async () => {
+  const m = manualScheduler();
+  let calls = 0;
+  const stop = startInFlightRepulse({
+    intervalMs: 10,
+    isInFlight: () => true,
+    pulse: async () => { calls += 1; },
+    scheduler: m.scheduler,
+  });
+  stop();
+  assert.ok(m.cleared, "stop() must clear the interval");
+  await m.tick();
+  assert.strictEqual(calls, 0, "no pulse after stop()");
+});
+
+test("an invalid config schedules nothing at all", async () => {
+  const m = manualScheduler();
+  const stop = startInFlightRepulse({ intervalMs: 0, isInFlight: () => true, pulse: async () => {}, scheduler: m.scheduler });
+  assert.strictEqual(typeof stop, "function");
+  assert.strictEqual(m.scheduled, false, "a bad interval must not start a beat");
+});
+
+test("production uses real timers when no scheduler is injected", () => {
+  // The seam must not change the default. If this ever regressed to a no-op default, every
+  // production re-pulse would silently stop and hermes turns would flip to `online` mid-turn.
+  const stop = startInFlightRepulse({
+    intervalMs: 3_600_000,
+    isInFlight: () => false,
+    pulse: async () => {},
+  });
+  assert.strictEqual(typeof stop, "function");
+  stop();
 });
 
 test("startInFlightRepulse is a no-op with missing/invalid params", () => {

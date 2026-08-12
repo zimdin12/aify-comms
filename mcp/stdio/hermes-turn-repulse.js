@@ -32,7 +32,23 @@
 // (a pending promise, or a bounded deadline) gates every tick. When the turn
 // settles, the caller flips `isInFlight` false and/or calls stop(), so the
 // server's 120s window closes naturally on the last pulse.
-export function startInFlightRepulse({ intervalMs = 45000, isInFlight, pulse } = {}) {
+// `scheduler` exists ONLY so this can be tested deterministically. Production passes nothing and
+// gets real setInterval/clearInterval, unchanged.
+//
+// WHY IT EXISTS: the test for this function used real timers with 25-55ms margins and asserted on
+// Date.now() deltas, so it failed roughly one run in N under the parallel bridge suite on a loaded
+// machine. That is worse than a nuisance — the whole repo gates tags on suite-green, and a test that
+// fails intermittently teaches everyone to re-run until green, which is precisely how a REAL failure
+// gets waved through. The reviewer ruled it a release-gate blocker and ruled out widening the
+// margins (still wall-clock) and quarantining it (removes the gate). Injecting the timer is the
+// same treatment that made terminal_diagnostics and the status engine testable: move the
+// untestable dependency to the boundary.
+const REAL_SCHEDULER = {
+  setInterval: (fn, ms) => setInterval(fn, ms),
+  clearInterval: (handle) => clearInterval(handle),
+};
+
+export function startInFlightRepulse({ intervalMs = 45000, isInFlight, pulse, scheduler = REAL_SCHEDULER } = {}) {
   const noop = () => {};
   if (
     typeof isInFlight !== "function" ||
@@ -60,12 +76,12 @@ export function startInFlightRepulse({ intervalMs = 45000, isInFlight, pulse } =
     }
   };
 
-  const timer = setInterval(tick, intervalMs);
-  if (typeof timer.unref === "function") timer.unref();
+  const timer = scheduler.setInterval(tick, intervalMs);
+  if (timer && typeof timer.unref === "function") timer.unref();
 
   return function stop() {
     stopped = true;
-    clearInterval(timer);
+    scheduler.clearInterval(timer);
   };
 }
 
