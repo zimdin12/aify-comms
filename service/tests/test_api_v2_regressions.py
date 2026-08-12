@@ -37,6 +37,8 @@ from service.api_core.serialization import _iso_from_ms
 from service.api_core.settings import _load_settings
 from service.api_core.liveness import _resident_bridge_is_fresh
 from service.api_core import dispatch_start  # v0.5.4: call the OWNER, not the carrier alias
+from service.api_core import liveness  # v0.5.4: call the OWNER
+from service.api_core import claim_gating  # v0.5.4: call the OWNER, not a re-export
 
 
 # Back-compat alias: a few tests below reference _DummyWS directly.
@@ -2915,7 +2917,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         cache = self._async_compute_live_status("tb-refresh-claude")
         self.assertEqual(cache["status"], "working", cache)
-        limit = api_v2._iso_add_seconds(now, api_v2.TURN_BUSY_BACKSTOP_SECONDS)
+        limit = api_v2._iso_add_seconds(now, liveness.TURN_BUSY_BACKSTOP_SECONDS)
         self.assertTrue(cache["refresh_after"], cache)
         self.assertLessEqual(
             cache["refresh_after"], limit,
@@ -2984,11 +2986,11 @@ class ApiV2RegressionTests(FastApiTestCase):
         # Anti-feedback-loop: status is derived from turn_busy; nothing here
         # re-arms turn_busy from that derived status.
         self.assertGreaterEqual(
-            api_v2.TURN_BUSY_BACKSTOP_SECONDS, 30 * 60,
+            liveness.TURN_BUSY_BACKSTOP_SECONDS, 30 * 60,
             "STATUS backstop must be the single LONG ceiling (>=30m), not the short claim window",
         )
         self.assertGreater(
-            api_v2.TURN_BUSY_BACKSTOP_SECONDS, TURN_BUSY_STALE_SECONDS,
+            liveness.TURN_BUSY_BACKSTOP_SECONDS, TURN_BUSY_STALE_SECONDS,
             "status backstop (long) must be DECOUPLED from the short claim window (120s)",
         )
         self._heartbeat_environment()
@@ -3142,7 +3144,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                return await dispatch_shared._turn_busy_holds_delivery(db, agent_id)
+                return await claim_gating._turn_busy_holds_delivery(db, agent_id)
             finally:
                 await db.close()
 
@@ -3381,7 +3383,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         aged_but_inside = time.strftime(
             "%Y-%m-%dT%H:%M:%SZ",
-            time.gmtime(time.time() - (api_v2.TURN_BUSY_BACKSTOP_SECONDS - 120)),
+            time.gmtime(time.time() - (liveness.TURN_BUSY_BACKSTOP_SECONDS - 120)),
         )
         self._execute(
             "UPDATE agent_turn_state SET turn_updated_at = ? WHERE agent_id = ?",
@@ -3424,7 +3426,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         abandoned = time.strftime(
             "%Y-%m-%dT%H:%M:%SZ",
-            time.gmtime(time.time() - (api_v2.TURN_BUSY_BACKSTOP_SECONDS + 300)),
+            time.gmtime(time.time() - (liveness.TURN_BUSY_BACKSTOP_SECONDS + 300)),
         )
         self._execute(
             "UPDATE agent_turn_state SET turn_updated_at = ? WHERE agent_id = ?",
@@ -3453,7 +3455,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertIsNotNone(
             run,
             "queued work must be claimable once the turn flag is provably abandoned "
-            f"(>{api_v2.TURN_BUSY_BACKSTOP_SECONDS}s): {claim.json()}",
+            f"(>{liveness.TURN_BUSY_BACKSTOP_SECONDS}s): {claim.json()}",
         )
         self.assertEqual(run.get("id"), "run_strand_explicit_queue")
 

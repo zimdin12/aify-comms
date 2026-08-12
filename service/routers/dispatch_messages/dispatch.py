@@ -67,7 +67,6 @@ from service.routers.dispatch_messages.shared import (
     _auto_handoff_subject_for_run,
     _auto_return_resident_to_managed_if_possible,
     _borrowed_unthreaded_handoff_window_ms,
-    _bridge_claim_block_reason,
     _clear_turn_busy_if_no_open_reply_owing_run,
     _close_reconcilable_delivered_runs,
     _close_steered_contracts_for_parent_run,
@@ -76,7 +75,6 @@ from service.routers.dispatch_messages.shared import (
     _create_dispatch_runs,
     _delete_messages_by_ids,
     _delete_messages_where,
-    _dispatch_conversation_context,
     _dispatch_fix_hint,
     _dispatch_requires_reply,
     _finalize_dispatch_runs,
@@ -84,7 +82,6 @@ from service.routers.dispatch_messages.shared import (
     _get_dispatch_state_for_agent,
     _get_recipient_info,
     _has_claimable_spawn_request,
-    _has_claimable_steerable_run,
     _has_live_managed_wrapper_child,
     _is_replaceable_auto_handoff_message,
     _link_reply_message_to_dispatch_run,
@@ -102,13 +99,11 @@ from service.routers.dispatch_messages.shared import (
     _record_channel_sidecar_heartbeat,
     _record_terminal_delivery_contract,
     _reject_sender_truncated_body,
-    _release_stale_console_owner_for_claim,
     _resolve_recipient_ids,
     _resolve_reply_parent_message_id,
     _run_contract_reminders_once,
     _touch_agent,
     _touch_current_agent_session,
-    _turn_busy_holds_delivery,
     _wake_agent,
 )
 from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES, _CHANNEL_MANAGED_RUNTIMES
@@ -135,6 +130,13 @@ from service.api_core.records import _serialize_dispatch_run_row
 from service.api_core.dashboard_run_report import (
     _maybe_report_async_manager_result_to_dashboard,
     _mirror_dashboard_run_summary_to_chat,
+)
+from service.api_core.claim_gating import (
+    _bridge_claim_block_reason,
+    _dispatch_conversation_context,
+    _has_claimable_steerable_run,
+    _release_stale_console_owner_for_claim,
+    _turn_busy_holds_delivery,
 )
 
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.dispatch")

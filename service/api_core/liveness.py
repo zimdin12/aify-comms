@@ -313,3 +313,16 @@ async def _resident_bridge_is_fresh(db, row, *, lease_seconds: int) -> bool:
     if await _has_live_channel_sidecar(db, row["id"]):
         return True
     return False
+
+
+# v0.5.4: `TURN_BUSY_BACKSTOP_SECONDS` arrived from the control plane, as a NEUTRAL owner rather than a
+# follower — four carrier readers remain (three in `_compute_live_status_cache`, one in
+# `_gather_status_inputs`), so no single consumer owns it.
+#
+# It belongs with the liveness thresholds because it IS one, and because the invariant attached to it is
+# cross-module: it must equal the status engine's `in_turn` clamp. When those disagreed, queued work
+# stranded and agents went permanently DEAF — a turn_busy delivery gate that never expired. Two readers
+# agreeing is only meaningful while there is exactly one declaration, which is why this is a move and
+# never a copy.
+
+TURN_BUSY_BACKSTOP_SECONDS = 30 * 60

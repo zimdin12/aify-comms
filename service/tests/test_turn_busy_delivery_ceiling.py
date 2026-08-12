@@ -27,6 +27,8 @@ from service import control_plane as api_v2  # v0.5.3: helpers live in the contr
 from service.routers.dispatch_messages import shared as dispatch_shared
 
 from service.tests._base import FastApiTestCase
+from service.api_core import liveness  # v0.5.4: call the OWNER
+from service.api_core import claim_gating  # v0.5.4: call the OWNER, not a re-export
 
 
 class TurnBusyDeliveryCeilingTests(FastApiTestCase):
@@ -64,7 +66,7 @@ class TurnBusyDeliveryCeilingTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                return await dispatch_shared._turn_busy_holds_delivery(db, agent_id)
+                return await claim_gating._turn_busy_holds_delivery(db, agent_id)
             finally:
                 await db.close()
 
@@ -79,7 +81,7 @@ class TurnBusyDeliveryCeilingTests(FastApiTestCase):
     def test_turn_busy_just_inside_ceiling_still_holds(self):
         """Long turns are legitimate — hold right up to the ceiling."""
         self._set_turn_busy(
-            "tbc-inside", age_seconds=api_v2.TURN_BUSY_BACKSTOP_SECONDS - 60
+            "tbc-inside", age_seconds=liveness.TURN_BUSY_BACKSTOP_SECONDS - 60
         )
         self.assertTrue(
             self._holds("tbc-inside"),
@@ -90,7 +92,7 @@ class TurnBusyDeliveryCeilingTests(FastApiTestCase):
         """THE REGRESSION: past the ceiling status reports not-in-turn, so the gates must
         release too — otherwise queued work strands forever and non-steer targets go deaf."""
         self._set_turn_busy(
-            "tbc-abandoned", age_seconds=api_v2.TURN_BUSY_BACKSTOP_SECONDS + 60
+            "tbc-abandoned", age_seconds=liveness.TURN_BUSY_BACKSTOP_SECONDS + 60
         )
         self.assertFalse(
             self._holds("tbc-abandoned"),
@@ -102,11 +104,11 @@ class TurnBusyDeliveryCeilingTests(FastApiTestCase):
         in_turn. If someone decouples them, delivery and displayed status can disagree
         permanently — pin them together."""
         self._set_turn_busy(
-            "tbc-parity", age_seconds=api_v2.TURN_BUSY_BACKSTOP_SECONDS + 5
+            "tbc-parity", age_seconds=liveness.TURN_BUSY_BACKSTOP_SECONDS + 5
         )
         self.assertFalse(self._holds("tbc-parity"))
         # derive()'s clamp reads the same constant; assert it is the one we bound against.
-        self.assertEqual(api_v2.TURN_BUSY_BACKSTOP_SECONDS, 30 * 60)
+        self.assertEqual(liveness.TURN_BUSY_BACKSTOP_SECONDS, 30 * 60)
 
     def test_turn_busy_zero_never_holds(self):
         async def _run():

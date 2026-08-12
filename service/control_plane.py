@@ -474,7 +474,8 @@ _TERMINAL_DEAD_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "c
 #
 # ANTI-FEEDBACK-LOOP: only a bridge/event sets turn_busy; only an event/this
 # ceiling/the run-reply clear clears it. Status is NEVER read back to re-arm it.
-TURN_BUSY_BACKSTOP_SECONDS = 30 * 60
+# TURN_BUSY_BACKSTOP_SECONDS moved to service/api_core/liveness.py in v0.5.4 — it is a
+# liveness threshold, and it must stay equal to the status engine's in_turn clamp.
 # (TURN_END_GRACE_SECONDS removed 2026-06-19 — status is pure-event; the grace flap-absorber
 # was deleted from both status paths and the flap is fixed at the bridge source.)
 # Poll-load fix (2026-06-18): a settled `offline` agent's cached status only changes via an
@@ -1152,14 +1153,7 @@ async def _auto_return_resident_to_managed_if_possible(
 # _bridge_is_superseded moved to service/api_core/liveness.py in v0.5.4.
 
 
-async def _active_wrapper_terminal_id(db, agent_id: str, *, settings: dict[str, Any]) -> str:
-    terminal = await _active_terminal_for_agent(db, agent_id, settings=settings)
-    if not terminal:
-        return ""
-    try:
-        return str(terminal["terminal_id"] or terminal["id"] or "").strip()
-    except Exception:
-        return str((terminal.get("terminal_id") or terminal.get("id") or "") if isinstance(terminal, dict) else "").strip()
+# _active_wrapper_terminal_id moved to service/api_core/claim_gating.py in v0.5.4.
 
 
 # _ANSI_RE was declared HERE as well until v0.5.3, with a NARROWER pattern that did not strip
@@ -1172,29 +1166,10 @@ async def _active_wrapper_terminal_id(db, agent_id: str, *, settings: dict[str, 
 # _terminal_text_compact moved to service/api_core/terminal_text.py in v0.5.4.
 
 
-def _hermes_terminal_still_resuming(text: str) -> bool:
-    compact = _terminal_text_compact(text)
-    if not compact:
-        return False
-    resume_idx = compact.rfind("resuming")
-    if resume_idx < 0:
-        return False
-    ready_idx = compact.rfind("ready")
-    return ready_idx < resume_idx
+# _hermes_terminal_still_resuming moved to service/api_core/claim_gating.py in v0.5.4.
 
 
-async def _active_wrapper_terminal_not_ready_reason(db, terminal_id: str, runtime: str) -> str:
-    if _normalize_runtime(runtime or "") != "hermes" or not terminal_id:
-        return ""
-    row = await (await db.execute(
-        "SELECT output FROM terminal_sessions WHERE id = ?",
-        (terminal_id,),
-    )).fetchone()
-    if not row:
-        return ""
-    if _hermes_terminal_still_resuming(str(row["output"] or "")):
-        return "Hermes wrapper Console is still resuming a saved session; waiting for ready/heal before claiming channel work."
-    return ""
+# _active_wrapper_terminal_not_ready_reason moved to service/api_core/claim_gating.py in v0.5.4.
 
 
 # _bridge_claim_block_reason moved to service/routers/dispatch_messages/shared.py in v0.5.3.
@@ -2379,6 +2354,8 @@ from service.api_core.capabilities import (
     _has_codex_live_app_server,
     _row_capabilities,
 )
+from service.api_core.liveness import TURN_BUSY_BACKSTOP_SECONDS
+from service.api_core.claim_gating import _dispatch_source_message_ids
 
 # Grace before a spawn is finalized because its bound terminal reached a terminal
 # status. Deliberately SHORTER than SPAWN_ORPHAN_GRACE_SECONDS: that reaper infers
@@ -3331,14 +3308,7 @@ def _dispatch_message_id_for_recipient(
     return str((source_message_ids or {}).get(recipient_id, message_id or "") or "").strip()
 
 
-def _dispatch_source_message_ids(row) -> list[str]:
-    ids = []
-    primary = str((row["message_id"] if row and "message_id" in row.keys() else "") or "").strip()
-    if primary:
-        ids.append(primary)
-    body = str((row["body"] if row and "body" in row.keys() else "") or "")
-    ids.extend(match.group(1).strip() for match in re.finditer(r"\bMessage\s*Id:\s*([^\s]+)", body, re.IGNORECASE))
-    return _dedupe_preserve([message_id for message_id in ids if message_id])
+# _dispatch_source_message_ids moved to service/api_core/claim_gating.py in v0.5.4.
 
 
 async def _mark_dispatch_source_messages_read(db, row, agent_id: str, read_at: str) -> int:

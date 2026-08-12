@@ -2,6 +2,7 @@ import sqlite3
 from service.tests._base import FastApiTestCase
 from service.api_core.routing import logger
 from service.api_core.settings import _load_settings
+from service.api_core import liveness  # v0.5.4: call the OWNER
 
 
 def _seed_live_channel_worker(db_path, env_id, aid, runtime="claude-code"):
@@ -650,7 +651,7 @@ class HeartbeatTurnBusyFeedsEngineTests(FastApiTestCase):
         self._register("hb4", mode="managed", runtime="hermes")
         # Seed an in_turn=1 row whose last_event_at is older than the backstop.
         stale = (datetime.now(timezone.utc)
-                 - timedelta(seconds=api_v2.TURN_BUSY_BACKSTOP_SECONDS + 120)
+                 - timedelta(seconds=liveness.TURN_BUSY_BACKSTOP_SECONDS + 120)
                  ).strftime("%Y-%m-%dT%H:%M:%SZ")
         c = sqlite3.connect(str(self._db_path))
         try:
