@@ -402,7 +402,7 @@ def _borrowed_listen_events():
     """BORROWED constant: one owner, never a copy (finding N7)."""
     from service.routers.api_v2 import _listen_events
 
-    return _borrowed_listen_events()
+    return _listen_events
 
 
 
