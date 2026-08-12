@@ -41,7 +41,6 @@ from service.routers.agents.shared import (  # noqa: F401
     _append_terminal_event,
     _apply_status_event,
     _auto_return_resident_to_managed_if_possible,
-    _borrowed_ansi_re,
     _borrowed_channel_claim_runtimes,
     _borrowed_console_tail_max_bytes,
     _borrowed_console_tail_max_lines,

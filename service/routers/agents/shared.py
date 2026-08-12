@@ -408,11 +408,6 @@ def _borrowed_virtual_rpc_command_set():
     return VIRTUAL_RPC_COMMAND_SET
 
 
-def _borrowed_ansi_re():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import _ANSI_RE
-
-    return _ANSI_RE
 
 
 def _borrowed_channel_claim_runtimes():

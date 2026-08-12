@@ -6,6 +6,7 @@ declares NO tags — the parent applies `tags=["api"]` once when api_v2 includes
 
 from __future__ import annotations
 
+from service.api_core.terminal_text import _ANSI_RE
 import asyncio
 import json
 import logging
@@ -41,7 +42,6 @@ from service.routers.agents.shared import (  # noqa: F401
     _append_terminal_event,
     _apply_status_event,
     _auto_return_resident_to_managed_if_possible,
-    _borrowed_ansi_re,
     _borrowed_channel_claim_runtimes,
     _borrowed_console_tail_max_bytes,
     _borrowed_console_tail_max_lines,
@@ -471,7 +471,7 @@ async def get_agent_console(agent_id: str, lines: int = 40):
                     )
             except Exception:
                 screen_output = full_output
-        clean = _borrowed_ansi_re().sub("", screen_output)
+        clean = _ANSI_RE.sub("", screen_output)
         clean = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", clean)
         screen_lines = clean.splitlines()
         while screen_lines and not screen_lines[-1].strip():

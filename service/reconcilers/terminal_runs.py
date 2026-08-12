@@ -23,6 +23,7 @@ from typing import Any, Optional
 from service.api_core.runtime import _normalize_runtime  # v0.5.1e: the leaf owner, not via the router
 from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
 from service.api_core.agent_sessions import _current_agent_session_row
+from service.api_core.terminal_text import _ANSI_RE, _terminal_awaiting_input_hint
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 def _terminal_idle_prompt_hint(output: str) -> str:
-    clean = _borrowed_ansi_re().sub("", str(output or ""))
+    clean = _ANSI_RE.sub("", str(output or ""))
     clean = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", clean)
     tail = clean[-3000:].strip()
     if not tail or _terminal_awaiting_input_hint(tail):
@@ -69,7 +70,7 @@ def _terminal_pi_idle_prompt_hint(output: str) -> str:
     idle-prompt detection closes PTY-delivered runs whose interactive
     runtime returned to ready state without a structured reply event.
     """
-    clean = _borrowed_ansi_re().sub("", str(output or ""))
+    clean = _ANSI_RE.sub("", str(output or ""))
     clean = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", clean)
     tail = clean[-3000:]
     if not tail:
@@ -90,20 +91,8 @@ def _terminal_pi_idle_prompt_hint(output: str) -> str:
     return "Pi PTY returned to an idle prompt without an explicit reply."
 
 
-def _terminal_awaiting_input_hint(*a, **k):
-    from service.control_plane import _terminal_awaiting_input_hint as _i
-    return _i(*a, **k)
 
 
-def _borrowed_ansi_re():
-    """BORROWED constant: one owner, never a copy (finding N7).
-
-    Six code readers outside this module, including `service/terminal_diagnostics.py`'s own
-    separate pattern — so this one stays router-owned. Measured with
-    scripts/constant_readership.py, not guessed.
-    """
-    from service.control_plane import _ANSI_RE
-    return _ANSI_RE
 
 
 def _terminal_end_statuses():
