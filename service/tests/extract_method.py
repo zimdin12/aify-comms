@@ -848,7 +848,35 @@ def assert_extraction_preserves_behaviour(original_src: str, split_src: str, hel
         )
 
     rebuilt = inline_back(funcs[original.name], helper)
-    if normalized(rebuilt) != normalized(original):
+
+    # DECORATORS ARE COMPARED SEPARATELY, and only when the caller supplied them.
+    #
+    # Every route handler in this repo is decorated, and the natural way to obtain `original_src` is
+    # `ast.get_source_segment(src, node)` — which returns the text from the `def` line and therefore
+    # DROPS the decorators. Comparing whole nodes then fails on a decorator list that differs only
+    # because of how the source was sliced, and reports it as "not behaviour-preserving": the most
+    # alarming message this module can emit, for a split that is perfectly fine. That is a false
+    # alarm the first real extraction hit immediately.
+    #
+    # Extraction never touches decorators, so they are not what the round trip is proving. But a
+    # CHANGED decorator on a route handler really is a behaviour change, so when the caller did pass
+    # them they are still checked — just with their own message, so the two failures cannot be
+    # confused for one another.
+    if original.decorator_list:
+        original_decorators = [normalized(d) for d in original.decorator_list]
+        split_decorators = [normalized(d) for d in rebuilt.decorator_list]
+        if original_decorators != split_decorators:
+            raise AssertionError(
+                "REFUSED: the function's decorators changed. Extraction must not touch them — on a "
+                "route handler they carry the path, the method and the response model."
+            )
+
+    def _bodies_only(node: ast.AST) -> str:
+        clone = copy.deepcopy(node)
+        clone.decorator_list = []
+        return normalized(clone)
+
+    if _bodies_only(rebuilt) != _bodies_only(original):
         raise AssertionError(
             "extraction is NOT behaviour-preserving: inlining the helper back did not reproduce the "
             "original function.\n"

@@ -1183,5 +1183,52 @@ class ExtractMethodBindingOrderTests(unittest.TestCase):
         assert_extraction_preserves_behaviour(original, split, "_w")
 
 
+class ExtractMethodDecoratedFunctionTests(unittest.TestCase):
+    """Route handlers are decorated, and the natural way to slice one drops its decorators.
+
+    `ast.get_source_segment(src, node)` returns the text from the `def` line, so a caller obtaining
+    `original_src` the obvious way hands over a function with an EMPTY decorator list while the
+    split module still has them. Comparing whole nodes then failed with "extraction is NOT
+    behaviour-preserving" — the most alarming message this module can produce — for a split that
+    was correct. The first real extraction from `get_analytics` hit it immediately.
+
+    Decorators are compared on their own now, and only when the caller supplied them, so the two
+    failures cannot be mistaken for each other.
+    """
+
+    ORIGINAL_NO_DECORATOR = (
+        "async def handler(n):\n"
+        "    out = []\n"
+        "    for i in range(n):\n"
+        "        out.append(i)\n"
+        "    return out\n"
+    )
+    SPLIT_WITH_DECORATOR = (
+        '@router.get("/thing")\n'
+        "async def handler(n):\n"
+        "    out = await _w(n)\n"
+        "    return out\n"
+        "\n"
+        "\n"
+        "async def _w(n):\n"
+        "    out = []\n"
+        "    for i in range(n):\n"
+        "        out.append(i)\n"
+        "    return out\n"
+    )
+
+    def test_a_decoratorless_original_still_verifies_against_a_decorated_split(self):
+        assert_extraction_preserves_behaviour(
+            self.ORIGINAL_NO_DECORATOR, self.SPLIT_WITH_DECORATOR, "_w")
+
+    def test_a_changed_decorator_is_still_refused_when_the_caller_supplies_them(self):
+        """Skipping decorators must not mean ignoring them. A changed route is a changed API."""
+        original_with_decorator = '@router.get("/thing")\n' + self.ORIGINAL_NO_DECORATOR
+        moved_route = self.SPLIT_WITH_DECORATOR.replace('"/thing"', '"/something-else"')
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original_with_decorator, moved_route, "_w")
+        self.assertIn("decorators changed", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

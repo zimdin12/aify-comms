@@ -62,6 +62,26 @@ async def _compute_agent_status(*a, **k):
 WORKED_SPAN_CEILING_SECONDS = 4 * 3600
 
 
+async def _hourly_message_series(now_s, count_messages_between):
+    """The 24 hourly message buckets, ending with the hour `now_s` falls in.
+
+    The first method split in this series, extracted from `get_analytics`. Both `now_s` and
+    the counting closure are PASSED rather than reached for: the closure is a local of the
+    handler, so a helper that captured it would capture the wrong frame — and the
+    extract-method gate refuses exactly that shape rather than trusting it.
+    """
+    hourly = []
+    hour_start = (now_s // 3600) * 3600
+    for i in range(23, -1, -1):
+        start_s = hour_start - i * 3600
+        hourly.append({
+            "label": time.strftime("%H:00", time.localtime(start_s)),
+            "start": _iso_from_ms(start_s * 1000),
+            "count": await count_messages_between(start_s * 1000, (start_s + 3600) * 1000),
+        })
+    return hourly
+
+
 @router.get("/analytics")
 async def get_analytics(request: Request, analytics_range: str = Query("hour", alias="range", pattern="^(hour|day|month|all)$")):
     selected_range = analytics_range
@@ -83,15 +103,7 @@ async def get_analytics(request: Request, analytics_range: str = Query("hour", a
             )
             return int((await cursor.fetchone())[0])
 
-        hourly = []
-        hour_start = (now_s // 3600) * 3600
-        for i in range(23, -1, -1):
-            start_s = hour_start - i * 3600
-            hourly.append({
-                "label": time.strftime("%H:00", time.localtime(start_s)),
-                "start": _iso_from_ms(start_s * 1000),
-                "count": await count_messages_between(start_s * 1000, (start_s + 3600) * 1000),
-            })
+        hourly = await _hourly_message_series(now_s, count_messages_between)
 
         daily = []
         today_struct = time.localtime(now_s)
