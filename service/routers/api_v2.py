@@ -1839,7 +1839,11 @@ async def _active_wrapper_terminal_id(db, agent_id: str, *, settings: dict[str, 
         return str((terminal.get("terminal_id") or terminal.get("id") or "") if isinstance(terminal, dict) else "").strip()
 
 
-_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)")
+# _ANSI_RE was declared HERE as well until v0.5.3, with a NARROWER pattern that did not strip
+# DCS/APC/PM/SOS strings. It was dead: the declaration further down rebinds the name before
+# any of these functions can run, so every caller — including _terminal_text_compact just
+# below — already used the broader one. Removed because it read like the governing
+# definition for the function beneath it and was not.
 
 
 def _terminal_text_compact(text: str) -> str:
