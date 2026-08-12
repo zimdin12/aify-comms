@@ -201,6 +201,8 @@ from service.routers.spawn_requests import router as _spawn_requests_router  # n
 from service.routers.channels import router as _channels_router  # noqa: E402
 from service.routers.sessions import router as _sessions_router  # noqa: E402
 from service.routers.terminals import router as _terminals_router  # noqa: E402
+from service.routers.meta import router as _meta_router  # noqa: E402
+from service.routers.maintenance import router as _maintenance_router  # noqa: E402
 # One router-owned console path still appends terminal output; it follows the helper to its new
 # owner rather than keeping a second copy here.
 from service.routers.terminals import _append_terminal_output  # noqa: E402
@@ -216,6 +218,8 @@ router.include_router(_spawn_requests_router)
 router.include_router(_channels_router)
 router.include_router(_sessions_router)
 router.include_router(_terminals_router)
+router.include_router(_meta_router)
+router.include_router(_maintenance_router)
 
 
 def _is_lock_error(exc: BaseException) -> bool:
@@ -8185,28 +8189,6 @@ async def _cancel_nonterminal_runs_for_agents(
 
 # ─── Root ────────────────────────────────────────────────────────────────────
 
-@router.get("/")
-async def root():
-    # Version comes from the loaded config (repo-root VERSION -> stamp -> config), never a
-    # literal: this endpoint claimed "4.0.0" through the v0.1, v0.1.1 and v0.1.2 releases.
-    return {
-        "service": "aify-comms",
-        "version": get_config().version,
-        "storage": "sqlite",
-        "endpoints": {
-            "agents": "/api/v1/agents",
-            "environments": "/api/v1/environments",
-            "spawnRequests": "/api/v1/spawn-requests",
-            "sessions": "/api/v1/sessions",
-            "messages": "/api/v1/messages",
-            "dispatch": "/api/v1/dispatch",
-            "shared": "/api/v1/shared",
-            "channels": "/api/v1/channels",
-            "settings": "/api/v1/settings",
-            "dashboard": "/api/v1/dashboard",
-            "stats": "/api/v1/stats",
-        },
-    }
 
 
 # ─── Environments ────────────────────────────────────────────────────────────
@@ -15316,165 +15298,17 @@ async def cleanup_orphan_unread_messages(request: Request):
 
 # ─── Clear ───────────────────────────────────────────────────────────────────
 
-@router.post("/clear")
-async def clear_data(req: ClearRequest, request: Request):
-    db = await get_db()
-    try:
-        cutoff = None
-        if req.olderThanHours:
-            cutoff = int((time.time() - req.olderThanHours * 3600) * 1000)
-
-        deleted_messages = 0
-        deleted_files = 0
-        deleted_agents = 0
-
-        if req.target in ("inbox", "all"):
-            if req.agentId:
-                if cutoff:
-                    deleted_messages += await _delete_messages_where(
-                        db,
-                        "to_agent = ? AND timestamp < ?",
-                        (req.agentId, cutoff),
-                    )
-                else:
-                    deleted_messages += await _delete_messages_where(db, "to_agent = ?", (req.agentId,))
-            else:
-                if cutoff:
-                    deleted_messages += await _delete_messages_where(
-                        db,
-                        "to_agent IS NOT NULL AND timestamp < ?",
-                        (cutoff,),
-                    )
-                else:
-                    deleted_messages += await _delete_messages_where(db, "to_agent IS NOT NULL")
-
-        if req.target in ("shared", "all"):
-            # Delete binary files from disk
-            cursor = await db.execute("SELECT file_path FROM shared_artifacts WHERE is_binary = 1")
-            for row in await cursor.fetchall():
-                if row["file_path"]:
-                    p = Path(row["file_path"])
-                    if p.exists(): p.unlink()
-            count_cursor = await db.execute("SELECT COUNT(*) FROM shared_artifacts")
-            deleted_files = (await count_cursor.fetchone())[0]
-            await db.execute("DELETE FROM shared_artifacts")
-
-        if req.target in ("agents", "all"):
-            if req.agentId and req.target == "agents":
-                agent_rows = await (await db.execute("SELECT id FROM agents WHERE id = ?", (req.agentId,))).fetchall()
-            else:
-                agent_rows = await (await db.execute("SELECT id FROM agents")).fetchall()
-            agent_ids = [row["id"] for row in agent_rows]
-            for agent_id in agent_ids:
-                deleted_agents += await _remove_agent_record(
-                    db,
-                    agent_id,
-                    removed_by="clear",
-                    reason=f'clear(target="{req.target}")',
-                )
-
-        if req.target in ("channels", "all"):
-            await db.execute("DELETE FROM channel_members")
-            deleted_messages += await _delete_messages_where(db, "channel IS NOT NULL")
-            await db.execute("DELETE FROM channels")
-
-        if req.target == "all":
-            await db.execute("DELETE FROM read_receipts")
-            await db.execute("DELETE FROM agent_sessions")
-            await db.execute("DELETE FROM spawn_requests")
-            await db.execute("DELETE FROM spawn_specs")
-            await db.execute("DELETE FROM environments")
-
-        await db.commit()
-        ws = await _get_ws(request)
-        if ws: await ws.broadcast("data_cleared", {"target": req.target})
-        return {
-            "ok": True,
-            "deletedMessages": deleted_messages,
-            "cleared": {
-                "messages": deleted_messages,
-                "files": deleted_files,
-                "agents": deleted_agents,
-            },
-        }
-    finally:
-        await db.close()
 
 
 # ─── Rotate ──────────────────────────────────────────────────────────────────
 
-@router.post("/rotate")
-async def rotate(request: Request):
-    settings = await get_settings(request)
-    if not settings.get("rotation_enabled", True):
-        return {"ok": False, "reason": "Rotation disabled"}
-
-    db = await get_db()
-    try:
-        stats = {"expired_messages": 0, "trimmed_messages": 0, "expired_files": 0, "stale_agents": 0}
-
-        # Expire old messages
-        retention_ms = int(settings["retention_days"] * 86400 * 1000)
-        cutoff = int(time.time() * 1000) - retention_ms
-        stats["expired_messages"] = await _delete_messages_where(db, "timestamp < ?", (cutoff,))
-
-        # Trim per-agent inboxes
-        max_msgs = settings["max_messages_per_agent"]
-        agents_c = await db.execute("SELECT id FROM agents")
-        for agent in await agents_c.fetchall():
-            aid = agent["id"]
-            c = await db.execute("SELECT COUNT(*) FROM messages WHERE to_agent = ?", (aid,))
-            count = (await c.fetchone())[0]
-            if count > max_msgs:
-                trim = count - max_msgs
-                stats["trimmed_messages"] += await _delete_messages_where(
-                    db,
-                    """
-                    id IN (
-                        SELECT id FROM messages
-                        WHERE to_agent = ?
-                        ORDER BY timestamp ASC
-                        LIMIT ?
-                    )
-                    """,
-                    (aid, trim),
-                )
-
-        # NOTE (2026-06-18): the old "Mark stale agents" UPDATE (stamped agents.status='stale'
-        # for agents not seen in stale_agent_hours) was REMOVED. Under the proof-based status
-        # model, offline/staleness is DERIVED from liveness at read time (status_engine.derive),
-        # never stamped — and 'stale' is no longer a valid status word. Stamping it was a pure
-        # write (one per cleanup cycle) of a dead vocabulary value that the live-state cache
-        # already overrode. Any legacy 'stale' raw row now canonicalizes to 'offline' via
-        # _LEGACY_RAW_STATUS_TO_CANONICAL. The vestigial `stale_agent_hours` setting itself was
-        # also removed (2026-07-01) — it had no remaining consumer after this UPDATE was deleted.
-
-        # Clean orphaned read receipts
-        await db.execute("DELETE FROM read_receipts WHERE message_id NOT IN (SELECT id FROM messages)")
-
-        await db.commit()
-        return {"ok": True, "stats": stats}
-    finally:
-        await db.close()
 
 
 # ─── Dashboard compatibility redirects ──────────────────────────────────────
 
-@router.get("/dashboard", response_class=RedirectResponse)
-async def dashboard(request: Request):
-    return RedirectResponse(url=dashboard_url(request))
 
 
-@router.get("/dashboard/dispatches", response_class=RedirectResponse)
-async def dashboard_dispatches(request: Request):
-    return RedirectResponse(url=dashboard_url(request))
 
 
-@router.get("/favicon.svg", include_in_schema=False)
-async def favicon_svg():
-    return FileResponse(Path(__file__).parent.parent / "favicon.svg", media_type="image/svg+xml")
 
 
-@router.get("/favicon.ico", include_in_schema=False)
-async def favicon_ico():
-    return FileResponse(Path(__file__).parent.parent / "favicon.svg", media_type="image/svg+xml")
