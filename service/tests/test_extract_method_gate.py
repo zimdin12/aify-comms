@@ -931,5 +931,104 @@ def _w(x):
             "_w")
 
 
+
+
+class ExtractMethodAwaitShapeTests(unittest.TestCase):
+    """An `async def` helper whose call is not awaited returns a COROUTINE.
+
+    Seventh false PASS. The body never runs at all, and inline-back reconstructs the original
+    perfectly because splicing a body says nothing about how the call is invoked. Independent of
+    whether the helper body contains `await`, which is why the earlier async precondition missed it.
+    """
+
+    ASYNC_ORIGINAL = '''
+async def f():
+    x = compute()
+    y = x + 1
+    return y
+'''
+
+    def test_an_async_helper_that_is_not_awaited_is_refused(self):
+        split = '''
+async def f():
+    x = compute()
+    y = _w(x)
+    return y
+
+
+async def _w(x):
+    y = x + 1
+    return y
+'''
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(self.ASYNC_ORIGINAL, split, "_w")
+        self.assertIn("coroutine", str(caught.exception))
+
+    def test_an_async_helper_in_a_sync_caller_is_refused(self):
+        original = '''
+def f():
+    x = compute()
+    y = x + 1
+    return y
+'''
+        split = '''
+def f():
+    x = compute()
+    y = _w(x)
+    return y
+
+
+async def _w(x):
+    y = x + 1
+    return y
+'''
+        with self.assertRaises(AssertionError):
+            assert_extraction_preserves_behaviour(original, split, "_w")
+
+    def test_an_async_helper_awaited_in_an_async_caller_passes(self):
+        split = '''
+async def f():
+    x = compute()
+    y = await _w(x)
+    return y
+
+
+async def _w(x):
+    y = x + 1
+    return y
+'''
+        assert_extraction_preserves_behaviour(self.ASYNC_ORIGINAL, split, "_w")
+
+    def test_awaiting_a_sync_helper_is_refused(self):
+        split = '''
+async def f():
+    x = compute()
+    y = await _w(x)
+    return y
+
+
+def _w(x):
+    y = x + 1
+    return y
+'''
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(self.ASYNC_ORIGINAL, split, "_w")
+        self.assertIn("awaits a helper that is not", str(caught.exception))
+
+    def test_a_genuine_async_extraction_with_real_await_still_passes(self):
+        """The rule must not refuse the shape the whole gate exists to allow."""
+        assert_extraction_preserves_behaviour(
+            'async def f(db):\n    rows = await db.q()\n    return rows\n',
+            'async def f(db):\n    rows = await _w(db)\n    return rows\n\n\n'
+            'async def _w(db):\n    rows = await db.q()\n    return rows\n',
+            "_w")
+
+    def test_a_plain_sync_extraction_is_unaffected(self):
+        assert_extraction_preserves_behaviour(
+            'def f():\n    t = 0\n    return t\n',
+            'def f():\n    t = _w()\n    return t\n\n\ndef _w():\n    t = 0\n    return t\n',
+            "_w")
+
+
 if __name__ == "__main__":
     unittest.main()

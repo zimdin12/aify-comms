@@ -5588,9 +5588,10 @@ async def _preflight_live_send_recipients(
         # reversed the decision: ALWAYS QUEUE here. The
         # `_reap_undeliverable_queued_runs` backstop reaper is now the sole safety
         # net — it fails a queued run only after it has been genuinely
-        # undeliverable for the backstop window. `_managed_target_is_deaf` and the
-        # lease helpers remain for status/deliverability use and no longer reject a
-        # send.
+        # undeliverable for the backstop window. `_managed_target_is_deaf` was
+        # REMOVED in v0.5 after it was proven that nothing ever used it for the
+        # status/deliverability classification it had been retained for; the lease
+        # helpers and that backstop are what remain.
         launchable.append((recipient_id, execution_mode))
 
     return launchable, not_started

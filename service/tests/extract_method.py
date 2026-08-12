@@ -69,7 +69,13 @@ Because `inline_back` splices the body without substituting arguments, the only 
 correctly is one where the argument NAME matches the parameter name. Expressions, attributes and
 differently-named variables are refused rather than guessed at.
 
-A NOTE ON WHAT THIS TOOL IS. Six separate false PASSES were found in it, four of them by the
+AWAIT SHAPE is the seventh. An `async def` helper whose call site does not await it returns a
+COROUTINE and its body never runs — and inline-back reconstructs the original perfectly, because
+splicing a body says nothing about how the call is invoked. Independent of whether the helper body
+contains `await`, which is why the earlier async precondition did not catch it. So: async helper
+requires `await` at the call site and an async caller; a sync helper must not be awaited.
+
+A NOTE ON WHAT THIS TOOL IS. Seven separate false PASSES were found in it, five of them by the
 reviewer running a shape rather than reading the code. That record is the argument for treating it as
 a conservative gate over a narrow extraction dialect, NOT as a general Python equivalence prover. For
 the hot handlers it is necessary and not sufficient: the reviewer's standing requirement is this gate
@@ -398,6 +404,32 @@ def call_signature_violations(split_fn: ast.AST, helper_fn: ast.AST) -> list[str
     call = _helper_call(block[index], helper_fn.name)
     if call is None:  # pragma: no cover - _find_call_site already guarantees one
         return [f"no call to {helper_fn.name!r} found at the resolved call site"]
+
+    # AWAIT SHAPE. The seventh false PASS: an `async def` helper whose call site does not await it
+    # returns a COROUTINE, and the body never runs at all. Inline-back splices the body and
+    # reconstructs the original perfectly, so the round trip is blind to it — and this is independent
+    # of whether the helper body itself contains `await`, which is why the existing async
+    # precondition did not catch it.
+    stmt = block[index]
+    awaited = any(
+        isinstance(node, ast.Await) and node.value is call for node in ast.walk(stmt)
+    )
+    helper_is_async = isinstance(helper_fn, ast.AsyncFunctionDef)
+    caller_is_async = isinstance(split_fn, ast.AsyncFunctionDef)
+    problems_await: list[str] = []
+    if helper_is_async and not awaited:
+        problems_await.append(
+            "helper is `async def` but the call is not awaited - the split returns a coroutine and "
+            "the body never runs"
+        )
+    if helper_is_async and not caller_is_async:
+        problems_await.append(
+            "helper is `async def` but the caller is sync, so there is no correct call shape"
+        )
+    if awaited and not helper_is_async:
+        problems_await.append("call awaits a helper that is not `async def`")
+    if problems_await:
+        return problems_await
 
     args = helper_fn.args
     if args.defaults or args.kw_defaults:
