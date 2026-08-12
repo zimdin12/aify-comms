@@ -21,6 +21,10 @@ import time
 
 from service.db import get_db
 from service.routers import api_v2
+# v0.5.3: the helper moved to the dispatch+messages package. The CONSTANT stays in api_v2 — the
+# parity assertion below is against the router on purpose, because that is where the status engine
+# reads it from too.
+from service.routers.dispatch_messages import shared as dispatch_shared
 
 from service.tests._base import FastApiTestCase
 
@@ -60,7 +64,7 @@ class TurnBusyDeliveryCeilingTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                return await api_v2._turn_busy_holds_delivery(db, agent_id)
+                return await dispatch_shared._turn_busy_holds_delivery(db, agent_id)
             finally:
                 await db.close()
 

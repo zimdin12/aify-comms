@@ -151,6 +151,19 @@ def _borrowed_active_run_bridge_stale_seconds():
     return ACTIVE_RUN_BRIDGE_STALE_SECONDS
 
 
+def _borrowed_turn_busy_backstop_seconds():
+    """BORROWED constant: one owner, never a copy (finding N7).
+
+    This one must stay a borrow even though `_turn_busy_holds_delivery` moved here: the ceiling has
+    to equal the status engine's `in_turn` clamp, four other api_v2 readers depend on it, and
+    `test_turn_busy_delivery_ceiling` asserts the parity against `api_v2`. A copy here would let the
+    delivery gate and the status clamp drift apart, which is the strand the ceiling exists to bound.
+    """
+    from service.routers.api_v2 import TURN_BUSY_BACKSTOP_SECONDS
+
+    return TURN_BUSY_BACKSTOP_SECONDS
+
+
 def _borrowed_coldstart_refused_prefix():
     """BORROWED constant: one owner, never a copy (finding N7)."""
     from service.routers.api_v2 import COLDSTART_REFUSED_PREFIX
@@ -380,10 +393,64 @@ async def _touch_current_agent_session(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _turn_busy_holds_delivery(*a, **k):
-    from service.routers.api_v2 import _turn_busy_holds_delivery as _impl
+async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
+    """True when the RAW turn_busy flag may still hold delivery back.
 
-    return await _impl(*a, **k)
+    The delivery gates (send-time queue decision + /dispatch/claim) key on the raw
+    harness signal on purpose: "explicit queue" means exactly "after this turn", and
+    re-deriving that through status or a short window is what made queued sends land
+    mid-turn (#236). So this helper does NOT reinterpret the signal — it only applies
+    the SAME anti-strand ceiling the status engine already applies to `in_turn`
+    (TURN_BUSY_BACKSTOP_SECONDS, see the constant's own note).
+
+    Why a ceiling is required (regression found 2026-07-26): the gates are pure-raw,
+    but nothing guarantees turn_busy is ever cleared.
+      * The dead-bridge sweeper (_clear_turn_busy_for_dead_bridges) deliberately
+        SKIPS turn_bridge_id IN ('', 'user-prompt-submit') — i.e. every hook-driven
+        resident-claude turn — and skips any turn whose bridge is still alive.
+      * A missed turn-END (killed harness, hook error, or a transcript classifier
+        that keeps reading in-flight) therefore latches turn_busy=1 permanently.
+    Past the ceiling, status ALREADY stops reporting `working` (derive() clamps
+    in_turn in both the push and poll paths). Holding delivery past that point makes
+    the two disagree permanently: the dashboard shows an idle agent whose queued work
+    can never be claimed. For a target WITHOUT `steer` the claim gate returns early,
+    so that agent goes permanently deaf to every dispatch.
+
+    A genuinely long turn is unaffected: the bridge turn detectors KEEP-FRESH re-stamp
+    turn-start, so turn_updated_at keeps advancing for as long as real work runs. Only
+    an ABANDONED flag ages out — which is exactly the strand this bounds.
+    """
+    try:
+        row = await (await db.execute(
+            "SELECT turn_busy, turn_updated_at FROM agent_turn_state WHERE agent_id = ?",
+            (agent_id,),
+        )).fetchone()
+    except Exception:
+        # Unreadable turn state must never block delivery — better to deliver.
+        return False
+    if not row or not int((row["turn_busy"] if "turn_busy" in row.keys() else 0) or 0):
+        return False
+    seen = _iso_to_epoch(str(row["turn_updated_at"] or ""))
+    if not seen:
+        # MISSING/UNPARSEABLE timestamp → do NOT hold (fixed 2026-07-26, review follow-up).
+        # The first cut returned True here "to trust the raw flag", which quietly reproduced the
+        # exact strand this helper exists to prevent: a latched turn_busy=1 whose turn_updated_at
+        # is empty or malformed has NOTHING to age against, so it would hold delivery forever and
+        # a non-steer target would stay permanently deaf — with no ceiling to rescue it.
+        #
+        # Releasing is the correct asymmetry. Every writer stamps turn_updated_at via _now()
+        # (the /turn-start, /heartbeat and reconcile paths all do), so a blank or unparseable
+        # value means a corrupt row, not a live turn. The worst case from releasing is ONE
+        # message delivered mid-turn, which the harness queues or the reply reconciles; the worst
+        # case from holding is an agent that never receives work again. Prefer the recoverable
+        # failure.
+        return False
+    # A FUTURE timestamp must not hold either (review R4, 2026-07-26). `now - seen` goes NEGATIVE
+    # for a clock-skewed or bad write, which trivially satisfies `<= CEILING` — so the flag would
+    # hold delivery forever, the exact permanent strand this ceiling exists to bound. Requiring a
+    # non-negative age closes it: only an age genuinely inside the window holds.
+    age = datetime.now(timezone.utc).timestamp() - seen
+    return 0 <= age <= _borrowed_turn_busy_backstop_seconds()
 
 
 def _wake_agent(*a, **k):

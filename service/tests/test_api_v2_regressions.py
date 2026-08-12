@@ -18,6 +18,7 @@ from service.reconcilers import status_cache
 from service.routers import api_v2
 # v0.5.2l: dispatch run serialization moved into the dispatch+messages package.
 from service.routers.dispatch_messages import dispatch as dispatch_router
+from service.routers.dispatch_messages import shared as dispatch_shared  # v0.5.3: owner of _turn_busy_holds_delivery
 # v0.5.2m: the agent console handler moved, and each module owns its OWN binding -- patching
 # api_v2 would no longer reach it and the test would exercise the happy path while claiming
 # to force a rendered screen.
@@ -3129,7 +3130,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                return await api_v2._turn_busy_holds_delivery(db, agent_id)
+                return await dispatch_shared._turn_busy_holds_delivery(db, agent_id)
             finally:
                 await db.close()
 
