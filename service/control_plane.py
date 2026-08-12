@@ -3311,26 +3311,7 @@ def _dispatch_message_id_for_recipient(
 # _dispatch_source_message_ids moved to service/api_core/claim_gating.py in v0.5.4.
 
 
-async def _mark_dispatch_source_messages_read(db, row, agent_id: str, read_at: str) -> int:
-    message_ids = _dispatch_source_message_ids(row)
-    if not message_ids:
-        return 0
-    placeholders = ",".join("?" for _ in message_ids)
-    cursor = await db.execute(
-        f"SELECT id FROM messages WHERE id IN ({placeholders})",
-        message_ids,
-    )
-    existing_ids = {str(existing["id"]) for existing in await cursor.fetchall()}
-    if not existing_ids:
-        return 0
-    for message_id in message_ids:
-        if message_id not in existing_ids:
-            continue
-        await db.execute(
-            "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
-            (message_id, agent_id, read_at),
-        )
-    return len(existing_ids)
+# _mark_dispatch_source_messages_read moved to service/api_core/claim_gating.py in v0.5.4.
 
 
 # _dispatch_conversation_context moved to service/routers/dispatch_messages/shared.py in v0.5.3.
@@ -3777,32 +3758,7 @@ def _reject_sender_truncated_body(body):
 
 
 
-async def _adopt_live_resident_driver(db, agent_id: str) -> bool:
-    """SELF-HEAL for the launch-terminal-first / switch-second ordering (2026-06-12,
-    sc-manager strand): a channel sidecar claiming/beating for a RESIDENT-mode agent with
-    driver_state != 'driving' is only a DISPLACED MANAGED driver when no live resident
-    session exists. When a FRESH resident bridge row is beating, this sidecar IS that live
-    resident session's own delivery path — the operator launched the resident terminal
-    FIRST (registration set driver_state='driving') and clicked "switch to resident"
-    SECOND, and the switch clobbered driver_state back to 'idle'. Releasing the sidecar
-    then silently killed resident delivery: sends reported "sent", runs queued forever,
-    nothing claimed. Adopt the driving state instead of releasing. Returns True when
-    adopted (caller skips the release)."""
-    # bridge_kind is '' on a registration-created row (only heartbeats stamp the kind) —
-    # accept that shape only when the bridge row itself was registered as a RESIDENT
-    # session; a managed registration's kindless bridge must never count as a live
-    # resident driver (it would re-adopt a genuinely displaced agent).
-    row = await (await db.execute(
-        "SELECT id FROM bridge_instances WHERE agent_id = ? "
-        "AND (bridge_kind = 'resident' OR (COALESCE(bridge_kind, '') = '' AND session_mode = 'resident')) "
-        "AND COALESCE(superseded_by, '') = '' AND datetime(last_seen) > datetime('now', '-150 seconds') "
-        "LIMIT 1",
-        (agent_id,),
-    )).fetchone()
-    if not row:
-        return False
-    await db.execute("UPDATE agents SET driver_state = 'driving' WHERE id = ?", (agent_id,))
-    return True
+# _adopt_live_resident_driver moved to service/api_core/agent_sessions.py in v0.5.4.
 
 
 

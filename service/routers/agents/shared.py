@@ -85,10 +85,6 @@ logger = logging.getLogger("aify_comms.routers.agents.shared")
 
 
 
-async def _adopt_live_resident_driver(*a, **k):
-    from service.control_plane import _adopt_live_resident_driver as _impl
-
-    return await _impl(*a, **k)
 
 
 async def _agent_liveness(*a, **k):

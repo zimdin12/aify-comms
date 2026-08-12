@@ -31,7 +31,6 @@ from service.routers.agents.shared import (
     DEFAULT_SETTINGS,
     LIVE_SESSION_STATUSES,
     _SESSION_MODES,
-    _adopt_live_resident_driver,
     _agent_liveness,
     _agent_record_to_dict,
     _agent_session_to_dict,
@@ -133,6 +132,7 @@ from service.api_core.agent_terminal_ops import (
     _request_stop_agent_terminals,
     _resolve_live_console_terminal,
 )
+from service.api_core.agent_sessions import _adopt_live_resident_driver
 
 # Domain-local MODEL: defined in api_v2 rather than models.py, and its only user is the handler
 # below. It moves with the handler instead of becoming a cross-module import.

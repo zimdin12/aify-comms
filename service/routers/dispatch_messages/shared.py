@@ -89,10 +89,6 @@ from service.api_core.dispatch_state import _DISPATCH_TERMINAL_STATUSES
 
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.shared")
 
-async def _adopt_live_resident_driver(*a, **k):
-    from service.control_plane import _adopt_live_resident_driver as _impl
-
-    return await _impl(*a, **k)
 
 
 
@@ -144,10 +140,6 @@ def _is_replaceable_auto_handoff_message(existing_message, replied_run) -> bool:
 
 
 
-async def _mark_dispatch_source_messages_read(*a, **k):
-    from service.control_plane import _mark_dispatch_source_messages_read as _impl
-
-    return await _impl(*a, **k)
 
 
 

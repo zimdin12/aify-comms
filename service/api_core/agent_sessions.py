@@ -185,3 +185,35 @@ async def _touch_current_agent_session(db, agent_id: str, runtime_state: dict[st
             """,
             (now, runtime_handle, runtime_handle, agent_id, environment_id),
         )
+
+
+# v0.5.4: `_adopt_live_resident_driver` arrived from the control plane. Adopting the live resident driver
+# for an agent is a SESSION ownership change, which is this module's subject — it was in the carrier only
+# because the claim path called it, and "the caller lives elsewhere" was never an ownership argument.
+
+async def _adopt_live_resident_driver(db, agent_id: str) -> bool:
+    """SELF-HEAL for the launch-terminal-first / switch-second ordering (2026-06-12,
+    sc-manager strand): a channel sidecar claiming/beating for a RESIDENT-mode agent with
+    driver_state != 'driving' is only a DISPLACED MANAGED driver when no live resident
+    session exists. When a FRESH resident bridge row is beating, this sidecar IS that live
+    resident session's own delivery path — the operator launched the resident terminal
+    FIRST (registration set driver_state='driving') and clicked "switch to resident"
+    SECOND, and the switch clobbered driver_state back to 'idle'. Releasing the sidecar
+    then silently killed resident delivery: sends reported "sent", runs queued forever,
+    nothing claimed. Adopt the driving state instead of releasing. Returns True when
+    adopted (caller skips the release)."""
+    # bridge_kind is '' on a registration-created row (only heartbeats stamp the kind) —
+    # accept that shape only when the bridge row itself was registered as a RESIDENT
+    # session; a managed registration's kindless bridge must never count as a live
+    # resident driver (it would re-adopt a genuinely displaced agent).
+    row = await (await db.execute(
+        "SELECT id FROM bridge_instances WHERE agent_id = ? "
+        "AND (bridge_kind = 'resident' OR (COALESCE(bridge_kind, '') = '' AND session_mode = 'resident')) "
+        "AND COALESCE(superseded_by, '') = '' AND datetime(last_seen) > datetime('now', '-150 seconds') "
+        "LIMIT 1",
+        (agent_id,),
+    )).fetchone()
+    if not row:
+        return False
+    await db.execute("UPDATE agents SET driver_state = 'driving' WHERE id = ?", (agent_id,))
+    return True

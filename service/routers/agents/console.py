@@ -31,7 +31,6 @@ from service.routers.agents.shared import (
     DEFAULT_SETTINGS,
     LIVE_SESSION_STATUSES,
     _SESSION_MODES,
-    _adopt_live_resident_driver,
     _agent_liveness,
     _agent_record_to_dict,
     _agent_session_to_dict,
@@ -134,6 +133,7 @@ from service.api_core.agent_terminal_ops import (
     _request_stop_agent_terminals,
     _resolve_live_console_terminal,
 )
+from service.api_core.agent_sessions import _adopt_live_resident_driver
 
 router = domain_router()
 

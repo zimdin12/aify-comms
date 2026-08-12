@@ -57,11 +57,16 @@ from service.models import (
     DispatchRequest,
     DispatchRunUpdate,
 )
+from service.api_core.agent_sessions import (
+    _agent_tombstone,
+    _touch_current_agent_session,
+)
+from service.api_core.dispatch_state import _get_dispatch_state_for_agent
+from service.api_core.recovery_writes import _record_channel_sidecar_heartbeat
+from service.api_core.serialization import _machine_ids_same_host
 from service.routers.dispatch_messages.shared import (
     VALID_STATUSES,
     _NATIVE_MANAGED_RUNTIMES,
-    _adopt_live_resident_driver,
-    _agent_tombstone,
     _append_dispatch_control,
     _append_terminal_control,
     _auto_handoff_subject_for_run,
@@ -79,31 +84,26 @@ from service.routers.dispatch_messages.shared import (
     _dispatch_requires_reply,
     _finalize_dispatch_runs,
     _get_blocking_active_run,
-    _get_dispatch_state_for_agent,
     _get_recipient_info,
     _has_claimable_spawn_request,
     _has_live_managed_wrapper_child,
     _is_replaceable_auto_handoff_message,
     _link_reply_message_to_dispatch_run,
-    _machine_ids_same_host,
     _managed_environment_unavailable_reason,
     _managed_terminal_backing_enabled,
     _managed_via_wrapper_for_runtime,
     _mark_dispatch_run_answered,
-    _mark_dispatch_source_messages_read,
     _message_satisfies_reply_contract,
     _message_type_expects_reply,
     _mirror_missing_dispatch_handoff,
     _preflight_live_send_recipients,
     _primary_result_message_id,
-    _record_channel_sidecar_heartbeat,
     _record_terminal_delivery_contract,
     _reject_sender_truncated_body,
     _resolve_recipient_ids,
     _resolve_reply_parent_message_id,
     _run_contract_reminders_once,
     _touch_agent,
-    _touch_current_agent_session,
     _wake_agent,
 )
 from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES, _CHANNEL_MANAGED_RUNTIMES
@@ -138,6 +138,8 @@ from service.api_core.claim_gating import (
     _release_stale_console_owner_for_claim,
     _turn_busy_holds_delivery,
 )
+from service.api_core.claim_gating import _mark_dispatch_source_messages_read
+from service.api_core.agent_sessions import _adopt_live_resident_driver
 
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.dispatch")
 

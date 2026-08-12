@@ -537,3 +537,30 @@ async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
     # non-negative age closes it: only an age genuinely inside the window holds.
     age = datetime.now(timezone.utc).timestamp() - seen
     return 0 <= age <= TURN_BUSY_BACKSTOP_SECONDS
+
+
+# v0.5.4: `_mark_dispatch_source_messages_read` arrived from the control plane. It is the one WRITE in
+# this module, and it is here because `_dispatch_source_message_ids` — which decides what to mark — is
+# already here: separating the question from the single act that consumes its answer would put a
+# two-function pair in two files for no gain. It still takes `db` and commits nothing.
+
+async def _mark_dispatch_source_messages_read(db, row, agent_id: str, read_at: str) -> int:
+    message_ids = _dispatch_source_message_ids(row)
+    if not message_ids:
+        return 0
+    placeholders = ",".join("?" for _ in message_ids)
+    cursor = await db.execute(
+        f"SELECT id FROM messages WHERE id IN ({placeholders})",
+        message_ids,
+    )
+    existing_ids = {str(existing["id"]) for existing in await cursor.fetchall()}
+    if not existing_ids:
+        return 0
+    for message_id in message_ids:
+        if message_id not in existing_ids:
+            continue
+        await db.execute(
+            "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
+            (message_id, agent_id, read_at),
+        )
+    return len(existing_ids)

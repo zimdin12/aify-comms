@@ -27,6 +27,7 @@ from service.clock import now as _now
 from service.db import get_db
 from service.models import validate_model_shape
 from service.api_core.reply_contract import _dispatch_reply_state
+from service.api_core.claim_gating import _mark_dispatch_source_messages_read
 
 logger = logging.getLogger("aify_comms.routers.contracts")
 
@@ -55,15 +56,6 @@ async def _run_contract_reminders_once(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _mark_dispatch_source_messages_read(*a, **k):
-    """BORROWED from the router: still used by handlers that have not moved yet.
-
-    Function-scope import, so there is no module-level cycle — `api_v2` imports this domain at
-    import time, and this reaches back only when called, long after the router is loaded.
-    """
-    from service.control_plane import _mark_dispatch_source_messages_read as _impl
-
-    return await _impl(*a, **k)
 
 
 def _contract_row_to_dict(row, *, settings: dict[str, Any], now_s: Optional[float] = None) -> dict[str, Any]:
