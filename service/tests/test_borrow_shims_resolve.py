@@ -68,13 +68,54 @@ class BorrowShimsResolveTests(unittest.TestCase):
             + "\nRepoint the shim at the module that owns the name now.",
         )
 
-    def test_the_scan_actually_finds_shims(self):
-        """A resolve-check over an empty set passes vacuously, which is the failure mode this whole
-        file exists to prevent — so the discovery itself is asserted."""
+    def test_the_discovery_mechanism_works(self):
+        """A resolve-check over an empty set passes vacuously — so the DISCOVERY is asserted.
+
+        Deliberately NOT `len(targets) > 50`. That was the original form and the reviewer flagged
+        it: the whole point of the retirement work is to drive the shim count DOWN, so a population
+        floor turns success into a red test and invites someone to "fix" it by lowering the number
+        until it means nothing.
+
+        What must never break is the DETECTOR, so that is what is tested — against a synthetic
+        sample with a known answer, which stays true whether the repo has two hundred shims or none.
+        """
+        sample = (
+            "def _a(*x, **y):\n"
+            "    from service.routers.api_v2 import _a as _impl\n"
+            "    return _impl(*x, **y)\n"
+            "\n"
+            "async def _b(*x, **y):\n"
+            "    from service.routers.api_v2 import _b as _impl\n"
+            "    return await _impl(*x, **y)\n"
+            "\n"
+            "# from service.routers.api_v2 import _not_a_real_one\n"
+        )
+        found = set(BORROW_RE.findall(sample))
+        self.assertEqual(
+            found,
+            {"_a", "_b", "_not_a_real_one"},
+            "the borrow-shim pattern no longer recognises the shim shapes this repo uses",
+        )
+
+    def test_the_repo_population_is_reported_not_asserted(self):
+        """Visibility without a brittle floor.
+
+        The count is worth SEEING as the retirement proceeds — it is the debt burning down — but it
+        is not a correctness property, so it is not an assertion. The only thing asserted is the
+        weakest true statement: if any shim exists, the scan found at least one.
+        """
         targets = _shim_targets()
-        self.assertGreater(
-            len(targets), 50,
-            "borrow-shim discovery found almost nothing; the pattern or the globs are wrong",
+        sites = sum(len(v) for v in targets.values())
+        print(f"\n  borrow shims remaining: {len(targets)} names across {sites} sites")
+        has_any = any(
+            "from service.routers.api_v2 import" in path.read_text(encoding="utf-8", errors="replace")
+            for pattern in SEARCH
+            for path in REPO.glob(pattern)
+            if path.name != "api_v2.py" and "__pycache__" not in path.parts
+        )
+        self.assertEqual(
+            bool(targets), has_any,
+            "shims exist in the tree but the scan found none (or vice versa)",
         )
 
     def test_no_shim_points_at_a_module_that_would_cycle(self):
