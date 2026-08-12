@@ -17,6 +17,17 @@ from typing import Any
 
 from service.api_core.serialization import _json_loads_or
 from service.env_status import environment_effective_status as _environment_effective_status
+import re
+
+from service.api_core.dispatch_text import (
+    _MERGED_DISPATCH_HEADER,
+    _pending_dispatch_count,
+)
+from service.api_core.reply_contract import (
+    _dispatch_reply_pending,
+    _dispatch_reply_state,
+)
+from service.api_core.serialization import _dedupe_preserve, _row_require_reply
 
 
 
@@ -124,3 +135,68 @@ def _terminal_session_to_dict(row) -> dict[str, Any]:
         "stoppedAt": row["stopped_at"] or "",
         "error": row["error"] or "",
     }
+
+
+# v0.5.4: `_serialize_dispatch_run_row` arrived from `routers/dispatch_messages/dispatch.py`. It is a
+# row-to-payload function like every other one here, and it was in a 1,725-line router only because
+# that is where its two callers live. It could not leave until the reply-state family got real owners
+# one slice earlier — it reads `_dispatch_reply_state`, `_dispatch_reply_pending`,
+# `_pending_dispatch_count` and `_MERGED_DISPATCH_HEADER`, all of which were reachable then only
+# through a SIBLING ROUTER module, which would have made this leaf import upward.
+
+def _serialize_dispatch_run_row(row, *, blocked_by=None, include_body: bool = False, include_events=None, include_controls=None) -> dict[str, Any]:
+    body_text = str((row["body"] if row and "body" in row.keys() else "") or "")
+    merged_from_agents = []
+    if body_text.startswith(_MERGED_DISPATCH_HEADER):
+        merged_from_agents = _dedupe_preserve(
+            match.group(1).strip()
+            for match in re.finditer(r"^From:\s*(.+)$", body_text, flags=re.MULTILINE)
+            if match.group(1).strip()
+        )
+    payload = {
+        "id": row["id"],
+        "messageId": row["message_id"],
+        "from": row["from_agent"],
+        "originalFrom": row["from_agent"],
+        "targetAgentId": row["target_agent"],
+        "status": row["status"],
+        "mode": row["dispatch_mode"],
+        "executionMode": row["execution_mode"] or "managed",
+        "runtime": row["runtime"] or "",
+        "claimBridgeId": row["claim_bridge_id"] or "",
+        "requestedRuntime": row["requested_runtime"] or "",
+        "subject": row["subject"],
+        "summary": row["summary"] or "",
+        "error": row["error_text"] or "",
+        "resultMessageId": row["result_message_id"] or "",
+        "requireReply": _row_require_reply(row),
+        "queueIfBusy": bool(row["queue_if_busy"]),
+        "steerIfBusy": bool(row["steer_if_busy"]),
+        "replyState": _dispatch_reply_state(row),
+        "replyPending": _dispatch_reply_pending(row),
+        "requestedAt": row["requested_at"],
+        "claimedAt": row["claimed_at"],
+        "startedAt": row["started_at"],
+        "finishedAt": row["finished_at"],
+        "blockedByActiveRun": blocked_by,
+    }
+    if len(merged_from_agents) > 1:
+        payload["from"] = "multiple"
+        payload["mergedFromAgents"] = merged_from_agents
+        payload["mergedDispatchCount"] = _pending_dispatch_count(body_text)
+    if include_body:
+        payload.update(
+            {
+                "type": row["message_type"],
+                "body": row["body"],
+                "priority": row["priority"],
+                "inReplyTo": row["in_reply_to"],
+                "externalThreadId": row["external_thread_id"] or "",
+                "externalTurnId": row["external_turn_id"] or "",
+            }
+        )
+    if include_events is not None:
+        payload["events"] = include_events
+    if include_controls is not None:
+        payload["controls"] = include_controls
+    return payload
