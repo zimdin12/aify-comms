@@ -89,5 +89,63 @@ class AccessorRewriteTests(unittest.TestCase):
         self.assertIn(f"def {accessor_name('_FOO_BAR')}()", build_accessor("_FOO_BAR"))
 
 
+
+
+class AccessorRewriteEdgeShapeTests(unittest.TestCase):
+    """Accessor shapes the reviewer would reasonably worry about, proven rather than assumed.
+
+    `accessor_line_ranges` uses `ast.walk`, so it finds a `_borrowed_*` function wherever it is
+    defined — nested inside another function, decorated, inside a class, inside a conditional, or
+    async. Each of those is checked here rather than argued about, because "walk finds it" is the
+    kind of claim that is right until the one shape where it isn't.
+
+    NOTE ON HOW THESE ARE CHECKED: corruption is detected with `ast.Call`, never a substring. The
+    text `def _borrowed_x():` CONTAINS `_borrowed_x()`, so a substring check reports every healthy
+    accessor as self-referential — a false alarm I produced twice before writing this down.
+    """
+
+    SHAPES = {
+        "nested in a function":
+            "def outer():\n    def _borrowed_x():\n        from m import X\n        return X\n    return X\n",
+        "decorated":
+            "@cache\ndef _borrowed_x():\n    from m import X\n    return X\n\n\ndef h():\n    return X\n",
+        "inside a class":
+            "class C:\n    def _borrowed_x(self):\n        from m import X\n        return X\n\n\ndef h():\n    return X\n",
+        "inside a conditional":
+            "if True:\n    def _borrowed_x():\n        from m import X\n        return X\n\n\ndef h():\n    return X\n",
+        "async accessor":
+            "async def _borrowed_x():\n    from m import X\n    return X\n\n\ndef h():\n    return X\n",
+    }
+
+    def test_no_shape_corrupts_its_accessor(self):
+        for label, source in self.SHAPES.items():
+            with self.subTest(label):
+                out = rewrite(source, ["X"])
+                tree = ast.parse(out)  # must still parse
+                for node in ast.walk(tree):
+                    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        continue
+                    if not node.name.startswith("_borrowed_"):
+                        continue
+                    self.assertFalse(
+                        any(isinstance(s, ast.Call) and isinstance(s.func, ast.Name)
+                            and s.func.id == node.name for s in ast.walk(node)),
+                        f"{label}: {node.name} was rewritten to call itself",
+                    )
+                    for sub in ast.walk(node):
+                        if isinstance(sub, ast.ImportFrom):
+                            self.assertFalse(
+                                any(a.name.startswith("_borrowed_") for a in sub.names),
+                                f"{label}: {node.name}'s import line was rewritten",
+                            )
+
+    def test_every_shape_still_rewrites_its_call_site(self):
+        """Protection must not become blanket refusal — the point is to rewrite the CALLERS."""
+        for label, source in self.SHAPES.items():
+            with self.subTest(label):
+                self.assertIn("_borrowed_x()", rewrite(source, ["X"]),
+                              f"{label}: the call site was not rewritten at all")
+
+
 if __name__ == "__main__":
     unittest.main()
