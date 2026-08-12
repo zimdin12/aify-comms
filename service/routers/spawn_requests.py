@@ -73,6 +73,7 @@ from service.api_core.channel_delivery import (
     _apply_channel_routing_to_claude_runs,
     _insert_messages_via_console,
 )
+from service.api_core.workspace import _normalize_workspace_for_environment, _workspace_root_for
 
 logger = logging.getLogger("aify_comms.routers.spawn_requests")
 
@@ -171,10 +172,6 @@ def _runtime_state_with_handle(*a, **k):
 
 
 
-def _normalize_workspace_for_environment(*a, **k):
-    from service.control_plane import _normalize_workspace_for_environment as _impl
-
-    return _impl(*a, **k)
 
 
 def _wake_agent(*a, **k):
@@ -191,10 +188,6 @@ def _managed_terminal_backing_enabled(*a, **k):
 
 
 
-def _workspace_root_for(*a, **k):
-    from service.control_plane import _workspace_root_for as _impl
-
-    return _impl(*a, **k)
 
 
 @router.get("/spawn-requests")

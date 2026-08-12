@@ -67,6 +67,7 @@ from service.reconcilers.status_cache import invalidate_agent_live_state as _inv
 # Retired borrows: these now have a real owner in the spawn-requests domain.
 from service.routers.spawn_requests import _spawn_request_to_dict, _spawn_spec_to_dict
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
+from service.api_core.workspace import _normalize_workspace_for_environment, _workspace_for_environment, _workspace_root_for
 
 logger = logging.getLogger("aify_comms.routers.sessions")
 
@@ -115,19 +116,9 @@ def _is_lock_error(*a, **k):
 
 
 
-def _normalize_workspace_for_environment(*a, **k):
-    """BORROWED: still used by handlers that have not moved."""
-    from service.control_plane import _normalize_workspace_for_environment as _impl
-
-    return _impl(*a, **k)
 
 
 
-def _workspace_root_for(*a, **k):
-    """BORROWED: still used by handlers that have not moved."""
-    from service.control_plane import _workspace_root_for as _impl
-
-    return _impl(*a, **k)
 
 
 
@@ -168,10 +159,6 @@ async def _append_dispatch_control(*a, **k):
     return await _impl(*a, **k)
 
 
-def _workspace_for_environment(*a, **k):
-    from service.control_plane import _workspace_for_environment as _impl
-
-    return _impl(*a, **k)
 
 
 

@@ -308,6 +308,15 @@ logger = logging.getLogger("aify_comms.api_v2")
 # One router-owned console path still appends terminal output; it follows the helper to its new
 # owner rather than keeping a second copy here.
 from service.api_core.terminal_output import _append_terminal_output
+from service.api_core.terminal_ownership import (  # v0.5.4: moved out; the carrier is a CALLER
+    _active_terminal_for_agent,
+    _release_stale_terminal_owner,
+)
+from service.api_core.workspace import (  # v0.5.4: moved out; the carrier is a CALLER
+    _normalize_workspace_for_environment,
+    _workspace_for_environment,
+    _workspace_root_for,
+)
 from service.terminal_write_queue import (  # v0.5.4: moved out; the control plane is now a CALLER
     TERMINAL_OUTPUT_WRITES,
     TerminalOutputWriteQueue,
@@ -2592,43 +2601,13 @@ from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
 # _environment_uses_windows_paths moved to service/api_core/capabilities.py in v0.5.4.
 
 
-def _normalize_workspace_for_environment(environment: dict[str, Any], workspace: str) -> str:
-    value = str(workspace or "").strip()
-    if not value:
-        return ""
-    if _environment_uses_windows_paths(environment):
-        return value
-    return value.replace("\\", "/")
+# _normalize_workspace_for_environment moved to service/api_core/workspace.py in v0.5.4.
 
 
-def _workspace_root_for(environment: dict[str, Any], workspace: str) -> str:
-    workspace_value = _normalize_workspace_for_environment(environment, workspace)
-    roots = [str(root or "").strip() for root in (environment.get("cwdRoots") or []) if str(root or "").strip()]
-    if not workspace_value or not roots:
-        return roots[0] if roots else ""
-    normalized_workspace = workspace_value.replace("\\", "/").rstrip("/")
-    for root in roots:
-        normalized_root = root.replace("\\", "/").rstrip("/")
-        if normalized_workspace == normalized_root or normalized_workspace.startswith(normalized_root + "/"):
-            return root
-    raise HTTPException(400, f'Workspace "{workspace_value}" is outside the roots advertised by environment "{environment.get("id")}"')
+# _workspace_root_for moved to service/api_core/workspace.py in v0.5.4.
 
 
-def _workspace_for_environment(environment: dict[str, Any], requested_workspace: Optional[str], fallback_workspace: Optional[str] = "") -> tuple[str, str]:
-    roots = [str(root or "").strip() for root in (environment.get("cwdRoots") or []) if str(root or "").strip()]
-    workspace = _normalize_workspace_for_environment(environment, requested_workspace or fallback_workspace or "")
-    if not workspace:
-        workspace = roots[0] if roots else ""
-    try:
-        workspace_root = _workspace_root_for(environment, workspace)
-    except HTTPException:
-        if requested_workspace:
-            raise
-        workspace = _normalize_workspace_for_environment(environment, roots[0] if roots else "")
-        workspace_root = _workspace_root_for(environment, workspace)
-    if not workspace and workspace_root:
-        workspace = workspace_root
-    return workspace, workspace_root
+# _workspace_for_environment moved to service/api_core/workspace.py in v0.5.4.
 
 
 
@@ -3002,111 +2981,10 @@ async def flush_terminal_output_writes_for_tests() -> None:
 # _release_stale_console_owner_for_claim moved to service/routers/dispatch_messages/shared.py in v0.5.3.
 
 
-async def _release_stale_terminal_owner(db, row, *, reason: str):
-    terminal_id = str(row["terminal_id"] or "").strip()
-    session_id = str(row["session_id"] or "").strip()
-    if not terminal_id or not session_id:
-        return
-    now = _now()
-    await db.execute(
-        """
-        UPDATE terminal_sessions
-        SET status = 'failed',
-            updated_at = ?,
-            stopped_at = COALESCE(stopped_at, ?),
-            error = CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END
-        WHERE id = ?
-        """,
-        (now, now, reason, terminal_id),
-    )
-    await db.execute(
-        """
-        UPDATE agent_sessions
-        SET owner_mode = 'managed',
-            terminal_status = 'failed',
-            last_seen = ?
-        WHERE id = ?
-          AND terminal_id = ?
-        """,
-        (now, session_id, terminal_id),
-    )
-    await _append_terminal_event(
-        db,
-        terminal_id,
-        "terminal_owner_released",
-        json.dumps({"reason": reason}),
-    )
+# _release_stale_terminal_owner moved to service/api_core/terminal_ownership.py in v0.5.4.
 
 
-async def _active_terminal_for_agent(db, agent_id: str, *, settings: Optional[dict[str, Any]] = None):
-    row = await (await db.execute(
-        """
-        SELECT
-            s.id AS session_id,
-            s.environment_id AS session_environment_id,
-            s.owner_mode,
-            s.terminal_status,
-            s.runtime AS session_runtime,
-            t.id AS terminal_id,
-            t.environment_id,
-            t.bridge_id,
-            t.runtime,
-            t.workspace,
-            t.command,
-            t.status,
-            t.updated_at
-        FROM agent_sessions s
-        JOIN terminal_sessions t ON t.id = s.terminal_id
-        WHERE s.agent_id = ?
-          AND COALESCE(s.terminal_id, '') != ''
-        ORDER BY s.last_seen DESC
-        LIMIT 1
-        """,
-        (agent_id,),
-    )).fetchone()
-    if not row:
-        return None
-
-    status = str(row["status"] or row["terminal_status"] or "").strip().lower()
-    if status not in {"starting", "attached", "running", "active", "idle"}:
-        return None
-    runtime = _normalize_runtime(row["runtime"] or row["session_runtime"] or "")
-    command = str(row["command"] or "").strip()
-    if runtime == "claude-code" and command and "claude-aify" not in command:
-        await _release_stale_terminal_owner(
-            db,
-            row,
-            reason="Released legacy raw Claude terminal before managed channel dispatch; Claude backing must start through claude-aify.",
-        )
-        return None
-
-    settings = settings or await _load_settings(db)
-    # FIX B3 (2026-06-03): raise the Console-owner staleness-release floor to align
-    # with resident_lease_seconds (~150s). The 90s environment_offline_seconds
-    # default reaped an idle-but-live managed console between turns — a codex
-    # worker that finished a turn and is waiting for the next dispatch can sit
-    # quiet for >90s, get its terminal released here, and then read `available`
-    # mid-work. Floor at resident_lease_seconds so an alive-but-quiet console
-    # survives the inter-turn gap.
-    stale_after = max(
-        30,
-        int(settings.get("environment_offline_seconds", 90) or 90),
-        int(settings.get("resident_lease_seconds", 150) or 150),
-    )
-    # Do NOT release on terminal output-age: a live-but-quiet managed worker emits
-    # nothing for minutes between/within turns. Liveness is the owning env bridge being
-    # online + still owning this terminal's bridge_id (checked below) — not how long
-    # since the last PTY byte. (Output-age release caused the terminal churn /
-    # accumulating terminal_sessions rows; 2026-06-06.)
-    env_row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (row["environment_id"],))).fetchone()
-    env_status = _environment_effective_status(env_row, offline_seconds=stale_after) if env_row else "offline"
-    if env_status not in {"online", "degraded"}:
-        await _release_stale_terminal_owner(db, row, reason="Released unavailable Console owner before managed PTY dispatch.")
-        return None
-    if str(row["bridge_id"] or "").strip() != str(env_row["bridge_id"] or "").strip():
-        await _release_stale_terminal_owner(db, row, reason="Released stale Console owner before managed PTY dispatch.")
-        return None
-    return row
+# _active_terminal_for_agent moved to service/api_core/terminal_ownership.py in v0.5.4.
 
 
 async def _has_claimable_spawn_request(db, agent_id: str) -> bool:

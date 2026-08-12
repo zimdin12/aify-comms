@@ -30,6 +30,7 @@ from service.db import get_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 from service.tests._base import FastApiTestCase
+from service.api_core import terminal_ownership  # v0.5.4: patched on its OWNER, not the carrier
 
 
 class StopControlSurvivesReconcileTests(FastApiTestCase):
@@ -360,7 +361,7 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
                      api_v2._now(), api_v2._now(), "term_adopt", "stopping"),
                 )
                 await db.commit()
-                return await api_v2._active_terminal_for_agent(db, "adopt-agent")
+                return await terminal_ownership._active_terminal_for_agent(db, "adopt-agent")
             finally:
                 await db.close()
 

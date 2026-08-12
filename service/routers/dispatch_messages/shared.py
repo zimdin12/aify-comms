@@ -601,10 +601,6 @@ def _borrowed_unthreaded_handoff_window_ms():
 
 
 
-async def _active_terminal_for_agent(*a, **k):
-    from service.control_plane import _active_terminal_for_agent as _impl
-
-    return await _impl(*a, **k)
 
 
 def _agent_execution_mode(*a, **k):

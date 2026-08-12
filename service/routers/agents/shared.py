@@ -78,10 +78,6 @@ import sqlite3
 
 logger = logging.getLogger("aify_comms.routers.agents.shared")
 
-async def _active_terminal_for_agent(*a, **k):
-    from service.control_plane import _active_terminal_for_agent as _impl
-
-    return await _impl(*a, **k)
 
 
 async def _adopt_live_resident_driver(*a, **k):
@@ -365,10 +361,6 @@ async def _stop_virtual_terminals_for_superseded_bridges(
 
 
 
-def _workspace_for_environment(*a, **k):
-    from service.control_plane import _workspace_for_environment as _impl
-
-    return _impl(*a, **k)
 
 
 async def engine_status(*a, **k):
