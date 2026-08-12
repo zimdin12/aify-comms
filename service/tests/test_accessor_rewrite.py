@@ -369,5 +369,85 @@ class AccessorRewriteRealRepoShapesTests(unittest.TestCase):
         )
 
 
+
+
+class BorrowShimDetectionTests(unittest.TestCase):
+    """Telling a delegating shim from a real implementation that happens to import.
+
+    DEFECT #5, caught by a dry run before it reached the working tree. A migration script decided
+    "is this a shim?" by asking whether the substring `from service.routers.api_v2 import` appeared
+    anywhere in the function's source. The real `_agent_has_live_claimer` body contains its own
+    function-scope import — so the script deleted the REAL implementation and the helper ended up
+    defined nowhere, with a live call site pointing at nothing.
+
+    Fourth substring-vs-structure error in one day, which is why the answer now lives in this tested
+    module instead of being re-derived by each migration script.
+    """
+
+    SHIM = (
+        "def _helper(*a, **k):\n"
+        '    """Borrowed."""\n'
+        "    from service.routers.api_v2 import _helper as _impl\n"
+        "\n"
+        "    return _impl(*a, **k)\n"
+    )
+    ASYNC_SHIM = (
+        "async def _helper(*a, **k):\n"
+        "    from service.routers.api_v2 import _helper as _impl\n"
+        "\n"
+        "    return await _impl(*a, **k)\n"
+    )
+    REAL_WITH_IMPORT = (
+        "async def _agent_has_live_claimer(db, row, *, settings=None):\n"
+        '    """The real implementation — and it imports from the router itself."""\n'
+        "    from service.routers.api_v2 import _load_settings\n"
+        "\n"
+        "    settings = settings or await _load_settings(db)\n"
+        "    if not row:\n"
+        "        return False\n"
+        "    return bool(row['claimer'])\n"
+    )
+    CONSTANT_ACCESSOR = (
+        "def _borrowed_thing():\n"
+        "    from service.routers.api_v2 import THING\n"
+        "\n"
+        "    return THING\n"
+    )
+
+    def _node(self, src):
+        return ast.parse(src).body[0]
+
+    def test_a_delegating_shim_is_recognised(self):
+        from service.tests.accessor_rewrite import is_borrow_shim
+
+        self.assertTrue(is_borrow_shim(self._node(self.SHIM)))
+        self.assertTrue(is_borrow_shim(self._node(self.ASYNC_SHIM)))
+
+    def test_a_REAL_implementation_that_imports_is_NOT_a_shim(self):
+        """The exact body that defect #5 deleted."""
+        from service.tests.accessor_rewrite import is_borrow_shim
+
+        self.assertFalse(
+            is_borrow_shim(self._node(self.REAL_WITH_IMPORT)),
+            "a real implementation containing a function-scope import was classified as a shim — "
+            "this is what deleted _agent_has_live_claimer",
+        )
+
+    def test_a_constant_accessor_is_not_a_delegating_shim(self):
+        """It returns the constant, not a call — both are protected, but they are not the same."""
+        from service.tests.accessor_rewrite import is_borrow_shim, is_constant_accessor
+
+        node = self._node(self.CONSTANT_ACCESSOR)
+        self.assertTrue(is_constant_accessor(node))
+        self.assertFalse(is_borrow_shim(node))
+
+    def test_the_substring_heuristic_would_have_been_wrong(self):
+        """Pinned so nobody reintroduces it as 'simpler'."""
+        from service.tests.accessor_rewrite import is_borrow_shim
+
+        self.assertIn("from service.routers.api_v2 import", self.REAL_WITH_IMPORT)
+        self.assertFalse(is_borrow_shim(self._node(self.REAL_WITH_IMPORT)))
+
+
 if __name__ == "__main__":
     unittest.main()

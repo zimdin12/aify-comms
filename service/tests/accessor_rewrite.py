@@ -81,6 +81,32 @@ def is_constant_accessor(node: ast.AST) -> bool:
     return False
 
 
+def is_borrow_shim(node: ast.AST) -> bool:
+    """A DELEGATING SHIM — a function that exists only to forward to the real implementation.
+
+    Distinct from a real implementation that merely happens to contain a function-scope import, and
+    that distinction is not academic: a migration script identified shims by testing whether the
+    substring `"from service.routers.api_v2 import"` appeared anywhere in the function source. The
+    real `_agent_has_live_claimer` body contains its own function-scope import, so it was classified
+    as a shim and DELETED — the helper ended up defined nowhere, with a live call site left dangling.
+
+    A shim's whole body is: optional docstring, one import, one return of the imported name applied
+    to the arguments. Anything with logic of its own is an implementation, whatever it imports.
+    """
+    if not is_constant_accessor(node):
+        return False
+    body = [
+        stmt for stmt in node.body
+        if not (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant)
+                and isinstance(stmt.value.value, str))
+    ]
+    returner = body[1]
+    value = returner.value
+    if isinstance(value, ast.Await):
+        value = value.value
+    return isinstance(value, ast.Call)      # `return _impl(...)`, not `return CONSTANT`
+
+
 def accessor_line_ranges(source: str) -> list[tuple[int, int]]:
     """1-based inclusive line ranges of every borrow accessor/shim, including its decorators."""
     ranges = []
