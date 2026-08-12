@@ -45,10 +45,30 @@ def _call_sites() -> list[int]:
     return [m.start() for m in re.finditer(r"^\s*notify_operator\(", src, re.MULTILINE)]
 
 
+def _channels_source() -> str:
+    """v0.5.2h moved the channel fan-out into its own domain module.
+
+    The DIRECT-message notify site is still in api_v2, so probes for that one deliberately keep
+    reading api_v2. Only the channel-specific assertions follow the code.
+    """
+    path = Path(__file__).resolve().parents[1] / "routers" / "channels.py"
+    return code_only(path.read_text(encoding="utf-8", errors="replace"))
+
+
 class SendPathWiringTests(unittest.TestCase):
     def setUp(self):
         self.src = _source()
-        self.sites = _call_sites()
+        self.channels_src = _channels_source()
+        # "Both send paths" now spans two modules. Counting only api_v2 would have quietly become
+        # "one path notifies", which is the half-fixed shape this file exists to prevent.
+        #
+        # Each site carries ITS OWN source. A flat list of offsets was wrong the moment the sites
+        # lived in two files: an offset from channels.py indexed into api_v2's text would slice
+        # unrelated code and the ordering assertions would be measuring nothing.
+        self.sites = [(self.src, at) for at in _call_sites()] + [
+            (self.channels_src, m.start())
+            for m in re.finditer(r"^\s*notify_operator\(", self.channels_src, re.MULTILINE)
+        ]
 
     def test_both_send_paths_notify(self):
         """Direct messages and channel messages. Losing one is the half-fixed shape audit finding 2
@@ -59,13 +79,16 @@ class SendPathWiringTests(unittest.TestCase):
         """C4b. An `await` here would put an HTTP call back on the message-send path and still
         appear to work, which is precisely why it needs a test rather than review attention."""
         self.assertNotIn("await notify_operator", self.src)
+        # Widened in v0.5.2h: the rule is about the CALL, so it must hold in every module that
+        # makes one, not only the module that happened to hold them all originally.
+        self.assertNotIn("await notify_operator", self.channels_src)
 
     def test_every_call_site_is_after_a_commit(self):
         """C1. Searches backwards from each call for the nearest `db.commit()` and the nearest
         `db.execute(` — if a write is closer than the commit, the enqueue is inside the transaction.
         """
-        for at in self.sites:
-            before = self.src[:at]
+        for source, at in self.sites:
+            before = source[:at]
             commit_at = before.rfind("await db.commit()")
             self.assertGreater(commit_at, -1, "call site has no preceding commit at all")
             gap = before[commit_at:]
@@ -76,8 +99,8 @@ class SendPathWiringTests(unittest.TestCase):
         """The failure that would look most reasonable in review, and would silently remove the
         whole point: `if ws:` means a dashboard is connected, and the mobile alert exists for when
         one is not."""
-        for at in self.sites:
-            before = self.src[:at]
+        for source, at in self.sites:
+            before = source[:at]
             gate_at = before.rfind("if ws:")
             commit_at = before.rfind("await db.commit()")
             self.assertLess(gate_at, commit_at,
@@ -87,8 +110,8 @@ class SendPathWiringTests(unittest.TestCase):
     def test_the_channel_site_passes_authoritative_membership(self):
         """C7. Without `channel_joined` the qualifier fails closed and channel alerts never fire —
         a silent no-op rather than an error."""
-        at = self.src.index('notify_operator(\n            "channel_message"')
-        call = self.src[at : at + 400]
+        at = self.channels_src.index('notify_operator(\n            "channel_message"')
+        call = self.channels_src[at : at + 400]
         self.assertIn('channel_joined=("dashboard" in members)', call,
                       "membership must come from the loaded member list, not be omitted or guessed")
 

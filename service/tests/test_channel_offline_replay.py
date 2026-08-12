@@ -18,6 +18,8 @@ from datetime import datetime, timedelta, timezone
 
 from service.db import get_db
 from service.routers import api_v2
+# v0.5.2h: the channel fan-out helpers live in the channels domain now.
+from service.routers import channels as channels_router
 
 from service.tests._base import FastApiTestCase
 
@@ -144,7 +146,7 @@ class ChannelOfflineReplayTests(FastApiTestCase):
         """Simulate the stored-only inbox copy the send path leaves for an
         offline member: a channel-source message addressed to the member with
         dispatch_requested set and NO dispatch_run."""
-        fanout_id = api_v2._channel_fanout_message_id(canonical_id, agent_id)
+        fanout_id = channels_router._channel_fanout_message_id(canonical_id, agent_id)
         self._execute(
             """
             INSERT INTO messages (id, from_agent, to_agent, channel, source, type, subject, body, priority, dispatch_requested, timestamp)
