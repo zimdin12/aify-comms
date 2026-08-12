@@ -21,6 +21,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from service.api_core.serialization import _json_loads_or
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.settings import DEFAULT_SETTINGS
 from service.clock import iso_to_epoch as _iso_to_epoch
@@ -204,3 +205,59 @@ def _default_console_command(session, workspace: str, *, interactive: bool = Fal
         handle=handle,
         interactive=interactive,
     )
+
+
+# v0.5.4: `_row_capabilities` and `_has_codex_live_app_server` arrived here rather than following
+# `_agent_execution_mode` into its own leaf. They came out of the same closure, but `_row_capabilities`
+# has SIX other carrier readers (wake mode, fix hint, the agent record, the status cache, dispatch
+# creation, send preflight) — it is a general accessor for what an agent row can do, not a detail of
+# how one dispatch will execute. Following its largest consumer would have made five unrelated modules
+# import a module named after somebody else's decision.
+
+def _has_codex_live_app_server(runtime_config: Optional[dict[str, Any]] = None) -> bool:
+    if not isinstance(runtime_config, dict):
+        return False
+    return str(runtime_config.get("appServerUrl") or "").strip().lower().startswith(("ws://", "wss://"))
+
+
+def _row_capabilities(row) -> list[str]:
+    if not row:
+        return []
+    capabilities = _json_loads_or(row["capabilities"], [])
+    runtime = _normalize_runtime((row["runtime"] if "runtime" in row.keys() else "") or "generic")
+    session_mode = _normalize_session_mode((row["session_mode"] if "session_mode" in row.keys() else "") or "resident")
+    session_handle = str((row["session_handle"] if "session_handle" in row.keys() else "") or "").strip()
+    runtime_config = _json_loads_or(row["runtime_config"], {}) if "runtime_config" in row.keys() else {}
+    if runtime == "pi":
+        if session_mode == "resident":
+            return [cap for cap in capabilities if cap not in {"resident-run", "interrupt", "steer"}]
+        if session_mode == "managed":
+            for cap in ("managed-run", "resume", "interrupt", "steer", "spawn"):
+                if cap not in capabilities:
+                    capabilities = [*capabilities, cap]
+    if runtime == "opencode" and session_mode == "resident":
+        return [cap for cap in capabilities if cap not in {"resident-run", "interrupt", "steer"}]
+    if runtime == "hermes":
+        if session_mode == "managed":
+            managed_caps = ["managed-run", "resume", "interrupt", "spawn"]
+            if bool(runtime_config.get("channelEnabled")):
+                managed_caps.append("steer")
+            else:
+                capabilities = [cap for cap in capabilities if cap != "steer"]
+            for cap in managed_caps:
+                if cap not in capabilities:
+                    capabilities = [*capabilities, cap]
+        elif _has_hermes_gateway_url(runtime_config):
+            for cap in ("resident-run", "resume", "interrupt", "steer"):
+                if cap not in capabilities:
+                    capabilities = [*capabilities, cap]
+        else:
+            return [cap for cap in capabilities if cap not in {"resident-run", "interrupt", "steer"}]
+    if runtime == "claude-code" and session_mode == "resident":
+        channel_enabled = isinstance(runtime_config, dict) and runtime_config.get("channelEnabled") is True
+        if not channel_enabled:
+            return [cap for cap in capabilities if cap not in {"resident-run", "interrupt", "steer"}]
+        for cap in ("resident-run", "interrupt", "steer"):
+            if cap not in capabilities:
+                capabilities = [*capabilities, cap]
+    return capabilities

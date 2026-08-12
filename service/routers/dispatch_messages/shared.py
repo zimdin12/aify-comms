@@ -84,6 +84,7 @@ from service.env_status import environment_effective_status as _environment_effe
 # model name does not fail import, it fails a type-hint gate or a request at runtime.
 from service.models import DispatchClaimRequest
 from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES
+from service.api_core.capabilities import _row_capabilities
 
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.shared")
 
@@ -472,10 +473,6 @@ def _pending_dispatch_count(*a, **k):
     return _impl(*a, **k)
 
 
-def _row_capabilities(*a, **k):
-    from service.control_plane import _row_capabilities as _impl
-
-    return _impl(*a, **k)
 
 
 
@@ -603,10 +600,6 @@ def _borrowed_unthreaded_handoff_window_ms():
 
 
 
-def _agent_execution_mode(*a, **k):
-    from service.control_plane import _agent_execution_mode as _impl
-
-    return _impl(*a, **k)
 
 
 async def _append_dispatch_control(*a, **k):

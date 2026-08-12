@@ -143,8 +143,13 @@ class EnsureManagedPtyRowAccessTests(unittest.TestCase):
         self.assertEqual(row["session_id"], "sess_1")
 
     def test_the_production_comparison_uses_indexing(self):
-        """Source-pinned because the callable path needs a live DB and a bridge; the defect was
+        """SOURCE-SCANNING because the callable path needs a live DB and a bridge; the defect was
         purely the accessor, and this is the cheapest honest guard against it returning.
+
+        It used to be source-PINNED, which is a different and worse thing — see below. The word is
+        corrected here rather than left as an inaccuracy readers have to reconcile with the paragraph
+        under it, because a docstring that describes the previous implementation is how ownership prose
+        drifts out of true in the first place.
 
         v0.5.4: this probe FOUND its subject failing rather than passing vacuously — it named
         `control_plane.py` and raised ValueError when `_ensure_managed_pty_for_dispatch` moved to

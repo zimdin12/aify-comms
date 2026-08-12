@@ -75,6 +75,7 @@ from service.terminal_snapshot import render_live_screen as _render_live_termina
 from service.terminal_snapshot import render_snapshot as _render_terminal_snapshot
 import re
 import sqlite3
+from service.api_core.capabilities import _has_codex_live_app_server
 
 logger = logging.getLogger("aify_comms.routers.agents.shared")
 
@@ -223,10 +224,6 @@ async def _get_unread_count_map(*a, **k):
     return await _impl(*a, **k)
 
 
-def _has_codex_live_app_server(*a, **k):
-    from service.control_plane import _has_codex_live_app_server as _impl
-
-    return _impl(*a, **k)
 
 
 

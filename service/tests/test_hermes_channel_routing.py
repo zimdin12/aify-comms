@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent))
 
 from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES
-from service.control_plane import _agent_execution_mode
+from service.api_core.execution_mode import _agent_execution_mode
 
 
 def _managed_hermes_row(*, channel_enabled: bool, session_handle: str = "", caps=None):

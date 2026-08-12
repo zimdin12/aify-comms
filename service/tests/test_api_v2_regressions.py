@@ -4306,7 +4306,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # Without this skip, _agent_execution_mode would reject the
         # dispatch with "agent capabilities do not include managed-run"
         # even though channel-only routing should deliver fine.
-        from service.control_plane import _agent_execution_mode
+        from service.api_core.execution_mode import _agent_execution_mode
         managed_claude_channel = {
             "id": "test-claude-channel",
             "runtime": "claude-code",
@@ -4351,7 +4351,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # wrapper's child bridge (claiming with executionModes=['channel',
         # 'resident']) picks it up. Main bridge's dispatch loop has been
         # gated off for this runtime (Task A4).
-        from service.control_plane import _agent_execution_mode
+        from service.api_core.execution_mode import _agent_execution_mode
         class _R(dict):
             def keys(self): return super().keys()
         managed_hermes = _R({
@@ -4481,7 +4481,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # The gateway-channel controller resolves session.most_recent at
         # dispatch time, so sessionHandle is optional when gatewayUrl is set.
         # Mirror of the capability-check carve-out, applied to the second gate.
-        from service.control_plane import _agent_execution_mode
+        from service.api_core.execution_mode import _agent_execution_mode
         class _R(dict):
             def keys(self): return super().keys()
 

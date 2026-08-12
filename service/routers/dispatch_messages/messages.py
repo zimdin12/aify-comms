@@ -52,7 +52,6 @@ from service.routers.dispatch_messages.shared import (
     VALID_STATUSES,
     _NATIVE_MANAGED_RUNTIMES,
     _adopt_live_resident_driver,
-    _agent_execution_mode,
     _agent_tombstone,
     _append_dispatch_control,
     _append_terminal_control,
@@ -120,6 +119,7 @@ from service.api_core.dispatch_start import (
     _ensure_managed_pty_for_dispatch,
 )
 from service.api_core.active_run_discard import _fail_pending_controls_for_run
+from service.api_core.execution_mode import _agent_execution_mode
 
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.messages")
 
