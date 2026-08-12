@@ -47,11 +47,14 @@ from service.db import init_db  # noqa: E402
 from service.routers import api_v2  # noqa: E402
 from service.routers.api_v2 import (  # noqa: E402
     router,
-    _record_bridge_registration,
     _has_live_channel_sidecar,
     _apply_channel_routing_to_claude_runs,
     _now,
 )
+# v0.5.2m: ONLY this one moved. The other three are still router-owned, so the import stays split
+# rather than being redirected wholesale -- pointing them all at the package would aim them at
+# borrow shims instead of the real owners.
+from service.routers.agents.shared import _record_bridge_registration  # noqa: E402
 
 
 from service.tests._base import FastApiTestCase

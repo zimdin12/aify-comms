@@ -18,6 +18,8 @@ import asyncio
 
 from service.db import get_db
 from service.routers import api_v2
+# v0.5.2m: agents-owned helper. api_v2._now stays -- only the moved name follows the code.
+from service.routers.agents import shared as agents_shared
 
 from service.tests._base import FastApiTestCase, PRE_PLAN4_SETTINGS
 
@@ -175,7 +177,7 @@ class HermesRemoveTriadReapTests(FastApiTestCase):
         async def _emit():
             db = await get_db()
             try:
-                await api_v2._request_stop_agent_terminals(
+                await agents_shared._request_stop_agent_terminals(
                     db, agent_id, requested_by="api", now=api_v2._now(), reap_triad=True,
                 )
                 await db.commit()

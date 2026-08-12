@@ -14,7 +14,8 @@ The command the product hands out must not be the command that breaks the agent.
 
 import unittest
 
-from service.routers.api_v2 import _resume_command_for
+# v0.5.2m: agents-owned helper; it lives in the agents package now.
+from service.routers.agents.shared import _resume_command_for
 from service.runtimes import adapter_for
 
 

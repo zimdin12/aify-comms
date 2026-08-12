@@ -18,6 +18,10 @@ from service.reconcilers import status_cache
 from service.routers import api_v2
 # v0.5.2l: dispatch run serialization moved into the dispatch+messages package.
 from service.routers.dispatch_messages import dispatch as dispatch_router
+# v0.5.2m: the agent console handler moved, and each module owns its OWN binding -- patching
+# api_v2 would no longer reach it and the test would exercise the happy path while claiming
+# to force a rendered screen.
+from service.routers.agents import console as agents_console
 from service.routers.api_v2 import router
 
 from service.tests._base import FastApiTestCase, DummyWS, PRE_PLAN4_SETTINGS
@@ -14146,7 +14150,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         screen = "\x1b[0m\x1b[2J\x1b[H\x1b[38;5;178m(¬‿¬) musing… · 22m 24s\x1b[0m"
 
-        with patch.object(api_v2, "_render_live_terminal_screen", return_value=(screen, 100, 28)):
+        with patch.object(agents_console, "_render_live_terminal_screen", return_value=(screen, 100, 28)):
             resp = self.client.get("/api/v1/agents/console-tui/console?lines=14")
 
         self.assertEqual(resp.status_code, 200, resp.text)
@@ -14164,7 +14168,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             (raw, "term_console_replay"),
         )
 
-        with patch.object(api_v2, "_render_live_terminal_screen", return_value=None):
+        with patch.object(agents_console, "_render_live_terminal_screen", return_value=None):
             resp = self.client.get("/api/v1/agents/console-replay/console?lines=40")
 
         self.assertEqual(resp.status_code, 200, resp.text)
