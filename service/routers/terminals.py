@@ -65,6 +65,7 @@ from service.models import (
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 from service.api_core.terminal_output import _append_terminal_output
 from service.terminal_write_queue import TERMINAL_OUTPUT_WRITES
+from service.api_core.terminal_status import _TERMINAL_END_STATUSES
 
 logger = logging.getLogger("aify_comms.routers.terminals")
 
@@ -91,11 +92,6 @@ router = domain_router()
 
 
 
-def _borrowed_terminal_end_statuses():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import _TERMINAL_END_STATUSES
-
-    return _TERMINAL_END_STATUSES
 
 
 
@@ -431,7 +427,7 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
                     }),
                 )
                 # Commit immediately — the endpoint's only other commit
-                # is inside the _borrowed_terminal_end_statuses() branch, which
+                # is inside the _TERMINAL_END_STATUSES branch, which
                 # doesn't fire for normal "running" output POSTs. Without
                 # this, the bridge_id transfer + revive would silently
                 # be lost on the next connection (failing the takeover
@@ -447,7 +443,7 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
             base_seq=int(terminal["output_seq"] or 0),
             autoschedule=not bool(getattr(request.app.state, "testing", False)),
         )
-        if status in _borrowed_terminal_end_statuses():
+        if status in _TERMINAL_END_STATUSES:
             now = _now()
             summary = f"Terminal {status} before an explicit reply was recorded."
             await _close_active_terminal_runs_for_terminal(db, terminal, status, now=now, reason=summary)
@@ -709,7 +705,7 @@ async def report_terminal_dead(terminal_id: str, req: TerminalDeadReport, reques
         now = _now()
         current_status = str(terminal["status"] or "").strip().lower()
         # Idempotent: already terminal → nothing to do.
-        if current_status in _borrowed_terminal_end_statuses():
+        if current_status in _TERMINAL_END_STATUSES:
             return {"ok": True, "terminal": _terminal_session_to_dict(terminal), "changed": False}
         # PID guard: a supplied pid must match the stored process_id so a stale
         # report can't stop a row a restarted bridge now owns with a NEW pid.
@@ -872,7 +868,7 @@ async def update_terminal_control(control_id: str, req: TerminalControlUpdate, r
             terminal_status = terminal_status or "stopped"
         if terminal_status:
             terminal_status_norm = terminal_status.strip().lower()
-            if terminal_status_norm in _borrowed_terminal_end_statuses():
+            if terminal_status_norm in _TERMINAL_END_STATUSES:
                 await _close_active_terminal_runs_for_terminal(
                     db,
                     terminal,
@@ -901,7 +897,7 @@ async def update_terminal_control(control_id: str, req: TerminalControlUpdate, r
             )
         if terminal_status in {"stopped", "failed"}:
             await _clear_console_terminal_binding(db, terminal["agent_id"], terminal["id"], now=now)
-        if terminal_status.strip().lower() in _borrowed_terminal_end_statuses():
+        if terminal_status.strip().lower() in _TERMINAL_END_STATUSES:
             await _invalidate_agent_live_state(db, terminal["agent_id"])
         # A3 real-cols (2026-07-02): a COMPLETED resize control means the bridge actually
         # applied these dims to the PTY — record them as the terminal's authoritative size.

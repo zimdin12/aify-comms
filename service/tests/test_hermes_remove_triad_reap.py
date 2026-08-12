@@ -22,6 +22,7 @@ from service import control_plane as api_v2  # v0.5.3: helpers live in the contr
 from service.routers.agents import shared as agents_shared
 
 from service.tests._base import FastApiTestCase, PRE_PLAN4_SETTINGS
+from service.api_core import agent_terminal_ops  # v0.5.4: call the OWNER
 
 
 class HermesRemoveTriadReapTests(FastApiTestCase):
@@ -177,7 +178,7 @@ class HermesRemoveTriadReapTests(FastApiTestCase):
         async def _emit():
             db = await get_db()
             try:
-                await agents_shared._request_stop_agent_terminals(
+                await agent_terminal_ops._request_stop_agent_terminals(
                     db, agent_id, requested_by="api", now=api_v2._now(), reap_triad=True,
                 )
                 await db.commit()
@@ -189,6 +190,6 @@ class HermesRemoveTriadReapTests(FastApiTestCase):
         controls = self._claim_controls(env_id, bridge)
         stop = next((c for c in controls if c["action"] == "stop" and c["terminalId"] == term_id), None)
         self.assertIsNotNone(stop, f"expected a triad-reap stop control; got {controls}")
-        self.assertIn(api_v2._REAP_TRIAD_BODY_SENTINEL, stop["body"])
+        self.assertIn(agent_terminal_ops._REAP_TRIAD_BODY_SENTINEL, stop["body"])
         self.assertEqual(stop["runtime"], "hermes")
         self.assertEqual(stop["agentId"], agent_id)

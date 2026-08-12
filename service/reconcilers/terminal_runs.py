@@ -97,7 +97,7 @@ def _terminal_pi_idle_prompt_hint(output: str) -> str:
 
 
 def _terminal_end_statuses():
-    from service.control_plane import _TERMINAL_END_STATUSES
+    from service.api_core.terminal_status import _TERMINAL_END_STATUSES
     return _TERMINAL_END_STATUSES
 
 

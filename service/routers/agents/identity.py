@@ -54,10 +54,8 @@ from service.routers.agents.shared import (
     _borrowed_listen_events,
     _borrowed_live_session_statuses,
     _borrowed_manual_statuses,
-    _borrowed_reap_triad_body_sentinel,
     _borrowed_runtime_config_live_keys,
     _borrowed_shell_placeholder_handle_re,
-    _borrowed_terminal_end_statuses,
     _broadcast_agent_status,
     _broadcast_engine_status,
     _clear_status_state_in_turn,
@@ -98,8 +96,6 @@ from service.routers.agents.shared import (
     _render_live_terminal_screen,
     _render_terminal_snapshot,
     _repair_unusable_active_runs,
-    _request_stop_agent_terminals,
-    _resolve_live_console_terminal,
     _resume_command_for,
     _row_status_note,
     _runtime_capability_for_environment,
@@ -139,6 +135,10 @@ from service.api_core.registration_gates import (
     _fresh_same_mode_bridge_conflict,
     _machine_family,
     _validate_registration_cwd,
+)
+from service.api_core.agent_terminal_ops import (
+    _request_stop_agent_terminals,
+    _resolve_live_console_terminal,
 )
 
 router = domain_router()

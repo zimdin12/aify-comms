@@ -26,6 +26,7 @@ from service.db import get_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 from service.tests._base import FastApiTestCase
 from service.api_core.managed_env import _has_pending_or_booting_spawn_request
+from service.api_core import terminal_status  # v0.5.4: call the OWNER
 
 
 class _SpawnSeedMixin:
@@ -418,12 +419,12 @@ class TerminalStatusSetAgreementTests(unittest.TestCase):
 
     def test_terminal_status_sets_agree(self):
         self.assertEqual(
-            set(api_v2._TERMINAL_END_STATUSES_ORDERED),
-            {s.lower() for s in api_v2._TERMINAL_END_STATUSES},
+            set(terminal_status._TERMINAL_END_STATUSES_ORDERED),
+            {s.lower() for s in terminal_status._TERMINAL_END_STATUSES},
         )
 
     def test_ordered_form_is_deterministic_and_lowercase(self):
-        ordered = api_v2._TERMINAL_END_STATUSES_ORDERED
+        ordered = terminal_status._TERMINAL_END_STATUSES_ORDERED
         self.assertEqual(ordered, tuple(sorted(ordered)))
         self.assertTrue(all(s == s.lower() for s in ordered))
         self.assertEqual(len(ordered), len(set(ordered)))

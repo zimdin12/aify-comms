@@ -388,12 +388,9 @@ from service.api_core.vocabulary import (
     SESSION_MODES as _SESSION_MODES,
 )
 # _DISPATCH_TERMINAL_STATUSES moved to service/api_core/dispatch_state.py in v0.5.4.
-_TERMINAL_END_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
-# Deterministic, lowercase ordering of the SAME set, for SQL parameter binding. A set
-# gives no ordering guarantee across builds and an inline literal list in a query is
-# how the two managed-worker sweeps came to disagree about `degraded` (finding N7) —
-# `test_terminal_status_sets_agree` fails the suite if these two ever diverge.
-_TERMINAL_END_STATUSES_ORDERED = tuple(sorted(s.lower() for s in _TERMINAL_END_STATUSES))
+# _TERMINAL_END_STATUSES and _TERMINAL_END_STATUSES_ORDERED moved to
+# service/api_core/terminal_status.py in v0.5.4, together — the ordered form is DERIVED from
+# the set and a test guards their agreement, so the derivation must not span a module boundary.
 _DISPATCH_ACTIVE_STATUSES = {"queued", "claimed", "running"}
 _SESSION_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
 # A session whose spawn/run is in flight or live. "starting" is included so a
@@ -3759,7 +3756,8 @@ _CONSOLE_TAIL_MAX_BYTES = 16 * 1024
 # can no longer resolve session_mode, so the sentinel carries the triad-reap
 # intent forward. The bridge honors runtime=hermes + (sessionMode=managed OR this
 # sentinel). The human-readable suffix is preserved for the console.
-_REAP_TRIAD_BODY_SENTINEL = "__aify_reap_triad__"
+# _REAP_TRIAD_BODY_SENTINEL moved to service/api_core/agent_terminal_ops.py in v0.5.4 —
+# zero carrier readers; its only writer took it.
 
 
 
