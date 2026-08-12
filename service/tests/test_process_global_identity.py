@@ -221,7 +221,7 @@ class ProcessGlobalIdentityTests(unittest.TestCase):
 
 
 class GateCatchesTheFormsRegexMissedTests(unittest.TestCase):
-    """The reviewer found this gate could pass on two forms that DO fork a global.
+    r"""The reviewer found this gate could pass on two forms that DO fork a global.
 
     The first version matched `^_LIVE_STATE_CACHE\s*=` at column 0 and single-line imports, so an
     indented module-level assignment and a parenthesised multi-line import both sailed through. A
