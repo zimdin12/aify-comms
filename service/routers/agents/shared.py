@@ -28,6 +28,10 @@ from service.api_core.runtime import _runtime_capability_for_environment
 from service.api_core.serialization import _json_loads_or
 from service.api_core.serialization import _normalize_machine_id
 from service.api_core.serialization import _timestamp_sort_key
+from service.api_core.capabilities import (  # re-exported for this package's modules
+    _default_capabilities_for,
+    _managed_via_wrapper_for_runtime,
+)
 from service.api_core.settings import DEFAULT_SETTINGS
 from service.api_core.settings import _load_settings
 from service.api_core.validation import validate_name
@@ -130,10 +134,6 @@ async def _compute_live_status_cache(*a, **k):
     return await _impl(*a, **k)
 
 
-def _default_capabilities_for(*a, **k):
-    from service.control_plane import _default_capabilities_for as _impl
-
-    return _impl(*a, **k)
 
 
 async def _ensure_managed_pty_for_dispatch(*a, **k):
@@ -275,10 +275,6 @@ async def _managed_owning_environment_row(*a, **k):
     return await _impl(*a, **k)
 
 
-def _managed_via_wrapper_for_runtime(*a, **k):
-    from service.control_plane import _managed_via_wrapper_for_runtime as _impl
-
-    return _impl(*a, **k)
 
 
 async def _record_channel_sidecar_heartbeat(*a, **k):

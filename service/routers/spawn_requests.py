@@ -56,6 +56,7 @@ from service.api_core.runtime import (
     _runtime_capability_for_environment,
 )
 from service.api_core.serialization import _json_loads_or
+from service.api_core.capabilities import _default_capabilities_for, _managed_via_wrapper_for_runtime
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
@@ -134,10 +135,6 @@ _SPAWN_TERMINAL_STATUSES = {"running", "failed", "cancelled"}
 _SPAWN_MODES = {"managed-warm"}
 
 
-def _default_capabilities_for(*a, **k):
-    from service.control_plane import _default_capabilities_for as _impl
-
-    return _impl(*a, **k)
 
 
 def _environment_record_to_dict(*a, **k):
@@ -146,10 +143,6 @@ def _environment_record_to_dict(*a, **k):
     return _impl(*a, **k)
 
 
-def _managed_via_wrapper_for_runtime(*a, **k):
-    from service.control_plane import _managed_via_wrapper_for_runtime as _impl
-
-    return _impl(*a, **k)
 
 
 async def _create_dispatch_runs(*a, **k):

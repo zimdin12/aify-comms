@@ -13,7 +13,8 @@ sys.path.insert(0, str(ROOT.parent))
 
 import json
 
-from service.control_plane import _agent_execution_mode, _agent_wake_mode, _default_capabilities_for, _row_capabilities
+from service.control_plane import _agent_execution_mode, _agent_wake_mode, _row_capabilities
+from service.api_core.capabilities import _default_capabilities_for
 
 
 def test_claude_resident_without_channel_enabled_does_not_advertise_resident_run():

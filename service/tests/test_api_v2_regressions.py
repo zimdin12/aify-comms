@@ -4425,7 +4425,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                         f"terminalId must be a real terminal_session id, got {rs['terminalId']!r}")
 
     def test_managed_via_wrapper_for_runtime_handles_bool_list_none(self):
-        from service.control_plane import _managed_via_wrapper_for_runtime
+        from service.api_core.capabilities import _managed_via_wrapper_for_runtime
         # Off: returns False for all runtimes. (Plan 4 (2026-05-25)
         # flipped the DEFAULT to ON, so `{}` now resolves via
         # DEFAULT_SETTINGS to ["codex","hermes","pi"]. The off-state

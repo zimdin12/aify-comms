@@ -15,7 +15,7 @@ def test_has_live_terminal_session_helper_exists():
 
 
 def test_has_live_rpc_controller_helper_exists():
-    from service.control_plane import _has_live_rpc_controller
+    from service.api_core.capabilities import _has_live_rpc_controller
     assert callable(_has_live_rpc_controller)
 
 

@@ -44,6 +44,7 @@ from fastapi import HTTPException, Query, Request
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _iso_from_ms, _json_loads_or
+from service.api_core.capabilities import _default_console_command, _environment_supports_terminal
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
@@ -180,10 +181,6 @@ def _environment_record_to_dict(*a, **k):
     return _impl(*a, **k)
 
 
-def _default_console_command(*a, **k):
-    from service.control_plane import _default_console_command as _impl
-
-    return _impl(*a, **k)
 
 
 def _terminal_session_to_dict(*a, **k):
@@ -204,10 +201,6 @@ def _workspace_for_environment(*a, **k):
     return _impl(*a, **k)
 
 
-def _environment_supports_terminal(*a, **k):
-    from service.control_plane import _environment_supports_terminal as _impl
-
-    return _impl(*a, **k)
 
 
 async def _agent_session_dict_live(db, row, *, agent_row=None) -> dict[str, Any]:
