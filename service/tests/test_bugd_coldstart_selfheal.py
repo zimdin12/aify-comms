@@ -22,6 +22,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 from service.db import get_db
+from service.api_core.liveness import _has_live_managed_wrapper_child
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 from service.tests._base import FastApiTestCase
@@ -112,7 +113,7 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                return await api_v2._has_live_managed_wrapper_child(db, agent_id)
+                return await _has_live_managed_wrapper_child(db, agent_id)
             finally:
                 await db.close()
 

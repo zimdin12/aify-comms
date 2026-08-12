@@ -16,6 +16,7 @@ These tests pin the call VALID and pin the false claim out.
 import re
 import unittest
 
+from service.api_core.reply_contract import _contract_reminder_body
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 
@@ -41,7 +42,7 @@ REQUIRED_ARGS = ("from=", "to=", "type=", "subject=", "body=")
 
 class ReplyReminderHintIsActionableTests(unittest.TestCase):
     def _text(self, row, full=False):
-        return api_v2._contract_reminder_body(row, full=full)
+        return _contract_reminder_body(row, full=full)
 
     def test_snippet_is_a_valid_comms_send_call(self):
         """THE REGRESSION GUARD. `body` is required — omitting it makes the snippet unrunnable."""

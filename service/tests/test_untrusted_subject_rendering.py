@@ -24,11 +24,13 @@ from __future__ import annotations
 
 import unittest
 
-from service.control_plane import (
+from service.api_core.dispatch_text import (
     _build_pending_dispatch_subject,
-    _quote_untrusted_subject,
     _render_pending_dispatch_item,
 )
+# `_quote_untrusted_subject` has lived in api_core/serialization.py since v0.5.1; this file was still
+# reaching it through the control plane, which worked only because the carrier re-imports it.
+from service.api_core.serialization import _quote_untrusted_subject
 
 # Subjects taken from the live DB: every one of these is a real message an agent sent.
 REAL_IMPERATIVE_SUBJECTS = [
@@ -110,12 +112,28 @@ class RuleTests(unittest.TestCase):
 
         from service.tests._source import code_only
 
-        src = code_only(
-            (Path(__file__).resolve().parents[1] / "control_plane.py").read_text(
-                encoding="utf-8", errors="replace"
-            )
-        )
-        offenders = re.findall(r'f"(?:Subject|latest): \{(?!_quote_untrusted_subject)[^}]*subject[^}]*\}', src)
+        # EVERY service module, not one file. This probe used to read `control_plane.py` alone, and
+        # v0.5.4 moved `_build_pending_dispatch_subject` and `_render_pending_dispatch_item` — the two
+        # functions that actually interpolate a foreign subject — into
+        # `service/api_core/dispatch_text.py`. The probe kept passing while guarding a file that no
+        # longer contained the pattern: a green check on the wrong artifact, and a security-relevant
+        # one, since the whole point is that an imperative subject must not read as an instruction to
+        # whoever receives the summary.
+        #
+        # Scanning the tree instead of a named file means the next move cannot defang it either.
+        service_root = Path(__file__).resolve().parents[1]
+        offenders = []
+        scanned = 0
+        for path in sorted(service_root.rglob("*.py")):
+            if "__pycache__" in path.parts or "tests" in path.parts:
+                continue
+            scanned += 1
+            src = code_only(path.read_text(encoding="utf-8", errors="replace"))
+            for hit in re.findall(
+                r'f"(?:Subject|latest): \{(?!_quote_untrusted_subject)[^}]*subject[^}]*\}', src
+            ):
+                offenders.append(f"{path.relative_to(service_root).as_posix()}: {hit}")
+        self.assertGreater(scanned, 20, "the sweep found almost no modules; the walk is broken")
         self.assertEqual(
             offenders, [],
             "a foreign subject is echoed without quoting: " + str(offenders)

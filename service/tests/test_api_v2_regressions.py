@@ -15,6 +15,8 @@ from fastapi.testclient import TestClient
 from service.db import get_db, init_db
 from service import main as service_main
 from service.reconcilers import status_cache
+from service.api_core.liveness import _has_live_terminal_session
+from service.api_core.liveness import _has_live_channel_sidecar
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 # v0.5.2l: dispatch run serialization moved into the dispatch+messages package.
 from service.routers.dispatch_messages import dispatch as dispatch_router
@@ -3639,7 +3641,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                return await api_v2._has_live_terminal_session(db, "recovering-claude")
+                return await _has_live_terminal_session(db, "recovering-claude")
             finally:
                 await db.close()
         self.assertTrue(asyncio.run(_run()), "a `recovering` non-vterm terminal must count as live")
@@ -13887,7 +13889,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                return await api_v2._has_live_channel_sidecar(db, agent_id)
+                return await _has_live_channel_sidecar(db, agent_id)
             finally:
                 await db.close()
 
@@ -14544,7 +14546,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(run["execution_mode"], "managed", "the pi run stays managed")
 
     def _run_has_live_managed_wrapper_child(self, agent_id):
-        from service.control_plane import _has_live_managed_wrapper_child
+        from service.api_core.liveness import _has_live_managed_wrapper_child
 
         async def _run():
             db = await get_db()

@@ -46,7 +46,7 @@ class ConsoleWorkingLeaseTests(FastApiTestCase):
         # The lease TTL MUST comfortably exceed that cadence — otherwise a missed poke or a
         # coalesced-output gap drops `working` while claude is still working (the flap this
         # whole mechanism exists to kill). 4x headroom guards against re-shrinking it.
-        from service.control_plane import CONSOLE_WORKING_LEASE_SECONDS
+        from service.api_core.liveness import CONSOLE_WORKING_LEASE_SECONDS
 
         keepalive_seconds = 4
         self.assertGreaterEqual(

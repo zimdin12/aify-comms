@@ -10,7 +10,7 @@ sys.path.insert(0, str(ROOT.parent))
 
 
 def test_has_live_terminal_session_helper_exists():
-    from service.control_plane import _has_live_terminal_session
+    from service.api_core.liveness import _has_live_terminal_session
     assert callable(_has_live_terminal_session)
 
 
