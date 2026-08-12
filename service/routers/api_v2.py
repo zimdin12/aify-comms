@@ -2211,78 +2211,7 @@ async def _record_channel_sidecar_heartbeat(
 
 
 
-async def _stop_virtual_terminals_for_superseded_bridges(
-    db,
-    *,
-    agent_id: str,
-    superseded_bridge_ids: list[str],
-    now: str,
-) -> None:
-    """Mark synthesized virtual rpc terminal_sessions stopped when the
-    bridge that owned them is superseded.
-
-    Operator-reported symptom (2026-05-22): after restarting aify-comms,
-    multiple managed pi/hermes agents flipped to `online` immediately
-    even though no message had been sent and the bridge had freshly
-    started — its in-memory PiSession pool was empty so there was no
-    actual omp process behind the terminal_session row. Stale rows
-    survive bridge restarts; the worker-detection rule then trusts the
-    DB and reports `online`. Cleaning them up at supersession time is
-    the right correctness fix.
-    """
-    if not superseded_bridge_ids:
-        return
-    placeholders = ",".join("?" for _ in superseded_bridge_ids)
-    # Defense-in-depth (code review I6, 2026-05-22): scope by agent_id
-    # too. Each bridge process today has exactly one AIFY_AGENT_ID so
-    # bridge_id is unique per agent, but if multi-agent bridges land
-    # later this prevents cross-agent terminal slaughter.
-    cursor = await db.execute(
-        f"""
-        SELECT id, agent_id FROM terminal_sessions
-        WHERE bridge_id IN ({placeholders})
-          AND agent_id = ?
-          AND command IN ({",".join("?" for _ in VIRTUAL_RPC_COMMAND_SET)})
-          AND status NOT IN ('stopped', 'failed')
-        """,
-        (*superseded_bridge_ids, agent_id, *VIRTUAL_RPC_COMMAND_SET),
-    )
-    rows = await cursor.fetchall()
-    for row in rows:
-        terminal_id = str(row["id"] or "").strip()
-        owner_agent = str(row["agent_id"] or "").strip()
-        await db.execute(
-            """
-            UPDATE terminal_sessions
-            SET status = 'stopped',
-                stopped_at = COALESCE(stopped_at, ?),
-                updated_at = ?,
-                error = CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END
-            WHERE id = ?
-            """,
-            (now, now, "Superseded by bridge re-registration; in-memory worker pool empty after restart.", terminal_id),
-        )
-        await _append_terminal_event(
-            db,
-            terminal_id,
-            "virtual_rpc_stopped_on_bridge_supersession",
-            json.dumps({"agentId": owner_agent, "supersededBridgeIds": superseded_bridge_ids}),
-        )
-        if owner_agent:
-            # Clear the agent's virtualTerminal* pointers so dashboard
-            # status correctly reports `available` until the next dispatch
-            # spawns a fresh worker.
-            agent_row = await (await db.execute("SELECT runtime_state FROM agents WHERE id = ?", (owner_agent,))).fetchone()
-            if agent_row:
-                rs = _json_loads_or(agent_row["runtime_state"], {}) or {}
-                if str(rs.get("virtualTerminalId") or "").strip() == terminal_id:
-                    rs.pop("virtualTerminal", None)
-                    rs.pop("virtualTerminalId", None)
-                    await db.execute(
-                        "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
-                        (json.dumps(rs), now, owner_agent),
-                    )
-            await _invalidate_agent_live_state(db, owner_agent)
+# _stop_virtual_terminals_for_superseded_bridges moved to service/routers/agents/shared.py in v0.5.3.
 
 
 # _fail_active_runs_for_superseded_bridges moved to service/routers/agents/shared.py in v0.5.3.

@@ -317,10 +317,78 @@ async def _session_handle_live_owner(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _stop_virtual_terminals_for_superseded_bridges(*a, **k):
-    from service.routers.api_v2 import _stop_virtual_terminals_for_superseded_bridges as _impl
+async def _stop_virtual_terminals_for_superseded_bridges(
+    db,
+    *,
+    agent_id: str,
+    superseded_bridge_ids: list[str],
+    now: str,
+) -> None:
+    """Mark synthesized virtual rpc terminal_sessions stopped when the
+    bridge that owned them is superseded.
 
-    return await _impl(*a, **k)
+    Operator-reported symptom (2026-05-22): after restarting aify-comms,
+    multiple managed pi/hermes agents flipped to `online` immediately
+    even though no message had been sent and the bridge had freshly
+    started — its in-memory PiSession pool was empty so there was no
+    actual omp process behind the terminal_session row. Stale rows
+    survive bridge restarts; the worker-detection rule then trusts the
+    DB and reports `online`. Cleaning them up at supersession time is
+    the right correctness fix.
+    """
+    if not superseded_bridge_ids:
+        return
+    placeholders = ",".join("?" for _ in superseded_bridge_ids)
+    # Defense-in-depth (code review I6, 2026-05-22): scope by agent_id
+    # too. Each bridge process today has exactly one AIFY_AGENT_ID so
+    # bridge_id is unique per agent, but if multi-agent bridges land
+    # later this prevents cross-agent terminal slaughter.
+    cursor = await db.execute(
+        f"""
+        SELECT id, agent_id FROM terminal_sessions
+        WHERE bridge_id IN ({placeholders})
+          AND agent_id = ?
+          AND command IN ({",".join("?" for _ in _borrowed_virtual_rpc_command_set())})
+          AND status NOT IN ('stopped', 'failed')
+        """,
+        (*superseded_bridge_ids, agent_id, *_borrowed_virtual_rpc_command_set()),
+    )
+    rows = await cursor.fetchall()
+    for row in rows:
+        terminal_id = str(row["id"] or "").strip()
+        owner_agent = str(row["agent_id"] or "").strip()
+        await db.execute(
+            """
+            UPDATE terminal_sessions
+            SET status = 'stopped',
+                stopped_at = COALESCE(stopped_at, ?),
+                updated_at = ?,
+                error = CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END
+            WHERE id = ?
+            """,
+            (now, now, "Superseded by bridge re-registration; in-memory worker pool empty after restart.", terminal_id),
+        )
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "virtual_rpc_stopped_on_bridge_supersession",
+            json.dumps({"agentId": owner_agent, "supersededBridgeIds": superseded_bridge_ids}),
+        )
+        if owner_agent:
+            # Clear the agent's virtualTerminal* pointers so dashboard
+            # status correctly reports `available` until the next dispatch
+            # spawns a fresh worker.
+            agent_row = await (await db.execute("SELECT runtime_state FROM agents WHERE id = ?", (owner_agent,))).fetchone()
+            if agent_row:
+                rs = _json_loads_or(agent_row["runtime_state"], {}) or {}
+                if str(rs.get("virtualTerminalId") or "").strip() == terminal_id:
+                    rs.pop("virtualTerminal", None)
+                    rs.pop("virtualTerminalId", None)
+                    await db.execute(
+                        "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
+                        (json.dumps(rs), now, owner_agent),
+                    )
+            await _invalidate_agent_live_state(db, owner_agent)
 
 
 def _terminal_session_to_dict(*a, **k):
@@ -373,6 +441,18 @@ def _borrowed_virtual_rpc_commands_by_runtime():
     from service.routers.api_v2 import VIRTUAL_RPC_COMMANDS_BY_RUNTIME
 
     return VIRTUAL_RPC_COMMANDS_BY_RUNTIME
+
+
+def _borrowed_virtual_rpc_command_set():
+    """BORROWED constant: one owner, never a copy (finding N7).
+
+    Derived from the map above, and read by `_worker_liveness_for` in the router plus four other
+    modules through accessors of their own — so it stays router-owned even though its heaviest
+    reader moved here in v0.5.3.
+    """
+    from service.routers.api_v2 import VIRTUAL_RPC_COMMAND_SET
+
+    return VIRTUAL_RPC_COMMAND_SET
 
 
 def _borrowed_ansi_re():
