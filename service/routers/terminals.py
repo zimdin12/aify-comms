@@ -67,12 +67,20 @@ logger = logging.getLogger("aify_comms.routers.terminals")
 router = domain_router()
 
 
+# Owned here since v0.5.3: `_terminal_status_transition` below is its only reader, so it moved with
+# the function rather than staying in the router behind an accessor. `_TERMINAL_ACTIVE_STATUSES` is
+# NOT in the same position — api_v2 still reads it — so that one is borrowed, not copied.
+_TERMINAL_MONOTONIC_STATUSES = {"stopping", "stopped", "failed", "lost", "ended", "completed", "cancelled"}
 
-def _terminal_status_transition(*a, **k):
-    """BORROWED: still used by router-owned console code."""
-    from service.routers.api_v2 import _terminal_status_transition as _impl
 
-    return _impl(*a, **k)
+def _terminal_status_transition(current_status: str, next_status: str) -> str:
+    current = str(current_status or "").strip().lower()
+    next_value = str(next_status or "").strip().lower()
+    if not next_value:
+        return ""
+    if current in _TERMINAL_MONOTONIC_STATUSES and next_value in _borrowed_terminal_active_statuses():
+        return ""
+    return next_value
 
 
 
@@ -115,6 +123,14 @@ def _borrowed_terminal_end_statuses():
     from service.routers.api_v2 import _TERMINAL_END_STATUSES
 
     return _TERMINAL_END_STATUSES
+
+
+
+def _borrowed_terminal_active_statuses():
+    """BORROWED constant: one owner, never a copy — a forked status set is finding N7."""
+    from service.routers.api_v2 import _TERMINAL_ACTIVE_STATUSES
+
+    return _TERMINAL_ACTIVE_STATUSES
 
 
 

@@ -240,7 +240,8 @@ def _is_lock_error(exc: BaseException) -> bool:
 
 _MANUAL_STATUSES = {"stopped"}
 
-_TERMINAL_MONOTONIC_STATUSES = {"stopping", "stopped", "failed", "lost", "ended", "completed", "cancelled"}
+# _TERMINAL_MONOTONIC_STATUSES moved to service/routers/terminals.py in v0.5.3 with its only
+# reader, _terminal_status_transition. _TERMINAL_ACTIVE_STATUSES below STAYS: api_v2 still reads it.
 _TERMINAL_ACTIVE_STATUSES = {"starting", "attached", "running", "active", "idle"}
 _RUNTIME_CONFIG_LIVE_KEYS = {
     "appServerUrl",
@@ -4554,14 +4555,7 @@ async def _preflight_live_send_recipients(
 
 
 
-def _terminal_status_transition(current_status: str, next_status: str) -> str:
-    current = str(current_status or "").strip().lower()
-    next_value = str(next_status or "").strip().lower()
-    if not next_value:
-        return ""
-    if current in _TERMINAL_MONOTONIC_STATUSES and next_value in _TERMINAL_ACTIVE_STATUSES:
-        return ""
-    return next_value
+# _terminal_status_transition moved to service/routers/terminals.py in v0.5.3.
 
 
 
