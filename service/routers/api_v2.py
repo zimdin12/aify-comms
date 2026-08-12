@@ -2810,24 +2810,7 @@ async def _agent_awaiting_input(db, agent_id: str) -> bool:
     ))
 
 
-def _terminal_idle_prompt_hint(output: str) -> str:
-    clean = _ANSI_RE.sub("", str(output or ""))
-    clean = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", clean)
-    tail = clean[-3000:].strip()
-    if not tail or _terminal_awaiting_input_hint(tail):
-        return ""
-    marker_positions = [
-        tail.lower().rfind("bypass permissions"),
-        tail.lower().rfind("for agents"),
-        tail.rfind("❯"),
-    ]
-    marker_at = max(marker_positions)
-    if marker_at < 0:
-        return ""
-    suffix = tail[marker_at:]
-    if re.search(r"(calling|cogitat|honking|thinking|running|undulating|press\s+esc|esc\s+to\s+interrupt)", suffix, re.I):
-        return ""
-    return "Claude PTY returned to an idle prompt without an explicit reply."
+# _terminal_idle_prompt_hint moved to service/reconcilers/terminal_runs.py in v0.5.3.
 
 
 class _WorkerLiveness(NamedTuple):
