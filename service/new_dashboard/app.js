@@ -13,6 +13,17 @@ import { inspectorRefreshDecision } from './inspector-refresh.mjs';
 import { createNotifier, readEnabled, writeEnabled, requestPermission } from './notify.mjs';
 import { THEMES, applyTheme, applyCachedTheme, previewTheme, paletteFromSettings } from './theme.js';
 import { settingsFieldHtml } from './settings-fields.mjs';
+import {
+  asAgentArray,
+  contractCategory,
+  environmentRoots,
+  messageId,
+  messageIdOf,
+  messageRunId,
+  runPendingControlCount,
+  sessionEnvironmentId,
+  sessionRuntime,
+} from './record-fields.mjs';
 import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
 
 function resolveApiOrigin() {
@@ -218,7 +229,7 @@ async function markConversationRead(agentId, { quiet = false } = {}) {
   } catch (err) { toast(`Mark-read failed: ${err?.message || err}`, 'error'); }
 }
 
-function messageIdOf(m) { return String(m?.id || m?.messageId || m?.message_id || ''); }
+// messageIdOf moved to ./record-fields.mjs in v0.5.4.
 
 // Favorites (WS-F): PATCH /agents/{id}/favorite, optimistic so the rail re-sorts immediately.
 async function toggleFavorite(agentId) {
@@ -727,10 +738,7 @@ async function loadRunsForStatus(status = state.runStatusFilter, render = true) 
   return state.runs;
 }
 
-function asAgentArray(payload) {
-  if (Array.isArray(payload.agents)) return payload.agents;
-  return Object.entries(payload.agents || {}).map(([id, value]) => ({ id, ...value }));
-}
+// asAgentArray moved to ./record-fields.mjs in v0.5.4.
 
 function asArray(payload, key) {
   const value = payload?.[key];
@@ -1551,13 +1559,9 @@ function sessionAgentId(session) {
   return String(session?.agentId || session?.agent_id || session?.agent || '');
 }
 
-function sessionEnvironmentId(session) {
-  return String(session?.environmentId || session?.environment_id || session?.envId || session?.env_id || 'unassigned');
-}
+// sessionEnvironmentId moved to ./record-fields.mjs in v0.5.4.
 
-function sessionRuntime(session) {
-  return String(session?.runtime || session?.runtimeKind || session?.kind || 'runtime');
-}
+// sessionRuntime moved to ./record-fields.mjs in v0.5.4.
 
 function agentForSession(session) {
   const agentId = sessionAgentId(session);
@@ -1630,13 +1634,9 @@ function messagesForSession(session) {
 }
 
 // Single source of truth lives in messageIdOf(); kept as an alias so existing call sites work.
-function messageId(message) {
-  return messageIdOf(message);
-}
+// messageId moved to ./record-fields.mjs in v0.5.4.
 
-function messageRunId(message) {
-  return String(message?.dispatchRunId || message?.dispatch_run_id || message?.runId || message?.run_id || message?.contractRunId || message?.contract_run_id || '');
-}
+// messageRunId moved to ./record-fields.mjs in v0.5.4.
 
 function runTargetAgent(run) {
   return String(run?.targetAgentId || run?.target_agent || run?.agentId || run?.agent_id || '');
@@ -2844,9 +2844,7 @@ function renderSessionWorkspace() {
 // surfaced by the session rail + chat workspace instead. Removed; their landing surface
 // returns as the chat-first slice (Phase 1).
 
-function contractCategory(c) {
-  return String(c.category || c.kind || (c.channel ? 'channel' : c.selfWake || c.self_wake ? 'self_wake' : 'direct')).toLowerCase();
-}
+// contractCategory moved to ./record-fields.mjs in v0.5.4.
 // Work Loop board columns, ordered needs-attention → done. Each contract lands in
 // the FIRST column whose match() is true (so `overdue` — a flag layered on any live
 // state — always wins its urgency slot). `always` columns render even when empty so
@@ -2924,10 +2922,7 @@ function environmentRuntimes(env) {
     .filter((runtime) => runtime && runtime.runtime) : [];
 }
 
-function environmentRoots(env) {
-  const roots = env?.cwdRoots || env?.cwd_roots || env?.roots || env?.workspaceRoots || [];
-  return Array.isArray(roots) ? roots.filter(Boolean) : [];
-}
+// environmentRoots moved to ./record-fields.mjs in v0.5.4.
 
 function renderEnvironmentSummary() {
   const target = byId('environment-summary');
@@ -3201,9 +3196,7 @@ function runInspectorCapabilities(run, session = sessionForRun(run)) {
   };
 }
 
-function runPendingControlCount(run) {
-  return (run?.controls || []).filter((control) => ['pending', 'claimed'].includes(String(control.status || '').toLowerCase())).length;
-}
+// runPendingControlCount moved to ./record-fields.mjs in v0.5.4.
 
 function renderEventBody(event) {
   const body = String(event?.body || '');

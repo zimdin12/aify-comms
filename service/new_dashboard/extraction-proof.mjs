@@ -55,13 +55,22 @@ export function functionSpan(source, name) {
 export function reconstruct({ after, modules, extractions }) {
   let lines = after.split("\n");
 
-  // 1. remove every import line the extractions added, and restore any line they replaced.
+  // 1. remove every import the extractions added, and restore any line they replaced.
+  //
+  // `importBlock` handles a multi-line parenthesised import, because a nine-name import does not fit one
+  // readable line — the import-readability gate on the Python side exists for exactly that reason. Each
+  // line is verified verbatim so a loosened mask cannot swallow an unrelated edit.
   for (const step of extractions) {
-    if (step.importLine != null) {
-      const at = lines.indexOf(step.importLine);
-      if (at === -1) throw new Error(`import line not found verbatim: ${step.importLine}`);
-      lines.splice(at, 1, ...(step.importWas == null ? [] : [step.importWas]));
+    const block = step.importBlock ?? (step.importLine == null ? null : [step.importLine]);
+    if (block == null) continue;
+    const at = lines.indexOf(block[0]);
+    if (at === -1) throw new Error(`import line not found verbatim: ${block[0]}`);
+    for (let k = 1; k < block.length; k += 1) {
+      if (lines[at + k] !== block[k]) {
+        throw new Error(`import block line ${k} does not match for ${step.module}`);
+      }
     }
+    lines.splice(at, block.length, ...(step.importWas == null ? [] : [step.importWas]));
   }
 
   // 2. collect every item across every slice, then process them in ASCENDING pristine order.

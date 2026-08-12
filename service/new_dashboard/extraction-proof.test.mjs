@@ -61,11 +61,40 @@ const EXTRACTIONS = [
       { name: "usageFmtTokens", at: 1256, marker: "// usageFmtTokens moved to ./util.js in v0.5.4." },
     ],
   },
+  {
+    module: "record-fields.mjs",
+    importLine: "} from './record-fields.mjs';",
+    importBlock: [
+      "import {",
+      "  asAgentArray,",
+      "  contractCategory,",
+      "  environmentRoots,",
+      "  messageId,",
+      "  messageIdOf,",
+      "  messageRunId,",
+      "  runPendingControlCount,",
+      "  sessionEnvironmentId,",
+      "  sessionRuntime,",
+      "} from './record-fields.mjs';",
+    ],
+    items: [
+      { name: "messageIdOf", at: 219, marker: "// messageIdOf moved to ./record-fields.mjs in v0.5.4." },
+      { name: "asAgentArray", at: 733, marker: "// asAgentArray moved to ./record-fields.mjs in v0.5.4." },
+      { name: "sessionEnvironmentId", at: 1617, marker: "// sessionEnvironmentId moved to ./record-fields.mjs in v0.5.4." },
+      { name: "sessionRuntime", at: 1621, marker: "// sessionRuntime moved to ./record-fields.mjs in v0.5.4." },
+      { name: "messageId", at: 1696, marker: "// messageId moved to ./record-fields.mjs in v0.5.4." },
+      { name: "messageRunId", at: 1700, marker: "// messageRunId moved to ./record-fields.mjs in v0.5.4." },
+      { name: "contractCategory", at: 2910, marker: "// contractCategory moved to ./record-fields.mjs in v0.5.4." },
+      { name: "environmentRoots", at: 2990, marker: "// environmentRoots moved to ./record-fields.mjs in v0.5.4." },
+      { name: "runPendingControlCount", at: 3267, marker: "// runPendingControlCount moved to ./record-fields.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
   "settings-fields.mjs": read("settings-fields.mjs"),
   "util.js": read("util.js"),
+  "record-fields.mjs": read("record-fields.mjs"),
 });
 
 function rebuild(overrides = {}) {
