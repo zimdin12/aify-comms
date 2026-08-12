@@ -97,6 +97,20 @@ def census():
         except SyntaxError:
             continue
 
+        # SOME carrier reads are the point of the test, not a leftover. A test asserting that the
+        # carrier re-exports the OWNER's object must read through the carrier — that IS the subject.
+        # So must a `mock.patch` target, which has to name where the function under test LOOKS the
+        # name up, not where it is defined.
+        #
+        # I learned this by breaking one: a mechanical repoint rewrote
+        # `assertIs(api_v2.validate_name, validate_name)` into `assertIs(x, x)`, a tautology that
+        # passes forever. An opt-out marker requires a human to decide a read is deliberate, which is
+        # the only way this distinction can be made — it is not visible in the syntax.
+        intentional = {
+            i for i, line in enumerate(src.splitlines(), 1)
+            if "census: intentional carrier reference" in line
+        }
+
         # aliases bound to the carrier module: `from service import control_plane as api_v2`,
         # `import service.control_plane as cp`
         aliases = set()
@@ -120,6 +134,8 @@ def census():
             elif isinstance(node, ast.Attribute) and node.attr in MOVED:
                 base = node.value
                 if isinstance(base, ast.Name) and base.id in aliases:
+                    if node.lineno in intentional:
+                        continue
                     findings.append((path, node.lineno, f"{base.id}.attr", node.attr, MOVED[node.attr]))
     return findings
 

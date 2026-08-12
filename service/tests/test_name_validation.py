@@ -90,10 +90,22 @@ class NameValidationTests(unittest.TestCase):
         self.assertIn("channel", str(caught.exception.detail))
 
     def test_the_router_uses_this_owner(self):
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
+        """The carrier must re-export the OWNER's object, not a second copy of it.
 
-        self.assertIs(validate_name, validate_name)
-        self.assertIs(SAFE_NAME_RE, SAFE_NAME_RE)
+        RESTORED in v0.5.4 after I broke it. This read `api_v2.validate_name` on purpose — the whole
+        assertion is that the control plane's binding and the owner's are the SAME object, which is
+        what makes a forked validator impossible. My mechanical repoint of stale owner consumers
+        rewrote `api_v2.validate_name` to `validate_name`, turning it into `assertIs(x, x)`: a
+        tautology that passes forever and proves nothing.
+
+        The lesson is narrow and worth stating: a test whose SUBJECT is the carrier's binding is not
+        a stale consumer. It is the test of exactly the relationship the census exists to police,
+        which is why the reads below are marked intentional rather than repointed.
+        """
+        from service import control_plane as api_v2
+
+        self.assertIs(api_v2.validate_name, validate_name)  # census: intentional carrier reference
+        self.assertIs(api_v2.SAFE_NAME_RE, SAFE_NAME_RE)  # census: intentional carrier reference
 
 
 if __name__ == "__main__":

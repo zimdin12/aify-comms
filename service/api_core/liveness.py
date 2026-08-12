@@ -3,10 +3,14 @@
 THE OLDEST OUTSTANDING ITEM IN THE SERIES. docs/ROADMAP.md has carried "Post-v0.5 — the consolidation
 the borrows are waiting for" since v0.5.0, reviewer-ordered as **liveness family first**. This is it.
 
-Seven predicates and the three staleness thresholds they apply, which until now lived 500 to 4,900
-lines apart in the carrier: the thresholds were declared at lines 332, 524 and 831 while their readers
-sat at 628, 2339, 2897, 3257 and 5224. Answering "how long until a bridge is considered stale" meant
-reading two distant parts of a 6,500-line module.
+TEN predicates and the FOUR staleness thresholds they apply, which until now lived up to 4,900 lines
+apart in the carrier — thresholds declared near the top, readers scattered through the middle, so
+answering "how long until a bridge is considered stale" meant reading two distant parts of a
+6,500-line module.
+
+(That sentence said "Seven predicates and the three staleness thresholds" until slice 10 added three
+more of each and made it false. Counts in prose go stale on the next commit; this one is now stated
+without line numbers for the same reason, since those moved too.)
 
 Owning the thresholds AND the predicates together is the point. A staleness constant separated from
 the predicate that applies it is how the two drift, and drift here means an agent that reads live on
