@@ -200,5 +200,40 @@ class RouteMetadataInventoryTests(unittest.TestCase):
         self.assertGreater(len(rows), 100, "the metadata snapshot looks truncated")
 
 
+
+
+class DomainRouterHarnessTests(unittest.TestCase):
+    """The harness every route domain must be built with.
+
+    v0.5.2a. `JsonApiRoute` carries the bounded SQLite write-lock retry and is configured on the
+    ROUTER, not the decorator — so a domain built with a bare `APIRouter()` keeps its bodies, paths
+    and methods, passes every existing test, and silently loses lock-retry. `domain_router()` exists
+    so that is not something a domain can get wrong by hand.
+    """
+
+    def test_the_factory_fixes_the_lock_retry_route_class(self):
+        from service.api_core.routing import JsonApiRoute, domain_router
+
+        self.assertIs(domain_router().route_class, JsonApiRoute)
+
+    def test_the_factory_refuses_an_override_rather_than_honouring_it(self):
+        """Opting out has to be impossible, not merely discouraged."""
+        from fastapi.routing import APIRoute
+
+        from service.api_core.routing import domain_router
+
+        with self.assertRaises(TypeError) as caught:
+            domain_router(route_class=APIRoute)
+        self.assertIn("lock-retry", str(caught.exception))
+
+    def test_the_factory_still_forwards_ordinary_router_options(self):
+        """A harness nobody can configure is a harness nobody will use."""
+        from service.api_core.routing import domain_router
+
+        router = domain_router(prefix="/api/v1/thing", tags=["thing"])
+        self.assertEqual(router.prefix, "/api/v1/thing")
+        self.assertEqual(router.tags, ["thing"])
+
+
 if __name__ == "__main__":
     unittest.main()
