@@ -45,6 +45,7 @@ from service.api_core.serialization import _clip_text, _iso_from_ms, _json_loads
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
+from service.api_core.liveness import _has_live_managed_wrapper_child
 from service.clock import now as _now
 from service.db import get_db
 from service.ntfy import notify_operator
@@ -100,10 +101,6 @@ async def _get_recipient_info(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _has_live_managed_wrapper_child(*a, **k):
-    from service.control_plane import _has_live_managed_wrapper_child as _impl
-
-    return await _impl(*a, **k)
 
 
 async def _preflight_live_send_recipients(*a, **k):

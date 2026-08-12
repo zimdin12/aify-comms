@@ -203,21 +203,46 @@ class UndeliveredClaimPrefersRequeueTests(FastApiTestCase):
         sharing the bound, the deterministic-loss analysis needs redoing."""
         source = (REPO_ROOT / "service" / "reconcilers" / "dispatch_queue.py").read_text(encoding="utf-8")
         requeue_body = source[source.index("async def _requeue_orphaned_claimed_runs"):][:4000]
-        # v0.5 slice 7: the requeue reconciler moved to service/reconcilers/dispatch_queue.py and now
-        # reads the ceiling through `_active_run_bridge_stale_seconds()`, a shim over the ONE
-        # owner in the router. The property under test is unchanged — both paths still derive from
-        # a single ACTIVE_RUN_BRIDGE_STALE_SECONDS — but it is reached by call rather than by name,
-        # which is deliberate: a second copy of that constant is the drift this test guards.
-        self.assertIn("_active_run_bridge_stale_seconds()", requeue_body)
-        # Window must reach the FINAL gate — the heartbeat check is the last branch in the
-        # function, and a window one character short of it made this test pass for the wrong
-        # reason on the first run.
-        # `_discard_unclaimable_active_run` did NOT move in slice 7 — this agreement now spans two
-        # files, which is precisely why it is asserted rather than assumed.
+        # v0.5 slice 7 moved the requeue reconciler out and it read the ceiling through
+        # `_active_run_bridge_stale_seconds()`, a shim over the router's single owner. v0.5.4 moved
+        # the CONSTANT itself into `service/api_core/liveness.py` alongside the predicates that apply
+        # it, so the shim is gone and both paths now name the constant directly.
+        #
+        # This assertion was rewritten with that move, and the invariant it guards is STRONGER, not
+        # weaker. Before, one path reached the value by call and the other by name, and the test had
+        # to check two different spellings while trusting the shim pointed where it claimed. Now both
+        # spell it the same way and there is exactly ONE declaration in the repo — which is checked
+        # below, because "both read the same name" proves nothing if the name is declared twice. That
+        # is not hypothetical: `_ANSI_RE` was declared twice in one module in v0.5.3 with different
+        # values.
+        self.assertIn("ACTIVE_RUN_BRIDGE_STALE_SECONDS", requeue_body)
+        # `_discard_unclaimable_active_run` did NOT move — this agreement spans two files, which is
+        # precisely why it is asserted rather than assumed.
         router = (REPO_ROOT / "service" / "control_plane.py").read_text(encoding="utf-8")
         unclaimable_at = router.index("async def _discard_unclaimable_active_run")
         unclaimable = router[unclaimable_at:router.index("async def _discard_unusable_active_run")]
         self.assertIn("ACTIVE_RUN_BRIDGE_STALE_SECONDS", unclaimable)
+        # ONE owner. Both readers naming the same constant only matters if there is one of it.
+        import ast
+
+        declarations = []
+        for path in sorted((REPO_ROOT / "service").rglob("*.py")):
+            if "__pycache__" in path.parts or path.parts[-2] == "tests":
+                continue
+            for node in ast.parse(path.read_text(encoding="utf-8")).body:
+                if isinstance(node, ast.Assign) and any(
+                    isinstance(t, ast.Name) and t.id == "ACTIVE_RUN_BRIDGE_STALE_SECONDS"
+                    for t in node.targets
+                ):
+                    declarations.append(path.relative_to(REPO_ROOT).as_posix())
+        # The FILE, not the line: a line number would break on any edit above the declaration and
+        # would be asserting formatting rather than ownership.
+        self.assertEqual(
+            declarations,
+            ["service/api_core/liveness.py"],
+            "the staleness ceiling must have exactly one declaration, and it belongs with the "
+            f"liveness predicates that apply it; found {declarations}",
+        )
 
     def test_the_reverted_shape_is_not_reintroduced(self):
         """`0b948d2` → `70e03aa`: superseding the sidecar at terminal death cannot work (the

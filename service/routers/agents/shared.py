@@ -41,6 +41,7 @@ from service.api_core.settings import _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.vocabulary import SESSION_MODES as _SESSION_MODES
 from service.api_core.ws import _get_ws
+from service.api_core.liveness import _has_live_terminal_session
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
 from service.db import get_db
@@ -239,10 +240,6 @@ def _has_codex_live_app_server(*a, **k):
     return _impl(*a, **k)
 
 
-async def _has_live_terminal_session(*a, **k):
-    from service.control_plane import _has_live_terminal_session as _impl
-
-    return await _impl(*a, **k)
 
 
 async def _has_pending_or_booting_spawn_request(*a, **k):

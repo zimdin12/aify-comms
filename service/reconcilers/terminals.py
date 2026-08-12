@@ -25,6 +25,7 @@ from typing import Any, Optional
 
 from service.api_core.serialization import _json_loads_or  # v0.5.1c: the leaf owner, not via the router
 from service.api_core.events import _append_terminal_control, _append_terminal_event  # v0.5.1i: the leaf owner
+from service.api_core.liveness import _has_live_channel_sidecar, _has_live_terminal_session
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -34,14 +35,8 @@ logger = logging.getLogger(__name__)
 
 
 
-async def _has_live_channel_sidecar(*a, **k):
-    from service.control_plane import _has_live_channel_sidecar as _i
-    return await _i(*a, **k)
 
 
-async def _has_live_terminal_session(*a, **k):
-    from service.control_plane import _has_live_terminal_session as _i
-    return await _i(*a, **k)
 
 
 

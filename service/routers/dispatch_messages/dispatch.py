@@ -27,6 +27,7 @@ from service import longpoll
 from service.api_core.events import _append_dispatch_event, _append_terminal_event
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.liveness import ACTIVE_RUN_BRIDGE_STALE_SECONDS
 from service.api_core.serialization import (
     _clip_text,
     _dedupe_preserve,
@@ -56,7 +57,6 @@ from service.routers.dispatch_messages.shared import (  # noqa: F401
     _agent_tombstone,
     _append_terminal_control,
     _auto_handoff_subject_for_run,
-    _borrowed_active_run_bridge_stale_seconds,
     _borrowed_channel_claim_runtimes,
     _borrowed_channel_managed_runtimes,
     _borrowed_dispatch_terminal_statuses,
@@ -362,7 +362,7 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
                     owner_bridge
                     and not owner_superseded_by
                     and owner_heartbeat_age is not None
-                    and owner_heartbeat_age < _borrowed_active_run_bridge_stale_seconds()
+                    and owner_heartbeat_age < ACTIVE_RUN_BRIDGE_STALE_SECONDS
                 ):
                     await db.commit()
                     return {
@@ -374,13 +374,13 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
                             "ownerBridgeId": owner,
                             "ownerBridgeKind": str(owner_bridge["bridge_kind"] or ""),
                             "currentBridgeId": req.bridgeId or "",
-                            "retryAfterSeconds": max(1, int(_borrowed_active_run_bridge_stale_seconds() - owner_heartbeat_age)),
+                            "retryAfterSeconds": max(1, int(ACTIVE_RUN_BRIDGE_STALE_SECONDS - owner_heartbeat_age)),
                             "hint": "The active run owner bridge is still heartbeating; waiting avoids killing a live wrapper-managed turn.",
                         },
                     }
             active_since = _iso_to_epoch(active_run.get("startedAt") or active_run.get("requestedAt"))
             if owner:
-                stale_seconds = _borrowed_active_run_bridge_stale_seconds()
+                stale_seconds = ACTIVE_RUN_BRIDGE_STALE_SECONDS
                 wait_hint = "A previous bridge claimed this run recently. Waiting avoids killing a run that may still complete."
             else:
                 stale_seconds = max(300, int(claim_settings.get("active_run_stale_minutes", 30) or 30) * 60)

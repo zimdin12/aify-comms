@@ -37,6 +37,7 @@ from typing import Any, Optional
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode  # v0.5.1e: the leaf owner, not via the router
 from service.api_core.settings import _load_settings, DEFAULT_SETTINGS  # v0.5.1g: the leaf owner
 from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
+from service.api_core.liveness import ACTIVE_RUN_BRIDGE_STALE_SECONDS, _has_live_channel_sidecar
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -115,7 +116,7 @@ async def _agent_has_live_claimer(db, agent_row, *, settings: Optional[dict[str,
     if await _has_live_channel_sidecar(db, agent_row["id"]):
         return True
     try:
-        stale_param = f"-{_active_run_bridge_stale_seconds()} seconds"
+        stale_param = f"-{ACTIVE_RUN_BRIDGE_STALE_SECONDS} seconds"
         cursor = await db.execute(
             """
             SELECT 1 FROM bridge_instances
@@ -202,9 +203,6 @@ async def _managed_environment_unavailable_reason(*a, **k):
 
 
 
-async def _has_live_channel_sidecar(*a, **k):
-    from service.control_plane import _has_live_channel_sidecar as _i
-    return await _i(*a, **k)
 
 
 def _insert_messages_via_console(*a, **k):
@@ -214,9 +212,6 @@ def _insert_messages_via_console(*a, **k):
 
 
 
-def _active_run_bridge_stale_seconds():
-    from service.control_plane import ACTIVE_RUN_BRIDGE_STALE_SECONDS
-    return ACTIVE_RUN_BRIDGE_STALE_SECONDS
 
 
 def _channel_flag_gated_runtimes():
@@ -590,7 +585,7 @@ async def _requeue_orphaned_claimed_runs(db, *, grace_seconds: int = 90, limit: 
       3. there is NO `delivered` dispatch_event for the run (never delivered),
       4. the `claim_bridge_id` is NOT a fresh/live bridge_instances row — uses the
          SAME staleness definition as the active-run reaper
-         (_active_run_bridge_stale_seconds() heartbeat window). An empty
+         (ACTIVE_RUN_BRIDGE_STALE_SECONDS heartbeat window). An empty
          claim_bridge_id also qualifies (no owner at all).
 
     GUARD: a claimed run whose claim bridge IS fresh is genuinely delivering right
@@ -602,7 +597,7 @@ async def _requeue_orphaned_claimed_runs(db, *, grace_seconds: int = 90, limit: 
     busy/working status clears. A live bridge then re-claims + delivers.
     """
     grace_param = f"-{max(1, int(grace_seconds))} seconds"
-    stale_param = f"-{_active_run_bridge_stale_seconds()} seconds"
+    stale_param = f"-{ACTIVE_RUN_BRIDGE_STALE_SECONDS} seconds"
     cursor = await db.execute(
         """
         SELECT id, target_agent, claim_bridge_id

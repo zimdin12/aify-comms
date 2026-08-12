@@ -33,6 +33,7 @@ from typing import Any, Optional
 
 from service.api_core.settings import _load_settings, DEFAULT_SETTINGS  # v0.5.1g: the leaf owner
 from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
+from service.api_core.liveness import ACTIVE_RUN_BRIDGE_STALE_SECONDS
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -69,9 +70,6 @@ async def _mirror_missing_dispatch_handoff(*a, **k):
 
 
 
-def _active_run_bridge_stale_seconds():
-    from service.control_plane import ACTIVE_RUN_BRIDGE_STALE_SECONDS
-    return ACTIVE_RUN_BRIDGE_STALE_SECONDS
 
 
 async def _fail_stranded_delivered_reply_runs(db, *, stale_minutes: Optional[int] = None, limit: int = 200) -> list[dict[str, str]]:
@@ -163,7 +161,7 @@ async def _clear_turn_busy_for_dead_bridges(db, *, limit: int = 200) -> list[dic
     This is the DEAD-CLAIMER complement to the pure-event turn model — NOT a
     staleness window on normal `working`. It clears turn_busy ONLY when the bridge
     that SET it is no longer live, using the SAME staleness definition as the
-    orphaned-claim requeue (_active_run_bridge_stale_seconds() heartbeat window):
+    orphaned-claim requeue (ACTIVE_RUN_BRIDGE_STALE_SECONDS heartbeat window):
 
       1. turn_busy = 1 (the agent is marked mid-turn), AND
       2. turn_bridge_id identifies a REAL owning BRIDGE — excludes both the empty
@@ -186,7 +184,7 @@ async def _clear_turn_busy_for_dead_bridges(db, *, limit: int = 200) -> list[dic
     only ever CLEARS, keyed on the bridge's heartbeat truth, never on the server's
     derived status.
     """
-    stale_param = f"-{_active_run_bridge_stale_seconds()} seconds"
+    stale_param = f"-{ACTIVE_RUN_BRIDGE_STALE_SECONDS} seconds"
     cursor = await db.execute(
         """
         SELECT ats.agent_id, ats.turn_bridge_id

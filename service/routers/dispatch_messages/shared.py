@@ -53,6 +53,7 @@ from service.api_core.capabilities import _managed_via_wrapper_for_runtime
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
+from service.api_core.liveness import _has_live_managed_wrapper_child
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
 from service.db import SQLITE_CLAIM_BUSY_TIMEOUT_MS, get_db
@@ -553,11 +554,6 @@ async def _release_stale_console_owner_for_claim(db, owner_session, req: Dispatc
     return None
 
 
-def _borrowed_active_run_bridge_stale_seconds():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import ACTIVE_RUN_BRIDGE_STALE_SECONDS
-
-    return ACTIVE_RUN_BRIDGE_STALE_SECONDS
 
 
 def _borrowed_turn_busy_backstop_seconds():
@@ -721,10 +717,6 @@ async def _has_claimable_spawn_request(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _has_live_managed_wrapper_child(*a, **k):
-    from service.control_plane import _has_live_managed_wrapper_child as _impl
-
-    return await _impl(*a, **k)
 
 
 def _insert_messages_via_console(*a, **k):
