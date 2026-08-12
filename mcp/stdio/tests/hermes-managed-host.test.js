@@ -49,9 +49,9 @@ import {
   makeInFlightProbe,
   makeInFlightPulse,
 } from "../hermes-inflight.mjs";
+import { makeTeardown } from "../hermes-gateway.mjs";
 import {
   deliverRun,
-  makeTeardown,
   noTuiAttachedMessage,
   runCli,
   runDeliveryLoop,

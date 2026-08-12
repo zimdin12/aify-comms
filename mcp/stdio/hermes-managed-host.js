@@ -90,6 +90,7 @@ import {  // v0.5.4: moved out; this file is now a CALLER of the gateway module
   reportGatewayDead,
   shouldApplyGatewayTurnEnd,
   sleep,
+  makeTeardown,
 } from "./hermes-gateway.mjs";
 import {
   resolveGatewayPort,
@@ -986,41 +987,7 @@ export async function runPollCycle({
 // shared `state` flag. NEVER throws. `killByPort` defaults to the real
 // port→PID→kill from hermes-daemon.js; `clearMarkers` (optional) runs after the
 // kill so a teardown also drops the agent's port/key markers (Task 4.1 wiring).
-export function makeTeardown({
-  gatewayChild = null,
-  clearMarkers,
-  state = { done: false },
-} = {}) {
-  return async function teardown() {
-    if (state.done) return;
-    state.done = true;
-    try {
-      // Kill the gateway host ONLY if THIS loop itself spawned it (an owned
-      // child handle). A REUSED gateway (gatewayChild===null) is the one the
-      // wrapper's `ensure-host` started for the VISIBLE TUI — the TUI shares that
-      // gateway, so the loop MUST NOT kill it. Port-killing a reused gateway here
-      // dropped the TUI's WebSocket ("gateway websocket connection failed",
-      // 2026-06-02). A reused/shared gateway is reaped by kill-prior on relaunch
-      // and the env-bridge survivor sweep on restart — its lifetime ties to the
-      // TUI/console, NOT this loop.
-      if (gatewayChild && typeof gatewayChild.kill === "function") {
-        gatewayChild.kill("SIGTERM");
-      }
-    } catch (error) {
-      console.error(
-        "[hermes-managed-host] gateway-host teardown failed (best-effort):",
-        error?.message || String(error),
-      );
-    }
-    if (typeof clearMarkers === "function") {
-      try {
-        await clearMarkers();
-      } catch {
-        /* best-effort */
-      }
-    }
-  };
-}
+// makeTeardown moved to ./hermes-gateway.mjs in v0.5.4 — teardown is that module's subject.
 
 // Wire SIGTERM/SIGINT → teardown → exit. When the caller supplies a bound
 // `teardown` (the port-aware makeTeardown from runDeliveryLoop, Task 1.2) it is

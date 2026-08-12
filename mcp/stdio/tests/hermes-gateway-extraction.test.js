@@ -83,6 +83,7 @@ const EXTRACTIONS = [
       { name: "shouldApplyGatewayTurnEnd", at: 1717, marker: "// shouldApplyGatewayTurnEnd moved to ./hermes-gateway.mjs in v0.5.4.", pristineExported: true },
       { name: "_teardownState", at: 1864, marker: "// _teardownState moved to ./hermes-gateway.mjs in v0.5.4." },
       { name: "teardownGatewayHost", at: 1868, marker: "// teardownGatewayHost moved to ./hermes-gateway.mjs in v0.5.4.", pristineExported: true },
+      { name: "makeTeardown", at: 1888, marker: "// makeTeardown moved to ./hermes-gateway.mjs in v0.5.4 — teardown is that module's subject.", pristineExported: true },
       { name: "installShutdownTeardown", at: 1930, marker: "// installShutdownTeardown moved to ./hermes-gateway.mjs in v0.5.4.", pristineExported: true },
     ],
   },

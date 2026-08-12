@@ -576,3 +576,55 @@ export function installShutdownTeardown({
   proc.once("SIGTERM", onSignal);
   proc.once("SIGINT", onSignal);
 }
+
+
+// v0.5.4: `makeTeardown` arrived from the host as an ordinary top-level relocation. It belongs here because
+// this module already owns `teardownGatewayHost`, `installShutdownTeardown` and `_teardownState` — tearing a
+// gateway down IS its subject, and the host was only its caller.
+//
+// It moves cleanly because it captures nothing: `gatewayChild`, `clearMarkers` and `state` are all
+// parameters, it calls no other function, and it imports nothing. That is the difference between this and the
+// seams inside `runDeliveryLoop`, seven of which close over the loop's mutable `let` bindings and therefore
+// cannot be relocated at all.
+//
+// THE COMMENT INSIDE IT IS THE VALUABLE PART and is preserved verbatim: the loop must kill the gateway ONLY
+// if it spawned the child itself. A REUSED gateway (gatewayChild === null) is the one the wrapper's
+// `ensure-host` started for the VISIBLE TUI, which shares it — killing that dropped the TUI's WebSocket in
+// production on 2026-06-02. A shared gateway's lifetime belongs to the TUI, not to a delivery loop, and it is
+// reaped by kill-prior on relaunch instead.
+
+export function makeTeardown({
+  gatewayChild = null,
+  clearMarkers,
+  state = { done: false },
+} = {}) {
+  return async function teardown() {
+    if (state.done) return;
+    state.done = true;
+    try {
+      // Kill the gateway host ONLY if THIS loop itself spawned it (an owned
+      // child handle). A REUSED gateway (gatewayChild===null) is the one the
+      // wrapper's `ensure-host` started for the VISIBLE TUI — the TUI shares that
+      // gateway, so the loop MUST NOT kill it. Port-killing a reused gateway here
+      // dropped the TUI's WebSocket ("gateway websocket connection failed",
+      // 2026-06-02). A reused/shared gateway is reaped by kill-prior on relaunch
+      // and the env-bridge survivor sweep on restart — its lifetime ties to the
+      // TUI/console, NOT this loop.
+      if (gatewayChild && typeof gatewayChild.kill === "function") {
+        gatewayChild.kill("SIGTERM");
+      }
+    } catch (error) {
+      console.error(
+        "[hermes-managed-host] gateway-host teardown failed (best-effort):",
+        error?.message || String(error),
+      );
+    }
+    if (typeof clearMarkers === "function") {
+      try {
+        await clearMarkers();
+      } catch {
+        /* best-effort */
+      }
+    }
+  };
+}
