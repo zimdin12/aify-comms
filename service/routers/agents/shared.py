@@ -42,6 +42,7 @@ from service.api_core.validation import validate_name
 from service.api_core.vocabulary import SESSION_MODES as _SESSION_MODES
 from service.api_core.ws import _get_ws
 from service.api_core.liveness import _has_live_terminal_session
+from service.api_core.agent_sessions import _agent_tombstone, _session_handle_live_owner, _touch_current_agent_session
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
 from service.db import get_db
@@ -87,10 +88,6 @@ def _agent_record_to_dict(*a, **k):
 
 
 
-async def _agent_tombstone(*a, **k):
-    from service.control_plane import _agent_tombstone as _impl
-
-    return await _impl(*a, **k)
 
 
 async def _append_dispatch_control(*a, **k):
@@ -296,10 +293,6 @@ def _runtime_state_with_handle(*a, **k):
     return _impl(*a, **k)
 
 
-async def _session_handle_live_owner(*a, **k):
-    from service.control_plane import _session_handle_live_owner as _impl
-
-    return await _impl(*a, **k)
 
 
 async def _stop_virtual_terminals_for_superseded_bridges(
@@ -378,10 +371,6 @@ async def _stop_virtual_terminals_for_superseded_bridges(
 
 
 
-async def _touch_current_agent_session(*a, **k):
-    from service.control_plane import _touch_current_agent_session as _impl
-
-    return await _impl(*a, **k)
 
 
 def _workspace_for_environment(*a, **k):

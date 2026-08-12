@@ -49,6 +49,7 @@ from service.api_core.capabilities import _default_console_command, _environment
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
+from service.api_core.agent_sessions import _touch_current_agent_session
 from service.clock import now as _now
 import sqlite3
 from service.api_core.events import _append_terminal_control, _append_terminal_event
@@ -100,11 +101,6 @@ async def _has_claimable_spawn_request(*a, **k):
 
 
 
-async def _touch_current_agent_session(*a, **k):
-    """BORROWED: still used by handlers that have not moved."""
-    from service.control_plane import _touch_current_agent_session as _impl
-
-    return await _impl(*a, **k)
 
 
 

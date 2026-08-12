@@ -46,6 +46,7 @@ from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.api_core.liveness import _has_live_managed_wrapper_child
+from service.api_core.agent_sessions import _touch_agent
 from service.clock import now as _now
 from service.db import get_db
 from service.ntfy import notify_operator
@@ -115,10 +116,6 @@ def _reject_sender_truncated_body(*a, **k):
     return _impl(*a, **k)
 
 
-async def _touch_agent(*a, **k):
-    from service.control_plane import _touch_agent as _impl
-
-    return await _impl(*a, **k)
 
 
 def _wake_agent(*a, **k):

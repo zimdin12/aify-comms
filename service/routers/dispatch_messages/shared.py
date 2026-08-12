@@ -54,6 +54,7 @@ from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.api_core.liveness import _has_live_managed_wrapper_child
+from service.api_core.agent_sessions import _agent_tombstone, _touch_agent, _touch_current_agent_session
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
 from service.db import SQLITE_CLAIM_BUSY_TIMEOUT_MS, get_db
@@ -81,10 +82,6 @@ async def _adopt_live_resident_driver(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _agent_tombstone(*a, **k):
-    from service.control_plane import _agent_tombstone as _impl
-
-    return await _impl(*a, **k)
 
 
 
@@ -769,16 +766,8 @@ async def _run_contract_reminders_once(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _touch_agent(*a, **k):
-    from service.control_plane import _touch_agent as _impl
-
-    return await _impl(*a, **k)
 
 
-async def _touch_current_agent_session(*a, **k):
-    from service.control_plane import _touch_current_agent_session as _impl
-
-    return await _impl(*a, **k)
 
 
 async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
