@@ -6280,23 +6280,7 @@ async def _dispatch_conversation_context(db, row, *, limit: int = 8) -> list[dic
 
 
 
-def _is_replaceable_auto_handoff_message(existing_message, replied_run) -> bool:
-    if not existing_message or not replied_run:
-        return True
-    existing_body = str((existing_message["body"] if "body" in existing_message.keys() else "") or "")
-    if existing_body.startswith("Auto-mirrored dispatch "):
-        return True
-    return (
-        existing_body == _auto_handoff_body_for_run(replied_run)
-        and str((existing_message["subject"] if "subject" in existing_message.keys() else "") or "").strip()
-        == _auto_handoff_subject_for_run(replied_run)
-        and str((existing_message["from_agent"] if "from_agent" in existing_message.keys() else "") or "").strip()
-        == str((replied_run["target_agent"] if "target_agent" in replied_run.keys() else "") or "").strip()
-        and str((existing_message["to_agent"] if "to_agent" in existing_message.keys() else "") or "").strip()
-        == str((replied_run["from_agent"] if "from_agent" in replied_run.keys() else "") or "").strip()
-        and str((existing_message["in_reply_to"] if "in_reply_to" in existing_message.keys() else "") or "").strip()
-        == str((replied_run["message_id"] if "message_id" in replied_run.keys() else "") or "").strip()
-    )
+# _is_replaceable_auto_handoff_message moved to service/routers/dispatch_messages/shared.py in v0.5.3.
 
 
 _HANDOFF_REPLY_TYPES = {"response", "review", "error", "approval"}
