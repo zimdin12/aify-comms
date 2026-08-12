@@ -235,15 +235,18 @@ The 3b shim in `service/reconcilers/sessions.py` has a removal gate tied to the 
 must not survive that consolidation. A shim that keeps working is exactly how a deferral becomes
 permanent.
 
-### v0.5.3 — PREPARED, NOT YET TAGGED. The router monolith is decomposed, and the debt is visible
+### v0.5.3 — TAGGED at `6578bc3` and pushed. The router monolith is decomposed, and the debt is visible
 
-> **Status, stated because the reviewer was right to flag it:** the version files say 0.5.3 and
-> the work is reviewed, but **no tag exists and nothing is deployed**. This heading said
-> "SHIPPED" while both were untrue — release wording written in advance of the release, which
-> is the same wrong-but-plausible-documentation class as the other three this series found.
-> Remaining and all operator actions: `install.sh` per client plus wrapper relaunch (the bridge
-> version changed, so `aify-comms doctor` fails `bridge-installed` until then), the container
-> rebuild, and the tag itself.
+> **Status, and this heading has now been wrong in BOTH directions.** It first said "SHIPPED"
+> before a tag existed; it was corrected to "PREPARED, NOT YET TAGGED"; and then the tag was cut,
+> which made the correction wrong too. Fifth instance in this series of prose describing the
+> moment it was written rather than the state of the repo — see the pattern note below.
+>
+> **What is true now:** annotated tag `v0.5.3` exists at `6578bc3` and is pushed to origin, as is
+> `main`. It is a SOURCE tag. **Nothing has been deployed from it** — the container still serves an
+> earlier build, and because `mcp/stdio/version.js` changed, `install.sh` per client plus a wrapper
+> relaunch is still outstanding (`aify-comms doctor` fails `bridge-installed` until then). Those two
+> remain operator actions and are deliberately NOT implied by the tag.
 
 `service/routers/api_v2.py` **20,545 -> `service/control_plane.py` 6,964 + a 53-line composition
 module**. 103 route handlers in the old carrier -> **0**. Routes **124 -> 124**, snapshot byte-equal.
@@ -279,6 +282,71 @@ collapsed duplicates into a dict); a silent-422 class where a moved handler lost
 and FastAPI demoted the body to a query param; route snapshots that were gitignored and so could
 never run from a clean clone; and three more false-pass holes in the extract-method gate, all found
 by running it on real code rather than reading it.
+
+### v0.5.4 — IN PROGRESS. Every non-test source file under 1,000 lines
+
+Operator scope, 2026-08-12: **all 12 files over 1,000 lines, before the big testing round.** 0.5.x
+stays the refactor line. `VERSION` is 0.5.4 while this is under way; the tagged checkpoint is v0.5.3
+at `6578bc3`.
+
+**Python decomposition is bottom-up by CALL-GRAPH LAYER**, on the reviewer's ruling.
+`control_plane.py` measured as a clean 8-layer DAG with no cycles — 78 pure leaves at layer 0, then
+29 / 14 / 7 / 4 / 3 / 3 / 2. An earlier attempt to plan by NAME PREFIX produced 49 "families" with
+`live` depending on fifteen of them: a histogram, not an architecture. Subject grouping now only
+decides how leaves within a layer are grouped into modules.
+
+Two invariants: a new leaf must NOT import `service.control_plane` (the control plane becomes a
+CALLER of each leaf), and the symtable undefined-name sweep runs BEFORE the suites on every slice —
+"layer-0 leaf" means the helper calls nothing else, NOT that the carrier does not call it, and
+skipping that check once cost 302 red tests.
+
+**A constant follows its function group into the leaf**, and the carrier becomes one reader among
+several. This INVERTS the v0.5.3 accessor rule, which was correct for the router era when the carrier
+was the legitimate owner. A constant governing several future leaves goes to a neutral leaf, not a
+subject one — which is why `_dispatch_buffer_full_hint` was left behind rather than dragging
+`_DISPATCH_BUFFER_CAP` into a formatting module.
+
+Progress, measured at each slice:
+
+| | `control_plane.py` | shims into it |
+|---|---|---|
+| v0.5.3 (tagged) | 6,964 | 275 |
+| + `api_core/capabilities.py` | 6,820 | 263 |
+| + `api_core/records.py` | 6,730 | 254 |
+| + `api_core/dispatch_text.py` | 6,634 | 248 |
+
+**JavaScript is last, and needs its own reviewed proof packet first.** The four JS files over 1k are
+15,726 lines — more than the Python total. The diagnosis is not "no standards": 120 JS test files
+genuinely execute code and only 20 are source-regex. It is **missing exports** — `app.js` has ~246
+functions and exports NOTHING, `server.js` exposes 6 of ~139, so no test can call them and regex
+tests are the only thing possible. Compare `doctor-predicates.js`: 567 lines, 20 exports, properly
+tested, and its first test caught a real bug. So monolith -> no exports -> untestable, and the
+extraction IS the fix. Order is `app.js` first (worst exportability, dashboard blast radius),
+`server.js` last (live MCP bridge every agent loads). Standard: byte-identical bodies, the new module
+EXPORTS what it extracts, and real unit tests that import and call it.
+
+### A pattern worth naming: documentation inherits the intention, not the outcome
+
+Five times in this series prose asserted something the repo did not support, and none of it was
+caught by a test, because nothing in the suite reads prose:
+
+1. `_ANSI_RE` declared twice in one module with DIFFERENT patterns — the dead one sat four lines
+   above the function it appeared to govern.
+2. `dispatch_queue.py`'s borrow table counted names it no longer had, and asked review to accept a
+   departure that had already been resolved.
+3. The multi-extraction verifier's docstring promised "innermost calls first"; it inlines in the
+   order supplied.
+4. This ROADMAP said `v0.5.3 — SHIPPED` before a tag existed.
+5. It then said `PREPARED, NOT YET TAGGED` after the tag was cut.
+
+The cause is the same each time: the sentence is written while the plan is still in the author's
+head, so it describes the plan. By the time anyone reads it, only the artifact exists.
+
+**Rules that follow:** counts in prose must be MEASURED, not remembered (three commit messages in
+this series carried arithmetic done in my head and had to be amended). Status words — SHIPPED,
+removed, eliminated, "now under N lines" — are assertions about the repo's present state and rot on
+the next commit. Prefer wording that stays true: "as of v0.5.3", "measured at <sha>", or a pointer to
+the gate that enforces the claim.
 
 ### v0.6 — the decomposition inventory this release makes visible
 
