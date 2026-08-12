@@ -4283,44 +4283,7 @@ def _terminal_session_to_dict(row) -> dict[str, Any]:
 
 
 
-def _terminal_control_to_dict(
-    row,
-    *,
-    pid: str = "",
-    agent_id: str = "",
-    runtime: str = "",
-    session_mode: str = "",
-) -> dict[str, Any]:
-    return {
-        "id": row["id"],
-        "terminalId": row["terminal_id"],
-        "environmentId": row["environment_id"],
-        "bridgeId": row["bridge_id"] or "",
-        "action": row["action"],
-        "body": row["body"] or "",
-        "cols": int(row["cols"] or 0),
-        "rows": int(row["rows"] or 0),
-        "status": row["status"] or "",
-        "requestedBy": row["requested_by"] or "",
-        "requestedAt": row["requested_at"] or "",
-        "claimedAt": row["claimed_at"] or "",
-        "handledAt": row["handled_at"] or "",
-        "error": row["error"] or "",
-        # Stored PTY root pid for the target terminal (terminal_sessions.
-        # process_id). Lets a claiming bridge kill an orphaned PTY by-pid on a
-        # `stop` control when it never owned the PTY in its in-memory Map
-        # (owning bridge restarted/died). Empty when unknown.
-        "pid": str(pid or ""),
-        # Target terminal's agent + runtime, and the agent's session_mode, so a
-        # claiming bridge can detect a MANAGED-HERMES `stop` and run the triad
-        # teardown (gateway/loop/daemon), not just the PTY stop (fix/hermes-leak
-        # P2). Empty when the terminal/agent is gone (e.g. claimed after REMOVE
-        # deleted the agent) — REMOVE therefore stamps the body sentinel below so
-        # the triad reap still fires.
-        "agentId": str(agent_id or ""),
-        "runtime": str(runtime or ""),
-        "sessionMode": str(session_mode or ""),
-    }
+# _terminal_control_to_dict moved to service/routers/terminals.py in v0.5.3.
 
 
 # _trim_terminal_output moved to service/routers/terminals.py in v0.5.3.
