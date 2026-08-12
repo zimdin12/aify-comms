@@ -235,5 +235,86 @@ class DomainRouterHarnessTests(unittest.TestCase):
         self.assertEqual(router.tags, ["thing"])
 
 
+
+
+class RouteAnnotationsResolveTests(unittest.TestCase):
+    """A body model that fails to resolve becomes a QUERY parameter, and only 422s at request time.
+
+    THE DOMAIN-PHASE TRAP, hit for real moving spawn-requests. `claim_spawn_request(req:
+    SpawnRequestClaim)` moved to a new module whose imports did not include that model. Because the
+    codebase uses `from __future__ import annotations`, the annotation is just the STRING
+    "SpawnRequestClaim" — so:
+
+      - `py_compile` passes: nothing is undefined at compile time;
+      - the module imports fine: the name is never evaluated;
+      - the undefined-name sweep sees NOTHING, because there is no Name node to find;
+      - `create_app()` succeeds and the route exists with the right path, method and route_class;
+      - the route metadata snapshot is UNCHANGED, because none of the fields it pins move.
+
+    FastAPI then cannot resolve the annotation, falls back to treating `req` as a query parameter,
+    and the endpoint 422s on every real call. Eighty-five tests went red and every static check in
+    this repo was green.
+
+    So the resolution is checked directly: every route endpoint's type hints must evaluate, and any
+    parameter annotated with a Pydantic model must be a BODY parameter and never a query one.
+    """
+
+    def test_every_route_endpoints_annotations_resolve(self):
+        import typing
+
+        from service.main import create_app
+
+        app = create_app()
+        broken = []
+        for route in app.routes:
+            endpoint = getattr(route, "endpoint", None)
+            if endpoint is None or not getattr(route, "path", None):
+                continue
+            try:
+                typing.get_type_hints(endpoint)
+            except Exception as error:  # noqa: BLE001 - the point is to report ANY failure
+                broken.append(f"{route.path} {endpoint.__name__}: {type(error).__name__}: {error}")
+        self.assertEqual(
+            broken,
+            [],
+            "A route handler's annotations do not resolve. With postponed annotations this does "
+            "NOT fail at import — FastAPI silently reinterprets the parameter and the endpoint "
+            "breaks at request time:\n  " + "\n  ".join(broken),
+        )
+
+    def test_no_pydantic_model_is_being_treated_as_a_query_parameter(self):
+        """The precise symptom: a body model demoted to `?req=`."""
+        from pydantic import BaseModel
+
+        from service.main import create_app
+
+        app = create_app()
+        offenders = []
+        for route in app.routes:
+            dependant = getattr(route, "dependant", None)
+            endpoint = getattr(route, "endpoint", None)
+            if dependant is None or endpoint is None:
+                continue
+            import typing
+
+            try:
+                hints = typing.get_type_hints(endpoint)
+            except Exception:
+                continue  # reported by the test above
+            for param in getattr(dependant, "query_params", []):
+                annotation = hints.get(param.name)
+                if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+                    offenders.append(
+                        f"{route.path} {endpoint.__name__}: `{param.name}: "
+                        f"{annotation.__name__}` is a QUERY param, so the body is never read"
+                    )
+        self.assertEqual(
+            offenders,
+            [],
+            "A request-body model is being read as a query parameter. Almost always a model that "
+            "was not imported into a module a handler moved to:\n  " + "\n  ".join(offenders),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

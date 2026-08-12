@@ -157,7 +157,8 @@ class ReconcilerSourceTests(unittest.TestCase):
         the dispatcher generated. If someone edits one f-string, this fails instead of the feature
         quietly repairing nothing."""
         from pathlib import Path
-        src = Path(__file__).resolve().parents[1] / "routers" / "api_v2.py"
+        # v0.5.2g: the spawn brief is built in the spawn-requests domain now.
+        src = Path(__file__).resolve().parents[1] / "routers" / "spawn_requests.py"
         text = src.read_text(encoding="utf-8", errors="replace")
         self.assertIn('f"Spawn {row[\'agent_id\']}"', text,
                       "the dispatcher's default subject shape changed — update the reconciler with it")

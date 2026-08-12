@@ -162,8 +162,11 @@ class EnsureManagedPtyRowAccessTests(unittest.TestCase):
 
         from service.tests._source import code_only
 
+        # v0.5.2g moved the spawn handlers out; this probe follows the code, not the file. The
+        # OTHER source reads in this file still point at api_v2 because their subjects are borrowed
+        # helpers that stayed there — repointing them all would have been wrong.
         src = code_only(
-            (Path(__file__).resolve().parents[1] / "routers" / "api_v2.py").read_text(
+            (Path(__file__).resolve().parents[1] / "routers" / "spawn_requests.py").read_text(
                 encoding="utf-8", errors="replace"
             )
         )
