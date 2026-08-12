@@ -724,32 +724,6 @@ async def _record_claimer_lease(db, agent_id: str, *, action: str, bridge_id: st
 # _resolve_live_console_terminal moved to service/api_core/agent_terminal_ops.py in v0.5.4.
 
 
-def _resume_command_for(runtime: Any, session_handle: Any, agent_id: Any = "") -> str:
-    """Takeover/resume command for a session, sourced from the runtime adapter.
-
-    Used by the mode-switch response (managed -> resident takeover) and the
-    mutual-exclusion collision guard's actionable error. For hermes the resume
-    target is the per-agent daemon session `aify-<agentId>` when no concrete
-    handle is pinned; everything else resumes by the pinned handle. Best-effort:
-    returns "" if the adapter has no resume command (never raises).
-    """
-    handle = str(session_handle or "").strip()
-    normalized = _normalize_runtime(runtime)
-    if not handle and normalized == "hermes" and agent_id:
-        handle = f"aify-{agent_id}"
-    if not handle:
-        return ""
-    try:
-        from service.runtimes import adapter_for
-        # Pass the agent id: the wrapper needs `--aify-agent` to export AIFY_AGENT_ID,
-        # without which the resumed session's turn detector and turn hooks all silently
-        # no-op and its status latches (the general-manager incident). A resume command
-        # that omits it is a command that breaks the agent it resumes.
-        return adapter_for(normalized).resume_command(handle, str(agent_id or "").strip()) or ""
-    except Exception:
-        return ""
-
-
 def _runtime_handle_from_state(runtime: Any, runtime_state: Any) -> str:
     state = runtime_state if isinstance(runtime_state, dict) else _json_loads_or(runtime_state, {})
     normalized = _normalize_runtime(runtime)

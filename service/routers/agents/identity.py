@@ -33,6 +33,7 @@ from service.models import (
     AgentStatusUpdate,
 )
 
+from service.api_core.resume_command import _resume_command_for
 from service.routers.agents.shared import (
     DEFAULT_SETTINGS,
     LIVE_SESSION_STATUSES,
@@ -94,7 +95,6 @@ from service.routers.agents.shared import (
     _render_live_terminal_screen,
     _render_terminal_snapshot,
     _repair_unusable_active_runs,
-    _resume_command_for,
     _row_status_note,
     _runtime_capability_for_environment,
     _runtime_handle_from_state,
