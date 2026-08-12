@@ -3812,40 +3812,7 @@ async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dic
 
 
 
-def _terminal_pi_idle_prompt_hint(output: str) -> str:
-    """Detect Pi (omp) idle input prompt at the tail of terminal output.
-
-    The omp interactive prompt renders a two-line input box:
-
-        ╭── π  > ⬢ GPT-5.5 · ◕ high > 📁 C:\\tmp > ◫ 49.1%/272K ⟲ > $... ▶──╮
-        ╰─                                                                ─╯
-
-    When this idle box appears at the tail of the buffer and there is no
-    active-thinking indicator below, pi is sitting at the input prompt
-    waiting for new input — meaning whatever turn was in flight is done.
-    Used by _close_idle_pi_terminal_run_without_reply the same way claude's
-    idle-prompt detection closes PTY-delivered runs whose interactive
-    runtime returned to ready state without a structured reply event.
-    """
-    clean = _ANSI_RE.sub("", str(output or ""))
-    clean = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", clean)
-    tail = clean[-3000:]
-    if not tail:
-        return ""
-    # The bottom-border of the omp input box. Distinctive enough that
-    # plain log content won't false-positive. Both upper and lower box
-    # corners must be present near the tail to confirm idle state.
-    has_top = ("▶──╮" in tail) or ("π" in tail and "⬢" in tail)
-    has_bottom = "╰─" in tail and "─╯" in tail
-    if not (has_top and has_bottom):
-        return ""
-    # Bail if a streaming-thinking marker appears AFTER the idle box —
-    # would mean pi went back to thinking after a momentary prompt flash.
-    last_box_idx = tail.rfind("╰─")
-    suffix = tail[last_box_idx:]
-    if re.search(r"(thinking|cogitating|streaming|honking|press\s+esc|esc\s+to\s+interrupt)", suffix, re.I):
-        return ""
-    return "Pi PTY returned to an idle prompt without an explicit reply."
+# _terminal_pi_idle_prompt_hint moved to service/reconcilers/terminal_runs.py in v0.5.3.
 
 
 

@@ -2061,7 +2061,8 @@ class ApiV2RegressionTests(FastApiTestCase):
         # Pi (omp) idle prompt detector. Used by _close_idle_pi_terminal_run_without_reply
         # to close PTY-delivered managed-pi runs whose interactive omp
         # returned to the input box without emitting a structured reply.
-        from service.routers.api_v2 import _terminal_pi_idle_prompt_hint
+        # v0.5.3: owner is the terminal-runs reconciler, which is also what production calls.
+        from service.reconcilers.terminal_runs import _terminal_pi_idle_prompt_hint
         idle_buffer = (
             "Some prior conversation\n"
             "more output\n"
