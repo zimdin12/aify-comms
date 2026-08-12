@@ -26,6 +26,7 @@ from service import longpoll
 from service.api_core.events import _append_dispatch_event, _append_terminal_event
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.dispatch_text import COLDSTART_REFUSED_PREFIX
 from service.api_core.serialization import (
     _clip_text,
     _dedupe_preserve,
@@ -57,7 +58,6 @@ from service.routers.dispatch_messages.shared import (  # noqa: F401
     _borrowed_active_run_bridge_stale_seconds,
     _borrowed_channel_claim_runtimes,
     _borrowed_channel_managed_runtimes,
-    _borrowed_coldstart_refused_prefix,
     _borrowed_dispatch_terminal_statuses,
     _borrowed_merged_dispatch_header,
     _borrowed_unthreaded_handoff_window_ms,
@@ -877,7 +877,7 @@ async def send_message(req: MessageSend, request: Request):
                                 except Exception as _cs_err:
                                     coldstarted = False
                                     _cs_reasons_b.append(
-                                        f"{_borrowed_coldstart_refused_prefix()}cold-start raised: {_cs_err}")
+                                        f"{COLDSTART_REFUSED_PREFIX}cold-start raised: {_cs_err}")
                                 if not coldstarted and not await _has_claimable_spawn_request(db, recipient_id):
                                     not_started.append(
                                         _dispatch_fix_hint(

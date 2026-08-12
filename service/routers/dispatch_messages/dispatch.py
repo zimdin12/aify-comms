@@ -59,7 +59,6 @@ from service.routers.dispatch_messages.shared import (  # noqa: F401
     _borrowed_active_run_bridge_stale_seconds,
     _borrowed_channel_claim_runtimes,
     _borrowed_channel_managed_runtimes,
-    _borrowed_coldstart_refused_prefix,
     _borrowed_dispatch_terminal_statuses,
     _borrowed_merged_dispatch_header,
     _borrowed_unthreaded_handoff_window_ms,

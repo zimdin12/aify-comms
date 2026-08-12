@@ -212,7 +212,7 @@ class ColdStartRefusalReasonTests(unittest.TestCase):
                          "the whole defect was blaming the environment for every cause")
 
     def test_no_recorded_reason_degrades_to_a_message_not_to_silence(self):
-        from service.control_plane import _coldstart_refusal_message
+        from service.api_core.dispatch_text import _coldstart_refusal_message
         for w in (None, [], ["some unrelated advisory"]):
             msg = _coldstart_refusal_message(w, "hermes")
             self.assertIn("hermes", msg)
@@ -221,7 +221,7 @@ class ColdStartRefusalReasonTests(unittest.TestCase):
     def test_the_preexisting_advisory_warning_is_not_mistaken_for_a_reason(self):
         # `warnings` also carries the non-blocking G3 handle-collision advisory. Picking that up
         # as the refusal cause would replace one wrong message with another.
-        from service.control_plane import _coldstart_refusal_message
+        from service.api_core.dispatch_text import _coldstart_refusal_message
         msg = _coldstart_refusal_message(["bound handle is owned by a different live agent"], "hermes")
         self.assertNotIn("bound handle", msg)
 

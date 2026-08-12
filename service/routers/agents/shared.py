@@ -26,6 +26,9 @@ from service.api_core.runtime import _normalize_runtime
 from service.api_core.runtime import _normalize_session_mode
 from service.api_core.runtime import _runtime_capability_for_environment
 from service.api_core.records import _agent_session_to_dict, _environment_record_to_dict, _terminal_session_to_dict
+from service.api_core.dispatch_text import (  # v0.5.4 owner; re-exported for this package
+    _coldstart_refusal_message,
+)
 from service.api_core.serialization import _json_loads_or
 from service.api_core.serialization import _normalize_machine_id
 from service.api_core.serialization import _timestamp_sort_key
@@ -107,10 +110,6 @@ async def _clear_status_state_in_turn(*a, **k):
     return await _impl(*a, **k)
 
 
-def _coldstart_refusal_message(*a, **k):
-    from service.control_plane import _coldstart_refusal_message as _impl
-
-    return _impl(*a, **k)
 
 
 async def _coldstart_spawn_request_for_dispatch(*a, **k):

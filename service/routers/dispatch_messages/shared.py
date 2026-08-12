@@ -33,6 +33,10 @@ from service import longpoll
 from service.api_core.events import _append_dispatch_event, _append_terminal_event
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.dispatch_text import (  # v0.5.4 owner; re-exported for this package
+    _auto_handoff_subject_for_run,
+    _coldstart_refusal_message,
+)
 from service.api_core.serialization import (
     _clip_text,
     _dedupe_preserve,
@@ -79,10 +83,6 @@ async def _agent_tombstone(*a, **k):
     return await _impl(*a, **k)
 
 
-def _auto_handoff_subject_for_run(*a, **k):
-    from service.control_plane import _auto_handoff_subject_for_run as _impl
-
-    return _impl(*a, **k)
 
 
 def _auto_handoff_body_for_run(*a, **k):
@@ -574,11 +574,6 @@ def _borrowed_turn_busy_backstop_seconds():
     return TURN_BUSY_BACKSTOP_SECONDS
 
 
-def _borrowed_coldstart_refused_prefix():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import COLDSTART_REFUSED_PREFIX
-
-    return COLDSTART_REFUSED_PREFIX
 
 
 def _borrowed_channel_claim_runtimes():
@@ -653,10 +648,6 @@ async def _clear_turn_busy_if_no_open_reply_owing_run(*a, **k):
     return await _impl(*a, **k)
 
 
-def _coldstart_refusal_message(*a, **k):
-    from service.control_plane import _coldstart_refusal_message as _impl
-
-    return _impl(*a, **k)
 
 
 async def _coldstart_spawn_request_for_dispatch(*a, **k):
