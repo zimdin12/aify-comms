@@ -191,7 +191,8 @@ class ColdStartRefusalReasonTests(unittest.TestCase):
     """
 
     def test_each_refusal_records_a_distinct_reason(self):
-        from service.control_plane import _coldstart_refusal, COLDSTART_REFUSED_PREFIX
+        from service.api_core.dispatch_text import COLDSTART_REFUSED_PREFIX
+        from service.control_plane import _coldstart_refusal
         seen = set()
         for reason in ("runtime 'x' is not cold-startable", "this agent is RESIDENT",
                        "a spawn for this agent is ALREADY IN FLIGHT", "no ONLINE environment"):
@@ -203,7 +204,8 @@ class ColdStartRefusalReasonTests(unittest.TestCase):
         self.assertEqual(len(seen), 4, "each cause must produce its OWN text, not a shared one")
 
     def test_the_message_surfaces_the_reason_not_the_environment_sentence(self):
-        from service.control_plane import _coldstart_refusal_message, _coldstart_refusal
+        from service.api_core.dispatch_text import _coldstart_refusal_message
+        from service.control_plane import _coldstart_refusal
         w: list[str] = []
         _coldstart_refusal(w, "a spawn for this agent is ALREADY IN FLIGHT")
         msg = _coldstart_refusal_message(w, "hermes")
