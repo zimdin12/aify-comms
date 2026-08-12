@@ -770,49 +770,6 @@ async def _record_claimer_lease(db, agent_id: str, *, action: str, bridge_id: st
     return state
 
 
-async def _managed_target_is_deaf(db, agent_row, *, settings: Optional[dict[str, Any]] = None) -> bool:
-    """WS5 Task 5.1b (2026-06-02): True when a managed sidecar-delivery target is
-    genuinely DEAF — it HAD a delivery-loop claimer that has RELEASED its lease (or
-    let it go stale), so a send would queue against a worker that will never claim
-    it.
-
-    DEPRECATED as a SEND GATE (reversed 2026-06-02): this predicate NO LONGER
-    rejects a `comms_send`. The operator reversed the deaf fail-fast because it lost
-    messages to agents that were merely mid-restart; sends now always queue and the
-    `_reap_undeliverable_queued_runs` backstop is the sole safety net. The helper is
-    retained for any status/deliverability classification that wants the signal.
-
-    Deaf == ALL of:
-      - the runtime is a managed sidecar-delivery runtime (claude-code / hermes:
-        its delivery loop / channel sidecar is the SOLE claimer); AND
-      - session_mode is managed; AND
-      - a claimer lease has been RECORDED for this agent (so the loop has run at
-        least once and we know the lease is authoritative); AND
-      - that lease is NOT live (released cleanly, or stale past the backstop).
-
-    NOT deaf (so lazy-autostart-on-send keeps working):
-      - a cold `available` agent that NEVER recorded a lease (spawnable: no worker
-        yet but a bridge will spawn-on-claim) — there is NO lease row, so this
-        returns False and the send falls through to the cold-start path; AND
-      - an agent whose lease is currently ACQUIRED+fresh (a live claimer).
-
-    The WS3.2 queued-run backstop still covers any in-flight stranded run after
-    its long age window (the lazy-claim ambiguity has resolved by then).
-    """
-    if agent_row is None:
-        return False
-    runtime = _normalize_runtime(agent_row["runtime"] or "")
-    if runtime not in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES:
-        return False
-    if _normalize_session_mode(agent_row["session_mode"] or "resident") != "managed":
-        return False
-    agent_id = agent_row["id"]
-    # No lease EVER recorded ⇒ cold-startable, NOT deaf (preserve lazy delivery).
-    if not await _has_recorded_claimer_lease(db, agent_id):
-        return False
-    # A lease was recorded: it is authoritative. Live ⇒ deliverable (not deaf);
-    # released/stale ⇒ deaf.
-    return not await _has_live_claimer_lease(db, agent_id)
 
 
 async def _enforce_live_worker_gate(
@@ -2496,11 +2453,6 @@ async def _session_handle_live_owner(db, handle: str, *, exclude_agent_id: str, 
     return None
 
 
-async def _latest_spawn_spec(db, agent_id: str):
-    return await (await db.execute(
-        "SELECT * FROM spawn_specs WHERE agent_id = ? ORDER BY updated_at DESC LIMIT 1",
-        (agent_id,),
-    )).fetchone()
 
 
 async def _auto_return_resident_to_managed_if_possible(
@@ -2789,17 +2741,6 @@ async def _bridge_claim_block_reason(
     return None
 
 
-async def _bridge_registered_at(db, bridge_id: str, agent_id: str) -> str:
-    if not bridge_id:
-        return ""
-    cursor = await db.execute(
-        "SELECT registered_at FROM bridge_instances WHERE id = ? AND agent_id = ?",
-        (bridge_id, agent_id)
-    )
-    row = await cursor.fetchone()
-    if not row:
-        return ""
-    return row["registered_at"] or ""
 
 
 
