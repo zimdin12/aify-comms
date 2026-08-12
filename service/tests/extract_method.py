@@ -55,6 +55,21 @@ though: a call nested inside a `with` resolved to the enclosing `with` statement
 replaced the whole block and the commonest safe shape looked like a behaviour change. `_find_call_site`
 is depth-aware for that reason — in a 684-line handler almost every extractable block is nested.
 
+`call_signature_violations()` is the fifth, and it closes the gap the fourth opened: knowing a name
+is a PARAMETER says nothing about whether the CALL supplies it. `_w()` against `def _w(x)` raises
+TypeError before the body runs, and inline-back never looks at the calling convention because it
+splices the body. Checked directly, in a deliberately narrow dialect — no defaults, no `*args`/
+`**kwargs`, no positional-only or keyword-only parameters. Those are all expressible and all add ways
+to be subtly wrong, and a mechanically-generated extraction needs none of them.
+
+A NOTE ON WHAT THIS TOOL IS. Five separate false PASSES were found in it, three of them by the
+reviewer running a shape rather than reading the code. That record is the argument for treating it as
+a conservative gate over a narrow extraction dialect, NOT as a general Python equivalence prover. For
+the hot handlers it is necessary and not sufficient: the reviewer's standing requirement is this gate
+AND characterization tests around the function, because a static proof catches mechanical extraction
+mistakes while characterization catches the route/db/side-effect semantics this deliberately does not
+model.
+
 This module is test-support, not production code, and is deliberately small enough to be read in one
 sitting — the whole point is that the reviewer can verify the verifier.
 """
@@ -63,6 +78,7 @@ from __future__ import annotations
 
 import ast
 import copy
+from typing import Optional
 
 ESCAPES = (ast.Return, ast.Break, ast.Continue, ast.Yield, ast.YieldFrom)
 
@@ -340,6 +356,73 @@ def live_in_violations(helper_fn: ast.AST, module: ast.Module, caller_fn: ast.AS
     ]
 
 
+def _helper_call(stmt: ast.stmt, helper: str) -> Optional[ast.Call]:
+    for node in ast.walk(stmt):
+        if isinstance(node, ast.Call) and (
+            (isinstance(node.func, ast.Name) and node.func.id == helper)
+            or (isinstance(node.func, ast.Attribute) and node.func.attr == helper)
+        ):
+            return node
+    return None
+
+
+def call_signature_violations(split_fn: ast.AST, helper_fn: ast.AST) -> list[str]:
+    """Does the CALL actually supply the helper's parameters?
+
+    THE FIFTH FALSE PASS, again found by the reviewer running it rather than reading it. Knowing a
+    name is a parameter told the live-in check the helper had it — but said nothing about whether
+    the call hands it over:
+
+        y = _w()          # supplies nothing
+        def _w(x): ...    # requires x        -> TypeError before the body ever runs
+
+        y = _w(z=x)       # wrong keyword
+        def _w(x): ...                        -> TypeError before the body ever runs
+
+    Inline-back reconstructs the original in both cases, because splicing the body ignores the
+    calling convention entirely. So the convention is checked directly.
+
+    A DELIBERATELY NARROW DIALECT, on the reviewer's recommendation: no defaults, no *args/**kwargs,
+    no positional-only or keyword-only parameters. Those are all expressible and all add ways to be
+    subtly wrong; this gate exists for mechanically-generated extractions, where none of them are
+    needed. It will false-reject some safe shapes. It will not bless a TypeError.
+    """
+    block, index = _find_call_site(split_fn, helper_fn.name)
+    call = _helper_call(block[index], helper_fn.name)
+    if call is None:  # pragma: no cover - _find_call_site already guarantees one
+        return [f"no call to {helper_fn.name!r} found at the resolved call site"]
+
+    args = helper_fn.args
+    if args.defaults or args.kw_defaults:
+        return ["helper has DEFAULT parameter values; outside the supported extraction dialect"]
+    if args.vararg or args.kwarg:
+        return ["helper takes *args/**kwargs; outside the supported extraction dialect"]
+    if getattr(args, "posonlyargs", []) or args.kwonlyargs:
+        return ["helper has positional-only or keyword-only parameters; outside the dialect"]
+
+    params = [p.arg for p in args.args]
+    supplied_positionally = params[: len(call.args)]
+    by_keyword = [kw.arg for kw in call.keywords]
+
+    problems: list[str] = []
+    if any(kw.arg is None for kw in call.keywords):
+        problems.append("call uses `**` unpacking, so the supplied names cannot be checked")
+    if len(call.args) > len(params):
+        problems.append(
+            f"call passes {len(call.args)} positional argument(s) but the helper takes {len(params)}"
+        )
+    for name in by_keyword:
+        if name is not None and name not in params:
+            problems.append(f"call passes keyword `{name}=`, which is not a parameter of the helper")
+        elif name in supplied_positionally:
+            problems.append(f"`{name}` is supplied both positionally and by keyword")
+    covered = set(supplied_positionally) | {n for n in by_keyword if n}
+    for name in params:
+        if name not in covered:
+            problems.append(f"required parameter `{name}` is never supplied by the call")
+    return problems
+
+
 def preconditions(helper_fn: ast.AST, *, caller_is_async: bool) -> list[str]:
     """Reasons this block must NOT be extracted, beyond the escape rule.
 
@@ -536,6 +619,15 @@ def assert_extraction_preserves_behaviour(original_src: str, split_src: str, hel
             + "\nEach of these would still pass inline-back — the round trip closes while behaviour "
             "changed — so they are refused up front instead of being blessed by a proof that cannot "
             "see them."
+        )
+
+    mismatched = call_signature_violations(funcs[original.name], helper)
+    if mismatched:
+        raise AssertionError(
+            "REFUSED: the call does not match the helper's signature:\n  - "
+            + "\n  - ".join(mismatched)
+            + "\nInline-back ignores the calling convention entirely - it splices the body - so "
+            "a TypeError raised before the body ever runs is invisible to it."
         )
 
     unpassed = live_in_violations(helper, module, funcs[original.name])

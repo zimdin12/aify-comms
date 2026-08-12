@@ -755,5 +755,113 @@ def _w():
             assert_extraction_preserves_behaviour(original, split, "_w")
 
 
+
+
+class ExtractMethodCallSignatureTests(unittest.TestCase):
+    """Does the CALL actually supply what the helper requires?
+
+    The fifth false PASS. Knowing a name is a PARAMETER told the live-in check the helper had it,
+    while saying nothing about whether the call hands it over. Both shapes below raise TypeError
+    before the helper body ever runs, and inline-back cannot see that because splicing the body
+    ignores the calling convention entirely.
+    """
+
+    ORIGINAL = '''
+def f():
+    x = compute()
+    y = x + 1
+    return y
+'''
+
+    def _split(self, call, params="x"):
+        return f'''
+def f():
+    x = compute()
+    y = {call}
+    return y
+
+
+def _w({params}):
+    y = x + 1
+    return y
+'''
+
+    def test_missing_required_parameter_is_refused(self):
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(self.ORIGINAL, self._split("_w()"), "_w")
+        self.assertIn("never supplied", str(caught.exception))
+
+    def test_a_wrong_keyword_name_is_refused(self):
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(self.ORIGINAL, self._split("_w(z=x)"), "_w")
+        self.assertIn("not a parameter", str(caught.exception))
+
+    def test_an_extra_keyword_is_refused(self):
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(self.ORIGINAL, self._split("_w(x, extra=1)"), "_w")
+        self.assertIn("not a parameter", str(caught.exception))
+
+    def test_a_correct_positional_argument_passes(self):
+        assert_extraction_preserves_behaviour(self.ORIGINAL, self._split("_w(x)"), "_w")
+
+    def test_a_correct_keyword_argument_passes(self):
+        assert_extraction_preserves_behaviour(self.ORIGINAL, self._split("_w(x=x)"), "_w")
+
+    def test_a_zero_parameter_helper_still_passes(self):
+        """The rule must not become a blanket refusal of helpers that need nothing."""
+        assert_extraction_preserves_behaviour(
+            'def f():\n    t = 0\n    return t\n',
+            'def f():\n    t = _w()\n    return t\n\n\ndef _w():\n    t = 0\n    return t\n',
+            "_w")
+
+    def test_the_same_name_supplied_twice_is_refused(self):
+        original = '''
+def f():
+    x = compute()
+    y = x + 1
+    return y
+'''
+        split = '''
+def f():
+    x = compute()
+    y = _w(x, x=x)
+    return y
+
+
+def _w(x):
+    y = x + 1
+    return y
+'''
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original, split, "_w")
+        self.assertIn("both positionally and by keyword", str(caught.exception))
+
+    def test_shapes_outside_the_dialect_are_refused_rather_than_guessed(self):
+        """Defaults, *args/**kwargs and kw-only params are all expressible and all add ways to be
+        subtly wrong. A mechanically-generated extraction needs none of them, so they are refused."""
+        original = '''
+def f():
+    x = compute()
+    y = x + 1
+    return y
+'''
+        for params in ["x=1", "*args", "**kwargs", "*, x"]:
+            split = f'''
+def f():
+    x = compute()
+    y = _w(x)
+    return y
+
+
+def _w({params}):
+    y = x + 1
+    return y
+'''
+            with self.subTest(params=params):
+                with self.assertRaises(AssertionError) as caught:
+                    assert_extraction_preserves_behaviour(original, split, "_w")
+                self.assertIn("dialect", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
