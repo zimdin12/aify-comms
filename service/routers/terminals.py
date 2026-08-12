@@ -64,6 +64,7 @@ from service.models import (
 )
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 from service.api_core.terminal_output import _append_terminal_output
+from service.terminal_write_queue import TERMINAL_OUTPUT_WRITES
 
 logger = logging.getLogger("aify_comms.routers.terminals")
 
@@ -84,11 +85,6 @@ router = domain_router()
 
 
 
-def _borrowed_terminal_output_writes():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import TERMINAL_OUTPUT_WRITES
-
-    return TERMINAL_OUTPUT_WRITES
 
 
 
@@ -266,7 +262,7 @@ async def _clear_console_terminal_binding(db, agent_id: str, terminal_id: str, *
 
 @router.get("/terminals/{terminal_id}")
 async def get_terminal(terminal_id: str, cols: Optional[int] = None, rows: Optional[int] = None):
-    await _borrowed_terminal_output_writes().flush_terminal(terminal_id)
+    await TERMINAL_OUTPUT_WRITES.flush_terminal(terminal_id)
     db = await get_db()
     try:
         terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
@@ -444,7 +440,7 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
             else:
                 raise HTTPException(409, "Terminal is owned by a different bridge")
         status = str(req.status or "").strip()
-        next_seq = await _borrowed_terminal_output_writes().enqueue(
+        next_seq = await TERMINAL_OUTPUT_WRITES.enqueue(
             terminal_id,
             req.output or "",
             status=status,
@@ -483,7 +479,7 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
         # coalesced, post-commit broadcast per flush instead.
         ws = await _get_ws(request)
         if ws is not None:
-            _borrowed_terminal_output_writes().ws_manager = ws
+            TERMINAL_OUTPUT_WRITES.ws_manager = ws
         # Ingest ack only — the response intentionally carries no output buffer
         # (clients read full output via GET /terminals/{id}). The sole caller
         # is the bridge, which uses outputSeq/status and ignores the rest.

@@ -384,11 +384,6 @@ def _borrowed_list_agents_refresh_limit():
     return LIST_AGENTS_REFRESH_LIMIT
 
 
-def _borrowed_terminal_output_writes():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import TERMINAL_OUTPUT_WRITES
-
-    return TERMINAL_OUTPUT_WRITES
 
 
 
