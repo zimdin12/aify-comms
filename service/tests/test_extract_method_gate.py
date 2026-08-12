@@ -12,7 +12,11 @@ from __future__ import annotations
 
 import unittest
 
-from service.tests.extract_method import assert_extraction_preserves_behaviour, escapes
+from service.tests.extract_method import (
+    assert_extraction_preserves_behaviour,
+    assert_extractions_preserve_behaviour,
+    escapes,
+)
 
 ORIGINAL = '''
 def handler(payload, db):
@@ -1228,6 +1232,71 @@ class ExtractMethodDecoratedFunctionTests(unittest.TestCase):
         with self.assertRaises(AssertionError) as caught:
             assert_extraction_preserves_behaviour(original_with_decorator, moved_route, "_w")
         self.assertIn("decorators changed", str(caught.exception))
+
+
+class ExtractMultipleBlocksTests(unittest.TestCase):
+    """Several blocks out of one function, proved by inlining them ALL back.
+
+    The single-extraction gate refuses the second of two splits — correctly but uselessly — because
+    the split function still calls the OTHER new helper, which appears nowhere in the original. That
+    is not a defect in the split, it is the proof modelling one extraction.
+
+    The alternative was a chain of pre-split fixtures, one per extraction. It works and it rots:
+    each is another copy of a function still being edited, and a stale one proves the wrong thing
+    while staying green. Inlining all of them back against the TRUE original is one comparison that
+    keeps working however many blocks come out.
+    """
+
+    ORIGINAL = (
+        "def f(n):\n"
+        "    a = []\n"
+        "    for i in range(n):\n"
+        "        a.append(i)\n"
+        "    b = []\n"
+        "    for i in range(n):\n"
+        "        b.append(i * 2)\n"
+        "    return a, b\n"
+    )
+    SPLIT = (
+        "def f(n):\n"
+        "    a = _first(n)\n"
+        "    b = _second(n)\n"
+        "    return a, b\n"
+        "\n"
+        "\n"
+        "def _first(n):\n"
+        "    a = []\n"
+        "    for i in range(n):\n"
+        "        a.append(i)\n"
+        "    return a\n"
+        "\n"
+        "\n"
+        "def _second(n):\n"
+        "    b = []\n"
+        "    for i in range(n):\n"
+        "        b.append(i * 2)\n"
+        "    return b\n"
+    )
+
+    def test_two_extractions_inline_back_together(self):
+        assert_extractions_preserve_behaviour(self.ORIGINAL, self.SPLIT, ["_first", "_second"])
+
+    def test_the_single_extraction_gate_cannot_do_this_alone(self):
+        """Pinning WHY the multi version exists, so nobody deletes it as redundant."""
+        with self.assertRaises(AssertionError):
+            assert_extraction_preserves_behaviour(self.ORIGINAL, self.SPLIT, "_first")
+
+    def test_a_broken_one_among_several_is_still_caught(self):
+        """The multi version must not pass by averaging. One bad block fails the whole proof."""
+        broken = self.SPLIT.replace("b.append(i * 2)", "b.append(i * 3)")
+        with self.assertRaises(AssertionError) as caught:
+            assert_extractions_preserve_behaviour(self.ORIGINAL, broken, ["_first", "_second"])
+        self.assertIn("NOT behaviour-preserving", str(caught.exception))
+
+    def test_a_missing_helper_is_named(self):
+        with self.assertRaises(AssertionError) as caught:
+            assert_extractions_preserve_behaviour(self.ORIGINAL, self.SPLIT, ["_first", "_nope"])
+        self.assertIn("_nope", str(caught.exception))
 
 
 if __name__ == "__main__":

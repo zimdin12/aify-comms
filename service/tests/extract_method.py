@@ -787,6 +787,10 @@ def assert_extraction_preserves_behaviour(original_src: str, split_src: str, hel
 
     `original_src` is the function BEFORE the split; `split_src` is the module text containing both
     the split function and the extracted helper.
+
+    For a function that has had SEVERAL blocks extracted, use
+    `assert_extractions_preserve_behaviour` — this one models exactly one extraction and will
+    report a round-trip failure if the split function also calls a second new helper.
     """
     original = ast.parse(original_src).body[0]
     module = ast.parse(split_src)
@@ -880,6 +884,92 @@ def assert_extraction_preserves_behaviour(original_src: str, split_src: str, hel
         raise AssertionError(
             "extraction is NOT behaviour-preserving: inlining the helper back did not reproduce the "
             "original function.\n"
+            "This is the whole proof - if the round trip does not close, something other than a "
+            "pure block-lift happened (a reordered statement, a changed name, a dropped line)."
+        )
+
+
+def assert_extractions_preserve_behaviour(
+    original_src: str, split_src: str, helper_names: "list[str]"
+) -> None:
+    """The same proof for a function that has had SEVERAL blocks extracted.
+
+    WHY THIS EXISTS. `assert_extraction_preserves_behaviour` models ONE extraction: it inlines a
+    single helper back and requires the result to equal the original. Point it at the second of two
+    extractions and it fails — correctly but uselessly — because the split function still calls the
+    OTHER new helper, which appears nowhere in the original. That is not a defect in the split.
+
+    The obvious workaround is a chain of pre-split fixtures, one per extraction, each proving one
+    step. It works, and it rots: every fixture is a second copy of a function that is still being
+    edited, and a stale one proves the wrong thing while staying green.
+
+    So the proof generalises instead of multiplying. Inline ALL the helpers back — innermost calls
+    first, so a helper extracted out of another helper collapses before its parent — and require the
+    single result to equal the original. One fixture, one comparison, and it stays exact however many
+    blocks come out later.
+
+    Every per-helper safety check still runs against every helper individually: escapes,
+    preconditions, call signature, live-ins and live-outs. Those examine the SPLIT, which is the
+    artifact that can be wrong, and none of them is weakened by there being more than one helper.
+    """
+    original = ast.parse(original_src).body[0]
+    module = ast.parse(split_src)
+    funcs = {n.name: n for n in module.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    if original.name not in funcs:
+        raise AssertionError(f"original function {original.name!r} not found in the split source")
+    missing = [h for h in helper_names if h not in funcs]
+    if missing:
+        raise AssertionError(f"extracted helper(s) {missing} not found in the split source")
+
+    caller = funcs[original.name]
+
+    for helper_name in helper_names:
+        helper = funcs[helper_name]
+        bad = escapes(_helper_body(helper))
+        if bad and not _returns_only_at_tail(helper):
+            raise AssertionError(
+                f"REFUSED [{helper_name}]: extracted block contains control-flow escape(s) "
+                f"{sorted(set(bad))} that are not a single trailing `return`."
+            )
+        blocked = preconditions(helper, caller_is_async=isinstance(original, ast.AsyncFunctionDef))
+        if blocked:
+            raise AssertionError(
+                f"REFUSED [{helper_name}]: the extracted block is not structurally movable:\n  - "
+                + "\n  - ".join(blocked))
+        mismatched = call_signature_violations(caller, helper)
+        if mismatched:
+            raise AssertionError(
+                f"REFUSED [{helper_name}]: the call does not match the helper's signature:\n  - "
+                + "\n  - ".join(mismatched))
+        unpassed = live_in_violations(helper, module, caller)
+        if unpassed:
+            raise AssertionError(
+                f"REFUSED [{helper_name}]: the helper reads caller locals it was not given:\n  - "
+                + "\n  - ".join(unpassed))
+        leaked = live_out_violations(caller, helper)
+        if leaked:
+            raise AssertionError(
+                f"REFUSED [{helper_name}]: the split does not hand back every local the caller "
+                "still needs:\n  - " + "\n  - ".join(leaked))
+
+    rebuilt = caller
+    for helper_name in helper_names:
+        rebuilt = inline_back(rebuilt, funcs[helper_name])
+
+    if original.decorator_list:
+        if [normalized(d) for d in original.decorator_list] != [normalized(d) for d in rebuilt.decorator_list]:
+            raise AssertionError(
+                "REFUSED: the function's decorators changed. Extraction must not touch them.")
+
+    def _bodies_only(node: ast.AST) -> str:
+        clone = copy.deepcopy(node)
+        clone.decorator_list = []
+        return normalized(clone)
+
+    if _bodies_only(rebuilt) != _bodies_only(original):
+        raise AssertionError(
+            f"extraction is NOT behaviour-preserving: inlining {helper_names} back did not "
+            "reproduce the original function.\n"
             "This is the whole proof - if the round trip does not close, something other than a "
             "pure block-lift happened (a reordered statement, a changed name, a dropped line)."
         )

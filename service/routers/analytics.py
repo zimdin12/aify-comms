@@ -62,6 +62,56 @@ async def _compute_agent_status(*a, **k):
 WORKED_SPAN_CEILING_SECONDS = 4 * 3600
 
 
+async def _append_daily_message_buckets(daily, today_start_s, count_messages_between):
+    """Append the 30 daily buckets, ending with the local day `today_start_s` begins.
+
+    A VOID extraction that appends into a list it is handed, rather than building and
+    returning one. That is not a style choice: `daily = []` sits ABOVE the two lines that
+    compute `today_struct`/`today_start_s`, and `today_struct` is read further down by the
+    monthly series — so a value-returning extraction would either have to reorder the
+    caller (the round trip would stop closing) or hand back two values (a shape the gate
+    deliberately does not model). Appending is the version that is provable as-is.
+    """
+    for i in range(29, -1, -1):
+        start_s = today_start_s - i * 86400
+        daily.append({
+            "label": time.strftime("%m-%d", time.localtime(start_s)),
+            "start": _iso_from_ms(start_s * 1000),
+            "count": await count_messages_between(start_s * 1000, (start_s + 86400) * 1000),
+        })
+
+
+async def _monthly_message_series(today_struct, count_messages_between):
+    """The 12 monthly buckets, ending with the month `today_struct` falls in.
+
+    Contiguous and single-live-out, so unlike the daily buckets this one returns its
+    series instead of appending into one. `today_struct` is passed because the caller
+    computed it for the daily series and still owns it.
+    """
+    monthly = []
+    year = today_struct.tm_year
+    month = today_struct.tm_mon
+    for i in range(11, -1, -1):
+        m = month - i
+        y = year
+        while m <= 0:
+            m += 12
+            y -= 1
+        next_m = m + 1
+        next_y = y
+        if next_m > 12:
+            next_m = 1
+            next_y += 1
+        start_s = int(time.mktime((y, m, 1, 0, 0, 0, 0, 0, -1)))
+        end_s = int(time.mktime((next_y, next_m, 1, 0, 0, 0, 0, 0, -1)))
+        monthly.append({
+            "label": f"{y}-{m:02d}",
+            "start": _iso_from_ms(start_s * 1000),
+            "count": await count_messages_between(start_s * 1000, end_s * 1000),
+        })
+    return monthly
+
+
 async def _hourly_message_series(now_s, count_messages_between):
     """The 24 hourly message buckets, ending with the hour `now_s` falls in.
 
@@ -108,35 +158,9 @@ async def get_analytics(request: Request, analytics_range: str = Query("hour", a
         daily = []
         today_struct = time.localtime(now_s)
         today_start_s = int(time.mktime(time.strptime(time.strftime("%Y-%m-%d", today_struct), "%Y-%m-%d")))
-        for i in range(29, -1, -1):
-            start_s = today_start_s - i * 86400
-            daily.append({
-                "label": time.strftime("%m-%d", time.localtime(start_s)),
-                "start": _iso_from_ms(start_s * 1000),
-                "count": await count_messages_between(start_s * 1000, (start_s + 86400) * 1000),
-            })
+        await _append_daily_message_buckets(daily, today_start_s, count_messages_between)
 
-        monthly = []
-        year = today_struct.tm_year
-        month = today_struct.tm_mon
-        for i in range(11, -1, -1):
-            m = month - i
-            y = year
-            while m <= 0:
-                m += 12
-                y -= 1
-            next_m = m + 1
-            next_y = y
-            if next_m > 12:
-                next_m = 1
-                next_y += 1
-            start_s = int(time.mktime((y, m, 1, 0, 0, 0, 0, 0, -1)))
-            end_s = int(time.mktime((next_y, next_m, 1, 0, 0, 0, 0, 0, -1)))
-            monthly.append({
-                "label": f"{y}-{m:02d}",
-                "start": _iso_from_ms(start_s * 1000),
-                "count": await count_messages_between(start_s * 1000, end_s * 1000),
-            })
+        monthly = await _monthly_message_series(today_struct, count_messages_between)
 
         all_time_c = await db.execute(
             f"""
