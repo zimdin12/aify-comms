@@ -510,7 +510,28 @@ def live_in_violations(helper_fn: ast.AST, module: ast.Module, caller_fn: ast.AS
 
     params = _helper_params(helper_fn)
     caller_locals = _assigned_names(caller_fn.body) | _helper_params(caller_fn)
-    available = params | _module_level_names(module) | set(dir(builtins))
+
+    # THE THIRTEENTH HOLE, and the FIRST FALSE PASS in this list — every earlier one was a false
+    # rejection, which is annoying but safe. Reported by an external review against origin/main.
+    #
+    # A module-level name does NOT make a read safe when the CALLER shadows it:
+    #
+    #     CONFIG = {"a": 1}            # module level
+    #     def f():
+    #         CONFIG = {"a": 2}        # caller local shadows it
+    #         x = CONFIG["a"]          # reads 2
+    #
+    # Extract that read and the helper resolves CONFIG from MODULE scope — it returns 1, not 2. The
+    # gate passed this, and inline-back closes on it too, because the round trip reconstructs the
+    # original where the local is in scope. Verified by execution: original 2, split 1, gate green.
+    #
+    # Python settles it: a name assigned ANYWHERE in a function is local for that function's whole
+    # body, so any read of it in the caller was a local read. A helper reading it therefore always
+    # resolves a different binding unless the value is handed over. So a caller-local name is
+    # unavailable to the helper no matter what module scope or builtins also happen to define —
+    # `params` is the only thing that can make it safe.
+    shadowed = caller_locals - params
+    available = (params | _module_level_names(module) | set(dir(builtins))) - shadowed
     missing: list[str] = []
 
     def report(names, bound: set[str]) -> None:

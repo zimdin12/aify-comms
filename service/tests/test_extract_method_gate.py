@@ -1048,6 +1048,88 @@ def _w(x):
             "_w")
 
 
+class ExtractMethodShadowedGlobalTests(unittest.TestCase):
+    """A module-level name does not make a read safe when the CALLER shadows it. Hole 13.
+
+    THE FIRST FALSE PASS in this file's history — holes 8 through 12 were false REJECTIONS, which
+    cost a manual review each. This one let a behaviour change through, and it was reported by an
+    external review against origin/main rather than found here.
+
+    `available` included every module-level name, so a helper reading `CONFIG` was considered
+    satisfied. But if the caller assigns `CONFIG` locally, the original read the LOCAL and the
+    extracted helper resolves MODULE scope — a different object. Inline-back closes on it too,
+    because the round trip reconstructs the original where the local is in scope.
+
+    Python settles it: a name assigned anywhere in a function is local for that function's whole
+    body. So any read of it in the caller was a local read, and only a parameter can carry the value
+    across.
+    """
+
+    MODULE_LEVEL_SPLIT = (
+        "CONFIG = {'a': 1}\n"
+        "\n"
+        "def f():\n"
+        "    CONFIG = {'a': 2}\n"
+        "    x = _w()\n"
+        "    return x\n"
+        "\n"
+        "\n"
+        "def _w():\n"
+        "    x = CONFIG['a']\n"
+        "    return x\n"
+    )
+    ORIGINAL = "def f():\n    CONFIG = {'a': 2}\n    x = CONFIG['a']\n    return x\n"
+
+    def test_a_caller_shadowed_module_name_is_refused(self):
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(self.ORIGINAL, self.MODULE_LEVEL_SPLIT, "_w")
+        self.assertIn("CONFIG", str(caught.exception))
+
+    def test_the_behaviour_really_does_differ(self):
+        """Not a style rule. The two versions return different values, so the gate must refuse."""
+        original_ns: dict = {}
+        exec(self.ORIGINAL, original_ns)
+        split_ns: dict = {}
+        exec(self.MODULE_LEVEL_SPLIT, split_ns)
+        self.assertEqual(original_ns["f"](), 2)
+        self.assertEqual(split_ns["f"](), 1, "the split reads module scope — this is the defect")
+
+    def test_an_unshadowed_module_level_read_is_still_allowed(self):
+        """The fix must not refuse the ordinary case, which is most real extractions."""
+        original = "def f(rows):\n    x = LIMIT + len(rows)\n    return x\n"
+        split = (
+            "LIMIT = 5\n"
+            "\n"
+            "def f(rows):\n"
+            "    x = _w(rows)\n"
+            "    return x\n"
+            "\n"
+            "\n"
+            "def _w(rows):\n"
+            "    x = LIMIT + len(rows)\n"
+            "    return x\n"
+        )
+        assert_extraction_preserves_behaviour(original, split, "_w")
+
+    def test_a_shadowed_builtin_is_refused_too(self):
+        """`available` also included builtins, and a caller can shadow one of those as easily."""
+        original = "def f():\n    list = [1, 2]\n    n = len(list)\n    return n\n"
+        split = (
+            "def f():\n"
+            "    list = [1, 2]\n"
+            "    n = _w()\n"
+            "    return n\n"
+            "\n"
+            "\n"
+            "def _w():\n"
+            "    n = len(list)\n"
+            "    return n\n"
+        )
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original, split, "_w")
+        self.assertIn("list", str(caught.exception))
+
+
 class ExtractMethodComprehensionScopeTests(unittest.TestCase):
     """A comprehension's own target is not a read of an outer local. Holes 11 and 12.
 
