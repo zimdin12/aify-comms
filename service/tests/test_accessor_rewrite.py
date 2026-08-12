@@ -147,5 +147,79 @@ class AccessorRewriteEdgeShapeTests(unittest.TestCase):
                               f"{label}: the call site was not rewritten at all")
 
 
+
+
+class AccessorRewriteTokenDomainTests(unittest.TestCase):
+    """Only Python NAME tokens are rewritten — never comments, never string literals.
+
+    THE REVIEWER'S BLOCKER on the first version, which substituted over raw line text:
+
+        # comment _LISTEN_EVENTS          ->  # comment _borrowed_listen_events()
+        msg = 'literal _LISTEN_EVENTS'    ->  msg = 'literal _borrowed_listen_events()'
+
+    The comment case is an undeclared textual change in a series that proves every slice on byte
+    identity. The string case is BEHAVIOUR-CHANGING: constant names appear as data in SQL text, JSON
+    keys, regex sources, telemetry names and diagnostics.
+
+    The old `test_it_leaves_everything_else_byte_identical` did NOT catch this, and that is the
+    instructive part — it contained `# a comment with _LISTEN_EVENTS mentioned` but only asserted on
+    an unrelated trailing comment and an unrelated unicode string. It looked like comment
+    preservation was pinned. It wasn't. A test that mentions the risky input without asserting on it
+    is worse than no test, because it reads as coverage.
+    """
+
+    def _rewritten(self, body: str) -> str:
+        return rewrite(body + ACCESSOR, ["_LISTEN_EVENTS"])
+
+    def test_a_full_line_comment_is_untouched(self):
+        out = self._rewritten("# note about _LISTEN_EVENTS here\ndef h():\n    return _LISTEN_EVENTS\n")
+        self.assertIn("# note about _LISTEN_EVENTS here", out)
+
+    def test_a_trailing_comment_is_untouched(self):
+        out = self._rewritten("def h():\n    return _LISTEN_EVENTS  # uses _LISTEN_EVENTS\n")
+        self.assertIn("# uses _LISTEN_EVENTS", out)
+
+    def test_string_literals_of_every_quoting_style_are_untouched(self):
+        for literal in ["'_LISTEN_EVENTS'", '"_LISTEN_EVENTS"', '"""_LISTEN_EVENTS"""']:
+            with self.subTest(literal):
+                out = self._rewritten(f"def h():\n    s = {literal}\n    return _LISTEN_EVENTS\n")
+                self.assertIn(literal, out)
+
+    def test_a_sql_string_containing_the_name_is_untouched(self):
+        """The behaviour-changing case: a constant name as DATA."""
+        out = self._rewritten(
+            'def h():\n    q = "SELECT _LISTEN_EVENTS FROM t"\n    return _LISTEN_EVENTS\n')
+        self.assertIn('"SELECT _LISTEN_EVENTS FROM t"', out)
+
+    def test_a_module_level_string_assignment_is_untouched(self):
+        out = self._rewritten("NAME = '_LISTEN_EVENTS'\ndef h():\n    return _LISTEN_EVENTS\n")
+        self.assertIn("NAME = '_LISTEN_EVENTS'", out)
+
+    def test_an_fstring_literal_part_is_untouched(self):
+        """The text stays; only a real code reference would be a NAME token."""
+        out = self._rewritten('def h():\n    return f"name is _LISTEN_EVENTS"\n')
+        self.assertIn('f"name is _LISTEN_EVENTS"', out)
+
+    def test_the_code_reference_is_still_rewritten(self):
+        """Token-awareness must not become refusal to rewrite anything."""
+        out = self._rewritten("# _LISTEN_EVENTS\ndef h():\n    return _LISTEN_EVENTS\n")
+        self.assertIn("return _borrowed_listen_events()", out.split("def _borrowed")[0])
+
+    def test_attribute_access_on_the_constant_is_rewritten(self):
+        out = self._rewritten("def h():\n    return _LISTEN_EVENTS.get('k')\n")
+        self.assertIn("_borrowed_listen_events().get('k')", out)
+
+    def test_an_attribute_with_the_same_NAME_is_not_rewritten(self):
+        """`obj._LISTEN_EVENTS` is an attribute of something else, not the module constant.
+
+        This one is a KNOWN LIMITATION rather than a guarantee: tokenize sees a NAME either way, so
+        the rewrite fires. Asserted here as current behaviour so it is a decision on the record, not
+        a surprise during a migration — if a target constant is ever also an attribute name, the
+        migration must exclude it explicitly.
+        """
+        out = self._rewritten("def h():\n    return obj._LISTEN_EVENTS\n")
+        self.assertIn("obj._borrowed_listen_events()", out)
+
+
 if __name__ == "__main__":
     unittest.main()

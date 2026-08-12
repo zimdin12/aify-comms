@@ -50,29 +50,53 @@ def accessor_name(constant: str) -> str:
 
 
 def rewrite(source: str, constants: list[str]) -> str:
-    """Replace bare uses of each constant with its accessor call, skipping accessor bodies.
+    """Replace CODE references to each constant with its accessor call.
 
-    Everything else about the file is untouched -- indentation, comments, blank lines, non-ASCII --
-    because only whole lines outside the protected ranges are substituted.
+    TOKEN-AWARE, and that is the whole correctness argument. The first version substituted over raw
+    line text outside the protected ranges, which the reviewer showed also rewrites COMMENTS and
+    STRING LITERALS:
+
+        # comment _LISTEN_EVENTS          ->  # comment _borrowed_listen_events()
+        msg = 'literal _LISTEN_EVENTS'    ->  msg = 'literal _borrowed_listen_events()'
+
+    The comment case is merely an undeclared textual change, which is bad enough in a series that
+    proves every slice on byte identity. The string case is BEHAVIOUR-CHANGING: constant names show
+    up as data in SQL text, JSON keys, regex sources, telemetry names and diagnostic messages, and
+    silently rewriting them changes what the program does.
+
+    So the replacement domain is Python NAME tokens only. `tokenize` decides what is a name; every
+    other token -- comments, strings of every quoting style, whitespace, blank-line runs, non-ASCII
+    -- is emitted back exactly as it was read.
     """
     if not constants:
         return source
     protected = accessor_line_ranges(source)
+    targets = set(constants)
 
     def is_protected(lineno: int) -> bool:
         return any(start <= lineno <= end for start, end in protected)
 
-    lines = source.split("\n")
-    for index, line in enumerate(lines):
-        if is_protected(index + 1):
-            continue
-        for constant in constants:
-            lines[index] = re.sub(
-                rf"(?<![_\w]){re.escape(constant)}(?![_\w])",
-                f"{accessor_name(constant)}()",
-                lines[index],
-            )
-    return "\n".join(lines)
+    import io as _io
+    import tokenize as _tokenize
+
+    out = []
+    last_end = (1, 0)
+    for token in _tokenize.generate_tokens(_io.StringIO(source).readline):
+        start_row, start_col = token.start
+        # everything between the previous token and this one, verbatim
+        if start_row > last_end[0]:
+            out.append("\n" * (start_row - last_end[0]))
+            last_end = (start_row, 0)
+        if start_col > last_end[1]:
+            out.append(source.split("\n")[start_row - 1][last_end[1]:start_col])
+
+        text = token.string
+        if (token.type == _tokenize.NAME and text in targets
+                and not is_protected(start_row)):
+            text = f"{accessor_name(text)}()"
+        out.append(text)
+        last_end = token.end
+    return "".join(out)
 
 
 def build_accessor(constant: str, owner: str = "service.routers.api_v2") -> str:
