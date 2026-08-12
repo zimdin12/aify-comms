@@ -148,10 +148,73 @@ def _environment_record_to_dict(*a, **k):
     return _impl(*a, **k)
 
 
-async def _fail_active_runs_for_superseded_bridges(*a, **k):
-    from service.routers.api_v2 import _fail_active_runs_for_superseded_bridges as _impl
+async def _fail_active_runs_for_superseded_bridges(
+    db,
+    *,
+    agent_id: str,
+    machine_id: str,
+    superseding_bridge_id: str,
+    finished_at: str,
+    superseded_bridge_ids: Optional[list[str]] = None,
+) -> list[str]:
+    # Scope-narrowed: only fail runs whose claim_bridge_id is in the explicit
+    # superseded-bridge list. Callers without an explicit list fall back to
+    # the legacy "any bridge_id different from the new one" behavior.
+    if superseded_bridge_ids is not None:
+        if not superseded_bridge_ids:
+            return []
+        placeholders = ",".join("?" for _ in superseded_bridge_ids)
+        cursor = await db.execute(
+            f"""
+            SELECT id, claim_bridge_id
+            FROM dispatch_runs
+            WHERE target_agent = ?
+              AND status IN ('claimed', 'running')
+              AND claim_machine_id = ?
+              AND claim_bridge_id IN ({placeholders})
+            """,
+            (agent_id, machine_id, *superseded_bridge_ids),
+        )
+    else:
+        cursor = await db.execute(
+            """
+            SELECT id, claim_bridge_id
+            FROM dispatch_runs
+            WHERE target_agent = ?
+              AND status IN ('claimed', 'running')
+              AND claim_machine_id = ?
+              AND COALESCE(claim_bridge_id, '') != ?
+            """,
+            (agent_id, machine_id, superseding_bridge_id),
+        )
+    rows = await cursor.fetchall()
+    if not rows:
+        return []
 
-    return await _impl(*a, **k)
+    affected_run_ids: list[str] = []
+    for row in rows:
+        affected_run_ids.append(row["id"])
+        previous_bridge_id = (row["claim_bridge_id"] or "").strip()
+        owner_label = previous_bridge_id or "legacy-unowned"
+        await db.execute(
+            """
+            UPDATE dispatch_runs
+            SET status = 'failed', error_text = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (
+                f'Run was owned by superseded bridge instance "{owner_label}" and was replaced by "{superseding_bridge_id}" during re-registration',
+                finished_at,
+                row["id"],
+            ),
+        )
+        await _append_dispatch_event(
+            db,
+            row["id"],
+            "failed",
+            f"Register supersession: {owner_label} -> {superseding_bridge_id}",
+        )
+    return affected_run_ids
 
 
 async def _get_blocking_active_run(*a, **k):
