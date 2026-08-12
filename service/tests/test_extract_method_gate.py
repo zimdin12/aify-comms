@@ -1030,5 +1030,158 @@ def _w(x):
             "_w")
 
 
+class ExtractMethodBindingOrderTests(unittest.TestCase):
+    """A name bound and read inside the SAME statement is not a live-in — but order still matters.
+
+    THE EIGHTH HOLE, found by running the gate against the first real extraction rather than by
+    reading it. `live_in_violations` advanced its `bound` set only AFTER each top-level statement,
+    so an extracted `for` loop reported its own loop variable and its own body-assigned locals as
+    "caller locals never passed". Every real extraction contains a loop, so the usable dialect was
+    close to empty.
+
+    The obvious fix — subtract everything a statement assigns — would have been wrong in the other
+    direction, and `test_iterable_read_before_the_loop_rebinds_it_is_still_caught` is the case that
+    proves it: there the name really is read before it is bound, and the split really does raise
+    NameError. So these pin BOTH directions. A gate that stops refusing is worth less than no gate.
+    """
+
+    def test_loop_variable_and_body_locals_are_not_live_ins(self):
+        """The shape that exposed the hole, kept faithful to it.
+
+        The CALLER must also bind `i` and `start` — in `get_analytics` it does, because the hourly,
+        daily and monthly loops all use the same variable names. Without that the names are not
+        caller locals at all and the check is clean either way, so a simpler fixture would have
+        passed against the BROKEN implementation too and pinned nothing. I wrote that simpler
+        fixture first and it proved exactly nothing; this one fails on the old code with
+        `['i', 'start']` and passes on the fixed code.
+        """
+        original = (
+            "def f(n):\n"
+            "    first = []\n"
+            "    for i in range(n):\n"
+            "        start = i * 2\n"
+            "        first.append(start)\n"
+            "    second = []\n"
+            "    for i in range(n):\n"
+            "        start = i\n"
+            "        second.append(start)\n"
+            "    return first, second\n"
+        )
+        split = (
+            "def f(n):\n"
+            "    first = _w(n)\n"
+            "    second = []\n"
+            "    for i in range(n):\n"
+            "        start = i\n"
+            "        second.append(start)\n"
+            "    return first, second\n"
+            "\n"
+            "\n"
+            "def _w(n):\n"
+            "    first = []\n"
+            "    for i in range(n):\n"
+            "        start = i * 2\n"
+            "        first.append(start)\n"
+            "    return first\n"
+        )
+        assert_extraction_preserves_behaviour(original, split, "_w")
+
+    def test_iterable_read_before_the_loop_rebinds_it_is_still_caught(self):
+        """`for x in items: items = []` READS items first. Still a live-in. Still refused."""
+        original = (
+            "def f():\n"
+            "    items = [1]\n"
+            "    total = 0\n"
+            "    for x in items:\n"
+            "        items = []\n"
+            "        total += x\n"
+            "    return total\n"
+        )
+        split = (
+            "def f():\n"
+            "    items = [1]\n"
+            "    total = _w()\n"
+            "    return total\n"
+            "\n"
+            "\n"
+            "def _w():\n"
+            "    total = 0\n"
+            "    for x in items:\n"
+            "        items = []\n"
+            "        total += x\n"
+            "    return total\n"
+        )
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original, split, "_w")
+        self.assertIn("items", str(caught.exception))
+
+    def test_assignment_value_is_read_before_its_target_binds(self):
+        """`n = n + 1` reads a caller `n` the helper was never given."""
+        original = "def f():\n    n = 1\n    n = n + 1\n    return n\n"
+        split = (
+            "def f():\n"
+            "    n = 1\n"
+            "    n = _w()\n"
+            "    return n\n"
+            "\n"
+            "\n"
+            "def _w():\n"
+            "    n = n + 1\n"
+            "    return n\n"
+        )
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original, split, "_w")
+        self.assertIn("`n`", str(caught.exception))
+
+    def test_a_name_bound_in_only_one_branch_is_not_treated_as_bound(self):
+        """Binding under `if` does not make the name bound on the path that skipped it."""
+        original = (
+            "def f(flag):\n"
+            "    seen = 0\n"
+            "    if flag:\n"
+            "        seen = 1\n"
+            "    total = seen\n"
+            "    return total\n"
+        )
+        split = (
+            "def f(flag):\n"
+            "    seen = 0\n"
+            "    total = _w(flag)\n"
+            "    return total\n"
+            "\n"
+            "\n"
+            "def _w(flag):\n"
+            "    if flag:\n"
+            "        seen = 1\n"
+            "    total = seen\n"
+            "    return total\n"
+        )
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original, split, "_w")
+        self.assertIn("`seen`", str(caught.exception))
+
+    def test_with_target_binds_before_its_body(self):
+        original = (
+            "def f(path):\n"
+            "    data = None\n"
+            "    with open(path) as fh:\n"
+            "        data = fh.read()\n"
+            "    return data\n"
+        )
+        split = (
+            "def f(path):\n"
+            "    data = _w(path)\n"
+            "    return data\n"
+            "\n"
+            "\n"
+            "def _w(path):\n"
+            "    data = None\n"
+            "    with open(path) as fh:\n"
+            "        data = fh.read()\n"
+            "    return data\n"
+        )
+        assert_extraction_preserves_behaviour(original, split, "_w")
+
+
 if __name__ == "__main__":
     unittest.main()

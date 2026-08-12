@@ -238,17 +238,76 @@ def _read_before_rebind(after: list[ast.stmt], name: str) -> bool:
         total = 0       # ...and this later line made the check ignore the line above
 
     Liveness is positional. A rebind only kills liveness AFTER the rebind, never before it.
+
+    AND WITHIN A STATEMENT, ORDER STILL APPLIES — the dual of the eighth hole, found in the same
+    run. The first version treated any load anywhere in a compound statement as coming first:
+
+        for i in range(n):     # the loop TARGET binds `i` before the body can read it...
+            start = i          # ...so this is not a read of the caller's old `i`
+
+    That is true for `total = total + 1`, where the value really is evaluated before the bind, and
+    false for a `for` target, a `with ... as`, and an assignment's own target. Treating them the
+    same reported every loop variable in the caller as still-live, which refused the first real
+    extraction from `get_analytics` — where the hourly, daily and monthly loops deliberately share
+    the names `i` and `start_s`.
+
+    So this walks evaluation order too, and answers "read" whenever a branch is ambiguous: for a
+    gate, wrongly refusing costs a manual review, wrongly allowing ships a defect.
     """
-    for stmt in after:
-        loads = _loaded_names([stmt]) | _augmented_reads(stmt)
-        stores = _assigned_names([stmt])
-        # Within one statement a load is evaluated before the bind (`total = total + 1`), so a load
-        # in the same statement counts as a read first.
-        if name in loads:
-            return True
-        if name in stores:
-            return False
-    return False
+
+    def first_event(stmt: ast.stmt) -> Optional[str]:
+        """'read', 'bind', or None — whichever happens FIRST for `name` inside this statement."""
+        if isinstance(stmt, (ast.For, ast.AsyncFor)):
+            if name in _loaded_names([stmt.iter]):
+                return "read"
+            if name in _assigned_names([stmt.target]):
+                return "bind"
+            return scan(stmt.body) or scan(stmt.orelse)
+        if isinstance(stmt, ast.While):
+            if name in _loaded_names([stmt.test]):
+                return "read"
+            return scan(stmt.body) or scan(stmt.orelse)
+        if isinstance(stmt, ast.If):
+            if name in _loaded_names([stmt.test]):
+                return "read"
+            branches = [scan(stmt.body), scan(stmt.orelse)]
+            # A read on EITHER path means the caller may read it. Only a bind on BOTH kills it.
+            if "read" in branches:
+                return "read"
+            return "bind" if branches == ["bind", "bind"] else None
+        if isinstance(stmt, (ast.With, ast.AsyncWith)):
+            for item in stmt.items:
+                if name in _loaded_names([item.context_expr]):
+                    return "read"
+                if item.optional_vars is not None and name in _assigned_names([item.optional_vars]):
+                    return "bind"
+            return scan(stmt.body)
+        if isinstance(stmt, ast.Try):
+            # A handler can run after any prefix of the body, so nothing here is guaranteed to bind.
+            for part in (stmt.body, [s for h in stmt.handlers for s in h.body], stmt.orelse):
+                if scan(part) == "read":
+                    return "read"
+            return scan(stmt.finalbody)
+        if isinstance(stmt, ast.Assign):
+            if name in _loaded_names([stmt.value]):
+                return "read"
+            return "bind" if name in _assigned_names(stmt.targets) else None
+        if isinstance(stmt, ast.AnnAssign):
+            if stmt.value is not None and name in _loaded_names([stmt.value]):
+                return "read"
+            return "bind" if name in _assigned_names([stmt.target]) else None
+        if name in (_loaded_names([stmt]) | _augmented_reads(stmt)):
+            return "read"
+        return "bind" if name in _assigned_names([stmt]) else None
+
+    def scan(stmts) -> Optional[str]:
+        for stmt in stmts:
+            event = first_event(stmt)
+            if event:
+                return event
+        return None
+
+    return scan(after) == "read"
 
 
 def live_out_violations(split_fn: ast.AST, helper_fn: ast.AST) -> list[str]:
@@ -351,16 +410,84 @@ def live_in_violations(helper_fn: ast.AST, module: ast.Module, caller_fn: ast.AS
     params = _helper_params(helper_fn)
     caller_locals = _assigned_names(caller_fn.body) | _helper_params(caller_fn)
     available = params | _module_level_names(module) | set(dir(builtins))
-    bound: set[str] = set()
     missing: list[str] = []
 
-    for stmt in _helper_body(helper_fn):
-        loads = _loaded_names([stmt]) | _augmented_reads(stmt)
-        for name in sorted(loads):
+    def report(names, bound: set[str]) -> None:
+        for name in sorted(names):
             if (name in caller_locals and name not in bound and name not in available
                     and name not in missing):
                 missing.append(name)
-        bound |= _assigned_names([stmt])
+
+    def walk(stmts, bound: set[str]) -> set[str]:
+        """Walk statements in EVALUATION ORDER, returning the names bound afterwards.
+
+        THE EIGHTH HOLE, found running the gate against the first real extraction. `bound` used to
+        be updated only AFTER each top-level statement, so a name bound and read within the SAME
+        compound statement was reported as a live-in. That is every extracted `for` loop:
+
+            for i in range(24):        # `i` bound by the loop target...
+                start = base - i       # ...and read in the body, in the same statement
+
+        Both `i` and `start` came back as "read but never passed", which would have refused nearly
+        every real extraction — a gate whose dialect excludes loops is not a usable gate.
+
+        Blanket-subtracting everything a statement assigns would have been the easy fix and a wrong
+        one: it would bless `for x in items: items = []`, where the iterable is READ before the
+        rebinding happens and the split really does raise NameError. So this walks the actual
+        evaluation order instead — iterable before target, value before assignment target, test
+        before body — which is the only version that keeps the check honest in both directions.
+        """
+        for stmt in stmts:
+            if isinstance(stmt, (ast.For, ast.AsyncFor)):
+                report(_loaded_names([stmt.iter]), bound)          # iterable evaluated FIRST
+                bound = bound | _assigned_names([stmt.target])     # then the target binds
+                inner = walk(stmt.body, bound)
+                # A loop body may not run, so only names bound BEFORE it are guaranteed; and the
+                # body can rebind for the next iteration, so its bindings are visible to itself.
+                bound = bound | (inner & walk(stmt.orelse, inner) if stmt.orelse else inner)
+            elif isinstance(stmt, ast.While):
+                report(_loaded_names([stmt.test]), bound)
+                bound = bound | walk(stmt.body, bound)
+                if stmt.orelse:
+                    bound = bound | walk(stmt.orelse, bound)
+            elif isinstance(stmt, ast.If):
+                report(_loaded_names([stmt.test]), bound)
+                then_bound = walk(stmt.body, bound)
+                else_bound = walk(stmt.orelse, bound) if stmt.orelse else bound
+                # Only what BOTH branches bind is guaranteed bound afterwards. Union would be
+                # permissive and could hide a live-in on the path that does not bind it.
+                bound = then_bound & else_bound
+            elif isinstance(stmt, (ast.With, ast.AsyncWith)):
+                for item in stmt.items:
+                    report(_loaded_names([item.context_expr]), bound)
+                    if item.optional_vars is not None:
+                        bound = bound | _assigned_names([item.optional_vars])
+                bound = walk(stmt.body, bound)
+            elif isinstance(stmt, ast.Try):
+                body_bound = walk(stmt.body, bound)
+                for handler in stmt.handlers:
+                    walk(handler.body, bound)   # a handler may run after ANY prefix of the body
+                # Nothing in `body` is guaranteed to have completed if a handler ran, so only the
+                # finally-block's bindings are certain.
+                bound = walk(stmt.finalbody, bound) if stmt.finalbody else bound
+                if stmt.orelse:
+                    walk(stmt.orelse, body_bound)
+            elif isinstance(stmt, ast.Assign):
+                report(_loaded_names([stmt.value]), bound)          # value evaluated FIRST
+                bound = bound | _assigned_names(stmt.targets)
+            elif isinstance(stmt, ast.AnnAssign):
+                if stmt.value is not None:
+                    report(_loaded_names([stmt.value]), bound)
+                bound = bound | _assigned_names([stmt.target])
+            elif isinstance(stmt, ast.AugAssign):
+                report(_loaded_names([stmt.value]) | _augmented_reads(stmt), bound)
+                bound = bound | _assigned_names([stmt.target])
+            else:
+                report(_loaded_names([stmt]) | _augmented_reads(stmt), bound)
+                bound = bound | _assigned_names([stmt])
+        return bound
+
+    walk(_helper_body(helper_fn), set())
 
     return [
         f"`{name}` is read by the helper but never passed to it - it was a CALLER local, so after "
