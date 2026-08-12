@@ -10,7 +10,7 @@ instead of in production.
 import re
 from pathlib import Path
 
-from service.routers.api_v2 import _NATIVE_MANAGED_RUNTIMES
+from service.control_plane import _NATIVE_MANAGED_RUNTIMES
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DISPATCH_JS = _REPO_ROOT / "mcp" / "stdio" / "dispatch-execution.js"

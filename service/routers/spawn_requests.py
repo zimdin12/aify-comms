@@ -135,67 +135,67 @@ _SPAWN_MODES = {"managed-warm"}
 
 
 def _default_capabilities_for(*a, **k):
-    from service.routers.api_v2 import _default_capabilities_for as _impl
+    from service.control_plane import _default_capabilities_for as _impl
 
     return _impl(*a, **k)
 
 
 def _environment_record_to_dict(*a, **k):
-    from service.routers.api_v2 import _environment_record_to_dict as _impl
+    from service.control_plane import _environment_record_to_dict as _impl
 
     return _impl(*a, **k)
 
 
 def _managed_via_wrapper_for_runtime(*a, **k):
-    from service.routers.api_v2 import _managed_via_wrapper_for_runtime as _impl
+    from service.control_plane import _managed_via_wrapper_for_runtime as _impl
 
     return _impl(*a, **k)
 
 
 async def _create_dispatch_runs(*a, **k):
-    from service.routers.api_v2 import _create_dispatch_runs as _impl
+    from service.control_plane import _create_dispatch_runs as _impl
 
     return await _impl(*a, **k)
 
 
 async def _ensure_managed_pty_for_dispatch(*a, **k):
-    from service.routers.api_v2 import _ensure_managed_pty_for_dispatch as _impl
+    from service.control_plane import _ensure_managed_pty_for_dispatch as _impl
 
     return await _impl(*a, **k)
 
 
 def _runtime_state_with_handle(*a, **k):
-    from service.routers.api_v2 import _runtime_state_with_handle as _impl
+    from service.control_plane import _runtime_state_with_handle as _impl
 
     return _impl(*a, **k)
 
 
 async def _apply_channel_routing_to_claude_runs(*a, **k):
-    from service.routers.api_v2 import _apply_channel_routing_to_claude_runs as _impl
+    from service.control_plane import _apply_channel_routing_to_claude_runs as _impl
 
     return await _impl(*a, **k)
 
 
 def _insert_messages_via_console(*a, **k):
-    from service.routers.api_v2 import _insert_messages_via_console as _impl
+    from service.control_plane import _insert_messages_via_console as _impl
 
     return _impl(*a, **k)
 
 
 def _normalize_workspace_for_environment(*a, **k):
-    from service.routers.api_v2 import _normalize_workspace_for_environment as _impl
+    from service.control_plane import _normalize_workspace_for_environment as _impl
 
     return _impl(*a, **k)
 
 
 def _wake_agent(*a, **k):
-    from service.routers.api_v2 import _wake_agent as _impl
+    from service.control_plane import _wake_agent as _impl
 
     return _impl(*a, **k)
 
 
 def _managed_terminal_backing_enabled(*a, **k):
-    from service.routers.api_v2 import _managed_terminal_backing_enabled as _impl
+    from service.control_plane import _managed_terminal_backing_enabled as _impl
 
     return _impl(*a, **k)
 
@@ -203,7 +203,7 @@ def _managed_terminal_backing_enabled(*a, **k):
 
 
 def _workspace_root_for(*a, **k):
-    from service.routers.api_v2 import _workspace_root_for as _impl
+    from service.control_plane import _workspace_root_for as _impl
 
     return _impl(*a, **k)
 

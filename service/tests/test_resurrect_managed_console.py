@@ -12,7 +12,7 @@ import datetime as dt
 
 import aiosqlite
 
-from service.routers.api_v2 import _reconcile_resurrected_managed_consoles
+from service.control_plane import _reconcile_resurrected_managed_consoles
 from service.tests._base import FastApiTestCase
 
 GHOST = "reconciled_managed_ghost_console_dead_worker"

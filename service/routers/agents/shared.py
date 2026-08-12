@@ -53,97 +53,97 @@ import sqlite3
 logger = logging.getLogger("aify_comms.routers.agents.shared")
 
 async def _active_terminal_for_agent(*a, **k):
-    from service.routers.api_v2 import _active_terminal_for_agent as _impl
+    from service.control_plane import _active_terminal_for_agent as _impl
 
     return await _impl(*a, **k)
 
 
 async def _adopt_live_resident_driver(*a, **k):
-    from service.routers.api_v2 import _adopt_live_resident_driver as _impl
+    from service.control_plane import _adopt_live_resident_driver as _impl
 
     return await _impl(*a, **k)
 
 
 async def _agent_liveness(*a, **k):
-    from service.routers.api_v2 import _agent_liveness as _impl
+    from service.control_plane import _agent_liveness as _impl
 
     return await _impl(*a, **k)
 
 
 def _agent_record_to_dict(*a, **k):
-    from service.routers.api_v2 import _agent_record_to_dict as _impl
+    from service.control_plane import _agent_record_to_dict as _impl
 
     return _impl(*a, **k)
 
 
 def _agent_session_to_dict(*a, **k):
-    from service.routers.api_v2 import _agent_session_to_dict as _impl
+    from service.control_plane import _agent_session_to_dict as _impl
 
     return _impl(*a, **k)
 
 
 async def _agent_tombstone(*a, **k):
-    from service.routers.api_v2 import _agent_tombstone as _impl
+    from service.control_plane import _agent_tombstone as _impl
 
     return await _impl(*a, **k)
 
 
 async def _append_dispatch_control(*a, **k):
-    from service.routers.api_v2 import _append_dispatch_control as _impl
+    from service.control_plane import _append_dispatch_control as _impl
 
     return await _impl(*a, **k)
 
 
 async def _auto_return_resident_to_managed_if_possible(*a, **k):
-    from service.routers.api_v2 import _auto_return_resident_to_managed_if_possible as _impl
+    from service.control_plane import _auto_return_resident_to_managed_if_possible as _impl
 
     return await _impl(*a, **k)
 
 
 async def _clear_status_state_in_turn(*a, **k):
-    from service.routers.api_v2 import _clear_status_state_in_turn as _impl
+    from service.control_plane import _clear_status_state_in_turn as _impl
 
     return await _impl(*a, **k)
 
 
 def _coldstart_refusal_message(*a, **k):
-    from service.routers.api_v2 import _coldstart_refusal_message as _impl
+    from service.control_plane import _coldstart_refusal_message as _impl
 
     return _impl(*a, **k)
 
 
 async def _coldstart_spawn_request_for_dispatch(*a, **k):
-    from service.routers.api_v2 import _coldstart_spawn_request_for_dispatch as _impl
+    from service.control_plane import _coldstart_spawn_request_for_dispatch as _impl
 
     return await _impl(*a, **k)
 
 
 async def _compute_agent_status(*a, **k):
-    from service.routers.api_v2 import _compute_agent_status as _impl
+    from service.control_plane import _compute_agent_status as _impl
 
     return await _impl(*a, **k)
 
 
 async def _compute_live_status_cache(*a, **k):
-    from service.routers.api_v2 import _compute_live_status_cache as _impl
+    from service.control_plane import _compute_live_status_cache as _impl
 
     return await _impl(*a, **k)
 
 
 def _default_capabilities_for(*a, **k):
-    from service.routers.api_v2 import _default_capabilities_for as _impl
+    from service.control_plane import _default_capabilities_for as _impl
 
     return _impl(*a, **k)
 
 
 async def _ensure_managed_pty_for_dispatch(*a, **k):
-    from service.routers.api_v2 import _ensure_managed_pty_for_dispatch as _impl
+    from service.control_plane import _ensure_managed_pty_for_dispatch as _impl
 
     return await _impl(*a, **k)
 
 
 def _environment_record_to_dict(*a, **k):
-    from service.routers.api_v2 import _environment_record_to_dict as _impl
+    from service.control_plane import _environment_record_to_dict as _impl
 
     return _impl(*a, **k)
 
@@ -218,49 +218,49 @@ async def _fail_active_runs_for_superseded_bridges(
 
 
 async def _get_blocking_active_run(*a, **k):
-    from service.routers.api_v2 import _get_blocking_active_run as _impl
+    from service.control_plane import _get_blocking_active_run as _impl
 
     return await _impl(*a, **k)
 
 
 async def _get_dispatch_state_for_agent(*a, **k):
-    from service.routers.api_v2 import _get_dispatch_state_for_agent as _impl
+    from service.control_plane import _get_dispatch_state_for_agent as _impl
 
     return await _impl(*a, **k)
 
 
 async def _get_dispatch_state_map(*a, **k):
-    from service.routers.api_v2 import _get_dispatch_state_map as _impl
+    from service.control_plane import _get_dispatch_state_map as _impl
 
     return await _impl(*a, **k)
 
 
 async def _get_unread_count_map(*a, **k):
-    from service.routers.api_v2 import _get_unread_count_map as _impl
+    from service.control_plane import _get_unread_count_map as _impl
 
     return await _impl(*a, **k)
 
 
 def _has_codex_live_app_server(*a, **k):
-    from service.routers.api_v2 import _has_codex_live_app_server as _impl
+    from service.control_plane import _has_codex_live_app_server as _impl
 
     return _impl(*a, **k)
 
 
 async def _has_live_terminal_session(*a, **k):
-    from service.routers.api_v2 import _has_live_terminal_session as _impl
+    from service.control_plane import _has_live_terminal_session as _impl
 
     return await _impl(*a, **k)
 
 
 async def _has_pending_or_booting_spawn_request(*a, **k):
-    from service.routers.api_v2 import _has_pending_or_booting_spawn_request as _impl
+    from service.control_plane import _has_pending_or_booting_spawn_request as _impl
 
     return await _impl(*a, **k)
 
 
 def _is_lock_error(*a, **k):
-    from service.routers.api_v2 import _is_lock_error as _impl
+    from service.control_plane import _is_lock_error as _impl
 
     return _impl(*a, **k)
 
@@ -270,49 +270,49 @@ def _machine_family(machine_id: Any) -> str:
 
 
 async def _managed_owning_environment_row(*a, **k):
-    from service.routers.api_v2 import _managed_owning_environment_row as _impl
+    from service.control_plane import _managed_owning_environment_row as _impl
 
     return await _impl(*a, **k)
 
 
 def _managed_via_wrapper_for_runtime(*a, **k):
-    from service.routers.api_v2 import _managed_via_wrapper_for_runtime as _impl
+    from service.control_plane import _managed_via_wrapper_for_runtime as _impl
 
     return _impl(*a, **k)
 
 
 async def _record_channel_sidecar_heartbeat(*a, **k):
-    from service.routers.api_v2 import _record_channel_sidecar_heartbeat as _impl
+    from service.control_plane import _record_channel_sidecar_heartbeat as _impl
 
     return await _impl(*a, **k)
 
 
 async def _refresh_expired_agent_live_states(*a, **k):
-    from service.routers.api_v2 import _refresh_expired_agent_live_states as _impl
+    from service.control_plane import _refresh_expired_agent_live_states as _impl
 
     return await _impl(*a, **k)
 
 
 async def _remove_agent_record(*a, **k):
-    from service.routers.api_v2 import _remove_agent_record as _impl
+    from service.control_plane import _remove_agent_record as _impl
 
     return await _impl(*a, **k)
 
 
 def _row_status_note(*a, **k):
-    from service.routers.api_v2 import _row_status_note as _impl
+    from service.control_plane import _row_status_note as _impl
 
     return _impl(*a, **k)
 
 
 def _runtime_state_with_handle(*a, **k):
-    from service.routers.api_v2 import _runtime_state_with_handle as _impl
+    from service.control_plane import _runtime_state_with_handle as _impl
 
     return _impl(*a, **k)
 
 
 async def _session_handle_live_owner(*a, **k):
-    from service.routers.api_v2 import _session_handle_live_owner as _impl
+    from service.control_plane import _session_handle_live_owner as _impl
 
     return await _impl(*a, **k)
 
@@ -392,53 +392,53 @@ async def _stop_virtual_terminals_for_superseded_bridges(
 
 
 def _terminal_session_to_dict(*a, **k):
-    from service.routers.api_v2 import _terminal_session_to_dict as _impl
+    from service.control_plane import _terminal_session_to_dict as _impl
 
     return _impl(*a, **k)
 
 
 async def _touch_current_agent_session(*a, **k):
-    from service.routers.api_v2 import _touch_current_agent_session as _impl
+    from service.control_plane import _touch_current_agent_session as _impl
 
     return await _impl(*a, **k)
 
 
 def _workspace_for_environment(*a, **k):
-    from service.routers.api_v2 import _workspace_for_environment as _impl
+    from service.control_plane import _workspace_for_environment as _impl
 
     return _impl(*a, **k)
 
 
 async def engine_status(*a, **k):
-    from service.routers.api_v2 import engine_status as _impl
+    from service.control_plane import engine_status as _impl
 
     return await _impl(*a, **k)
 
 
 def _borrowed_list_agents_refresh_limit():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import LIST_AGENTS_REFRESH_LIMIT
+    from service.control_plane import LIST_AGENTS_REFRESH_LIMIT
 
     return LIST_AGENTS_REFRESH_LIMIT
 
 
 def _borrowed_terminal_output_writes():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import TERMINAL_OUTPUT_WRITES
+    from service.control_plane import TERMINAL_OUTPUT_WRITES
 
     return TERMINAL_OUTPUT_WRITES
 
 
 def _borrowed_virtual_pi_rpc_command():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import VIRTUAL_PI_RPC_COMMAND
+    from service.control_plane import VIRTUAL_PI_RPC_COMMAND
 
     return VIRTUAL_PI_RPC_COMMAND
 
 
 def _borrowed_virtual_rpc_commands_by_runtime():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import VIRTUAL_RPC_COMMANDS_BY_RUNTIME
+    from service.control_plane import VIRTUAL_RPC_COMMANDS_BY_RUNTIME
 
     return VIRTUAL_RPC_COMMANDS_BY_RUNTIME
 
@@ -450,98 +450,98 @@ def _borrowed_virtual_rpc_command_set():
     modules through accessors of their own — so it stays router-owned even though its heaviest
     reader moved here in v0.5.3.
     """
-    from service.routers.api_v2 import VIRTUAL_RPC_COMMAND_SET
+    from service.control_plane import VIRTUAL_RPC_COMMAND_SET
 
     return VIRTUAL_RPC_COMMAND_SET
 
 
 def _borrowed_ansi_re():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _ANSI_RE
+    from service.control_plane import _ANSI_RE
 
     return _ANSI_RE
 
 
 def _borrowed_channel_claim_runtimes():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _CHANNEL_CLAIM_RUNTIMES
+    from service.control_plane import _CHANNEL_CLAIM_RUNTIMES
 
     return _CHANNEL_CLAIM_RUNTIMES
 
 
 def _borrowed_console_tail_max_bytes():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _CONSOLE_TAIL_MAX_BYTES
+    from service.control_plane import _CONSOLE_TAIL_MAX_BYTES
 
     return _CONSOLE_TAIL_MAX_BYTES
 
 
 def _borrowed_console_tail_max_lines():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _CONSOLE_TAIL_MAX_LINES
+    from service.control_plane import _CONSOLE_TAIL_MAX_LINES
 
     return _CONSOLE_TAIL_MAX_LINES
 
 
 def _borrowed_live_session_statuses():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _LIVE_SESSION_STATUSES
+    from service.control_plane import _LIVE_SESSION_STATUSES
 
     return _LIVE_SESSION_STATUSES
 
 
 def _borrowed_manual_statuses():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _MANUAL_STATUSES
+    from service.control_plane import _MANUAL_STATUSES
 
     return _MANUAL_STATUSES
 
 
 def _borrowed_reap_triad_body_sentinel():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _REAP_TRIAD_BODY_SENTINEL
+    from service.control_plane import _REAP_TRIAD_BODY_SENTINEL
 
     return _REAP_TRIAD_BODY_SENTINEL
 
 
 def _borrowed_runtime_config_live_keys():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _RUNTIME_CONFIG_LIVE_KEYS
+    from service.control_plane import _RUNTIME_CONFIG_LIVE_KEYS
 
     return _RUNTIME_CONFIG_LIVE_KEYS
 
 
 def _borrowed_shell_placeholder_handle_re():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _SHELL_PLACEHOLDER_HANDLE_RE
+    from service.control_plane import _SHELL_PLACEHOLDER_HANDLE_RE
 
     return _SHELL_PLACEHOLDER_HANDLE_RE
 
 
 def _borrowed_terminal_end_statuses():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _TERMINAL_END_STATUSES
+    from service.control_plane import _TERMINAL_END_STATUSES
 
     return _TERMINAL_END_STATUSES
 
 
 def _borrowed_windows_drive_cwd_re():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _WINDOWS_DRIVE_CWD_RE
+    from service.control_plane import _WINDOWS_DRIVE_CWD_RE
 
     return _WINDOWS_DRIVE_CWD_RE
 
 
 def _borrowed_wsl_drive_cwd_re():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _WSL_DRIVE_CWD_RE
+    from service.control_plane import _WSL_DRIVE_CWD_RE
 
     return _WSL_DRIVE_CWD_RE
 
 
 def _borrowed_listen_events():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _listen_events
+    from service.control_plane import _listen_events
 
     return _listen_events
 

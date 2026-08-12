@@ -47,30 +47,30 @@ async def engine_status(*a, **k):
     `api_v2.engine_status` at line 4705 — a DB-reading wrapper, not the pure state machine.
     Importing the wrong one would have compiled, passed a cycle smoke test, and quietly changed how
     orphaned managed runs are judged."""
-    from service.routers.api_v2 import engine_status as _i
+    from service.control_plane import engine_status as _i
     return await _i(*a, **k)
 
 
 
 async def _clear_status_state_in_turn(*a, **k):
-    from service.routers.api_v2 import _clear_status_state_in_turn as _i
+    from service.control_plane import _clear_status_state_in_turn as _i
     return await _i(*a, **k)
 
 
 async def _mark_dispatch_run_answered(*a, **k):
-    from service.routers.api_v2 import _mark_dispatch_run_answered as _i
+    from service.control_plane import _mark_dispatch_run_answered as _i
     return await _i(*a, **k)
 
 
 async def _mirror_missing_dispatch_handoff(*a, **k):
-    from service.routers.api_v2 import _mirror_missing_dispatch_handoff as _i
+    from service.control_plane import _mirror_missing_dispatch_handoff as _i
     return await _i(*a, **k)
 
 
 
 
 def _active_run_bridge_stale_seconds():
-    from service.routers.api_v2 import ACTIVE_RUN_BRIDGE_STALE_SECONDS
+    from service.control_plane import ACTIVE_RUN_BRIDGE_STALE_SECONDS
     return ACTIVE_RUN_BRIDGE_STALE_SECONDS
 
 

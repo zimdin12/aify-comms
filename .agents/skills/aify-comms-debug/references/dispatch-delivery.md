@@ -182,7 +182,7 @@ If you see rows with `status='queued'`, `execution_mode='channel'`, and `claim_b
 **Fix.**
 1. Confirm Plan 5 is deployed — grep the container for `_CHANNEL_CLAIM_RUNTIMES`:
    ```bash
-   docker exec aify-comms-service grep -n "_CHANNEL_CLAIM_RUNTIMES" /app/service/routers/api_v2.py
+   docker exec aify-comms-service grep -n "_CHANNEL_CLAIM_RUNTIMES" /app/service/control_plane.py
    ```
    Expect a line defining the set as `_CHANNEL_MANAGED_RUNTIMES | {"codex", "hermes", "pi"}`. Missing → rebuild the service.
 2. Check that the affected runtime is in `managed_via_wrapper`:

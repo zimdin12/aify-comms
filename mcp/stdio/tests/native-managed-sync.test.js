@@ -2,7 +2,7 @@
 // Regression test for the bridge-side vs service-side
 // NATIVE_MANAGED_RUNTIMES drift that operator hit 2026-05-22.
 // When d87457b added hermes to the SERVICE-side set
-// (_NATIVE_MANAGED_RUNTIMES in service/routers/api_v2.py) but missed
+// (_NATIVE_MANAGED_RUNTIMES in service/control_plane.py) but missed
 // the BRIDGE-side set (NATIVE_MANAGED_RUNTIMES in dispatch-execution.js),
 // the bridge silently stopped claiming hermes managed dispatches.
 // This test prevents that class of drift recurring.
@@ -32,13 +32,13 @@ function parsePythonRuntimeSet(filePath, pattern, label) {
   );
 }
 
-// 2. Parse service-side sets from api_v2.py and service/db.py
-const apiV2Path = path.join(repoRoot, "service", "routers", "api_v2.py");
+// 2. Parse service-side sets from service/control_plane.py and service/db.py
+const controlPlanePath = path.join(repoRoot, "service", "control_plane.py");
 const dbPath = path.join(repoRoot, "service", "db.py");
 const serviceSet = parsePythonRuntimeSet(
-  apiV2Path,
+  controlPlanePath,
   /^_NATIVE_MANAGED_RUNTIMES\s*=\s*\{([^}]+)\}/m,
-  "_NATIVE_MANAGED_RUNTIMES in service/routers/api_v2.py",
+  "_NATIVE_MANAGED_RUNTIMES in service/control_plane.py",
 );
 const dbSet = parsePythonRuntimeSet(
   dbPath,
@@ -58,7 +58,7 @@ assert.deepEqual(
 assert.deepEqual(
   dbArr,
   serviceArr,
-  `service/db.py native-managed backfill set (${dbArr.join(", ")}) does not match service/routers/api_v2.py _NATIVE_MANAGED_RUNTIMES (${serviceArr.join(", ")}). Stale managed agents would miss capability repair after migrations.`,
+  `service/db.py native-managed backfill set (${dbArr.join(", ")}) does not match service/control_plane.py _NATIVE_MANAGED_RUNTIMES (${serviceArr.join(", ")}). Stale managed agents would miss capability repair after migrations.`,
 );
 
 console.log("native-managed-sync.test.js: all assertions passed");

@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 def _virtual_rpc_command_set():
     """Borrowed constant. Read through a function so there is exactly one owner and no second copy
     that could drift — the `_TERMINAL_END_STATUSES_ORDERED` reasoning from slice 2."""
-    from service.routers.api_v2 import VIRTUAL_RPC_COMMAND_SET
+    from service.control_plane import VIRTUAL_RPC_COMMAND_SET
 
     return VIRTUAL_RPC_COMMAND_SET
 

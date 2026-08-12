@@ -84,7 +84,7 @@ _TERMINAL_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "comp
 
 async def _get_blocking_active_run(*a, **k):
     """BORROWED: still used by handlers that have not moved."""
-    from service.routers.api_v2 import _get_blocking_active_run as _impl
+    from service.control_plane import _get_blocking_active_run as _impl
 
     return await _impl(*a, **k)
 
@@ -92,7 +92,7 @@ async def _get_blocking_active_run(*a, **k):
 
 async def _has_claimable_spawn_request(*a, **k):
     """BORROWED: still used by handlers that have not moved."""
-    from service.routers.api_v2 import _has_claimable_spawn_request as _impl
+    from service.control_plane import _has_claimable_spawn_request as _impl
 
     return await _impl(*a, **k)
 
@@ -100,7 +100,7 @@ async def _has_claimable_spawn_request(*a, **k):
 
 async def _touch_current_agent_session(*a, **k):
     """BORROWED: still used by handlers that have not moved."""
-    from service.routers.api_v2 import _touch_current_agent_session as _impl
+    from service.control_plane import _touch_current_agent_session as _impl
 
     return await _impl(*a, **k)
 
@@ -108,7 +108,7 @@ async def _touch_current_agent_session(*a, **k):
 
 def _is_lock_error(*a, **k):
     """BORROWED: still used by handlers that have not moved."""
-    from service.routers.api_v2 import _is_lock_error as _impl
+    from service.control_plane import _is_lock_error as _impl
 
     return _impl(*a, **k)
 
@@ -116,7 +116,7 @@ def _is_lock_error(*a, **k):
 
 def _normalize_workspace_for_environment(*a, **k):
     """BORROWED: still used by handlers that have not moved."""
-    from service.routers.api_v2 import _normalize_workspace_for_environment as _impl
+    from service.control_plane import _normalize_workspace_for_environment as _impl
 
     return _impl(*a, **k)
 
@@ -124,7 +124,7 @@ def _normalize_workspace_for_environment(*a, **k):
 
 def _workspace_root_for(*a, **k):
     """BORROWED: still used by handlers that have not moved."""
-    from service.routers.api_v2 import _workspace_root_for as _impl
+    from service.control_plane import _workspace_root_for as _impl
 
     return _impl(*a, **k)
 
@@ -132,7 +132,7 @@ def _workspace_root_for(*a, **k):
 
 def _borrowed_virtual_rpc_commands_by_runtime():
     """BORROWED constant: one owner, never a copy — a forked status set is finding N7."""
-    from service.routers.api_v2 import VIRTUAL_RPC_COMMANDS_BY_RUNTIME
+    from service.control_plane import VIRTUAL_RPC_COMMANDS_BY_RUNTIME
 
     return VIRTUAL_RPC_COMMANDS_BY_RUNTIME
 
@@ -140,7 +140,7 @@ def _borrowed_virtual_rpc_commands_by_runtime():
 
 def _borrowed_virtual_rpc_command_set():
     """BORROWED constant: one owner, never a copy — a forked status set is finding N7."""
-    from service.routers.api_v2 import VIRTUAL_RPC_COMMAND_SET
+    from service.control_plane import VIRTUAL_RPC_COMMAND_SET
 
     return VIRTUAL_RPC_COMMAND_SET
 
@@ -148,7 +148,7 @@ def _borrowed_virtual_rpc_command_set():
 
 def _borrowed_session_delete_allowed_statuses():
     """BORROWED constant: one owner, never a copy — a forked status set is finding N7."""
-    from service.routers.api_v2 import _SESSION_DELETE_ALLOWED_STATUSES
+    from service.control_plane import _SESSION_DELETE_ALLOWED_STATUSES
 
     return _SESSION_DELETE_ALLOWED_STATUSES
 
@@ -156,56 +156,56 @@ def _borrowed_session_delete_allowed_statuses():
 
 def _borrowed_terminal_active_statuses():
     """BORROWED constant: one owner, never a copy — a forked status set is finding N7."""
-    from service.routers.api_v2 import _TERMINAL_ACTIVE_STATUSES
+    from service.control_plane import _TERMINAL_ACTIVE_STATUSES
 
     return _TERMINAL_ACTIVE_STATUSES
 
 
 
 async def _coldstart_spawn_request_for_dispatch(*a, **k):
-    from service.routers.api_v2 import _coldstart_spawn_request_for_dispatch as _impl
+    from service.control_plane import _coldstart_spawn_request_for_dispatch as _impl
 
     return await _impl(*a, **k)
 
 
 def _agent_session_to_dict(*a, **k):
-    from service.routers.api_v2 import _agent_session_to_dict as _impl
+    from service.control_plane import _agent_session_to_dict as _impl
 
     return _impl(*a, **k)
 
 
 def _environment_record_to_dict(*a, **k):
-    from service.routers.api_v2 import _environment_record_to_dict as _impl
+    from service.control_plane import _environment_record_to_dict as _impl
 
     return _impl(*a, **k)
 
 
 def _default_console_command(*a, **k):
-    from service.routers.api_v2 import _default_console_command as _impl
+    from service.control_plane import _default_console_command as _impl
 
     return _impl(*a, **k)
 
 
 def _terminal_session_to_dict(*a, **k):
-    from service.routers.api_v2 import _terminal_session_to_dict as _impl
+    from service.control_plane import _terminal_session_to_dict as _impl
 
     return _impl(*a, **k)
 
 
 async def _append_dispatch_control(*a, **k):
-    from service.routers.api_v2 import _append_dispatch_control as _impl
+    from service.control_plane import _append_dispatch_control as _impl
 
     return await _impl(*a, **k)
 
 
 def _workspace_for_environment(*a, **k):
-    from service.routers.api_v2 import _workspace_for_environment as _impl
+    from service.control_plane import _workspace_for_environment as _impl
 
     return _impl(*a, **k)
 
 
 def _environment_supports_terminal(*a, **k):
-    from service.routers.api_v2 import _environment_supports_terminal as _impl
+    from service.control_plane import _environment_supports_terminal as _impl
 
     return _impl(*a, **k)
 

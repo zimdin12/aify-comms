@@ -121,7 +121,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _reap_stale_orphan_bridges,
         stale_seconds_from_settings,
     )
-    from service.routers.api_v2 import (
+    from service.control_plane import (
         _load_settings,
         _refresh_expired_agent_live_states,
         _run_contract_reminders_once,
@@ -414,7 +414,7 @@ async def lifespan(app: FastAPI):
     # registered as sessionMode=resident are marked with a pending-flip
     # flag; once no open runs are targeting them, the loop migrates them
     # to sessionMode=managed. 5s tick keeps the flip latency tight.
-    from service.routers.api_v2 import _periodic_pi_resident_flip_loop
+    from service.control_plane import _periodic_pi_resident_flip_loop
     pi_flip_task = asyncio.create_task(_periodic_pi_resident_flip_loop())
 
     # WebSocket manager

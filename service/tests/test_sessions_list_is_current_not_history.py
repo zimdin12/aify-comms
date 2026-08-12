@@ -15,7 +15,7 @@ import asyncio
 import time
 
 from service.db import get_db
-from service.routers import api_v2
+from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 # v0.5.2i: the clean-history set moved with the sessions domain. The delete-allowed set it is
 # compared against is still router-owned, so this test deliberately reads each from ITS OWNER
 # -- the assertion is about the RELATIONSHIP between the two sets, not about one file.

@@ -3,7 +3,7 @@
 THE SHAPE OF THIS FAILURE. A borrow shim is a function-scope import:
 
     def _helper(*a, **k):
-        from service.routers.api_v2 import _helper as _impl
+        from service.control_plane import _helper as _impl
         return _impl(*a, **k)
 
 Function-scope is deliberate — it is how a leaf module reaches back to the router without a
@@ -34,14 +34,14 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent.parent
 SEARCH = ("service/routers/**/*.py", "service/reconcilers/*.py")
-BORROW_RE = re.compile(r"from service\.routers\.api_v2 import (\w+)")
+BORROW_RE = re.compile(r"from service\.control_plane import (\w+)")
 
 
 def _shim_targets() -> dict[str, set[str]]:
     found: dict[str, set[str]] = {}
     for pattern in SEARCH:
         for path in REPO.glob(pattern):
-            if path.name == "api_v2.py" or "__pycache__" in path.parts:
+            if path.name == "control_plane.py" or "__pycache__" in path.parts:
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
             for match in BORROW_RE.finditer(text):
@@ -51,7 +51,7 @@ def _shim_targets() -> dict[str, set[str]]:
 
 class BorrowShimsResolveTests(unittest.TestCase):
     def test_every_borrowed_name_still_exists_on_the_router(self):
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         targets = _shim_targets()
         broken = [
@@ -81,14 +81,14 @@ class BorrowShimsResolveTests(unittest.TestCase):
         """
         sample = (
             "def _a(*x, **y):\n"
-            "    from service.routers.api_v2 import _a as _impl\n"
+            "    from service.control_plane import _a as _impl\n"
             "    return _impl(*x, **y)\n"
             "\n"
             "async def _b(*x, **y):\n"
-            "    from service.routers.api_v2 import _b as _impl\n"
+            "    from service.control_plane import _b as _impl\n"
             "    return await _impl(*x, **y)\n"
             "\n"
-            "# from service.routers.api_v2 import _not_a_real_one\n"
+            "# from service.control_plane import _not_a_real_one\n"
         )
         found = set(BORROW_RE.findall(sample))
         self.assertEqual(
@@ -108,10 +108,10 @@ class BorrowShimsResolveTests(unittest.TestCase):
         sites = sum(len(v) for v in targets.values())
         print(f"\n  borrow shims remaining: {len(targets)} names across {sites} sites")
         has_any = any(
-            "from service.routers.api_v2 import" in path.read_text(encoding="utf-8", errors="replace")
+            "from service.control_plane import" in path.read_text(encoding="utf-8", errors="replace")
             for pattern in SEARCH
             for path in REPO.glob(pattern)
-            if path.name != "api_v2.py" and "__pycache__" not in path.parts
+            if path.name != "control_plane.py" and "__pycache__" not in path.parts
         )
         self.assertEqual(
             bool(targets), has_any,
@@ -122,18 +122,18 @@ class BorrowShimsResolveTests(unittest.TestCase):
         """Module-level borrowing from the router is the cycle this pattern exists to avoid.
 
         A shim is safe because it imports inside a function. A module-level
-        `from service.routers.api_v2 import X` in a router/reconciler leaf is a different thing and
+        `from service.control_plane import X` in a router/reconciler leaf is a different thing and
         would be an import cycle waiting for load order to change.
         """
         offenders = []
         for pattern in SEARCH:
             for path in REPO.glob(pattern):
-                if path.name == "api_v2.py" or "__pycache__" in path.parts:
+                if path.name == "control_plane.py" or "__pycache__" in path.parts:
                     continue
                 for lineno, line in enumerate(
                     path.read_text(encoding="utf-8", errors="replace").splitlines(), 1
                 ):
-                    if line.startswith("from service.routers.api_v2 import"):
+                    if line.startswith("from service.control_plane import"):
                         offenders.append(f"{path.relative_to(REPO).as_posix()}:{lineno}")
         self.assertEqual(
             offenders,

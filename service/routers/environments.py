@@ -50,7 +50,7 @@ router = domain_router()
 
 def _environment_record_to_dict(*a, **k):
     """BORROWED: nine users outside this domain, so it keeps one owner in the router."""
-    from service.routers.api_v2 import _environment_record_to_dict as _impl
+    from service.control_plane import _environment_record_to_dict as _impl
 
     return _impl(*a, **k)
 

@@ -48,7 +48,7 @@ def _terminal_end_statuses_ordered() -> tuple[str, ...]:
     exactly the divergence that produced finding N7 (two sweeps disagreeing about `degraded`), so
     this module borrows the one owner instead. A module-level import would be a cycle; a function
     call at use time is not, because the router is fully loaded by then."""
-    from service.routers.api_v2 import _TERMINAL_END_STATUSES_ORDERED
+    from service.control_plane import _TERMINAL_END_STATUSES_ORDERED
 
     return _TERMINAL_END_STATUSES_ORDERED
 

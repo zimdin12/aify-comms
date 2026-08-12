@@ -1,6 +1,6 @@
 """A test that patches a moved name patches nothing, and still passes.
 
-THE FAILURE THIS PREVENTS. `mock.patch("service.routers.api_v2._foo")` names its target as a
+THE FAILURE THIS PREVENTS. `mock.patch("service.control_plane._foo")` names its target as a
 string, so it is not checked by the import system, by a linter, or by anything else until the line
 runs. The v0.5 refactor moved eighteen helpers out of `api_v2` into the modules that call them. When
 a helper moves, a patch aimed at the old location can fail in two ways, and only one of them is

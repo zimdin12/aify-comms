@@ -146,7 +146,7 @@ class EnsureManagedPtyRowAccessTests(unittest.TestCase):
         from service.tests._source import code_only
 
         src = code_only(
-            (Path(__file__).resolve().parents[1] / "routers" / "api_v2.py").read_text(
+            (Path(__file__).resolve().parents[1] / "control_plane.py").read_text(
                 encoding="utf-8", errors="replace"
             )
         )
@@ -214,7 +214,7 @@ class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
         await self.db.commit()
 
     async def _starting(self):
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         return await api_v2._managed_spawn_is_starting(self.db, "a1")
 
@@ -223,7 +223,7 @@ class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await self._starting())
 
     async def test_just_inside_the_window(self):
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         await self._add(age_seconds=api_v2.SPAWN_STARTING_WINDOW_SECONDS - 30)
         self.assertTrue(await self._starting())
@@ -231,7 +231,7 @@ class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
     async def test_past_the_window_it_stops_claiming_to_be_starting(self):
         """The safety property: a spawn that never produces a worker must stop looking hopeful and
         fall back to exactly what it reported before this state existed."""
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         await self._add(age_seconds=api_v2.SPAWN_STARTING_WINDOW_SECONDS + 60)
         self.assertFalse(await self._starting())
@@ -257,13 +257,13 @@ class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
         """Review's finding, pinned as a constant relationship rather than two matching literals —
         two numbers that happen to agree today will drift, and the gap between them is a window
         where the display and the dispatcher contradict each other."""
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         self.assertEqual(
             api_v2.SPAWN_STARTING_WINDOW_SECONDS, api_v2.SPAWN_INFLIGHT_WINDOW_SECONDS,
             "the status must not expire before the mechanism that still suppresses a duplicate start",
         )
-        src = (Path(__file__).resolve().parents[1] / "routers" / "api_v2.py").read_text(encoding="utf-8")
+        src = (Path(__file__).resolve().parents[1] / "control_plane.py").read_text(encoding="utf-8")
         at = src.index("async def _has_pending_or_booting_spawn_request")
         body = src[at : at + 1500]
         self.assertIn("SPAWN_INFLIGHT_WINDOW_SECONDS", body,

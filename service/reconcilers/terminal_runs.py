@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 async def _current_agent_session_row(*a, **k):
-    from service.routers.api_v2 import _current_agent_session_row as _i
+    from service.control_plane import _current_agent_session_row as _i
     return await _i(*a, **k)
 
 
@@ -93,7 +93,7 @@ def _terminal_pi_idle_prompt_hint(output: str) -> str:
 
 
 def _terminal_awaiting_input_hint(*a, **k):
-    from service.routers.api_v2 import _terminal_awaiting_input_hint as _i
+    from service.control_plane import _terminal_awaiting_input_hint as _i
     return _i(*a, **k)
 
 
@@ -104,22 +104,22 @@ def _borrowed_ansi_re():
     separate pattern — so this one stays router-owned. Measured with
     scripts/constant_readership.py, not guessed.
     """
-    from service.routers.api_v2 import _ANSI_RE
+    from service.control_plane import _ANSI_RE
     return _ANSI_RE
 
 
 def _terminal_end_statuses():
-    from service.routers.api_v2 import _TERMINAL_END_STATUSES
+    from service.control_plane import _TERMINAL_END_STATUSES
     return _TERMINAL_END_STATUSES
 
 
 def _terminal_active_statuses():
-    from service.routers.api_v2 import _TERMINAL_ACTIVE_STATUSES
+    from service.control_plane import _TERMINAL_ACTIVE_STATUSES
     return _TERMINAL_ACTIVE_STATUSES
 
 
 def _stuck_stopping_grace_seconds():
-    from service.routers.api_v2 import STUCK_STOPPING_GRACE_SECONDS
+    from service.control_plane import STUCK_STOPPING_GRACE_SECONDS
     return STUCK_STOPPING_GRACE_SECONDS
 
 

@@ -92,7 +92,7 @@ class VocabularyContractTests(unittest.TestCase):
         The router still owns the launchable set and session modes at its own call sites.
         """
         from service.api_core import runtime as runtime_core
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         self.assertIs(runtime_core._RUNTIME_ALIASES, RUNTIME_ALIASES)
         self.assertIs(runtime_core._SESSION_MODES, SESSION_MODES)
@@ -106,7 +106,7 @@ class VocabularyContractTests(unittest.TestCase):
 
     def test_normalize_runtime_still_behaves_identically(self):
         """Structural change: the mapping moved, the answers must not."""
-        from service.routers.api_v2 import _normalize_runtime
+        from service.control_plane import _normalize_runtime
 
         for raw, expected in [
             ("claude", "claude-code"), ("claude_code", "claude-code"), ("CLAUDE", "claude-code"),

@@ -29,11 +29,11 @@ const bridgeSet = new Set(
 );
 assert.ok(bridgeSet.size > 0, "bridge VIRTUAL_RPC_RUNTIMES must be non-empty");
 
-// 2. Parse service-side VIRTUAL_RPC_COMMANDS_BY_RUNTIME from api_v2.py
-const apiV2Path = path.join(repoRoot, "service", "routers", "api_v2.py");
-const apiV2Text = fs.readFileSync(apiV2Path, "utf-8");
+// 2. Parse service-side VIRTUAL_RPC_COMMANDS_BY_RUNTIME from service/control_plane.py
+const controlPlanePath = path.join(repoRoot, "service", "control_plane.py");
+const apiV2Text = fs.readFileSync(controlPlanePath, "utf-8");
 const serviceMatch = apiV2Text.match(/^VIRTUAL_RPC_COMMANDS_BY_RUNTIME\s*=\s*\{([^}]+)\}/m);
-assert.ok(serviceMatch, "could not locate VIRTUAL_RPC_COMMANDS_BY_RUNTIME in service/routers/api_v2.py");
+assert.ok(serviceMatch, "could not locate VIRTUAL_RPC_COMMANDS_BY_RUNTIME in service/control_plane.py");
 const serviceSet = new Set(
   serviceMatch[1]
     .split(",")

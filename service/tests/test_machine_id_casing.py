@@ -18,7 +18,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from service.db import get_db, init_db
-from service.routers.api_v2 import router, _normalize_machine_id
+from service.routers.api_v2 import router
+from service.control_plane import _normalize_machine_id
 
 
 class _DummyWS:

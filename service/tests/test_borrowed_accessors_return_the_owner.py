@@ -3,7 +3,7 @@
 THE BUG THIS EXISTS FOR, found by the reviewer in the agents package:
 
     def _borrowed_listen_events():
-        from service.routers.api_v2 import _listen_events
+        from service.control_plane import _listen_events
         return _borrowed_listen_events()      # <-- itself, not the constant
 
 RecursionError on every call. It came from the mechanical rewrite that turns `CONSTANT` into
@@ -57,7 +57,7 @@ def _accessors() -> list[tuple[str, str, str]]:
                     continue
                 imported = None
                 for sub in ast.walk(node):
-                    if isinstance(sub, ast.ImportFrom) and sub.module == "service.routers.api_v2":
+                    if isinstance(sub, ast.ImportFrom) and sub.module == "service.control_plane":
                         imported = sub.names[0].asname or sub.names[0].name
                 found.append((path.relative_to(REPO).as_posix(), node.name, imported))
     return found
@@ -98,7 +98,7 @@ class BorrowedAccessorsTests(unittest.TestCase):
         """Identity, not equality. A copy would pass `==` and be a forked constant."""
         import importlib
 
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         mismatched = []
         for module_path, accessor, constant in _accessors():

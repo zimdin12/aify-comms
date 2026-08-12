@@ -39,7 +39,7 @@ class AccessorRewriteTests(unittest.TestCase):
     def test_it_does_NOT_rewrite_the_accessor_import(self):
         """Defect two, shipped: `from ... import _borrowed_x()` — a SyntaxError."""
         out = rewrite("def handler():\n    return _LISTEN_EVENTS\n" + ACCESSOR, ["_LISTEN_EVENTS"])
-        self.assertIn("from service.routers.api_v2 import _LISTEN_EVENTS", out)
+        self.assertIn("from service.control_plane import _LISTEN_EVENTS", out)
         self.assertNotIn("import _borrowed_listen_events()", out)
 
     def test_the_result_always_parses(self):
@@ -310,7 +310,7 @@ class AccessorRewriteRealRepoShapesTests(unittest.TestCase):
 
     OLD_STYLE = (
         "def _active_run_bridge_stale_seconds():\n"
-        "    from service.routers.api_v2 import ACTIVE_RUN_BRIDGE_STALE_SECONDS\n"
+        "    from service.control_plane import ACTIVE_RUN_BRIDGE_STALE_SECONDS\n"
         "\n"
         "    return ACTIVE_RUN_BRIDGE_STALE_SECONDS\n"
     )
@@ -328,7 +328,7 @@ class AccessorRewriteRealRepoShapesTests(unittest.TestCase):
     def test_a_delegating_shim_is_protected_too(self):
         """Shims import a FUNCTION and call it; they must not be rewritten either."""
         shim = ("def _helper(*a, **k):\n"
-                "    from service.routers.api_v2 import _helper as _impl\n"
+                "    from service.control_plane import _helper as _impl\n"
                 "\n"
                 "    return _impl(*a, **k)\n")
         source = "def h():\n    return SOME_CONST\n\n\n" + shim
@@ -351,14 +351,14 @@ class AccessorRewriteRealRepoShapesTests(unittest.TestCase):
         missed = []
         for pattern in ("service/routers/**/*.py", "service/reconcilers/*.py"):
             for path in repo.glob(pattern):
-                if path.name == "api_v2.py" or "__pycache__" in path.parts:
+                if path.name == "control_plane.py" or "__pycache__" in path.parts:
                     continue
                 tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
                 for node in ast.walk(tree):
                     if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         continue
                     src = ast.unparse(node)
-                    looks_like = ("from service.routers.api_v2 import" in src
+                    looks_like = ("from service.control_plane import" in src
                                   and len(node.body) <= 3)
                     if looks_like and not is_constant_accessor(node):
                         missed.append(f"{path.relative_to(repo).as_posix()}: {node.name}")
@@ -375,7 +375,7 @@ class BorrowShimDetectionTests(unittest.TestCase):
     """Telling a delegating shim from a real implementation that happens to import.
 
     DEFECT #5, caught by a dry run before it reached the working tree. A migration script decided
-    "is this a shim?" by asking whether the substring `from service.routers.api_v2 import` appeared
+    "is this a shim?" by asking whether the substring `from service.control_plane import` appeared
     anywhere in the function's source. The real `_agent_has_live_claimer` body contains its own
     function-scope import — so the script deleted the REAL implementation and the helper ended up
     defined nowhere, with a live call site pointing at nothing.
@@ -387,20 +387,20 @@ class BorrowShimDetectionTests(unittest.TestCase):
     SHIM = (
         "def _helper(*a, **k):\n"
         '    """Borrowed."""\n'
-        "    from service.routers.api_v2 import _helper as _impl\n"
+        "    from service.control_plane import _helper as _impl\n"
         "\n"
         "    return _impl(*a, **k)\n"
     )
     ASYNC_SHIM = (
         "async def _helper(*a, **k):\n"
-        "    from service.routers.api_v2 import _helper as _impl\n"
+        "    from service.control_plane import _helper as _impl\n"
         "\n"
         "    return await _impl(*a, **k)\n"
     )
     REAL_WITH_IMPORT = (
         "async def _agent_has_live_claimer(db, row, *, settings=None):\n"
         '    """The real implementation — and it imports from the router itself."""\n'
-        "    from service.routers.api_v2 import _load_settings\n"
+        "    from service.control_plane import _load_settings\n"
         "\n"
         "    settings = settings or await _load_settings(db)\n"
         "    if not row:\n"
@@ -409,7 +409,7 @@ class BorrowShimDetectionTests(unittest.TestCase):
     )
     CONSTANT_ACCESSOR = (
         "def _borrowed_thing():\n"
-        "    from service.routers.api_v2 import THING\n"
+        "    from service.control_plane import THING\n"
         "\n"
         "    return THING\n"
     )
@@ -445,7 +445,7 @@ class BorrowShimDetectionTests(unittest.TestCase):
         """Pinned so nobody reintroduces it as 'simpler'."""
         from service.tests.accessor_rewrite import is_borrow_shim
 
-        self.assertIn("from service.routers.api_v2 import", self.REAL_WITH_IMPORT)
+        self.assertIn("from service.control_plane import", self.REAL_WITH_IMPORT)
         self.assertFalse(is_borrow_shim(self._node(self.REAL_WITH_IMPORT)))
 
 

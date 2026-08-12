@@ -8,7 +8,7 @@ was actually generating. The spinner footer ("esc to interrupt" / "<glyph> <verb
 means claude is working — a real prompt pauses that footer — so it must suppress the hint.
 """
 
-from service.routers.api_v2 import _terminal_awaiting_input_hint
+from service.control_plane import _terminal_awaiting_input_hint
 
 # A subagent report full of decision words, with the live working footer at the bottom.
 _SUBAGENT_WORKING_TAIL = (

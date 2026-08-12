@@ -30,7 +30,11 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent.parent
-ROUTER = REPO / "service" / "routers" / "api_v2.py"
+#: v0.5.3: the helper library moved out of `service/routers/api_v2.py` (now composition only)
+#: into `service/control_plane.py`. This gate compares LEAVES against the control plane, so it
+#: must follow the helpers; pointed at the composition module it would compare against a file
+#: with 15 names and pass vacuously.
+ROUTER = REPO / "service" / "control_plane.py"
 
 #: Names every module is expected to declare for itself.
 PER_MODULE = {"logger", "router"}
@@ -64,7 +68,7 @@ def _is_delegating_shim(node: ast.AST) -> bool:
     """A shim is: optional docstring, ONE import from the router, ONE return of that import.
 
     STRUCTURAL, not a substring match. The first version exempted any function whose source merely
-    CONTAINED `from service.routers.api_v2 import`, which the reviewer pointed out would
+    CONTAINED `from service.control_plane import`, which the reviewer pointed out would
     false-exempt a future "shim" that had grown real logic around the delegation — and a function
     with its own logic is a second implementation, which is exactly the fork this file exists to
     catch. Recognising the shape means the exemption cannot be earned by an import line alone.
@@ -80,7 +84,7 @@ def _is_delegating_shim(node: ast.AST) -> bool:
     if len(body) != 2:
         return False
     importer, returner = body
-    if not isinstance(importer, ast.ImportFrom) or importer.module != "service.routers.api_v2":
+    if not isinstance(importer, ast.ImportFrom) or importer.module != "service.control_plane":
         return False
     if not isinstance(returner, ast.Return) or returner.value is None:
         return False
@@ -100,7 +104,7 @@ def _leaf_paths() -> list[Path]:
     paths: list[Path] = []
     for pattern in LEAF_GLOBS:
         paths.extend(REPO.glob(pattern))
-    return [p for p in paths if p.name != "api_v2.py" and p.name != "__init__.py"]
+    return [p for p in paths if p.name not in {"api_v2.py", "__init__.py"}]
 
 
 class NoForkedDeclarationsTests(unittest.TestCase):
@@ -113,7 +117,7 @@ class NoForkedDeclarationsTests(unittest.TestCase):
                     continue
                 if _is_delegating_shim(node):
                     continue
-                forks.append(f"{name} — declared in api_v2.py AND {leaf.relative_to(REPO).as_posix()}")
+                forks.append(f"{name} — declared in control_plane.py AND {leaf.relative_to(REPO).as_posix()}")
         self.assertEqual(
             forks,
             [],
@@ -137,12 +141,12 @@ class NoForkedDeclarationsTests(unittest.TestCase):
     def test_the_constant_that_was_actually_forked_has_one_owner(self):
         """Named explicitly, because this is the one that really happened."""
         from service import env_status
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         self.assertIs(
             api_v2._ENVIRONMENT_HEARTBEAT_STATUSES,
             env_status._ENVIRONMENT_HEARTBEAT_STATUSES,
-            "api_v2 must import this from env_status, not declare its own copy",
+            "the control plane must import this from env_status, not declare its own copy",
         )
 
     def test_no_name_is_declared_twice_within_one_module(self):

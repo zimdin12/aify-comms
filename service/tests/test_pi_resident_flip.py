@@ -182,7 +182,7 @@ class PiResidentDrainTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
 
         # Run the drain helper synchronously
-        from service.routers.api_v2 import _drain_and_flip_pi_resident_agents
+        from service.control_plane import _drain_and_flip_pi_resident_agents
         asyncio.run(_drain_and_flip_pi_resident_agents())
 
         # Verify the flip happened
@@ -410,7 +410,7 @@ class PiResidentPreExistingBackfillTests(unittest.TestCase):
 
         asyncio.run(_insert())
 
-        from service.routers.api_v2 import _drain_and_flip_pi_resident_agents
+        from service.control_plane import _drain_and_flip_pi_resident_agents
         asyncio.run(_drain_and_flip_pi_resident_agents())
 
         row = self._agent_row("pre-existing-pi")

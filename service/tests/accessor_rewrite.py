@@ -7,11 +7,11 @@ in the moved body has to become a call to a borrowed accessor. Doing that with a
 file text has now produced the same defect twice, both times shipped:
 
     def _borrowed_listen_events():
-        from service.routers.api_v2 import _listen_events
+        from service.control_plane import _listen_events
         return _borrowed_listen_events()        # <- rewrote its OWN return. RecursionError.
 
     def _borrowed_channel_claim_runtimes():
-        from service.routers.api_v2 import _borrowed_channel_claim_runtimes()   # <- and its import
+        from service.control_plane import _borrowed_channel_claim_runtimes()   # <- and its import
                                                                                 #    SyntaxError.
 
 Both came from the same idea: "apply the regex to everything except the accessor bodies", implemented
@@ -86,7 +86,7 @@ def is_borrow_shim(node: ast.AST) -> bool:
 
     Distinct from a real implementation that merely happens to contain a function-scope import, and
     that distinction is not academic: a migration script identified shims by testing whether the
-    substring `"from service.routers.api_v2 import"` appeared anywhere in the function source. The
+    substring `"from service.control_plane import"` appeared anywhere in the function source. The
     real `_agent_has_live_claimer` body contains its own function-scope import, so it was classified
     as a shim and DELETED — the helper ended up defined nowhere, with a live call site left dangling.
 
@@ -194,7 +194,7 @@ def rewrite(source: str, constants: list[str]) -> str:
     return "".join(out)
 
 
-def build_accessor(constant: str, owner: str = "service.routers.api_v2") -> str:
+def build_accessor(constant: str, owner: str = "service.control_plane") -> str:
     """The accessor itself, written once here so no migration script hand-rolls it again."""
     return (
         f'\n\ndef {accessor_name(constant)}():\n'

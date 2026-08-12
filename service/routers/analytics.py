@@ -40,14 +40,14 @@ router = domain_router()
 
 def _agent_wake_mode(*a, **k):
     """BORROWED: still used by handlers and serializers that have not moved."""
-    from service.routers.api_v2 import _agent_wake_mode as _impl
+    from service.control_plane import _agent_wake_mode as _impl
 
     return _impl(*a, **k)
 
 
 async def _compute_agent_status(*a, **k):
     """BORROWED: still used by handlers that have not moved."""
-    from service.routers.api_v2 import _compute_agent_status as _impl
+    from service.control_plane import _compute_agent_status as _impl
 
     return await _impl(*a, **k)
 

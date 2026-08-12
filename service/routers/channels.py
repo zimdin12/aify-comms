@@ -65,67 +65,67 @@ _CHANNEL_FANOUT_DEDUP_WINDOW_MS = 30_000
 def _channel_claim_runtimes():
     """BORROWED: nine users remain in the router. A copied runtime set is exactly the drift
     that produced finding N7, so it is read through one owner."""
-    from service.routers.api_v2 import _CHANNEL_CLAIM_RUNTIMES
+    from service.control_plane import _CHANNEL_CLAIM_RUNTIMES
 
     return _CHANNEL_CLAIM_RUNTIMES
 
 
 async def _coldstart_spawn_request_for_dispatch(*a, **k):
-    from service.routers.api_v2 import _coldstart_spawn_request_for_dispatch as _impl
+    from service.control_plane import _coldstart_spawn_request_for_dispatch as _impl
 
     return await _impl(*a, **k)
 
 
 async def _create_dispatch_runs(*a, **k):
-    from service.routers.api_v2 import _create_dispatch_runs as _impl
+    from service.control_plane import _create_dispatch_runs as _impl
 
     return await _impl(*a, **k)
 
 
 async def _delete_messages_where(*a, **k):
-    from service.routers.api_v2 import _delete_messages_where as _impl
+    from service.control_plane import _delete_messages_where as _impl
 
     return await _impl(*a, **k)
 
 
 async def _finalize_dispatch_runs(*a, **k):
-    from service.routers.api_v2 import _finalize_dispatch_runs as _impl
+    from service.control_plane import _finalize_dispatch_runs as _impl
 
     return await _impl(*a, **k)
 
 
 async def _get_recipient_info(*a, **k):
-    from service.routers.api_v2 import _get_recipient_info as _impl
+    from service.control_plane import _get_recipient_info as _impl
 
     return await _impl(*a, **k)
 
 
 async def _has_live_managed_wrapper_child(*a, **k):
-    from service.routers.api_v2 import _has_live_managed_wrapper_child as _impl
+    from service.control_plane import _has_live_managed_wrapper_child as _impl
 
     return await _impl(*a, **k)
 
 
 async def _preflight_live_send_recipients(*a, **k):
-    from service.routers.api_v2 import _preflight_live_send_recipients as _impl
+    from service.control_plane import _preflight_live_send_recipients as _impl
 
     return await _impl(*a, **k)
 
 
 def _reject_sender_truncated_body(*a, **k):
-    from service.routers.api_v2 import _reject_sender_truncated_body as _impl
+    from service.control_plane import _reject_sender_truncated_body as _impl
 
     return _impl(*a, **k)
 
 
 async def _touch_agent(*a, **k):
-    from service.routers.api_v2 import _touch_agent as _impl
+    from service.control_plane import _touch_agent as _impl
 
     return await _impl(*a, **k)
 
 
 def _wake_agent(*a, **k):
-    from service.routers.api_v2 import _wake_agent as _impl
+    from service.control_plane import _wake_agent as _impl
 
     return _impl(*a, **k)
 

@@ -11,7 +11,7 @@ import sqlite3
 
 import aiosqlite
 
-from service.routers.api_v2 import _prune_terminal_history
+from service.control_plane import _prune_terminal_history
 from service.tests._base import FastApiTestCase
 
 

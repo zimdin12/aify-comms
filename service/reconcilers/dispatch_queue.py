@@ -45,17 +45,17 @@ logger = logging.getLogger(__name__)
 
 
 async def _has_live_claimer_lease(*a, **k):
-    from service.routers.api_v2 import _has_live_claimer_lease as _i
+    from service.control_plane import _has_live_claimer_lease as _i
     return await _i(*a, **k)
 
 
 async def _has_recorded_claimer_lease(*a, **k):
-    from service.routers.api_v2 import _has_recorded_claimer_lease as _i
+    from service.control_plane import _has_recorded_claimer_lease as _i
     return await _i(*a, **k)
 
 
 def _resident_bridge_is_fresh(*a, **k):
-    from service.routers.api_v2 import _resident_bridge_is_fresh as _i
+    from service.control_plane import _resident_bridge_is_fresh as _i
     return _i(*a, **k)
 
 
@@ -133,12 +133,12 @@ async def _agent_has_live_claimer(db, agent_row, *, settings: Optional[dict[str,
 
 
 async def _coldstart_spawn_request_for_dispatch(*a, **k):
-    from service.routers.api_v2 import _coldstart_spawn_request_for_dispatch as _i
+    from service.control_plane import _coldstart_spawn_request_for_dispatch as _i
     return await _i(*a, **k)
 
 
 async def _has_pending_or_booting_spawn_request(*a, **k):
-    from service.routers.api_v2 import _has_pending_or_booting_spawn_request as _i
+    from service.control_plane import _has_pending_or_booting_spawn_request as _i
     return await _i(*a, **k)
 
 
@@ -187,50 +187,50 @@ async def _mirror_undeliverable_queued_run_to_sender(db, row, *, reason: str) ->
 
 
 async def _create_dispatch_runs(*a, **k):
-    from service.routers.api_v2 import _create_dispatch_runs as _i
+    from service.control_plane import _create_dispatch_runs as _i
     return await _i(*a, **k)
 
 
 async def _finalize_dispatch_runs(*a, **k):
-    from service.routers.api_v2 import _finalize_dispatch_runs as _i
+    from service.control_plane import _finalize_dispatch_runs as _i
     return await _i(*a, **k)
 
 
 async def _managed_environment_unavailable_reason(*a, **k):
-    from service.routers.api_v2 import _managed_environment_unavailable_reason as _i
+    from service.control_plane import _managed_environment_unavailable_reason as _i
     return await _i(*a, **k)
 
 
 
 async def _has_live_channel_sidecar(*a, **k):
-    from service.routers.api_v2 import _has_live_channel_sidecar as _i
+    from service.control_plane import _has_live_channel_sidecar as _i
     return await _i(*a, **k)
 
 
 def _insert_messages_via_console(*a, **k):
-    from service.routers.api_v2 import _insert_messages_via_console as _i
+    from service.control_plane import _insert_messages_via_console as _i
     return _i(*a, **k)
 
 
 
 
 def _active_run_bridge_stale_seconds():
-    from service.routers.api_v2 import ACTIVE_RUN_BRIDGE_STALE_SECONDS
+    from service.control_plane import ACTIVE_RUN_BRIDGE_STALE_SECONDS
     return ACTIVE_RUN_BRIDGE_STALE_SECONDS
 
 
 def _channel_flag_gated_runtimes():
-    from service.routers.api_v2 import _CHANNEL_FLAG_GATED_RUNTIMES
+    from service.control_plane import _CHANNEL_FLAG_GATED_RUNTIMES
     return _CHANNEL_FLAG_GATED_RUNTIMES
 
 
 def _channel_sidecar_delivery_runtimes():
-    from service.routers.api_v2 import _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
+    from service.control_plane import _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
     return _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
 
 
 def _channel_managed_runtimes():
-    from service.routers.api_v2 import _CHANNEL_MANAGED_RUNTIMES
+    from service.control_plane import _CHANNEL_MANAGED_RUNTIMES
     return _CHANNEL_MANAGED_RUNTIMES
 
 

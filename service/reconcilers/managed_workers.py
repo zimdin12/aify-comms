@@ -47,39 +47,39 @@ logger = logging.getLogger(__name__)
 
 
 async def _has_live_channel_sidecar(*a, **k):
-    from service.routers.api_v2 import _has_live_channel_sidecar as _i
+    from service.control_plane import _has_live_channel_sidecar as _i
     return await _i(*a, **k)
 
 
 async def _has_live_managed_wrapper_child(*a, **k):
-    from service.routers.api_v2 import _has_live_managed_wrapper_child as _i
+    from service.control_plane import _has_live_managed_wrapper_child as _i
     return await _i(*a, **k)
 
 
 async def _has_live_terminal_session(*a, **k):
-    from service.routers.api_v2 import _has_live_terminal_session as _i
+    from service.control_plane import _has_live_terminal_session as _i
     return await _i(*a, **k)
 
 
 
 
 async def _discard_unusable_active_run(*a, **k):
-    from service.routers.api_v2 import _discard_unusable_active_run as _i
+    from service.control_plane import _discard_unusable_active_run as _i
     return await _i(*a, **k)
 
 
 async def _get_dispatch_state_for_agent(*a, **k):
-    from service.routers.api_v2 import _get_dispatch_state_for_agent as _i
+    from service.control_plane import _get_dispatch_state_for_agent as _i
     return await _i(*a, **k)
 
 
 async def _mark_dispatch_run_answered(*a, **k):
-    from service.routers.api_v2 import _mark_dispatch_run_answered as _i
+    from service.control_plane import _mark_dispatch_run_answered as _i
     return await _i(*a, **k)
 
 
 def _message_satisfies_reply_contract(*a, **k):
-    from service.routers.api_v2 import _message_satisfies_reply_contract as _i
+    from service.control_plane import _message_satisfies_reply_contract as _i
     return _i(*a, **k)
 
 
@@ -137,12 +137,12 @@ async def _link_unthreaded_completion_message_for_run(db, row) -> bool:
 
 
 def _managed_orphan_grace_seconds():
-    from service.routers.api_v2 import MANAGED_ORPHAN_GRACE_SECONDS
+    from service.control_plane import MANAGED_ORPHAN_GRACE_SECONDS
     return MANAGED_ORPHAN_GRACE_SECONDS
 
 
 def _channel_sidecar_delivery_runtimes():
-    from service.routers.api_v2 import _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
+    from service.control_plane import _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
     return _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
 
 

@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent))
 
-from service.routers.api_v2 import _default_console_command
+from service.control_plane import _default_console_command
 
 
 def _session(*, agent_id, handle, runtime):

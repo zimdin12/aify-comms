@@ -11,7 +11,7 @@ import sqlite3
 
 import aiosqlite
 
-from service.routers.api_v2 import _reconcile_stuck_terminal_and_session_rows
+from service.control_plane import _reconcile_stuck_terminal_and_session_rows
 from service.tests._base import FastApiTestCase
 
 

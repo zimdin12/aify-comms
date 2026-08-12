@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent))
 
-from service.routers.api_v2 import _managed_via_wrapper_for_runtime
+from service.control_plane import _managed_via_wrapper_for_runtime
 
 
 def test_pi_is_not_eligible_for_managed_via_wrapper():

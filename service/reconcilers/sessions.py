@@ -36,7 +36,7 @@ async def _agent_liveness(db, agent_id, *, agent_row=None):
     of their many callers. A function-scope import is safe in this direction: the router is fully
     loaded by the time any reconciler runs. When 3b happens, this shim is what it deletes.
     """
-    from service.routers.api_v2 import _agent_liveness as _impl
+    from service.control_plane import _agent_liveness as _impl
 
     return await _impl(db, agent_id, agent_row=agent_row)
 

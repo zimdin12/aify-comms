@@ -24,7 +24,7 @@ test stays green — and the endpoint starts 503ing under concurrent writes. Loa
 would surface in production and not in CI. That is the exact failure class this series has to make
 impossible, so the route class is snapshotted per route.
 
-WHAT IS DELIBERATELY *NOT* PINNED: the endpoint's module. `service.routers.api_v2.register_agent`
+WHAT IS DELIBERATELY *NOT* PINNED: the endpoint's module. `service.control_plane.register_agent`
 becoming `service.routers.agents.register_agent` is the POINT of the refactor. The function NAME is
 pinned (a rename is an API-visible change to `operationId` generation and to every `url_for`); the
 module is reported by `test_route_owner_map` below as a separate, deliberately-updated artifact so

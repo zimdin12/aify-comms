@@ -67,37 +67,37 @@ from service.models import DispatchClaimRequest
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.shared")
 
 async def _adopt_live_resident_driver(*a, **k):
-    from service.routers.api_v2 import _adopt_live_resident_driver as _impl
+    from service.control_plane import _adopt_live_resident_driver as _impl
 
     return await _impl(*a, **k)
 
 
 async def _agent_tombstone(*a, **k):
-    from service.routers.api_v2 import _agent_tombstone as _impl
+    from service.control_plane import _agent_tombstone as _impl
 
     return await _impl(*a, **k)
 
 
 def _auto_handoff_subject_for_run(*a, **k):
-    from service.routers.api_v2 import _auto_handoff_subject_for_run as _impl
+    from service.control_plane import _auto_handoff_subject_for_run as _impl
 
     return _impl(*a, **k)
 
 
 def _auto_handoff_body_for_run(*a, **k):
-    from service.routers.api_v2 import _auto_handoff_body_for_run as _impl
+    from service.control_plane import _auto_handoff_body_for_run as _impl
 
     return _impl(*a, **k)
 
 
 async def _active_wrapper_terminal_id(*a, **k):
-    from service.routers.api_v2 import _active_wrapper_terminal_id as _impl
+    from service.control_plane import _active_wrapper_terminal_id as _impl
 
     return await _impl(*a, **k)
 
 
 async def _active_wrapper_terminal_not_ready_reason(*a, **k):
-    from service.routers.api_v2 import _active_wrapper_terminal_not_ready_reason as _impl
+    from service.control_plane import _active_wrapper_terminal_not_ready_reason as _impl
 
     return await _impl(*a, **k)
 
@@ -358,7 +358,7 @@ def _dispatch_reply_pending(row) -> bool:
 
 
 def _dispatch_reply_state(*a, **k):
-    from service.routers.api_v2 import _dispatch_reply_state as _impl
+    from service.control_plane import _dispatch_reply_state as _impl
 
     return _impl(*a, **k)
 
@@ -440,37 +440,37 @@ def _is_replaceable_auto_handoff_message(existing_message, replied_run) -> bool:
 
 
 def _dispatch_source_message_ids(*a, **k):
-    from service.routers.api_v2 import _dispatch_source_message_ids as _impl
+    from service.control_plane import _dispatch_source_message_ids as _impl
 
     return _impl(*a, **k)
 
 
 async def _mark_dispatch_source_messages_read(*a, **k):
-    from service.routers.api_v2 import _mark_dispatch_source_messages_read as _impl
+    from service.control_plane import _mark_dispatch_source_messages_read as _impl
 
     return await _impl(*a, **k)
 
 
 def _message_satisfies_reply_contract(*a, **k):
-    from service.routers.api_v2 import _message_satisfies_reply_contract as _impl
+    from service.control_plane import _message_satisfies_reply_contract as _impl
 
     return _impl(*a, **k)
 
 
 def _pending_dispatch_count(*a, **k):
-    from service.routers.api_v2 import _pending_dispatch_count as _impl
+    from service.control_plane import _pending_dispatch_count as _impl
 
     return _impl(*a, **k)
 
 
 def _row_capabilities(*a, **k):
-    from service.routers.api_v2 import _row_capabilities as _impl
+    from service.control_plane import _row_capabilities as _impl
 
     return _impl(*a, **k)
 
 
 async def _record_channel_sidecar_heartbeat(*a, **k):
-    from service.routers.api_v2 import _record_channel_sidecar_heartbeat as _impl
+    from service.control_plane import _record_channel_sidecar_heartbeat as _impl
 
     return await _impl(*a, **k)
 
@@ -555,7 +555,7 @@ async def _release_stale_console_owner_for_claim(db, owner_session, req: Dispatc
 
 def _borrowed_active_run_bridge_stale_seconds():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import ACTIVE_RUN_BRIDGE_STALE_SECONDS
+    from service.control_plane import ACTIVE_RUN_BRIDGE_STALE_SECONDS
 
     return ACTIVE_RUN_BRIDGE_STALE_SECONDS
 
@@ -568,236 +568,236 @@ def _borrowed_turn_busy_backstop_seconds():
     `test_turn_busy_delivery_ceiling` asserts the parity against `api_v2`. A copy here would let the
     delivery gate and the status clamp drift apart, which is the strand the ceiling exists to bound.
     """
-    from service.routers.api_v2 import TURN_BUSY_BACKSTOP_SECONDS
+    from service.control_plane import TURN_BUSY_BACKSTOP_SECONDS
 
     return TURN_BUSY_BACKSTOP_SECONDS
 
 
 def _borrowed_coldstart_refused_prefix():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import COLDSTART_REFUSED_PREFIX
+    from service.control_plane import COLDSTART_REFUSED_PREFIX
 
     return COLDSTART_REFUSED_PREFIX
 
 
 def _borrowed_channel_claim_runtimes():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _CHANNEL_CLAIM_RUNTIMES
+    from service.control_plane import _CHANNEL_CLAIM_RUNTIMES
 
     return _CHANNEL_CLAIM_RUNTIMES
 
 
 def _borrowed_channel_managed_runtimes():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _CHANNEL_MANAGED_RUNTIMES
+    from service.control_plane import _CHANNEL_MANAGED_RUNTIMES
 
     return _CHANNEL_MANAGED_RUNTIMES
 
 
 def _borrowed_dispatch_terminal_statuses():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _DISPATCH_TERMINAL_STATUSES
+    from service.control_plane import _DISPATCH_TERMINAL_STATUSES
 
     return _DISPATCH_TERMINAL_STATUSES
 
 
 def _borrowed_merged_dispatch_header():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _MERGED_DISPATCH_HEADER
+    from service.control_plane import _MERGED_DISPATCH_HEADER
 
     return _MERGED_DISPATCH_HEADER
 
 
 def _borrowed_unthreaded_handoff_window_ms():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _UNTHREADED_HANDOFF_WINDOW_MS
+    from service.control_plane import _UNTHREADED_HANDOFF_WINDOW_MS
 
     return _UNTHREADED_HANDOFF_WINDOW_MS
 
 
 
 async def _active_terminal_for_agent(*a, **k):
-    from service.routers.api_v2 import _active_terminal_for_agent as _impl
+    from service.control_plane import _active_terminal_for_agent as _impl
 
     return await _impl(*a, **k)
 
 
 def _agent_execution_mode(*a, **k):
-    from service.routers.api_v2 import _agent_execution_mode as _impl
+    from service.control_plane import _agent_execution_mode as _impl
 
     return _impl(*a, **k)
 
 
 async def _append_dispatch_control(*a, **k):
-    from service.routers.api_v2 import _append_dispatch_control as _impl
+    from service.control_plane import _append_dispatch_control as _impl
 
     return await _impl(*a, **k)
 
 
 async def _apply_channel_routing_to_claude_runs(*a, **k):
-    from service.routers.api_v2 import _apply_channel_routing_to_claude_runs as _impl
+    from service.control_plane import _apply_channel_routing_to_claude_runs as _impl
 
     return await _impl(*a, **k)
 
 
 async def _auto_return_resident_to_managed_if_possible(*a, **k):
-    from service.routers.api_v2 import _auto_return_resident_to_managed_if_possible as _impl
+    from service.control_plane import _auto_return_resident_to_managed_if_possible as _impl
 
     return await _impl(*a, **k)
 
 
 async def _clear_turn_busy_if_no_open_reply_owing_run(*a, **k):
-    from service.routers.api_v2 import _clear_turn_busy_if_no_open_reply_owing_run as _impl
+    from service.control_plane import _clear_turn_busy_if_no_open_reply_owing_run as _impl
 
     return await _impl(*a, **k)
 
 
 def _coldstart_refusal_message(*a, **k):
-    from service.routers.api_v2 import _coldstart_refusal_message as _impl
+    from service.control_plane import _coldstart_refusal_message as _impl
 
     return _impl(*a, **k)
 
 
 async def _coldstart_spawn_request_for_dispatch(*a, **k):
-    from service.routers.api_v2 import _coldstart_spawn_request_for_dispatch as _impl
+    from service.control_plane import _coldstart_spawn_request_for_dispatch as _impl
 
     return await _impl(*a, **k)
 
 
 async def _create_dispatch_runs(*a, **k):
-    from service.routers.api_v2 import _create_dispatch_runs as _impl
+    from service.control_plane import _create_dispatch_runs as _impl
 
     return await _impl(*a, **k)
 
 
 async def _delete_messages_by_ids(*a, **k):
-    from service.routers.api_v2 import _delete_messages_by_ids as _impl
+    from service.control_plane import _delete_messages_by_ids as _impl
 
     return await _impl(*a, **k)
 
 
 async def _delete_messages_where(*a, **k):
-    from service.routers.api_v2 import _delete_messages_where as _impl
+    from service.control_plane import _delete_messages_where as _impl
 
     return await _impl(*a, **k)
 
 
 def _dispatch_fix_hint(*a, **k):
-    from service.routers.api_v2 import _dispatch_fix_hint as _impl
+    from service.control_plane import _dispatch_fix_hint as _impl
 
     return _impl(*a, **k)
 
 
 async def _ensure_managed_pty_for_dispatch(*a, **k):
-    from service.routers.api_v2 import _ensure_managed_pty_for_dispatch as _impl
+    from service.control_plane import _ensure_managed_pty_for_dispatch as _impl
 
     return await _impl(*a, **k)
 
 
 async def _fail_pending_controls_for_run(*a, **k):
-    from service.routers.api_v2 import _fail_pending_controls_for_run as _impl
+    from service.control_plane import _fail_pending_controls_for_run as _impl
 
     return await _impl(*a, **k)
 
 
 async def _finalize_dispatch_runs(*a, **k):
-    from service.routers.api_v2 import _finalize_dispatch_runs as _impl
+    from service.control_plane import _finalize_dispatch_runs as _impl
 
     return await _impl(*a, **k)
 
 
 async def _get_blocking_active_run(*a, **k):
-    from service.routers.api_v2 import _get_blocking_active_run as _impl
+    from service.control_plane import _get_blocking_active_run as _impl
 
     return await _impl(*a, **k)
 
 
 async def _get_dispatch_state_for_agent(*a, **k):
-    from service.routers.api_v2 import _get_dispatch_state_for_agent as _impl
+    from service.control_plane import _get_dispatch_state_for_agent as _impl
 
     return await _impl(*a, **k)
 
 
 async def _get_recipient_info(*a, **k):
-    from service.routers.api_v2 import _get_recipient_info as _impl
+    from service.control_plane import _get_recipient_info as _impl
 
     return await _impl(*a, **k)
 
 
 async def _has_claimable_spawn_request(*a, **k):
-    from service.routers.api_v2 import _has_claimable_spawn_request as _impl
+    from service.control_plane import _has_claimable_spawn_request as _impl
 
     return await _impl(*a, **k)
 
 
 async def _has_live_managed_wrapper_child(*a, **k):
-    from service.routers.api_v2 import _has_live_managed_wrapper_child as _impl
+    from service.control_plane import _has_live_managed_wrapper_child as _impl
 
     return await _impl(*a, **k)
 
 
 def _insert_messages_via_console(*a, **k):
-    from service.routers.api_v2 import _insert_messages_via_console as _impl
+    from service.control_plane import _insert_messages_via_console as _impl
 
     return _impl(*a, **k)
 
 
 def _is_delivery_only_claude_run(*a, **k):
-    from service.routers.api_v2 import _is_delivery_only_claude_run as _impl
+    from service.control_plane import _is_delivery_only_claude_run as _impl
 
     return _impl(*a, **k)
 
 
 async def _managed_environment_unavailable_reason(*a, **k):
-    from service.routers.api_v2 import _managed_environment_unavailable_reason as _impl
+    from service.control_plane import _managed_environment_unavailable_reason as _impl
 
     return await _impl(*a, **k)
 
 
 def _managed_terminal_backing_enabled(*a, **k):
-    from service.routers.api_v2 import _managed_terminal_backing_enabled as _impl
+    from service.control_plane import _managed_terminal_backing_enabled as _impl
 
     return _impl(*a, **k)
 
 
 def _managed_via_wrapper_for_runtime(*a, **k):
-    from service.routers.api_v2 import _managed_via_wrapper_for_runtime as _impl
+    from service.control_plane import _managed_via_wrapper_for_runtime as _impl
 
     return _impl(*a, **k)
 
 
 async def _mirror_missing_dispatch_handoff(*a, **k):
-    from service.routers.api_v2 import _mirror_missing_dispatch_handoff as _impl
+    from service.control_plane import _mirror_missing_dispatch_handoff as _impl
 
     return await _impl(*a, **k)
 
 
 async def _preflight_live_send_recipients(*a, **k):
-    from service.routers.api_v2 import _preflight_live_send_recipients as _impl
+    from service.control_plane import _preflight_live_send_recipients as _impl
 
     return await _impl(*a, **k)
 
 
 def _reject_sender_truncated_body(*a, **k):
-    from service.routers.api_v2 import _reject_sender_truncated_body as _impl
+    from service.control_plane import _reject_sender_truncated_body as _impl
 
     return _impl(*a, **k)
 
 
 async def _run_contract_reminders_once(*a, **k):
-    from service.routers.api_v2 import _run_contract_reminders_once as _impl
+    from service.control_plane import _run_contract_reminders_once as _impl
 
     return await _impl(*a, **k)
 
 
 async def _touch_agent(*a, **k):
-    from service.routers.api_v2 import _touch_agent as _impl
+    from service.control_plane import _touch_agent as _impl
 
     return await _impl(*a, **k)
 
 
 async def _touch_current_agent_session(*a, **k):
-    from service.routers.api_v2 import _touch_current_agent_session as _impl
+    from service.control_plane import _touch_current_agent_session as _impl
 
     return await _impl(*a, **k)
 
@@ -863,7 +863,7 @@ async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
 
 
 def _wake_agent(*a, **k):
-    from service.routers.api_v2 import _wake_agent as _impl
+    from service.control_plane import _wake_agent as _impl
 
     return _impl(*a, **k)
 

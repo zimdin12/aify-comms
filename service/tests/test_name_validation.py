@@ -90,7 +90,7 @@ class NameValidationTests(unittest.TestCase):
         self.assertIn("channel", str(caught.exception.detail))
 
     def test_the_router_uses_this_owner(self):
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         self.assertIs(api_v2.validate_name, validate_name)
         self.assertIs(api_v2.SAFE_NAME_RE, SAFE_NAME_RE)

@@ -35,23 +35,23 @@ logger = logging.getLogger(__name__)
 
 
 async def _has_live_channel_sidecar(*a, **k):
-    from service.routers.api_v2 import _has_live_channel_sidecar as _i
+    from service.control_plane import _has_live_channel_sidecar as _i
     return await _i(*a, **k)
 
 
 async def _has_live_terminal_session(*a, **k):
-    from service.routers.api_v2 import _has_live_terminal_session as _i
+    from service.control_plane import _has_live_terminal_session as _i
     return await _i(*a, **k)
 
 
 
 def _managed_orphan_grace_seconds():
-    from service.routers.api_v2 import MANAGED_ORPHAN_GRACE_SECONDS
+    from service.control_plane import MANAGED_ORPHAN_GRACE_SECONDS
     return MANAGED_ORPHAN_GRACE_SECONDS
 
 
 def _virtual_rpc_command_set():
-    from service.routers.api_v2 import VIRTUAL_RPC_COMMAND_SET
+    from service.control_plane import VIRTUAL_RPC_COMMAND_SET
     return VIRTUAL_RPC_COMMAND_SET
 
 

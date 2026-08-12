@@ -41,7 +41,7 @@ class VersionSingleSourceTests(unittest.TestCase):
             SERVICE_DIR / "config.py",
             SERVICE_DIR / "main.py",
             SERVICE_DIR / "new_dashboard_app.py",
-            SERVICE_DIR / "routers" / "api_v2.py",
+            SERVICE_DIR / "control_plane.py",
         ]:
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 if literal.search(line) and "0.0.0-dev" not in line:
@@ -191,7 +191,7 @@ class ColdStartRefusalReasonTests(unittest.TestCase):
     """
 
     def test_each_refusal_records_a_distinct_reason(self):
-        from service.routers.api_v2 import _coldstart_refusal, COLDSTART_REFUSED_PREFIX
+        from service.control_plane import _coldstart_refusal, COLDSTART_REFUSED_PREFIX
         seen = set()
         for reason in ("runtime 'x' is not cold-startable", "this agent is RESIDENT",
                        "a spawn for this agent is ALREADY IN FLIGHT", "no ONLINE environment"):
@@ -203,7 +203,7 @@ class ColdStartRefusalReasonTests(unittest.TestCase):
         self.assertEqual(len(seen), 4, "each cause must produce its OWN text, not a shared one")
 
     def test_the_message_surfaces_the_reason_not_the_environment_sentence(self):
-        from service.routers.api_v2 import _coldstart_refusal_message, _coldstart_refusal
+        from service.control_plane import _coldstart_refusal_message, _coldstart_refusal
         w: list[str] = []
         _coldstart_refusal(w, "a spawn for this agent is ALREADY IN FLIGHT")
         msg = _coldstart_refusal_message(w, "hermes")
@@ -212,7 +212,7 @@ class ColdStartRefusalReasonTests(unittest.TestCase):
                          "the whole defect was blaming the environment for every cause")
 
     def test_no_recorded_reason_degrades_to_a_message_not_to_silence(self):
-        from service.routers.api_v2 import _coldstart_refusal_message
+        from service.control_plane import _coldstart_refusal_message
         for w in (None, [], ["some unrelated advisory"]):
             msg = _coldstart_refusal_message(w, "hermes")
             self.assertIn("hermes", msg)
@@ -221,7 +221,7 @@ class ColdStartRefusalReasonTests(unittest.TestCase):
     def test_the_preexisting_advisory_warning_is_not_mistaken_for_a_reason(self):
         # `warnings` also carries the non-blocking G3 handle-collision advisory. Picking that up
         # as the refusal cause would replace one wrong message with another.
-        from service.routers.api_v2 import _coldstart_refusal_message
+        from service.control_plane import _coldstart_refusal_message
         msg = _coldstart_refusal_message(["bound handle is owned by a different live agent"], "hermes")
         self.assertNotIn("bound handle", msg)
 

@@ -18,7 +18,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from service.db import init_db
-from service.routers.api_v2 import DEFAULT_SETTINGS, router
+from service.routers.api_v2 import router
+from service.control_plane import DEFAULT_SETTINGS
 
 
 class _DummyWS:

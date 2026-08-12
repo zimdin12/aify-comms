@@ -44,9 +44,9 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent))
 
 from service.db import init_db  # noqa: E402
-from service.routers import api_v2  # noqa: E402
-from service.routers.api_v2 import (  # noqa: E402
-    router,
+from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now  # noqa: E402
+from service.routers.api_v2 import router
+from service.control_plane import (
     _has_live_channel_sidecar,
     _apply_channel_routing_to_claude_runs,
     _now,

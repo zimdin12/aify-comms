@@ -43,7 +43,7 @@ If either is missing, set `AIFY_CLAUDE_COMMAND` to the absolute path of the real
 
 **Pi managed run hangs forever on missing/expired auth.** Cause: the Pi RPC adapter waited silently when Oh My Pi could not authenticate. Fix: Pi RPC classifies auth/provider failures and startup silence and fails fast with an actionable message (run `omp` manually in that environment to re-auth); dead saved Pi session IDs heal to a fresh session and the stale server `sessionHandle` is cleared via `PATCH /agents/{id}/session-handle`. Resident Pi does not auto-heal — it fails with a clear "clear the saved handle / start fresh" message by design.
 
-**Operational note: never rebuild while service files are mid-edit.** The Docker image COPYs the working tree, not git HEAD. Running `docker compose up -d --build` while `service/` has an uncommitted syntax error bakes a broken image and the container crash-loops on `SyntaxError`. Before any rebuild: AST-check (`python -c "import ast; ast.parse(open('service/routers/api_v2.py').read())"`), run `python -m unittest service.tests.test_api_v2_regressions`, and commit. Recover by rebuilding from a known-green commit.
+**Operational note: never rebuild while service files are mid-edit.** The Docker image COPYs the working tree, not git HEAD. Running `docker compose up -d --build` while `service/` has an uncommitted syntax error bakes a broken image and the container crash-loops on `SyntaxError`. Before any rebuild: AST-check (`python -c "import ast; ast.parse(open('service/control_plane.py').read())"`), run `python -m unittest service.tests.test_api_v2_regressions`, and commit. Recover by rebuilding from a known-green commit.
 
 ## Each keystroke in the dashboard Console submits as a command
 

@@ -44,7 +44,7 @@ class RegistrationLiveStateInvalidationTests(FastApiTestCase):
 
     def test_register_invalidates_future_cached_live_state(self):
         from service.reconcilers.status_cache import _LIVE_STATE_CACHE
-        from service.routers.api_v2 import _live_state_fresh, _live_state_get
+        from service.control_plane import _live_state_fresh, _live_state_get
         self._register()
         _LIVE_STATE_CACHE["cache-register-agent"] = {
             "status": "stale", "reason": "future-cache", "environment_id": "",

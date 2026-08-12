@@ -16,7 +16,7 @@ These tests pin the call VALID and pin the false claim out.
 import re
 import unittest
 
-from service.routers import api_v2
+from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 
 class _Row(dict):

@@ -37,14 +37,14 @@ router = domain_router()
 
 async def _delete_messages_where(*a, **k):
     """BORROWED: retires with messages."""
-    from service.routers.api_v2 import _delete_messages_where as _impl
+    from service.control_plane import _delete_messages_where as _impl
 
     return await _impl(*a, **k)
 
 
 async def _remove_agent_record(*a, **k):
     """BORROWED: retires with agents."""
-    from service.routers.api_v2 import _remove_agent_record as _impl
+    from service.control_plane import _remove_agent_record as _impl
 
     return await _impl(*a, **k)
 

@@ -20,7 +20,7 @@ import asyncio
 import time
 
 from service.db import get_db
-from service.routers import api_v2
+from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 # v0.5.3: the helper moved to the dispatch+messages package. The CONSTANT stays in api_v2 — the
 # parity assertion below is against the router on purpose, because that is where the status engine
 # reads it from too.

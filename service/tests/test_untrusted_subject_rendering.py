@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import unittest
 
-from service.routers.api_v2 import (
+from service.control_plane import (
     _build_pending_dispatch_subject,
     _quote_untrusted_subject,
     _render_pending_dispatch_item,
@@ -111,7 +111,7 @@ class RuleTests(unittest.TestCase):
         from service.tests._source import code_only
 
         src = code_only(
-            (Path(__file__).resolve().parents[1] / "routers" / "api_v2.py").read_text(
+            (Path(__file__).resolve().parents[1] / "control_plane.py").read_text(
                 encoding="utf-8", errors="replace"
             )
         )

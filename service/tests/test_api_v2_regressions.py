@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from service.db import get_db, init_db
 from service import main as service_main
 from service.reconcilers import status_cache
-from service.routers import api_v2
+from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 # v0.5.2l: dispatch run serialization moved into the dispatch+messages package.
 from service.routers.dispatch_messages import dispatch as dispatch_router
 from service.routers.dispatch_messages import shared as dispatch_shared  # v0.5.3: owner of _turn_busy_holds_delivery
@@ -2086,7 +2086,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # currently registered as resident, those terminal_sessions
         # rows must be cleared so the dashboard doesn't render ghost
         # consoles.
-        from service.routers.api_v2 import _reconcile_stale_managed_terminals_for_resident_agents
+        from service.control_plane import _reconcile_stale_managed_terminals_for_resident_agents
         # Set up: a managed terminal_session for an agent that is now resident.
         session_id = self._create_running_session(
             terminal=True,
@@ -4257,7 +4257,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # in chat (the dashboard rendered it as if it were Claude's
         # actual reply). _is_delivery_only_claude_run only matched the
         # resident-session prefix and missed the channel-session one.
-        from service.routers.api_v2 import _is_delivery_only_claude_run
+        from service.control_plane import _is_delivery_only_claude_run
         class _R(dict):
             def keys(self): return super().keys()
         channel_row = _R({
@@ -4295,7 +4295,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # Without this skip, _agent_execution_mode would reject the
         # dispatch with "agent capabilities do not include managed-run"
         # even though channel-only routing should deliver fine.
-        from service.routers.api_v2 import _agent_execution_mode
+        from service.control_plane import _agent_execution_mode
         managed_claude_channel = {
             "id": "test-claude-channel",
             "runtime": "claude-code",
@@ -4328,7 +4328,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # guard was the Plan 2 off-state assertion; the post-Plan-4
         # default-flip is asserted in test_default_settings_plan4.py.
         # Kept here so the regression suite still pins the value.
-        from service.routers.api_v2 import DEFAULT_SETTINGS
+        from service.control_plane import DEFAULT_SETTINGS
         self.assertIn("managed_via_wrapper", DEFAULT_SETTINGS)
         val = DEFAULT_SETTINGS["managed_via_wrapper"]
         self.assertEqual(val, ["codex", "hermes"],
@@ -4340,7 +4340,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # wrapper's child bridge (claiming with executionModes=['channel',
         # 'resident']) picks it up. Main bridge's dispatch loop has been
         # gated off for this runtime (Task A4).
-        from service.routers.api_v2 import _agent_execution_mode
+        from service.control_plane import _agent_execution_mode
         class _R(dict):
             def keys(self): return super().keys()
         managed_hermes = _R({
@@ -4425,7 +4425,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                         f"terminalId must be a real terminal_session id, got {rs['terminalId']!r}")
 
     def test_managed_via_wrapper_for_runtime_handles_bool_list_none(self):
-        from service.routers.api_v2 import _managed_via_wrapper_for_runtime
+        from service.control_plane import _managed_via_wrapper_for_runtime
         # Off: returns False for all runtimes. (Plan 4 (2026-05-25)
         # flipped the DEFAULT to ON, so `{}` now resolves via
         # DEFAULT_SETTINGS to ["codex","hermes","pi"]. The off-state
@@ -4470,7 +4470,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # The gateway-channel controller resolves session.most_recent at
         # dispatch time, so sessionHandle is optional when gatewayUrl is set.
         # Mirror of the capability-check carve-out, applied to the second gate.
-        from service.routers.api_v2 import _agent_execution_mode
+        from service.control_plane import _agent_execution_mode
         class _R(dict):
             def keys(self): return super().keys()
 
@@ -14221,7 +14221,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # older ended rows — and NEVER a live one.
         import asyncio, datetime as _dt
         from service.db import get_db
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
         # Helper seeds env + sess_cruft-agent + 1 live terminal (t_live).
         self._seed_managed_claude_with_attached_terminal("cruft-agent", "t_live")
         base = _dt.datetime.now(_dt.timezone.utc)
@@ -14375,7 +14375,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
 
     def _run_reconcile_duplicate_resident_sessions(self):
-        from service.routers.api_v2 import _reconcile_duplicate_resident_sessions
+        from service.control_plane import _reconcile_duplicate_resident_sessions
 
         async def _run():
             db = await get_db()
@@ -14484,7 +14484,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
 
     def _run_reroute_orphaned_managed_channel_runs(self):
-        from service.routers.api_v2 import _reroute_orphaned_managed_channel_runs
+        from service.control_plane import _reroute_orphaned_managed_channel_runs
 
         async def _run():
             db = await get_db()
@@ -14544,7 +14544,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(run["execution_mode"], "managed", "the pi run stays managed")
 
     def _run_has_live_managed_wrapper_child(self, agent_id):
-        from service.routers.api_v2 import _has_live_managed_wrapper_child
+        from service.control_plane import _has_live_managed_wrapper_child
 
         async def _run():
             db = await get_db()

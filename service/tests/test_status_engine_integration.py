@@ -73,7 +73,7 @@ class StatusEventIngestTests(FastApiTestCase):
         self.client.post("/api/v1/agents/a2/status-event", json={"kind": "turn_start", "runId": "r1"})
         import asyncio
         from service.db import get_db
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
         async def run():
             db = await get_db()
             try:
@@ -97,7 +97,7 @@ class StatusEventIngestTests(FastApiTestCase):
         self.assertEqual(int(self._state("a-pe")["in_turn"]), 0)
         import asyncio
         from service.db import get_db
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
         async def run():
             db = await get_db()
             try:
@@ -122,7 +122,7 @@ class StatusEventIngestTests(FastApiTestCase):
         self.assertEqual(int(self._state("rl1")["in_turn"]), 1)  # heartbeat turnBusy set in_turn
         import asyncio
         from service.db import get_db
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
         async def run():
             db = await get_db()
             try:
@@ -200,7 +200,7 @@ class StatusEventIngestTests(FastApiTestCase):
         # with a sentinel status and assert the hot read returns it verbatim.
         import asyncio, json
         from service.db import get_db
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
         from service.reconcilers.status_cache import _LIVE_STATE_CACHE
         self._register("e1", mode="resident")
         self.client.post("/api/v1/agents/e1/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
@@ -261,7 +261,7 @@ class StatusEventIngestTests(FastApiTestCase):
         # WS-4a (2026-06-17): a /turn-end carrying a bridgeId from a SUPERSEDED bridge
         # (a stale detector on a replaced bridge) must NOT clear a live turn; the hook
         # turn-end (no bridgeId) stays authoritative.
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
         self._register("se1", mode="resident")
         self.client.post("/api/v1/agents/se1/turn-start", json={"runtime": "claude-code", "bridgeId": "b-new"})
         self.assertEqual(int(self._state("se1")["in_turn"]), 1)
@@ -349,7 +349,7 @@ class StatusEngineHotRefreshParityTests(FastApiTestCase):
     def _refreshed_status(self, aid):
         """Run _refresh_agent_live_state and read back the status from the
         in-memory cache (refresh is in-memory now — no DB row to SELECT)."""
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         async def factory(db):
             settings = await api_v2._load_settings(db)
@@ -361,7 +361,7 @@ class StatusEngineHotRefreshParityTests(FastApiTestCase):
         return self._run(factory)
 
     def _engine_status(self, aid):
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         async def factory(db):
             settings = await api_v2._load_settings(db)
@@ -447,7 +447,7 @@ class StatusEngineHotRefreshParityTests(FastApiTestCase):
         # raises -> logger.exception fallback fires); PASSES after, when
         # derive(cache byproduct) is used and the gather is never touched.
         from service.status_engine import VALID_STATUSES
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         self._register("p_nogather", mode="resident")
         self.client.post("/api/v1/agents/p_nogather/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
@@ -583,7 +583,7 @@ class HeartbeatTurnBusyFeedsEngineTests(FastApiTestCase):
                                "turnRunId": "run-3", "turnRuntime": "hermes"})
         import asyncio
         from service.db import get_db
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         async def run():
             db = await get_db()
@@ -624,7 +624,7 @@ class HeartbeatTurnBusyFeedsEngineTests(FastApiTestCase):
         )
         import asyncio
         from service.db import get_db
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         async def run():
             db = await get_db()
@@ -641,7 +641,7 @@ class HeartbeatTurnBusyFeedsEngineTests(FastApiTestCase):
     # 4. in_turn staleness backstop ──────────────────────────────────────────
     def test_in_turn_backstop_treats_stale_turn_as_ended(self):
         from datetime import datetime, timezone, timedelta
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
         self._heartbeat_environment("hermes")
         self._register("hb4", mode="managed", runtime="hermes")
         # Seed an in_turn=1 row whose last_event_at is older than the backstop.
@@ -679,7 +679,7 @@ class HeartbeatTurnBusyFeedsEngineTests(FastApiTestCase):
 
     def test_in_turn_backstop_keeps_fresh_turn(self):
         # Control: a FRESH in_turn (recent last_event_at) is NOT clamped.
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
         self._heartbeat_environment("hermes")
         self._register("hb5", mode="managed", runtime="hermes")
         self.client.post("/api/v1/agents/hb5/heartbeat",
@@ -735,7 +735,7 @@ class ConsoleLeaseAndStalenessByproductTests(FastApiTestCase):
     def _byproduct_status(self, aid):
         import asyncio
         from service.db import get_db
-        from service.routers import api_v2
+        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
         from service.status_engine import derive
 
         async def run():

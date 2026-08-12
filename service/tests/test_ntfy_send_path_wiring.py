@@ -27,7 +27,7 @@ from pathlib import Path
 
 from service.tests._source import code_only
 
-API = Path(__file__).resolve().parents[1] / "routers" / "api_v2.py"
+API = Path(__file__).resolve().parents[1] / "control_plane.py"
 
 
 def _source() -> str:

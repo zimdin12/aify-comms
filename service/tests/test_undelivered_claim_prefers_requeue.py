@@ -24,7 +24,7 @@ import unittest
 from pathlib import Path
 
 from service.db import get_db
-from service.routers import api_v2
+from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 from service.tests._base import FastApiTestCase
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -214,7 +214,7 @@ class UndeliveredClaimPrefersRequeueTests(FastApiTestCase):
         # reason on the first run.
         # `_discard_unclaimable_active_run` did NOT move in slice 7 — this agreement now spans two
         # files, which is precisely why it is asserted rather than assumed.
-        router = (REPO_ROOT / "service" / "routers" / "api_v2.py").read_text(encoding="utf-8")
+        router = (REPO_ROOT / "service" / "control_plane.py").read_text(encoding="utf-8")
         unclaimable_at = router.index("async def _discard_unclaimable_active_run")
         unclaimable = router[unclaimable_at:router.index("async def _discard_unusable_active_run")]
         self.assertIn("ACTIVE_RUN_BRIDGE_STALE_SECONDS", unclaimable)
@@ -225,7 +225,7 @@ class UndeliveredClaimPrefersRequeueTests(FastApiTestCase):
         widen the window, never close it — so the funnel must prefer requeue BEFORE it writes
         a failure."""
         # `_fail_stale_active_run` stayed in the router; only the requeue reconciler moved.
-        source = (REPO_ROOT / "service" / "routers" / "api_v2.py").read_text(encoding="utf-8")
+        source = (REPO_ROOT / "service" / "control_plane.py").read_text(encoding="utf-8")
         funnel = source[source.index("async def _fail_stale_active_run"):][:2000]
         rescue_at = funnel.index("_requeue_instead_of_failing_undelivered_claim")
         fail_write_at = funnel.index("SET status = 'failed'")

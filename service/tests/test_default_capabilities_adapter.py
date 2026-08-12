@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent))
 
-from service.routers.api_v2 import _default_capabilities_for
+from service.control_plane import _default_capabilities_for
 
 
 def test_pi_resident_no_longer_advertises_resident_run():

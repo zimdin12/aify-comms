@@ -33,14 +33,14 @@ router = domain_router()
 
 def _contract_state(*a, **k):
     """BORROWED: also used by `_contract_reminder_due`, which has not moved."""
-    from service.routers.api_v2 import _contract_state as _impl
+    from service.control_plane import _contract_state as _impl
 
     return _impl(*a, **k)
 
 
 def _dispatch_reply_state(*a, **k):
     """BORROWED: also used by `_dispatch_reply_pending` and `_serialize_dispatch_run_row`."""
-    from service.routers.api_v2 import _dispatch_reply_state as _impl
+    from service.control_plane import _dispatch_reply_state as _impl
 
     return _impl(*a, **k)
 
@@ -51,7 +51,7 @@ def _contract_list_query(*a, **k):
     Function-scope import, so there is no module-level cycle — `api_v2` imports this domain at
     import time, and this reaches back only when called, long after the router is loaded.
     """
-    from service.routers.api_v2 import _contract_list_query as _impl
+    from service.control_plane import _contract_list_query as _impl
 
     return _impl(*a, **k)
 
@@ -62,7 +62,7 @@ async def _run_contract_reminders_once(*a, **k):
     Function-scope import, so there is no module-level cycle — `api_v2` imports this domain at
     import time, and this reaches back only when called, long after the router is loaded.
     """
-    from service.routers.api_v2 import _run_contract_reminders_once as _impl
+    from service.control_plane import _run_contract_reminders_once as _impl
 
     return await _impl(*a, **k)
 
@@ -73,7 +73,7 @@ async def _mark_dispatch_source_messages_read(*a, **k):
     Function-scope import, so there is no module-level cycle — `api_v2` imports this domain at
     import time, and this reaches back only when called, long after the router is loaded.
     """
-    from service.routers.api_v2 import _mark_dispatch_source_messages_read as _impl
+    from service.control_plane import _mark_dispatch_source_messages_read as _impl
 
     return await _impl(*a, **k)
 

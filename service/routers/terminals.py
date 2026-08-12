@@ -104,7 +104,7 @@ def _trim_terminal_output(text: str, max_chars: int = 65536) -> str:
 
 def _borrowed_terminal_output_writes():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import TERMINAL_OUTPUT_WRITES
+    from service.control_plane import TERMINAL_OUTPUT_WRITES
 
     return TERMINAL_OUTPUT_WRITES
 
@@ -112,7 +112,7 @@ def _borrowed_terminal_output_writes():
 
 def _borrowed_virtual_rpc_command_set():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import VIRTUAL_RPC_COMMAND_SET
+    from service.control_plane import VIRTUAL_RPC_COMMAND_SET
 
     return VIRTUAL_RPC_COMMAND_SET
 
@@ -120,7 +120,7 @@ def _borrowed_virtual_rpc_command_set():
 
 def _borrowed_terminal_end_statuses():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.routers.api_v2 import _TERMINAL_END_STATUSES
+    from service.control_plane import _TERMINAL_END_STATUSES
 
     return _TERMINAL_END_STATUSES
 
@@ -128,7 +128,7 @@ def _borrowed_terminal_end_statuses():
 
 def _borrowed_terminal_active_statuses():
     """BORROWED constant: one owner, never a copy — a forked status set is finding N7."""
-    from service.routers.api_v2 import _TERMINAL_ACTIVE_STATUSES
+    from service.control_plane import _TERMINAL_ACTIVE_STATUSES
 
     return _TERMINAL_ACTIVE_STATUSES
 
@@ -175,7 +175,7 @@ def _terminal_control_to_dict(
 
 
 def _terminal_session_to_dict(*a, **k):
-    from service.routers.api_v2 import _terminal_session_to_dict as _impl
+    from service.control_plane import _terminal_session_to_dict as _impl
 
     return _impl(*a, **k)
 

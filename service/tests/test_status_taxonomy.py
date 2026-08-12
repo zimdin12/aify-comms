@@ -10,12 +10,12 @@ sys.path.insert(0, str(ROOT.parent))
 
 
 def test_has_live_terminal_session_helper_exists():
-    from service.routers.api_v2 import _has_live_terminal_session
+    from service.control_plane import _has_live_terminal_session
     assert callable(_has_live_terminal_session)
 
 
 def test_has_live_rpc_controller_helper_exists():
-    from service.routers.api_v2 import _has_live_rpc_controller
+    from service.control_plane import _has_live_rpc_controller
     assert callable(_has_live_rpc_controller)
 
 
@@ -24,7 +24,7 @@ def test_managed_agent_no_worker_returns_available(monkeypatch):
     child registration, status must be `available` not `online`."""
     import asyncio
     from unittest import mock
-    from service.routers.api_v2 import _compute_agent_status
+    from service.control_plane import _compute_agent_status
 
     row = {
         "id": "test-managed-no-worker",
@@ -40,15 +40,15 @@ def test_managed_agent_no_worker_returns_available(monkeypatch):
     def fake_rpc(*args, **kwargs):
         return False
 
-    with mock.patch("service.routers.api_v2._has_live_terminal_session", side_effect=fake_terminal), \
-         mock.patch("service.routers.api_v2._has_live_rpc_controller", side_effect=fake_rpc):
+    with mock.patch("service.control_plane._has_live_terminal_session", side_effect=fake_terminal), \
+         mock.patch("service.control_plane._has_live_rpc_controller", side_effect=fake_rpc):
         result = asyncio.run(_compute_agent_status(row, db=None))
         assert result == "available", f"managed-no-worker should be 'available', got {result!r}"
 
 
 def test_cached_ready_status_serializes_as_online():
     """`ready` is an internal bridge signal, not a public agent status."""
-    from service.routers.api_v2 import _agent_record_to_dict
+    from service.control_plane import _agent_record_to_dict
 
     class Row(dict):
         def keys(self):

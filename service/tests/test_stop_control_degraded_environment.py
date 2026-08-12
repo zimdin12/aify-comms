@@ -32,7 +32,7 @@ and silently, and its symptom is a leaked PTY plus a duplicate worker.
 import asyncio
 
 from service.db import get_db
-from service.routers import api_v2
+from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 from service.tests._base import FastApiTestCase
 
