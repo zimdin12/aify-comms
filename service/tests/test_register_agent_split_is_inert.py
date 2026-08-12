@@ -5,15 +5,17 @@ refactor time proves the commit, while running the round trip in the suite prove
 someone later edits the extracted gate or the call site and the two drift, the round trip stops closing.
 
 ONE DIFFERENCE FROM THE ANALYTICS PRECEDENT, declared because it is a substitution in the proof rather
-than a detail: the analytics helpers stayed inside `analytics.py`, so the gate could read one file. This
-helper deliberately lives in ANOTHER module (`service/api_core/registration_gates.py`), because leaving
-it in `identity.py` would not have reduced the file at all. The extract-method gate needs the caller and
-the helper in one tree to inline one into the other, so the two sources are CONCATENATED for the proof.
-That is sound — concatenation changes no body and the gate re-parses the result — but it is not the
-single-file comparison the precedent makes, so it is named here rather than left for a reader to notice.
+than a detail: the analytics helpers stayed inside `analytics.py`, so the gate could read one file. These
+helpers deliberately live in OTHER modules — `service/api_core/registration_gates.py` and
+`service/api_core/agent_sessions.py` — because leaving them in `identity.py` would not have reduced the
+file at all, which was the point of moving them. The extract-method gate needs the caller and the helpers
+in one tree to inline one into the other, so the sources are CONCATENATED for the proof. That is sound —
+concatenation changes no body and the gate re-parses the result — but it is not the single-file comparison
+the precedent makes, so it is named here rather than left for a reader to notice.
 
-WHAT THIS DOES NOT DO: it verifies the ONE extraction named here, not the whole 684-line handler. The
-route's behavioural net lives in the registration tests.
+WHAT THIS DOES NOT DO: it verifies the extractions named in `EXTRACTIONS`, not the whole handler. The
+route's behavioural net lives in the registration tests. It also says nothing about whether a helper
+landed in a SENSIBLE module — only that it is not in `identity.py` and does not import upward.
 """
 
 from __future__ import annotations
@@ -27,15 +29,26 @@ from service.tests.extract_method import assert_extractions_preserve_behaviour
 REPO = Path(__file__).resolve().parent.parent.parent
 IDENTITY = REPO / "service" / "routers" / "agents" / "identity.py"
 GATES = REPO / "service" / "api_core" / "registration_gates.py"
+SESSIONS = REPO / "service" / "api_core" / "agent_sessions.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "register_agent_before_split.py"
 
 SOURCE_FUNCTION = "register_agent"
-EXTRACTIONS = ["_enforce_same_mode_bridge_gate"]
+#: EVERY extraction, inlined back TOGETHER against the ONE true original — not a chain of per-slice
+#: fixtures. The analytics precedent records why: verifying extraction N against "the state just before
+#: extraction N" needs a second copy of the function per split, each rotting independently while staying
+#: green. One fixture and one comparison is both the stronger claim and the one that survives more slices.
+EXTRACTIONS = [
+    "_enforce_same_mode_bridge_gate",
+    "_enforce_driving_mode_switch_gate",
+    "_enforce_tombstone_registration_gate",
+    "_enforce_tombstone_resurrection_gate",
+    "_record_registered_session_handle",
+]
 
 
 def _combined_split_source() -> str:
-    """The caller and the extracted helper in one tree, for the inline-back comparison."""
-    return IDENTITY.read_text(encoding="utf-8") + "\n\n" + GATES.read_text(encoding="utf-8")
+    """The caller and every extracted helper in one tree, for the inline-back comparison."""
+    return "\n\n".join(p.read_text(encoding="utf-8") for p in (IDENTITY, GATES, SESSIONS))
 
 
 class RegisterAgentSplitIsInertTests(unittest.TestCase):
@@ -71,23 +84,25 @@ class RegisterAgentSplitIsInertTests(unittest.TestCase):
     def test_the_helper_lives_in_the_gates_leaf_and_nothing_re_declares_it(self):
         """Exactly one owner. Two definitions would let the caller reach a different body than the proof."""
         owners = [
-            path for path in (IDENTITY, GATES)
+            path for path in (IDENTITY, GATES, SESSIONS)
             if any(
                 isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in EXTRACTIONS
                 for n in ast.parse(path.read_text(encoding="utf-8")).body
             )
         ]
-        self.assertEqual([GATES], owners)
+        self.assertEqual([GATES, SESSIONS], owners,
+                         "each helper must live in exactly one module, and not back in identity.py")
 
     def test_the_gates_leaf_does_not_import_upward(self):
         """An api_core leaf reaching into a router is the cycle this whole layering exists to prevent."""
-        src = GATES.read_text(encoding="utf-8")
-        for node in ast.walk(ast.parse(src)):
-            if isinstance(node, ast.ImportFrom) and node.module:
+        for path in (GATES, SESSIONS):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not (isinstance(node, ast.ImportFrom) and node.module):
+                    continue
                 self.assertFalse(
                     node.module.startswith("service.routers")
                     or node.module == "service.control_plane",
-                    f"registration_gates.py imports upward from {node.module}",
+                    f"{path.name} imports upward from {node.module}",
                 )
 
     def test_the_fixture_is_tracked(self):

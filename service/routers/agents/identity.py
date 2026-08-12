@@ -34,7 +34,13 @@ from service.models import (
     AgentStatusUpdate,
 )
 
-from service.api_core.registration_gates import _enforce_same_mode_bridge_gate
+from service.api_core.agent_sessions import _record_registered_session_handle
+from service.api_core.registration_gates import (
+    _enforce_driving_mode_switch_gate,
+    _enforce_tombstone_registration_gate,
+    _enforce_same_mode_bridge_gate,
+    _enforce_tombstone_resurrection_gate,
+)
 from service.api_core.resume_command import _resume_command_for
 from service.routers.agents.shared import (
     DEFAULT_SETTINGS,
@@ -207,55 +213,8 @@ async def register_agent(req: AgentRegister, request: Request):
         )
         now = _now()
         tombstone = await _agent_tombstone(db, req.agentId)
-        if tombstone and not req.restoreDeleted:
-            if req.autoRegister:
-                raise HTTPException(
-                    410,
-                    (
-                        f"Agent '{req.agentId}' was intentionally removed at "
-                        f"{tombstone['removed_at']}; auto re-registration is blocked."
-                    ),
-                )
-            raise HTTPException(
-                410,
-                (
-                    f"Agent '{req.agentId}' was intentionally removed. "
-                    "Pass restoreDeleted=true to register this ID again."
-                ),
-            )
-        if tombstone and req.restoreDeleted:
-            # Tombstone-resurrection guard (2026-06-03). The bridge sets
-            # restoreDeleted=true UNCONDITIONALLY on every auto/comms_register, so
-            # a still-running bridge that predates the deletion would otherwise
-            # clear the tombstone and resurrect a deliberately-removed agent
-            # (it reappears in /api/v1/agents and the dashboard DM rail). Mirror
-            # the environment forget-tombstone freshness check: only a GENUINE
-            # fresh relaunch — a bridge whose bridgeStartedAt is NEWER than the
-            # tombstone's removed_at — may restore. A passive auto re-register
-            # from a bridge that launched BEFORE the deletion (or with no/older
-            # bridgeStartedAt) keeps the agent deleted (410, tombstone untouched).
-            #
-            # An explicit, operator-initiated restore (restoreDeleted=true with
-            # autoRegister=false — not a passive bridge beat) is preserved: a
-            # deliberate operator bring-back still clears the tombstone.
-            removed_at = _timestamp_sort_key(tombstone["removed_at"] if "removed_at" in tombstone.keys() else "")
-            incoming_started = _timestamp_sort_key(req.bridgeStartedAt)
-            relaunched = bool(incoming_started) and (not removed_at or incoming_started > removed_at)
-            if req.autoRegister and not relaunched:
-                raise HTTPException(
-                    410,
-                    (
-                        f"Agent '{req.agentId}' was intentionally removed at "
-                        f"{tombstone['removed_at']}; a lingering bridge cannot "
-                        "resurrect it. Relaunch the agent to restore."
-                    ),
-                )
-            # FIX 4 (2026-06-03): COLLATE NOCASE so the explicit-restore clear path
-            # matches the same row the case-insensitive lookup above found.
-            await db.execute(
-                "DELETE FROM agent_tombstones WHERE agent_id = ? COLLATE NOCASE",
-                (req.agentId,),
-            )
+        await _enforce_tombstone_registration_gate(req, tombstone)
+        await _enforce_tombstone_resurrection_gate(db, req, tombstone)
         existing = await db.execute("SELECT * FROM agents WHERE id = ?", (req.agentId,))
         row = await existing.fetchone()
         bridge_id = (req.bridgeId or "").strip()
@@ -281,33 +240,7 @@ async def register_agent(req: AgentRegister, request: Request):
         # That leaves the genuinely-unhandled collision — a MANAGED registration
         # against a DRIVING RESIDENT session (which would otherwise silently
         # overwrite the live resident driver) — which is hard-rejected here.
-        if row and not bool(req.restoreDeleted):
-            existing_mode = _normalize_session_mode(row["session_mode"] or "resident")
-            driver_state = str((row["driver_state"] if "driver_state" in row.keys() else "") or "idle").strip().lower()
-            graceful_resident_candidate = (
-                normalized_session_mode == "resident" and existing_mode == "managed"
-            )
-            if (
-                driver_state == "driving"
-                and existing_mode != normalized_session_mode
-                and not graceful_resident_candidate
-            ):
-                resume_command = _resume_command_for(
-                    row["runtime"] or normalized_runtime,
-                    row["session_handle"] or "",
-                    req.agentId,
-                )
-                detail = (
-                    f"agent '{req.agentId}' is currently {existing_mode} — "
-                    f"switch it to {normalized_session_mode} in the dashboard first, then run: "
-                    f"{resume_command}"
-                    if resume_command
-                    else (
-                        f"agent '{req.agentId}' is currently {existing_mode} — "
-                        f"switch it to {normalized_session_mode} in the dashboard first."
-                    )
-                )
-                raise HTTPException(409, detail)
+        await _enforce_driving_mode_switch_gate(req, row, normalized_runtime, normalized_session_mode)
         # Same-mode race guard (Phase 4, 2026-05-31). A fresh resident bridge of
         # the SAME mode, owned by a DIFFERENT bridge_id, is already driving this
         # identity — a second live wrapper would race it. Hard-reject (operator-
@@ -651,45 +584,7 @@ async def register_agent(req: AgentRegister, request: Request):
                 row["registered_at"] if row and row["registered_at"] else now, now
             )
         )
-        if session_handle:
-            app_server_url = ""
-            if isinstance(runtime_config, dict):
-                app_server_url = str(runtime_config.get("appServerUrl") or "").strip()
-            session_runtime_state = _runtime_state_with_handle(normalized_runtime, {}, session_handle)
-            await db.execute(
-                """
-                UPDATE agent_sessions
-                SET session_handle = ?,
-                    app_server_url = CASE WHEN ? != '' THEN ? ELSE app_server_url END,
-                    last_seen = ?,
-                    capabilities = CASE
-                        WHEN COALESCE(NULLIF(capabilities, ''), '{}') = '{}' THEN ?
-                        ELSE capabilities
-                    END,
-                    telemetry = CASE
-                        WHEN COALESCE(NULLIF(telemetry, ''), '{}') = '{}' THEN ?
-                        ELSE telemetry
-                    END
-                WHERE id = (
-                    SELECT id
-                    FROM agent_sessions
-                    WHERE agent_id = ?
-                      AND runtime = ?
-                    ORDER BY last_seen DESC
-                    LIMIT 1
-                )
-                """,
-                (
-                    session_handle,
-                    app_server_url,
-                    app_server_url,
-                    now,
-                    json.dumps({"persistent": True, "nativeResume": True, "bridgeResume": True, "cliAttach": True}),
-                    json.dumps({"registeredHandle": session_runtime_state}),
-                    req.agentId,
-                    normalized_runtime,
-                ),
-            )
+        await _record_registered_session_handle(db, req, normalized_runtime, runtime_config, session_handle, now)
         if bridge_id:
             await _record_bridge_registration(
                 db,

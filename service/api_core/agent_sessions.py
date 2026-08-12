@@ -20,9 +20,11 @@ condition for moving a DB-touching helper.
 
 from __future__ import annotations
 
+import json
 import time
 from typing import Any, Optional
 
+from service.api_core.runtime_state import _runtime_state_with_handle
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
 
@@ -217,3 +219,65 @@ async def _adopt_live_resident_driver(db, agent_id: str) -> bool:
         return False
     await db.execute("UPDATE agents SET driver_state = 'driving' WHERE id = ?", (agent_id,))
     return True
+
+
+async def _record_registered_session_handle(db, req, normalized_runtime, runtime_config, session_handle, now) -> None:
+    """Pin the freshly-registered session handle onto the agent's CURRENT session row.
+
+    v0.5.4, extracted verbatim out of the 622-line `register_agent`. It belongs here because "which
+    agent_sessions row is current, and who owns a handle" is this module's stated subject; the route was
+    only its caller.
+
+    WHY THE UPDATE TARGETS A SUBQUERY: an agent can have several session rows for one runtime (a
+    process-per-boot history), so this pins the handle to the MOST RECENTLY SEEN row rather than to all of
+    them. Writing every row would make a stale boot look resumable.
+
+    THE `CASE WHEN ... = '{}'` GUARDS ARE DELIBERATE: capabilities and telemetry are only seeded when the
+    row has none. A registration must not clobber richer values a live session already reported.
+
+    THE SQL LITERAL IS INDENTED ONE LEVEL DEEPER THAN ITS SURROUNDING CODE and must not be tidied. The
+    interior lines of a triple-quoted string are DATA: dedenting them on the way out of the route would
+    change the constant's value while leaving the code correct. `tokenize` identified them and only the
+    code lines moved. This exact mistake failed the inline-back proof once already.
+
+    WRITES: left UNCOMMITTED for the caller's transaction, per the DB-leaf rule.
+    """
+    if session_handle:
+        app_server_url = ""
+        if isinstance(runtime_config, dict):
+            app_server_url = str(runtime_config.get("appServerUrl") or "").strip()
+        session_runtime_state = _runtime_state_with_handle(normalized_runtime, {}, session_handle)
+        await db.execute(
+            """
+                UPDATE agent_sessions
+                SET session_handle = ?,
+                    app_server_url = CASE WHEN ? != '' THEN ? ELSE app_server_url END,
+                    last_seen = ?,
+                    capabilities = CASE
+                        WHEN COALESCE(NULLIF(capabilities, ''), '{}') = '{}' THEN ?
+                        ELSE capabilities
+                    END,
+                    telemetry = CASE
+                        WHEN COALESCE(NULLIF(telemetry, ''), '{}') = '{}' THEN ?
+                        ELSE telemetry
+                    END
+                WHERE id = (
+                    SELECT id
+                    FROM agent_sessions
+                    WHERE agent_id = ?
+                      AND runtime = ?
+                    ORDER BY last_seen DESC
+                    LIMIT 1
+                )
+                """,
+            (
+                session_handle,
+                app_server_url,
+                app_server_url,
+                now,
+                json.dumps({"persistent": True, "nativeResume": True, "bridgeResume": True, "cliAttach": True}),
+                json.dumps({"registeredHandle": session_runtime_state}),
+                req.agentId,
+                normalized_runtime,
+            ),
+        )
