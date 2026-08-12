@@ -235,7 +235,15 @@ The 3b shim in `service/reconcilers/sessions.py` has a removal gate tied to the 
 must not survive that consolidation. A shim that keeps working is exactly how a deferral becomes
 permanent.
 
-### v0.5.3 — SHIPPED. The router monolith is decomposed, and the debt is now visible
+### v0.5.3 — PREPARED, NOT YET TAGGED. The router monolith is decomposed, and the debt is visible
+
+> **Status, stated because the reviewer was right to flag it:** the version files say 0.5.3 and
+> the work is reviewed, but **no tag exists and nothing is deployed**. This heading said
+> "SHIPPED" while both were untrue — release wording written in advance of the release, which
+> is the same wrong-but-plausible-documentation class as the other three this series found.
+> Remaining and all operator actions: `install.sh` per client plus wrapper relaunch (the bridge
+> version changed, so `aify-comms doctor` fails `bridge-installed` until then), the container
+> rebuild, and the tag itself.
 
 `service/routers/api_v2.py` **20,545 -> `service/control_plane.py` 6,964 + a 53-line composition
 module**. 103 route handlers in the old carrier -> **0**. Routes **124 -> 124**, snapshot byte-equal.
@@ -289,8 +297,10 @@ these are v0.6 scope:
 - **`_compute_live_status_cache` (551 lines)** is the largest single function left and is explicitly
   OFF-LIMITS until a separate hot-mutator plan exists. It is the process-global, single-worker
   live-status cache.
-- **Further `get_analytics` splits** only under the approved loop-only / single-return dialect. Three
-  blocks came out in v0.5.3 (314 -> 280 lines); the rest need seams that do not exist yet.
+- **Further `get_analytics` splits** only under the approved loop-only / single-return dialect.
+  Eight blocks came out in v0.5.3 (**314 -> 190 lines**): three message-bucket series and five
+  list-builders. What is left is the window/filter setup and the response assembly, neither of
+  which has a single-live-out seam — the reply-contract block alone produces two.
 
 ### Superseded — the original extraction plan
 
