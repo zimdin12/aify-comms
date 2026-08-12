@@ -9,7 +9,7 @@ import {
 import {
   gatewayIndexUrlFromWs,
   makeGatewayReachabilityProbe,
-} from "../hermes-managed-host.js";
+} from "../hermes-gateway.mjs";
 import {
   makeApiServerLivenessProbe,
   startApiServerGatewayProbe,

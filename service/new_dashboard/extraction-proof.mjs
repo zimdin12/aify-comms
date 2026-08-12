@@ -21,6 +21,41 @@
 
 const NL = String.fromCharCode(10);
 
+/**
+ * Locate a top-level DECLARATION span by name — a `function` by brace matching, or a `const`/`let`/`var` by
+ * running to the terminating semicolon.
+ *
+ * v0.5.4: the gateway slice moves 8 constants as well as 15 functions, and a function-only locator cannot
+ * prove a constant relocation at all. `functionSpan` is kept as the name every existing caller uses and now
+ * delegates, so the three app.js slices keep their exact behaviour.
+ */
+export function declarationSpan(source, name) {
+  const lines = source.split(NL);
+  const fnHead = new RegExp(`^(?:export\\s+)?(?:async\\s+)?function\\s+${name}\\s*\\(`);
+  const varHead = new RegExp(`^(?:export\\s+)?(?:const|let|var)\\s+${name}\\b`);
+  for (let i = 0; i < lines.length; i += 1) {
+    if (varHead.test(lines[i])) {
+      // A declaration may span lines (a multi-line Math.max(...) for instance); run to the semicolon.
+      let j = i;
+      while (j < lines.length && !lines[j].trimEnd().endsWith(";")) j += 1;
+      if (j >= lines.length) return null;
+      return { start: i, end: j, text: lines.slice(i, j + 1).join(NL) };
+    }
+    if (!fnHead.test(lines[i])) continue;
+    let depth = 0;
+    for (let j = i; j < lines.length; j += 1) {
+      for (const ch of lines[j]) {
+        if (ch === "{") depth += 1;
+        else if (ch === "}") depth -= 1;
+      }
+      if (depth === 0 && lines.slice(i, j + 1).join(NL).includes("{")) {
+        return { start: i, end: j, text: lines.slice(i, j + 1).join(NL) };
+      }
+    }
+  }
+  return null;
+}
+
 /** Locate a top-level `function NAME(...) {` ... `}` span by brace matching from column 0. */
 export function functionSpan(source, name) {
   const lines = source.split("\n");
@@ -90,7 +125,7 @@ export function reconstruct({ after, modules, extractions }) {
     const source = modules[step.module];
     if (source == null) throw new Error(`no source supplied for module ${step.module}`);
     for (const item of step.items) {
-      const span = functionSpan(source, item.name);
+      const span = declarationSpan(source, item.name);
       if (!span) throw new Error(`${item.name} not found in ${step.module}`);
       // DID THE PRISTINE FILE EXPORT THIS FUNCTION?
       //

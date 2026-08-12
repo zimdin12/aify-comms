@@ -42,7 +42,7 @@ import { stopDaemon as defaultStopDaemon } from "./hermes-daemon.js";
 import { dispatchContent } from "./claude-channel.js";
 import { startInFlightRepulse } from "./hermes-turn-repulse.js";
 import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
-import { reportGatewayDead } from "./hermes-managed-host.js";
+import { reportGatewayDead } from "./hermes-gateway.mjs";
 
 // In-flight re-pulse cadence (#172). chatStream can run a turn well past the
 // server's 120s TURN_BUSY_STALE_SECONDS window; re-pulse turn_busy while the

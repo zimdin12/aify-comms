@@ -80,11 +80,11 @@ import {
 import { defaultKillByPort, stopDaemon, defaultGetCmdline as hermesGetCmdline, looksLikeHermesProcess, clearDaemonPid } from "./hermes-daemon.js";
 import { clearGatewayMarkers as hermesClearGatewayMarkers, readGatewayUrlMarker, readSessionIdMarker, writeSessionIdMarker } from "./hermes-endpoint.js";
 import {
-  reportGatewayDead,
   gatewayIndexUrlFromWs,
   makeGatewayReachabilityProbe,
   openGatewayWsClient,
-} from "./hermes-managed-host.js";
+  reportGatewayDead,
+} from "./hermes-gateway.mjs";
 import {
   buildSessionActiveListFrame,
   pickSessionStatusById,

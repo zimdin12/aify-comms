@@ -28,29 +28,31 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  MAX_REENSURE_WITHOUT_RECOVERY,
   ensureGatewayHost,
-  deliverRun,
-  waitForActiveSession,
-  runPollCycle,
-  teardownGatewayHost,
-  installShutdownTeardown,
-  runEnsureHostCli,
-  runResolveSessionCli,
-  runDeliveryLoop,
-  runCli,
-  ensureStableSession,
-  resolveHermesPython,
-  makeInFlightProbe,
-  makeInFlightPulse,
-  shouldApplyGatewayTurnEnd,
-  isGatewayConnectRefused,
   gatewayUnreachableMessage,
-  noTuiAttachedMessage,
-  reportGatewayDead,
-  makeTeardown,
+  installShutdownTeardown,
+  isGatewayConnectRefused,
   maybeReEnsureGatewayHost,
   nextReEnsureBudget,
-  MAX_REENSURE_WITHOUT_RECOVERY,
+  reportGatewayDead,
+  shouldApplyGatewayTurnEnd,
+  teardownGatewayHost,
+} from "../hermes-gateway.mjs";
+import {
+  deliverRun,
+  ensureStableSession,
+  makeInFlightProbe,
+  makeInFlightPulse,
+  makeTeardown,
+  noTuiAttachedMessage,
+  resolveHermesPython,
+  runCli,
+  runDeliveryLoop,
+  runEnsureHostCli,
+  runPollCycle,
+  runResolveSessionCli,
+  waitForActiveSession,
 } from "../hermes-managed-host.js";
 import {
   isTuiDepsBuildFailure,
@@ -151,6 +153,26 @@ const SAMPLE_RUN = {
 // ---------------------------------------------------------------------------
 // deliverRun
 // ---------------------------------------------------------------------------
+
+
+// Source-scanning probes: FIND the subject, do not name a file.
+//
+// Three tests below assert on the TEXT of the managed-host implementation, and all three named
+// `../hermes-managed-host.js` directly. In v0.5.4 the gateway cluster moved to `hermes-gateway.mjs` and the
+// `#237` truncate-mode probe went red — correct behaviour for a presence assertion, and the reason the whole
+// class is being fixed rather than the one instance.
+//
+// The `doesNotMatch` half of that same test is the dangerous one: pointed at a file that no longer contains
+// its subject it would pass forever while guarding nothing. Concatenating every bridge module means a probe
+// cannot be defeated by relocation, and an absence assertion becomes stronger rather than emptier — it now
+// says "nowhere in the bridge", which is what it always meant.
+function bridgeSource() {
+  const dir = new URL("../", import.meta.url);
+  const names = fs.readdirSync(dir).filter((f) => (f.endsWith(".js") || f.endsWith(".mjs")) && !f.endsWith(".test.js"));
+  const parts = names.sort().map((f) => fs.readFileSync(new URL(f, dir), "utf8"));
+  assert.ok(parts.length > 5, `expected the bridge module set, found ${parts.length} files`);
+  return parts.join(String.fromCharCode(10));
+}
 
 test("deliverRun: active_list resolves the live TUI sid, prompt.submit targets it, marks delivered, NO reply", async () => {
   const { httpCall, calls } = makeAifyHttp();
@@ -3047,7 +3069,7 @@ test("maybeReEnsureGatewayHost: a throwing/unreachable probe counts as DEAD → 
 // detectBootFailure never reads a PRIOR boot's failure signature and false-aborts a fixed
 // relaunch. Source-assertion (the spawn path is heavily mocked; this locks the file mode).
 test("#237: gateway stderr log is opened in TRUNCATE mode per spawn (not append)", () => {
-  const src = fs.readFileSync(new URL("../hermes-managed-host.js", import.meta.url), "utf8");
+  const src = bridgeSource();
   assert.match(
     src,
     /gwErrFd = fs\.openSync\(gwErrPath, "w"\)/,
@@ -3063,7 +3085,7 @@ test("#237: gateway stderr log is opened in TRUNCATE mode per spawn (not append)
 
 // #237 low note: the dead-latch resets on a successful re-ensure so a LATER death re-reports.
 test("#237: gatewayDeadReported latch is reset after a successful re-ensure", () => {
-  const src = fs.readFileSync(new URL("../hermes-managed-host.js", import.meta.url), "utf8");
+  const src = bridgeSource();
   // Within the re-ensure success branch (re.reEnsured && re.host), the latch is cleared.
   const branch = src.slice(src.indexOf("if (re && re.reEnsured && re.host)"));
   assert.match(
@@ -3090,7 +3112,7 @@ test("nextReEnsureBudget: decrements on re-ensure, floors at 0, resets on recove
 });
 
 test("delivery loop: re-ensure is gated on the budget and reset on a live ws", () => {
-  const src = fs.readFileSync(new URL("../hermes-managed-host.js", import.meta.url), "utf8");
+  const src = bridgeSource();
   assert.match(src, /reEnsureBudget > 0\s*\?\s*await maybeReEnsureGatewayHost/,
     "the respawn must be gated on a positive budget");
   assert.match(src, /reEnsureBudget = nextReEnsureBudget\(reEnsureBudget, \{ reEnsured: true \}\)/,
