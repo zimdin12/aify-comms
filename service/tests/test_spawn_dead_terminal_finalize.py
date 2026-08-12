@@ -25,6 +25,7 @@ import unittest
 from service.db import get_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 from service.tests._base import FastApiTestCase
+from service.api_core.managed_env import _has_pending_or_booting_spawn_request
 
 
 class _SpawnSeedMixin:
@@ -72,7 +73,7 @@ class _SpawnSeedMixin:
         async def _run():
             db = await get_db()
             try:
-                return await api_v2._has_pending_or_booting_spawn_request(db, agent_id)
+                return await _has_pending_or_booting_spawn_request(db, agent_id)
             finally:
                 await db.close()
 

@@ -43,6 +43,7 @@ from service.api_core.liveness import (  # v0.5.4: the leaf owner
     _resident_bridge_is_fresh,
 )
 from service.api_core.liveness import ACTIVE_RUN_BRIDGE_STALE_SECONDS, _has_live_channel_sidecar
+from service.api_core.managed_env import _has_pending_or_booting_spawn_request
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -134,9 +135,6 @@ async def _coldstart_spawn_request_for_dispatch(*a, **k):
     return await _i(*a, **k)
 
 
-async def _has_pending_or_booting_spawn_request(*a, **k):
-    from service.control_plane import _has_pending_or_booting_spawn_request as _i
-    return await _i(*a, **k)
 
 
 async def _mirror_undeliverable_queued_run_to_sender(db, row, *, reason: str) -> Optional[str]:

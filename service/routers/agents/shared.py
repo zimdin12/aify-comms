@@ -45,6 +45,7 @@ from service.api_core.liveness import _has_live_terminal_session
 from service.api_core.agent_sessions import _agent_tombstone, _session_handle_live_owner, _touch_current_agent_session
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent, _get_dispatch_state_map
 from service.api_core.turn_state import _clear_status_state_in_turn
+from service.api_core.managed_env import _has_pending_or_booting_spawn_request, _managed_owning_environment_row
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
 from service.db import get_db
@@ -229,10 +230,6 @@ def _has_codex_live_app_server(*a, **k):
 
 
 
-async def _has_pending_or_booting_spawn_request(*a, **k):
-    from service.control_plane import _has_pending_or_booting_spawn_request as _impl
-
-    return await _impl(*a, **k)
 
 
 def _is_lock_error(*a, **k):
@@ -245,10 +242,6 @@ def _machine_family(machine_id: Any) -> str:
     return str(machine_id or "").strip().split(":", 1)[0].lower()
 
 
-async def _managed_owning_environment_row(*a, **k):
-    from service.control_plane import _managed_owning_environment_row as _impl
-
-    return await _impl(*a, **k)
 
 
 

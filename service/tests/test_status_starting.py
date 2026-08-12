@@ -24,6 +24,10 @@ import unittest
 from pathlib import Path
 
 from service.status_engine import VALID_STATUSES, StatusInputs, derive
+from service.api_core.managed_env import (
+    SPAWN_STARTING_WINDOW_SECONDS,
+    _managed_spawn_is_starting,
+)
 
 
 def managed(**over):
@@ -216,7 +220,7 @@ class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
     async def _starting(self):
         from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
-        return await api_v2._managed_spawn_is_starting(self.db, "a1")
+        return await _managed_spawn_is_starting(self.db, "a1")
 
     async def test_a_fresh_running_spawn_is_starting(self):
         await self._add(age_seconds=5)
@@ -225,7 +229,7 @@ class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
     async def test_just_inside_the_window(self):
         from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
-        await self._add(age_seconds=api_v2.SPAWN_STARTING_WINDOW_SECONDS - 30)
+        await self._add(age_seconds=SPAWN_STARTING_WINDOW_SECONDS - 30)
         self.assertTrue(await self._starting())
 
     async def test_past_the_window_it_stops_claiming_to_be_starting(self):
@@ -233,7 +237,7 @@ class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
         fall back to exactly what it reported before this state existed."""
         from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
-        await self._add(age_seconds=api_v2.SPAWN_STARTING_WINDOW_SECONDS + 60)
+        await self._add(age_seconds=SPAWN_STARTING_WINDOW_SECONDS + 60)
         self.assertFalse(await self._starting())
 
     async def test_a_queued_unclaimed_spawn_is_not_starting(self):
@@ -257,14 +261,33 @@ class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
         """Review's finding, pinned as a constant relationship rather than two matching literals —
         two numbers that happen to agree today will drift, and the gap between them is a window
         where the display and the dispatcher contradict each other."""
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
+        from service.api_core.managed_env import (
+            SPAWN_INFLIGHT_WINDOW_SECONDS,
+            SPAWN_STARTING_WINDOW_SECONDS,
+        )
 
         self.assertEqual(
-            api_v2.SPAWN_STARTING_WINDOW_SECONDS, api_v2.SPAWN_INFLIGHT_WINDOW_SECONDS,
+            SPAWN_STARTING_WINDOW_SECONDS, SPAWN_INFLIGHT_WINDOW_SECONDS,
             "the status must not expire before the mechanism that still suppresses a duplicate start",
         )
-        src = (Path(__file__).resolve().parents[1] / "control_plane.py").read_text(encoding="utf-8")
-        at = src.index("async def _has_pending_or_booting_spawn_request")
+        # v0.5.4: the suppressor moved out of control_plane.py, and this probe used to read that file
+        # BY NAME — so after the move `src.index(...)` would raise, or worse, a future move would
+        # leave it scanning a file that no longer contains the function and passing vacuously. It now
+        # FINDS the owner instead of assuming one, the same correction the untrusted-subject probe
+        # needed for the same reason.
+        service_root = Path(__file__).resolve().parents[1]
+        needle = "async def _has_pending_or_booting_spawn_request"
+        owners = [
+            path for path in sorted(service_root.rglob("*.py"))
+            if "__pycache__" not in path.parts and "tests" not in path.parts
+            and needle in path.read_text(encoding="utf-8", errors="replace")
+        ]
+        self.assertEqual(
+            len(owners), 1,
+            f"the suppressor must have exactly one definition; found {[str(o) for o in owners]}",
+        )
+        src = owners[0].read_text(encoding="utf-8")
+        at = src.index(needle)
         body = src[at : at + 1500]
         self.assertIn("SPAWN_INFLIGHT_WINDOW_SECONDS", body,
                       "the suppressor must use the shared constant, not a re-typed 300")

@@ -125,6 +125,14 @@ from service.api_core.agent_sessions import (  # v0.5.4: moved out; the control 
     _touch_agent,
     _touch_current_agent_session,
 )
+from service.api_core.managed_env import (  # v0.5.4: moved out; the control plane is now a CALLER
+    _has_pending_or_booting_spawn_request,
+    _managed_console_is_booting,
+    _managed_environment_status,
+    _managed_owning_environment_row,
+    _managed_spawn_is_starting,
+    _select_online_environment_for_runtime,
+)
 from service.api_core.liveness import (  # v0.5.4: moved out; the control plane is now a CALLER
     _has_live_claimer_lease,
     _has_recorded_claimer_lease,
@@ -1731,72 +1739,7 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
 
 
 
-async def _managed_owning_environment_row(db, agent_row, *, resolved_environment_id: str = ""):
-    """FIX B (2026-06-02): resolve the OWNING environment row for a MANAGED agent.
-
-    A managed agent can only be spawned/hosted by its environment bridge, so its
-    effective liveness must be gated on that env bridge — NOT on a surviving
-    delivery-loop heartbeat. The operator killed the env bridge and managed agents
-    stayed `available`/`online` because detached loops kept heartbeating; the hole
-    was that the status compute resolved `environment_id` ONLY from the live session
-    row / runtime_state, both of which are absent once the worker dies.
-
-    Resolution order (the agent's STORED binding):
-      1. the already-resolved id (session row / runtime_state.environmentId), then
-      2. runtime_config.environmentId (the spawn-time binding), then
-      3. the environment on the agent's machine_id that advertises its runtime.
-
-    Returns the environments row, or None if no owning environment can be
-    determined (e.g. an unbound agent with no machine/runtime match) — callers must
-    NOT force offline on None (preserve the unbound `available` fall-through).
-    """
-    # 1. already-resolved id.
-    env_id = str(resolved_environment_id or "").strip()
-    # 2. spawn-time binding stored in runtime_config.
-    if not env_id:
-        try:
-            runtime_config = _json_loads_or(agent_row["runtime_config"], {})
-            env_id = str(runtime_config.get("environmentId") or "").strip()
-        except Exception:
-            env_id = ""
-    # 2.5 (2026-06-17, Phase I flip parity): the agent's LIVE session binding. The
-    # event-engine status callers (_gather_status_inputs / the _compute_live_status_cache
-    # byproduct) pass resolved_environment_id="" — they don't pre-resolve the session env
-    # the way the legacy derivation does (it passes environment_id at line ~4562). Without
-    # this, a managed agent whose owning env is recorded only on its agent_sessions row
-    # (no machine_id / no runtime_config.environmentId) resolved to NO env and wrongly read
-    # `offline` under the new engine. Restores legacy parity. A dead env still reads offline
-    # (the row resolves but its _environment_effective_status is offline → env_reachable False).
-    if not env_id:
-        try:
-            sess = await (await db.execute(
-                "SELECT environment_id FROM agent_sessions WHERE agent_id = ? "
-                "AND status IN ('starting','running','recovering','restarting','cli-takeover') "
-                "ORDER BY last_seen DESC LIMIT 1",
-                (agent_row["id"],),
-            )).fetchone()
-            env_id = str((sess["environment_id"] if sess else "") or "").strip()
-        except Exception:
-            env_id = ""
-    if env_id:
-        row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (env_id,))).fetchone()
-        if row:
-            return row
-    # 3. machine_id + runtime match (the environment that advertises this runtime
-    #    on the agent's machine). Mirrors how spawn picks an environment.
-    machine_id = str(agent_row["machine_id"] or "").strip()
-    runtime = _normalize_runtime(agent_row["runtime"] or "")
-    if not machine_id:
-        return None
-    candidates = await (await db.execute(
-        "SELECT * FROM environments WHERE machine_id = ? ORDER BY last_seen DESC",
-        (machine_id,),
-    )).fetchall()
-    for row in candidates:
-        environment = _environment_record_to_dict(row)
-        if _runtime_capability_for_environment(environment, runtime):
-            return row
-    return None
+# _managed_owning_environment_row moved to service/api_core/managed_env.py in v0.5.4.
 
 
 # _managed_env_reachable moved to service/api_core/capabilities.py in v0.5.4.
@@ -2111,79 +2054,14 @@ class _WorkerLiveness(NamedTuple):
 # Change them together or not at all: a display that expires before the mechanism invites the
 # operator to send into a suppressed window, and one that expires after keeps a broken spawn looking
 # hopeful past the point anything is still trying.
-SPAWN_INFLIGHT_WINDOW_SECONDS = 300
-SPAWN_STARTING_WINDOW_SECONDS = SPAWN_INFLIGHT_WINDOW_SECONDS
+# SPAWN_INFLIGHT_WINDOW_SECONDS moved to service/api_core/managed_env.py in v0.5.4 with both its readers.
+# SPAWN_STARTING_WINDOW_SECONDS moved to service/api_core/managed_env.py in v0.5.4 with both its readers.
 
 
-async def _managed_spawn_is_starting(db, agent_id: str) -> bool:
-    """True when a spawn for this agent is RUNNING, has no worker yet, and is still inside the
-    startup window.
-
-    Deliberately narrower than "a spawn row says running": the row alone is exactly the signal that
-    was wrong all morning. Requires a claim (`started_at`), so a queued-but-unclaimed spawn — which
-    nothing is starting yet — does not qualify either.
-    """
-    row = await (await db.execute(
-        """
-        SELECT started_at, updated_at, created_at
-        FROM spawn_requests
-        WHERE agent_id = ?
-          AND status = 'running'
-          AND COALESCE(started_at, '') != ''
-        ORDER BY created_at DESC
-        LIMIT 1
-        """,
-        (agent_id,),
-    )).fetchone()
-    if not row:
-        return False
-    started = _iso_to_epoch(row["started_at"] or row["updated_at"] or row["created_at"])
-    if not started:
-        # Undeterminable age is NOT inside the window. `_iso_to_epoch` returns 0.0 on an
-        # unparseable value, and 0.0 would otherwise compute as "56 years old" — harmless here, but
-        # only by accident. Stated explicitly: an age we cannot measure must not buy an unbounded
-        # `starting`, so it falls back to what this window reported before the state existed.
-        return False
-    return (time.time() - started) <= SPAWN_STARTING_WINDOW_SECONDS
+# _managed_spawn_is_starting moved to service/api_core/managed_env.py in v0.5.4.
 
 
-async def _managed_console_is_booting(db, agent_id: str) -> bool:
-    """True when the agent's live console came up but NO channel-sidecar has registered for it
-    YET — a worker BOOTING (sidecar still coming), distinct from a sidecar that registered for
-    THIS console and then died (the 13c4ae8 'online but deaf' case → stays `available`).
-
-    TIME-WINDOW-FREE (2026-06-05): keys purely on a relational fact — has any channel-sidecar
-    been last-seen AT/AFTER the current console's `created_at`? The sidecar is the worker's own
-    child, so it always registers AFTER its console; therefore:
-      - no sidecar seen since this console started  → it hasn't come up yet → BOOTING.
-      - a sidecar WAS seen at/after console start (now stale) → it came up then died → DEAF.
-    Cross-restart safe: an old sidecar row from a PRIOR session has last_seen < the new
-    console's created_at, so a relaunch correctly reads BOOTING until its own sidecar registers.
-    No arbitrary grace: a boot whose sidecar never arrives shows `online` only while its console
-    is live/streaming (the existing liveness gate); a dead/hung console is reaped separately.
-    """
-    console = await (await db.execute(
-        """
-        SELECT created_at FROM terminal_sessions
-        WHERE agent_id = ?
-          AND status IN ('starting','attached','running','active','idle','recovering')
-        ORDER BY updated_at DESC LIMIT 1
-        """,
-        (agent_id,),
-    )).fetchone()
-    if not console:
-        return False
-    console_started = _iso_to_epoch(str(console["created_at"] or ""))
-    if not console_started:
-        return False
-    sidecar = await (await db.execute(
-        "SELECT MAX(last_seen) AS last_seen FROM bridge_instances "
-        "WHERE agent_id = ? AND bridge_kind = 'channel-sidecar'",
-        (agent_id,),
-    )).fetchone()
-    sidecar_seen = _iso_to_epoch(str((sidecar["last_seen"] if sidecar else "") or ""))
-    # BOOTING iff no channel-sidecar has been seen since this console started.
-    return not (sidecar_seen and sidecar_seen >= console_started)
+# _managed_console_is_booting moved to service/api_core/managed_env.py in v0.5.4.
 
 
 async def _worker_liveness_for(
@@ -3105,36 +2983,7 @@ async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str,
     return refreshed
 
 
-async def _managed_environment_status(db, row) -> tuple[str, str, str]:
-    if not row or _normalize_session_mode(row["session_mode"] or "resident") != "managed":
-        return "", "", ""
-    runtime_state = _json_loads_or(row["runtime_state"], {})
-    environment_id = str(runtime_state.get("environmentId") or "").strip()
-    if not environment_id:
-        session_cursor = await db.execute(
-            """
-            SELECT environment_id
-            FROM agent_sessions
-            WHERE agent_id = ?
-            ORDER BY last_seen DESC
-            LIMIT 1
-            """,
-            (row["id"],),
-        )
-        session = await session_cursor.fetchone()
-        environment_id = str((session["environment_id"] if session else "") or "").strip()
-    if not environment_id:
-        return "", "", ""
-
-    settings = await _load_settings(db)
-    env_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))
-    env = await env_cursor.fetchone()
-    env_status = _environment_effective_status(
-        env,
-        offline_seconds=settings.get("environment_offline_seconds", 90),
-    ) if env else "offline"
-    env_bridge = str((env["bridge_id"] if env else "") or "").strip()
-    return environment_id, env_status, env_bridge
+# _managed_environment_status moved to service/api_core/managed_env.py in v0.5.4.
 
 
 # OWNED BY service/reconcilers/spawn_lifecycle.py since v0.5 slice 2. Imported rather than
@@ -3933,69 +3782,13 @@ async def _has_claimable_spawn_request(db, agent_id: str) -> bool:
     return bool(row)
 
 
-async def _has_pending_or_booting_spawn_request(db, agent_id: str) -> bool:
-    """Like _has_claimable_spawn_request, but ALSO counts a RECENT `running` request
-    (worker mid-boot, before it registers a session). Bug D fix (2026-07-02): a second
-    cold-start created while one worker was still booting produced a duplicate whose
-    kill-prior could murder the booting worker. Time-bound (5 min) so a stuck `running`
-    orphan never blocks future autostarts (the orphan reaper frees those anyway)."""
-    # Shared with the `starting` display window — see SPAWN_INFLIGHT_WINDOW_SECONDS. These were two
-    # independent numbers (300 here, 180 there) and the gap between them was a window where the
-    # status said "idle, send something" while this function was still refusing to start a second
-    # worker.
-    running_cutoff = time.strftime(
-        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - SPAWN_INFLIGHT_WINDOW_SECONDS)
-    )
-    # `starting` is the bridge's pre-`running` PATCH — count it with the time-bounded
-    # arm so a concurrent coldstart in that sub-second window can't duplicate.
-    # `running` rows with finished_at set are KNOWN-DEAD workers (report_terminal_dead
-    # stamps them) — a dead worker must not suppress the respawn it just made necessary.
-    row = await (await db.execute(
-        """
-        SELECT id
-        FROM spawn_requests
-        WHERE agent_id = ?
-          AND (
-            status IN ('queued', 'claimed')
-            OR (
-              status IN ('starting', 'running')
-              AND COALESCE(finished_at, '') = ''
-              AND COALESCE(NULLIF(updated_at, ''), created_at) >= ?
-            )
-          )
-        LIMIT 1
-        """,
-        (agent_id, running_cutoff),
-    )).fetchone()
-    return bool(row)
+# _has_pending_or_booting_spawn_request moved to service/api_core/managed_env.py in v0.5.4.
 
 
 # _has_claimable_steerable_run moved to service/routers/dispatch_messages/shared.py in v0.5.3.
 
 
-async def _select_online_environment_for_runtime(
-    db, runtime: str, *, offline_seconds: int = 90
-) -> Optional[dict[str, Any]]:
-    """Pick the freshest ONLINE environment that advertises `runtime`.
-
-    Used by Phase 2 auto-bind: when a managed agent has no usable session
-    environment, bind it to a live env so it can be cold-started on first
-    message. Deterministic order: most-recently-seen environment first, so a
-    freshly-heartbeating bridge is preferred. Returns the environment dict, or
-    None when no online environment advertises the runtime.
-    """
-    normalized_runtime = _normalize_runtime(runtime or "")
-    if not normalized_runtime:
-        return None
-    cursor = await db.execute("SELECT * FROM environments ORDER BY last_seen DESC")
-    for env_row in await cursor.fetchall():
-        environment = _environment_record_to_dict(env_row, offline_seconds=offline_seconds)
-        if str(environment.get("status") or "").lower() != "online":
-            continue
-        if not _runtime_capability_for_environment(environment, normalized_runtime):
-            continue
-        return environment
-    return None
+# _select_online_environment_for_runtime moved to service/api_core/managed_env.py in v0.5.4.
 
 
 # N8 (operator-reported twice: 2026-07-31 and 2026-08-07). `_coldstart_spawn_request_for_dispatch`
