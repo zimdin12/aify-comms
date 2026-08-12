@@ -39,6 +39,11 @@ EXTRACTIONS = [
     "_hourly_message_series",
     "_append_daily_message_buckets",
     "_monthly_message_series",
+    "_fleet_median_reply_minutes",
+    "_dispatch_outcomes_series",
+    "_agent_leaderboard",
+    "_busiest_channels",
+    "_failure_reasons",
 ]
 
 
