@@ -47,6 +47,14 @@ import {  // v0.5.4: neutral owner
   TMP_DIR,
   resolveHermesPython,
 } from "./hermes-env.mjs";
+import {  // v0.5.4: moved out; the host is now a CALLER of the run-reporting module
+  channelBridgeId,
+  clearTurn,
+  markRunDelivered,
+  markRunFailed,
+  markRunRequeued,
+  reportTurnBusy,
+} from "./hermes-run-reporting.mjs";
 import {  // v0.5.4: moved out; the host is now a CALLER of the session module
   ATTACH_POLL_MS,
   ATTACH_WAIT_MS,
@@ -139,11 +147,8 @@ const AIFY_API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY 
 // managed hermes agents because bridge_instances.id is the PRIMARY KEY — only
 // one agent could own the row, starving the others' liveness heartbeats and
 // letting two detached delivery loops fight over one row. Scope by agentId.
-const CHANNEL_BRIDGE_PREFIX = `hermes-managed-host-${MACHINE_ID}`;
-function channelBridgeId(agentId) {
-  const id = String(agentId || "").trim();
-  return id ? `${CHANNEL_BRIDGE_PREFIX}-${id}` : CHANNEL_BRIDGE_PREFIX;
-}
+// CHANNEL_BRIDGE_PREFIX moved to ./hermes-run-reporting.mjs in v0.5.4 with its only reader.
+// channelBridgeId moved to ./hermes-run-reporting.mjs in v0.5.4.
 const POLL_MS = Math.max(
   500,
   Number(process.env.AIFY_COMMS_CHANNEL_POLL_MS || process.env.AIFY_HERMES_CHANNEL_POLL_MS || 3000),
@@ -448,21 +453,9 @@ function makeAifyHttpCall(baseUrl, apiKey) {
 // aify dispatch reporting helpers (mirror hermes-channel.js).
 // ---------------------------------------------------------------------------
 
-async function reportTurnBusy(httpCall, agentId, { busy, runId = "" } = {}) {
-  await httpCall("POST", `/agents/${encodeURIComponent(agentId)}/heartbeat`, {
-    bridgeId: channelBridgeId(agentId),
-    turnBusy: !!busy,
-    turnRunId: runId,
-    turnRuntime: RUNTIME,
-  });
-}
+// reportTurnBusy moved to ./hermes-run-reporting.mjs in v0.5.4.
 
-async function clearTurn(httpCall, agentId) {
-  await httpCall("POST", `/agents/${encodeURIComponent(agentId)}/turn-end`, {
-    bridgeId: channelBridgeId(agentId),
-    turnRuntime: RUNTIME,
-  });
-}
+// clearTurn moved to ./hermes-run-reporting.mjs in v0.5.4.
 
 // Read the dispatch run's current status + require_reply flag (the
 // host-observable turn-end signals). Best-effort: any error → status "" (treated
@@ -486,30 +479,9 @@ async function fetchRunStatus(httpCall, runId) {
   }
 }
 
-async function markRunDelivered(httpCall, run) {
-  const runId = String(run?.id || "");
-  await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(runId)}`, {
-    status: "delivered",
-    // D2 (#162): routine delivery is normal-path — no summary so the Runs audit
-    // view stays clean. The 'delivered' event below carries the audit signal;
-    // meaningful summaries are reserved for failures (see markRunFailed).
-    summary: "",
-    runtime: RUNTIME,    appendEvent: "Delivered to managed-hermes visible TUI (agent self-replies)",
-    eventType: "delivered",
-  });
-}
+// markRunDelivered moved to ./hermes-run-reporting.mjs in v0.5.4.
 
-async function markRunFailed(httpCall, run, error) {
-  const runId = String(run?.id || "");
-  const cause = error?.message || String(error);
-  await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(runId)}`, {
-    status: "failed",
-    error: cause,
-    summary: `managed hermes delivery failed: ${cause}`,
-    runtime: RUNTIME,    appendEvent: `managed hermes delivery failed: ${cause}`,
-    eventType: "failed",
-  });
-}
+// markRunFailed moved to ./hermes-run-reporting.mjs in v0.5.4.
 
 // ---------------------------------------------------------------------------
 // GATEWAY LIVENESS GAP — reactive mitigation (status-liveness).
@@ -583,14 +555,7 @@ export function noTuiAttachedMessage(gatewayUrl, attempts) {
 // to the gateway, so this is a TRANSIENT not-yet-ready condition, NOT a
 // permanent failure. Put the run back to `queued` (claimable) so the very next
 // poll delivers once the TUI finishes resuming. Never markRunFailed for this.
-async function markRunRequeued(httpCall, run, reason) {
-  const runId = String(run?.id || "");
-  await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(runId)}`, {
-    status: "queued",
-    runtime: RUNTIME,    appendEvent: `managed hermes delivery deferred (requeued): ${reason}`,
-    eventType: "requeued",
-  });
-}
+// markRunRequeued moved to ./hermes-run-reporting.mjs in v0.5.4.
 
 // ---------------------------------------------------------------------------
 // 3. DELIVERY — claim → active_list → prompt.submit (requeue on busy) → delivered.

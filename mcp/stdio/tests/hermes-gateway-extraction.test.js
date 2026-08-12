@@ -47,6 +47,7 @@ const PRISTINE = "fixtures/hermes-managed-host.before-gateway.js";
 const GATEWAY = "hermes-gateway.mjs";
 const ENV = "hermes-env.mjs";
 const SESSION = "hermes-active-session.mjs";
+const REPORTING = "hermes-run-reporting.mjs";
 
 /** Indices are 0-based positions in the PRISTINE fixture, measured from it. */
 const EXTRACTIONS = [
@@ -101,6 +102,18 @@ const EXTRACTIONS = [
     ],
   },
   {
+    module: REPORTING,
+    items: [
+      { name: "CHANNEL_BRIDGE_PREFIX", at: 110, marker: "// CHANNEL_BRIDGE_PREFIX moved to ./hermes-run-reporting.mjs in v0.5.4 with its only reader." },
+      { name: "channelBridgeId", at: 111, marker: "// channelBridgeId moved to ./hermes-run-reporting.mjs in v0.5.4." },
+      { name: "reportTurnBusy", at: 895, marker: "// reportTurnBusy moved to ./hermes-run-reporting.mjs in v0.5.4." },
+      { name: "clearTurn", at: 904, marker: "// clearTurn moved to ./hermes-run-reporting.mjs in v0.5.4." },
+      { name: "markRunDelivered", at: 933, marker: "// markRunDelivered moved to ./hermes-run-reporting.mjs in v0.5.4." },
+      { name: "markRunFailed", at: 946, marker: "// markRunFailed moved to ./hermes-run-reporting.mjs in v0.5.4." },
+      { name: "markRunRequeued", at: 1125, marker: "// markRunRequeued moved to ./hermes-run-reporting.mjs in v0.5.4." },
+    ],
+  },
+  {
     module: ENV,
     items: [
       { name: "TMP_DIR", at: 163, marker: "// TMP_DIR moved to ./hermes-env.mjs in v0.5.4." },
@@ -113,7 +126,12 @@ const EXTRACTIONS = [
   },
 ];
 
-const MODULES = () => ({ [GATEWAY]: read(GATEWAY), [ENV]: read(ENV), [SESSION]: read(SESSION) });
+const MODULES = () => ({
+  [GATEWAY]: read(GATEWAY),
+  [ENV]: read(ENV),
+  [SESSION]: read(SESSION),
+  [REPORTING]: read(REPORTING),
+});
 
 // Import lines the extractions added, in their CURRENT form. The env line is shared by both slices — the
 // gateway created it, the session slice added TMP_DIR to it — so it is pinned once, as it stands now.
@@ -149,7 +167,11 @@ function hostWithoutSliceImports() {
   // blocks are not in that order in the file, so it deleted the session block while hunting for the gateway
   // one and then could not find the session block it had just removed. Anchoring on the unique line is the
   // fix — the opener comment is identical for every slice and therefore cannot identify one.
-  for (const from of ['} from "./hermes-gateway.mjs";', '} from "./hermes-active-session.mjs";']) {
+  for (const from of [
+    '} from "./hermes-gateway.mjs";',
+    '} from "./hermes-active-session.mjs";',
+    '} from "./hermes-run-reporting.mjs";',
+  ]) {
     const close = lines.findIndex((l) => l.startsWith(from));
     assert.notEqual(close, -1, `the import block ending in ${from} must be present verbatim`);
     let open = close;
