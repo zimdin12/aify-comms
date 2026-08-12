@@ -54,7 +54,11 @@ from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.api_core.liveness import _has_live_managed_wrapper_child
-from service.api_core.agent_sessions import _agent_tombstone, _touch_agent, _touch_current_agent_session
+from service.api_core.agent_sessions import (
+    _agent_tombstone,
+    _touch_agent,
+    _touch_current_agent_session,
+)
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.turn_state import _clear_turn_busy_if_no_open_reply_owing_run
 from service.api_core.recovery_writes import _record_channel_sidecar_heartbeat
@@ -69,7 +73,10 @@ from service.status_engine import apply_event
 from service.api_core.events import _append_terminal_control
 from service.api_core.serialization import _machine_ids_same_host
 from service.db import _NATIVE_MANAGED_RUNTIMES
-from service.reconcilers.dispatch_lifecycle import _close_steered_contracts_for_parent_run, _mark_dispatch_run_answered
+from service.reconcilers.dispatch_lifecycle import (
+    _close_steered_contracts_for_parent_run,
+    _mark_dispatch_run_answered,
+)
 from service.reconcilers.dispatch_queue import _close_reconcilable_delivered_runs
 from service.status_engine import VALID_STATUSES
 from service.env_status import environment_effective_status as _environment_effective_status

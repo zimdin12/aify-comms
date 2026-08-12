@@ -271,7 +271,14 @@ from service.reconcilers.status_cache import (
     _reap_stale_orphan_bridges,
     stale_seconds_from_settings,
 )
-from service.usage_cache import usage_set, usage_all, usage_get, derive_usage_source, consumption_set, consumption_summary
+from service.usage_cache import (
+    usage_set,
+    usage_all,
+    usage_get,
+    derive_usage_source,
+    consumption_set,
+    consumption_summary,
+)
 from service.models import (
     AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
     ChannelCreate, ChannelMessage, ChannelJoin,

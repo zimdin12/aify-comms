@@ -57,7 +57,10 @@ from service.api_core.runtime import (
 )
 from service.api_core.records import _environment_record_to_dict
 from service.api_core.serialization import _json_loads_or
-from service.api_core.capabilities import _default_capabilities_for, _managed_via_wrapper_for_runtime
+from service.api_core.capabilities import (
+    _default_capabilities_for,
+    _managed_via_wrapper_for_runtime,
+)
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
@@ -66,7 +69,10 @@ from service.db import SQLITE_CLAIM_BUSY_TIMEOUT_MS, get_db
 from service.env_status import environment_effective_status as _environment_effective_status
 from service.models import SpawnRequestClaim, SpawnRequestCreate, SpawnRequestUpdate
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
-from service.api_core.channel_delivery import _apply_channel_routing_to_claude_runs, _insert_messages_via_console
+from service.api_core.channel_delivery import (
+    _apply_channel_routing_to_claude_runs,
+    _insert_messages_via_console,
+)
 
 logger = logging.getLogger("aify_comms.routers.spawn_requests")
 

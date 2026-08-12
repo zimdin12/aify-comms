@@ -25,7 +25,11 @@ from service.api_core.events import _append_terminal_event
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.runtime import _normalize_session_mode
 from service.api_core.runtime import _runtime_capability_for_environment
-from service.api_core.records import _agent_session_to_dict, _environment_record_to_dict, _terminal_session_to_dict
+from service.api_core.records import (
+    _agent_session_to_dict,
+    _environment_record_to_dict,
+    _terminal_session_to_dict,
+)
 from service.api_core.dispatch_text import (  # v0.5.4 owner; re-exported for this package
     _coldstart_refusal_message,
 )
@@ -43,10 +47,17 @@ from service.api_core.validation import validate_name
 from service.api_core.vocabulary import SESSION_MODES as _SESSION_MODES
 from service.api_core.ws import _get_ws
 from service.api_core.liveness import _has_live_terminal_session
-from service.api_core.agent_sessions import _agent_tombstone, _session_handle_live_owner, _touch_current_agent_session
+from service.api_core.agent_sessions import (
+    _agent_tombstone,
+    _session_handle_live_owner,
+    _touch_current_agent_session,
+)
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent, _get_dispatch_state_map
 from service.api_core.turn_state import _clear_status_state_in_turn
-from service.api_core.managed_env import _has_pending_or_booting_spawn_request, _managed_owning_environment_row
+from service.api_core.managed_env import (
+    _has_pending_or_booting_spawn_request,
+    _managed_owning_environment_row,
+)
 from service.api_core.recovery_writes import _record_channel_sidecar_heartbeat
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now

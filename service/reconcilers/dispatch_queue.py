@@ -34,7 +34,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from service.api_core.runtime import _normalize_runtime, _normalize_session_mode  # v0.5.1e: the leaf owner, not via the router
+from service.api_core.runtime import (
+    _normalize_runtime,
+    _normalize_session_mode,
+)
 from service.api_core.settings import _load_settings, DEFAULT_SETTINGS  # v0.5.1g: the leaf owner
 from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
 from service.api_core.liveness import (  # v0.5.4: the leaf owner
@@ -42,12 +45,20 @@ from service.api_core.liveness import (  # v0.5.4: the leaf owner
     _has_recorded_claimer_lease,
     _resident_bridge_is_fresh,
 )
-from service.api_core.liveness import ACTIVE_RUN_BRIDGE_STALE_SECONDS, _has_live_channel_sidecar
+from service.api_core.liveness import (
+    ACTIVE_RUN_BRIDGE_STALE_SECONDS,
+    _has_live_channel_sidecar,
+)
 from service.api_core.managed_env import _has_pending_or_booting_spawn_request
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
-from service.api_core.channel_delivery import _CHANNEL_FLAG_GATED_RUNTIMES, _CHANNEL_MANAGED_RUNTIMES, _CHANNEL_SIDECAR_DELIVERY_RUNTIMES, _insert_messages_via_console
+from service.api_core.channel_delivery import (
+    _CHANNEL_FLAG_GATED_RUNTIMES,
+    _CHANNEL_MANAGED_RUNTIMES,
+    _CHANNEL_SIDECAR_DELIVERY_RUNTIMES,
+    _insert_messages_via_console,
+)
 
 logger = logging.getLogger(__name__)
 
