@@ -913,8 +913,8 @@ def _runtime_state_with_handle(runtime: Any, runtime_state: Any, session_handle:
 
 
 
-def _machine_family(machine_id: Any) -> str:
-    return str(machine_id or "").strip().split(":", 1)[0].lower()
+# _machine_family moved to service/routers/agents/shared.py in v0.5.3 — the agents package was its
+# only consumer once the domains moved, so the borrow shim became the last thing keeping it here.
 
 
 

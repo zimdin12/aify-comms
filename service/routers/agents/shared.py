@@ -202,10 +202,8 @@ def _is_lock_error(*a, **k):
     return _impl(*a, **k)
 
 
-def _machine_family(*a, **k):
-    from service.routers.api_v2 import _machine_family as _impl
-
-    return _impl(*a, **k)
+def _machine_family(machine_id: Any) -> str:
+    return str(machine_id or "").strip().split(":", 1)[0].lower()
 
 
 async def _managed_owning_environment_row(*a, **k):
