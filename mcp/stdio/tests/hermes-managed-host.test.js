@@ -40,19 +40,21 @@ import {
   teardownGatewayHost,
 } from "../hermes-gateway.mjs";
 import {
-  deliverRun,
   ensureStableSession,
+  resolveHermesPython,
+  waitForActiveSession,
+} from "../hermes-active-session.mjs";
+import {
+  deliverRun,
   makeInFlightProbe,
   makeInFlightPulse,
   makeTeardown,
   noTuiAttachedMessage,
-  resolveHermesPython,
   runCli,
   runDeliveryLoop,
   runEnsureHostCli,
   runPollCycle,
   runResolveSessionCli,
-  waitForActiveSession,
 } from "../hermes-managed-host.js";
 import {
   isTuiDepsBuildFailure,

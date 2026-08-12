@@ -4,7 +4,7 @@
 // resume marker, never the ephemeral runtime id. The ephemeral id is still returned
 // for THIS delivery (prompt.submit/steer need the live id).
 import assert from "node:assert/strict";
-import { waitForActiveSession } from "../hermes-managed-host.js";
+import { waitForActiveSession } from "../hermes-active-session.mjs";
 
 // An active_list row whose ephemeral runtime id differs from its durable session_key.
 const EPHEMERAL = "5af7c19c";

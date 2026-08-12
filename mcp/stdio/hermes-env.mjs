@@ -14,8 +14,19 @@
 // Note what is NOT here: the gateway's own timeouts. Those have a single reader each, inside the gateway,
 // so they follow it. This module is for shared identity, not for every constant that exists.
 
+import os from "os";
+
 import { defaultMachineId } from "./runtimes.js";
 
 export const HERMES_CMD = String(process.env.AIFY_HERMES_COMMAND || "hermes").trim() || "hermes";
 export const MACHINE_ID = defaultMachineId();
 export const RUNTIME = "hermes";
+
+// v0.5.4: `TMP_DIR` arrived with the active-session slice. Seven host functions read it and one session
+// function does, and it is `process.env.TEMP || process.env.TMP || os.tmpdir()` — environment identity with
+// no session semantics, which is exactly what this module is for. Compare `ATTACH_WAIT_MS`, which has the
+// same two-sided readership and went the OTHER way, into the session module, because attach timing IS a
+// session concept. Two-sided readership decides that a constant needs a deliberate owner; it does not decide
+// which owner.
+
+export const TMP_DIR = process.env.TEMP || process.env.TMP || os.tmpdir();

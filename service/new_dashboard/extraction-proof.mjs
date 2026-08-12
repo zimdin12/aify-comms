@@ -35,11 +35,29 @@ export function declarationSpan(source, name) {
   const varHead = new RegExp(`^(?:export\\s+)?(?:const|let|var)\\s+${name}\\b`);
   for (let i = 0; i < lines.length; i += 1) {
     if (varHead.test(lines[i])) {
-      // A declaration may span lines (a multi-line Math.max(...) for instance); run to the semicolon.
-      let j = i;
-      while (j < lines.length && !lines[j].trimEnd().endsWith(";")) j += 1;
-      if (j >= lines.length) return null;
-      return { start: i, end: j, text: lines.slice(i, j + 1).join(NL) };
+      // A declaration may span lines, and "run to the first line ending in a semicolon" is WRONG — it works
+      // for a multi-line `Math.max(...)` spread over four lines by luck, and breaks on an IIFE, whose body
+      // contains its own statements:
+      //
+      //   const X = (() => {
+      //     const raw = Number(...);      <-- first line ending in ';', and not the end of the declaration
+      //     ...
+      //   })();
+      //
+      // So terminate on BALANCE: the first line where every bracket opened since the start has closed AND
+      // the line ends with a semicolon. Found by truncating a real constant mid-IIFE during the
+      // active-session slice.
+      let depth = 0;
+      for (let j = i; j < lines.length; j += 1) {
+        for (const ch of lines[j]) {
+          if (ch === "(" || ch === "{" || ch === "[") depth += 1;
+          else if (ch === ")" || ch === "}" || ch === "]") depth -= 1;
+        }
+        if (depth <= 0 && lines[j].trimEnd().endsWith(";")) {
+          return { start: i, end: j, text: lines.slice(i, j + 1).join(NL) };
+        }
+      }
+      return null;
     }
     if (!fnHead.test(lines[i])) continue;
     let depth = 0;

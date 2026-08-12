@@ -1,5 +1,10 @@
-// Proves the gateway extraction from hermes-managed-host.js was a pure file split, and exercises the moved
-// surface directly.
+// Proves EVERY extraction from hermes-managed-host.js was a pure file split, and exercises the moved surface.
+//
+// ONE PROOF PER TARGET FILE, not per slice — the app.js lane's shape, and this file learned it the hard way.
+// It began as the gateway slice's receipt, pinning the exact env import line the gateway added. The very next
+// slice added TMP_DIR to that line and this proof went red: correct detection, wrong granularity. A per-slice
+// proof is only runnable until the next slice touches the same lines. So both slices are declared below and
+// each new one appends.
 //
 // Two obligations, and they are different. The reconstruction below proves nothing MOVED that was not
 // declared — put the 23 extracted spans back, undo the import edits, and require byte-identity with a
@@ -41,6 +46,7 @@ const PRISTINE = "fixtures/hermes-managed-host.before-gateway.js";
 
 const GATEWAY = "hermes-gateway.mjs";
 const ENV = "hermes-env.mjs";
+const SESSION = "hermes-active-session.mjs";
 
 /** Indices are 0-based positions in the PRISTINE fixture, measured from it. */
 const EXTRACTIONS = [
@@ -77,14 +83,37 @@ const EXTRACTIONS = [
       { name: "installShutdownTeardown", at: 1930, marker: "// installShutdownTeardown moved to ./hermes-gateway.mjs in v0.5.4.", pristineExported: true },
     ],
   },
+  {
+    module: SESSION,
+    items: [
+      { name: "ATTACH_WAIT_MS", at: 128, marker: "// ATTACH_WAIT_MS moved to ./hermes-active-session.mjs in v0.5.4." },
+      { name: "ATTACH_POLL_MS", at: 129, marker: "// ATTACH_POLL_MS moved to ./hermes-active-session.mjs in v0.5.4." },
+      { name: "ATTACH_FRESH_GRACE_FRACTION", at: 158, marker: "// ATTACH_FRESH_GRACE_FRACTION moved to ./hermes-active-session.mjs in v0.5.4." },
+      { name: "activeListRowsLocal", at: 258, marker: "// activeListRowsLocal moved to ./hermes-active-session.mjs in v0.5.4." },
+      { name: "rowFreshnessStamp", at: 274, marker: "// rowFreshnessStamp moved to ./hermes-active-session.mjs in v0.5.4." },
+      { name: "rowRealIdLocal", at: 291, marker: "// rowRealIdLocal moved to ./hermes-active-session.mjs in v0.5.4." },
+      { name: "stampForSessionId", at: 311, marker: "// stampForSessionId moved to ./hermes-active-session.mjs in v0.5.4." },
+      { name: "sessionKeyFor", at: 325, marker: "// sessionKeyFor moved to ./hermes-active-session.mjs in v0.5.4." },
+      { name: "resolveHermesPython", at: 726, marker: "// resolveHermesPython moved to ./hermes-active-session.mjs in v0.5.4.", pristineExported: true },
+      { name: "ensureStableSession", at: 755, marker: "// ensureStableSession moved to ./hermes-active-session.mjs in v0.5.4.", pristineExported: true },
+      { name: "waitForActiveSession", at: 1155, marker: "// waitForActiveSession moved to ./hermes-active-session.mjs in v0.5.4.", pristineExported: true },
+    ],
+  },
+  {
+    module: ENV,
+    items: [
+      { name: "TMP_DIR", at: 163, marker: "// TMP_DIR moved to ./hermes-env.mjs in v0.5.4." },
+    ],
+  },
 ];
 
-const MODULES = () => ({ [GATEWAY]: read(GATEWAY), [ENV]: read(ENV) });
+const MODULES = () => ({ [GATEWAY]: read(GATEWAY), [ENV]: read(ENV), [SESSION]: read(SESSION) });
 
-// The two import edits this slice made to the host, undone by the prover.
+// Import lines the extractions added, in their CURRENT form. The env line is shared by both slices — the
+// gateway created it, the session slice added TMP_DIR to it — so it is pinned once, as it stands now.
 const IMPORT_EDITS = [
   {
-    added: 'import { HERMES_CMD, MACHINE_ID, RUNTIME } from "./hermes-env.mjs";  // v0.5.4: neutral owner',
+    added: 'import { HERMES_CMD, MACHINE_ID, RUNTIME, TMP_DIR } from "./hermes-env.mjs";  // v0.5.4: neutral owner',
   },
 ];
 
@@ -96,12 +125,19 @@ function hostWithoutSliceImports() {
     lines.splice(at, 1);
   }
   // The gateway import is a multi-line block; find and drop it as a unit.
-  const open = lines.findIndex((l) => l.startsWith("import {  // v0.5.4: moved out"));
-  assert.notEqual(open, -1, "the gateway import block must be present verbatim");
-  let close = open;
-  while (close < lines.length && !lines[close].startsWith('} from "./hermes-gateway.mjs";')) close += 1;
-  assert.ok(close < lines.length, "the gateway import block must be terminated");
-  lines.splice(open, close - open + 1);
+  // Find each block by its TERMINATOR and walk BACK to the opener. My first version took the first
+  // `import {  // v0.5.4: moved out` line and assumed it belonged to the module it was looking for; the two
+  // blocks are not in that order in the file, so it deleted the session block while hunting for the gateway
+  // one and then could not find the session block it had just removed. Anchoring on the unique line is the
+  // fix — the opener comment is identical for every slice and therefore cannot identify one.
+  for (const from of ['} from "./hermes-gateway.mjs";', '} from "./hermes-active-session.mjs";']) {
+    const close = lines.findIndex((l) => l.startsWith(from));
+    assert.notEqual(close, -1, `the import block ending in ${from} must be present verbatim`);
+    let open = close;
+    while (open >= 0 && !lines[open].startsWith("import {  // v0.5.4: moved out")) open -= 1;
+    assert.ok(open >= 0, `no opener found for the block ending in ${from}`);
+    lines.splice(open, close - open + 1);
+  }
   return lines.join(String.fromCharCode(10));
 }
 
