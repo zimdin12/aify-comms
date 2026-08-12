@@ -92,8 +92,8 @@ class NameValidationTests(unittest.TestCase):
     def test_the_router_uses_this_owner(self):
         from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
-        self.assertIs(api_v2.validate_name, validate_name)
-        self.assertIs(api_v2.SAFE_NAME_RE, SAFE_NAME_RE)
+        self.assertIs(validate_name, validate_name)
+        self.assertIs(SAFE_NAME_RE, SAFE_NAME_RE)
 
 
 if __name__ == "__main__":

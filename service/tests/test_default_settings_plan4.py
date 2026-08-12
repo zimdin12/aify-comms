@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent))
 
-from service.control_plane import DEFAULT_SETTINGS
+from service.api_core.settings import DEFAULT_SETTINGS
 
 
 def test_managed_via_wrapper_defaults_to_codex_hermes_only():

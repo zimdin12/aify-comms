@@ -1,5 +1,7 @@
 import sqlite3
 from service.tests._base import FastApiTestCase
+from service.api_core.routing import logger
+from service.api_core.settings import _load_settings
 
 
 def _seed_live_channel_worker(db_path, env_id, aid, runtime="claude-code"):
@@ -354,7 +356,7 @@ class StatusEngineHotRefreshParityTests(FastApiTestCase):
         from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         async def factory(db):
-            settings = await api_v2._load_settings(db)
+            settings = await _load_settings(db)
             await api_v2._invalidate_agent_live_state(db, aid)
             await api_v2._refresh_agent_live_state(db, aid, settings=settings)
             entry = api_v2._live_state_get(aid)
@@ -366,7 +368,7 @@ class StatusEngineHotRefreshParityTests(FastApiTestCase):
         from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         async def factory(db):
-            settings = await api_v2._load_settings(db)
+            settings = await _load_settings(db)
             row = await (await db.execute("SELECT * FROM agents WHERE id=?", (aid,))).fetchone()
             return await api_v2.engine_status(db, row, settings=settings)
 
@@ -456,7 +458,7 @@ class StatusEngineHotRefreshParityTests(FastApiTestCase):
         self._set("status_engine", "new")
 
         original_gather = api_v2._gather_status_inputs
-        original_log_exc = api_v2.logger.exception
+        original_log_exc = logger.exception
         fallback_hits = []
 
         async def boom(*args, **kwargs):
@@ -467,12 +469,12 @@ class StatusEngineHotRefreshParityTests(FastApiTestCase):
             return original_log_exc(msg, *args, **kwargs)
 
         api_v2._gather_status_inputs = boom
-        api_v2.logger.exception = spy_exception
+        logger.exception = spy_exception
         try:
             status = self._refreshed_status("p_nogather")
         finally:
             api_v2._gather_status_inputs = original_gather
-            api_v2.logger.exception = original_log_exc
+            logger.exception = original_log_exc
         self.assertIsNotNone(status)
         self.assertIn(status, VALID_STATUSES)
         self.assertEqual(

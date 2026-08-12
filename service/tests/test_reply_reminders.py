@@ -28,10 +28,11 @@ from fastapi.testclient import TestClient
 from service.db import get_db, init_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 from service.routers.api_v2 import router
-from service.control_plane import DEFAULT_SETTINGS
+from service.api_core.settings import DEFAULT_SETTINGS
 
 
 from service.tests._base import FastApiTestCase
+from service.api_core.serialization import _iso_from_ms
 
 
 # Every runtime is meant to behave identically — the reminder rides the
@@ -111,7 +112,7 @@ class ReplyReminderTests(FastApiTestCase):
         )
         run_id = created["runs"][0]["runId"]
         # Back-date well past any threshold and force a deliverable status.
-        overdue_at = api_v2._iso_from_ms(int((time.time() - 600) * 1000))
+        overdue_at = _iso_from_ms(int((time.time() - 600) * 1000))
         self._execute(
             "UPDATE dispatch_runs SET status = 'delivered', requested_at = ? WHERE id = ?",
             (overdue_at, run_id),
@@ -122,7 +123,7 @@ class ReplyReminderTests(FastApiTestCase):
         for idx in range(count):
             self._execute(
                 "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
-                (run_id, "reply_reminder", f"old reminder {idx}", api_v2._iso_from_ms(int((time.time() - (90 - idx)) * 1000))),
+                (run_id, "reply_reminder", f"old reminder {idx}", _iso_from_ms(int((time.time() - (90 - idx)) * 1000))),
             )
 
     def _sent_reminder_message(self, result, run_id):
@@ -284,7 +285,7 @@ class ReplyReminderTests(FastApiTestCase):
                     for idx in range(cap):
                         self._execute(
                             "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
-                            (run_id, "reply_reminder", f"old reminder {idx}", api_v2._iso_from_ms(int((time.time() - (90 - idx)) * 1000))),
+                            (run_id, "reply_reminder", f"old reminder {idx}", _iso_from_ms(int((time.time() - (90 - idx)) * 1000))),
                         )
                     result = self._run_reminders(run_id=run_id, ignore_repeat=True)
                     reminded = [r for r in result["reminded"] if r["runId"] == run_id]
@@ -316,7 +317,7 @@ class ReplyReminderTests(FastApiTestCase):
                     # One prior reminder, under the cap of 3.
                     self._execute(
                         "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
-                        (run_id, "reply_reminder", "old reminder", api_v2._iso_from_ms(int((time.time() - 90) * 1000))),
+                        (run_id, "reply_reminder", "old reminder", _iso_from_ms(int((time.time() - 90) * 1000))),
                     )
                     result = self._run_reminders(run_id=run_id, ignore_repeat=True)
                     reminded = [r for r in result["reminded"] if r["runId"] == run_id]

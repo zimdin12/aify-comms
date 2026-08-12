@@ -20,6 +20,7 @@ def _iso(dt: datetime) -> str:
 
 
 from service.tests._base import FastApiTestCase
+from service.api_core.settings import _load_settings
 
 
 class LifecyclePhase7Tests(FastApiTestCase):
@@ -112,7 +113,7 @@ class LifecyclePhase7Tests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                settings = await api_v2._load_settings(db)
+                settings = await _load_settings(db)
                 result = await api_v2._coldstart_spawn_request_for_dispatch(
                     db, agent_id, runtime=runtime, settings=settings, requested_by=requested_by,
                 )

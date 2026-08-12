@@ -121,8 +121,8 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _reap_stale_orphan_bridges,
         stale_seconds_from_settings,
     )
+    from service.api_core.settings import _load_settings
     from service.control_plane import (
-        _load_settings,
         _refresh_expired_agent_live_states,
         _run_contract_reminders_once,
     )

@@ -18,6 +18,7 @@ from service.reconcilers import status_cache
 from service.api_core.liveness import _has_live_terminal_session
 from service.api_core.liveness import _has_live_channel_sidecar
 from service.api_core.turn_state import TURN_BUSY_STALE_SECONDS, _turn_busy_state
+from service.api_core.settings import DEFAULT_SETTINGS
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 # v0.5.2l: dispatch run serialization moved into the dispatch+messages package.
 from service.routers.dispatch_messages import dispatch as dispatch_router
@@ -29,6 +30,10 @@ from service.routers.agents import console as agents_console
 from service.routers.api_v2 import router
 
 from service.tests._base import FastApiTestCase, DummyWS, PRE_PLAN4_SETTINGS
+from service.api_core.events import _append_terminal_control
+from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.serialization import _iso_from_ms
+from service.api_core.settings import _load_settings
 
 
 # Back-compat alias: a few tests below reference _DummyWS directly.
@@ -542,11 +547,11 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(settings.json()["reply_reminder_repeat_minutes"], 10)
         self.assertEqual(settings.json()["reply_reminder_full_every"], 3)
         self.assertTrue(settings.json()["managed_terminal_backing_enabled"])
-        self.assertTrue(api_v2.DEFAULT_SETTINGS["managed_pty_eager_spawn"])
-        self.assertEqual(api_v2.DEFAULT_SETTINGS["managed_via_wrapper"], ["codex", "hermes"])
+        self.assertTrue(DEFAULT_SETTINGS["managed_pty_eager_spawn"])
+        self.assertEqual(DEFAULT_SETTINGS["managed_via_wrapper"], ["codex", "hermes"])
         self.assertFalse(settings.json()["managed_pty_eager_spawn"])
         self.assertFalse(settings.json()["managed_via_wrapper"])
-        self.assertFalse(api_v2.DEFAULT_SETTINGS["insert_messages_via_console"])
+        self.assertFalse(DEFAULT_SETTINGS["insert_messages_via_console"])
         self.assertTrue(settings.json()["insert_messages_via_console"])
         self.assertTrue(settings.json()["manual_session_mode"])
         self.assertEqual(settings.json()["environment_offline_seconds"], 90)
@@ -3003,7 +3008,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         # turn_busy set by a START event, aged PAST the old 120s window but well
         # WITHIN the long ceiling, with NO re-pulse.
-        aged = api_v2._iso_from_ms(int(
+        aged = _iso_from_ms(int(
             (datetime.now(timezone.utc).timestamp() - (TURN_BUSY_STALE_SECONDS + 90)) * 1000
         ))
         self._execute(
@@ -4331,7 +4336,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # guard was the Plan 2 off-state assertion; the post-Plan-4
         # default-flip is asserted in test_default_settings_plan4.py.
         # Kept here so the regression suite still pins the value.
-        from service.control_plane import DEFAULT_SETTINGS
+        from service.api_core.settings import DEFAULT_SETTINGS
         self.assertIn("managed_via_wrapper", DEFAULT_SETTINGS)
         val = DEFAULT_SETTINGS["managed_via_wrapper"]
         self.assertEqual(val, ["codex", "hermes"],
@@ -5047,7 +5052,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                 self.assertIsNotNone(contract)
                 self.assertEqual(contract["status"], "running")
                 self.assertEqual(contract["dispatch_mode"], "terminal")
-                self.assertEqual(api_v2._normalize_runtime(contract["runtime"]), runtime)
+                self.assertEqual(_normalize_runtime(contract["runtime"]), runtime)
                 terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
                 injected = self._fetchone(
                     "SELECT body FROM terminal_controls WHERE terminal_id = ? AND action = 'input'",
@@ -5643,8 +5648,8 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertEqual(output.status_code, 200, output.text)
         asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
-        stale_run_at = api_v2._iso_from_ms(int((time.time() - 120) * 1000))
-        quiet_terminal_at = api_v2._iso_from_ms(int((time.time() - 20) * 1000))
+        stale_run_at = _iso_from_ms(int((time.time() - 120) * 1000))
+        quiet_terminal_at = _iso_from_ms(int((time.time() - 20) * 1000))
         self._execute(
             "UPDATE dispatch_runs SET requested_at = ?, claimed_at = ?, started_at = ? WHERE id = ?",
             (stale_run_at, stale_run_at, stale_run_at, run_id),
@@ -5694,8 +5699,8 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertEqual(output.status_code, 200, output.text)
         asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
-        stale_run_at = api_v2._iso_from_ms(int((time.time() - 120) * 1000))
-        recent_terminal_at = api_v2._iso_from_ms(int((time.time() - 9) * 1000))
+        stale_run_at = _iso_from_ms(int((time.time() - 120) * 1000))
+        recent_terminal_at = _iso_from_ms(int((time.time() - 9) * 1000))
         self._execute(
             "UPDATE dispatch_runs SET requested_at = ?, claimed_at = ?, started_at = ? WHERE id = ?",
             (stale_run_at, stale_run_at, stale_run_at, run_id),
@@ -10762,12 +10767,12 @@ class ApiV2RegressionTests(FastApiTestCase):
             createMessage=True,
         )
         run_id = created["runs"][0]["runId"]
-        overdue_at = api_v2._iso_from_ms(int((time.time() - 120) * 1000))
+        overdue_at = _iso_from_ms(int((time.time() - 120) * 1000))
         self._execute("UPDATE dispatch_runs SET requested_at = ? WHERE id = ?", (overdue_at, run_id))
         for idx in range(3):
             self._execute(
                 "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
-                (run_id, "reply_reminder", f"old reminder {idx}", api_v2._iso_from_ms(int((time.time() - (90 - idx)) * 1000))),
+                (run_id, "reply_reminder", f"old reminder {idx}", _iso_from_ms(int((time.time() - (90 - idx)) * 1000))),
             )
 
         response = self.client.post(f"/api/v1/contracts/reminders/run?runId={run_id}")
@@ -10800,7 +10805,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             requireReply=False,
         )
         active_run_id = active_work["runs"][0]["runId"]
-        overdue_at = api_v2._iso_from_ms(int((time.time() - 120) * 1000))
+        overdue_at = _iso_from_ms(int((time.time() - 120) * 1000))
         self._execute("UPDATE dispatch_runs SET status = 'delivered', requested_at = ? WHERE id = ?", (overdue_at, contract_run_id))
         self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", (api_v2._now(), active_run_id))
 
@@ -10846,8 +10851,8 @@ class ApiV2RegressionTests(FastApiTestCase):
             requireReply=False,
         )
         active_run_id = active_work["runs"][0]["runId"]
-        overdue_at = api_v2._iso_from_ms(int((time.time() - 120) * 1000))
-        recent_reminder_at = api_v2._iso_from_ms(int((time.time() - 30) * 1000))
+        overdue_at = _iso_from_ms(int((time.time() - 120) * 1000))
+        recent_reminder_at = _iso_from_ms(int((time.time() - 30) * 1000))
         self._execute("UPDATE dispatch_runs SET status = 'delivered', requested_at = ? WHERE id = ?", (overdue_at, contract_run_id))
         self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", (api_v2._now(), active_run_id))
         self._execute(
@@ -10876,7 +10881,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def _seed_overdue_handoff(self, *, run_id, message_id, from_agent, target_agent, status="delivered"):
         """Seed an overdue, unanswered require_reply ("handoff") run + its message."""
-        overdue_at = api_v2._iso_from_ms(int((time.time() - 120) * 1000))
+        overdue_at = _iso_from_ms(int((time.time() - 120) * 1000))
         self._execute(
             """
             INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, timestamp)
@@ -10986,7 +10991,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         message_id = "msg-dashboard-contract"
         run_id = "run-dashboard-contract"
-        overdue_at = api_v2._iso_from_ms(int((time.time() - 120) * 1000))
+        overdue_at = _iso_from_ms(int((time.time() - 120) * 1000))
         self._execute(
             """
             INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, timestamp)
@@ -11131,7 +11136,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             createMessage=True,
         )
         run_id = created["runs"][0]["runId"]
-        overdue_at = api_v2._iso_from_ms(int((time.time() - 120) * 1000))
+        overdue_at = _iso_from_ms(int((time.time() - 120) * 1000))
         self._execute("UPDATE dispatch_runs SET requested_at = ? WHERE id = ?", (overdue_at, run_id))
 
         result = asyncio.run(service_main._run_dispatch_reconcile_once())
@@ -11191,7 +11196,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             },
         )
         asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
-        overdue_at = api_v2._iso_from_ms(int((time.time() - 120) * 1000))
+        overdue_at = _iso_from_ms(int((time.time() - 120) * 1000))
         self._execute("UPDATE dispatch_runs SET requested_at = ? WHERE id = ?", (overdue_at, run_id))
 
         result = asyncio.run(service_main._run_dispatch_reconcile_once())
@@ -11224,7 +11229,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             "UPDATE agent_sessions SET terminal_id = '', terminal_status = '' WHERE id = ?",
             (session_id,),
         )
-        overdue_at = api_v2._iso_from_ms(int((time.time() - 120) * 1000))
+        overdue_at = _iso_from_ms(int((time.time() - 120) * 1000))
         self._execute("UPDATE dispatch_runs SET requested_at = ? WHERE id = ?", (overdue_at, run_id))
         self._execute("DELETE FROM agent_live_state WHERE agent_id = ?", ("console-agent",))
 
@@ -14316,7 +14321,7 @@ class ApiV2RegressionTests(FastApiTestCase):
     async def _append_control(self, terminal_id: str, *, action: str) -> str:
         db = await get_db()
         try:
-            control_id = await api_v2._append_terminal_control(
+            control_id = await _append_terminal_control(
                 db,
                 terminal_id=terminal_id,
                 environment_id="linux:test-host:default",
@@ -14756,7 +14761,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                settings = await api_v2._load_settings(db)
+                settings = await _load_settings(db)
                 created = await api_v2._coldstart_spawn_request_for_dispatch(
                     db, agent_id, runtime="codex", settings=settings, requested_by="test",
                 )
@@ -14828,7 +14833,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         # Still managed — the rejected switch must not have changed the mode.
         agent = self._fetchone("SELECT session_mode FROM agents WHERE id = ?", ("g2-pi",))
-        self.assertEqual(api_v2._normalize_session_mode(agent["session_mode"] or ""), "managed")
+        self.assertEqual(_normalize_session_mode(agent["session_mode"] or ""), "managed")
 
     def test_switch_pi_managed_to_resident_with_force_warns_but_proceeds(self):
         # G2: force=true overrides the guard (operator metadata-only flip) but
@@ -15330,7 +15335,7 @@ class TerminalSessionMigrationTests(unittest.TestCase):
         async def _run():
             db = await get_db()
             try:
-                first = await api_v2._append_terminal_control(
+                first = await _append_terminal_control(
                     db,
                     terminal_id="term-1",
                     environment_id="env-1",
@@ -15339,7 +15344,7 @@ class TerminalSessionMigrationTests(unittest.TestCase):
                     cols=100,
                     rows=30,
                 )
-                second = await api_v2._append_terminal_control(
+                second = await _append_terminal_control(
                     db,
                     terminal_id="term-1",
                     environment_id="env-1",
@@ -15366,7 +15371,7 @@ class TerminalSessionMigrationTests(unittest.TestCase):
         async def _submit(cols):
             db = await get_db()
             try:
-                control_id = await api_v2._append_terminal_control(
+                control_id = await _append_terminal_control(
                     db,
                     terminal_id="term-1",
                     environment_id="env-1",

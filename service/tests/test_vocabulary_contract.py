@@ -106,7 +106,7 @@ class VocabularyContractTests(unittest.TestCase):
 
     def test_normalize_runtime_still_behaves_identically(self):
         """Structural change: the mapping moved, the answers must not."""
-        from service.control_plane import _normalize_runtime
+        from service.api_core.runtime import _normalize_runtime
 
         for raw, expected in [
             ("claude", "claude-code"), ("claude_code", "claude-code"), ("CLAUDE", "claude-code"),
