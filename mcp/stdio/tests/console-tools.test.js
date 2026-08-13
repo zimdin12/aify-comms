@@ -211,7 +211,10 @@ console.log("console-tools.test.js: all assertions passed");
 // registration liveness; during the 2026-08-10 outage all of them were true while a reply sat
 // undelivered, and a manager reported the lane dead three times on that evidence.
 {
-  const { formatOutboundActivity } = await import("../server.js");
+  // v0.5.4: moved to tool-response-format.mjs with the other pure response formatters. Importing
+  // from server.js used to be the ONLY way to reach it — server.js is the bin entry point, so this
+  // test paid the cost of importing the whole bridge to check one string.
+  const { formatOutboundActivity } = await import("../tool-response-format.mjs");
 
   assert.match(
     formatOutboundActivity({ outbound: { lastSentAt: "2026-08-10T16:02:58Z" } }),

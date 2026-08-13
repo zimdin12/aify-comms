@@ -148,7 +148,10 @@ test("server.js imports nothing from this module that it does not use", () => {
   // class rather than fixing the instance, which is this repo's rule for anything a process can
   // reproduce.
   const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  const block = src.match(/import \{[\s\S]*?\} from "\.\/aify-service-endpoint\.mjs";/);
+  // ANCHORED to the block's own opening line. A bare `import \{[\s\S]*?\}` starts at the FIRST
+  // import in the file and runs to the endpoint terminator, swallowing any block in between — which
+  // is exactly what happened when a second leaf import was added above this one.
+  const block = src.match(/^import \{[^}]*\} from "\.\/aify-service-endpoint\.mjs";$/m);
   assert.ok(block, "server.js must import from the endpoint leaf through the canonical specifier");
   const rest = src.replace(block[0], "");
   const imported = block[0]
