@@ -770,15 +770,16 @@ async def _environment_offline_cutoff(db: aiosqlite.Connection, now: str) -> str
 
 
 async def _reconcile_terminal_controls(db: aiosqlite.Connection):
-    # SAME format every other writer uses (api_v2._now()). isoformat() adds sub-second
+    # SAME format every other writer uses (`service.clock.now()`). isoformat() adds sub-second
     # precision, so `...:00.123456Z` sorts BEFORE `...:00Z` in any lexical comparison — and this
     # repo has already been bitten six times by exactly that (bughunt-round2-2026-07-03). Safe
     # today because the only comparison is datetime(handled_at), but one future `handled_at >= ?`
     # would be a silent bug. One shape, everywhere (C2).
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     # A queued `stop` is EXEMPT from the liveness sweep. This rule is implemented TWICE — here and
-    # in api_v2._reconcile_ended_terminal_controls — with the same predicate and the same error
-    # text, so BOTH must carry the exemption or neither does: an earlier fix landed in api_v2 only
+    # in `service/reconcilers/terminal_runs.py::_reconcile_ended_terminal_controls` — with the same
+    # predicate and the same error
+    # text, so BOTH must carry the exemption or neither does: an earlier fix landed in the reconciler
     # and changed nothing, because this copy still cancelled the stop.
     #
     # Why the exemption: stop_agent_worker marks the terminal 'stopping' (correct — the host has not

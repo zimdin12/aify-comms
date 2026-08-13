@@ -52,7 +52,6 @@ from service.api_core.status_inputs import (
 )
 from service.db import get_db
 from service.terminal_snapshot import render_live_screen as _render_live_terminal_screen
-from service.clock import now as _now
 # v0.5 slice 1a. The status cache and the bridge reconcilers now live in their own module.
 #
 # FUNCTIONS are imported by name — safe, because a function object is never rebound. The CACHE DICT
@@ -84,9 +83,6 @@ from service.reconcilers.dispatch_queue import (
     _replay_undelivered_channel_messages_on_env_recovery,
     _requeue_orphaned_claimed_runs,
     _reroute_orphaned_managed_channel_runs,
-)
-from service.reconcilers.terminal_runs import (
-    _reconcile_ended_terminal_controls,
 )
 from service.reconcilers.spawn_lifecycle import (
     _fail_running_spawns_superseded_by_current_session,
