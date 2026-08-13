@@ -77,10 +77,7 @@ from service.api_core.serialization import (  # v0.5.1c: single owner, no copy
     _row_require_reply,
 )
 from service.db import get_db
-from service.terminal_snapshot import (
-    render_snapshot as _render_terminal_snapshot,
-    render_live_screen as _render_live_terminal_screen,
-)
+from service.terminal_snapshot import render_live_screen as _render_live_terminal_screen
 from service.status_engine import derive, StatusInputs
 from service.clock import now as _now
 # v0.5 slice 1a. The status cache and the bridge reconcilers now live in their own module.
@@ -107,10 +104,9 @@ from service.api_core.channel_delivery import (  # v0.5.4: moved out; the contro
 from service.api_core.recovery_writes import (  # v0.5.4: moved out; the control plane is now a CALLER
     _requeue_instead_of_failing_undelivered_claim,
 )
-from service.api_core.terminal_text import (  # v0.5.4: moved out; the control plane is now a CALLER
-    _ANSI_RE,
-    _terminal_awaiting_input_hint,
-)
+# v0.5.4: the whole prompt-hint group moved to terminal_text.py, taking `_ANSI_RE` and
+# `_terminal_awaiting_input_hint` with it -- they had no other reader here.
+from service.api_core.terminal_text import _terminal_prompt_hint_from_raw
 from service.api_core.managed_env import (  # v0.5.4: moved out; the control plane is now a CALLER
     _managed_console_is_booting,
     _managed_owning_environment_row,
@@ -799,39 +795,6 @@ def _status_refresh_after(agent_last_seen: str, env_last_seen: str, *, liveness_
 # space-collapsed, because that is the form it is tested against (and because claude's TUI emits
 # no spaces anyway). Miss a family here and you silently reintroduce the invisible-blocked bug for
 # it: a "…I need a decision… Say the word" prompt has no menu cursor and no "Enter to confirm".
-_PROMPT_MARKER_RE = re.compile(
-    r"(\(y/n\)|\[y/n\]|\by/n\b|yes/no|areyousure|overwrite\?|password:|passphrase:"
-    r"|entertoconfirm|pressenter|pressanykey|usearrow"
-    r"|tellmewhich|needadecision|needdecision|whichoption|whichone|chooseone|chooseanoption|saytheword"
-    r"|❯|›|▶)",
-    re.I,
-)
-_PROMPT_HINT_TTL_SECONDS = 5.0
-_PROMPT_HINT_CACHE: dict[str, tuple[str, float, str]] = {}
-
-
-def _terminal_prompt_hint_from_raw(cache_key: str, raw: Any, cols: Any = 0) -> str:
-    """Awaiting-input hint derived from the reconstructed SCREEN of a raw PTY log."""
-    text = str(raw or "")
-    if not text:
-        return ""
-    # Cheap pre-gate: collapse whitespace the way the escape-painted screen already is, and
-    # look for ANY prompt marker. No marker anywhere -> the agent cannot be at a prompt -> skip
-    # the expensive reconstruction entirely.
-    if not _PROMPT_MARKER_RE.search(re.sub(r"\s+", "", _ANSI_RE.sub("", text))):
-        return ""
-    now = time.monotonic()
-    digest = str(len(text)) + ":" + str(hash(text[-8192:]))
-    cached = _PROMPT_HINT_CACHE.get(cache_key)
-    if cached and cached[0] == digest and cached[1] > now:
-        return cached[2]
-    try:
-        screen = _render_terminal_snapshot(text, int(cols or 0) or 100, 40)
-    except Exception:
-        screen = text  # pyte absent/failed: degrade to the old behaviour rather than lie
-    hint = _terminal_awaiting_input_hint(screen)
-    _PROMPT_HINT_CACHE[cache_key] = (digest, now + _PROMPT_HINT_TTL_SECONDS, hint)
-    return hint
 
 
 async def _agent_awaiting_input(db, agent_id: str) -> bool:

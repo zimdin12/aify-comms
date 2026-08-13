@@ -51,6 +51,13 @@ GLOBALS = {
     # Moved with the first route DOMAIN in v0.5.2b. Two copies would give two quota caches and
     # the only symptom would be usage readings that disagree depending which path served them.
     "_OPENAI_POOL_CACHE": "service/routers/usage.py",
+    # Moved in v0.5.4, and this entry IS the receipt the move was waiting for: an earlier slice pulled
+    # `_terminal_prompt_hint_from_raw` back out precisely because relocating the cache it reads is a
+    # process-identity change rather than a relocation. A second copy would not raise -- each importer
+    # would get its own dict, every lookup would miss, and the only symptom would be the expensive
+    # screen reconstruction running on every poll instead of once per 5s per agent. Slower, never
+    # wrong, and therefore invisible.
+    "_PROMPT_HINT_CACHE": "service/api_core/terminal_text.py",
 }
 
 # AST, NOT REGEX — and that distinction is the whole gate.

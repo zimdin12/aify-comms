@@ -13,16 +13,29 @@ carrier. NOTE `service/terminal_diagnostics.py` keeps its OWN `_ANSI_RE` with a 
 reviewer ruled that a separate module with its own contract, so unifying them would be a behaviour
 change rather than a move.
 
-`_terminal_prompt_hint_from_raw` was in this slice and was PULLED OUT. It calls
-`_terminal_awaiting_input_hint`, so the call graph made it look like a closed group — but it also
-reads `_PROMPT_HINT_CACHE`, a MUTABLE PROCESS GLOBAL. Moving that is a process-identity change, not a
-relocation, and it needs its own slice with the identity receipt. My first closure check only examined
-calls to carrier FUNCTIONS and missed it; the undefined-name sweep caught it.
+`_terminal_prompt_hint_from_raw` was PULLED OUT of that first slice and arrived in v0.5.4, which is
+the slice its deferral asked for. It calls `_terminal_awaiting_input_hint`, so the call graph made it
+look like a closed group — but it also reads `_PROMPT_HINT_CACHE`, a MUTABLE PROCESS GLOBAL, and
+moving one of those is a process-identity change rather than a relocation. My first closure check only
+examined calls to carrier FUNCTIONS and missed it; the undefined-name sweep caught it.
+
+The identity receipt it was waiting for: the cache moved WITH its only reader, no copy was left
+behind, and `service/tests/test_process_global_identity.py` now names this module as its owner — so a
+second module-level assignment anywhere fails the suite instead of quietly giving each importer its
+own dict.
+
+`_agent_awaiting_input`, the carrier's only caller, deliberately did NOT come with it. It runs a
+`terminal_sessions` query, and a module for terminal TEXT should not be the one that reaches for the
+database. Its own move is a subject question, not a closure question.
 """
 
 from __future__ import annotations
 
 import re
+import time
+from typing import Any
+
+from service.terminal_snapshot import render_snapshot as _render_terminal_snapshot
 
 
 _ANSI_RE = re.compile(
@@ -125,3 +138,41 @@ def _terminal_awaiting_input_hint(output: str) -> str:
     ):
         return "Awaiting console input."
     return ""
+
+# The prompt-hint group, moved here in v0.5.4 -- the slice this module's docstring said it needed.
+# `_PROMPT_HINT_CACHE` is a MUTABLE PROCESS GLOBAL, so it moves WITH its only reader and is listed
+# in `service/tests/test_process_global_identity.py`: a second copy would give each importer its own
+# dict and the only symptom would be a hint cache that never hits.
+_PROMPT_MARKER_RE = re.compile(
+    r"(\(y/n\)|\[y/n\]|\by/n\b|yes/no|areyousure|overwrite\?|password:|passphrase:"
+    r"|entertoconfirm|pressenter|pressanykey|usearrow"
+    r"|tellmewhich|needadecision|needdecision|whichoption|whichone|chooseone|chooseanoption|saytheword"
+    r"|❯|›|▶)",
+    re.I,
+)
+_PROMPT_HINT_TTL_SECONDS = 5.0
+_PROMPT_HINT_CACHE: dict[str, tuple[str, float, str]] = {}
+
+
+def _terminal_prompt_hint_from_raw(cache_key: str, raw: Any, cols: Any = 0) -> str:
+    """Awaiting-input hint derived from the reconstructed SCREEN of a raw PTY log."""
+    text = str(raw or "")
+    if not text:
+        return ""
+    # Cheap pre-gate: collapse whitespace the way the escape-painted screen already is, and
+    # look for ANY prompt marker. No marker anywhere -> the agent cannot be at a prompt -> skip
+    # the expensive reconstruction entirely.
+    if not _PROMPT_MARKER_RE.search(re.sub(r"\s+", "", _ANSI_RE.sub("", text))):
+        return ""
+    now = time.monotonic()
+    digest = str(len(text)) + ":" + str(hash(text[-8192:]))
+    cached = _PROMPT_HINT_CACHE.get(cache_key)
+    if cached and cached[0] == digest and cached[1] > now:
+        return cached[2]
+    try:
+        screen = _render_terminal_snapshot(text, int(cols or 0) or 100, 40)
+    except Exception:
+        screen = text  # pyte absent/failed: degrade to the old behaviour rather than lie
+    hint = _terminal_awaiting_input_hint(screen)
+    _PROMPT_HINT_CACHE[cache_key] = (digest, now + _PROMPT_HINT_TTL_SECONDS, hint)
+    return hint
