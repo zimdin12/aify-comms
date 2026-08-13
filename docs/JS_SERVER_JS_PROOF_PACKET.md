@@ -289,3 +289,31 @@ captured across a long-running function, not a relocatable helper.
 **The lesson, stated because it is the second time in this series:** a closure measured before the
 prerequisite lands is a prediction, not a measurement. Layer 0's own definition changed once the move was
 attempted, and layer 1's changed once layer 0 existed. Re-measure at the boundary, every time.
+
+### 3. Layer 2 re-measured in the final pre-slice tree — and it is CLEAN
+
+Required by the reviewer: *"Re-measure the 33-tool closure after `58aee3df`/`4052254a`; do not reuse
+packet predictions. Prove negative closure against `runDispatchLoop` in the final pre-slice tree."*
+
+Measured at `3f1e043b`, with `comms_register` excluded as ruled:
+
+| | |
+|---|---|
+| 33-tool region | 1,745 lines |
+| its helper closure | **23 functions / 407 lines** |
+| state-free (direct) | **23 / 407** |
+| state-bound (direct) | **0** |
+
+**Negative closure re-proven:** `runDispatchLoop` is NOT in the 33-tool closure. Neither are
+`cleanupOnExit`, `shutdownWithStatus`, nor `runManagedTeardownForBridge`.
+
+**This reconciles the earlier 70 / 1,880 figure**, which correction 2 above reported as the post-layer-0
+closure. That number INCLUDED `comms_register`, whose own closure reaches the dispatch loop, the teardown
+machinery and 25 mutable names. Excluding the one tool the packet had already set aside collapses the
+closure to 23 clean functions. Both numbers are correct; they answer different questions, and the earlier
+one was labelled as if it answered this one.
+
+**So layer 2 is viable and much smaller than feared.** The prerequisite is 407 lines of state-free
+helpers, not 992, and nothing in it touches the loop. What remains before extracting is subject grouping —
+1,745 lines of tool handlers is not one module, and the reviewer's standing condition forbids a barrel
+that exports half the bridge.
