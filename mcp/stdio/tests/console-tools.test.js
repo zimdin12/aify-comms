@@ -8,12 +8,15 @@ import assert from "node:assert/strict";
 process.env.AIFY_SERVER_URL = process.env.AIFY_SERVER_URL || "http://127.0.0.1:8800";
 process.env.AIFY_AGENT_ID = "manager-bot";
 
+// The console surface moved to `console-tools.mjs` in v0.5.4; these three follow their owner.
+// `COMMS_SEND_TOOL_DESCRIPTION` stays in server.js — comms_send has not been extracted, and its
+// description is asserted here because this file is where the console-vs-message distinction is tested.
 const {
   commsConsoleTailHandler,
   commsConsoleInputHandler,
   CONSOLE_INPUT_TOOL_DESCRIPTION,
-  COMMS_SEND_TOOL_DESCRIPTION,
-} = await import("../server.js");
+} = await import("../console-tools.mjs");
+const { COMMS_SEND_TOOL_DESCRIPTION } = await import("../server.js");
 
 // `comms_interrupt` moved to the dispatch group in v0.5.4. It is exercised here rather than in
 // `dispatch-tools.test.js` because what it asserts is console behaviour — the Ctrl+C byte and the
@@ -199,10 +202,14 @@ const HERMES_FATAL_LINE =
 
 // --- the tool description must point agents at it for diagnosis ---
 {
-  const fs = await import("node:fs");
-  const source = fs.readFileSync(new URL("../server.js", import.meta.url), "utf8");
+  // Found by WHICH MODULE REGISTERS IT, not by a fixed path. This read `../server.js` until v0.5.4 moved
+  // the console tools to their own module — the eighth assertion in that decomposition to pin a location
+  // rather than a property. `tests/bridge-sources.mjs` exists so it can be the last.
+  const { toolSources } = await import("./bridge-sources.mjs");
+  const owning = toolSources().filter(([, src]) => src.includes('"comms_console_tail"'));
+  assert.equal(owning.length, 1, `comms_console_tail must be registered exactly once, found ${owning.length}`);
+  const [, source] = owning[0];
   const idx = source.indexOf('"comms_console_tail"');
-  assert.ok(idx > 0, "comms_console_tail registration must exist");
   const registration = source.slice(idx, idx + 900);
   assert.match(registration, /DEAD worker/,
     "an agent will not reach for this on a dead worker unless the description says it works");
