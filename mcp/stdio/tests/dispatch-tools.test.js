@@ -6,10 +6,11 @@
 // and a regex cannot fail on wrong logic. This file registers the real tools on a fake MCP server and
 // calls the real handlers.
 //
-// `comms_contracts` has its own file (`comms-contracts-defaults.test.js`) for its two defaults, and
-// `comms_interrupt`'s console behaviour is asserted in `console-tools.test.js` where the rest of the
-// console surface lives. What is here is the group: what it registers, what it refuses, and the two
-// helpers' output.
+// Three files cover this group, split by subject rather than by file of origin:
+//   * here — what the wrapper registers, what it refuses, and its export surface;
+//   * `comms-contracts-defaults.test.js` — the contracts defaults AND the private `summarizeContract`
+//     rendering, both driven through the real handler against a loopback server;
+//   * `console-tools.test.js` — `comms_interrupt`'s console behaviour, beside the rest of that surface.
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -23,8 +24,10 @@ const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 process.env.AIFY_SERVER_URL = "";
 process.env.CLAUDE_MCP_SERVER_URL = "";
 
-const { commsInterruptHandler, registerDispatchTools, summarizeContract } =
-  await import("../dispatch-tools.mjs");
+// Two exports, and the module has exactly two by design. `summarizeContract` is group-private and is
+// proven through `comms_contracts` in `comms-contracts-defaults.test.js` — a test is not a consumer
+// that justifies widening a module's API.
+const { commsInterruptHandler, registerDispatchTools } = await import("../dispatch-tools.mjs");
 const { z } = await import("zod");
 
 function register() {
@@ -89,35 +92,16 @@ test("commsInterruptHandler refuses in local mode without calling anything", asy
   assert.equal(called, false, "it must not reach the service before checking the mode");
 });
 
-test("summarizeContract renders state, route, age and subject", () => {
-  const line = summarizeContract({
-    from: "agent-a", targetAgentId: "agent-b", state: "missing_reply",
-    subject: "deploy the thing", ageMinutes: 42,
-  });
-  assert.match(line, /MISSING REPLY/, "the underscore state must read as words, upper-cased");
-  assert.match(line, /agent-a -> agent-b/);
-  assert.match(line, /42m/, "an age under an hour is shown in minutes");
-  assert.match(line, /deploy the thing/);
-});
-
-test("summarizeContract switches to hours past 60 minutes, and never prints a placeholder", () => {
-  assert.match(summarizeContract({ ageMinutes: 90 }), /1\.5h/);
-  assert.match(summarizeContract({ ageMinutes: 60 }), /1h/, "exactly 60 minutes is already hours");
-  assert.match(summarizeContract({ ageMinutes: 59 }), /59m/, "the minute below the boundary stays minutes");
-  // Degenerate inputs. An operator reading "undefined -> NaN" learns nothing about their fleet, and
-  // this is a function whose entire output is read by a human.
-  for (const contract of [{}, { ageMinutes: "" }, { ageMinutes: null }, { ageMinutes: "abc" }, { ageMinutes: -5 }]) {
-    const line = summarizeContract(contract);
-    assert.ok(!/undefined|NaN|\[object Object\]/.test(line), `leaked a placeholder: ${line}`);
-  }
-  assert.match(summarizeContract({}), /\(no subject\)/, "a contract with no subject says so");
-  assert.match(summarizeContract({}), /SENT/, "state falls back to sent");
-});
-
-test("summarizeContract truncates a long answer preview rather than dumping it", () => {
-  const line = summarizeContract({ resultPreview: "x".repeat(500) });
-  assert.match(line, /answer: x+/);
-  assert.ok(line.length < 300, `an unbounded preview would flood the caller: ${line.length} chars`);
+test("the module exports its owner surface and nothing it merely happens to contain", async () => {
+  // The reviewer's rule for group leaves: export `registerDispatchTools`, plus only helpers with a real
+  // consumer outside the group. `commsInterruptHandler` qualifies — `console-tools.test.js` asserts its
+  // console behaviour, and it was already exported before the move. `summarizeContract` does not, and
+  // briefly was exported here anyway; that is the drift this asserts against.
+  const mod = await import("../dispatch-tools.mjs");
+  assert.deepEqual(
+    Object.keys(mod).sort(), ["commsInterruptHandler", "registerDispatchTools"],
+    "a group leaf's API should not grow just because a test found something convenient to import",
+  );
 });
 
 test("neither comms_register nor runDispatchLoop came along", () => {

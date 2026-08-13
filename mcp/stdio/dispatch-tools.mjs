@@ -31,10 +31,14 @@ import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
 import { AIFY_AGENT_ID } from "./launch-identity.mjs";
 import { formatQueuedRun, replyExpectationSummary } from "./tool-response-format.mjs";
 
-// `export` is the one token added to this declaration; the body is the original bytes. It was
-// unexported in server.js because nothing there could import it — which is also why the wording it
-// produces has never been asserted anywhere.
-export function summarizeContract(contract = {}) {
+// PRIVATE, and byte-identical to the server.js original including its lack of an export.
+//
+// It briefly carried an `export` here, on the standard that an extracted module should export what it
+// extracts. The reviewer overruled that for group-private helpers: the module exports its OWNER SURFACE
+// — `registerDispatchTools` — and a helper with no consumer outside the group stays inside it. A test
+// is not a consumer that justifies widening a module's API; the wording this produces is asserted
+// through `comms_contracts`, which is the only thing that calls it.
+function summarizeContract(contract = {}) {
   const route = `${contract.from || "?"} -> ${contract.targetAgentId || "?"}`;
   const state = String(contract.state || "sent").replace(/_/g, " ");
   const subject = contract.subject || contract.id || "(no subject)";
