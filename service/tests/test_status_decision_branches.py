@@ -303,5 +303,89 @@ class PrecedenceInvariants(unittest.TestCase):
         self.assertFalse(awaiting)
 
 
+class TheHotPathQueryBoundary(unittest.TestCase):
+    """`_managed_console_is_booting` is the decision's ONLY database call. Where it runs is a contract.
+
+    The reviewer asked for this explicitly, and it is the reason the decision was left async rather than
+    made pure: hoisting that call to compute a fact up front would add a query to EVERY status
+    computation, on a path the dashboard polls. Today it runs only on the last branch, and only when a
+    managed agent's channel sidecar is missing.
+
+    These cases assert the BOUNDARY, not just the branch: every earlier outcome must reach its answer
+    with ZERO database calls. A reshape that made the decision pure by pre-computing this fact would
+    keep every other test in this file green while quietly adding a query per poll.
+    """
+
+    def _counting_probe(self, **over):
+        """Run the decision with the booting query counted rather than merely stubbed."""
+        calls = []
+        booting = over.pop("_booting", False)
+
+        async def _counted(db, agent_id):
+            calls.append(agent_id)
+            return booting
+
+        with mock.patch.object(status_decision, "_managed_console_is_booting", new=_counted):
+            result = _call(**over)
+        return result, calls
+
+    def test_the_booting_query_runs_ONLY_for_a_managed_agent_missing_its_sidecar(self):
+        (status, reason, _), calls = self._counting_probe(
+            effective_status="available", channel_managed_no_sidecar=True, _booting=True)
+        self.assertEqual(["agent-1"], calls, "the query must run exactly once on this branch")
+        self.assertEqual("online", status)
+
+    def test_no_database_call_on_the_offline_branches(self):
+        for label, over in (
+            ("env bridge offline", dict(managed_env_bridge_offline=True, environment_id="e")),
+            ("unreachable env", dict(environment_id="e", env_status="dead")),
+            ("stale resident", dict(agent_session_mode="resident", resident_bridge_stale=True)),
+        ):
+            (status, _, _), calls = self._counting_probe(**over)
+            self.assertEqual("offline", status, label)
+            self.assertEqual([], calls, f"{label}: reached its answer with a database query")
+
+    def test_no_database_call_on_the_blocked_branches(self):
+        for label, over in (
+            ("terminal missing", dict(active_run_terminal_missing=True, active_run=_row())),
+            ("run with hint", dict(active_run=_row(), terminal_input_hint="Approve?")),
+            ("managed awaiting input", dict(agent_session_mode="managed", has_live_worker=True,
+                                            terminal_input_hint="Approve?", terminal_status="active")),
+        ):
+            (status, _, _), calls = self._counting_probe(**over)
+            self.assertEqual("blocked", status, label)
+            self.assertEqual([], calls, f"{label}: reached its answer with a database query")
+
+    def test_no_database_call_on_the_working_branches(self):
+        for label, over in (
+            ("active run", dict(active_run=_row())),
+            ("turn busy", dict(turn_busy=True)),
+            ("transitioning", dict(session_status="restarting")),
+        ):
+            (status, _, _), calls = self._counting_probe(**over)
+            self.assertEqual("working", status, label)
+            self.assertEqual([], calls, f"{label}: reached its answer with a database query")
+
+    def test_no_database_call_on_the_awaiting_reply_branch(self):
+        (status, _, awaiting), calls = self._counting_probe(
+            channel_pending_reply_run=_row(subject="q"), has_live_worker=True)
+        self.assertEqual("online", status)
+        self.assertTrue(awaiting)
+        self.assertEqual([], calls)
+
+    def test_no_database_call_when_the_tail_has_nothing_to_annotate(self):
+        """The neutral pass-through must not query either — this is the commonest case of all."""
+        (status, _, _), calls = self._counting_probe(effective_status="available")
+        self.assertEqual("available", status)
+        self.assertEqual([], calls)
+
+    def test_no_database_call_for_the_no_console_annotation(self):
+        (status, reason, _), calls = self._counting_probe(
+            effective_status="available", channel_managed_no_console=True)
+        self.assertEqual("available", status)
+        self.assertIn("no visible console", reason)
+        self.assertEqual([], calls, "the no-console annotation must not trigger the booting query")
+
+
 if __name__ == "__main__":
     unittest.main()
