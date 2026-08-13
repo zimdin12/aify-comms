@@ -41,7 +41,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
 
-from service.db import _is_lock_error
+from service.db_errors import _is_lock_error
 from service.api_core.dispatch_run_state import _append_dispatch_control
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.spawn_request_state import _has_claimable_spawn_request

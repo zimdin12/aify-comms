@@ -2,11 +2,29 @@
 
 **Status:** submitted for an OPERATOR SCOPE decision. Measured at `3bc1c8a5`. **No extraction performed.**
 
+**CORRECTION (`8b525c63`), because the first version of this packet mis-stated the thing the decision turns
+on.** §6 and §8 said the goal was "met for 11 of 12 files" if this component were left alone. That is
+WRONG. It counted only the Python routers. The real standing is **7 of 12 cleared**, and `control_plane.py`
+is one of FIVE files still over the threshold:
+
+| file | lines | status |
+|---|---|---|
+| `server.js` | 6,330 | packet accepted as measurement; awaiting operator scope |
+| `app.js` | 5,010 | reviewer-ruled relocation ceiling — needs factory conversion |
+| `control_plane.py` | 3,298 | THIS packet |
+| `hermes-managed-host.js` | 1,845 | reviewer-ruled relocation ceiling |
+| `pi-session.js` | 1,299 | relocation provably cannot clear it (moving all 19 free functions leaves 1,030) |
+
+The correction matters to the decision rather than to the bookkeeping: "leave one file and the goal is
+essentially done" is a very different trade from "leave one file among five that all need a change category
+this series excludes". The second is the true one.
+
 The reviewer's ruling that produced this: *"Getting `control_plane.py` under 1000 requires a separate
 decision packet for the parked `_compute_live_status_cache`/status-cache component and its closure. Do not
 start that component as an ordinary slice."* The contents below are the list they specified.
 
-**The one-line finding:** this component is 634 lines of the carrier's 3,580, so moving it does NOT clear
+**The one-line finding:** this component is 634 lines of the carrier's 3,298 (the carrier has shrunk further
+since this packet was first written; the component has not), so moving it does NOT clear
 `control_plane.py` either. Clearing the file needs this component AND most of what remains. That reframes
 the decision from "may I move the status cache" to "is clearing this file worth the only kind of change
 that can do it" — and the second question is the operator's, not mine.
@@ -94,7 +112,7 @@ scope.
 Not a proposal to execute — a description so the cost is legible.
 
 - **Move the closure whole** to `service/status_derivation.py`. Mechanical, byte-identical, provable by the
-  existing AST+byte standard. Carrier 3,580 → ~2,950. **Does not clear the file**, and produces a new
+  existing AST+byte standard. Carrier 3,298 → ~2,670. **Does not clear the file**, and produces a new
   551-line function in a new home: one oversized file traded for a smaller oversized file.
 - **Split the 551-line derivation by branch** — managed / resident / terminal-backed / offline — into a
   module per mode behind one dispatcher. This is the only shape that gets any file under 400. It is an
@@ -102,7 +120,7 @@ Not a proposal to execute — a description so the cost is legible.
   used five times this release. It is also the largest single behaviour-risk in the series, because the
   branches share locals computed at the top of the function; the gate's live-out check would refuse most
   naive cuts, which is protective but means many cuts will simply be refused.
-- **Do nothing.** `control_plane.py` stays ~3,580 and the goal is met for 11 of 12 files.
+- **Do nothing.** `control_plane.py` stays where it is and remains one of FIVE files over the threshold.
 
 ---
 
@@ -127,7 +145,8 @@ proof cannot see.
    series?
 2. Or is the whole-move (option 1) worth doing on its own merits — the carrier drops ~630 lines and the
    status derivation gets a named home — while accepting that no file involved goes under 1000?
-3. Or does the series stop with 11 of 12 files cleared and `control_plane.py` documented as the exception?
+3. Or does the series stop with **7 of 12** files cleared and `control_plane.py` documented as one of five
+   exceptions?
 
 My recommendation is **option 3 for v0.5.x, then option 2 as its own tagged piece of work** with the
 characterization plan first. The reason is not caution about the code: it is that this component is reached

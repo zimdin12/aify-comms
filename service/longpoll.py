@@ -33,7 +33,7 @@ and the hard single-uvicorn-worker constraint (see CLAUDE.md / DECISIONS.md).
 
 from __future__ import annotations
 
-from service.db import _is_lock_error
+from service.db_errors import _is_lock_error
 import asyncio
 import time
 from collections import defaultdict

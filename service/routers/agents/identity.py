@@ -46,7 +46,7 @@ from service.api_core.registration_gates import (
 from service.api_core.resume_command import _resume_command_for
 from service.api_core.dispatch_run_state import _append_dispatch_control
 from service.api_core.message_store import _get_unread_count_map
-from service.db import _is_lock_error
+from service.db_errors import _is_lock_error
 from service.routers.agents.shared import (
     DEFAULT_SETTINGS,
     LIVE_SESSION_STATUSES,
