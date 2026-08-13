@@ -209,3 +209,18 @@ export function activeServerUrl() {
 export { API_KEY, IS_REMOTE, SERVER_URL, SERVER_URLS, coerceLoopbackToIPv4, uniqueServerUrls, httpCall,
          isRetriableRequest, isTransientHttpError, HTTP_TIMEOUT_MS, HTTP_RETRY_ATTEMPTS,
          HTTP_RETRY_BASE_MS, RETRIABLE_POST_PATHS };
+
+// How a failed call to the service is REPORTED, which is a property of the endpoint rather than of whoever
+// made the call. A transient failure — the service restarting, a connection reset — is expected operation
+// and says which URL it was talking to and that it will retry; anything else is a real error and is logged
+// as one. It joins this module because all three things it consults (`isTransientHttpError`,
+// `activeServerUrl`, `SERVER_URL`) are defined here, and because a caller that logged a transient failure as
+// an error would make an ordinary restart look like a fault.
+export function logTransientOrError(prefix, error) {
+  if (isTransientHttpError(error)) {
+    const target = error?.serverUrl || activeServerUrl() || SERVER_URL;
+    console.error(`${prefix}: transient HTTP error against ${target}: ${error?.message || String(error)}; retrying`);
+    return;
+  }
+  console.error(`${prefix}:`, error);
+}

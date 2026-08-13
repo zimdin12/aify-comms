@@ -28,9 +28,21 @@ for (const source of [endpoint, channel]) {
 
 // These stay in server.js: they are claim/spawn bookkeeping that READS the latch through the
 // `activeServerUrl()` accessor rather than owning it.
-assert.match(server, /logTransientOrError/);
 assert.match(server, /noteControlClaimFailure/);
 assert.match(server, /noteControlClaimSuccess/);
+
+// `logTransientOrError` WAS in that list and has moved to `aify-service-endpoint.mjs` — flagged rather than
+// done quietly, because this comment recorded it as staying put. It is not claim bookkeeping: it is how a
+// failed call to the service is REPORTED, and all three things it consults — `isTransientHttpError`,
+// `activeServerUrl`, `SERVER_URL` — are defined in that module, so in `server.js` it was a logger whose
+// entire content was imported back from the endpoint owner.
+//
+// The invariant this section actually protects is unchanged and is now asserted directly: the latch has ONE
+// owner and everyone else reaches it through the accessor. Two external witnesses remain above.
+assert.match(endpoint, /^export function logTransientOrError/m, "the endpoint module owns it now");
+assert.doesNotMatch(server, /^(export )?function logTransientOrError/m,
+  "it must not be redeclared in server.js");
+assert.match(endpoint, /activeServerUrl\(\)/, "…and it still reads the latch through the accessor");
 assert.doesNotMatch(server, /will retry on next poll/);
 assert.match(installer, /AIFY_DEFAULT_SERVER_URL:-http:\/\/127\.0\.0\.1:8800/);
 

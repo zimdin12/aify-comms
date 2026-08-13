@@ -60,3 +60,15 @@ export async function reportTurnBusy(agentId, state = {}, { busy, runId = "", ru
     }),
   );
 }
+
+// Posting a beat for an agent's CURRENT TURN. It joins this module because every part of it already lives
+// here: the payload comes from `currentTurnHeartbeatFields` above, and the transport is the same `httpCall`
+// the turn-busy reporter uses. Left in `server.js` it was a four-line wrapper whose entire content was
+// imported back from here.
+export async function reportAgentHeartbeat(agentId, state = {}, activeRun = null) {
+  return httpCall(
+    "POST",
+    `/agents/${encodeURIComponent(agentId)}/heartbeat`,
+    currentTurnHeartbeatFields(state, activeRun),
+  );
+}

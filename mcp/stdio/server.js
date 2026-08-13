@@ -18,7 +18,7 @@ import {
   SERVER_URLS,
   activeServerUrl,
   httpCall,
-  isTransientHttpError,
+  logTransientOrError,
 } from "./aify-service-endpoint.mjs";
 import { registerArtifactTools } from "./artifact-tools.mjs";
 import { makeAutoRegister } from "./auto-registration.mjs";
@@ -58,7 +58,7 @@ import { __markControllerStart, anyControllerActive } from "./controller-activit
 import { parseJson } from "./parse-json.mjs";
 import { DEFAULT_CWD } from "./registration-inputs.mjs";
 import { AIFY_HERMES_GATEWAY_URL } from "./hermes-gateway-config.mjs";
-import { currentTurnHeartbeatFields, reportTurnBusy } from "./agent-heartbeat.mjs";
+import { reportAgentHeartbeat, reportTurnBusy } from "./agent-heartbeat.mjs";
 import { BRIDGE_INSTANCE_ID, BRIDGE_STARTED_AT } from "./bridge-instance.mjs";
 import { reconcileLocalActiveRun } from "./local-active-run.mjs";
 import { armClaudeTurnEndDetector, stopClaudeTurnEndDetector } from "./claude-turn-detector-state.mjs";
@@ -900,14 +900,6 @@ const CLAIM_OPTS = CLAIM_WAIT_MS > 0 ? { timeoutMs: CLAIM_HTTP_TIMEOUT_MS } : {}
 // This list is intentionally narrow. If you add a new POST endpoint that can
 // be retried without creating duplicate side effects, add it here explicitly.
 
-function logTransientOrError(prefix, error) {
-  if (isTransientHttpError(error)) {
-    const target = error?.serverUrl || activeServerUrl() || SERVER_URL;
-    console.error(`${prefix}: transient HTTP error against ${target}: ${error?.message || String(error)}; retrying`);
-    return;
-  }
-  console.error(`${prefix}:`, error);
-}
 
 const CONTROL_CLAIM_FAILURES = new Map();
 
@@ -1555,13 +1547,6 @@ async function readReplyCaptureFallback() {
   }
 }
 
-async function reportAgentHeartbeat(agentId, state = {}, activeRun = null) {
-  return httpCall(
-    "POST",
-    `/agents/${encodeURIComponent(agentId)}/heartbeat`,
-    currentTurnHeartbeatFields(state, activeRun),
-  );
-}
 
 
 

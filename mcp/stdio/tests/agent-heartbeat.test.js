@@ -189,3 +189,60 @@ test("the owner holds no state and reaches only owned leaves", () => {
     "./turn-busy.js",
   ]);
 });
+
+// Same child-hosted, 127.0.0.2-bound fixture as `beatVia`, for the three-argument current-turn reporter.
+function beatVia2(argsJs) {
+  const script = `
+    import http from "node:http";
+    const received = [];
+    const srv = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => { body += c; });
+      req.on("end", () => {
+        received.push({ method: req.method, url: req.url, body: body ? JSON.parse(body) : null });
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end("{}");
+      });
+    });
+    await new Promise((r) => srv.listen(0, "127.0.0.2", r));
+    process.env.AIFY_SERVER_URL = "http://127.0.0.2:" + srv.address().port;
+    process.env.CLAUDE_MCP_SERVER_URL = "";
+    const m = await import(${JSON.stringify(LEAF)});
+    await m.reportAgentHeartbeat(${argsJs});
+    srv.close();
+    process.stdout.write(JSON.stringify(received));
+  `;
+  return JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script],
+    { env: { ...process.env, AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "" },
+      encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }));
+}
+
+test("reportAgentHeartbeat posts the CURRENT-TURN payload for the named agent", () => {
+  // The other beat on this module: `reportTurnBusy` announces a turn starting or ending, this one is the
+  // periodic "still here, and here is what I am doing" that carries `currentTurnHeartbeatFields`. It joined
+  // this module in v0.5.4 because both halves of it already lived here — the payload above and the same
+  // `httpCall` transport — so in `server.js` it was a four-line wrapper importing its own content back.
+  const got = beatVia2("'agent-b', { info: { machineId: 'box-2' } }, { id: 'run-9', subject: 's' }");
+  assert.equal(got.length, 1, "exactly one beat");
+  const [beat] = got;
+  assert.equal(beat.method, "POST");
+  assert.match(beat.url, /\/agents\/agent-b\/heartbeat$/, "…for the agent it was called with");
+  assert.equal(beat.body.machineId, "box-2", "the base fields are merged in");
+  assert.ok(beat.body.bridgeId, "…including the attribution every beat carries");
+});
+
+test("an idle beat and a mid-turn beat are different payloads on the wire", () => {
+  // The distinction the service reads as "this agent is mid-turn". Asserted through the real POST rather
+  // than by comparing the field builders, because the wire is what the service actually sees.
+  const idle = beatVia2("'agent-b', {}, null")[0];
+  const busy = beatVia2("'agent-b', {}, { id: 'run-9' }")[0];
+  assert.notDeepEqual(idle.body, busy.body, "an idle beat must not look like a mid-turn one");
+});
+
+test("exactly one module declares reportAgentHeartbeat, and the bridge still beats", () => {
+  assert.deepEqual(declaringModules("reportAgentHeartbeat"),
+    [{ file: "agent-heartbeat.mjs", kind: "function" }]);
+  const server = readFileSync(path.join(STDIO, "server.js"), "utf-8");
+  assert.match(server, /(?<![\w.])reportAgentHeartbeat\(/, "the poll loop still beats");
+  assert.doesNotMatch(server, /^async function reportAgentHeartbeat/m, "…and must not re-declare it");
+});
