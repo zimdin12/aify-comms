@@ -14,7 +14,6 @@ import {
   SERVER_URL,
   SERVER_URLS,
   activeServerUrl,
-  coerceLoopbackToIPv4,
   httpCall,
   isTransientHttpError,
 } from "./aify-service-endpoint.mjs";

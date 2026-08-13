@@ -138,3 +138,25 @@ test("no API key VALUE is embedded in the module", () => {
   assert.match(src, /API_KEY = process\.env\./, "the key must come from the environment");
   assert.ok(!/API_KEY\s*=\s*["'][^"']+["']/.test(src), "no literal key value may be assigned");
 });
+
+test("server.js imports nothing from this module that it does not use", () => {
+  // The reviewer caught a dead `coerceLoopbackToIPv4` import in the layer-0 slice. My own dead-import
+  // scan had run BEFORE the last function moved, so it was accurate when executed and stale by the time
+  // I committed — the check passed, then the tree changed underneath it.
+  //
+  // A one-off scan cannot protect against that; a test re-runs on the final tree every time. Gating the
+  // class rather than fixing the instance, which is this repo's rule for anything a process can
+  // reproduce.
+  const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
+  const block = src.match(/import \{[\s\S]*?\} from "\.\/aify-service-endpoint\.mjs";/);
+  assert.ok(block, "server.js must import from the endpoint leaf through the canonical specifier");
+  const rest = src.replace(block[0], "");
+  const imported = block[0]
+    .split("\n")
+    .slice(1, -1)
+    .map((line) => line.trim().replace(/,$/, ""))
+    .filter(Boolean);
+  assert.ok(imported.length > 0, "the import block must not be empty");
+  const dead = imported.filter((name) => !new RegExp(`(?<![\\w.])${name}(?![\\w])`).test(rest));
+  assert.deepEqual(dead, [], "server.js imports these but never uses them");
+});
