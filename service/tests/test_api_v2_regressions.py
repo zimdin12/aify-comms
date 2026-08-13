@@ -21,6 +21,13 @@ from service.api_core.turn_state import TURN_BUSY_STALE_SECONDS, _turn_busy_stat
 from service.api_core.settings import DEFAULT_SETTINGS
 from service.api_core.virtual_rpc import VIRTUAL_PI_RPC_COMMAND
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
+# PATCH WHAT THE PATH ACTUALLY CALLS. `patch.object` rebinds a name in ONE module's namespace, and a
+# caller that resolved its own binding at import time never sees it — so a patch aimed at a module
+# that merely RE-EXPORTS the name is inert. `test_agents_list_uses_cached_live_status_...` below was
+# aimed that way and failed twice over: the list handler does not call `_compute_agent_status` at
+# ALL, so no target for that name could ever have fired. Retargeting it at the owner was not enough
+# either — that was measured, not assumed, by patching both and observing neither raise.
+from service.api_core import status_refresh
 from service import terminal_write_queue
 # v0.5.2l: dispatch run serialization moved into the dispatch+messages package.
 from service.routers.dispatch_messages import dispatch as dispatch_router
@@ -1933,8 +1940,22 @@ class ApiV2RegressionTests(FastApiTestCase):
             "updated_at": "2026-01-01T00:00:00Z",
         }
 
-        with patch.object(api_v2, "_compute_agent_status", side_effect=AssertionError("read path should use cached live status")):
+        # THE GUARD PATCHES WHAT RECOMPUTATION ACTUALLY CALLS. It used to patch
+        # `api_v2._compute_agent_status`, and that was inert on two counts: `patch.object` rebinds a
+        # name in ONE module's namespace and every caller had resolved its own binding at import
+        # time, AND the list handler stopped calling that function at all — so the guard could not
+        # fire whatever it was aimed at, and the test asserted only the cached value.
+        # `list_agents` calls `_refresh_expired_agent_live_states`, which recomputes through
+        # `_compute_live_status_cache` ONLY for entries past their refresh_after. Patching that is
+        # live: verified by flipping the seeded entry to an expired refresh_after, which turns the
+        # 200 below into a 500 as the AssertionError surfaces through the handler.
+        with patch.object(
+            status_refresh, "_compute_live_status_cache",
+            side_effect=AssertionError("read path should use cached live status, not recompute"),
+        ):
             listed = self.client.get("/api/v1/agents")
+        # Load-bearing: a recompute under the patch above raises, and the handler turns that into a
+        # 500. This 200 IS the "did not recompute" assertion.
         self.assertEqual(listed.status_code, 200, listed.text)
         self.assertEqual(listed.json()["agents"]["cached-agent"]["status"], "offline")
 
