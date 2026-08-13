@@ -27,11 +27,11 @@
     },
     {
       "path": "service/new_dashboard/app.js",
-      "reason": "reviewer-ruled relocation ceiling; remaining reduction needs factory conversion"
+      "reason": "QUANTIFIED 2026-08-13 in docs/APP_JS_STATE_MODULE_PACKET.md: 96 of 164 top-level functions (2,651 lines) touch the module-scope `state` object and cannot move while it lives here; only 23 functions (206 lines) are free, so relocation bottoms out near 4,700. Lifting it needs `state` moved to its own module - a design change, not a relocation, and an operator decision"
     },
     {
       "path": "mcp/stdio/hermes-managed-host.js",
-      "reason": "reviewer-ruled relocation ceiling; delivery-loop seams capture mutable state"
+      "reason": "MEASURED 2026-08-13: 959 of 1,845 lines are comments; `runDeliveryLoop` is 619 lines and its 7 seams are arrow-function consts declared INSIDE it, capturing its locals. The 5 extractable helpers total ~130 lines, reaching ~1,715. Clearing it needs the delivery loop split - a redesign. See docs/APP_JS_STATE_MODULE_PACKET.md"
     }
   ]
 }
