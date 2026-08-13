@@ -26,6 +26,14 @@
 
 const API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";
 
+// Windows + Docker Desktop: `localhost` resolves to IPv6 ::1 first, but
+// Docker Desktop's IPv6 port forwarding is unreliable — HTTP requests
+// time out silently. Force the IPv4 loopback. Benign on Linux/macOS.
+//
+// This comment arrived in v0.5.4 from `server.js`, where it had been left behind when the function it
+// describes moved here. It had come to sit above `IS_REMOTE`, which is not what it is about — a reader
+// would have taken it as an explanation of remote-mode detection. Comments do not follow code unless
+// someone moves them.
 function coerceLoopbackToIPv4(url) {
   return String(url || "").replace(
     /^(https?:\/\/)localhost(?=[:\/]|$)/i,
@@ -36,6 +44,14 @@ function coerceLoopbackToIPv4(url) {
 const SERVER_URL = coerceLoopbackToIPv4(
   process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "",
 );
+
+// Whether this bridge talks to a remote service over HTTP or drives the local filesystem store.
+//
+// Declared in `server.js` until v0.5.4, where it was one line — `!!SERVER_URL` — reading a value this
+// module already owned, and read from 55 places. That made it look like a dependency of whatever tool
+// group was being extracted at the time; it is not. It is a property OF the endpoint, and its owner is
+// the module that resolves the endpoint.
+const IS_REMOTE = !!SERVER_URL;
 
 function defaultFallbackServerUrls(primary) {
   if (!/^https?:\/\/(localhost|127\.0\.0\.1)(?::|\/|$)/i.test(String(primary || ""))) return [];
@@ -190,6 +206,6 @@ export function activeServerUrl() {
 }
 
 
-export { API_KEY, SERVER_URL, SERVER_URLS, coerceLoopbackToIPv4, uniqueServerUrls, httpCall,
+export { API_KEY, IS_REMOTE, SERVER_URL, SERVER_URLS, coerceLoopbackToIPv4, uniqueServerUrls, httpCall,
          isRetriableRequest, isTransientHttpError, HTTP_TIMEOUT_MS, HTTP_RETRY_ATTEMPTS,
          HTTP_RETRY_BASE_MS, RETRIABLE_POST_PATHS };

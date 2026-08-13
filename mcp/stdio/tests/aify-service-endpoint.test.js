@@ -16,9 +16,10 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   RETRIABLE_POST_PATHS,
@@ -162,4 +163,45 @@ test("server.js imports nothing from this module that it does not use", () => {
   assert.ok(imported.length > 0, "the import block must not be empty");
   const dead = imported.filter((name) => !new RegExp(`(?<![\\w.])${name}(?![\\w])`).test(rest));
   assert.deepEqual(dead, [], "server.js imports these but never uses them");
+});
+
+// IS_REMOTE — owned here since v0.5.4.
+//
+// It was one line in `server.js` (`const IS_REMOTE = !!SERVER_URL;`) reading a value this module already
+// owned, and it was read from 55 places. That count is why it moved: while extracting a tool group, a
+// name used by the group LOOKS like a dependency of it, and IS_REMOTE was recorded as one. It is a
+// property of the endpoint, not of any caller, so pushing it into a tool leaf would have made the wrong
+// module its owner and forced every other reader to import it back from there.
+
+test("IS_REMOTE is exported and agrees with the URL this module resolved", async () => {
+  const mod = await import("../aify-service-endpoint.mjs");
+  assert.ok(Object.hasOwn(mod, "IS_REMOTE"), "the endpoint module must export IS_REMOTE");
+  assert.equal(typeof mod.IS_REMOTE, "boolean", "IS_REMOTE is a boolean, not a URL");
+  assert.equal(mod.IS_REMOTE, !!mod.SERVER_URL, "IS_REMOTE must be exactly the truthiness of SERVER_URL");
+});
+
+test("IS_REMOTE is decided by the environment at load, in both directions", () => {
+  // The in-process assertion above can only observe whichever way THIS process was started, so on its
+  // own it is satisfied by a constant `false`. These two child processes pin both outcomes; without the
+  // remote case, a hardcoded literal would pass the whole file.
+  const read = (env) =>
+    execFileSync(
+      process.execPath,
+      ["--input-type=module", "-e",
+        'import { IS_REMOTE } from ' + JSON.stringify(pathToFileURL(path.join(STDIO, "aify-service-endpoint.mjs")).href)
+        + '; process.stdout.write(String(IS_REMOTE));'],
+      { env: { ...process.env, CLAUDE_MCP_SERVER_URL: "", AIFY_SERVER_URL: "", ...env }, encoding: "utf-8" },
+    ).trim();
+
+  assert.equal(read({ AIFY_SERVER_URL: "http://127.0.0.1:8800" }), "true", "a configured URL means remote");
+  assert.equal(read({}), "false", "no configured URL means local-filesystem mode");
+  assert.equal(read({ CLAUDE_MCP_SERVER_URL: "http://127.0.0.1:8800" }), "true", "the legacy env var also counts");
+});
+
+test("server.js no longer declares IS_REMOTE — exactly one owner", () => {
+  // The failure this catches is not a syntax error: a leftover `const IS_REMOTE` in server.js would
+  // shadow the import and keep working, right up until the two definitions disagreed.
+  const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
+  assert.doesNotMatch(src, /^(?:const|let|var)\s+IS_REMOTE\b/m, "IS_REMOTE must be imported, not redeclared");
+  assert.match(src, /(?<![\w.])IS_REMOTE(?![\w])/, "server.js is still expected to READ it");
 });

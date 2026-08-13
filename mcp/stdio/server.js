@@ -45,6 +45,7 @@ function internalCompactUnsupportedText(sourceSession = {}) {
 import {
   API_KEY,
   HTTP_TIMEOUT_MS,
+  IS_REMOTE,
   SERVER_URL,
   SERVER_URLS,
   activeServerUrl,
@@ -164,10 +165,6 @@ loadSettingsEnv();
 // ── Configuration ────────────────────────────────────────────────────────────
 
 const DEFAULT_CWD = process.cwd();
-// Windows + Docker Desktop: `localhost` resolves to IPv6 ::1 first, but
-// Docker Desktop's IPv6 port forwarding is unreliable — HTTP requests
-// time out silently. Force the IPv4 loopback. Benign on Linux/macOS.
-const IS_REMOTE = !!SERVER_URL;
 const IS_MANAGED_DISPATCH =
   ["1", "true", "yes"].includes(String(process.env.AIFY_MANAGED_DISPATCH || "").toLowerCase());
 const IS_ENVIRONMENT_BRIDGE =
