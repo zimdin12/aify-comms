@@ -38,8 +38,12 @@ The class alone is 960.
   spread satisfies the lookbehind. Every function that spreads state was counted as pure. The corrected
   figures make `app.js` MORE state-coupled than reported, not less — the conclusion below is unchanged and
   the evidence for it is stronger.
-- **`server.js`: 8 zero-mutable functions, ~105 lines** across five unrelated subjects. Five single-purpose
-  modules to shave 105 lines is grouping by line count, not by subject.
+- **`server.js`: 6 functions, 51 lines** — corrected, and for the same reason as `app.js` below. The earlier
+  "8 functions / ~105 lines" counted module state as `let` bindings plus `Map`/`Set` literals only, so
+  `const TERMINAL_MANAGER = new TerminalProcessManager({...})` — a live PTY-owning object with twelve
+  readers — was invisible, and its callers looked stateless. `runSingleAgentManagedTeardown` and
+  `reportDeadOwnedTerminals`, the two largest of the eight, are gated on it. What remains is one 28-line
+  boot sweep and five three-liners across unrelated subjects.
 - **`pi-session.js`: ~30 lines** of timeout helpers. The session pool below them is blocked by a real
   circular import.
 
@@ -64,10 +68,26 @@ needing its own review standard, and touching the paths that reap workers and cl
 
 1. **A, B or C — per file, or one ruling for all five?**
 2. If **C** anywhere: v0.5.x or v0.6?
-3. Should the genuinely clean remainder land regardless? Measured transitively it is **app.js <60 +
-   server.js ~105 + pi ~30 = under 200 lines**, not the ~700 this packet first claimed. At that size the
+3. Should the genuinely clean remainder land regardless? Measured with the widened state definition it is
+   **app.js ~46 + server.js 51 + pi ~30 = under 130 lines**, not the ~700 this packet first claimed — and
+   most of the app.js remainder has no existing owner, so landing it would mean the single-purpose modules
+   this same packet argues against. At that size the
    argument for doing it is test coverage — each becomes callable by a test that cannot reach it today —
    and the argument against is five more single-purpose modules. Your call.
+
+## A pattern in my own measurements, stated because it affects how much to trust the rest
+
+Every figure in this packet has been corrected downward, three times, and each time the cause was a scanner
+using a NARROWER definition than the code does:
+
+- `state` references missed `...state.x`, because a spread's final `.` satisfies a `(?<![\w.])` lookbehind;
+- "clean" counted functions that avoid `state` DIRECTLY while calling `api`/`uiConfirm`/`openRunInspector`;
+- "zero mutable" counted `let` and `Map`/`Set` literals, but not `const X = new SomeClass()` or object
+  literals — which is how a PTY manager with twelve readers went unseen.
+
+Each correction made the files look LESS reachable by relocation, so the conclusion has only hardened. But
+the numbers here were wrong three times in the same direction, and the ones that remain uncorrected are the
+ones nothing has forced me to re-measure yet.
 
 ## What I have NOT established
 
