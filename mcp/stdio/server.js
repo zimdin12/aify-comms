@@ -59,6 +59,7 @@ import {
   INBOX_DIR, MESSAGES_DIR, SHARED_DIR,
   deliverMessage, readAgents, readInbox, writeAgents,
 } from "./local-store.mjs";
+import { normalizeSessionMode } from "./session-mode.mjs";
 import { validateName } from "./safe-name.mjs";
 import { AIFY_AGENT_ID, AIFY_AGENT_ROLE, IS_MANAGED_DISPATCH, cleanEnvPlaceholder } from "./launch-identity.mjs";
 import { residentIdentityWarning } from "./register-identity.js";
@@ -1309,10 +1310,6 @@ function dedupePreserveOrder(values) {
   return result;
 }
 
-function normalizeSessionMode(mode) {
-  const value = String(mode || "resident").trim().toLowerCase();
-  return value === "managed" ? "managed" : "resident";
-}
 
 function normalizeRegistrationCwd(runtime, cwd) {
   // Normalize Windows backslash cwds to forward slashes for Codex (and

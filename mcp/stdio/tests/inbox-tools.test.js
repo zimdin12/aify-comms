@@ -11,7 +11,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -86,11 +86,39 @@ test("a message body cannot break out of its rendering", async () => {
   assert.ok(!out.includes("```\nSYSTEM"), "a fence inside the body must not survive verbatim into the rendering");
 });
 
-test("an invalid agent id is refused by every tool that takes one", async () => {
-  for (const name of ["comms_inbox", "comms_unsend"]) {
-    const res = await tools.get(name).handler({ agentId: "../escape", messageId: "m1" });
-    assert.equal(res.isError, true, `${name} must reject a traversal-shaped agent id`);
-  }
+test("comms_inbox refuses a traversal-shaped agent id", async () => {
+  // Narrowed after review. This previously looped over comms_inbox AND comms_unsend claiming both
+  // "take one" — comms_unsend takes only `messageId`, so the agentId I passed it was ignored and the
+  // error came from a different path entirely. The test passed while asserting something untrue about
+  // the tool's shape, which is worse than not testing it.
+  const res = await tools.get("comms_inbox").handler({ agentId: "../escape" });
+  assert.equal(res.isError, true, "comms_inbox must reject a traversal-shaped agent id");
+  assert.ok(!tools.get("comms_unsend").schema.agentId, "comms_unsend does not take an agentId");
+});
+
+test("DEFECT, PINNED NOT FIXED: comms_unsend matches by SUBSTRING across every agent's inbox", async () => {
+  // Found while narrowing the test above. In local mode `comms_unsend` validates nothing and locates
+  // the file with:
+  //
+  //     f.includes(messageId.split("-").slice(0, 2).join("-"))
+  //
+  // Filenames are `${Date.now()}-${uuid8}.json`, so it matches on a PREFIX of the id, and it walks
+  // every directory under the inbox root — not just the caller's. Two consequences, neither of which
+  // anything currently asserts: a truncated or shared-prefix id can delete a DIFFERENT message, and it
+  // can delete one out of ANOTHER agent's inbox. There is no caller identity in the tool's schema at
+  // all, so there is nothing for it to scope to.
+  //
+  // Structural slice, so this pins the behaviour rather than changing it. Reported as its own packet.
+  deliverMessage("victim", { id: "v1", from: "agent-a", subject: "keep me", body: "important" });
+  const [file] = readdirSync(path.join(STORE, "inbox", "victim"));
+  const prefix = file.split("-").slice(0, 2).join("-");
+
+  const res = await tools.get("comms_unsend").handler({ messageId: prefix });
+  assert.ok(!res.isError, `expected today's behaviour to delete a stranger's message, got: ${text(res)}`);
+  assert.equal(
+    readdirSync(path.join(STORE, "inbox", "victim")).length, 0,
+    "current behaviour: an id prefix deletes another agent's message. When scoping lands, this changes.",
+  );
 });
 
 test("the module exports only its owner surface, and kept no state", () => {
