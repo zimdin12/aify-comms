@@ -55,7 +55,6 @@ from service.api_core.dispatch_sweeps import (
 from service.api_core.status_refresh import (
     _compute_agent_status,
     _refresh_agent_live_state,
-    _refresh_expired_agent_live_states,
 )
 from service.api_core.status_inputs import (
     _compute_live_status_cache,
@@ -88,7 +87,6 @@ from service.api_core.liveness import (  # v0.5.4: moved out; the control plane 
 from service.api_core.records import (
     # v0.5.4: moved out; the control plane is now a CALLER,
     _agent_record_to_dict,
-    _row_status_note,
 )
 from service.api_core.capabilities import (  # v0.5.4: moved out; the control plane is now a CALLER
     _has_live_rpc_controller,
@@ -162,7 +160,6 @@ from service.models import (
 # unrelated subsystems compare against them.
 
 
-
 # v0.5.3: the ROUTER COMPOSITION that used to live here moved to service/routers/api_v2.py,
 # which is now nothing but composition. This module is the control plane: helpers, constants
 # and the two queue classes. It declares no routes and owns no router.
@@ -180,8 +177,6 @@ from service.terminal_write_queue import (  # v0.5.4: moved out; the control pla
 # v0.5.4: was imported from service.routers.terminals. The carrier reaching a LEAF through a
 # ROUTER is the dependency direction this slice exists to reverse — leaving it would have kept
 # the queue blocked while looking fixed.
-
-
 
 
 # Both terminal status sets now live in service/api_core/terminal_status.py, and the history is
@@ -422,22 +417,10 @@ MANAGED_ORPHAN_GRACE_SECONDS = 90
 # _has_recorded_claimer_lease moved to service/api_core/liveness.py in v0.5.4.
 
 
-
-
-
-
-
-
-
-
-
-
 # _insert_messages_via_console moved to service/api_core/channel_delivery.py in v0.5.4.
 
 
 # _apply_channel_routing_to_claude_runs moved to service/api_core/channel_delivery.py in v0.5.4.
-
-
 
 
 # ACTIVE_RUN_BRIDGE_STALE_SECONDS moved to service/api_core/liveness.py in v0.5.4, with the
@@ -446,43 +429,14 @@ MANAGED_ORPHAN_GRACE_SECONDS = 90
 # CLAUDE_CHANNEL_DELIVERY_SUMMARY_PREFIX moved to service/api_core/dispatch_state.py in v0.5.4.
 
 
-
-
 # _touch_agent moved to service/api_core/agent_sessions.py in v0.5.4.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 _SHELL_PLACEHOLDER_HANDLE_RE = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$")
 
 
-
-
-
 # _machine_family moved to service/routers/agents/shared.py in v0.5.3, then on to service/api_core/registration_gates.py in v0.5.4 — the agents package was its
 # only consumer once the domains moved, so the borrow shim became the last thing keeping it here.
-
-
-
-
-
-
-
-
-
-
 
 
 # _is_delivery_only_claude_run moved to service/api_core/dispatch_state.py in v0.5.4.
@@ -505,24 +459,10 @@ _SHELL_PLACEHOLDER_HANDLE_RE = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$")
 # _contract_state moved to service/api_core/reply_contract.py in v0.5.4.
 
 
-
-
-
-
 # _has_codex_live_app_server moved to service/api_core/capabilities.py in v0.5.4.
 
 
 # _has_hermes_gateway_url moved to service/api_core/capabilities.py in v0.5.4.
-
-
-
-
-
-
-
-
-
-
 
 
 # _agent_tombstone moved to service/api_core/agent_sessions.py in v0.5.4.
@@ -537,16 +477,10 @@ _SHELL_PLACEHOLDER_HANDLE_RE = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$")
 # _default_capabilities_for moved to service/api_core/capabilities.py in v0.5.4.
 
 
-
-
 # _row_capabilities moved to service/api_core/capabilities.py in v0.5.4.
 
 
-
-
-
 # _agent_execution_mode moved to service/api_core/execution_mode.py in v0.5.4.
-
 
 
 # _dispatch_fix_hint moved to service/api_core/dispatch_hint.py in v0.5.4.
@@ -559,7 +493,6 @@ _SHELL_PLACEHOLDER_HANDLE_RE = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$")
 
 
 # _get_dispatch_state_map moved to service/api_core/dispatch_state.py in v0.5.4.
-
 
 
 # _resident_bridge_is_fresh moved to service/api_core/liveness.py in v0.5.4.
@@ -582,12 +515,7 @@ _SHELL_PLACEHOLDER_HANDLE_RE = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$")
 # to service/api_core/claim_gating.py in v0.5.4.
 
 
-
-
 # _session_handle_live_owner moved to service/api_core/agent_sessions.py in v0.5.4.
-
-
-
 
 
 # _bridge_is_superseded moved to service/api_core/liveness.py in v0.5.4.
@@ -616,22 +544,10 @@ _SHELL_PLACEHOLDER_HANDLE_RE = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$")
 # to service/api_core/claim_gating.py in v0.5.4.
 
 
-
-
-
-
 STUCK_STOPPING_GRACE_SECONDS = 900  # a 'stopping' PTY that never reached 'stopped' is wedged
 
 
-
-
-
-
-
-
 # _record_channel_sidecar_heartbeat moved to service/api_core/recovery_writes.py in v0.5.4.
-
-
 
 
 # _stop_virtual_terminals_for_superseded_bridges moved to service/routers/agents/shared.py in v0.5.3,
@@ -645,12 +561,6 @@ STUCK_STOPPING_GRACE_SECONDS = 900  # a 'stopping' PTY that never reached 'stopp
 # _fail_pending_controls_for_run moved to service/api_core/active_run_discard.py in v0.5.4.
 
 
-
-
-
-
-
-
 #: Stored environment statuses that still claim a HEARTBEATING bridge, and must therefore be aged
 #: against `last_seen`. `degraded` belongs here: a degraded bridge is reduced-capability, not
 #: dead — so when it stops heartbeating it is just as offline as an `online` one.
@@ -658,8 +568,6 @@ STUCK_STOPPING_GRACE_SECONDS = 900  # a 'stopping' PTY that never reached 'stopp
 # equal values, two objects, and nothing would have failed if one had been edited. The reviewer
 # ruled at the time that a moved constant gets exactly one owner and never a second copy; this is
 # that ruling finally applied. It is imported beside its only user, _environment_effective_status.
-
-
 
 
 # _managed_owning_environment_row moved to service/api_core/managed_env.py in v0.5.4.
@@ -671,12 +579,7 @@ STUCK_STOPPING_GRACE_SECONDS = 900  # a 'stopping' PTY that never reached 'stopp
 # _environment_record_to_dict moved to service/api_core/records.py in v0.5.4.
 
 
-
-
-
-
 # _current_agent_session_row moved to service/api_core/agent_sessions.py in v0.5.4.
-
 
 
 # _ANSI_RE moved to service/api_core/terminal_text.py in v0.5.4 with its readers.
@@ -718,8 +621,6 @@ STUCK_STOPPING_GRACE_SECONDS = 900  # a 'stopping' PTY that never reached 'stopp
 # it: a "…I need a decision… Say the word" prompt has no menu cursor and no "Enter to confirm".
 
 
-
-
 # _terminal_idle_prompt_hint moved to service/reconcilers/terminal_runs.py in v0.5.3.
 
 
@@ -756,27 +657,13 @@ STUCK_STOPPING_GRACE_SECONDS = 900  # a 'stopping' PTY that never reached 'stopp
 # _worker_liveness_for moved to service/api_core/channel_delivery.py in v0.5.4.
 
 
-
-
-
-
-
-
-
-
-
 # _terminal_pi_idle_prompt_hint moved to service/reconcilers/terminal_runs.py in v0.5.3.
-
-
 
 
 LIST_AGENTS_REFRESH_LIMIT = 8
 
 
-
-
 # _managed_environment_status moved to service/api_core/managed_env.py in v0.5.4.
-
 
 
 # Grace before a spawn is finalized because its bound terminal reached a terminal
@@ -787,22 +674,6 @@ LIST_AGENTS_REFRESH_LIMIT = 8
 # race — a managed respawn can create the new terminal seconds before the session is
 # re-pointed at it, and the guard below also requires that no live terminal shares
 # the session.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # _environment_supports_terminal moved to service/api_core/capabilities.py in v0.5.4.
@@ -820,18 +691,10 @@ LIST_AGENTS_REFRESH_LIMIT = 8
 # _workspace_for_environment moved to service/api_core/workspace.py in v0.5.4.
 
 
-
-
-
-
-
-
 # _agent_session_to_dict moved to service/api_core/records.py in v0.5.4.
 
 
 # _terminal_session_to_dict moved to service/api_core/records.py in v0.5.4.
-
-
 
 
 # _terminal_control_to_dict moved to service/routers/terminals.py in v0.5.3.
@@ -839,13 +702,6 @@ LIST_AGENTS_REFRESH_LIMIT = 8
 
 # _trim_terminal_output moved to service/routers/terminals.py in v0.5.3, then on to
 # service/api_core/terminal_output.py in v0.5.4.
-
-
-
-
-
-
-
 
 
 # _release_stale_console_owner_for_claim moved to service/routers/dispatch_messages/shared.py in
@@ -856,7 +712,6 @@ LIST_AGENTS_REFRESH_LIMIT = 8
 
 
 # _active_terminal_for_agent moved to service/api_core/terminal_ownership.py in v0.5.4.
-
 
 
 # _has_pending_or_booting_spawn_request moved to service/api_core/managed_env.py in v0.5.4.
@@ -888,21 +743,15 @@ LIST_AGENTS_REFRESH_LIMIT = 8
 # _coldstart_refusal_message moved to service/api_core/dispatch_text.py in v0.5.4.
 
 
-
 # _coldstart_spawn_request_for_dispatch moved to service/api_core/dispatch_start.py in v0.5.4.
 
 
 # _ensure_managed_pty_for_dispatch moved to service/api_core/dispatch_start.py in v0.5.4.
 
 
-
-
-
 # _MERGED_DISPATCH_HEADER moved to service/api_core/dispatch_text.py in v0.5.4.
 # _MERGED_DISPATCH_FOOTER moved to service/api_core/dispatch_text.py in v0.5.4.
 # _DISPATCH_BUFFER_CAP moved to service/api_core/dispatch_buffer.py in v0.5.4.
-
-
 
 
 # _render_pending_dispatch_item moved to service/api_core/dispatch_text.py in v0.5.4.
@@ -918,7 +767,6 @@ LIST_AGENTS_REFRESH_LIMIT = 8
 
 
 # _dispatch_buffer_full_hint moved to service/api_core/dispatch_buffer.py in v0.5.4.
-
 
 
 # _discard_superseded_active_run moved to service/api_core/active_run_discard.py in v0.5.4.
@@ -946,11 +794,6 @@ LIST_AGENTS_REFRESH_LIMIT = 8
 # _discard_unusable_active_run moved to service/api_core/active_run_discard.py in v0.5.4.
 
 
-
-
-
-
-
 # _dispatch_source_message_ids moved to service/api_core/claim_gating.py in v0.5.4.
 
 
@@ -959,8 +802,6 @@ LIST_AGENTS_REFRESH_LIMIT = 8
 
 # _dispatch_conversation_context moved to service/routers/dispatch_messages/shared.py in v0.5.3,
 # then on to service/api_core/claim_gating.py in v0.5.4.
-
-
 
 
 # _is_replaceable_auto_handoff_message moved to service/routers/dispatch_messages/shared.py in v0.5.3.
@@ -978,12 +819,7 @@ LIST_AGENTS_REFRESH_LIMIT = 8
 # _clear_turn_busy_if_no_open_reply_owing_run moved to service/api_core/turn_state.py in v0.5.4.
 
 
-
 _UNTHREADED_HANDOFF_WINDOW_MS = 24 * 60 * 60 * 1000
-
-
-
-
 
 
 # _link_unthreaded_completion_message_for_run moved to service/reconcilers/managed_workers.py in v0.5.3.
@@ -995,23 +831,13 @@ _UNTHREADED_HANDOFF_WINDOW_MS = 24 * 60 * 60 * 1000
 # _is_provider_rate_limit_error moved to service/api_core/dispatch_text.py in v0.5.4.
 
 
-
-
-
 # _cancel_nonterminal_runs_for_agents moved to service/api_core/agent_removal.py in v0.5.4.
-
 
 
 # ─── Root ────────────────────────────────────────────────────────────────────
 
 
-
 # ─── Environments ────────────────────────────────────────────────────────────
-
-
-
-
-
 
 
 # ─── Usage / Quota ───────────────────────────────────────────────────────────
@@ -1020,100 +846,17 @@ _UNTHREADED_HANDOFF_WINDOW_MS = 24 * 60 * 60 * 1000
 # service/usage_cache.py and docs/superpowers/specs/2026-06-26-usage-quota-stats-design.md.
 
 
-
-
-
-
-
-
-
-
-
-
-
 # ─── Spawn Requests And Sessions ─────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # _default_console_command moved to service/api_core/capabilities.py in v0.5.4.
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # ─── Agents ──────────────────────────────────────────────────────────────────
-
-
-
-
-
 
 
 _CONSOLE_TAIL_MAX_LINES = 200
 _CONSOLE_TAIL_MAX_BYTES = 16 * 1024
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # Body sentinel prefix on a `stop` terminal control that must ALSO reap the
@@ -1126,29 +869,7 @@ _CONSOLE_TAIL_MAX_BYTES = 16 * 1024
 # zero carrier readers; its only writer took it.
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # _touch_current_agent_session moved to service/api_core/agent_sessions.py in v0.5.4.
-
-
 
 
 # ─── Messages ────────────────────────────────────────────────────────────────
@@ -1157,61 +878,13 @@ _CONSOLE_TAIL_MAX_BYTES = 16 * 1024
 # ─── Agent Info ──────────────────────────────────────────────────────────────
 
 
-
 # _adopt_live_resident_driver moved to service/api_core/agent_sessions.py in v0.5.4.
-
-
-
-
-
-
-
 
 
 # _clear_status_state_in_turn moved to service/api_core/turn_state.py in v0.5.4.
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # ─── Dispatch Runs ────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # _agent_has_live_claimer moved to service/reconcilers/dispatch_queue.py in v0.5.3.
@@ -1220,27 +893,7 @@ _CONSOLE_TAIL_MAX_BYTES = 16 * 1024
 # _mirror_undeliverable_queued_run_to_sender moved to service/reconcilers/dispatch_queue.py in v0.5.3.
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # _contract_list_query moved to service/api_core/reply_contract.py in v0.5.4.
-
-
 
 
 # _contract_reminder_due moved to service/api_core/reply_contract.py in v0.5.4.
@@ -1249,72 +902,26 @@ _CONSOLE_TAIL_MAX_BYTES = 16 * 1024
 # _contract_reminder_full_every moved to service/api_core/reply_contract.py in v0.5.4.
 
 
-
-
 # _contract_reminder_body moved to service/api_core/reply_contract.py in v0.5.4.
-
-
 
 
 # ─── Shared Artifacts ────────────────────────────────────────────────────────
 
 
-
-
-
-
-
-
-
 # ─── Channels ────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # ─── Settings ────────────────────────────────────────────────────────────────
 
 
-
-
-
-
-
 # ─── Stats ───────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
 
 
 # ─── Clear ───────────────────────────────────────────────────────────────────
 
 
-
 # ─── Rotate ──────────────────────────────────────────────────────────────────
 
 
-
 # ─── Dashboard compatibility redirects ──────────────────────────────────────
-
-
-
-
-
-
 

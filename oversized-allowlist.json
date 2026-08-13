@@ -22,10 +22,6 @@
   "limit": 1000,
   "allowed": [
     {
-      "path": "service/control_plane.py",
-      "reason": "status-cache component decision packet (docs/STATUS_CACHE_COMPONENT_PACKET.md); operator scope"
-    },
-    {
       "path": "mcp/stdio/server.js",
       "reason": "packet accepted as measurement (docs/JS_SERVER_JS_PROOF_PACKET.md); awaiting operator scope"
     },

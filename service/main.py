@@ -122,10 +122,8 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         stale_seconds_from_settings,
     )
     from service.api_core.settings import _load_settings
-    from service.control_plane import (
-        _refresh_expired_agent_live_states,
-        _run_contract_reminders_once,
-    )
+    from service.api_core.status_refresh import _refresh_expired_agent_live_states
+    from service.api_core.dispatch_sweeps import _run_contract_reminders_once
 
     db = await _get_db()
     try:

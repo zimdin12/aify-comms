@@ -90,10 +90,8 @@ logger = logging.getLogger("aify_comms.routers.agents.shared")
 
 
 
-def _agent_record_to_dict(*a, **k):
-    from service.control_plane import _agent_record_to_dict as _impl
-
-    return _impl(*a, **k)
+# Was a borrow shim; the owner is service/api_core/records.py, not the control plane.
+from service.api_core.records import _agent_record_to_dict  # noqa: E402
 
 
 
@@ -138,10 +136,7 @@ from service.api_core.status_refresh import _refresh_expired_agent_live_states  
 
 
 
-def _row_status_note(*a, **k):
-    from service.control_plane import _row_status_note as _impl
-
-    return _impl(*a, **k)
+from service.api_core.records import _row_status_note  # noqa: E402
 
 
 

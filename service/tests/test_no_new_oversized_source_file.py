@@ -116,17 +116,26 @@ class NoNewOversizedSourceFileTests(unittest.TestCase):
     def test_two_files_sharing_a_basename_are_distinguished(self):
         """The defect this gate shipped with, pinned as a property of the predicate.
 
-        The first version keyed on `p.name`, so ANY file called `control_plane.py` anywhere was exempt.
-        The real tree cannot demonstrate the fix — it contains exactly one of each — so the predicate is
-        exercised directly with synthetic paths that share a basename.
+        The first version keyed on `p.name`, so ANY file with an allowlisted basename anywhere was
+        exempt. The real tree cannot demonstrate the fix — it contains exactly one of each — so the
+        predicate is exercised directly with synthetic paths that share a basename.
+
+        THE REAL PATH IS READ FROM THE POLICY, NOT SPELLED OUT. This case used to name
+        `service/control_plane.py`, and went red in v0.5.4 when that file dropped under the limit and
+        was correctly removed from the allowlist — a test failing because the work succeeded, which is
+        the second instance of that shape in this suite. The list only ever shrinks, so any hardcoded
+        member is a scheduled failure.
         """
-        self.assertTrue(is_exempt("service/control_plane.py"), "the allowlisted path must be exempt")
+        self.assertTrue(_POLICY["allowed"], "no allowlist entries to exercise the predicate against")
+        real = _POLICY["allowed"][0]["path"]
+        basename = real.rsplit("/", 1)[-1]
+        self.assertTrue(is_exempt(real), "the allowlisted path must be exempt")
         for impostor in (
-            "service/routers/control_plane.py",
-            "service/api_core/control_plane.py",
-            "control_plane.py",
-            "service/control_plane.py.bak",
-            "other/service/control_plane.py",
+            f"service/routers/{basename}",
+            f"service/api_core/{basename}",
+            basename,
+            f"{real}.bak",
+            f"other/{real}",
         ):
             self.assertFalse(
                 is_exempt(impostor),
