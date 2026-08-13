@@ -3,6 +3,20 @@ from service.tests._base import FastApiTestCase
 from service.api_core.routing import logger
 from service.api_core.settings import _load_settings
 from service.api_core import liveness  # v0.5.4: call the OWNER
+from service.api_core.status_inputs import (
+    _compute_live_status_cache,
+    _gather_status_inputs,
+    engine_status,
+)
+from service.api_core.status_refresh import (
+    _compute_agent_status,
+    _refresh_agent_live_state,
+)
+from service.clock import now as _now
+from service.reconcilers.status_cache import (
+    _live_state_get,
+    invalidate_agent_live_state as _invalidate_agent_live_state,
+)
 
 
 def _seed_live_channel_worker(db_path, env_id, aid, runtime="claude-code"):
@@ -82,7 +96,7 @@ class StatusEventIngestTests(FastApiTestCase):
             db = await get_db()
             try:
                 row = await (await db.execute("SELECT * FROM agents WHERE id='a2'")).fetchone()
-                return await api_v2.engine_status(db, row)
+                return await engine_status(db, row)
             finally:
                 await db.close()
         self.assertEqual(asyncio.run(run()), "working")
@@ -106,7 +120,7 @@ class StatusEventIngestTests(FastApiTestCase):
             db = await get_db()
             try:
                 row = await (await db.execute("SELECT * FROM agents WHERE id='a-pe'")).fetchone()
-                return await api_v2.engine_status(db, row)
+                return await engine_status(db, row)
             finally:
                 await db.close()
         self.assertEqual(asyncio.run(run()), "online",
@@ -223,7 +237,7 @@ class StatusEventIngestTests(FastApiTestCase):
             db = await get_db()
             try:
                 row = await (await db.execute("SELECT * FROM agents WHERE id='e1'")).fetchone()
-                return await api_v2._compute_agent_status(row, db)
+                return await _compute_agent_status(row, db)
             finally:
                 await db.close()
 
@@ -273,7 +287,7 @@ class StatusEventIngestTests(FastApiTestCase):
         # Seed a superseded bridge row for the OLD bridge.
         c = sqlite3.connect(str(self._db_path))
         try:
-            now = api_v2._now()
+            now = _now()
             c.execute(
                 """INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode,
                     registered_at, last_seen, superseded_by) VALUES (?,?,?,?,?,?,?,?)""",
@@ -358,9 +372,9 @@ class StatusEngineHotRefreshParityTests(FastApiTestCase):
 
         async def factory(db):
             settings = await _load_settings(db)
-            await api_v2._invalidate_agent_live_state(db, aid)
-            await api_v2._refresh_agent_live_state(db, aid, settings=settings)
-            entry = api_v2._live_state_get(aid)
+            await _invalidate_agent_live_state(db, aid)
+            await _refresh_agent_live_state(db, aid, settings=settings)
+            entry = _live_state_get(aid)
             return str(entry["status"]) if entry else None
 
         return self._run(factory)
@@ -371,7 +385,7 @@ class StatusEngineHotRefreshParityTests(FastApiTestCase):
         async def factory(db):
             settings = await _load_settings(db)
             row = await (await db.execute("SELECT * FROM agents WHERE id=?", (aid,))).fetchone()
-            return await api_v2.engine_status(db, row, settings=settings)
+            return await engine_status(db, row, settings=settings)
 
         return self._run(factory)
 
@@ -452,13 +466,18 @@ class StatusEngineHotRefreshParityTests(FastApiTestCase):
         # raises -> logger.exception fallback fires); PASSES after, when
         # derive(cache byproduct) is used and the gather is never touched.
         from service.status_engine import VALID_STATUSES
+        from service.api_core import status_inputs
         from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         self._register("p_nogather", mode="resident")
         self.client.post("/api/v1/agents/p_nogather/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
         self._set("status_engine", "new")
 
-        original_gather = api_v2._gather_status_inputs
+        # MONKEYPATCH THE MODULE THAT CALLS IT. `engine_status` resolves `_gather_status_inputs`
+        # from `service/api_core/status_inputs.py`, so rebinding a bare local here would patch
+        # nothing — the inert-patch class this suite fixed in v0.5.4. It must be an attribute set on
+        # the owning module.
+        original_gather = status_inputs._gather_status_inputs
         original_log_exc = logger.exception
         fallback_hits = []
 
@@ -469,12 +488,12 @@ class StatusEngineHotRefreshParityTests(FastApiTestCase):
             fallback_hits.append((msg, args))
             return original_log_exc(msg, *args, **kwargs)
 
-        api_v2._gather_status_inputs = boom
+        status_inputs._gather_status_inputs = boom
         logger.exception = spy_exception
         try:
             status = self._refreshed_status("p_nogather")
         finally:
-            api_v2._gather_status_inputs = original_gather
+            status_inputs._gather_status_inputs = original_gather
             logger.exception = original_log_exc
         self.assertIsNotNone(status)
         self.assertIn(status, VALID_STATUSES)
@@ -594,7 +613,7 @@ class HeartbeatTurnBusyFeedsEngineTests(FastApiTestCase):
             db = await get_db()
             try:
                 row = await (await db.execute("SELECT * FROM agents WHERE id='hb3'")).fetchone()
-                return await api_v2.engine_status(db, row)
+                return await engine_status(db, row)
             finally:
                 await db.close()
 
@@ -637,7 +656,7 @@ class HeartbeatTurnBusyFeedsEngineTests(FastApiTestCase):
                 row = await (await db.execute(
                     "SELECT * FROM agents WHERE id='hb-hermes-prose'"
                 )).fetchone()
-                return await api_v2.engine_status(db, row)
+                return await engine_status(db, row)
             finally:
                 await db.close()
 
@@ -674,7 +693,7 @@ class HeartbeatTurnBusyFeedsEngineTests(FastApiTestCase):
             db = await get_db()
             try:
                 row = await (await db.execute("SELECT * FROM agents WHERE id='hb4'")).fetchone()
-                inputs = await api_v2._gather_status_inputs(db, row)
+                inputs = await _gather_status_inputs(db, row)
                 return inputs.in_turn
             finally:
                 await db.close()
@@ -697,7 +716,7 @@ class HeartbeatTurnBusyFeedsEngineTests(FastApiTestCase):
             db = await get_db()
             try:
                 row = await (await db.execute("SELECT * FROM agents WHERE id='hb5'")).fetchone()
-                inputs = await api_v2._gather_status_inputs(db, row)
+                inputs = await _gather_status_inputs(db, row)
                 return inputs.in_turn
             finally:
                 await db.close()
@@ -747,7 +766,7 @@ class ConsoleLeaseAndStalenessByproductTests(FastApiTestCase):
             db = await get_db()
             try:
                 row = await (await db.execute("SELECT * FROM agents WHERE id=?", (aid,))).fetchone()
-                cache = await api_v2._compute_live_status_cache(db, row)
+                cache = await _compute_live_status_cache(db, row)
                 return derive(cache["status_inputs"])
             finally:
                 await db.close()

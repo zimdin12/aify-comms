@@ -35,6 +35,7 @@ from service.api_core.agent_sessions import _current_agent_session_row
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 from service.tests._base import FastApiTestCase
+from service.reconcilers.sessions import LIVE_SESSION_STATUSES
 
 
 def _iso_ago(seconds: int) -> str:
@@ -92,7 +93,7 @@ class CurrentSessionPickerPrefersLiveTests(FastApiTestCase):
 
     def test_every_live_status_outranks_a_fresher_dead_row(self):
         """All six members of LIVE_SESSION_STATUSES, not just the four the CASE promotes."""
-        for i, live_status in enumerate(sorted(api_v2.LIVE_SESSION_STATUSES)):
+        for i, live_status in enumerate(sorted(LIVE_SESSION_STATUSES)):
             agent_id = f"shadow-each-{i}"
             self._seed(f"s-live-{i}", agent_id, live_status, last_seen_ago=300)
             self._seed(f"s-dead-{i}", agent_id, "failed", last_seen_ago=5)

@@ -15,6 +15,7 @@ from service.db import get_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 from service.tests._base import FastApiTestCase
+from service.clock import now as _now
 
 
 class StopWorkerStopsRealTerminalsTests(FastApiTestCase):
@@ -36,7 +37,7 @@ class StopWorkerStopsRealTerminalsTests(FastApiTestCase):
                 await db.execute(
                     "INSERT OR IGNORE INTO environments (id, status, bridge_id, registered_at, last_seen) "
                     "VALUES (?,?,?,?,?)",
-                    ("env-1", "online", "bridge-1", api_v2._now(), api_v2._now()),
+                    ("env-1", "online", "bridge-1", _now(), _now()),
                 )
                 await db.commit()
             finally:
@@ -59,7 +60,7 @@ class StopWorkerStopsRealTerminalsTests(FastApiTestCase):
                     VALUES (?,?,?,?,?,?,?,?,?)
                     """,
                     (terminal_id, f"sess-for-{terminal_id}", agent_id, "env-1", "bridge-1",
-                     "claude-code", status, api_v2._now(), api_v2._now()),
+                     "claude-code", status, _now(), _now()),
                 )
                 await db.commit()
             finally:

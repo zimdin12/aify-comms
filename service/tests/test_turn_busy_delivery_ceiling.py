@@ -29,6 +29,7 @@ from service.routers.dispatch_messages import shared as dispatch_shared
 from service.tests._base import FastApiTestCase
 from service.api_core import liveness  # v0.5.4: call the OWNER
 from service.api_core import claim_gating  # v0.5.4: call the OWNER, not a re-export
+from service.clock import now as _now
 
 
 class TurnBusyDeliveryCeilingTests(FastApiTestCase):
@@ -121,7 +122,7 @@ class TurnBusyDeliveryCeilingTests(FastApiTestCase):
                         (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
                     VALUES (?, 0, '', '', '', ?)
                     """,
-                    ("tbc-idle", api_v2._now()),
+                    ("tbc-idle", _now()),
                 )
                 await db.commit()
             finally:

@@ -12,6 +12,7 @@ from service.db import get_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 from service.tests._base import FastApiTestCase
+from service.reconcilers.status_cache import _reap_stale_orphan_bridges
 
 
 def _iso(dt: datetime) -> str:
@@ -68,7 +69,7 @@ class ReapStaleOrphanBridgesTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                out = await api_v2._reap_stale_orphan_bridges(db, **kwargs)
+                out = await _reap_stale_orphan_bridges(db, **kwargs)
                 await db.commit()
                 return out
             finally:

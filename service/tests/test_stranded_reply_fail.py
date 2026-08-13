@@ -11,6 +11,8 @@ from service.db import get_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 from service.tests._base import FastApiTestCase
+from service.clock import now as _now
+from service.reconcilers.dispatch_lifecycle import _fail_stranded_delivered_reply_runs
 
 
 def _iso(dt: datetime) -> str:
@@ -52,7 +54,7 @@ class StrandedReplyFailTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                out = await api_v2._fail_stranded_delivered_reply_runs(db)
+                out = await _fail_stranded_delivered_reply_runs(db)
                 await db.commit()
                 return out
             finally:
@@ -111,7 +113,7 @@ class StrandedReplyFailTests(FastApiTestCase):
         self._seed_run("run_live", target="sc-architect", requested_at=_minutes_ago(60))
         self._execute(
             "INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_updated_at) VALUES (?,?,?,?)",
-            ("sc-architect", 1, "run_live", api_v2._now()),
+            ("sc-architect", 1, "run_live", _now()),
         )
         self.assertEqual(self._run_reaper(), [], "a live turn on this run must be skipped")
         r = self._fetchone("SELECT status FROM dispatch_runs WHERE id='run_live'")
@@ -122,7 +124,7 @@ class StrandedReplyFailTests(FastApiTestCase):
         self._seed_run("run_orphan", target="sc-architect", requested_at=_minutes_ago(60))
         self._execute(
             "INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_updated_at) VALUES (?,?,?,?)",
-            ("sc-architect", 1, "some_other_run", api_v2._now()),
+            ("sc-architect", 1, "some_other_run", _now()),
         )
         out = self._run_reaper()
         self.assertEqual(len(out), 1)

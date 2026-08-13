@@ -17,6 +17,8 @@ from service.db import get_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 from service.tests._base import FastApiTestCase
+from service.clock import now as _now
+from service.reconcilers.sessions import LIVE_SESSION_STATUSES
 
 
 class StartAgentLiveSessionGateTests(FastApiTestCase):
@@ -42,7 +44,7 @@ class StartAgentLiveSessionGateTests(FastApiTestCase):
                     VALUES (?,?,?,?,?,?,?,?,?)
                     """,
                     (session_id, agent_id, "env-test", "claude-code", "managed-warm", status,
-                     api_v2._now(), ended_at, api_v2._now()),
+                     _now(), ended_at, _now()),
                 )
                 await db.commit()
             finally:
@@ -125,7 +127,7 @@ class StartAgentLiveSessionGateTests(FastApiTestCase):
         # v0.5.4: `_LIVE_SESSION_STATUSES` moved to api_core/liveness.py, so it is read from its OWNER
         # rather than through the carrier. Reading it off `api_v2` kept working only because the carrier
         # re-exported it, which is the indirection this series is removing.
-        union = {s.lower() for s in api_v2.LIVE_SESSION_STATUSES} | {
+        union = {s.lower() for s in LIVE_SESSION_STATUSES} | {
             s.lower() for s in _LIVE_SESSION_STATUSES
         }
         for terminal in ("lost", "ended", "stopped", "failed", "cancelled", "completed"):

@@ -48,7 +48,7 @@ from service import control_plane as api_v2  # v0.5.3: helpers live in the contr
 from service.routers.api_v2 import router
 from service.api_core.liveness import _has_live_channel_sidecar  # noqa: E402
 from service.api_core.channel_delivery import _apply_channel_routing_to_claude_runs
-from service.control_plane import _now
+
 # v0.5.2m: ONLY this one moved. The other three are still router-owned, so the import stays split
 # rather than being redirected wholesale -- pointing them all at the package would aim them at
 # borrow shims instead of the real owners.
@@ -57,6 +57,8 @@ from service.routers.agents.shared import _record_bridge_registration  # noqa: E
 
 from service.tests._base import FastApiTestCase
 from service.api_core.recovery_writes import _record_channel_sidecar_heartbeat
+from service.clock import now as _now
+from service.db import get_db
 
 
 def _run(coro):
@@ -109,7 +111,7 @@ class HermesVisibleTuiDeliveryTests(FastApiTestCase):
         self._insert_managed_hermes_agent(agent_id)
 
         async def scenario():
-            db = await api_v2.get_db()
+            db = await get_db()
             try:
                 now = _now()
                 # 1. The delivery loop's standalone channel-sidecar bridge.
@@ -183,7 +185,7 @@ class HermesVisibleTuiDeliveryTests(FastApiTestCase):
         self._insert_managed_hermes_agent(agent_id)
 
         async def scenario():
-            db = await api_v2.get_db()
+            db = await get_db()
             try:
                 now = _now()
                 await db.execute(
@@ -251,7 +253,7 @@ class HermesVisibleTuiDeliveryTests(FastApiTestCase):
         self._insert_managed_hermes_agent(agent_id)
 
         async def scenario():
-            db = await api_v2.get_db()
+            db = await get_db()
             try:
                 # Channel-sidecar bridge whose last_seen is far past the 5-min
                 # stale window (simulating PTY churn / a brief sidecar gap).
@@ -317,7 +319,7 @@ class HermesVisibleTuiDeliveryTests(FastApiTestCase):
         self._insert_managed_hermes_agent(agent_id, channel_enabled=False)
 
         async def scenario():
-            db = await api_v2.get_db()
+            db = await get_db()
             try:
                 now = _now()
                 # A live channel-sidecar bridge (delivery loop polling).
@@ -381,7 +383,7 @@ class HermesVisibleTuiDeliveryTests(FastApiTestCase):
         self._insert_managed_hermes_agent(agent_id, channel_enabled=False)
 
         async def scenario():
-            db = await api_v2.get_db()
+            db = await get_db()
             try:
                 now = _now()
                 await db.execute(

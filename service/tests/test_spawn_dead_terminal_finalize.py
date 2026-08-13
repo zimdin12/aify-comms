@@ -27,6 +27,8 @@ from service import control_plane as api_v2  # v0.5.3: helpers live in the contr
 from service.tests._base import FastApiTestCase
 from service.api_core.managed_env import _has_pending_or_booting_spawn_request
 from service.api_core import terminal_status  # v0.5.4: call the OWNER
+from service.clock import now as _now
+from service.reconcilers.spawn_lifecycle import _finalize_spawns_with_dead_terminals
 
 
 class _SpawnSeedMixin:
@@ -64,7 +66,7 @@ class _SpawnSeedMixin:
         async def _run():
             db = await get_db()
             try:
-                return await api_v2._finalize_spawns_with_dead_terminals(db, **kwargs)
+                return await _finalize_spawns_with_dead_terminals(db, **kwargs)
             finally:
                 await db.close()
 
@@ -105,7 +107,7 @@ class _SpawnSeedMixin:
         self._execute(
             """INSERT INTO environments (id, label, machine_id, bridge_id, status, registered_at, last_seen)
                VALUES (?,?,?,?,?,?,?)""",
-            (f"env_{agent_id}", "env", "win32:test", f"bridge_{agent_id}", "online", self.OLD, api_v2._now()),
+            (f"env_{agent_id}", "env", "win32:test", f"bridge_{agent_id}", "online", self.OLD, _now()),
         )
         self._execute(
             """INSERT INTO spawn_specs (id, agent_id, environment_id, runtime, created_at, updated_at)
@@ -154,7 +156,7 @@ class _SpawnSeedMixin:
                    VALUES (?,?,?,?,?,?,?,?,?,?)""",
                 (
                     f"{terminal_id}_live", agent_id, session_id, f"env_{agent_id}", "hermes",
-                    f"bridge_{agent_id}", "hermes-aify", "attached", api_v2._now(), api_v2._now(),
+                    f"bridge_{agent_id}", "hermes-aify", "attached", _now(), _now(),
                 ),
             )
         return spawn_id
@@ -210,7 +212,7 @@ class SpawnDeadTerminalFinalizeTests(_SpawnSeedMixin, FastApiTestCase):
         Seeded with a FRESH updated_at so the 5-minute in-flight window is open —
         which is the state a just-died worker is actually in.
         """
-        self._seed("respawn-me", spawn_updated_at=api_v2._now())
+        self._seed("respawn-me", spawn_updated_at=_now())
         self.assertTrue(
             self._has_pending_spawn("respawn-me"),
             "precondition: the dead worker's spawn must look in-flight before the fix runs",
@@ -251,7 +253,7 @@ class SpawnDeadTerminalFinalizeTests(_SpawnSeedMixin, FastApiTestCase):
             self.assertEqual(self._finalize(), 1)
 
     def test_respects_the_grace_window(self):
-        spawn_id = self._seed("just-died", died_at=api_v2._now())
+        spawn_id = self._seed("just-died", died_at=_now())
         self.assertEqual(self._finalize(), 0)
         self.assertEqual(self._spawn(spawn_id)["status"], "running")
 

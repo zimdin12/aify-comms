@@ -12,6 +12,7 @@ from service.db import get_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 from service.tests._base import FastApiTestCase
+from service.clock import now as _now
 
 
 class StartAgentSpawnPendingTests(FastApiTestCase):
@@ -47,7 +48,7 @@ class StartAgentSpawnPendingTests(FastApiTestCase):
                     INSERT INTO spawn_requests (id, spawn_spec_id, environment_id, agent_id, runtime, status, created_at, updated_at)
                     VALUES (?,?,?,?,?,?,?,?)
                     """,
-                    (f"spawn-{agent_id}", "spec-1", "env-1", agent_id, runtime, "queued", api_v2._now(), api_v2._now()),
+                    (f"spawn-{agent_id}", "spec-1", "env-1", agent_id, runtime, "queued", _now(), _now()),
                 )
                 await db.commit()
             finally:

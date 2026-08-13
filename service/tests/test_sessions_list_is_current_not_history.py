@@ -22,6 +22,7 @@ from service import control_plane as api_v2  # v0.5.3: helpers live in the contr
 from service.routers import sessions as sessions_router
 
 from service.tests._base import FastApiTestCase
+from service.env_status import environment_effective_status as _environment_effective_status
 
 
 def _iso_ago(seconds: int) -> str:
@@ -170,27 +171,27 @@ class EnvironmentDegradedAgesOfflineTests(FastApiTestCase):
 
     def test_fresh_degraded_stays_degraded(self):
         self.assertEqual(
-            api_v2._environment_effective_status(self._row("degraded", 5), offline_seconds=90),
+            _environment_effective_status(self._row("degraded", 5), offline_seconds=90),
             "degraded",
             "a heartbeating degraded bridge is still usable",
         )
 
     def test_stale_degraded_ages_to_offline(self):
         self.assertEqual(
-            api_v2._environment_effective_status(self._row("degraded", 3600), offline_seconds=90),
+            _environment_effective_status(self._row("degraded", 3600), offline_seconds=90),
             "offline",
             "a degraded bridge that stopped heartbeating is offline, not degraded forever",
         )
 
     def test_stale_online_still_ages_to_offline(self):
         self.assertEqual(
-            api_v2._environment_effective_status(self._row("online", 3600), offline_seconds=90),
+            _environment_effective_status(self._row("online", 3600), offline_seconds=90),
             "offline",
         )
 
     def test_fresh_online_stays_online(self):
         self.assertEqual(
-            api_v2._environment_effective_status(self._row("online", 5), offline_seconds=90),
+            _environment_effective_status(self._row("online", 5), offline_seconds=90),
             "online",
         )
 
@@ -200,7 +201,7 @@ class EnvironmentDegradedAgesOfflineTests(FastApiTestCase):
         for decided in ("offline", "forgotten", "disabled"):
             for age in (5, 3600):
                 self.assertEqual(
-                    api_v2._environment_effective_status(
+                    _environment_effective_status(
                         self._row(decided, age), offline_seconds=90
                     ),
                     decided,

@@ -33,6 +33,7 @@ from service.api_core.settings import DEFAULT_SETTINGS
 
 from service.tests._base import FastApiTestCase
 from service.api_core.serialization import _iso_from_ms
+from service.api_core.dispatch_sweeps import _run_contract_reminders_once
 
 
 # Every runtime is meant to behave identically — the reminder rides the
@@ -147,7 +148,7 @@ class ReplyReminderTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                result = await api_v2._run_contract_reminders_once(db, **kwargs)
+                result = await _run_contract_reminders_once(db, **kwargs)
                 await db.commit()
                 return result
             finally:

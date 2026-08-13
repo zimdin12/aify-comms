@@ -12,6 +12,8 @@ from service import main as service_main
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 from service.tests._base import FastApiTestCase
+from service.clock import now as _now
+from service.reconcilers.spawn_lifecycle import _fail_running_spawns_superseded_by_current_session
 
 
 def _iso_ago(seconds: int) -> str:
@@ -39,7 +41,7 @@ class SupersededSpawnReaperTests(FastApiTestCase):
     def _seed_env(self, env_id="env-1", bridge_id="bridge-live"):
         self._exec(
             "INSERT INTO environments (id, status, bridge_id, registered_at, last_seen) VALUES (?,?,?,?,?)",
-            (env_id, "online", bridge_id, api_v2._now(), api_v2._now()),
+            (env_id, "online", bridge_id, _now(), _now()),
         )
 
     def _seed_spawn(self, spawn_id, agent_id, *, created_ago, status="running", bridge_id="bridge-live"):
@@ -95,7 +97,7 @@ class SupersededSpawnReaperTests(FastApiTestCase):
                     return await self.connection.execute(query, params)
 
             try:
-                failed = await api_v2._fail_running_spawns_superseded_by_current_session(
+                failed = await _fail_running_spawns_superseded_by_current_session(
                     RebindBeforeUpdate(db)
                 )
                 await db.commit()

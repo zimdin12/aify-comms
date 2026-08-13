@@ -33,6 +33,7 @@ from service import control_plane as api_v2  # v0.5.3: helpers live in the contr
 from service.reconcilers import dispatch_queue
 from service.routers.api_v2 import router
 from service.api_core.liveness import _has_live_claimer_lease
+from service.clock import now as _now
 
 
 class _DummyWS:
@@ -146,7 +147,7 @@ class ClaimerLeaseStoreTests(unittest.TestCase):
         # A RELEASED lease makes the agent NOT deliverable immediately, even if a
         # stale channel-sidecar bridge row still exists within the 180s window.
         self._register_managed_hermes("hermes-lease")
-        now = api_v2._now()
+        now = _now()
         # Seed a FRESH channel-sidecar bridge row (the old fallback would call this live).
         async def _seed():
             db = await get_db()
@@ -197,7 +198,7 @@ class ClaimerLeaseStoreTests(unittest.TestCase):
         # is NOT treated as deaf). With a fresh sidecar row and NO lease ever,
         # the agent is deliverable via the fallback.
         self._register_managed_hermes("hermes-nolease")
-        now = api_v2._now()
+        now = _now()
 
         async def _seed():
             db = await get_db()

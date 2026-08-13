@@ -3,6 +3,8 @@ OR live RPC controller must show `available`, not `online`."""
 
 import sys
 from pathlib import Path
+from service.api_core.records import _agent_record_to_dict
+from service.api_core.status_refresh import _compute_agent_status
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -24,7 +26,7 @@ def test_managed_agent_no_worker_returns_available(monkeypatch):
     child registration, status must be `available` not `online`."""
     import asyncio
     from unittest import mock
-    from service.control_plane import _compute_agent_status
+    
 
     row = {
         "id": "test-managed-no-worker",
@@ -53,7 +55,7 @@ def test_managed_agent_no_worker_returns_available(monkeypatch):
 
 def test_cached_ready_status_serializes_as_online():
     """`ready` is an internal bridge signal, not a public agent status."""
-    from service.control_plane import _agent_record_to_dict
+    
 
     class Row(dict):
         def keys(self):

@@ -94,6 +94,10 @@ from service.api_core.liveness import _resident_bridge_is_fresh
 from service.api_core import dispatch_start  # v0.5.4: call the OWNER, not the carrier alias
 from service.api_core import liveness  # v0.5.4: call the OWNER
 from service.api_core import claim_gating  # v0.5.4: call the OWNER, not a re-export
+from service.api_core.status_refresh import _compute_agent_status
+from service.reconcilers.dispatch_queue import _reroute_orphaned_managed_channel_runs
+from service.reconcilers.sessions import _reconcile_duplicate_resident_sessions
+from service.reconcilers.terminals import _reconcile_stale_managed_terminals_for_resident_agents
 
 
 # Back-compat alias: a few tests below reference _DummyWS directly.
@@ -1988,7 +1992,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         }
 
         # THE GUARD PATCHES WHAT RECOMPUTATION ACTUALLY CALLS. It used to patch
-        # `api_v2._compute_agent_status`, and that was inert on two counts: `patch.object` rebinds a
+        # `_compute_agent_status`, and that was inert on two counts: `patch.object` rebinds a
         # name in ONE module's namespace and every caller had resolved its own binding at import
         # time, AND the list handler stopped calling that function at all — so the guard could not
         # fire whatever it was aimed at, and the test asserted only the cached value.
@@ -2168,7 +2172,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # currently registered as resident, those terminal_sessions
         # rows must be cleared so the dashboard doesn't render ghost
         # consoles.
-        from service.control_plane import _reconcile_stale_managed_terminals_for_resident_agents
+        
         # Set up: a managed terminal_session for an agent that is now resident.
         session_id = self._create_running_session(
             terminal=True,
@@ -14458,7 +14462,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
 
     def _run_reconcile_duplicate_resident_sessions(self):
-        from service.control_plane import _reconcile_duplicate_resident_sessions
+        
 
         async def _run():
             db = await get_db()
@@ -14567,7 +14571,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
 
     def _run_reroute_orphaned_managed_channel_runs(self):
-        from service.control_plane import _reroute_orphaned_managed_channel_runs
+        
 
         async def _run():
             db = await get_db()

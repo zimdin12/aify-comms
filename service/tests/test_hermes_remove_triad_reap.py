@@ -18,11 +18,12 @@ import asyncio
 
 from service.db import get_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
-# v0.5.2m: agents-owned helper. api_v2._now stays -- only the moved name follows the code.
+# v0.5.2m: agents-owned helper. _now stays -- only the moved name follows the code.
 from service.routers.agents import shared as agents_shared
 
 from service.tests._base import FastApiTestCase, PRE_PLAN4_SETTINGS
 from service.api_core import agent_terminal_ops  # v0.5.4: call the OWNER
+from service.clock import now as _now
 
 
 class HermesRemoveTriadReapTests(FastApiTestCase):
@@ -65,7 +66,7 @@ class HermesRemoveTriadReapTests(FastApiTestCase):
         return agent_id
 
     def _seed_terminal(self, agent_id, *, runtime="hermes", env_id="win32:test-host:default", bridge="bridge-hermes"):
-        now = api_v2._now()
+        now = _now()
         term_id = f"term_{agent_id}"
         # The environment must exist (terminal_sessions.environment_id FK).
         self.client.post(
@@ -179,7 +180,7 @@ class HermesRemoveTriadReapTests(FastApiTestCase):
             db = await get_db()
             try:
                 await agent_terminal_ops._request_stop_agent_terminals(
-                    db, agent_id, requested_by="api", now=api_v2._now(), reap_triad=True,
+                    db, agent_id, requested_by="api", now=_now(), reap_triad=True,
                 )
                 await db.commit()
             finally:

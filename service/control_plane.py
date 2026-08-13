@@ -46,17 +46,9 @@ from service.api_core.validation import SAFE_NAME_RE, validate_name  # v0.5.1f: 
 from service.api_core.runtime import (  # v0.5.1e: single owner, resolved against the contract
     _normalize_runtime,
 )
-from service.api_core.dispatch_sweeps import (
-    _run_contract_reminders_once,
-)
-from service.api_core.status_refresh import (
-    _compute_agent_status,
-    _refresh_agent_live_state,
-)
 from service.api_core.status_inputs import (
     _compute_live_status_cache,
     _gather_status_inputs,
-    engine_status,
 )
 from service.db import get_db
 from service.terminal_snapshot import render_live_screen as _render_live_terminal_screen
@@ -68,7 +60,6 @@ from service.clock import now as _now
 # existed at import time, and a later rebind in the owner would leave two dicts with reads and
 # writes landing in different ones — silently. Reach it as `status_cache._LIVE_STATE_CACHE`.
 # `service/tests/test_process_global_identity.py` fails the suite if that rule is broken.
-from service.env_status import environment_effective_status as _environment_effective_status
 from service.api_core.recovery_writes import (  # v0.5.4: moved out; the control plane is now a CALLER
     _requeue_instead_of_failing_undelivered_claim,
 )
@@ -80,12 +71,7 @@ from service.api_core.managed_env import (  # v0.5.4: moved out; the control pla
 from service.api_core.liveness import (  # v0.5.4: moved out; the control plane is now a CALLER
     ACTIVE_RUN_BRIDGE_STALE_SECONDS,
 )
-from service.api_core.records import (
-    # v0.5.4: moved out; the control plane is now a CALLER,
-    _agent_record_to_dict,
-)
 from service.env_status import _ENVIRONMENT_HEARTBEAT_STATUSES
-from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 # v0.5 slice 2: the spawn-lifecycle reconcilers moved to their own module.
 from service.reconcilers.dispatch_lifecycle import (
     _close_orphaned_managed_runs,
@@ -101,24 +87,12 @@ from service.reconcilers.dispatch_queue import (
 )
 from service.reconcilers.terminal_runs import (
     _reconcile_ended_terminal_controls,
-    _reconcile_stuck_terminal_and_session_rows,
-)
-from service.reconcilers.terminals import (
-    _prune_terminal_history,
-    _reconcile_resurrected_managed_consoles,
-    _reconcile_stale_managed_terminals_for_resident_agents,
-)
-from service.reconcilers.sessions import (
-    LIVE_SESSION_STATUSES,
-    _reconcile_duplicate_resident_sessions,
 )
 from service.reconcilers.spawn_lifecycle import (
     _fail_running_spawns_superseded_by_current_session,
     _finalize_spawns_with_dead_terminals,
 )
 from service.reconcilers.status_cache import (
-    _live_state_fresh,
-    _live_state_get,
     _prune_superseded_bridges,
     _reap_stale_orphan_bridges,
 )

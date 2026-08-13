@@ -31,6 +31,8 @@ from service import control_plane as api_v2  # v0.5.3: helpers live in the contr
 
 from service.tests._base import FastApiTestCase
 from service.api_core import terminal_ownership  # v0.5.4: patched on its OWNER, not the carrier
+from service.clock import now as _now
+from service.reconcilers.terminal_runs import _reconcile_ended_terminal_controls
 
 
 class StopControlSurvivesReconcileTests(FastApiTestCase):
@@ -49,7 +51,7 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
                     VALUES (?,?,?,?,?,?,?,?,?)
                     """,
                     (terminal_id, f"sess-{terminal_id}", "agent-1", "env-1", "bridge-1",
-                     "claude-code", terminal_status, api_v2._now(), api_v2._now()),
+                     "claude-code", terminal_status, _now(), _now()),
                 )
                 await db.execute(
                     """
@@ -59,7 +61,7 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
                     VALUES (?,?,?,?,?,?,?,?,?)
                     """,
                     (f"ctl-{terminal_id}-{action}", terminal_id, "env-1", "bridge-1", action, "",
-                     control_status, "dashboard", api_v2._now()),
+                     control_status, "dashboard", _now()),
                 )
                 await db.commit()
             finally:
@@ -71,7 +73,7 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                await api_v2._reconcile_ended_terminal_controls(db)
+                await _reconcile_ended_terminal_controls(db)
                 await db.commit()
                 row = await (await db.execute(
                     "SELECT status, error FROM terminal_controls WHERE id = ?",
@@ -112,7 +114,7 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
     # --- the SECOND copy of the same rule -------------------------------------------------
 
     def test_the_db_py_sweep_also_spares_a_stop(self):
-        """SELF-REVIEW FIND. The rule is implemented TWICE: api_v2._reconcile_ended_terminal_controls
+        """SELF-REVIEW FIND. The rule is implemented TWICE: _reconcile_ended_terminal_controls
         and db._reconcile_terminal_controls, with the same predicate and the same
         'terminal is not active' error text. Exempting the stop in only one of them fixes nothing —
         the other sweep still cancels it. This test drives the db.py path specifically, so the two
@@ -129,7 +131,7 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
                 await db.execute(
                     "INSERT OR REPLACE INTO environments (id, status, bridge_id, registered_at, last_seen) "
                     "VALUES (?,?,?,?,?)",
-                    ("env-1", "online", "bridge-1", api_v2._now(), api_v2._now()),
+                    ("env-1", "online", "bridge-1", _now(), _now()),
                 )
                 await db_module._reconcile_terminal_controls(db)
                 await db.commit()
@@ -159,7 +161,7 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
                 await db.execute(
                     "INSERT OR REPLACE INTO environments (id, status, bridge_id, registered_at, last_seen) "
                     "VALUES (?,?,?,?,?)",
-                    ("env-1", "online", "bridge-1", api_v2._now(), api_v2._now()),
+                    ("env-1", "online", "bridge-1", _now(), _now()),
                 )
                 await db_module._reconcile_terminal_controls(db)
                 await db.commit()
@@ -182,7 +184,7 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
                 await db.execute(
                     "INSERT OR REPLACE INTO environments (id, status, bridge_id, registered_at, last_seen) "
                     "VALUES (?,?,?,?,?)",
-                    (env_id, status, bridge_id, api_v2._now(), api_v2._now()),
+                    (env_id, status, bridge_id, _now(), _now()),
                 )
                 await db.commit()
             finally:
@@ -251,7 +253,7 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
             try:
                 await db.execute(
                     "UPDATE terminal_controls SET claimed_at = ? WHERE id = ?",
-                    (api_v2._now(), "ctl-term_claimed_restart-stop"),
+                    (_now(), "ctl-term_claimed_restart-stop"),
                 )
                 await db.commit()
             finally:
@@ -348,7 +350,7 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
                     VALUES (?,?,?,?,?,?,?,?,?)
                     """,
                     ("term_adopt", "sess_adopt", "adopt-agent", "env-1", "bridge-1", "claude-code",
-                     "stopping", api_v2._now(), api_v2._now()),
+                     "stopping", _now(), _now()),
                 )
                 await db.execute(
                     """
@@ -358,7 +360,7 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
                     VALUES (?,?,?,?,?,?,?,?,?,?)
                     """,
                     ("sess_adopt", "adopt-agent", "env-1", "claude-code", "managed", "running",
-                     api_v2._now(), api_v2._now(), "term_adopt", "stopping"),
+                     _now(), _now(), "term_adopt", "stopping"),
                 )
                 await db.commit()
                 return await terminal_ownership._active_terminal_for_agent(db, "adopt-agent")
@@ -405,7 +407,7 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
                     VALUES (?,?,?,?,?,?,?,?,?)
                     """,
                     ("term_mixed", "sess-mixed", "agent-1", "env-1", "bridge-1", "claude-code",
-                     "stopping", api_v2._now(), api_v2._now()),
+                     "stopping", _now(), _now()),
                 )
                 for action in ("input", "stop"):
                     await db.execute(
@@ -416,7 +418,7 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
                         VALUES (?,?,?,?,?,?,?,?,?)
                         """,
                         (f"ctl-term_mixed-{action}", "term_mixed", "env-1", "bridge-1", action, "",
-                         "pending", "dashboard", api_v2._now()),
+                         "pending", "dashboard", _now()),
                     )
                 await db.commit()
             finally:

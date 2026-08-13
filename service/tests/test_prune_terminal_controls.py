@@ -11,8 +11,9 @@ import sqlite3
 
 import aiosqlite
 
-from service.control_plane import _prune_terminal_history
+
 from service.tests._base import FastApiTestCase
+from service.reconcilers.terminals import _prune_terminal_history
 
 
 class PruneTerminalControlsRetentionTests(FastApiTestCase):

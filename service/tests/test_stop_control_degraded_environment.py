@@ -35,6 +35,7 @@ from service.db import get_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 from service.tests._base import FastApiTestCase
+from service.clock import now as _now
 
 
 class StopControlInDegradedEnvironmentTests(FastApiTestCase):
@@ -58,7 +59,7 @@ class StopControlInDegradedEnvironmentTests(FastApiTestCase):
                     VALUES (?,?,?,?,?,?,?,?,?)
                     """,
                     (terminal_id, "sess-" + terminal_id, "agent-1", env_id, control_bridge,
-                     "claude-code", terminal_status, api_v2._now(), api_v2._now()),
+                     "claude-code", terminal_status, _now(), _now()),
                 )
                 await db.execute(
                     """
@@ -68,7 +69,7 @@ class StopControlInDegradedEnvironmentTests(FastApiTestCase):
                     VALUES (?,?,?,?,?,?,?,?,?)
                     """,
                     ("ctl-" + terminal_id, terminal_id, env_id, control_bridge, action, "",
-                     control_status, "dashboard", api_v2._now()),
+                     control_status, "dashboard", _now()),
                 )
                 await db.commit()
             finally:
@@ -84,8 +85,8 @@ class StopControlInDegradedEnvironmentTests(FastApiTestCase):
                 await db.execute(
                     "INSERT OR REPLACE INTO environments (id, status, bridge_id, registered_at, last_seen) "
                     "VALUES (?,?,?,?,?)",
-                    (env_id, status, bridge_id, api_v2._now(),
-                     api_v2._now() if last_seen is None else last_seen),
+                    (env_id, status, bridge_id, _now(),
+                     _now() if last_seen is None else last_seen),
                 )
                 await db.commit()
             finally:

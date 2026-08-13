@@ -23,6 +23,10 @@ from service.routers.api_v2 import router
 
 
 from service.tests._base import FastApiTestCase
+from service.reconcilers.status_cache import (
+    _live_state_fresh,
+    _live_state_get,
+)
 
 
 class ReadyStatusEndpointTests(FastApiTestCase):
@@ -135,7 +139,7 @@ class ReadyStatusEndpointTests(FastApiTestCase):
         dashboard can keep showing a future cached ready/online status after
         the bridge has explicitly changed readiness."""
         from service.reconcilers.status_cache import _LIVE_STATE_CACHE
-        from service.control_plane import _live_state_fresh, _live_state_get
+        
         self._register("ready-cache", runtime="codex", sessionMode="managed")
         _LIVE_STATE_CACHE["ready-cache"] = {
             "status": "ready", "reason": "future-cache", "environment_id": "",

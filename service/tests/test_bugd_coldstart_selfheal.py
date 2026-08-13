@@ -28,6 +28,8 @@ from service import control_plane as api_v2  # v0.5.3: helpers live in the contr
 from service.tests._base import FastApiTestCase
 from service.api_core.settings import _load_settings
 from service.api_core import dispatch_start  # v0.5.4: call the OWNER, not the carrier alias
+from service.clock import now as _now
+from service.reconcilers.dispatch_queue import _reap_undeliverable_queued_runs
 
 
 ENV_ID = "linux:test-host:default"
@@ -140,7 +142,7 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                reaped = await api_v2._reap_undeliverable_queued_runs(db)
+                reaped = await _reap_undeliverable_queued_runs(db)
                 await db.commit()
                 return reaped
             finally:
@@ -154,7 +156,7 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
 
     def _seed_managed_agent_with_terminal(self, agent_id: str, terminal_id: str, *, pid: str = "4242"):
         """Managed codex agent + running session + attached console PTY row."""
-        now = api_v2._now()
+        now = _now()
         self._heartbeat_environment()
         self._register(agent_id, runtime="codex", sessionMode="managed")
         self._execute(
@@ -198,14 +200,14 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
             """,
             (
                 bridge_id, agent_id, "linux:test-host", "codex", "managed", "",
-                "", "managed-wrapper-child", api_v2._now(),
-                last_seen or api_v2._now(), "", None,
+                "", "managed-wrapper-child", _now(),
+                last_seen or _now(), "", None,
             ),
         )
 
     def _seed_spawn_request(self, request_id: str, agent_id: str, *, status: str,
                             created_at: str = "", updated_at: str = "", session_id: str = ""):
-        now = api_v2._now()
+        now = _now()
         spec_id = f"spec_{request_id}"
         self._execute(
             """
@@ -248,7 +250,7 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
             (
                 run_id, None, from_agent, target_agent, "start_if_possible",
                 "managed", "codex", "request", "work", "body", "normal",
-                "queued", 1, requested_at or api_v2._now(),
+                "queued", 1, requested_at or _now(),
             ),
         )
 

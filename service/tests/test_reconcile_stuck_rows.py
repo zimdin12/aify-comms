@@ -11,8 +11,9 @@ import sqlite3
 
 import aiosqlite
 
-from service.control_plane import _reconcile_stuck_terminal_and_session_rows
+
 from service.tests._base import FastApiTestCase
+from service.reconcilers.terminal_runs import _reconcile_stuck_terminal_and_session_rows
 
 
 class ReconcileStuckRowsTests(FastApiTestCase):

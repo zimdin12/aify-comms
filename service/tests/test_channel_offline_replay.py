@@ -22,6 +22,8 @@ from service import control_plane as api_v2  # v0.5.3: helpers live in the contr
 from service.routers import channels as channels_router
 
 from service.tests._base import FastApiTestCase
+from service.clock import now as _now
+from service.reconcilers.dispatch_queue import _replay_undelivered_channel_messages_on_env_recovery
 
 
 ENV_ID = "linux:test-host:default"
@@ -107,7 +109,7 @@ class ChannelOfflineReplayTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                replayed = await api_v2._replay_undelivered_channel_messages_on_env_recovery(db)
+                replayed = await _replay_undelivered_channel_messages_on_env_recovery(db)
                 await db.commit()
                 return replayed
             finally:
@@ -117,7 +119,7 @@ class ChannelOfflineReplayTests(FastApiTestCase):
 
     def _seed_managed_member(self, agent_id: str):
         """Managed codex agent bound to ENV_ID via a running session."""
-        now = api_v2._now()
+        now = _now()
         self._heartbeat_environment()
         self._register(agent_id, runtime="codex", sessionMode="managed")
         self._execute(
@@ -209,7 +211,7 @@ class ChannelOfflineReplayTests(FastApiTestCase):
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             ("run_R1", None, "poster", "m-merge", "start_if_possible", "managed",
-             "message", "Earlier", "earlier body", "normal", "queued", 0, api_v2._now()),
+             "message", "Earlier", "earlier body", "normal", "queued", 0, _now()),
         )
         # fB: a new channel post stored while env was offline (same sender 'poster').
         fB = self._seed_channel_inbox_message("cmsg-new", "m-merge", from_agent="poster")
@@ -235,7 +237,7 @@ class ChannelOfflineReplayTests(FastApiTestCase):
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             ("run_existing", fanout, "poster", "m-dup", "start_if_possible", "managed",
-             "message", "Roll call", "please report status", "normal", "queued", 0, api_v2._now()),
+             "message", "Roll call", "please report status", "normal", "queued", 0, _now()),
         )
         replayed = self._run_replay()
         self.assertEqual(replayed, [], "member already has a run → no replay")
@@ -246,7 +248,7 @@ class ChannelOfflineReplayTests(FastApiTestCase):
         fanout = self._seed_channel_inbox_message("cmsg-4", "m-read")
         self._execute(
             "INSERT INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
-            (fanout, "m-read", api_v2._now()),
+            (fanout, "m-read", _now()),
         )
         replayed = self._run_replay()
         self.assertEqual(replayed, [], "already-read message → no replay")

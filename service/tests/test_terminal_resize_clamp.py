@@ -10,6 +10,7 @@ from service.db import get_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 from service.tests._base import FastApiTestCase
+from service.clock import now as _now
 
 
 class TerminalResizeClampTests(FastApiTestCase):
@@ -22,14 +23,14 @@ class TerminalResizeClampTests(FastApiTestCase):
                 await db.execute("PRAGMA foreign_keys=OFF")
                 await db.execute(
                     "INSERT INTO environments (id, registered_at, last_seen) VALUES (?,?,?)",
-                    ("env-1", api_v2._now(), api_v2._now()),
+                    ("env-1", _now(), _now()),
                 )
                 await db.execute(
                     """
                     INSERT INTO terminal_sessions (id, agent_id, environment_id, runtime, status, session_id, created_at, updated_at)
                     VALUES (?,?,?,?,?,?,?,?)
                     """,
-                    (terminal_id, agent_id, "env-1", "claude-code", "attached", "sess-1", api_v2._now(), api_v2._now()),
+                    (terminal_id, agent_id, "env-1", "claude-code", "attached", "sess-1", _now(), _now()),
                 )
                 await db.commit()
             finally:
