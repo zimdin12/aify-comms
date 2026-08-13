@@ -20,8 +20,17 @@
 // its wrapper handed it in the environment. This is what the process observably IS, minted rather than
 // received, and it exists even for a bridge with no agent identity at all.
 //
+// `BRIDGE_STARTED_AT` IS THE SAME INSTANCE'S OTHER HALF: which process, and since when. It is sent beside
+// the id on registration and on every status report, and the control plane reads the pair to decide which
+// of two bridges claiming an environment is the newcomer. It needs exactly the two properties above —
+// minted once, stable for the process's life — and it is time-varying, so a second `new Date()` elsewhere
+// would produce a bridge that reported two different start times depending on which reader answered.
+// That is why it is owned here rather than re-derived by anyone who needs it, and it is the difference
+// between this and `MACHINE_ID`, which is a pure function of the host and may safely be derived anywhere.
+//
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
 import { randomUUID } from "crypto";
 
 export const BRIDGE_INSTANCE_ID = randomUUID();
+export const BRIDGE_STARTED_AT = new Date().toISOString();

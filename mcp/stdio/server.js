@@ -61,7 +61,7 @@ import {
 import {
   baseAgentHeartbeatFields, currentTurnHeartbeatFields, reportTurnBusy,
 } from "./agent-heartbeat.mjs";
-import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
+import { BRIDGE_INSTANCE_ID, BRIDGE_STARTED_AT } from "./bridge-instance.mjs";
 import { clearLocalActiveRun, reconcileLocalActiveRun } from "./local-active-run.mjs";
 import {
   armClaudeTurnEndDetector, isClaudeTurnDetectorArmed, stopClaudeTurnEndDetector,
@@ -193,7 +193,6 @@ const MACHINE_ID = defaultMachineId();
 // `bridgeVersion` on registration and the startup banner, so a stale literal here misreported
 // the bridge's version to the control plane too, not just to MCP clients.
 const BRIDGE_VERSION = AIFY_VERSION;
-const BRIDGE_STARTED_AT = new Date().toISOString();
 
 // Compute a build tag the user can paste from an error message to prove
 // which code is actually running. Reads .git/HEAD next to this script so

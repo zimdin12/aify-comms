@@ -20,7 +20,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { BRIDGE_INSTANCE_ID } from "../bridge-instance.mjs";
+import { BRIDGE_INSTANCE_ID, BRIDGE_STARTED_AT } from "../bridge-instance.mjs";
 import { declaringModules } from "./bridge-sources.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -89,8 +89,14 @@ test("it is not derived from anything an operator can collide", () => {
   // A machine name, a pid, or a timestamp would all collide in the situations that matter most: two bridges
   // started on the same host, in the same second, for the same environment. `randomUUID` is the point.
   const src = readFileSync(path.join(STDIO, "bridge-instance.mjs"), "utf-8");
-  assert.match(src, /randomUUID\(\)/, "the id must be random, not derived");
-  assert.doesNotMatch(src, /process\.(pid|ppid)|hostname|Date\.now|MACHINE_ID/,
+  // SCOPED TO THE ID'S OWN DECLARATION, not the whole file. It used to scan the file, which was fine while
+  // the module held one name — but `BRIDGE_STARTED_AT` is legitimately a clock read, and a whole-file scan
+  // would either fail on it or (as `new Date()` is not `Date.now`) pass by luck while no longer checking
+  // anything. The property belongs to the ID, so the assertion is pinned to the ID.
+  const idLine = src.match(/^export const BRIDGE_INSTANCE_ID = .*$/m)?.[0];
+  assert.ok(idLine, "the id must still be a module-scope export");
+  assert.match(idLine, /randomUUID\(\)/, "the id must be random, not derived");
+  assert.doesNotMatch(idLine, /process\.(pid|ppid)|hostname|Date|MACHINE_ID/,
     "no host, pid or clock input — those collide exactly when it matters");
 });
 
@@ -103,10 +109,50 @@ test("exactly one module declares it, and the bridge still reads it", () => {
   assert.match(server, /(?<![\w.])BRIDGE_INSTANCE_ID(?![\w])/, "server.js is still expected to read it");
 });
 
+test("BRIDGE_STARTED_AT is minted once and is a real instant", () => {
+  // The instance's other half: which process, and since when. The control plane reads the pair to decide
+  // which of two bridges claiming an environment is the newcomer, so a start time that drifted between
+  // readers would make a bridge look like two.
+  assert.equal(BRIDGE_STARTED_AT, BRIDGE_STARTED_AT, "stable within the process");
+  const t = Date.parse(BRIDGE_STARTED_AT);
+  assert.ok(Number.isFinite(t), `must parse as an instant, got ${JSON.stringify(BRIDGE_STARTED_AT)}`);
+  assert.match(BRIDGE_STARTED_AT, /Z$/, "ISO-8601 UTC — the service compares these as strings");
+  // In the past, but not absurdly so: this asserts it was captured at THIS process's start rather than
+  // hardcoded or read from somewhere stale.
+  const age = Date.now() - t;
+  assert.ok(age >= 0 && age < 120_000, `should be this process's start, was ${age}ms ago`);
+});
+
+test("a second import does NOT re-mint either value", () => {
+  // The property that makes them owned rather than derived. ESM caches the module, so every importer sees
+  // the same two values — which is the whole reason `BRIDGE_STARTED_AT` moved here instead of each reader
+  // calling `new Date()`.
+  return import("../bridge-instance.mjs").then((m) => {
+    assert.equal(m.BRIDGE_INSTANCE_ID, BRIDGE_INSTANCE_ID, "the id must not be re-minted per import");
+    assert.equal(m.BRIDGE_STARTED_AT, BRIDGE_STARTED_AT, "nor the start time");
+  });
+});
+
+test("exactly one module declares the start time too", () => {
+  assert.deepEqual(
+    declaringModules("BRIDGE_STARTED_AT"), [{ file: "bridge-instance.mjs", kind: "binding" }],
+    "a second declaration would let one bridge report two different start times",
+  );
+  const server = readFileSync(path.join(STDIO, "server.js"), "utf-8");
+  assert.match(server, /(?<![\w.])BRIDGE_STARTED_AT(?![\w])/, "server.js still reports it");
+  assert.doesNotMatch(server, /^const BRIDGE_STARTED_AT/m, "and must not re-declare it");
+});
+
 test("the owner holds nothing else", () => {
   const src = readFileSync(path.join(STDIO, "bridge-instance.mjs"), "utf-8");
   const imports = [...src.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
   assert.deepEqual(imports, ["crypto"], "one import: the uuid source");
-  assert.equal((src.match(/^export /gm) || []).length, 1, "one export");
-  assert.doesNotMatch(src, /^let\s/m, "no mutable state — the id must not be reassignable");
+  // Two exports, named rather than counted: a third arriving should be a decision about what this module's
+  // subject IS, not something that slips in under a number.
+  assert.deepEqual(
+    (src.match(/^export const (\w+)/gm) || []).map((m) => m.split(" ").pop()).sort(),
+    ["BRIDGE_INSTANCE_ID", "BRIDGE_STARTED_AT"],
+    "this module owns the identity and lifetime of THIS bridge process, and nothing else",
+  );
+  assert.doesNotMatch(src, /^let\s/m, "no mutable state — neither value may be reassignable");
 });
