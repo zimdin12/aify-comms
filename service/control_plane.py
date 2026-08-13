@@ -46,9 +46,6 @@ from service.api_core.validation import SAFE_NAME_RE, validate_name  # v0.5.1f: 
 from service.api_core.runtime import (  # v0.5.1e: single owner, resolved against the contract
     _normalize_runtime,
 )
-from service.api_core.dispatch_runs import (
-    _create_dispatch_runs,
-)
 from service.api_core.dispatch_sweeps import (
     _run_contract_reminders_once,
 )
@@ -90,15 +87,9 @@ from service.api_core.records import (
 from service.env_status import _ENVIRONMENT_HEARTBEAT_STATUSES
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 # v0.5 slice 2: the spawn-lifecycle reconcilers moved to their own module.
-from service.reconcilers.managed_workers import (
-    _reconcile_managed_worker_hygiene,
-    _repair_unusable_active_runs,
-)
 from service.reconcilers.dispatch_lifecycle import (
-    _clear_turn_busy_for_dead_bridges,
     _close_orphaned_managed_runs,
     _fail_stranded_delivered_reply_runs,
-    _prune_orphaned_dispatch_runs,
     _sweep_unmirrored_failed_handoffs,
 )
 from service.reconcilers.dispatch_queue import (
@@ -109,28 +100,21 @@ from service.reconcilers.dispatch_queue import (
     _reroute_orphaned_managed_channel_runs,
 )
 from service.reconcilers.terminal_runs import (
-    _close_active_terminal_runs_for_terminal,
     _reconcile_ended_terminal_controls,
     _reconcile_stuck_terminal_and_session_rows,
 )
 from service.reconcilers.terminals import (
-    _close_idle_virtual_rpc_workers,
     _prune_terminal_history,
     _reconcile_resurrected_managed_consoles,
     _reconcile_stale_managed_terminals_for_resident_agents,
 )
-from service.reconcilers.terminal_consistency import _repair_terminal_session_consistency
 from service.reconcilers.sessions import (
     LIVE_SESSION_STATUSES,
-    _compute_session_display_status,
-    _reconcile_dead_session_status,
     _reconcile_duplicate_resident_sessions,
 )
 from service.reconcilers.spawn_lifecycle import (
-    _fail_orphaned_running_spawn_requests,
     _fail_running_spawns_superseded_by_current_session,
     _finalize_spawns_with_dead_terminals,
-    _repair_spawn_requests_from_initial_dispatch_failures,
 )
 from service.reconcilers.status_cache import (
     _live_state_fresh,

@@ -21,6 +21,53 @@ from service.api_core.turn_state import TURN_BUSY_STALE_SECONDS, _turn_busy_stat
 from service.api_core.settings import DEFAULT_SETTINGS
 from service.api_core.virtual_rpc import VIRTUAL_PI_RPC_COMMAND
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
+# REPOINTED AT OWNERS in v0.5.4. Every name below used to be reached as `api_v2.X` through
+# `service.control_plane`, which declares no functions and merely re-exports them. That indirection
+# is what made three patches in this file silently inert, and it keeps pass-through imports alive in
+# a module that should not have any.
+from service.api_core.dispatch_runs import _create_dispatch_runs
+from service.api_core.dispatch_sweeps import _run_contract_reminders_once
+from service.api_core.status_inputs import _compute_live_status_cache
+from service.clock import now as _now
+from service.reconcilers.dispatch_lifecycle import (
+    _clear_turn_busy_for_dead_bridges,
+    _close_orphaned_managed_runs,
+    _prune_orphaned_dispatch_runs,
+)
+from service.reconcilers.dispatch_queue import (
+    _close_reconcilable_delivered_runs,
+    _reap_undeliverable_queued_runs,
+    _requeue_orphaned_claimed_runs,
+)
+from service.reconcilers.managed_workers import (
+    _reconcile_managed_worker_hygiene,
+    _repair_unusable_active_runs,
+)
+from service.reconcilers.sessions import (
+    _compute_session_display_status,
+    _reconcile_dead_session_status,
+)
+from service.reconcilers.spawn_lifecycle import (
+    _fail_orphaned_running_spawn_requests,
+    _repair_spawn_requests_from_initial_dispatch_failures,
+)
+from service.reconcilers.status_cache import (
+    _live_state_fresh,
+    _live_state_get,
+    _prune_superseded_bridges,
+    invalidate_agent_live_state as _invalidate_agent_live_state,
+)
+from service.reconcilers.terminal_consistency import _repair_terminal_session_consistency
+from service.reconcilers.terminal_runs import (
+    _close_active_terminal_runs_for_terminal,
+    _reconcile_ended_terminal_controls,
+)
+from service.reconcilers.terminals import (
+    _close_idle_virtual_rpc_workers,
+    _prune_terminal_history,
+)
+from service.routers.spawn_requests import list_spawn_requests
+from service.terminal_write_queue import TerminalOutputWriteQueue
 # PATCH WHAT THE PATH ACTUALLY CALLS. `patch.object` rebinds a name in ONE module's namespace, and a
 # caller that resolved its own binding at import time never sees it — so a patch aimed at a module
 # that merely RE-EXPORTS the name is inert. `test_agents_list_uses_cached_live_status_...` below was
@@ -210,7 +257,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         async def reconcile():
             db = await get_db()
             try:
-                closed = await api_v2._close_reconcilable_delivered_runs(
+                closed = await _close_reconcilable_delivered_runs(
                     db,
                     stale_hours=24,
                 )
@@ -1485,7 +1532,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         async def _run_repair():
             db = await get_db()
             try:
-                await api_v2._repair_unusable_active_runs(db)
+                await _repair_unusable_active_runs(db)
                 await db.commit()
             finally:
                 await db.close()
@@ -1779,7 +1826,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_terminal_output_flushes_serialize_database_writes(self):
         async def _run():
-            queue = api_v2.TerminalOutputWriteQueue()
+            queue = TerminalOutputWriteQueue()
             active = 0
             max_active = 0
             first_started = asyncio.Event()
@@ -2077,7 +2124,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         status-F1 (2026-05-31) requires a live, non-superseded channel-sidecar for
         a managed claude to be `online`/`blocked` — the wrapper PTY only renders.
         Test setups that model a LIVE managed claude must include it."""
-        now = api_v2._now()
+        now = _now()
         self._execute(
             """
             INSERT OR REPLACE INTO bridge_instances (
@@ -2165,7 +2212,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         """B1 helper: seed a MANAGED claude-code agent whose runtime_state
         points at an `attached` (non-vterm) terminal_sessions row, the exact
         shape that produces a ghost console when the worker dies."""
-        now = api_v2._now()
+        now = _now()
         # Environment + agent via the proven HTTP fixtures (creates the env row
         # the terminal/session FKs require).
         self._heartbeat_environment(
@@ -2255,7 +2302,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         async def _run():
             db = await _get_db()
             try:
-                result = await api_v2._reconcile_managed_worker_hygiene(db)
+                result = await _reconcile_managed_worker_hygiene(db)
                 await db.commit()
                 return result
             finally:
@@ -2270,7 +2317,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         async def _run():
             db = await _get_db()
             try:
-                return await api_v2._fail_orphaned_running_spawn_requests(db, offline_seconds=90)
+                return await _fail_orphaned_running_spawn_requests(db, offline_seconds=90)
             finally:
                 await db.close()
 
@@ -2288,7 +2335,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             runtimes=[{"runtime": "claude-code", "modes": ["managed-warm"]}],
         )
         old = "2020-01-01T00:00:00Z"
-        fresh = api_v2._now()
+        fresh = _now()
         # Minimal spawn_spec to satisfy the spawn_requests.spawn_spec_id FK.
         self._execute(
             """INSERT INTO spawn_specs (id, agent_id, environment_id, runtime, created_at, updated_at)
@@ -2358,7 +2405,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # is alive; a live-but-idle console must NOT be reaped.
         terminal_id = "term_live_console"
         self._seed_managed_claude_with_attached_terminal("live-claude", terminal_id)
-        now = api_v2._now()
+        now = _now()
         self._execute(
             """
             INSERT INTO bridge_instances (
@@ -2417,7 +2464,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         shape that, pre-WS3, manufactured `online` from console presence ALONE
         (no live channel sidecar = no live claimer). Mirrors the claude helper
         but with runtime='hermes' and a hermes-aify console command."""
-        now = api_v2._now()
+        now = _now()
         self._heartbeat_environment(
             id="linux:test-host:default",
             bridgeId="bridge-current",
@@ -2543,7 +2590,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # aify-comms claimer. Mirrors the hermes channel-sidecar gate.
         agent_id = "online-codex"
         terminal_id = "term_codex_failed_console"
-        now = api_v2._now()
+        now = _now()
         self._heartbeat_environment(
             id="linux:test-host:default",
             bridgeId="bridge-current",
@@ -2659,7 +2706,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         status_cache._LIVE_STATE_CACHE["dead-pty-hermes"] = {
             "status": "online", "reason": "", "environment_id": "",
             "session_id": "", "terminal_id": "", "active_run_id": "",
-            "refresh_after": "", "updated_at": api_v2._now(),
+            "refresh_after": "", "updated_at": _now(),
         }
 
         resp = self.client.post(
@@ -2672,7 +2719,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(term["status"], "stopped", term)
         self.assertIn("host pid not alive", term["error"] or "")
         self.assertIsNone(
-            api_v2._live_state_fresh("dead-pty-hermes"),
+            _live_state_fresh("dead-pty-hermes"),
             "agent live-state must be invalidated on host-reported dead PTY",
         )
 
@@ -2710,7 +2757,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                n = await api_v2._prune_orphaned_dispatch_runs(db, **kwargs)
+                n = await _prune_orphaned_dispatch_runs(db, **kwargs)
                 await db.commit()
                 return n
             finally:
@@ -2737,12 +2784,12 @@ class ApiV2RegressionTests(FastApiTestCase):
         # tombstoned (or unknown) and older than the TTL are pruned. Live agents'
         # history and non-terminal runs are never touched.
         old = "2026-05-01T00:00:00Z"  # well past a 24h TTL relative to "now"
-        recent = api_v2._now()
+        recent = _now()
 
         # Tombstone a removed target agent.
         self._execute(
             "INSERT INTO agent_tombstones (agent_id, removed_at) VALUES (?,?)",
-            ("ghost-target", api_v2._now()),
+            ("ghost-target", _now()),
         )
         # A live agent that must NEVER have its history pruned.
         self._register("live-agent")
@@ -2777,9 +2824,9 @@ class ApiV2RegressionTests(FastApiTestCase):
         # recent audit history is briefly retained.
         self._execute(
             "INSERT INTO agent_tombstones (agent_id, removed_at) VALUES (?,?)",
-            ("fresh-ghost", api_v2._now()),
+            ("fresh-ghost", _now()),
         )
-        self._seed_dispatch_run("run_fresh", from_agent="dashboard", target_agent="fresh-ghost", status="completed", requested_at=api_v2._now())
+        self._seed_dispatch_run("run_fresh", from_agent="dashboard", target_agent="fresh-ghost", status="completed", requested_at=_now())
         deleted = self._run_prune_orphaned_dispatch_runs(ttl_hours=24)
         self.assertEqual(deleted, 0)
         self.assertIsNotNone(self._fetchone("SELECT id FROM dispatch_runs WHERE id = ?", ("run_fresh",)))
@@ -2817,7 +2864,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         status_cache._LIVE_STATE_CACHE["orphan-claude"] = {
             "status": "online", "reason": "stale", "environment_id": "",
             "session_id": "", "terminal_id": "", "active_run_id": "",
-            "refresh_after": "2099-01-01T00:00:00Z", "updated_at": api_v2._now(),
+            "refresh_after": "2099-01-01T00:00:00Z", "updated_at": _now(),
         }
         # Newest terminal row terminal-state with stopped_at ~200s in the past.
         old = "2000-01-01T00:00:00Z"
@@ -2833,7 +2880,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         rs = json.loads(agent["runtime_state"] or "{}")
         self.assertNotIn("consoleTerminal", rs, f"consoleTerminal pointer must be cleared; got {rs!r}")
         self.assertIsNone(
-            api_v2._live_state_fresh("orphan-claude"),
+            _live_state_fresh("orphan-claude"),
             "agent live-state must be invalidated (dropped)",
         )
         event = self._fetchone(
@@ -2867,7 +2914,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             db = await get_db()
             try:
                 row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-                return await api_v2._compute_live_status_cache(db, row)
+                return await _compute_live_status_cache(db, row)
             finally:
                 await db.close()
         return asyncio.run(_run())
@@ -2889,7 +2936,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             runtimes=[{"runtime": "hermes", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
         )
         self._register("mgr-orphan-avail", runtime="hermes", sessionMode="managed")
-        now = api_v2._now()
+        now = _now()
         # Orphaned, NON-live session row owned by an OLD (now-dead) worker bridge,
         # bound to the SAME environment whose CURRENT bridge is "env-bridge-current".
         self._execute(
@@ -2928,7 +2975,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # the backstop window accordingly (justified: it encoded the superseded
         # timer-as-primary behavior).
         self._register("tb-refresh-claude", runtime="claude-code", sessionMode="resident")
-        now = api_v2._now()
+        now = _now()
         self._execute(
             """
             INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
@@ -2979,7 +3026,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             (stale_at, "bridge-stale-busy"),
         )
         # Fresh turn_busy=1 (a missed turn-end left it set on a now-dead worker).
-        now = api_v2._now()
+        now = _now()
         self._execute(
             """
             INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
@@ -3031,7 +3078,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # fire — this isolates the turn_busy → status path.
         self._execute(
             "UPDATE bridge_instances SET last_seen=? WHERE id=?",
-            (api_v2._now(), "bridge-pure-event"),
+            (_now(), "bridge-pure-event"),
         )
         # turn_busy set by a START event, aged PAST the old 120s window but well
         # WITHIN the long ceiling, with NO re-pulse.
@@ -3072,7 +3119,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self._seed_managed_hermes_with_attached_terminal("turnend-hermes", terminal_id)
         self._stamp_live_channel_sidecar("turnend-hermes", runtime="hermes")  # live claimer
         # Mid-turn: fresh turn_busy=1 → working.
-        now = api_v2._now()
+        now = _now()
         self._execute(
             """
             INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
@@ -3125,7 +3172,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.client.post("/api/v1/agents/queue-hermes/claimer-lease", json={
             "action": "acquire", "bridgeId": "channel-linux:test-host-queue-hermes",
         })
-        now = api_v2._now()
+        now = _now()
         # Mid-turn: fresh turn_busy=1.
         self._execute(
             """
@@ -3197,7 +3244,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                 turn_bridge_id = excluded.turn_bridge_id, turn_runtime = excluded.turn_runtime,
                 turn_updated_at = excluded.turn_updated_at
             """,
-            (agent_id, run_id, bridge_id, runtime, api_v2._now()),
+            (agent_id, run_id, bridge_id, runtime, _now()),
         )
 
     def _seed_queued_dispatch_run(self, run_id: str, target: str, *, execution_mode: str, require_reply: int = 0, from_agent: str = "sc-claude", queue_if_busy: int = 0, steer_if_busy: int = 0):
@@ -3212,7 +3259,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             (
                 run_id, None, from_agent, target, "start_if_possible", execution_mode,
                 "info", "fyi", "for your info", "normal", "queued", require_reply,
-                queue_if_busy, steer_if_busy, api_v2._now(),
+                queue_if_busy, steer_if_busy, _now(),
             ),
         )
 
@@ -3311,7 +3358,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             require_reply=1,
             from_agent="lead",
         )
-        self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", (api_v2._now(), "run_hermes_active"))
+        self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", (_now(), "run_hermes_active"))
         self._seed_fresh_turn_busy(
             "hermes-coder",
             "run_hermes_active",
@@ -3320,9 +3367,9 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
 
         async def _create_channel_steer():
-            db = await api_v2.get_db()
+            db = await get_db()
             try:
-                runs = await api_v2._create_dispatch_runs(
+                runs = await _create_dispatch_runs(
                     db,
                     from_agent="lead",
                     recipients=["hermes-coder"],
@@ -3582,11 +3629,11 @@ class ApiV2RegressionTests(FastApiTestCase):
         status_cache._LIVE_STATE_CACHE["hb-turn-claude"] = {
             "status": "online", "reason": "cached", "environment_id": "",
             "session_id": "", "terminal_id": "", "active_run_id": "",
-            "refresh_after": "2099-01-01T00:00:00Z", "updated_at": api_v2._now(),
+            "refresh_after": "2099-01-01T00:00:00Z", "updated_at": _now(),
         }
         # Pre-condition: the cache entry exists.
         self.assertIsNotNone(
-            api_v2._live_state_get("hb-turn-claude"),
+            _live_state_get("hb-turn-claude"),
             "precondition: live_state cache entry must exist before heartbeat",
         )
 
@@ -3601,7 +3648,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertIsNone(
-            api_v2._live_state_fresh("hb-turn-claude"),
+            _live_state_fresh("hb-turn-claude"),
             "turnBusy heartbeat must invalidate the live_state cache entry (expire it, so the next read recomputes)",
         )
 
@@ -3685,7 +3732,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         status_cache._LIVE_STATE_CACHE[agent_id] = {
             "status": status, "reason": "seeded", "environment_id": "",
             "session_id": "", "terminal_id": "", "active_run_id": "",
-            "refresh_after": "2099-01-01T00:00:00Z", "updated_at": api_v2._now(),
+            "refresh_after": "2099-01-01T00:00:00Z", "updated_at": _now(),
         }
 
     def test_virtual_worker_start_invalidates_live_state(self):
@@ -3701,7 +3748,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {}}],
         )
         self._register("vw-pi", runtime="pi", sessionMode="managed")
-        now = api_v2._now()
+        now = _now()
         self._execute(
             """
             INSERT INTO agent_sessions (
@@ -3714,7 +3761,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self._seed_cached_live_state("vw-pi")
         self.assertIsNotNone(
-            api_v2._live_state_get("vw-pi"),
+            _live_state_get("vw-pi"),
             "precondition: cached live_state entry must exist",
         )
 
@@ -3730,7 +3777,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             "precondition: virtualTerminalId must be set by the start path",
         )
         self.assertIsNone(
-            api_v2._live_state_fresh("vw-pi"),
+            _live_state_fresh("vw-pi"),
             "virtual worker start must invalidate the live_state cache entry (expire it, so the next read recomputes)",
         )
 
@@ -3748,7 +3795,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {}}],
         )
         self._register("cs-pi", runtime="pi", sessionMode="managed")
-        now = api_v2._now()
+        now = _now()
         self._execute(
             """
             INSERT INTO agent_sessions (
@@ -3777,7 +3824,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self._seed_cached_live_state("cs-pi", status="online")
         self.assertIsNotNone(
-            api_v2._live_state_get("cs-pi"),
+            _live_state_get("cs-pi"),
             "precondition: cached live_state entry must exist",
         )
 
@@ -3793,7 +3840,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertIsNotNone(event, "precondition: reconcile branch must have fired")
         self.assertIsNone(
-            api_v2._live_state_fresh("cs-pi"),
+            _live_state_fresh("cs-pi"),
             "console-stop reconcile must invalidate the live_state cache entry (expire it, so the next read recomputes)",
         )
 
@@ -3840,7 +3887,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {}}],
         )
         self._register("envdis-pi", runtime="pi", sessionMode="managed")
-        now = api_v2._now()
+        now = _now()
         self._execute(
             """
             INSERT INTO agent_sessions (
@@ -3853,7 +3900,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self._seed_cached_live_state("envdis-pi", status="online")
         self.assertIsNotNone(
-            api_v2._live_state_get("envdis-pi"),
+            _live_state_get("envdis-pi"),
             "precondition: cached live_state entry must exist",
         )
 
@@ -3865,7 +3912,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         agent = self._fetchone("SELECT status FROM agents WHERE id = ?", ("envdis-pi",))
         self.assertEqual(agent["status"], "offline", agent)
         self.assertIsNone(
-            api_v2._live_state_fresh("envdis-pi"),
+            _live_state_fresh("envdis-pi"),
             "env-disable must invalidate (drop) bound agents' live_state cache entries",
         )
 
@@ -3879,7 +3926,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             "active_managed_run_wall_ceiling_minutes": 30,
         })
         self._register("aged-hermes", runtime="hermes", sessionMode="managed")
-        live_seen = api_v2._now()
+        live_seen = _now()
         self._execute(
             """
             INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen)
@@ -3923,7 +3970,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._close_orphaned_managed_runs(db, limit=10)
+                return await _close_orphaned_managed_runs(db, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -3936,7 +3983,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         fresh_row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_aged_fresh",))
         self.assertEqual(fresh_row["status"], "running")
         self.assertIsNone(
-            api_v2._live_state_fresh("aged-hermes"),
+            _live_state_fresh("aged-hermes"),
             "aging out a stale run must invalidate the agent's live_state cache entry",
         )
 
@@ -3964,7 +4011,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._requeue_orphaned_claimed_runs(db, **kwargs)
+                return await _requeue_orphaned_claimed_runs(db, **kwargs)
             finally:
                 await db.commit()
                 await db.close()
@@ -4000,7 +4047,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertIsNotNone(event, "requeued_orphaned_claim event must be appended")
         self.assertIn("dead-bridge", (event["body"] or ""), "event should note the dead bridge id")
         self.assertIsNone(
-            api_v2._live_state_fresh("orphan-claim-hermes"),
+            _live_state_fresh("orphan-claim-hermes"),
             "requeue must invalidate the agent's false-busy live_state cache entry",
         )
 
@@ -4008,7 +4055,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # GUARD: a claimed run whose claim bridge IS fresh/live is genuinely being
         # delivered right now — must NOT be requeued.
         self._register("live-claim-hermes", runtime="hermes", sessionMode="managed")
-        live_seen = api_v2._now()
+        live_seen = _now()
         self._execute(
             """
             INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen)
@@ -4043,7 +4090,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # Even if a delivered event is present and bridge is dead, do not touch it.
         self._execute(
             "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
-            ("run_delivered", "delivered", "", api_v2._now()),
+            ("run_delivered", "delivered", "", _now()),
         )
 
         requeued = self._run_requeue_orphaned_claimed()
@@ -4059,7 +4106,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self._seed_claimed_run("run_delivered_evt", "delivered-evt-hermes", claim_bridge_id="dead-bridge", claimed_minutes_ago=5)
         self._execute(
             "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
-            ("run_delivered_evt", "delivered", "", api_v2._now()),
+            ("run_delivered_evt", "delivered", "", _now()),
         )
 
         requeued = self._run_requeue_orphaned_claimed()
@@ -4083,7 +4130,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._clear_turn_busy_for_dead_bridges(db, **kwargs)
+                return await _clear_turn_busy_for_dead_bridges(db, **kwargs)
             finally:
                 await db.commit()
                 await db.close()
@@ -4116,7 +4163,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(row["turn_bridge_id"] or "", "")
         self.assertEqual(row["turn_run_id"] or "", "")
         self.assertIsNone(
-            api_v2._live_state_fresh("ci-senior-dev"),
+            _live_state_fresh("ci-senior-dev"),
             "clearing a stuck turn_busy must invalidate the false-working live_state cache entry",
         )
 
@@ -4124,7 +4171,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # GUARD: turn_bridge_id IS a fresh, heartbeating bridge — the loop is
         # genuinely mid-delivery. turn_busy must NOT be cleared (no early turn-end).
         self._register("live-turn-hermes", runtime="hermes", sessionMode="managed")
-        live_seen = api_v2._now()
+        live_seen = _now()
         self._execute(
             """
             INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen)
@@ -4173,7 +4220,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._reap_undeliverable_queued_runs(db, **kwargs)
+                return await _reap_undeliverable_queued_runs(db, **kwargs)
             finally:
                 await db.commit()
                 await db.close()
@@ -4209,7 +4256,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertIsNotNone(mirror, "an undeliverable queued run must mirror a reply to the sender")
         # Status cache invalidated so the agent stops showing false `online`.
         self.assertIsNone(
-            api_v2._live_state_fresh("deaf-hermes"),
+            _live_state_fresh("deaf-hermes"),
             "reaping must invalidate the target's live_state cache entry",
         )
 
@@ -6824,13 +6871,13 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(failed.status_code, 200, failed.text)
 
         # The spawn-request repair runs in the reconcile loop, not on the read
-        # path (GET /spawn-requests is a pure read — see api_v2.list_spawn_requests).
+        # path (GET /spawn-requests is a pure read — see list_spawn_requests).
         # Invoke the repair directly here, the same way the reconcile loop does.
         async def _run_repair():
             db = await get_db()
             try:
-                await api_v2._repair_spawn_requests_from_initial_dispatch_failures(db)
-                await api_v2._fail_orphaned_running_spawn_requests(db, offline_seconds=90)
+                await _repair_spawn_requests_from_initial_dispatch_failures(db)
+                await _fail_orphaned_running_spawn_requests(db, offline_seconds=90)
             finally:
                 await db.close()
 
@@ -7629,7 +7676,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             machineId="linux:test-host",
             capabilities=["resident-run", "resume", "interrupt", "steer"],
         )
-        now = api_v2._now()
+        now = _now()
         self._execute(
             """
             INSERT INTO bridge_instances (
@@ -10834,7 +10881,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         active_run_id = active_work["runs"][0]["runId"]
         overdue_at = _iso_from_ms(int((time.time() - 120) * 1000))
         self._execute("UPDATE dispatch_runs SET status = 'delivered', requested_at = ? WHERE id = ?", (overdue_at, contract_run_id))
-        self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", (api_v2._now(), active_run_id))
+        self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", (_now(), active_run_id))
 
         periodic = asyncio.run(service_main._run_dispatch_reconcile_once())
         self.assertEqual(periodic["reply_reminders"], 0)
@@ -10881,7 +10928,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         overdue_at = _iso_from_ms(int((time.time() - 120) * 1000))
         recent_reminder_at = _iso_from_ms(int((time.time() - 30) * 1000))
         self._execute("UPDATE dispatch_runs SET status = 'delivered', requested_at = ? WHERE id = ?", (overdue_at, contract_run_id))
-        self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", (api_v2._now(), active_run_id))
+        self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", (_now(), active_run_id))
         self._execute(
             "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
             (contract_run_id, "reply_reminder", "recent reminder", recent_reminder_at),
@@ -10900,7 +10947,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         from service.db import get_db as _get_db
         db = await _get_db()
         try:
-            payload = await api_v2._run_contract_reminders_once(db, **kwargs)
+            payload = await _run_contract_reminders_once(db, **kwargs)
             await db.commit()
             return payload
         finally:
@@ -10941,7 +10988,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self._seed_overdue_handoff(run_id=run_id, message_id="msg-handoff-same", from_agent="sc-coder", target_agent="sc-architect")
         self._execute(
             "INSERT OR REPLACE INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at, ready) VALUES (?,?,?,?,?,?,?)",
-            ("sc-architect", 1, run_id, "", "claude-code", api_v2._now(), 1),
+            ("sc-architect", 1, run_id, "", "claude-code", _now(), 1),
         )
 
         payload = asyncio.run(self._async_run_contract_reminders_once(run_id=run_id, dry_run=True))
@@ -10960,7 +11007,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self._seed_overdue_handoff(run_id=run_id, message_id="msg-handoff-diff", from_agent="sc-coder", target_agent="sc-architect")
         self._execute(
             "INSERT OR REPLACE INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at, ready) VALUES (?,?,?,?,?,?,?)",
-            ("sc-architect", 1, "some-other-run", "", "claude-code", api_v2._now(), 1),
+            ("sc-architect", 1, "some-other-run", "", "claude-code", _now(), 1),
         )
 
         payload = asyncio.run(self._async_run_contract_reminders_once(run_id=run_id, dry_run=True))
@@ -10987,11 +11034,11 @@ class ApiV2RegressionTests(FastApiTestCase):
             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             ("run-other-active", None, "dashboard", "sc-architect", "start_if_possible", "managed",
-             "info", "other task", "work", "normal", "running", 0, api_v2._now(), api_v2._now()),
+             "info", "other task", "work", "normal", "running", 0, _now(), _now()),
         )
         self._execute(
             "INSERT OR REPLACE INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at, ready) VALUES (?,?,?,?,?,?,?)",
-            ("sc-architect", 1, run_id, "", "claude-code", api_v2._now(), 1),
+            ("sc-architect", 1, run_id, "", "claude-code", _now(), 1),
         )
 
         payload = asyncio.run(self._async_run_contract_reminders_once(run_id=run_id, dry_run=True))
@@ -11108,7 +11155,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         asyncio.run(service_main._run_dispatch_reconcile_once())
 
-        entry = api_v2._live_state_get("recon-agent")
+        entry = _live_state_get("recon-agent")
         self.assertIsNotNone(entry, "reconcile must keep a refreshed live-status entry")
         self.assertNotEqual(
             entry["updated_at"], "2026-01-01T00:00:00Z",
@@ -11675,7 +11722,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         from service.db import get_db as _get_db
         db = await _get_db()
         try:
-            await api_v2._invalidate_agent_live_state(db, agent_id)
+            await _invalidate_agent_live_state(db, agent_id)
             await db.commit()
         finally:
             await db.close()
@@ -11684,7 +11731,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         from service.db import get_db as _get_db
         db = await _get_db()
         try:
-            return await api_v2._prune_superseded_bridges(db)
+            return await _prune_superseded_bridges(db)
         finally:
             await db.close()
 
@@ -11717,7 +11764,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertFalse(asyncio.run(self._async_resident_bridge_fresh("res-claude")),
                          "stale MCP bridge with no live sidecar must be stale")
         # A live channel-sidecar (the polling child of the live session) appears.
-        now = api_v2._now()
+        now = _now()
         self._execute(
             """
             INSERT OR REPLACE INTO bridge_instances (
@@ -11755,7 +11802,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                        machineId="linux:test-host", bridgeId="tb-b1", capabilities=["resident-run"])
         # No turn_busy row → not busy.
         self.assertFalse(asyncio.run(self._async_is_turn_busy_fresh("tb-agent")))
-        now = api_v2._now()
+        now = _now()
         self._execute(
             "INSERT OR REPLACE INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at, ready) VALUES (?,?,?,?,?,?,?)",
             ("tb-agent", 1, "", "", "claude-code", now, 1),
@@ -11774,7 +11821,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             "prune-agent", runtime="claude-code", sessionMode="managed",
             machineId="linux:test-host", bridgeId="live-bridge", capabilities=["resume"],
         )
-        now = api_v2._now()
+        now = _now()
         old = "2020-01-01T00:00:00Z"
         rows = [
             # (id, superseded_by, superseded_at, last_seen)  -> expected disposition
@@ -11951,7 +11998,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             terminal=True, runtime="hermes", terminal_runtimes=["hermes"],
             session_handle="aify-console-agent",
         )
-        now = api_v2._now()
+        now = _now()
         self._execute(
             """
             INSERT INTO terminal_sessions (
@@ -12274,14 +12321,14 @@ class ApiV2RegressionTests(FastApiTestCase):
             INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
             VALUES (?, 1, ?, '', 'hermes', ?)
             """,
-            ("orphan-hermes", "run_orphan_1", api_v2._now()),
+            ("orphan-hermes", "run_orphan_1", _now()),
         )
 
         async def _run():
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._close_orphaned_managed_runs(db, limit=10)
+                return await _close_orphaned_managed_runs(db, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -12356,7 +12403,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             terminalRuntimes=["claude-code"],
         )
         self._register("queued-claude", runtime="claude-code", sessionMode="managed")
-        now = api_v2._now()
+        now = _now()
         self._execute(
             """
             INSERT INTO agent_sessions (
@@ -12448,11 +12495,11 @@ class ApiV2RegressionTests(FastApiTestCase):
                     "SELECT * FROM terminal_sessions WHERE id = ?",
                     ("term_queued_claude",),
                 )).fetchone()
-                return await api_v2._close_active_terminal_runs_for_terminal(
+                return await _close_active_terminal_runs_for_terminal(
                     db,
                     terminal,
                     "stopped",
-                    now=api_v2._now(),
+                    now=_now(),
                     reason="Terminal stopped before the channel bridge claimed the run.",
                 )
             finally:
@@ -12477,7 +12524,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.client.put("/api/v1/settings", json={"active_managed_run_stale_minutes": 5})
         self._register("owned-hermes", runtime="hermes", sessionMode="managed")
         stale_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        live_seen = api_v2._now()
+        live_seen = _now()
         # Seed the live bridge_instance the run claims to be owned by.
         self._execute(
             """
@@ -12506,7 +12553,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._close_orphaned_managed_runs(db, limit=10)
+                return await _close_orphaned_managed_runs(db, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -12556,7 +12603,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._close_orphaned_managed_runs(db, limit=10)
+                return await _close_orphaned_managed_runs(db, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -12583,7 +12630,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # must be linked via runtime_state.bridgeInstanceId for _resident_bridge_is_fresh
         # to recognize it (previously the in_turn→working bug made this pass without a
         # genuinely-fresh bridge).
-        live_seen = api_v2._now()
+        live_seen = _now()
         self._execute(
             """
             INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen)
@@ -12625,7 +12672,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._close_orphaned_managed_runs(db, limit=10)
+                return await _close_orphaned_managed_runs(db, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -12666,7 +12713,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._close_orphaned_managed_runs(db, limit=10)
+                return await _close_orphaned_managed_runs(db, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -12692,7 +12739,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.client.put("/api/v1/settings", json={"active_managed_run_stale_minutes": 5})
         self._register("reminder-hermes", runtime="hermes", sessionMode="managed")
         stale_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        recent_at = api_v2._now()  # within the cutoff window
+        recent_at = _now()  # within the cutoff window
         self._execute(
             """
             INSERT INTO dispatch_runs (
@@ -12721,7 +12768,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._close_orphaned_managed_runs(db, limit=10)
+                return await _close_orphaned_managed_runs(db, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -12762,7 +12809,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
             VALUES (?, 1, 'run_real_123', 'real-bridge-abc', 'claude-code', ?)
             """,
-            ("dual-claude", api_v2._now()),
+            ("dual-claude", _now()),
         )
         # Then UserPromptSubmit fires
         r = self.client.post("/api/v1/agents/dual-claude/turn-start", json={})
@@ -12803,7 +12850,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "sess_takeover", "takeover-pi", "env_takeover", "pi", "/w", "managed",
                 "managed", "bridge-takeover-old", "vterm_takeover", "running",
                 "aify://virtual-rpc/pi", "/w", "", "pi-handle", "", None, None,
-                "{}", "{}", "running", api_v2._now(), api_v2._now(), None,
+                "{}", "{}", "running", _now(), _now(), None,
             ),
         )
         # Seed a stopped virtual rpc terminal owned by the old bridge
@@ -12819,7 +12866,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "vterm_takeover", "sess_takeover", "takeover-pi", "env_takeover",
                 "bridge-takeover-old", "pi", "/w", "aify://virtual-rpc/pi",
                 "", "stopped", "bridge-rpc",
-                api_v2._now(), api_v2._now(), api_v2._now(),
+                _now(), _now(), _now(),
                 "Superseded by bridge re-registration; in-memory worker pool empty after restart.",
             ),
         )
@@ -12963,7 +13010,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "sess_idle_close_1", "idle-pi", "env_idle_close", "pi", "/w", "managed",
                 "managed", "bridge-idle-close", "vterm_idle_close_1", "running",
                 "aify://virtual-rpc/pi", "/w", "", "pi-handle", "", None, None,
-                "{}", "{}", "running", api_v2._now(), api_v2._now(), None,
+                "{}", "{}", "running", _now(), _now(), None,
             ),
         )
         # Stale terminal_session (updated 30 min ago).
@@ -12992,7 +13039,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._close_idle_virtual_rpc_workers(db, idle_close_enabled=True, idle_close_minutes=1, limit=10)
+                return await _close_idle_virtual_rpc_workers(db, idle_close_enabled=True, idle_close_minutes=1, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -13057,7 +13104,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._close_idle_virtual_rpc_workers(db, idle_close_enabled=True, idle_close_minutes=1, limit=10)
+                return await _close_idle_virtual_rpc_workers(db, idle_close_enabled=True, idle_close_minutes=1, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -13124,7 +13171,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._close_idle_virtual_rpc_workers(db, idle_close_enabled=True, idle_close_minutes=1, limit=10)
+                return await _close_idle_virtual_rpc_workers(db, idle_close_enabled=True, idle_close_minutes=1, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -13184,7 +13231,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._close_idle_virtual_rpc_workers(db, idle_close_enabled=False, idle_close_minutes=1, limit=10)
+                return await _close_idle_virtual_rpc_workers(db, idle_close_enabled=False, idle_close_minutes=1, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -13217,7 +13264,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "sess_inflight", "inflight-pi", "env_idle_inflight", "pi", "/w", "managed",
                 "managed", "bridge-idle-inflight", "vterm_inflight", "running",
                 "aify://virtual-rpc/pi", "/w", "", "pi-handle-2", "", None, None,
-                "{}", "{}", "running", api_v2._now(), api_v2._now(), None,
+                "{}", "{}", "running", _now(), _now(), None,
             ),
         )
         stale_at = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -13245,7 +13292,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             """,
             (
                 "run_inflight", None, "dashboard", "inflight-pi", "start_if_possible",
-                "managed", "request", "in flight", "body", "normal", "running", 0, api_v2._now(),
+                "managed", "request", "in flight", "body", "normal", "running", 0, _now(),
             ),
         )
 
@@ -13253,7 +13300,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await api_v2._close_idle_virtual_rpc_workers(db, idle_close_enabled=True, idle_close_minutes=1, limit=10)
+                return await _close_idle_virtual_rpc_workers(db, idle_close_enabled=True, idle_close_minutes=1, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -13443,7 +13490,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             machineId="win32:wrapper-gate",
             status="active",
         )
-        fresh = api_v2._now()
+        fresh = _now()
         self._execute(
             """
             INSERT INTO agent_sessions (
@@ -13656,7 +13703,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # `working` via the turn_busy branch — the path this test exercises.
         # (Post status-split, a stale turn_busy would fall through to the
         # idle-awaiting-reply `online` state, which is a different code path.)
-        now = api_v2._now()
+        now = _now()
         self._execute(
             """
             INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
@@ -14274,7 +14321,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                return await api_v2._prune_terminal_history(db, keep_terminal_rows_per_agent=8)
+                return await _prune_terminal_history(db, keep_terminal_rows_per_agent=8)
             finally:
                 await db.close()
         counts = asyncio.run(_run())
@@ -14359,7 +14406,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             )
             await db.execute(
                 "UPDATE terminal_controls SET status = 'claimed', claimed_at = ? WHERE id = ?",
-                (api_v2._now(), control_id),
+                (_now(), control_id),
             )
             await db.commit()
             return control_id
@@ -14378,7 +14425,7 @@ class ApiV2RegressionTests(FastApiTestCase):
     def _seed_resident_session(self, *, session_id, agent_id, owner_bridge_id, last_seen):
         """Insert a resident agent_sessions row (FKs satisfied by a registered
         agent + the linux:test-host:default env)."""
-        now = api_v2._now()
+        now = _now()
         # spawn_spec_id/spawn_request_id passed as NULL (not the '' default) so
         # their FKs don't fire — same shape the production insert uses.
         self._execute(
@@ -14431,7 +14478,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             runtimes=[{"runtime": "hermes", "modes": ["resident"], "capabilities": {}}],
         )
         self._register("dup-res", runtime="hermes", sessionMode="resident")
-        now = api_v2._now()
+        now = _now()
         # Older session (smaller last_seen) but a FRESH owning bridge → LIVE.
         self._seed_bridge(bridge_id="bridge-live", agent_id="dup-res", last_seen=now)
         self._seed_resident_session(
@@ -14515,7 +14562,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             (
                 run_id, None, "manager", target_agent, "start_if_possible",
                 "managed", runtime, "request", "work", "body", "normal",
-                "queued", 1, api_v2._now(),
+                "queued", 1, _now(),
             ),
         )
 
@@ -14545,7 +14592,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self._register("reroute-hermes", runtime="hermes", sessionMode="managed")
         self._seed_queued_managed_run(run_id="rr-1", target_agent="reroute-hermes", runtime="hermes")
         # A FRESH channel-sidecar bridge → _has_live_channel_sidecar True.
-        self._seed_bridge(bridge_id="rr-sidecar", agent_id="reroute-hermes", last_seen=api_v2._now())
+        self._seed_bridge(bridge_id="rr-sidecar", agent_id="reroute-hermes", last_seen=_now())
         self._execute(
             "UPDATE bridge_instances SET bridge_kind = 'channel-sidecar' WHERE id = ?",
             ("rr-sidecar",),
@@ -14568,7 +14615,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self._register("reroute-pi", runtime="pi", sessionMode="managed")
         self._seed_queued_managed_run(run_id="rr-pi", target_agent="reroute-pi", runtime="pi")
-        self._seed_bridge(bridge_id="rr-pi-sidecar", agent_id="reroute-pi", last_seen=api_v2._now())
+        self._seed_bridge(bridge_id="rr-pi-sidecar", agent_id="reroute-pi", last_seen=_now())
         self._execute(
             "UPDATE bridge_instances SET bridge_kind = 'channel-sidecar' WHERE id = ?",
             ("rr-pi-sidecar",),
@@ -14596,7 +14643,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             runtimes=[{"runtime": "hermes", "modes": ["resident"], "capabilities": {}}],
         )
         self._register("mwc-fresh", runtime="hermes", sessionMode="managed")
-        self._seed_bridge(bridge_id="mwc-1", agent_id="mwc-fresh", last_seen=api_v2._now())
+        self._seed_bridge(bridge_id="mwc-1", agent_id="mwc-fresh", last_seen=_now())
         self._execute(
             "UPDATE bridge_instances SET bridge_kind = 'managed-wrapper-child' WHERE id = ?",
             ("mwc-1",),
@@ -14617,7 +14664,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             ("mwc-s",),
         )
         # Fresh but superseded.
-        self._seed_bridge(bridge_id="mwc-sup", agent_id="mwc-super", last_seen=api_v2._now(), superseded_by="newer")
+        self._seed_bridge(bridge_id="mwc-sup", agent_id="mwc-super", last_seen=_now(), superseded_by="newer")
         self._execute(
             "UPDATE bridge_instances SET bridge_kind = 'managed-wrapper-child' WHERE id = ?",
             ("mwc-sup",),
@@ -14683,7 +14730,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                return await api_v2._reconcile_dead_session_status(db, lease_seconds=150)
+                return await _reconcile_dead_session_status(db, lease_seconds=150)
             finally:
                 await db.close()
         return asyncio.run(_run())
@@ -14926,7 +14973,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             db = await get_db()
             try:
                 row = await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (sid,))).fetchone()
-                return await api_v2._compute_session_display_status(db, row)
+                return await _compute_session_display_status(db, row)
             finally:
                 await db.close()
         return asyncio.run(_run())
@@ -15079,7 +15126,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                return await api_v2._repair_terminal_session_consistency(db)
+                return await _repair_terminal_session_consistency(db)
             finally:
                 await db.close()
 
@@ -15128,7 +15175,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         async def _run():
             db = await get_db()
             try:
-                return await api_v2._repair_terminal_session_consistency(db)
+                return await _repair_terminal_session_consistency(db)
             finally:
                 await db.close()
 
@@ -15163,8 +15210,8 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "completed",
                 1,
                 "reply-message-1",
-                api_v2._now(),
-                api_v2._now(),
+                _now(),
+                _now(),
             ),
         )
 
@@ -15203,7 +15250,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                 id, terminal_id, environment_id, bridge_id, action, status, requested_at
             ) VALUES (?,?,?,?,?,?,?)
             """,
-            ("ctl_idle_terminal", "term_idle_terminal", "linux:test-host:default", "bridge-current", "input", "pending", api_v2._now()),
+            ("ctl_idle_terminal", "term_idle_terminal", "linux:test-host:default", "bridge-current", "input", "pending", _now()),
         )
 
         async def _run():
@@ -15212,7 +15259,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                 terminal = await (
                     await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", ("term_idle_terminal",))
                 ).fetchone()
-                await api_v2._close_active_terminal_runs_for_terminal(db, terminal, "stopped")
+                await _close_active_terminal_runs_for_terminal(db, terminal, "stopped")
                 await db.commit()
             finally:
                 await db.close()
@@ -15248,13 +15295,13 @@ class ApiV2RegressionTests(FastApiTestCase):
                 id, terminal_id, environment_id, bridge_id, action, status, requested_at
             ) VALUES (?,?,?,?,?,?,?)
             """,
-            ("ctl_ended_periodic", "term_ended_periodic", "linux:test-host:default", "bridge-current", "resize", "claimed", api_v2._now()),
+            ("ctl_ended_periodic", "term_ended_periodic", "linux:test-host:default", "bridge-current", "resize", "claimed", _now()),
         )
 
         async def _run():
             db = await get_db()
             try:
-                count = await api_v2._reconcile_ended_terminal_controls(db)
+                count = await _reconcile_ended_terminal_controls(db)
                 await db.commit()
                 return count
             finally:

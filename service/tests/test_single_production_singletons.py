@@ -133,12 +133,35 @@ class SingleProductionSingletonTests(unittest.TestCase):
                             f"name {binding}; a test may construct its own instance but must not "
                             f"rebind the production singleton"
                         )
-            self.assertTrue(
-                attribute_form_seen,
-                f"expected at least one `<module>.{cls}()` construction in the suite — its absence "
-                f"would mean this gate can no longer prove it detects the attribute call form, which "
-                f"is the blind spot that made the original receipt false",
-            )
+            # Information only. The attribute-call form is proved against SYNTHETIC input below, not
+            # against whatever the suite happens to contain — see that test for why.
+            del attribute_form_seen
+
+    def test_the_detector_sees_every_call_form(self):
+        """Non-vacuity for the two counts above, proved on a fixture rather than on production code.
+
+        This used to require the real suite to contain at least one `<module>.Cls()` construction, on
+        the grounds that a counter blind to the attribute form is exactly what made the original
+        receipt false. That held until the work removed the last one: v0.5.4 repointed 127 `api_v2.X`
+        uses in `test_api_v2_regressions.py` at their real owners, so `api_v2.TerminalOutputWriteQueue()`
+        became a bare `TerminalOutputWriteQueue()` and this gate went red for a cleanup it should have
+        welcomed.
+
+        THAT IS THE THIRD GATE IN THIS SUITE TO FAIL BECAUSE THE WORK SUCCEEDED — after the borrow-shim
+        floor (`test_no_forked_declarations`) and the allowlist basename fixture
+        (`test_no_new_oversized_source_file`). The shape is always the same: an anti-vacuity check
+        anchored to a production artefact the project is actively trying to eliminate. Anchor it to a
+        fixture instead; a fixture cannot erode.
+        """
+        probe = ast.parse("Cls()\nmod.Cls()\npkg.mod.Cls()\nother()\n")
+        names = [_called_name(n) for n in ast.walk(probe) if isinstance(n, ast.Call)]
+        self.assertEqual(
+            names.count("Cls"), 3,
+            "the detector must recognise the bare call, the module-alias call AND the dotted-package "
+            "call; missing the attribute forms is the undercount that made the original receipt false",
+        )
+        self.assertEqual(names.count("other"), 1, "…and must not conflate unrelated calls")
+        self.assertNotIn("mod", names, "the ATTRIBUTE is the constructor name, not the module")
 
 
 if __name__ == "__main__":
