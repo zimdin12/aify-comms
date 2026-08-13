@@ -17,6 +17,7 @@ import {
   asAgentArray,
   contractCategory,
   environmentRoots,
+  environmentRuntimes,
   messageId,
   messageIdOf,
   messageRunId,
@@ -27,6 +28,7 @@ import {
   sessionId,
   sessionRuntime,
 } from './record-fields.mjs';
+import { environmentStartCommand } from './environment-start-command.mjs';
 import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
 
 function resolveApiOrigin() {
@@ -2880,12 +2882,7 @@ function renderContracts() {
   renderDiagnosticsBulkToolbar();
 }
 
-function environmentRuntimes(env) {
-  const runtimes = env?.runtimes || env?.runtimeCapabilities || [];
-  return Array.isArray(runtimes) ? runtimes
-    .map((runtime) => typeof runtime === 'string' ? { runtime, available: true } : runtime)
-    .filter((runtime) => runtime && runtime.runtime) : [];
-}
+// environmentRuntimes moved to ./record-fields.mjs in v0.5.4.
 
 // environmentRoots moved to ./record-fields.mjs in v0.5.4.
 
@@ -3000,21 +2997,7 @@ async function controlEnvironment(environmentId, action) {
 // until "Reset to bridge roots" restores whatever the bridge process advertises.
 // Build the host start command for an environment (ported from old dashboard
 // environmentStartCommand) — the one-liner an operator runs to bring a dead bridge back.
-function environmentStartCommand(env) {
-  const roots = environmentRoots(env).filter(Boolean);
-  const firstRoot = roots[0] || '';
-  const extras = roots.slice(1);
-  const os = String(env.os || env.kind || '').toLowerCase();
-  const quote = (v) => /[\s"'`]/.test(v) ? JSON.stringify(v) : v;
-  if (os.includes('win')) {
-    const cd = firstRoot ? `cd /d ${quote(firstRoot)}` : 'cd /d C:\\Docker';
-    const args = extras.map(quote).join(' ');
-    return `${cd}\naify-comms${args ? ' ' + args : ''}`;
-  }
-  const cd = firstRoot ? `cd ${quote(firstRoot)}` : (os.includes('mac') || os.includes('darwin') ? 'cd "$HOME"' : 'cd /mnt/c/Docker');
-  const args = extras.map(quote).join(' ');
-  return `${cd}\naify-comms${args ? ' ' + args : ''}`;
-}
+// environmentStartCommand moved to ./environment-start-command.mjs in v0.5.4.
 
 function openEnvironmentRootsEditor(environmentId) {
   const env = state.environments.find((e) => String(e.id) === String(environmentId)) || { id: environmentId };

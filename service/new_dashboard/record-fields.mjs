@@ -63,3 +63,10 @@ export function sessionAgentId(session) {
 export function runTargetAgent(run) {
   return String(run?.targetAgentId || run?.target_agent || run?.agentId || run?.agent_id || '');
 }
+
+export function environmentRuntimes(env) {
+  const runtimes = env?.runtimes || env?.runtimeCapabilities || [];
+  return Array.isArray(runtimes) ? runtimes
+    .map((runtime) => typeof runtime === 'string' ? { runtime, available: true } : runtime)
+    .filter((runtime) => runtime && runtime.runtime) : [];
+}

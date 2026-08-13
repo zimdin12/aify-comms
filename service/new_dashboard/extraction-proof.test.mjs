@@ -71,6 +71,7 @@ const EXTRACTIONS = [
       "  asAgentArray,",
       "  contractCategory,",
       "  environmentRoots,",
+      "  environmentRuntimes,",
       "  messageId,",
       "  messageIdOf,",
       "  messageRunId,",
@@ -98,6 +99,7 @@ const EXTRACTIONS = [
       { name: "sessionId", at: 1609, marker: "// sessionId moved to ./record-fields.mjs in v0.5.4." },
       { name: "sessionAgentId", at: 1613, marker: "// sessionAgentId moved to ./record-fields.mjs in v0.5.4." },
       { name: "runTargetAgent", at: 1704, marker: "// runTargetAgent moved to ./record-fields.mjs in v0.5.4." },
+      { name: "environmentRuntimes", at: 2983, marker: "// environmentRuntimes moved to ./record-fields.mjs in v0.5.4." },
     ],
   },
   {
@@ -116,6 +118,17 @@ const EXTRACTIONS = [
       { name: "runStatusContext", at: 3243, marker: "// runStatusContext moved to ./status.js in v0.5.4." },
     ],
   },
+  {
+    // A NEW module, so `importWas` is absent: reconstruct() deletes the import line rather than
+    // restoring a previous one. The line sits immediately after the record-fields block, which is
+    // where the extraction put it.
+    module: "environment-start-command.mjs",
+    importLine: "import { environmentStartCommand } from './environment-start-command.mjs';",
+    items: [
+      { name: "environmentStartCommand", at: 3106,
+        marker: "// environmentStartCommand moved to ./environment-start-command.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -123,6 +136,7 @@ const MODULES = () => ({
   "util.js": read("util.js"),
   "record-fields.mjs": read("record-fields.mjs"),
   "status.js": read("status.js"),
+  "environment-start-command.mjs": read("environment-start-command.mjs"),
 });
 
 function rebuild(overrides = {}) {
