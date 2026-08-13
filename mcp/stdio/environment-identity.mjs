@@ -126,3 +126,34 @@ export function environmentHeartbeatPayload() {
     },
   };
 }
+
+// Whether a requested workspace lies inside the roots this environment advertises — the check that turns
+// `cwdRootsForEnvironment`'s list from a description into a permission. It lives beside those roots because
+// it is only ever called with them, and because the two must agree about what a root MEANS: the same `~`
+// expansion, the same trailing-slash handling, the same treatment of "/".
+export function workspaceWithinRoots(workspace, roots = []) {
+  // 2026-06-03: two latent bugs made spawns into the common ['/', '~'] roots
+  // (the bridge's default advertised cwdRoots) reject EVERY absolute workspace:
+  //   1. The root "/" (meaning "anywhere") had its trailing slash stripped to ""
+  //      and was then filter(Boolean)'d OUT, so a "/"-rooted env matched nothing.
+  //   2. The root "~" was never expanded to $HOME, so an absolute workspace under
+  //      the home dir never matched "~".
+  // Result: managed spawns failed with "outside this bridge's advertised roots"
+  // for any normal env. Fix: treat "/" as match-all, and expand "~"/"~/..".
+  const home = String(process.env.HOME || process.env.USERPROFILE || "")
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "");
+  const expand = (p) => {
+    let s = String(p || "").trim().replace(/\\/g, "/");
+    if (s === "~") s = home;
+    else if (s.startsWith("~/")) s = `${home}/${s.slice(2)}`;
+    return s.replace(/\/+$/, "");
+  };
+  const rawRoots = (roots || []).map((r) => String(r || "").trim()).filter(Boolean);
+  // "/" is the match-all root.
+  if (rawRoots.some((r) => r === "/")) return true;
+  const value = expand(workspace);
+  const normalizedRoots = rawRoots.map(expand).filter(Boolean);
+  if (!value || !normalizedRoots.length) return true;
+  return normalizedRoots.some((root) => value === root || value.startsWith(`${root}/`));
+}

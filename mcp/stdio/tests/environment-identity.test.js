@@ -190,3 +190,76 @@ test("the owner holds no state and does not send anything", () => {
     "path",
   ]);
 });
+
+// ── workspaceWithinRoots — the check that turns the advertised roots into a permission ──────────────
+//
+// Called only with `environment.cwdRoots`, at four spawn/dispatch sites. A false NO blocks a legitimate
+// spawn with "outside this bridge's advertised roots"; a false YES lets an agent be launched in a directory
+// the environment never offered. Both directions are asserted, and it runs in a child because it reads
+// `HOME`/`USERPROFILE` to expand `~`.
+
+function withinIn(workspace, roots, env = {}) {
+  return evalIn(`m.workspaceWithinRoots(${JSON.stringify(workspace)}, ${JSON.stringify(roots)})`, env);
+}
+
+test("A SIBLING THAT MERELY SHARES A PREFIX IS NOT INSIDE", () => {
+  // The classic containment bug: `startsWith(root)` alone would put `/srv/data-evil` inside `/srv/data`.
+  // The check appends the separator, and that is the whole difference between a boundary and a prefix.
+  assert.equal(withinIn("/srv/data-evil", ["/srv/data"]), false, "a prefix sibling must NOT be inside");
+  assert.equal(withinIn("/srv/database", ["/srv/data"]), false);
+  // …while the real cases still pass.
+  assert.equal(withinIn("/srv/data", ["/srv/data"]), true, "the root itself is inside");
+  assert.equal(withinIn("/srv/data/app", ["/srv/data"]), true, "a child is inside");
+  assert.equal(withinIn("/srv/data/a/b/c", ["/srv/data"]), true, "…at any depth");
+  // A parent is not inside its own child.
+  assert.equal(withinIn("/srv", ["/srv/data"]), false);
+});
+
+test('"/" IS THE MATCH-ALL ROOT — the 2026-06-03 regression', () => {
+  // Recorded in the function itself: stripping the trailing slash turned "/" into "" and it was filtered
+  // out, so a "/"-rooted environment matched NOTHING and every managed spawn was rejected. The default
+  // advertised roots were `['/', '~']`, so this broke normal environments, not exotic ones.
+  assert.equal(withinIn("/anywhere/at/all", ["/"]), true);
+  assert.equal(withinIn("C:/Docker/x", ["/"]), true);
+  assert.equal(withinIn("/anything", ["/", "/srv"]), true, "match-all wins even beside a narrow root");
+});
+
+test("~ IS EXPANDED — the other half of that regression", () => {
+  // A root of "~" was never expanded, so an absolute workspace under the home directory never matched it.
+  const home = "/home/tester";
+  const env = { HOME: home, USERPROFILE: home };
+  assert.equal(withinIn(`${home}/proj`, ["~"], env), true, "a path under home matches the ~ root");
+  assert.equal(withinIn(home, ["~"], env), true, "home itself matches");
+  assert.equal(withinIn(`${home}/proj/deep`, ["~/proj"], env), true, "~/sub is expanded too");
+  assert.equal(withinIn("/elsewhere/proj", ["~"], env), false, "…and something outside home still fails");
+});
+
+test("separators and trailing slashes are normalised on BOTH sides", () => {
+  // The roots come from an operator env var and the workspace from a spawn request, so the two spellings
+  // meet here for the first time. A backslash root would otherwise never match a forward-slash workspace.
+  assert.equal(withinIn("C:/Docker/x", ["C:\\Docker"]), true, "a backslash root matches a forward-slash path");
+  assert.equal(withinIn("C:\\Docker\\x", ["C:/Docker"]), true, "…and the reverse");
+  assert.equal(withinIn("/srv/data/app", ["/srv/data/"]), true, "a trailing slash on the root is ignored");
+  assert.equal(withinIn("/srv/data/", ["/srv/data"]), true, "…and on the workspace");
+  assert.equal(withinIn("  /srv/data/app  ", ["  /srv/data  "]), true, "surrounding whitespace is trimmed");
+});
+
+test("IT FAILS OPEN when there is nothing to check against, and that is deliberate", () => {
+  // Current behaviour, pinned because it is a permission check that answers YES on absent input. An
+  // environment that advertises no usable roots does not restrict anything — the alternative would block
+  // every spawn on a misconfigured roots list, which is the failure the 2026-06-03 fix was undoing.
+  assert.equal(withinIn("/anything", []), true, "no roots at all imposes no restriction");
+  assert.equal(withinIn("/anything", ["", "   "]), true, "…nor do blank roots");
+  assert.equal(withinIn("", ["/srv"]), true, "an absent workspace is not checked");
+  assert.equal(withinIn("   ", ["/srv"]), true);
+});
+
+test("the roots this environment advertises are accepted by its own check", () => {
+  // The two halves must agree: whatever `cwdRootsForEnvironment` publishes has to pass the gate that reads
+  // it, or the bridge would advertise a root it then refuses to spawn into.
+  const roots = evalIn("m.cwdRootsForEnvironment()");
+  for (const root of roots) {
+    assert.equal(withinIn(root, roots), true, `advertised root ${root} must satisfy its own check`);
+    assert.equal(withinIn(`${root}/child`, roots), true, `…and so must a child of it`);
+  }
+});
