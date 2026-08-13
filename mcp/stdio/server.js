@@ -21,7 +21,7 @@ import {
   logTransientOrError,
 } from "./aify-service-endpoint.mjs";
 import { registerArtifactTools } from "./artifact-tools.mjs";
-import { makeAutoRegister } from "./auto-registration.mjs";
+import { makeAutoRegister, reregisterAgentFromState } from "./auto-registration.mjs";
 import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
 import { dedupePreserveOrder } from "./dedupe.mjs";
 import { decideConsolePulse } from "./console-pulse.mjs";
@@ -61,7 +61,7 @@ import { parseJson } from "./parse-json.mjs";
 import { DEFAULT_CWD } from "./registration-inputs.mjs";
 import { AIFY_HERMES_GATEWAY_URL } from "./hermes-gateway-config.mjs";
 import { reportAgentHeartbeat, reportTurnBusy } from "./agent-heartbeat.mjs";
-import { BRIDGE_INSTANCE_ID, BRIDGE_STARTED_AT } from "./bridge-instance.mjs";
+import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
 import { reconcileLocalActiveRun } from "./local-active-run.mjs";
 import { armClaudeTurnEndDetector, stopClaudeTurnEndDetector } from "./claude-turn-detector-state.mjs";
 import { __runtimeAdapter } from "./runtime-adapter.mjs";
@@ -1017,50 +1017,6 @@ async function ensureRequiredReplyHandoff(agentId, run = {}, terminalStatus = "c
 
 
 
-async function reregisterAgentFromState(agentId, state) {
-  if (!state?.info) return false;
-  const info = state.info;
-  const payload = {
-    agentId,
-    role: info.role || "generic",
-    name: info.name || agentId,
-    cwd: info.cwd || "",
-    model: info.model || "",
-    description: info.description || "",
-    instructions: info.instructions || "",
-    runtime: info.runtime || "generic",
-    machineId: info.machineId || MACHINE_ID,
-    bridgeId: BRIDGE_INSTANCE_ID,
-    launchMode: info.launchMode || "detached",
-    sessionMode: info.sessionMode || "resident",
-    sessionHandle: info.sessionHandle || "",
-    managedBy: info.managedBy || "",
-    capabilities: info.capabilities || [],
-    runtimeConfig: info.runtimeConfig || {},
-    // R8: mirror the initial /agents register so a 404 auto-re-register does
-    // not drop the console_terminal_attached binding. AIFY_TERMINAL_ID is
-    // stable for the bridge process lifetime; fall back to cached info.
-    terminalId: cleanEnvPlaceholder(process.env.AIFY_TERMINAL_ID || info.terminalId || ""),
-    managedWrapperChild: String(process.env.AIFY_MANAGED_VIA_WRAPPER || "").trim() === "1" || !!info.managedWrapperChild,
-    autoRegister: true,
-    // Tombstone-resurrection guard (2026-06-03): see autoRegisterConfiguredAgent.
-    // A 404 auto-re-register from a lingering bridge must not resurrect a
-    // deliberately-removed agent unless this bridge launched after the deletion.
-    bridgeStartedAt: BRIDGE_STARTED_AT,
-  };
-  try {
-    await httpCall("POST", "/agents", payload);
-    console.error(`[aify] auto-re-registered "${agentId}" from cached state`);
-    return true;
-  } catch (error) {
-    if (error?.status === 410) {
-      forgetRemoteAgent(agentId, "server marked it intentionally removed");
-      return false;
-    }
-    console.error(`[aify] auto-re-register failed for "${agentId}": ${error?.message || error}`);
-    return false;
-  }
-}
 
 
 async function residentRuntimeBindingLost(agentId, info = {}) {

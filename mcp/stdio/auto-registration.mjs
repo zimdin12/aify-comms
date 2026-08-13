@@ -225,3 +225,53 @@ export function makeAutoRegister({ ensureDispatchLoop }) {
   }
   return autoRegisterConfiguredAgent;
 }
+
+// RE-registering an agent from the state this bridge already holds. Same subject as the startup path above —
+// registration the bridge performs on its OWN initiative rather than because a tool asked — and the reason
+// it belongs beside it is that both build the same payload shape and both must sanitise the same unresolved
+// `${AIFY_TERMINAL_ID}` placeholder. Two copies of that sanitising is how one of them gets fixed and the
+// other does not.
+export async function reregisterAgentFromState(agentId, state) {
+  if (!state?.info) return false;
+  const info = state.info;
+  const payload = {
+    agentId,
+    role: info.role || "generic",
+    name: info.name || agentId,
+    cwd: info.cwd || "",
+    model: info.model || "",
+    description: info.description || "",
+    instructions: info.instructions || "",
+    runtime: info.runtime || "generic",
+    machineId: info.machineId || MACHINE_ID,
+    bridgeId: BRIDGE_INSTANCE_ID,
+    launchMode: info.launchMode || "detached",
+    sessionMode: info.sessionMode || "resident",
+    sessionHandle: info.sessionHandle || "",
+    managedBy: info.managedBy || "",
+    capabilities: info.capabilities || [],
+    runtimeConfig: info.runtimeConfig || {},
+    // R8: mirror the initial /agents register so a 404 auto-re-register does
+    // not drop the console_terminal_attached binding. AIFY_TERMINAL_ID is
+    // stable for the bridge process lifetime; fall back to cached info.
+    terminalId: cleanEnvPlaceholder(process.env.AIFY_TERMINAL_ID || info.terminalId || ""),
+    managedWrapperChild: String(process.env.AIFY_MANAGED_VIA_WRAPPER || "").trim() === "1" || !!info.managedWrapperChild,
+    autoRegister: true,
+    // Tombstone-resurrection guard (2026-06-03): see autoRegisterConfiguredAgent.
+    // A 404 auto-re-register from a lingering bridge must not resurrect a
+    // deliberately-removed agent unless this bridge launched after the deletion.
+    bridgeStartedAt: BRIDGE_STARTED_AT,
+  };
+  try {
+    await httpCall("POST", "/agents", payload);
+    console.error(`[aify] auto-re-registered "${agentId}" from cached state`);
+    return true;
+  } catch (error) {
+    if (error?.status === 410) {
+      forgetRemoteAgent(agentId, "server marked it intentionally removed");
+      return false;
+    }
+    console.error(`[aify] auto-re-register failed for "${agentId}": ${error?.message || error}`);
+    return false;
+  }
+}

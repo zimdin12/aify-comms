@@ -60,11 +60,13 @@ assert.match(
   "Auto-registration must not persist unresolved ${AIFY_TERMINAL_ID} placeholders",
 );
 
-// STILL `serverText`: auto-registration moved to its own owner, but RE-registration — the heartbeat path
-// that refreshes an already-registered agent — did not. Two different call sites with near-identical text,
-// and pointing both at the new module made only one of them fail, which is how the difference surfaced.
+// NOW `autoText` TOO. The comment here used to say RE-registration had stayed in `server.js` while
+// auto-registration moved — true when it was written, and false one slice later: `reregisterAgentFromState`
+// joined the same owner, precisely BECAUSE both build the same payload and both must sanitise the same
+// unresolved `${AIFY_TERMINAL_ID}` placeholder. Two copies of that sanitising is how one gets fixed and the
+// other does not, which is the defect this pair of assertions exists to catch.
 assert.match(
-  serverText,
+  autoText,
   /terminalId: cleanEnvPlaceholder\(process\.env\.AIFY_TERMINAL_ID \|\| info\.terminalId \|\| ""\)/,
   "Auto re-registration must sanitize terminal id placeholders",
 );
