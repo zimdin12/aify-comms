@@ -50,6 +50,14 @@ function createDeferred() {
     resolve = res;
     reject = rej;
   });
+  // Attach a no-op .catch so a rejection on a Deferred that ends up with
+  // no real awaiter doesn't become an unhandled-rejection. Real awaiters
+  // sharing `promise` still see their own .catch handlers fire.
+  //
+  // v0.5.4: pi was the ONLY one of the four session modules missing this.
+  // `codex-session.js`, `hermes-session.js` and `hermes-managed-gateway-session.js`
+  // all carried it; the guard was added to them and not here.
+  promise.catch(() => {});
   return { promise, resolve, reject };
 }
 
