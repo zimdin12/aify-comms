@@ -119,3 +119,14 @@ export function installRejectionToast() {
     toast(`Unexpected error: ${reason && reason.message ? reason.message : reason}`, 'error');
   });
 }
+
+// Lifted out of app.js in v0.5.4, where it was one of three shared names -- with `state` and
+// `apiBase` -- that every subject slice in that file needed and none could import back, app.js being
+// where they were declared. It lands here rather than in util.js because this is the DOM-facing
+// module and util.js is the pure-value one.
+//
+// The braceless body is deliberate and byte-identical to app.js's: the reconstruction proof compares
+// moved declarations exactly. It also briefly failed the harness's module-scope-browser-globals check,
+// which read `document` here as load-time code -- it is not, it runs only when called, and the check
+// was corrected rather than this line reworded to suit it.
+export const byId = (id) => document.getElementById(id);

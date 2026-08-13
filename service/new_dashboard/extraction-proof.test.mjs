@@ -174,6 +174,25 @@ const EXTRACTIONS = [
       },
     ],
   },
+  {
+    // ui.js ALREADY EXISTED and was already imported, so this WIDENS an import rather than adding one
+    // -- `importWas` restores the old text instead of deleting the line.
+    //
+    // `byId` is the second of the three shared leaf names blocking every subject slice in app.js.
+    // `state` went first; `apiBase` cannot follow, because it is evaluated at module load from
+    // `location` and `localStorage`, and making it lazy would mean editing call sites that stay in
+    // app.js -- which this proof forbids by construction.
+    module: "ui.js",
+    importLine: "import { byId, toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';",
+    importWas: "import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';",
+    items: [
+      {
+        name: "byId",
+        at: 126,
+        marker: "// byId moved to ./ui.js in v0.5.4 \u2014 it is a DOM lookup, and ui.js already owns the DOM helpers.",
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -186,6 +205,7 @@ const MODULES = () => ({
   "terminal-width.mjs": read("terminal-width.mjs"),
   "cli-resume.mjs": read("cli-resume.mjs"),
   "state.mjs": read("state.mjs"),
+  "ui.js": read("ui.js"),
 });
 
 function rebuild(overrides = {}) {
@@ -241,6 +261,28 @@ function isGitIgnored(rel) {
   }
 }
 
+test("the browser-globals check separates LOAD-TIME access from a deferred function body", () => {
+  // Added when `byId` moved to ui.js in v0.5.4. The check flagged
+  // `const byId = (id) => document.getElementById(id);` — a braceless arrow, so the brace-depth counter
+  // never saw a body and read `document` as module-scope code. It is not: the module imports fine in Node
+  // and only touches the DOM when called.
+  //
+  // That mattered beyond a false alarm. The only way to satisfy the old check was to reword the
+  // declaration into a braced function — which would have broken the byte-identity the reconstruction
+  // proof requires of every moved body. A wrong check would have forced a wrong edit.
+  assert.deepEqual(moduleScopeBrowserRefs("const byId = (id) => document.getElementById(id);"), [],
+    "a braceless arrow body is deferred code, not module-scope access");
+  assert.deepEqual(moduleScopeBrowserRefs("export const go = (u) => window.open(u);"), [],
+    "…including when exported");
+
+  assert.equal(moduleScopeBrowserRefs("const w = document.title;").length, 1,
+    "a real load-time read must still be caught");
+  assert.equal(moduleScopeBrowserRefs("const p = document.body.x || ((y) => y);").length, 1,
+    "…and must not be excused by an arrow appearing LATER on the same line");
+  assert.equal(moduleScopeBrowserRefs(["const f = () => {", "document.title = 1;", "};"].join(LF)).length, 0,
+    "a braced body was already excluded by the depth counter; that behaviour is unchanged");
+});
+
 test("every extracted module has NO module-scope browser globals", () => {
   for (const [name, source] of Object.entries(MODULES())) {
     assert.deepEqual(
@@ -254,7 +296,14 @@ test("every extracted module has NO module-scope browser globals", () => {
 
 test("the purity check can actually SEE a module-scope browser global", () => {
   // Without this, the assertion above passes by matching nothing.
-  const hits = moduleScopeBrowserRefs("const byId = (id) => document.getElementById(id);\n");
+  //
+  // The specimen used to be `const byId = (id) => document.getElementById(id);`, which was the wrong
+  // one: that is a braceless ARROW BODY, deferred until the function is called, and the test directly
+  // below already says such a body is fine. The two contradicted each other and the check sided with
+  // this one -- so a module could be called unimportable for code that never runs on import, and the
+  // only way to satisfy it was to reword a moved declaration and break the reconstruction proof's
+  // byte-identity. Corrected when `byId` moved to ui.js in v0.5.4; this is now a real load-time read.
+  const hits = moduleScopeBrowserRefs("const title = document.title;\n");
   assert.equal(hits.length, 1);
   assert.equal(hits[0].global, "document");
 });

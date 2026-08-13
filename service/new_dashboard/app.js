@@ -7,7 +7,7 @@ import { continueCliCommand, continueCliDetails, continueCliInfo, resumeMachineN
 import { collapseSupersededSessions, countSupersededSessions } from './sessions-list.mjs';
 import { AGENT_STATUSES, LIVE_AGENT_STATUSES, STATUS_KINDS, renderStatusChip, resolveStatus, runStatusContext, statusWhyContext } from './status.js';
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
-import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
+import { byId, toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
 import { createChatController } from './chat.js';
 import { inspectorRefreshDecision } from './inspector-refresh.mjs';
 import { createNotifier, readEnabled, writeEnabled, requestPermission } from './notify.mjs';
@@ -103,7 +103,7 @@ const pages = {
   settings: ['Settings', 'Curated service and dashboard configuration. Saves apply to the live service.'],
 };
 
-const byId = (id) => document.getElementById(id);
+// byId moved to ./ui.js in v0.5.4 — it is a DOM lookup, and ui.js already owns the DOM helpers.
 let refreshTimer = null;
 // In-flight guard: refresh() fires a ~10-request bundle; refreshSoon() can be triggered by
 // every WS event. Without this, under poll load (slow single-worker service) bundles pile up

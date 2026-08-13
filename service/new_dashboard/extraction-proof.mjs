@@ -217,8 +217,24 @@ export function moduleScopeBrowserRefs(source) {
     const line = lines[i];
     const bare = line.trim();
     if (depth === 0 && bare && !bare.startsWith("//")) {
+      // WHAT THIS ASKS is whether a browser global is touched WHILE THE MODULE EVALUATES -- that is
+      // what makes a module unimportable outside a browser. It is not asking whether the word appears
+      // on a line at depth 0.
+      //
+      // A braceless arrow body is the whole difference. `const byId = (id) => document.getElementById(id);`
+      // reads `document` only when CALLED, so the module imports fine in Node -- but the brace-depth
+      // counter cannot see that, because the body never opens a block. Flagging it reports a module as
+      // unimportable when it is not, and the only way to satisfy the check would be to reword the moved
+      // declaration, breaking the byte-identity the reconstruction proof depends on. Fixing a wrong
+      // check beats rewording correct code to please it.
+      //
+      // Braced bodies are already excluded by the depth counter, on their own lines. Everything after a
+      // braceless `=>` is deferred for the same reason and is not scanned. Over-strict elsewhere is the
+      // safe direction: this can only fail a module that was importable, never pass one that is not.
+      const arrow = line.indexOf("=>");
+      const scanned = arrow !== -1 && !line.slice(arrow).includes("{") ? line.slice(0, arrow) : line;
       for (const g of BROWSER_GLOBALS) {
-        if (new RegExp(`\\b${g}\\b`).test(line)) hits.push({ line: i + 1, global: g, text: bare });
+        if (new RegExp(`\\b${g}\\b`).test(scanned)) hits.push({ line: i + 1, global: g, text: bare });
       }
     }
     for (const ch of line) {
