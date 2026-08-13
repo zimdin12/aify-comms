@@ -1,8 +1,8 @@
 // Channel membership and reading, executed rather than scanned.
 //
 // `comms_channel_create`, `comms_channel_join`, `comms_channel_read`, `comms_channel_list`. In local mode a
-// channel IS a directory under the message store, so "does this channel exist" is a filesystem question —
-// and an unreadable directory must not be reported as an empty channel. That absence-versus-emptiness
+// channel is ONE JSON FILE, `channels/<name>.json`, so "does this channel exist" is a single-file question —
+// and a missing file must not be reported as an empty channel. That absence-versus-emptiness
 // distinction has bitten this repo twice already, in `comms_search`'s scope note and in `aify-comms doctor`'s
 // `unknown-all`.
 //
@@ -12,7 +12,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -25,6 +25,7 @@ process.env.CLAUDE_MCP_MESSAGES_DIR = STORE;
 
 const channels = await import("../channel-tools.mjs");
 const { MESSAGES_DIR } = await import("../local-store.mjs");
+const { SAFETY_HEADER } = await import("../tool-response-format.mjs");
 const { z } = await import("zod");
 
 const tools = new Map();
@@ -110,6 +111,36 @@ test("reading a channel that DOES NOT EXIST says so — it must not read as empt
   assert.ok(
     res.isError || /not found|does not exist|no such/i.test(out),
     `a missing channel must be distinguishable from an empty one, got: ${out}`,
+  );
+});
+
+test("a channel WITH a message renders it, behind the safety banner", async () => {
+  // THIS TEST IS WHY THE SLICE WAS REVISED. My first version covered a missing channel and an empty one and
+  // never a channel with content — so the non-empty branch never executed, and it referenced `SAFETY_HEADER`
+  // without the module importing it. Every gate passed and a real read threw `ReferenceError`. The reviewer
+  // found it by exercising the branch.
+  //
+  // The lesson is the one this whole lane keeps relearning from the other side: I test the degenerate cases
+  // carefully because that is where bugs hide, and the ORDINARY path went untested. Missing and empty are
+  // both early returns. The interesting code is after them.
+  await call("comms_channel_create", { name: "chatty", from: "agent-a" });
+  const chFile = path.join(MESSAGES_DIR, "channels", "chatty.json");
+  const record = JSON.parse(readFileSync(chFile, "utf-8"));
+  record.messages = [{ id: "cm1", from: "agent-b", body: "the build is green", timestamp: Date.now() }];
+  writeFileSync(chFile, JSON.stringify(record, null, 2));
+
+  const res = await call("comms_channel_read", { channel: "chatty" });
+  assert.ok(!res.isError, `reading a non-empty channel failed: ${text(res)}`);
+  assert.match(text(res), /the build is green/, "the message body must come back");
+  assert.match(text(res), /agent-b/, "…and its sender");
+  // Channel messages are written by other agents, so the same banner rule as the inbox applies.
+  assert.ok(
+    text(res).includes(SAFETY_HEADER),
+    "a rendered channel message MUST carry the data-not-instructions banner",
+  );
+  assert.ok(
+    text(res).indexOf(SAFETY_HEADER) < text(res).indexOf("the build is green"),
+    "the banner must come BEFORE the content it warns about",
   );
 });
 

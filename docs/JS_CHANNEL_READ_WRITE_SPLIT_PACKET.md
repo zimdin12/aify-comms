@@ -77,8 +77,11 @@ group with a hole.
 
 ## 5. What the tests will assert
 
-Beyond registration and byte-identity, the properties worth pinning are about the local-mode store, which
-is where a channel is a directory of files:
+Beyond registration and byte-identity, the properties worth pinning are about the local-mode store, where a
+channel is **one JSON file**, `channels/<name>.json`, holding its members and messages together. This
+section said "a directory of files" when first written — inboxes are a directory per agent and I generalised
+from that without checking. The reviewer asked for the correction so the packet does not leave a false
+storage-shape authority behind:
 
 - a created channel exists and is listed; creating one twice is not an error or a duplicate;
 - joining records membership and is idempotent;
@@ -96,6 +99,28 @@ is where a channel is a directory of files:
    group's entire import surface is six already-owned names.
 2. Is §3's distinction real — delivery is not a member of the membership subject — or is it special
    pleading, in which case all five stay parked?
-3. I am proceeding with the extraction in a SEPARATE commit on the reading that "produce a packet that
-   proves it" is satisfied by producing it. If your condition meant "and I approve it first", say so and I
-   will revert that commit; the packet stands either way.
+3. I proceeded with the extraction in a SEPARATE commit on the reading that "produce a packet that proves
+   it" is satisfied by producing it. The reviewer accepted the packet and returned the extraction as REVISE
+   for a real defect (see §7), not for over-reading the condition.
+
+## 7. What the extraction got wrong, recorded here because the packet is the artifact that survives
+
+The first extraction shipped `channel-tools.mjs` referencing `SAFETY_HEADER` with **no import for it**. Any
+read of a channel that actually HAS messages threw `ReferenceError`. `node --check` passed — it only parses.
+The full suite passed, because §5's test list covered a MISSING channel and an EMPTY one, and both are early
+returns; the branch that renders content was never executed. The reviewer found it by exercising that branch
+in a clean worktree.
+
+**The durable lesson is about §5, not about the import.** Every property I chose to pin was a degenerate
+case, on the reasoning that degenerate cases are where bugs hide. The ordinary path — a populated store —
+went untested, and that is where the bug was. Any future group's test list must exercise the POPULATED path
+before it claims coverage.
+
+I also attempted a static gate for this class — the JS counterpart to
+`scripts/undefined_name_sweep.py`, whose existence is why the Python lane has never shipped one of these.
+**It is not reliably implementable here and I withdrew it.** No JS parser is available in the bridge's
+dependencies, and a hand-rolled scanner gets this wrong in two demonstrated ways: regex character classes
+read as identifiers (1,362 false positives on the first attempt), and `tool-response-format.mjs:99` contains
+`/```/g` — a regex literal containing backticks — which a scanner reads as a template-literal opener,
+swallowing the rest of the file and every export in it. A gate that reports wrong answers is worse than no
+gate, so the answer here is the process rule above rather than a tool.

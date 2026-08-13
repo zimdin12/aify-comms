@@ -15,11 +15,12 @@
 // state, and exactly six imported names. `comms_channel_send` reaches thirteen. The dependency boundary
 // follows the subject — membership and content versus delivery — which is why it was worth cutting at all.
 //
-// LOCAL MODE MAKES A CHANNEL A DIRECTORY. There is no channel table without a service: create writes a
-// directory under the message store, join appends to a members file, read lists message files. So "does
-// this channel exist" is a filesystem question here, and an unreadable directory must not be reported as
-// an empty channel — the absence-versus-emptiness distinction this repo has been bitten by in
-// `comms_search` and in `aify-comms doctor`'s `unknown-all`.
+// LOCAL MODE MAKES A CHANNEL ONE JSON FILE — `channels/<name>.json`, holding its members and its messages
+// together. Not a directory per channel, which is what the first draft of this comment and its tests both
+// said: inboxes ARE a directory per agent, and I generalised from the store's other layout without checking.
+// So "does this channel exist" is a single-file question here, and a missing file must not be reported as an
+// empty channel — the absence-versus-emptiness distinction this repo has been bitten by in `comms_search`
+// and in `aify-comms doctor`'s `unknown-all`.
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
@@ -29,6 +30,7 @@ import path from "path";
 import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
 import { MESSAGES_DIR } from "./local-store.mjs";
 import { validateName } from "./safe-name.mjs";
+import { SAFETY_HEADER } from "./tool-response-format.mjs";
 
 // Registers the four channel membership/read tools. A function rather than a module-scope side effect, so a
 // fake server can capture the registrations and a test can call the handlers without an MCP transport.
