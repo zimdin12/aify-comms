@@ -407,3 +407,45 @@ authority grounds, and the three behaviour/process-state ones on the reviewer's 
 
 **Not extracted.** 33 lines across four leaves is small, and the value is not the line count: it is that
 no tool group ends up owning a primitive five other groups need.
+
+### 6. Per-group deps object shape — the reviewer's stop condition, measured
+
+*"If a group's deps object starts looking like a `server.js` surrogate, stop and re-packet."* That is
+checkable before writing any wrapper, so it was checked first.
+
+A group's wrapper must be handed every name its handlers need that does NOT move with it. Imported names
+are excluded from the count below: a leaf can re-import `randomUUID` or `normalizeRuntime` from their own
+modules, so they are not deps. The real deps object is **module state + helpers that stay in server.js +
+bridge constants**.
+
+| group | tools | lines | module state | stays-in-js | constants | **real deps** |
+|---|---|---|---|---|---|---|
+| dispatch | 5 | 170 | 0 | 0 | 2 | **2** |
+| status | 5 | 166 | 0 | 1 | 6 | **7** |
+| lifecycle | 5 | 205 | 0 | 1 | 6 | **7** |
+| console | 5 | 267 | 0 | 0 | 8 | **8** |
+| channels | 5 | 245 | 0 | 3 | 7 | **10** |
+| messaging | 8 | 692 | 0 | 5 | 14 | **19** |
+
+**Every group needs ZERO module state.** That is the strongest result in this packet: no tool group
+requires a `let`, so no wrapper has to reach into bridge lifecycle state. It is what makes the whole
+layer-2 path viable rather than another factory-conversion problem.
+
+**Five groups are small and clean. `messaging` is not.** At 19 real deps — and needing ALL FIVE of the
+stays-in-server.js helpers, including `spawnTriggeredAgent` — its deps object is heading for the
+surrogate shape the reviewer named as a stop. It is also the largest group at 692 lines across 8 tools,
+which is itself a sign that "messaging" is doing more than one job: send/read/inbox/unsend/search are
+message-store operations, while listen/clear/compact are session and lifecycle concerns wearing a
+messaging name.
+
+**So the order writes itself, and it is not largest-first:**
+
+1. `dispatch` — 2 deps, 170 lines. The proving slice: if the wrapper pattern, the fake-server tests and
+   the reconstruction proof do not work here, they will not work anywhere, and the blast radius is
+   smallest.
+2. `status`, `lifecycle`, `console` — 7–8 deps each.
+3. `channels` — 10 deps, and the first to carry `spawnTriggeredAgent` as a dep.
+4. `messaging` — **not** as one group. Split by subject first, or packet it separately.
+
+**Not extracted.** The measurement says which slice is safe to attempt first; it does not license the
+attempt.
