@@ -25,7 +25,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-const SOURCE = readFileSync(new URL("../server.js", import.meta.url), "utf8");
+// `comms_share` moved out of server.js into `artifact-tools.mjs` in v0.5.4; this follows its owner.
+//
+// The two source pins below are exactly the kind that go quietly vacuous when their subject moves —
+// `assert.ok(!/…/.test(SOURCE))` passes trivially against a file that no longer contains the code at
+// all. The presence assertion at the end of this file is what makes that impossible, and it is the
+// reason the pair must always be written together.
+const SOURCE = readFileSync(new URL("../artifact-tools.mjs", import.meta.url), "utf8");
 
 // Mirrors the construction in server.js's binary-upload branch.
 function buildBody(fileData, { name = "t.log", from = "alice", description = "" } = {}) {
@@ -89,9 +95,14 @@ test("the source does not reintroduce the trailing CRLF after the join", () => {
   // Pins the actual line, because the fix looks like a typo and invites 'tidying' back in.
   assert.ok(
     !/parts\.join\("\\r\\n"\)\s*\+\s*"\\r\\n"/.test(SOURCE),
-    'server.js must not append "\\r\\n" after parts.join("\\r\\n") — that extra CRLF becomes file content',
+    'the uploader must not append "\\r\\n" after parts.join("\\r\\n") — that extra CRLF becomes file content',
   );
   assert.match(SOURCE, /Buffer\.from\(parts\.join\("\\r\\n"\)\)/, "the joined header block is sent as-is");
+  // Anti-vacuity for the absence assertion above: prove the multipart uploader is actually IN the file
+  // being scanned. Absence assertions degrade to green when their subject moves; presence ones fail
+  // loudly, which is what caught this pin when comms_share left server.js.
+  assert.match(SOURCE, /"comms_share"/, "this test must be scanning the file that owns comms_share");
+  assert.match(SOURCE, /multipart\/form-data/, "…and specifically its multipart upload path");
 });
 
 console.log("share-multipart-integrity.test.js: all assertions passed");
