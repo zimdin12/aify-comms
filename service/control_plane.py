@@ -1,9 +1,14 @@
 """The live control plane: the helpers, constants and queues the route domains share.
 
-~140 helpers, two queue classes and the constants behind status, dispatch, terminals, spawn and
-console. It declares NO routes and owns no router — `service/routers/api_v2.py` is the composition
-surface, and it is 53 lines of `include_router` with no re-export of anything here, so a stale
+25 helpers and the constants behind status, dispatch, terminals, spawn and console. It declares NO
+routes and owns no router — `service/routers/api_v2.py` is the composition surface, and it is 53
+lines of `include_router` with no re-export of anything here, so a stale
 `from service.routers.api_v2 import <helper>` fails loudly instead of quietly resolving.
+
+THE COUNTS ABOVE ARE MEASURED, and were wrong for a while: this said "~140 helpers, two queue
+classes" after the queues had moved to `service/terminal_write_queue.py` and most of the helpers had
+followed the reconcilers and route domains out. Prose written beside a move describes the plan;
+nothing in the suite reads prose. Re-measure before editing this paragraph.
 
 This file was `service/routers/api_v2.py`, 20,545 lines at its peak, until v0.5 moved the
 reconcilers out and v0.5.2 moved the route domains out. By the end of that it declared zero routes:
@@ -14,107 +19,69 @@ migration finished long before any of this. That was worth fixing rather than ca
 central whose first three lines are wrong teaches every reader something false before they reach the
 code.
 
-IT IS STILL FAR TOO BIG. Splitting 140 helpers by responsibility is a v0.6 question and deliberately
-not a rename's job. Until then: put NEW behaviour in a leaf (`service/api_core/`,
-`service/reconcilers/`, `service/status_engine.py`) and import it — do not grow this file.
+IT IS STILL TOO BIG, and what is left is no longer a pile of small helpers: 25 functions hold ~1,450
+lines, and the four largest hold ~950 of them. Splitting those is extract-method, not relocation —
+gated by `service/tests/extract_method.py` — and a v0.6 question. Until then: put NEW behaviour in a
+leaf (`service/api_core/`, `service/reconcilers/`, `service/status_engine.py`) and import it.
+
+DO NOT LEAVE AN IMPORT BEHIND WHEN YOU MOVE SOMETHING OUT. In v0.5.4 this file carried 309 import
+bindings of which 180 were reached by nothing at all — one orphaned per extraction, accumulated over
+the whole series, plus every request model from `service.models` for routes that left in v0.5.2. They
+cost 148 lines and made the file look coupled to two dozen modules it does not use.
 """
 import asyncio
 import json
-import math
-import sys
 import logging
 import sqlite3
-from collections import deque
-import itertools
 import re
 import time
 import uuid
 from datetime import datetime, timezone, timedelta
-from pathlib import Path
-from typing import Any, NamedTuple, Optional
+from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.routing import APIRoute
-from fastapi.exceptions import RequestValidationError
+from fastapi import Request
 
 # Per-agent wake-up events for comms_listen
 _listen_events: dict[str, asyncio.Event] = {}
 
-from pydantic import BaseModel
 from service.pi_resident_flip import _drain_and_flip_pi_resident_agents
 from service.api_core.manual_status import _MANUAL_STATUSES
 from service.api_core.status_decision import StatusFacts, _decide_effective_status
 from service.api_core.message_store import _delete_messages_by_ids, _get_unread_count_map
 from service.config import get_config
-# v0.5.1g: single owner, moved verbatim, same call timing.
-# The CACHE is reached through the MODULE, never imported by value: a by-value import binds the dict
-# this module saw at import time, and a second module-level assignment anywhere would then give
-# writers and readers different dicts with nothing failing. Same rule, same reason, as
-# `status_cache._LIVE_STATE_CACHE`. `test_process_global_identity` enforces it and caught this exact
-# import when the move was first made.
-from service.api_core import settings as settings_core
-# v0.5.1i: single owner. The COUNTER is reached through the module, never by value.
-from service.api_core import events as events_core
 from service.api_core.dispatch_run_state import _append_dispatch_control, _finalize_dispatch_runs
 from service.api_core.dispatch_text import _auto_handoff_body_for_run
 from service.api_core.channel_delivery import _has_live_worker_for
-from service.api_core.liveness import _LIVE_SESSION_STATUSES, _agent_liveness, _agent_wake_mode
+from service.api_core.liveness import _LIVE_SESSION_STATUSES, _agent_wake_mode
 from service.api_core.active_run_lookup import (
     _current_active_run_row,
     _current_channel_awaiting_reply_run_row,
     _find_mergeable_queued_run,
-    _get_blocking_active_run,
 )
 from service.api_core.managed_env import _managed_environment_unavailable_reason
 from service.api_core.events import (
     _append_dispatch_event,
-    _append_terminal_control,
-    _append_terminal_event,
-    _TERMINAL_EVENT_CAP,
-    _TERMINAL_EVENT_PRUNE_EVERY,
 )
 # v0.5.2a: the shared route class lives with the domain-router factory so no domain can build a
 # router without the SQLite lock-retry. See service/api_core/routing.py.
 from service.api_core.ws import _get_ws  # v0.5.1h: accessor only; manager stays on app.state
-from service.api_core.settings import DEFAULT_SETTINGS, _invalidate_settings_cache, _load_settings
+from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import SAFE_NAME_RE, validate_name  # v0.5.1f: one owner
 from service.api_core.runtime import (  # v0.5.1e: single owner, resolved against the contract
     _normalize_runtime,
     _normalize_session_mode,
-    _runtime_capability_for_environment,
 )
 from service.api_core.serialization import (  # v0.5.1c: single owner, no copy
     _json_loads_or,
-    _clip_text,
     _iso_from_ms,
-    _dedupe_preserve,
-    _timestamp_sort_key,
-    _normalize_machine_id,
-    _machine_ids_same_host,
-    _quote_untrusted_subject,
     _row_require_reply,
 )
-from service.db import get_db, SQLITE_CLAIM_BUSY_TIMEOUT_MS
-from service import longpoll
-from service.usage_openai import collect_openai_pool
-from service.terminal_diagnostics import (
-    failure_tail as _terminal_failure_tail,
-    meaningful_failure_line as _terminal_failure_line,
-)
+from service.db import get_db
 from service.terminal_snapshot import (
     render_snapshot as _render_terminal_snapshot,
-    infer_source_width as _infer_terminal_source_width,
-    feed_live_screen as _feed_live_terminal_screen,
     render_live_screen as _render_live_terminal_screen,
-    resize_live_screen as _resize_live_terminal_screen,
-    TERMINAL_MAX_COLS,
-    TERMINAL_MAX_ROWS,
-    drop_live_screen as _drop_live_terminal_screen,
 )
-from service.status_engine import apply_event, derive, StatusInputs, VALID_STATUSES
-from service.dashboard_redirect import dashboard_url
-from service.ntfy import notify_operator
+from service.status_engine import derive, StatusInputs
 from service.clock import now as _now
 # v0.5 slice 1a. The status cache and the bridge reconcilers now live in their own module.
 #
@@ -128,107 +95,52 @@ from service.clock import iso_to_epoch as _iso_to_epoch
 from service.env_status import environment_effective_status as _environment_effective_status
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent, _get_dispatch_state_map
 from service.api_core.turn_state import (  # v0.5.4: moved out; the control plane is now a CALLER
-    _clear_status_state_in_turn,
-    _clear_turn_busy_if_no_open_reply_owing_run,
     _turn_busy_state,
 )
 from service.api_core.agent_sessions import (  # v0.5.4: moved out; the control plane is now a CALLER
-    _agent_tombstone,
     _current_agent_session_row,
-    _session_handle_live_owner,
-    _tombstone_agent,
-    _touch_agent,
-    _touch_current_agent_session,
 )
 from service.api_core.channel_delivery import (  # v0.5.4: moved out; the control plane is now a CALLER
-    _CHANNEL_CLAIM_RUNTIMES,
-    _CHANNEL_FLAG_GATED_RUNTIMES,
-    _CHANNEL_MANAGED_RUNTIMES,
-    _CHANNEL_SIDECAR_DELIVERY_RUNTIMES,
-    _WorkerLiveness,
     _apply_channel_routing_to_claude_runs,
-    _channel_flag_enabled,
-    _channel_managed_eligible,
-    _insert_messages_via_console,
     _worker_liveness_for,
 )
-from service.api_core.virtual_rpc import (  # v0.5.4: moved out; the control plane is now a CALLER
-    VIRTUAL_CODEX_RPC_COMMAND,
-    VIRTUAL_HERMES_RPC_COMMAND,
-    VIRTUAL_OPENCODE_RPC_COMMAND,
-    VIRTUAL_PI_RPC_COMMAND,
-    VIRTUAL_RPC_COMMANDS_BY_RUNTIME,
-    VIRTUAL_RPC_COMMAND_SET,
-)
 from service.api_core.recovery_writes import (  # v0.5.4: moved out; the control plane is now a CALLER
-    UNDELIVERED_CLAIM_REQUEUE_LIMIT,
-    _record_channel_sidecar_heartbeat,
     _requeue_instead_of_failing_undelivered_claim,
 )
 from service.api_core.terminal_text import (  # v0.5.4: moved out; the control plane is now a CALLER
     _ANSI_RE,
-    _CLAUDE_WORKING_FOOTER_RE,
     _terminal_awaiting_input_hint,
-    _terminal_text_compact,
 )
 from service.api_core.managed_env import (  # v0.5.4: moved out; the control plane is now a CALLER
-    _has_pending_or_booting_spawn_request,
     _managed_console_is_booting,
-    _managed_environment_status,
     _managed_owning_environment_row,
     _managed_spawn_is_starting,
-    _select_online_environment_for_runtime,
 )
 from service.api_core.liveness import (  # v0.5.4: moved out; the control plane is now a CALLER
-    _has_live_claimer_lease,
-    _has_recorded_claimer_lease,
     _resident_bridge_is_fresh,
     ACTIVE_RUN_BRIDGE_STALE_SECONDS,
-    CHANNEL_SIDECAR_STALE_SECONDS,
     CONSOLE_WORKING_LEASE_SECONDS,
-    _agent_has_live_terminal,
-    _bridge_is_superseded,
-    _claimer_lease_row,
     _console_working_lease_fresh,
-    _has_live_channel_sidecar,
-    _has_live_managed_wrapper_child,
     _has_live_terminal_session,
 )
 from service.api_core.reply_contract import (  # v0.5.4: moved out; the control plane is now a CALLER
     _contract_list_query,
     _contract_reminder_body,
     _contract_reminder_full_every,
-    _is_operator_closed_contract,
-    _message_satisfies_reply_contract,
 )
 from service.api_core.dispatch_text import (  # v0.5.4: moved out; the control plane is now a CALLER
-    COLDSTART_REFUSED_PREFIX,
     _auto_handoff_subject_for_run,
     _build_pending_dispatch_subject,
-    _coldstart_refusal_message,
-    _format_dispatch_state,
-    _is_provider_rate_limit_error,
-    _render_pending_dispatch_item,
 )
 from service.api_core.records import (
     # v0.5.4: moved out; the control plane is now a CALLER,
-    _LEGACY_RAW_STATUS_TO_CANONICAL,
     _agent_record_to_dict,
-    _agent_session_to_dict,
-    _environment_record_to_dict,
     _row_status_note,
     _status_with_dispatch,
-    _terminal_session_to_dict,
 )
 from service.api_core.capabilities import (  # v0.5.4: moved out; the control plane is now a CALLER
-    _default_capabilities_for,
-    _default_console_command,
-    _environment_supports_terminal,
-    _environment_uses_windows_paths,
-    _has_hermes_gateway_url,
     _has_live_rpc_controller,
     _managed_env_reachable,
-    _managed_via_wrapper_for_runtime,
 )
 from service.env_status import _ENVIRONMENT_HEARTBEAT_STATUSES
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -240,7 +152,6 @@ from service.reconcilers.managed_workers import (
 from service.reconcilers.dispatch_lifecycle import (
     _clear_turn_busy_for_dead_bridges,
     _close_orphaned_managed_runs,
-    _close_steered_contracts_for_parent_run,
     _fail_stranded_delivered_reply_runs,
     _prune_orphaned_dispatch_runs,
     _sweep_unmirrored_failed_handoffs,
@@ -254,9 +165,6 @@ from service.reconcilers.dispatch_queue import (
 )
 from service.reconcilers.terminal_runs import (
     _close_active_terminal_runs_for_terminal,
-    _close_idle_claude_terminal_run_without_reply,
-    _close_idle_pi_terminal_run_without_reply,
-    _fail_pending_terminal_controls,
     _reconcile_ended_terminal_controls,
     _reconcile_stuck_terminal_and_session_rows,
 )
@@ -274,41 +182,20 @@ from service.reconcilers.sessions import (
     _reconcile_duplicate_resident_sessions,
 )
 from service.reconcilers.spawn_lifecycle import (
-    SPAWN_DEAD_TERMINAL_GRACE_SECONDS,
     _fail_orphaned_running_spawn_requests,
     _fail_running_spawns_superseded_by_current_session,
     _finalize_spawns_with_dead_terminals,
     _repair_spawn_requests_from_initial_dispatch_failures,
 )
 from service.reconcilers.status_cache import (
-    BRIDGE_ORPHAN_STALE_SECONDS,
-    _live_state_drop,
-    _live_state_expire,
     _live_state_fresh,
     _live_state_get,
     _live_state_set,
     _prune_superseded_bridges,
     _reap_stale_orphan_bridges,
-    stale_seconds_from_settings,
-)
-from service.usage_cache import (
-    usage_set,
-    usage_all,
-    usage_get,
-    derive_usage_source,
-    consumption_set,
-    consumption_summary,
 )
 from service.models import (
-    AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
-    ChannelCreate, ChannelMessage, ChannelJoin,
-    AgentRuntimeStateUpdate, AgentSessionHandleUpdate, AgentSessionResolveRequest, AgentReadyUpdate, AgentSessionModeSwitchRequest, AgentResidentLostRequest, ConversationClearRequest, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
-    DispatchControlRequest, DispatchControlClaimRequest, DispatchControlUpdate,
-    EnvironmentHeartbeat, EnvironmentControlRequest, EnvironmentControlClaim, EnvironmentControlUpdate, EnvironmentRootsUpdate,
-    validate_model_shape,
-    AgentEnvironmentAssignRequest, AgentRenameRequest, SpawnRequestCreate, SpawnRequestClaim, SpawnRequestUpdate, SessionControlRequest, AgentControlRequest,
-    ConsoleStartRequest, TerminalControlRequest, TerminalControlClaim, TerminalControlUpdate, TerminalDeadReport, TerminalOutputRequest,
-    VirtualTerminalEnsureRequest, AgentFavoriteUpdate, AgentConsoleInputRequest,
+    SpawnRequestClaim,
 )
 
 # _WINDOWS_DRIVE_CWD_RE moved to service/api_core/registration_gates.py in v0.5.4 —
@@ -327,42 +214,21 @@ logger = logging.getLogger("aify_comms.api_v2")
 # v0.5.3: the ROUTER COMPOSITION that used to live here moved to service/routers/api_v2.py,
 # which is now nothing but composition. This module is the control plane: helpers, constants
 # and the two queue classes. It declares no routes and owns no router.
-# One router-owned console path still appends terminal output; it follows the helper to its new
-# owner rather than keeping a second copy here.
-from service.api_core.terminal_output import _append_terminal_output
-from service.api_core.terminal_ownership import (  # v0.5.4: moved out; the carrier is a CALLER
-    _active_terminal_for_agent,
-    _release_stale_terminal_owner,
-)
 from service.api_core.dispatch_state import (  # v0.5.4: moved out; the carrier is a CALLER
     _DISPATCH_TERMINAL_STATUSES,
     _is_delivery_only_claude_run,
 )
 from service.api_core.dispatch_text import (  # v0.5.4: moved out; the carrier is a CALLER
-    _MERGED_DISPATCH_HEADER,
     _pending_dispatch_count,
 )
-from service.api_core.reply_contract import _dispatch_reply_state  # v0.5.4: moved out
 from service.api_core.execution_mode import (  # v0.5.4: both moved out of this file
     _agent_execution_mode,
     _auto_return_resident_to_managed_if_possible,
 )
 from service.api_core.active_run_discard import (  # v0.5.4: moved out; the carrier is a CALLER
-    _discard_superseded_active_run,
     _discard_unclaimable_active_run,
     _discard_unusable_active_run,
-    _fail_pending_controls_for_run,
     _fail_stale_active_run,
-)
-from service.api_core.dispatch_start import (  # v0.5.4: moved out; the carrier is a CALLER
-    _coldstart_refusal,
-    _coldstart_spawn_request_for_dispatch,
-    _ensure_managed_pty_for_dispatch,
-)
-from service.api_core.workspace import (  # v0.5.4: moved out; the carrier is a CALLER
-    _normalize_workspace_for_environment,
-    _workspace_for_environment,
-    _workspace_root_for,
 )
 from service.terminal_write_queue import (  # v0.5.4: moved out; the control plane is now a CALLER
     TERMINAL_OUTPUT_WRITES,
@@ -1714,17 +1580,11 @@ async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str,
 # _managed_environment_status moved to service/api_core/managed_env.py in v0.5.4.
 
 
-# OWNED BY service/reconcilers/spawn_lifecycle.py since v0.5 slice 2. Imported rather than
-# re-declared: two literals with the same value today is precisely how finding N7 happened.
-# Caught by my own pre-tag review, which is the only reason it is not shipping duplicated.
-from service.reconcilers.spawn_lifecycle import SPAWN_ORPHAN_GRACE_SECONDS  # noqa: E402
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
 from service.api_core.capabilities import (
-    _has_codex_live_app_server,
     _row_capabilities,
 )
 from service.api_core.liveness import TURN_BUSY_BACKSTOP_SECONDS
-from service.api_core.claim_gating import _dispatch_source_message_ids
 from service.api_core.reply_contract import _contract_reminder_due
 from service.api_core.dispatch_buffer import (
     _DISPATCH_BUFFER_CAP,
