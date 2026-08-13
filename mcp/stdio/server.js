@@ -12,8 +12,6 @@ import {
   SAFETY_HEADER,
   autoReplyBodyForRun,
   autoReplySubjectForRun,
-  formatDispatchState,
-  formatOutboundActivity,
   formatQueuedRun,
   replyExpectationSummary,
 } from "./tool-response-format.mjs";
@@ -53,19 +51,19 @@ import {
 } from "./aify-service-endpoint.mjs";
 import { registerArtifactTools } from "./artifact-tools.mjs";
 import { registerDispatchTools } from "./dispatch-tools.mjs";
+import { registerAgentReportingTools } from "./agent-reporting-tools.mjs";
 import { registerEnvironmentTools } from "./environment-tools.mjs";
 import { registerInboxTools } from "./inbox-tools.mjs";
 import { registerLifecycleTools } from "./lifecycle-tools.mjs";
 import { registerSearchTool } from "./search-tool.mjs";
 import {
   INBOX_DIR, MESSAGES_DIR, SHARED_DIR,
-  deliverMessage, readAgents, readInbox, writeAgents,
+  deliverMessage, readAgents, writeAgents,
 } from "./local-store.mjs";
 import {
   ACTIVE_RUNS, CONSECUTIVE_FAILURES, REMOTE_AGENT_STATE, forgetRemoteAgent,
 } from "./bridge-agent-state.mjs";
 import { __markControllerStart, anyControllerActive } from "./controller-activity.mjs";
-import { runtimeSummary, wakeModeSummary } from "./agent-summary.mjs";
 import { parseJson } from "./parse-json.mjs";
 import { normalizeSessionMode } from "./session-mode.mjs";
 import { validateName } from "./safe-name.mjs";
@@ -3975,43 +3973,7 @@ server.tool(
   }
 );
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// 2. comms_agents -- List all agents with unread counts
-// ═══════════════════════════════════════════════════════════════════════════════
-
-server.tool(
-  "comms_agents",
-  "List all registered agents, their roles, and unread message counts.",
-  {},
-  async () => {
-    const describeLine = (info) => {
-      const desc = String(info.description || "").trim();
-      if (!desc) return "";
-      const preview = desc.length > 160 ? `${desc.slice(0, 159)}…` : desc;
-      return `\n    ${preview}`;
-    };
-    if (IS_REMOTE) {
-      const r = await httpCall("GET", "/agents");
-      const entries = Object.entries(r.agents || {});
-      if (!entries.length) return { content: [{ type: "text", text: "No agents registered." }] };
-      const lines = entries.map(([id, info]) => {
-        const status = info.status ? ` [${info.status}]` : "";
-        return `- ${id} (${info.role})${status} -- "${info.name}" | ${runtimeSummary(info)} | wake: ${wakeModeSummary(info)} | unread: ${info.unread || 0} | last seen: ${info.lastSeen}${describeLine(info)}`;
-      });
-      return { content: [{ type: "text", text: lines.join("\n") }] };
-    }
-
-    const registry = readAgents();
-    const entries = Object.entries(registry.agents);
-    if (!entries.length) return { content: [{ type: "text", text: "No agents registered." }] };
-    const lines = entries.map(([id, info]) => {
-      const unread = readInbox(id, "unread").length;
-      const status = info.status ? ` [${info.status}]` : "";
-      return `- ${id} (${info.role})${status} -- "${info.name}" | ${runtimeSummary(info)} | wake: ${wakeModeSummary(info)} | unread: ${unread} | last seen: ${info.lastSeen}${describeLine(info)}`;
-    });
-    return { content: [{ type: "text", text: lines.join("\n") }] };
-  }
-);
+registerAgentReportingTools(server, z);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 2b. comms_status -- Update your agent status
@@ -4425,67 +4387,6 @@ registerInboxTools(server, z);
 
 registerSearchTool(server, z);
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// 5b. comms_agent_info -- Check another agent's status and last read message
-// ═══════════════════════════════════════════════════════════════════════════════
-
-server.tool(
-  "comms_agent_info",
-  "Check another agent's current status, unread count, and last message they read. " +
-    "Useful for knowing if they've seen your message.",
-  {
-    agentId: z.string().describe("Agent ID to check"),
-  },
-  async ({ agentId }) => {
-    if (IS_REMOTE) {
-      try {
-        const agents = await httpCall("GET", "/agents");
-        const info = agents.agents?.[agentId];
-        if (!info) return { content: [{ type: "text", text: `Agent "${agentId}" not found.` }], isError: true };
-
-        let lastRead = "unknown";
-        try {
-          const lr = await httpCall("GET", `/agents/${agentId}/last-read`);
-          if (lr.lastRead) {
-            lastRead = `"${lr.lastRead.subject}" from ${lr.lastRead.from} (read at ${lr.lastRead.readAt})`;
-          } else {
-            lastRead = "no messages read yet";
-          }
-        } catch { /* best effort */ }
-
-        return { content: [{ type: "text", text:
-          `${agentId} (${info.role}) [${info.status}]\n` +
-          `  Runtime: ${runtimeSummary(info)}\n` +
-          `  Wake mode: ${wakeModeSummary(info)}\n` +
-          // INBOUND facts, labelled as such. Every one of these was individually true during the
-          // 2026-08-10 outage while a reply sat undelivered, and a manager read them as evidence
-          // the lane was dead — three times. "Unread: 0" is about what this agent has not READ.
-          `  Unread (inbound): ${info.unread}\n` +
-          `  Last seen (registration liveness, not output): ${info.lastSeen}\n` +
-          `  Last read (inbound): ${lastRead}\n` +
-          // OUTBOUND — the question everyone was actually asking, and the one nothing answered.
-          `  ${formatOutboundActivity(info)}` +
-          (formatDispatchState(info) ? `\n${formatDispatchState(info)}` : "")
-        }] };
-      } catch (e) {
-        return { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true };
-      }
-    }
-
-    // Local mode
-    const registry = readAgents();
-    const info = registry.agents[agentId];
-    if (!info) return { content: [{ type: "text", text: `Agent "${agentId}" not found.` }], isError: true };
-    const unread = readInbox(agentId, "unread").length;
-    return { content: [{ type: "text", text:
-      `${agentId} (${info.role}) [${info.status || "idle"}]\n` +
-      `  Runtime: ${runtimeSummary(info)}\n` +
-      `  Wake mode: ${wakeModeSummary(info)}\n` +
-      `  Unread: ${unread}\n` +
-      `  Last seen: ${info.lastSeen}`
-    }] };
-  }
-);
 
 
 

@@ -16,6 +16,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { runtimeSummary, wakeModeSummary } from "../agent-summary.mjs";
+import { declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const wsGateway = JSON.stringify({ gatewayUrl: "wss://gateway.example" });
@@ -141,11 +142,18 @@ test("runtimeSummary names the runtime, the machine and the mode, and never leak
   assert.ok(!/undefined/.test(runtimeSummary({})), "an empty record must still render");
 });
 
-test("server.js declares neither — exactly one owner", () => {
-  const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
+test("exactly one module declares each, and the bridge still uses them", () => {
+  // Asserted across the bridge rather than against server.js. My first version required server.js to CALL
+  // these, which was true when written and wrong ONE COMMIT later when comms_agents and comms_agent_info —
+  // their only two callers — moved to `agent-reporting-tools.mjs`. Seventh time in this lane that an
+  // assertion of mine pinned a LOCATION; `tests/bridge-sources.mjs` now exists so the eighth cannot.
   for (const name of ["runtimeSummary", "wakeModeSummary"]) {
-    assert.doesNotMatch(src, new RegExp(`^(?:export\\s+)?function\\s+${name}\\b`, "m"), `${name} must be imported`);
-    assert.match(src, new RegExp(`(?<![\\w.])${name}\\(`), `server.js is still expected to CALL ${name}`);
+    const owners = declaringModules(name);
+    assert.deepEqual(
+      owners, [{ file: "agent-summary.mjs", kind: "function" }],
+      `${name} must be declared exactly once, by its owner — found ${JSON.stringify(owners)}`,
+    );
+    assert.equal(isUsedInBridge(name), true, `${name} must still be called somewhere in the bridge`);
   }
 });
 
