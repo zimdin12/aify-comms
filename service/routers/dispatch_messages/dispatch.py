@@ -66,9 +66,13 @@ from service.api_core.agent_sessions import (
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.recovery_writes import _record_channel_sidecar_heartbeat
 from service.api_core.serialization import _machine_ids_same_host
+from service.api_core.dispatch_run_state import (
+    _append_dispatch_control,
+    _finalize_dispatch_runs,
+    _mark_dispatch_run_answered,
+)
 from service.routers.dispatch_messages.shared import (
     VALID_STATUSES,
-    _append_dispatch_control,
     _append_terminal_control,
     _auto_handoff_subject_for_run,
     _borrowed_unthreaded_handoff_window_ms,
@@ -81,13 +85,11 @@ from service.routers.dispatch_messages.shared import (
     _delete_messages_by_ids,
     _delete_messages_where,
     _dispatch_requires_reply,
-    _finalize_dispatch_runs,
     _get_recipient_info,
     _has_live_managed_wrapper_child,
     _is_replaceable_auto_handoff_message,
     _link_reply_message_to_dispatch_run,
     _managed_via_wrapper_for_runtime,
-    _mark_dispatch_run_answered,
     _message_satisfies_reply_contract,
     _message_type_expects_reply,
     _mirror_missing_dispatch_handoff,

@@ -170,3 +170,35 @@ def _pending_dispatch_count(body: str) -> int:
 
 
 _MERGED_DISPATCH_FOOTER = "[/AIFY PENDING DISPATCHES]"
+
+
+# v0.5.4: moved out of the control plane in the dispatch-run-state slice, but NOT into that module. It
+# composes message TEXT, which is this module's subject, and its only dependency —
+# `_is_provider_rate_limit_error` — is defined here. Subject and import graph agreed for once.
+def _auto_handoff_body_for_run(row) -> str:
+    status = str((row["status"] if row else "") or "").strip().lower()
+    from_agent = str((row["from_agent"] if row else "") or "").strip()
+    if status == "failed":
+        detail = str((row["error_text"] if row else "") or (row["summary"] if row else "") or "Run failed.").strip()
+        if _is_provider_rate_limit_error(detail):
+            # Sender-facing notice (2026-06-07): a provider rate/usage limit is transient and
+            # NOT the sender's fault — say so plainly so they retry instead of assuming the
+            # recipient ignored them. Flows through the existing auto-handoff delivery.
+            who = str((row["target_agent"] if row else "") or "").strip() or "The agent"
+            note = (
+                f"⚠️ {who} couldn't respond — its model provider is rate-limiting / at a usage "
+                "limit right now (a provider-side throttle, not your request). Please retry shortly."
+            )
+            return f"{note}\n\n{detail}"
+        if from_agent == "dashboard":
+            return f"The run failed before the agent sent a chat reply.\n\n{detail}"
+        intro = "Auto-mirrored dispatch failure because no explicit reply message was recorded for the run."
+    elif status == "cancelled":
+        detail = str((row["summary"] if row else "") or "Run cancelled.").strip()
+        if from_agent == "dashboard":
+            return f"The run was cancelled before the agent sent a chat reply.\n\n{detail}"
+        intro = "Auto-mirrored dispatch cancellation because no explicit reply message was recorded for the run."
+    else:
+        detail = str((row["summary"] if row else "") or "Run completed.").strip()
+        return detail
+    return f"{intro}\n\n{detail}"

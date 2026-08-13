@@ -100,12 +100,6 @@ def _agent_record_to_dict(*a, **k):
 
 
 
-async def _append_dispatch_control(*a, **k):
-    from service.control_plane import _append_dispatch_control as _impl
-
-    return await _impl(*a, **k)
-
-
 
 async def _compute_agent_status(*a, **k):
     from service.control_plane import _compute_agent_status as _impl

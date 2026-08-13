@@ -41,6 +41,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
 
+from service.api_core.dispatch_run_state import _append_dispatch_control
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.spawn_request_state import _has_claimable_spawn_request
 from service.api_core.routing import domain_router
@@ -137,15 +138,6 @@ def _borrowed_session_delete_allowed_statuses():
 
 
 
-
-
-
-
-
-async def _append_dispatch_control(*a, **k):
-    from service.control_plane import _append_dispatch_control as _impl
-
-    return await _impl(*a, **k)
 
 
 

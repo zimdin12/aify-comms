@@ -39,6 +39,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
 
+from service.api_core.dispatch_run_state import _finalize_dispatch_runs
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _clip_text, _iso_from_ms, _json_loads_or
@@ -81,11 +82,6 @@ async def _delete_messages_where(*a, **k):
 
     return await _impl(*a, **k)
 
-
-async def _finalize_dispatch_runs(*a, **k):
-    from service.control_plane import _finalize_dispatch_runs as _impl
-
-    return await _impl(*a, **k)
 
 
 async def _get_recipient_info(*a, **k):

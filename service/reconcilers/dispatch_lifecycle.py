@@ -31,6 +31,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from service.api_core.dispatch_run_state import _mark_dispatch_run_answered
 from service.api_core.settings import _load_settings, DEFAULT_SETTINGS  # v0.5.1g: the leaf owner
 from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
 from service.api_core.liveness import ACTIVE_RUN_BRIDGE_STALE_SECONDS
@@ -55,10 +56,6 @@ async def engine_status(*a, **k):
 
 
 
-
-async def _mark_dispatch_run_answered(*a, **k):
-    from service.control_plane import _mark_dispatch_run_answered as _i
-    return await _i(*a, **k)
 
 
 async def _mirror_missing_dispatch_handoff(*a, **k):

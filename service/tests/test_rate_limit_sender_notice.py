@@ -6,7 +6,7 @@ API error (2026-06-07).
 """
 
 from service.api_core.dispatch_text import _is_provider_rate_limit_error
-from service.control_plane import _auto_handoff_body_for_run
+from service.api_core.dispatch_text import _auto_handoff_body_for_run
 
 
 def test_detects_provider_limit_strings():

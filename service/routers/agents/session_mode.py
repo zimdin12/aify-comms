@@ -28,6 +28,7 @@ logger = logging.getLogger("aify_comms.routers.agents.session_mode")
 from service.models import AgentSessionHandleUpdate, AgentSessionModeSwitchRequest
 
 from service.api_core.resume_command import _resume_command_for
+from service.api_core.dispatch_run_state import _append_dispatch_control
 from service.routers.agents.shared import (
     DEFAULT_SETTINGS,
     LIVE_SESSION_STATUSES,
@@ -35,7 +36,6 @@ from service.routers.agents.shared import (
     _agent_record_to_dict,
     _agent_session_to_dict,
     _agent_tombstone,
-    _append_dispatch_control,
     _append_dispatch_event,
     _append_terminal_control,
     _append_terminal_event,

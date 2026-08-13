@@ -30,6 +30,7 @@ from typing import Any, Optional
 from fastapi import HTTPException, Query, Request
 
 from service import longpoll
+from service.api_core.dispatch_text import _auto_handoff_body_for_run
 from service.api_core.execution_mode import _auto_return_resident_to_managed_if_possible
 from service.api_core.spawn_request_state import _has_claimable_spawn_request
 from service.api_core.events import _append_dispatch_event, _append_terminal_event
@@ -75,10 +76,8 @@ from service.status_engine import apply_event
 from service.api_core.events import _append_terminal_control
 from service.api_core.serialization import _machine_ids_same_host
 from service.db import _NATIVE_MANAGED_RUNTIMES
-from service.reconcilers.dispatch_lifecycle import (
-    _close_steered_contracts_for_parent_run,
-    _mark_dispatch_run_answered,
-)
+from service.api_core.dispatch_run_state import _mark_dispatch_run_answered
+from service.reconcilers.dispatch_lifecycle import _close_steered_contracts_for_parent_run
 from service.reconcilers.dispatch_queue import _close_reconcilable_delivered_runs
 from service.status_engine import VALID_STATUSES
 from service.env_status import environment_effective_status as _environment_effective_status
@@ -92,15 +91,6 @@ from service.api_core.dispatch_state import _DISPATCH_TERMINAL_STATUSES
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.shared")
 
 
-
-
-
-
-
-def _auto_handoff_body_for_run(*a, **k):
-    from service.control_plane import _auto_handoff_body_for_run as _impl
-
-    return _impl(*a, **k)
 
 
 
@@ -181,14 +171,6 @@ def _borrowed_unthreaded_handoff_window_ms():
 
 
 
-async def _append_dispatch_control(*a, **k):
-    from service.control_plane import _append_dispatch_control as _impl
-
-    return await _impl(*a, **k)
-
-
-
-
 
 async def _create_dispatch_runs(*a, **k):
     from service.control_plane import _create_dispatch_runs as _impl
@@ -212,12 +194,6 @@ async def _delete_messages_where(*a, **k):
 
 
 
-
-
-async def _finalize_dispatch_runs(*a, **k):
-    from service.control_plane import _finalize_dispatch_runs as _impl
-
-    return await _impl(*a, **k)
 
 
 

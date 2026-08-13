@@ -28,6 +28,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from service.api_core.dispatch_run_state import _mark_dispatch_run_answered
 from service.api_core.reply_contract import _message_satisfies_reply_contract
 from service.api_core.serialization import _json_loads_or  # v0.5.1c: the leaf owner, not via the router
 from service.api_core.runtime import _normalize_runtime  # v0.5.1e: the leaf owner, not via the router
@@ -64,12 +65,6 @@ logger = logging.getLogger(__name__)
 
 
 
-
-
-
-async def _mark_dispatch_run_answered(*a, **k):
-    from service.control_plane import _mark_dispatch_run_answered as _i
-    return await _i(*a, **k)
 
 
 

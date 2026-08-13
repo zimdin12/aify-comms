@@ -52,6 +52,8 @@ from service.config import get_config
 from service.api_core import settings as settings_core
 # v0.5.1i: single owner. The COUNTER is reached through the module, never by value.
 from service.api_core import events as events_core
+from service.api_core.dispatch_run_state import _append_dispatch_control, _finalize_dispatch_runs
+from service.api_core.dispatch_text import _auto_handoff_body_for_run
 from service.api_core.channel_delivery import _has_live_worker_for
 from service.api_core.liveness import _LIVE_SESSION_STATUSES, _agent_liveness, _agent_wake_mode
 from service.api_core.active_run_lookup import (
@@ -2449,29 +2451,6 @@ async def flush_terminal_output_writes_for_tests() -> None:
 
 
 
-async def _append_dispatch_control(
-    db,
-    run_id: str,
-    *,
-    from_agent: str,
-    action: str,
-    body: str = "",
-    source_message_id: str = "",
-):
-    control_id = f"ctl_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-    await db.execute(
-        """
-        INSERT INTO dispatch_controls (
-            id, run_id, from_agent, source_message_id, action, body, status, requested_at
-        ) VALUES (?,?,?,?,?,?,?,?)
-        """,
-        (control_id, run_id, from_agent or "", source_message_id or "", action, body or "", "pending", _now())
-    )
-    await _append_dispatch_event(db, run_id, f"control:{action}", f"requested by {from_agent or 'unknown'}")
-    return control_id
-
-
-
 
 _PRIORITY_ORDER = {"normal": 0, "high": 1, "urgent": 2}
 # _MERGED_DISPATCH_HEADER moved to service/api_core/dispatch_text.py in v0.5.4.
@@ -2531,40 +2510,6 @@ def _stronger_priority(left: str, right: str) -> str:
 
 
 
-
-async def _finalize_dispatch_runs(
-    db,
-    runs: list[dict[str, Any]],
-    launchable_recipients: list[tuple[str, str]],
-    not_started: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    finalized = []
-    for run, (_, execution_mode) in zip(runs, launchable_recipients):
-        if run.get("rejected"):
-            not_started.append(run["rejectionHint"])
-            continue
-
-        if run.get("steered"):
-            dispatch_state = await _get_dispatch_state_for_agent(db, run["targetAgentId"])
-            run["queuedRunsForTarget"] = dispatch_state.get("queuedRuns", 0)
-            finalized.append(run)
-            continue
-
-        await db.execute(
-            "UPDATE dispatch_runs SET execution_mode = ? WHERE id = ?",
-            (execution_mode, run["runId"])
-        )
-        active = await _get_blocking_active_run(db, run["targetAgentId"], exclude_run_id=run["runId"])
-        if active:
-            run["queuedBehindActiveRun"] = {
-                "runId": active["runId"],
-                "status": active["status"],
-                "subject": active["subject"],
-            }
-        dispatch_state = await _get_dispatch_state_for_agent(db, run["targetAgentId"])
-        run["queuedRunsForTarget"] = dispatch_state.get("queuedRuns", 0)
-        finalized.append(run)
-    return finalized
 
 
 async def _create_dispatch_runs(
@@ -2841,54 +2786,6 @@ def _dispatch_message_id_for_recipient(
 # _clear_turn_busy_if_no_open_reply_owing_run moved to service/api_core/turn_state.py in v0.5.4.
 
 
-async def _mark_dispatch_run_answered(
-    db,
-    run_id: str,
-    reply_message_id: str,
-    current_status: str = "",
-    execution_mode: str = "",
-):
-    status = str(current_status or "").strip().lower()
-    mode = str(execution_mode or "").strip().lower()
-    target_cursor = await db.execute("SELECT target_agent, dispatch_mode FROM dispatch_runs WHERE id = ?", (run_id,))
-    target_row = await target_cursor.fetchone()
-    target_agent = str((target_row["target_agent"] if target_row else "") or "").strip()
-    dispatch_mode = str((target_row["dispatch_mode"] if target_row and "dispatch_mode" in target_row.keys() else "") or "").strip().lower()
-    if (
-        status in {"queued", "delivered"}
-        or (mode in {"channel", "resident"} and status in {"claimed", "running"})
-        or (dispatch_mode == "terminal" and status in {"claimed", "running"})
-    ):
-        await db.execute(
-            """
-            UPDATE dispatch_runs
-            SET result_message_id = ?,
-                status = 'completed',
-                finished_at = COALESCE(finished_at, ?)
-            WHERE id = ?
-            """,
-            (reply_message_id, _now(), run_id),
-        )
-        # Event-based working-state clear. claude-channel.js pulses
-        # turn_busy=true on every delivery and relies on the 120s
-        # TURN_BUSY_STALE_SECONDS window for cleanup. That window is too
-        # long after the agent's reply lands — operator sees "working"
-        # linger when the actual work is done. Clear it here for any
-        # channel-or-resident dispatch that just got answered AND has
-        # no other in-flight rr=1 runs for the same agent (so we don't
-        # clear while real reply-owing work is still in flight).
-        if mode in {"channel", "resident"} and target_agent:
-            await _clear_turn_busy_if_no_open_reply_owing_run(db, target_agent, run_id)
-        await _invalidate_agent_live_state(db, target_agent)
-        return
-    await db.execute(
-        "UPDATE dispatch_runs SET result_message_id = ? WHERE id = ?",
-        (reply_message_id, run_id),
-    )
-    await _invalidate_agent_live_state(db, target_agent)
-
-
-
 
 _UNTHREADED_HANDOFF_WINDOW_MS = 24 * 60 * 60 * 1000
 
@@ -2904,38 +2801,6 @@ _UNTHREADED_HANDOFF_WINDOW_MS = 24 * 60 * 60 * 1000
 
 
 # _is_provider_rate_limit_error moved to service/api_core/dispatch_text.py in v0.5.4.
-
-
-def _auto_handoff_body_for_run(row) -> str:
-    status = str((row["status"] if row else "") or "").strip().lower()
-    from_agent = str((row["from_agent"] if row else "") or "").strip()
-    if status == "failed":
-        detail = str((row["error_text"] if row else "") or (row["summary"] if row else "") or "Run failed.").strip()
-        if _is_provider_rate_limit_error(detail):
-            # Sender-facing notice (2026-06-07): a provider rate/usage limit is transient and
-            # NOT the sender's fault — say so plainly so they retry instead of assuming the
-            # recipient ignored them. Flows through the existing auto-handoff delivery.
-            who = str((row["target_agent"] if row else "") or "").strip() or "The agent"
-            note = (
-                f"⚠️ {who} couldn't respond — its model provider is rate-limiting / at a usage "
-                "limit right now (a provider-side throttle, not your request). Please retry shortly."
-            )
-            return f"{note}\n\n{detail}"
-        if from_agent == "dashboard":
-            return f"The run failed before the agent sent a chat reply.\n\n{detail}"
-        intro = "Auto-mirrored dispatch failure because no explicit reply message was recorded for the run."
-    elif status == "cancelled":
-        detail = str((row["summary"] if row else "") or "Run cancelled.").strip()
-        if from_agent == "dashboard":
-            return f"The run was cancelled before the agent sent a chat reply.\n\n{detail}"
-        intro = "Auto-mirrored dispatch cancellation because no explicit reply message was recorded for the run."
-    else:
-        detail = str((row["summary"] if row else "") or "Run completed.").strip()
-        return detail
-    return f"{intro}\n\n{detail}"
-
-
-
 
 
 

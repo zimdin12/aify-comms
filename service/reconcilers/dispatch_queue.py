@@ -34,6 +34,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from service.api_core.dispatch_run_state import _finalize_dispatch_runs
 from service.api_core.managed_env import _managed_environment_unavailable_reason
 from service.api_core.runtime import (
     _normalize_runtime,
@@ -194,11 +195,6 @@ async def _mirror_undeliverable_queued_run_to_sender(db, row, *, reason: str) ->
 
 async def _create_dispatch_runs(*a, **k):
     from service.control_plane import _create_dispatch_runs as _i
-    return await _i(*a, **k)
-
-
-async def _finalize_dispatch_runs(*a, **k):
-    from service.control_plane import _finalize_dispatch_runs as _i
     return await _i(*a, **k)
 
 
