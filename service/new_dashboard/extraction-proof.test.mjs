@@ -129,6 +129,14 @@ const EXTRACTIONS = [
         marker: "// environmentStartCommand moved to ./environment-start-command.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "run-event.mjs",
+    importLine: "import { renderRunEvent } from './run-event.mjs';",
+    items: [
+      { name: "renderEventBody", at: 3271, marker: "// renderEventBody moved to ./run-event.mjs in v0.5.4." },
+      { name: "renderRunEvent", at: 3280, marker: "// renderRunEvent moved to ./run-event.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -137,6 +145,7 @@ const MODULES = () => ({
   "record-fields.mjs": read("record-fields.mjs"),
   "status.js": read("status.js"),
   "environment-start-command.mjs": read("environment-start-command.mjs"),
+  "run-event.mjs": read("run-event.mjs"),
 });
 
 function rebuild(overrides = {}) {

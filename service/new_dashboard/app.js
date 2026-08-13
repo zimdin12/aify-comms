@@ -29,6 +29,7 @@ import {
   sessionRuntime,
 } from './record-fields.mjs';
 import { environmentStartCommand } from './environment-start-command.mjs';
+import { renderRunEvent } from './run-event.mjs';
 import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
 
 function resolveApiOrigin() {
@@ -3139,26 +3140,9 @@ function runInspectorCapabilities(run, session = sessionForRun(run)) {
 
 // runPendingControlCount moved to ./record-fields.mjs in v0.5.4.
 
-function renderEventBody(event) {
-  const body = String(event?.body || '');
-  if (!body) return '<p class="preview">No event body.</p>';
-  if (body.length > 160) {
-    return `<details><summary>Body</summary><p class="preview">${esc(body)}</p></details>`;
-  }
-  return `<p class="preview">${esc(body)}</p>`;
-}
+// renderEventBody moved to ./run-event.mjs in v0.5.4.
 
-function renderRunEvent(event) {
-  const iso = event.createdAt || event.created_at || '';
-  return `
-    <article class="run-event">
-      <div class="item-title">
-        <time title="${esc(iso)}">${esc(relTime(iso) || 'now')}</time>
-        <span class="event-chip">${esc(event.eventType || event.type || 'event')}</span>
-      </div>
-      ${renderEventBody(event)}
-    </article>`;
-}
+// renderRunEvent moved to ./run-event.mjs in v0.5.4.
 
 function renderRunInspectorControls(run) {
   const session = sessionForRun(run);
