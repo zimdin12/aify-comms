@@ -329,11 +329,35 @@ class TheHotPathQueryBoundary(unittest.TestCase):
             result = _call(**over)
         return result, calls
 
-    def test_the_booting_query_runs_ONLY_for_a_managed_agent_missing_its_sidecar(self):
+    def test_the_booting_query_runs_ONCE_when_the_console_is_booting(self):
         (status, reason, _), calls = self._counting_probe(
             effective_status="available", channel_managed_no_sidecar=True, _booting=True)
         self.assertEqual(["agent-1"], calls, "the query must run exactly once on this branch")
         self.assertEqual("online", status)
+
+    def test_the_booting_query_runs_ONCE_when_the_sidecar_is_dead(self):
+        """The false outcome must reach the query too — otherwise `available` would be reported
+        without ever asking, which is a different bug from reporting the wrong thing."""
+        (status, reason, _), calls = self._counting_probe(
+            effective_status="available", channel_managed_no_sidecar=True, _booting=False)
+        self.assertEqual(["agent-1"], calls, "the query must run exactly once here as well")
+        self.assertEqual("available", status)
+        self.assertIn("not deliverable", reason)
+
+    def test_the_counter_would_actually_observe_a_call(self):
+        """ANTI-VACUITY ANCHOR for every zero-call assertion in this class.
+
+        If `mock.patch.object` were pointed at the wrong name, the patch would silently not apply, the
+        real function would run, `calls` would stay empty — and EVERY "no database call" test below
+        would pass while proving nothing. The two cases above are what rule that out: they observe a
+        call through the same mechanism, so an empty list elsewhere means the branch did not query,
+        not that the counter is deaf.
+
+        Stated as its own test so the dependency is visible rather than inferred from test ordering.
+        """
+        _, calls = self._counting_probe(effective_status="available",
+                                        channel_managed_no_sidecar=True, _booting=True)
+        self.assertEqual(1, len(calls), "the patch must be in effect for the zero-call cases to mean anything")
 
     def test_no_database_call_on_the_offline_branches(self):
         for label, over in (
