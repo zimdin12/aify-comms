@@ -95,3 +95,37 @@ print("FREE (no module-scope reference at all): %d functions, %d lines  ->  %d"
       % (len(free), total, len(lines) - total))
 for name, span, _ in free:
     print("   %4d  %s" % (span, name))
+
+def group_refs(names):
+    """External references of a GROUP of functions moved together.
+
+    A function that is not free ALONE may still be free WITH the ones it calls — that is how the
+    Python side moved `_create_dispatch_runs` together with `_preflight_live_send_recipients`. This
+    answers "what would still be missing if these moved as a unit", which the per-function view
+    cannot: it reports every intra-group call as a blocker.
+    """
+    joined = []
+    for n in names:
+        i, j = fns[n]
+        joined.extend(lines[i:j + 1])
+    body = LINE_COMMENT.sub("", "\n".join(joined))
+    body = TEMPLATE.sub(lambda m: " ".join(re.findall(r"\$\{([^}]*)\}", m.group(0))), body)
+    body = SINGLE.sub("''", body)
+    body = DOUBLE.sub('""', body)
+    idents = set(IDENT.findall(body))
+    return sorted(((idents & mod) | (idents & BROWSER)) - set(names))
+
+
+if len(sys.argv) > 2:
+    group = sys.argv[2:]
+    missing = [g for g in group if g not in fns]
+    if missing:
+        print("not found: %s" % ", ".join(missing))
+        raise SystemExit(1)
+    span = sum(fns[g][1] - fns[g][0] + 1 for g in group)
+    out = group_refs(group)
+    print()
+    print("GROUP: %s" % ", ".join(group))
+    print("  %d lines; file %d -> %d" % (span, len(lines), len(lines) - span))
+    print("  still references %d name(s): %s"
+          % (len(out), ", ".join(out) or "NONE — the group is closed"))
