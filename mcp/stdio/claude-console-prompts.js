@@ -10,7 +10,7 @@
 // region. Rules are tried in order; the FIRST match wins. These patterns are claude-TUI
 // VERSION-DEPENDENT — when claude changes its prompts, re-capture a frame into
 // mcp/stdio/tests/fixtures/claude-console/ and re-tune the rule here (one place).
-import { flattenConsoleText, stripAnsi } from "./claude-console-spinner.js";
+import { flattenConsoleText } from "./claude-console-spinner.js";
 
 const DOWN = "\x1b[B";
 const UP = "\x1b[A";

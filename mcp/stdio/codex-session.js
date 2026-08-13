@@ -32,8 +32,6 @@ import {
   describeCodexItem,
   getRuntimeConfig,
   quoteForDisplay,
-  buildSystemPrompt,
-  buildUserPrompt,
 } from "./runtimes.js";
 import { detectCodexResumeFailure } from "./codex-errors.js";
 import { codexAifyReceiptFrame } from "./aify-console-markers.js";

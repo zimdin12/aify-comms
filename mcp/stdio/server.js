@@ -8,13 +8,7 @@
 //
 
 import { spawn } from "child_process";
-import {
-  SAFETY_HEADER,
-  autoReplyBodyForRun,
-  autoReplySubjectForRun,
-  formatQueuedRun,
-  replyExpectationSummary,
-} from "./tool-response-format.mjs";
+import { autoReplyBodyForRun, autoReplySubjectForRun, formatQueuedRun } from "./tool-response-format.mjs";
 
 import {
   API_KEY,
@@ -51,27 +45,18 @@ import { __markControllerStart, anyControllerActive } from "./controller-activit
 import { parseJson } from "./parse-json.mjs";
 import {
   DEFAULT_CWD,
-  claimCapturedClaudeSession,
   normalizeRegistrationCwd,
   resolvedRuntimeConfigForRegistration,
-  resolvedRuntimeMarker,
 } from "./registration-inputs.mjs";
-import {
-  AIFY_HERMES_GATEWAY_TOKEN_ENV_FROM_MARKER, AIFY_HERMES_GATEWAY_URL,
-} from "./hermes-gateway-config.mjs";
-import {
-  baseAgentHeartbeatFields, currentTurnHeartbeatFields, reportTurnBusy,
-} from "./agent-heartbeat.mjs";
+import { AIFY_HERMES_GATEWAY_URL } from "./hermes-gateway-config.mjs";
+import { currentTurnHeartbeatFields, reportTurnBusy } from "./agent-heartbeat.mjs";
 import { BRIDGE_INSTANCE_ID, BRIDGE_STARTED_AT } from "./bridge-instance.mjs";
-import { clearLocalActiveRun, reconcileLocalActiveRun } from "./local-active-run.mjs";
-import {
-  armClaudeTurnEndDetector, isClaudeTurnDetectorArmed, stopClaudeTurnEndDetector,
-} from "./claude-turn-detector-state.mjs";
+import { reconcileLocalActiveRun } from "./local-active-run.mjs";
+import { armClaudeTurnEndDetector, stopClaudeTurnEndDetector } from "./claude-turn-detector-state.mjs";
 import { __runtimeAdapter } from "./runtime-adapter.mjs";
 import { normalizeSessionMode } from "./session-mode.mjs";
 import { validateName } from "./safe-name.mjs";
 import { AIFY_AGENT_ID, AIFY_AGENT_ROLE, IS_MANAGED_DISPATCH, cleanEnvPlaceholder } from "./launch-identity.mjs";
-import { residentIdentityWarning } from "./register-identity.js";
 import { randomUUID } from "crypto";
 import fs from "fs";
 import os from "os";
@@ -79,14 +64,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { loadSettingsEnv } from "./load-env.js";
 import { removeAgentBindingFile, writeAgentBindingFile } from "./binding-file.js";
-import {
-  readCapturedClaudeSessionIdForPid,
-  readClaudeSessionId,
-  writeClaudeSessionId,
-} from "./claude-session-store.js";
 import { supportedExecutionModes, wrapperChildExecutionModes } from "./dispatch-execution.js";
 import { advertisedEnvironmentRuntimes, advertisedTerminalRuntimes } from "./environment-runtimes.js";
-import { listRuntimeMarkers, readRuntimeMarker, writeRuntimeMarker, removeRuntimeMarker, selectClaudeChannelMarkerForParent } from "./runtime-markers.js";
+import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 import {
   canLaunchRuntime,
   codexAppServerReachable,
@@ -122,7 +102,6 @@ import {
   reconcileManagedStateWithSnapshot,
   resolveFreshManagedTeardownTargets,
 } from "./managed-teardown-ownership.js";
-import { fillSessionHandleFromAdapter } from "./register-helpers.js";
 import { startSessionHandleHeartbeat, makeDefaultHandlePoster } from "./session-handle-heartbeat.js";
 import { startTurnBusyHeartbeat, makeDefaultTurnBusyPoster } from "./turn-busy-heartbeat.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";

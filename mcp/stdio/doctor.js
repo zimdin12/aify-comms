@@ -39,8 +39,6 @@ import {
   bridgeInstallVerdict,
   serviceBuildVerdict,
   skillsInstallVerdict,
-  SERVICE_RUNTIME_PATHS,
-  SERVICE_RUNTIME_EXCLUDE_PATHS,
 } from "./doctor-predicates.js";
 
 const args = process.argv.slice(2);
