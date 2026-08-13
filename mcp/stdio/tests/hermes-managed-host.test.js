@@ -21,6 +21,15 @@
 // session.active_list / prompt.submit / busy(4009)+requeue, and a fake spawn +
 // fake index HTML for ensureGatewayHost.
 
+// AMBIENT GATEWAY VARS ARE CLEARED FIRST, and this is a real isolation requirement rather than tidiness.
+// `runResolveSessionCli` resolves its gateway as
+// `deps.gatewayUrl || process.env.AIFY_HERMES_GATEWAY_URL || process.env.HERMES_TUI_GATEWAY_URL || ""`,
+// so a test that injects `gatewayUrl: ""` to mean NO GATEWAY cannot say so while either variable is set —
+// the empty injection is falsy and the environment wins. On a live hermes agent that is exactly what
+// happens, and the "no gateway to validate" cases fail against a gateway the fixture never supplied.
+delete process.env.AIFY_HERMES_GATEWAY_URL;
+delete process.env.HERMES_TUI_GATEWAY_URL;
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { EventEmitter } from "node:events";

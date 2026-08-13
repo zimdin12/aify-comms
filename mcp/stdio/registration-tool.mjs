@@ -108,7 +108,17 @@ export function registerRegistrationTool(server, z, { ensureDispatchLoop }) {
         // `sessionMode: "resident"` is an intentional act and should
         // succeed. Other sessionMode values (managed, omitted, etc.)
         // still hit the guard so a tool-call slip can't reclassify.
-        if (normalizeSessionMode(sessionMode) !== "resident") {
+        //
+        // TESTS EXPLICITNESS, NOT THE NORMALIZED DEFAULT, and that distinction is the whole guard.
+        // `normalizeSessionMode` fails toward "resident" by design — an unreadable mode must never yield a
+        // session the bridge may reap — so `normalizeSessionMode(undefined) === "resident"` and this
+        // condition was FALSE for an omitted mode. The accidental case the guard exists for, and the one its
+        // own error text describes, sailed straight through and converted the managed agent to a resident
+        // CLI identity. Open from `9aebbfcc`, which added the takeover hatch inside a previously
+        // unconditional guard, until a real-handler test replaced the source regex that had been "proving"
+        // it. The schema is `z.enum(["resident", "managed"]).optional()`, so comparing the RAW value is
+        // exact: omitted and "managed" are refused, explicit "resident" passes.
+        if (sessionMode !== "resident") {
           return {
             content: [{
               type: "text",

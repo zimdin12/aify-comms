@@ -29,23 +29,66 @@ import {
   resolvedRuntimeConfigForRegistration,
   resolvedRuntimeMarker,
 } from "../registration-inputs.mjs";
-import { AIFY_HERMES_GATEWAY_URL } from "../hermes-gateway-config.mjs";
 import { bridgeSources, declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEAF = pathToFileURL(path.join(STDIO, "registration-inputs.mjs")).href;
 
-// Run one expression against a freshly imported leaf under the given env. Needed only where a value is
-// captured at MODULE LOAD rather than read per call — `hermes-gateway-config.mjs` resolves its exports once,
-// so an in-process `process.env` change cannot reach it.
-function withEnv(env, expr) {
+// SEALED CHILD. Everything `hermes-gateway-config.mjs` consults at load is supplied by the fixture, and
+// nothing about the machine running the test can reach it.
+//
+// THIS IS A CORRECTION, AND THE FAILURE WAS INSTRUCTIVE. The first version drove these cases in-process and
+// opened with `assert.equal(AIFY_HERMES_GATEWAY_URL, "")` — reading the AMBIENT binding. That held on my
+// machine and nowhere else: reviewed on a live hermes agent, the module resolved that agent's REAL gateway
+// from its marker, and the two precedence tests failed. Worse than flaky, the test was reading the
+// operator's actual gateway marker, whose record names the variable holding an auth token.
+//
+// The module has exactly two inputs and both are now controlled:
+//   * `AIFY_HERMES_GATEWAY_URL` — supplied per case;
+//   * an agent-keyed GATEWAY MARKER FILE, found via `AIFY_AGENT_ID` under `TEMP`/`TMP`. Pointing those at a
+//     fresh empty directory is what makes the marker unfindable. `XDG_STATE_HOME` is isolated in the same
+//     breath because the RUNTIME markers live there — a different store, consulted by a different helper in
+//     this same module, and equally able to leak a live value in.
+function sealedEnv(extra = {}) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "aify-sealed-"));
+  return {
+    home,
+    env: {
+      ...process.env,
+      TEMP: home, TMP: home, XDG_STATE_HOME: path.join(home, "state"),
+      AIFY_AGENT_ID: "hermetic-test-agent",
+      AIFY_HERMES_GATEWAY_URL: "",
+      AIFY_HERMES_GATEWAY_TOKEN_ENV: "",
+      AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "",
+      ...extra,
+    },
+  };
+}
+
+// Resolve a hermes runtime config in a sealed child with the given gateway env value.
+function resolveHermes(gatewayEnv, extra = {}) {
+  const { home, env } = sealedEnv({ AIFY_HERMES_GATEWAY_URL: gatewayEnv, ...extra });
   const script = `
     const m = await import(${JSON.stringify(LEAF)});
-    process.stdout.write(JSON.stringify(${expr}));
+    const gw = await import(${JSON.stringify(pathToFileURL(path.join(STDIO, "hermes-gateway-config.mjs")).href)});
+    process.stdout.write(JSON.stringify({
+      loadBinding: gw.AIFY_HERMES_GATEWAY_URL,
+      config: m.resolvedRuntimeConfigForRegistration("hermes", null, "C:/x"),
+    }));
   `;
-  return JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
-    env: { ...process.env, ...env }, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"],
-  }));
+  try {
+    const out = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      env, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"],
+    }));
+    // The seal itself, asserted on every call rather than once: if a real gateway ever leaked in, the
+    // load-time binding would hold a URL the fixture never supplied.
+    const expected = /^wss?:\/\//i.test(String(gatewayEnv).trim()) ? String(gatewayEnv).trim() : "";
+    assert.equal(out.loadBinding, expected,
+      `the sealed child resolved a gateway the fixture did not supply — isolation is broken`);
+    return out.config;
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 }
 
 test("A BACKSLASH CWD IS NORMALIZED FOR THE RUNTIMES WHOSE MARKER KEY IS sha256(cwd)", () => {
@@ -83,44 +126,21 @@ test("an absent cwd falls back to the process's, never to empty", () => {
 test("AN UNEXPANDED ${...} GATEWAY URL IS REJECTED, not stored", () => {
   // The 2026-05-25 operator report. `${AIFY_HERMES_GATEWAY_URL}` is truthy, so a plain falsy-check would
   // have passed it straight through into runtime_config.
-  assert.equal(AIFY_HERMES_GATEWAY_URL, "",
-    "this test drives the env fallback, which the imported binding takes precedence over");
-  const prev = process.env.AIFY_HERMES_GATEWAY_URL;
-  try {
-    process.env.AIFY_HERMES_GATEWAY_URL = "${AIFY_HERMES_GATEWAY_URL}";
-    const cfg = resolvedRuntimeConfigForRegistration("hermes", null, "C:/x");
-    assert.equal("gatewayUrl" in cfg, false, "an unexpanded placeholder must not become a gateway URL");
+  assert.equal("gatewayUrl" in resolveHermes("${AIFY_HERMES_GATEWAY_URL}"), false,
+    "an unexpanded placeholder must not become a gateway URL");
 
-    // What a REAL value does, so the test above cannot pass by the function rejecting everything.
-    process.env.AIFY_HERMES_GATEWAY_URL = "ws://127.0.0.2:9999/gw";
-    assert.equal(resolvedRuntimeConfigForRegistration("hermes", null, "C:/x").gatewayUrl,
-      "ws://127.0.0.2:9999/gw", "a well-formed ws:// URL must be stored");
-    process.env.AIFY_HERMES_GATEWAY_URL = "wss://host/gw";
-    assert.equal(resolvedRuntimeConfigForRegistration("hermes", null, "C:/x").gatewayUrl, "wss://host/gw",
-      "…and wss:// too, since that is what a real deployment uses");
+  // What a REAL value does, so the test above cannot pass by the function rejecting everything.
+  assert.equal(resolveHermes("ws://127.0.0.2:9999/gw").gatewayUrl, "ws://127.0.0.2:9999/gw",
+    "a well-formed ws:// URL must be stored");
+  assert.equal(resolveHermes("wss://host/gw").gatewayUrl, "wss://host/gw",
+    "…and wss:// too, since that is what a real deployment uses");
 
-    // The gate is a scheme check, not a placeholder check. Anything that is not ws/wss is refused — an
-    // https:// gateway URL is a misconfiguration that would fail at connect, so it is better refused here.
-    for (const bad of ["https://host/gw", "host/gw", "${OTHER}", "  "]) {
-      process.env.AIFY_HERMES_GATEWAY_URL = bad;
-      assert.equal("gatewayUrl" in resolvedRuntimeConfigForRegistration("hermes", null, "C:/x"), false,
-        `${JSON.stringify(bad)} is not a ws:// URL and must not be stored`);
-    }
-  } finally {
-    if (prev === undefined) delete process.env.AIFY_HERMES_GATEWAY_URL;
-    else process.env.AIFY_HERMES_GATEWAY_URL = prev;
+  // The gate is a scheme check, not a placeholder check. Anything that is not ws/wss is refused — an
+  // https:// gateway URL is a misconfiguration that would fail at connect, so it is better refused here.
+  for (const bad of ["https://host/gw", "host/gw", "${OTHER}", "  ", ""]) {
+    assert.equal("gatewayUrl" in resolveHermes(bad), false,
+      `${JSON.stringify(bad)} is not a ws:// URL and must not be stored`);
   }
-});
-
-test("the module-load binding WINS over the env fallback", () => {
-  // The precedence the test above depends on, asserted rather than assumed. `AIFY_HERMES_GATEWAY_URL` is
-  // read from `hermes-gateway-config.mjs` first and only falls through when empty, so a bridge launched with
-  // a gateway configured cannot have it overridden by a later env change.
-  const cfg = withEnv(
-    { AIFY_HERMES_GATEWAY_URL: "ws://from-load/gw" },
-    `m.resolvedRuntimeConfigForRegistration("hermes", null, "C:/x")`,
-  );
-  assert.equal(cfg.gatewayUrl, "ws://from-load/gw");
 });
 
 test("THE CWD MARKER IS THE LAST RESORT — this process's own gateway outranks it", () => {
@@ -132,26 +152,35 @@ test("THE CWD MARKER IS THE LAST RESORT — this process's own gateway outranks 
   // the moment the code moved here — and which could only ever prove the line was written, not that the
   // precedence held.
   //
-  // The marker is written by the REAL `writeRuntimeMarker` under an isolated `XDG_STATE_HOME`, so this
-  // touches nothing in the operator's own `~/.local/state/aify-comms/runtime-markers`.
-  const root = path.join(os.tmpdir(), `aify-marker-test-${process.pid}`);
+  // The marker is written by the REAL `writeRuntimeMarker`, in a SEALED child — `XDG_STATE_HOME` for the
+  // runtime markers this test writes, and `TEMP`/`TMP` for the agent-keyed GATEWAY marker the config module
+  // reads at load. The second one is the isolation this test was missing: on a live hermes agent it found a
+  // real gateway and the precedence assertion failed against a value no fixture had supplied.
   const cwd = "C:/aify-marker-precedence-test";
   const MARKERS = pathToFileURL(path.join(STDIO, "runtime-markers.js")).href;
+  const GW = pathToFileURL(path.join(STDIO, "hermes-gateway-config.mjs")).href;
+  const homes = [];
   const run = (gatewayEnv) => {
+    const { home, env } = sealedEnv({ AIFY_HERMES_GATEWAY_URL: gatewayEnv });
+    homes.push(home);
     const script = `
       const { writeRuntimeMarker } = await import(${JSON.stringify(MARKERS)});
       const m = await import(${JSON.stringify(LEAF)});
+      const gw = await import(${JSON.stringify(GW)});
       const wrote = writeRuntimeMarker("hermes", ${JSON.stringify(cwd)}, { gatewayUrl: "ws://from-marker/gw" });
       process.stdout.write(JSON.stringify({
         wrote: Boolean(wrote),
+        loadBinding: gw.AIFY_HERMES_GATEWAY_URL,
         seen: m.resolvedRuntimeMarker("hermes", ${JSON.stringify(cwd)})?.gatewayUrl || null,
         config: m.resolvedRuntimeConfigForRegistration("hermes", null, ${JSON.stringify(cwd)}),
       }));
     `;
-    return JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
-      env: { ...process.env, XDG_STATE_HOME: root, AIFY_HERMES_GATEWAY_URL: gatewayEnv },
-      encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"],
+    const out = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      env, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"],
     }));
+    assert.equal(out.loadBinding, /^wss?:\/\//i.test(gatewayEnv) ? gatewayEnv : "",
+      "the sealed child resolved a gateway the fixture did not supply — isolation is broken");
+    return out;
   };
   try {
     // With no gateway in the environment, the marker supplies it — the fallback must actually work, or the
@@ -168,7 +197,7 @@ test("THE CWD MARKER IS THE LAST RESORT — this process's own gateway outranks 
     assert.equal(viaEnv.config.gatewayUrl, "ws://mine/gw",
       "…and must be outranked by this MCP process's own gateway");
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    for (const home of homes) fs.rmSync(home, { recursive: true, force: true });
   }
 });
 

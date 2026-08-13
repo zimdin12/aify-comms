@@ -6,9 +6,9 @@
 // state refresh — and the resident session that actually owns the agent is left described by a short-lived
 // worker's environment. So the guard refuses, and says why.
 //
-// EXCEPT THAT TODAY IT ONLY REFUSES AN EXPLICIT `sessionMode: "managed"`. The omitted case — the accidental
-// one the guard was built for — passes through, because `normalizeSessionMode` fails toward "resident". See
-// the long note on the last assertion: it is pinned as current behaviour and reported, not fixed here.
+// FOR MOST OF ITS LIFE IT ONLY REFUSED AN EXPLICIT `sessionMode: "managed"`. The omitted case — the
+// accidental one it was built for — passed straight through. Found by converting this file from a source
+// regex to a real handler test, and fixed in the same round; see the note on the omitted-case assertion.
 //
 // THE ESCAPE HATCH IS DELIBERATE AND OPERATOR-VERIFIED (2026-05-22): an explicit `sessionMode: "resident"`
 // is an intentional resident-takeover from a managed shell and must pass. A guard that tightened to refuse
@@ -109,27 +109,31 @@ const takeover = register({
 assert.equal(takeover.isError, false, "explicit sessionMode='resident' is an intentional takeover and must pass");
 assert.match(takeover.text, /Registered "mrg-agent"/, "…and must actually register");
 
-// ── CURRENT BEHAVIOUR, AND IT CONTRADICTS THE GUARD'S OWN STATED PURPOSE ─────
+// ── THE CASE THE GUARD IS ACTUALLY FOR: an OMITTED sessionMode ───────────────
 //
-// REPORTED, NOT FIXED HERE — changing it is a behaviour change and this landed in a refactor slice whose
-// rule is byte-identical bodies. This assertion pins what the code DOES so the contradiction is visible
-// and a fix has something to flip, rather than being a silent hole behind a green suite.
+// This is the accidental conversion — an agent inside a managed run calling `comms_register(agentId, role)`
+// with no mode at all. It must be refused, and for most of this guard's life it was not.
 //
-// OMITTING sessionMode does NOT hit the guard. `normalizeSessionMode` fails toward "resident" by design
-// (an unreadable mode must not yield a session the bridge may reap), so `normalizeSessionMode(undefined)`
-// is "resident" and the escape-hatch condition `!== "resident"` is false. The managed agent is converted
-// to a resident CLI identity — which is the ACCIDENTAL conversion the guard was built to prevent, and the
-// case its error message describes ("comms_register without an explicit sessionMode is disabled here").
+// WHAT WAS WRONG. The condition was `normalizeSessionMode(sessionMode) !== "resident"`, and
+// `normalizeSessionMode` fails toward "resident" by design — an unreadable mode must never yield a session
+// the bridge may reap. So `normalizeSessionMode(undefined)` was "resident", the condition was false, and the
+// managed agent was converted to a resident CLI identity: exactly what the guard exists to prevent and
+// exactly what its own error text promises it prevents. Open since `9aebbfcc`, which added the takeover
+// hatch inside a previously unconditional guard.
 //
-// It has been open since `9aebbfcc`, which added the hatch INSIDE the previously unconditional guard.
-// Before that commit a managed shell was refused outright. The test added in that same commit was a regex
-// over the guard's source text, so it could not have caught this: the line it asserted is present and
-// correct, and the behaviour it implies is not the behaviour.
+// The fix tests EXPLICITNESS instead: `sessionMode !== "resident"` on the raw value. The schema is
+// `z.enum(["resident", "managed"]).optional()`, so that comparison is exact rather than lenient.
+//
+// It was found by converting this file from a source regex to a real handler test — the regex asserted a
+// line that was present and correct while the behaviour it implied was absent, which is why the assertion
+// below goes through the handler.
 const omitted = register({ managed: true, args: { agentId: "mrg-agent", role: "coder" } });
-assert.equal(omitted.isError, false,
-  "CURRENT (contradicts the guard's comment and its error text): an omitted sessionMode is NOT blocked");
-assert.match(omitted.text, /Registered "mrg-agent" \(resident/,
-  "…and it converts the managed agent to resident, which is what the guard exists to prevent");
+assert.equal(omitted.isError, true,
+  "a managed shell registering with NO sessionMode must be refused — this is the accidental conversion");
+assert.match(omitted.text, /comms_register without an explicit sessionMode is disabled/,
+  "…and the error text finally describes what actually happens");
+assert.doesNotMatch(String(omitted.text), /Registered "mrg-agent"/,
+  "…and nothing may have been registered");
 
 // ── Outside a managed shell the guard does not apply at all ──────────────────
 const ordinary = register({ managed: false, args: { agentId: "mrg-agent", role: "coder" } });

@@ -100,6 +100,15 @@ function register({ remote = true, status = 200, preArm = false, args = {}, env 
         // claude-code. The first version of these tests inherited the ambient value — they passed only
         // because this session happens to BE claude-code, and would have failed anywhere else.
         AIFY_RUNTIME: "",
+        // EVERY OTHER AMBIENT INPUT THIS HANDLER READS, pinned for the same reason and after the same
+        // mistake. A reviewer running the suite on a live managed hermes agent inherits
+        // `AIFY_MANAGED_DISPATCH=1`, which sends every registration below into the managed-dispatch guard
+        // and fails four tests that have nothing to do with it; and an ambient gateway URL or an
+        // agent-keyed gateway marker under `TEMP` reaches `hermes-gateway-config.mjs` at load. The rule
+        // this file now follows: if the code reads it, the fixture sets it.
+        AIFY_MANAGED_DISPATCH: "",
+        AIFY_HERMES_GATEWAY_URL: "", AIFY_HERMES_GATEWAY_TOKEN_ENV: "",
+        TEMP: store, TMP: store, XDG_STATE_HOME: path.join(store, "state"),
         ...env,
       },
       encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"],
