@@ -210,15 +210,123 @@ const IMPORT_EDITS = [
     // The env import became a multi-line block when resolveHermesPython joined it, so it is pinned as one.
     addedBlock: [
       "import {  // v0.5.4: neutral owner",
-      "  HERMES_CMD,",
-      "  MACHINE_ID,",
-      "  RUNTIME,",
       "  TMP_DIR,",
-      "  resolveHermesPython,",
       '} from "./hermes-env.mjs";',
     ],
   },
 ];
+
+
+// The 74 bindings the dead-import sweep removed, as reported by the gate's own detector in
+// `no-dead-imports.test.js` -- not by a second copy of the rule. They are all in the ORIGINAL import
+// region (the slice-added blocks above are removed wholesale, so what the sweep took out of THOSE never
+// reaches this comparison), and every one is present in the pristine fixture.
+const SWEPT_IMPORTS = new Set([
+  "AIFY_API_KEY", "AIFY_SERVER_URL", "ATTACH_POLL_MS", "ATTACH_WAIT_MS", "DEFAULT_IDLE_DEBOUNCE_TICKS",
+  "HERMES_CMD", "MACHINE_ID", "MAX_REENSURE_WITHOUT_RECOVERY", "REPULSE_MS", "REPULSE_WINDOW_MS",
+  "RUNTIME", "activeListRowsLocal", "buildPromptSubmitFrame", "buildRenderNoticeFrame",
+  "buildSessionActiveListFrame", "buildSessionListFrame", "buildSessionSteerFrame", "channelBridgeId",
+  "clearLoopReady", "clearTurn", "defaultClearGatewayMarkers", "defaultClearSessionMarker",
+  "defaultKillByPort", "defaultMachineId", "dispatchContent", "fs", "gatewayIndexUrlFromWs",
+  "gatewayUnreachableMessage", "installShutdownTeardown", "isGatewayConnectRefused",
+  "isGatewaySessionIdle", "isGatewaySessionWorking", "isSessionBusyError", "isTuiDepsBuildFailure",
+  "isUsableSessionId", "makeAifyHttpCall", "makeGatewayReachabilityProbe", "makeInFlightProbe",
+  "makeInFlightPulse", "makeTeardown", "markRunDelivered", "markRunFailed", "markRunRequeued",
+  "maybeReEnsureGatewayHost", "nextReEnsureBudget", "nodeSpawnSync", "os", "pickMostRecentSession",
+  "pickMostRecentSessionRow", "pickSessionById", "pickSessionRowById", "pickSessionStatusById",
+  "pickSessionStatusForKey", "pinnedSessionId", "readGatewayUrlMarker", "readSessionIdMarker",
+  "reportGatewayDead", "reportTurnBusy", "resolveHermesPython", "rowResumeKey", "sessionKeyFor",
+  "shouldApplyGatewayTurnEnd", "shouldLatchComplete", "shouldManagedHostRepulse", "sleep",
+  "startGatewayLivenessProbe", "startHermesGatewayTurnDetector", "startInFlightRepulse",
+  "startLivenessHeartbeat", "startResumeMarkerSync", "tuiDepsBuildFailureMessage", "waitForActiveSession",
+  "writeLoopReady", "writeSessionIdMarker",
+]);
+
+// The import region, in either file: from the first `import` to the `loadSettingsEnv()` call that follows
+// the block. Anchoring on a line that exists in BOTH files is the point -- the earlier version of this
+// helper anchored on an opener comment that every slice shares, took the wrong block, and then could not
+// find the block it had just deleted.
+function importRegion(lines) {
+  const start = lines.findIndex((l) => l.startsWith("import "));
+  const end = lines.indexOf("loadSettingsEnv();");
+  assert.ok(start >= 0, "no import line found");
+  assert.ok(end > start, "loadSettingsEnv() must follow the import block");
+  return [start, end];
+}
+
+// Split a region into import blocks so a dropped `import {` or `} from "x";` can be judged: a structural
+// line may only disappear when every NAME in its block disappeared too.
+function blockOf(region, i) {
+  if (/^\}\s*from/.test(region[i])) {
+    let open = i;
+    while (open >= 0 && !/^import\s*\{/.test(region[open])) open -= 1;
+    return [open, i];
+  }
+  if (/^import\s*\{\s*(\/\/.*)?$/.test(region[i])) {
+    let close = i;
+    while (close < region.length && !/^\}\s*from/.test(region[close])) close += 1;
+    return [i, close];
+  }
+  return null;
+}
+
+function namesIn(line) {
+  const block = /^\s+(\w+(?:\s+as\s+\w+)?),?\s*$/.exec(line);
+  if (block) return [block[1].split(/\s+as\s+/).pop()];
+  const named = /^import\s*\{([^}]*)\}\s*from\s*"[^"]+";\s*$/.exec(line);
+  if (named) {
+    return named[1].split(",").map((s) => s.trim()).filter(Boolean)
+      .map((s) => s.split(/\s+as\s+/).pop().trim());
+  }
+  const def = /^import\s+(\w+)\s+from\s+"[^"]+";\s*$/.exec(line);
+  if (def) return [def[1]];
+  return null;
+}
+
+// Put the swept imports back, and CHECK the claim while doing it.
+//
+// The restore is wholesale -- the pristine's own region -- but it is not blind. The swept region must be a
+// SUBSEQUENCE of the pristine's (the sweep only ever deleted whole lines; it rewrote none), and every
+// pristine line missing from it must be explained by a name the gate reported dead. So an import changed
+// for any other reason, or a line reordered, still fails here rather than being papered over by the
+// restore.
+function restoreSweptImports(lines, pristineLines) {
+  const [start, end] = importRegion(lines);
+  const [pStart, pEnd] = importRegion(pristineLines);
+  const swept = lines.slice(start, end);
+  const pristine = pristineLines.slice(pStart, pEnd);
+
+  const dropped = [];
+  let k = 0;
+  for (let i = 0; i < pristine.length; i += 1) {
+    if (k < swept.length && swept[k] === pristine[i]) k += 1;
+    else dropped.push(i);
+  }
+  assert.equal(k, swept.length,
+    "the swept import region is not a subsequence of the pristine one, so a line was changed or reordered "
+    + "rather than merely removed");
+
+  const droppedSet = new Set(dropped);
+  for (const i of dropped) {
+    const names = namesIn(pristine[i]);
+    if (names) {
+      for (const n of names) {
+        assert.ok(SWEPT_IMPORTS.has(n),
+          `import "${n}" vanished from the host but is not one of the names the sweep reported dead`);
+      }
+      continue;
+    }
+    const block = blockOf(pristine, i);
+    assert.ok(block, `unexplained line removed from the import region: ${pristine[i]}`);
+    for (let j = block[0]; j <= block[1]; j += 1) {
+      assert.ok(droppedSet.has(j),
+        `the block line "${pristine[i]}" was removed while "${pristine[j]}" survived, so the block did not `
+        + "lose all of its names");
+    }
+  }
+
+  return [...lines.slice(0, start), ...pristine, ...lines.slice(end)];
+}
 
 function hostWithoutSliceImports() {
   const lines = read("hermes-managed-host.js").split(String.fromCharCode(10));
@@ -237,12 +345,14 @@ function hostWithoutSliceImports() {
   // blocks are not in that order in the file, so it deleted the session block while hunting for the gateway
   // one and then could not find the session block it had just removed. Anchoring on the unique line is the
   // fix — the opener comment is identical for every slice and therefore cannot identify one.
+  // Only two of the five slice-added blocks survive the dead-import sweep: every name imported from
+  // ./hermes-run-reporting.mjs, ./hermes-inflight.mjs and ./aify-http.mjs was used ONLY by the delivery
+  // code, so those blocks went with it. They are not listed because they are not there -- a proof that
+  // demanded them would fail on the sweep having worked, which is the shape of gate this series has
+  // already had to fix four times.
   for (const from of [
     '} from "./hermes-gateway.mjs";',
     '} from "./hermes-active-session.mjs";',
-    '} from "./hermes-run-reporting.mjs";',
-    '} from "./hermes-inflight.mjs";',
-    '} from "./aify-http.mjs";',
   ]) {
     const close = lines.findIndex((l) => l.startsWith(from));
     assert.notEqual(close, -1, `the import block ending in ${from} must be present verbatim`);
@@ -251,7 +361,8 @@ function hostWithoutSliceImports() {
     assert.ok(open >= 0, `no opener found for the block ending in ${from}`);
     lines.splice(open, close - open + 1);
   }
-  return lines.join(String.fromCharCode(10));
+  const pristineLines = read(PRISTINE).split(String.fromCharCode(10));
+  return restoreSweptImports(lines, pristineLines).join(String.fromCharCode(10));
 }
 
 test("hermes-managed-host.js reconstructs byte-identically from the two extracted modules", () => {

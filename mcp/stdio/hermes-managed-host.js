@@ -32,112 +32,25 @@
 // may rebind it), so it is NEVER cached — every delivery re-runs
 // `session.active_list`.
 
-import os from "os";
 import path from "path";
-import fs from "fs";
-import { spawnSync as nodeSpawnSync } from "node:child_process";
 import { fileURLToPath } from "url";
 import { loadSettingsEnv } from "./load-env.js";
 import { readAgentBindingFile } from "./binding-file.js";
-import { defaultMachineId } from "./runtimes.js";
 import {  // v0.5.4: neutral owner
-  HERMES_CMD,
-  MACHINE_ID,
-  RUNTIME,
   TMP_DIR,
-  resolveHermesPython,
 } from "./hermes-env.mjs";
-import {  // v0.5.4: moved out; the aify HTTP client has a neutral owner
-  AIFY_API_KEY,
-  AIFY_SERVER_URL,
-  makeAifyHttpCall,
-} from "./aify-http.mjs";
-import {  // v0.5.4: moved out; the host is now a CALLER of the in-flight module
-  REPULSE_MS,
-  REPULSE_WINDOW_MS,
-  makeInFlightProbe,
-  makeInFlightPulse,
-} from "./hermes-inflight.mjs";
-import {  // v0.5.4: moved out; the host is now a CALLER of the run-reporting module
-  channelBridgeId,
-  clearTurn,
-  markRunDelivered,
-  markRunFailed,
-  markRunRequeued,
-  reportTurnBusy,
-} from "./hermes-run-reporting.mjs";
 import {  // v0.5.4: moved out; the host is now a CALLER of the session module
-  ATTACH_POLL_MS,
-  ATTACH_WAIT_MS,
-  activeListRowsLocal,
   ensureStableSession,
   runResolveSessionCli,
-  startResumeMarkerSync,
-  sessionKeyFor,
-  waitForActiveSession,
 } from "./hermes-active-session.mjs";
 import {  // v0.5.4: moved out; this file is now a CALLER of the gateway module
-  MAX_REENSURE_WITHOUT_RECOVERY,
   ensureGatewayHost,
-  gatewayIndexUrlFromWs,
-  gatewayUnreachableMessage,
-  installShutdownTeardown,
-  isGatewayConnectRefused,
-  makeGatewayReachabilityProbe,
-  maybeReEnsureGatewayHost,
-  nextReEnsureBudget,
   openGatewayWsClient,
-  reportGatewayDead,
-  shouldApplyGatewayTurnEnd,
-  sleep,
-  makeTeardown,
 } from "./hermes-gateway.mjs";
 import {
   resolveGatewayPort,
   writeGatewayUrlMarker,
-  clearGatewayMarkers as defaultClearGatewayMarkers,
-  clearSessionMarker as defaultClearSessionMarker,
-  readSessionIdMarker,
-  writeSessionIdMarker,
-  readGatewayUrlMarker,
-  isUsableSessionId,
 } from "./hermes-endpoint.js";
-import { defaultKillByPort } from "./hermes-daemon.js";
-import { writeLoopReady, clearLoopReady } from "./hermes-loop-ready.js";
-import { pinnedSessionId } from "./hermes-session-id.js";
-import { dispatchContent } from "./claude-channel.js";
-import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
-import {
-  startGatewayLivenessProbe,
-  isTuiDepsBuildFailure,
-  tuiDepsBuildFailureMessage,
-} from "./hermes-gateway-liveness.js";
-import {
-  startInFlightRepulse,
-  shouldManagedHostRepulse,
-  shouldLatchComplete,
-} from "./hermes-turn-repulse.js";
-import {
-  buildSessionActiveListFrame,
-  buildSessionListFrame,
-  buildPromptSubmitFrame,
-  buildSessionSteerFrame,
-  buildRenderNoticeFrame,
-  pickSessionById,
-  pickMostRecentSession,
-  pickSessionRowById,
-  pickMostRecentSessionRow,
-  rowResumeKey,
-  pickSessionStatusForKey,
-  pickSessionStatusById,
-  isGatewaySessionIdle,
-  isGatewaySessionWorking,
-  isSessionBusyError,
-} from "./hermes-gateway-protocol.js";
-import {
-  startHermesGatewayTurnDetector,
-  DEFAULT_IDLE_DEBOUNCE_TICKS,
-} from "./hermes-gateway-turn-detector.js";
 // v0.5.4: the delivery loop and the per-run work moved to ./hermes-delivery-loop.mjs and
 // ./hermes-delivery-run.mjs — 998 lines together, which one module could not hold without a fresh
 // violation of the 1000-line rule. The CLI entry points below stay here and call in.

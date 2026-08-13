@@ -25,20 +25,24 @@ import test from "node:test";
 
 import { bridgeSources } from "./bridge-sources.mjs";
 
-// The reconstruction proof in `hermes-gateway-extraction.test.js` strips this file's slice import blocks by
-// matching their opener (`import {  // v0.5.4: moved out`) and closer (`} from "./x.mjs";`) lines verbatim,
-// then byte-compares the remainder against a pristine fixture. Its import-block FORMAT is therefore
-// load-bearing, and removing the dead names collapses multi-line blocks into single-line ones and breaks the
-// proof — confirmed by doing it. Cleaning them means updating that proof in the same change, which is a
-// deliberate slice and not a side effect of this sweep. Twenty-one names, all leftovers from earlier v0.5.4
-// extractions; reported rather than hidden.
-const PENDING_RECONSTRUCTION_PROOF = new Set(["hermes-managed-host.js"]);
+// SWEPT, AND THE CARVE-OUT IS GONE. `hermes-managed-host.js` was exempted here while it carried first 21
+// and then 74 dead names, because the reconstruction proof in `hermes-gateway-extraction.test.js`
+// byte-compares that file against a pristine fixture: its import-block format is load-bearing, and deleting
+// the names breaks the proof unless the proof is updated in the same change. It now is — the proof declares
+// the 74 removed names and checks that the surviving region is the pristine one minus exactly those. So the
+// exemption was deleted rather than left to rot, which is what the count test below existed to force.
+//
+// The coupling still holds for the NEXT slice that strands imports in that file: clean them together with
+// the proof, or not at all. Sweeping them as a side effect is what cost a whole attempt once.
 
 function strip(text) {
   return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^.*?\/\/.*$/gm, (line) => line.split("//")[0]);
 }
 
-function deadImportsIn(text) {
+// EXPORTED so the sweep that removes these can use the gate's own detector instead of a second copy of
+// the rule. The Python side learned this the hard way: a sweep tool carrying its own regex deleted four
+// LIVE imports because its copy had drifted from the gate's.
+export function deadImportsIn(text) {
   const withSpecifiers = strip(text);
   // Blank the module specifiers before counting uses, but keep them for PARSING the import statements.
   const src = withSpecifiers.replace(/(\bfrom\s*)"[^"]*"/g, '$1""');
@@ -57,31 +61,20 @@ function deadImportsIn(text) {
 
 test("no bridge module imports a name it never uses", () => {
   const offenders = bridgeSources()
-    .filter(([file]) => !PENDING_RECONSTRUCTION_PROOF.has(file))
     .map(([file, text]) => [file, deadImportsIn(text)])
     .filter(([, dead]) => dead.length);
   assert.deepEqual(offenders, [],
     "dead imports: " + offenders.map(([f, d]) => `${f} (${d.join(", ")})`).join("; "));
 });
 
-test("the carve-out is REAL and is not quietly growing", () => {
-  // A carve-out nobody counts becomes permanent. This pins the debt at what it actually is, so cleaning the
-  // file makes this test fail and forces the exemption to be deleted rather than left behind — and so adding
-  // a twenty-second dead name to it is a red test rather than a free pass.
-  // TWENTY-ONE, counted by this file's own detector rather than by a one-off script. I first wrote 19 from
-  // an inline `node -e` whose regex the shell had mangled, and it silently missed `os` and
-  // `pickMostRecentSession`. The number in a gate must come from the gate.
-  //
-  // SEVENTY-FOUR since the v0.5.4 delivery split, and the new ones are EXPLAINED rather than cleaned.
-  // `runDeliveryLoop`, `deliverRun`, `runPollCycle`, `classifyClaimError` and `noTuiAttachedMessage`
-  // moved to ./hermes-delivery-loop.mjs and ./hermes-delivery-run.mjs, taking their usages with them and
-  // leaving 53 more imports unused here. Cleaning them in the SAME change is what the carve-out above
-  // forbids: the reconstruction proof byte-compares this file, so collapsing multi-line import blocks
-  // breaks it. I did exactly that once and lost the slice. The sweep is the next slice, and it updates
-  // `hermes-gateway-extraction.test.js` in the same commit.
+test("hermes-managed-host.js stays clean — the swept file does not re-accumulate", () => {
+  // This replaces the carve-out counter. That test pinned the debt so it could not grow silently and so
+  // cleaning the file would fail it and force the exemption's deletion; both have now happened. What is
+  // worth keeping is the file-specific guard, because this is the file the decomposition kept stranding
+  // imports in — five moved functions took 53 names' usages with them in one slice.
   const [, text] = bridgeSources().find(([file]) => file === "hermes-managed-host.js");
-  assert.equal(deadImportsIn(text).length, 74,
-    "hermes-managed-host.js's dead-import count changed — clean it and drop the carve-out, or explain the new one");
+  assert.deepEqual(deadImportsIn(text), [],
+    "hermes-managed-host.js has dead imports again — sweep them WITH the reconstruction proof, not after it");
 });
 
 test("the detector really detects — it finds a dead import in a synthetic module", () => {
