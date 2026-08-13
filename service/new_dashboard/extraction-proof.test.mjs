@@ -226,6 +226,15 @@ const EXTRACTIONS = [
       { name: "refreshActiveTerminalTheme", at: 1901, marker: "// refreshActiveTerminalTheme moved to ./settings-panel.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "agent-drawer.mjs",
+    importLine: "import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './agent-drawer.mjs';",
+    items: [
+      { name: "sessionForAgent", at: 1708, marker: "// sessionForAgent moved to ./agent-drawer.mjs in v0.5.4." },
+      { name: "openAgentDrawer", at: 3469, marker: "// openAgentDrawer moved to ./agent-drawer.mjs in v0.5.4." },
+      { name: "syncInspectorToSelection", at: 3558, marker: "// syncInspectorToSelection moved to ./agent-drawer.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -241,6 +250,7 @@ const MODULES = () => ({
   "ui.js": read("ui.js"),
   "session-rail.mjs": read("session-rail.mjs"),
   "settings-panel.mjs": read("settings-panel.mjs"),
+  "agent-drawer.mjs": read("agent-drawer.mjs"),
 });
 
 function rebuild(overrides = {}) {

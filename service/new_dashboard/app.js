@@ -37,6 +37,7 @@ import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rang
 import { state } from './state.mjs';
 import { SESSION_FILTER_KINDS, agentForSession, renderSessionRail, selectedSessionIds } from './session-rail.mjs';
 import { previewAppearance, refreshActiveTerminalTheme, renderSettings, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
+import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './agent-drawer.mjs';
 
 function resolveApiOrigin() {
   const params = new URLSearchParams(location.search);
@@ -1419,9 +1420,7 @@ function messagesForSession(session) {
 
 // runTargetAgent moved to ./record-fields.mjs in v0.5.4.
 
-function sessionForAgent(agentId) {
-  return state.sessions.find((session) => sessionAgentId(session) === agentId) || null;
-}
+// sessionForAgent moved to ./agent-drawer.mjs in v0.5.4.
 
 function sessionForRun(run) {
   return sessionForAgent(runTargetAgent(run));
@@ -3013,85 +3012,7 @@ function openIdentityDirectory() {
 
 // continueCliCommand moved to ./cli-resume.mjs in v0.5.4.
 
-function openAgentDrawer(agentId) {
-  const id = String(agentId || '').trim();
-  if (!id) return;
-  const agent = state.agents.find((a) => a.id === id) || { id };
-  const session = sessionForAgent(id);
-  const env = session ? (state.environments.find((e) => String(e.id) === String(sessionEnvironmentId(session))) || null) : null;
-  const sid = session ? sessionId(session) : '';
-  const mode = String(agent.sessionMode || (session && session.mode) || 'resident').toLowerCase();
-  const otherMode = mode === 'managed' ? 'resident' : 'managed';
-  const row = (label, value) => `<dt>${esc(label)}</dt><dd>${value}</dd>`;
-  // AGENT-LEVEL stop (2026-07-26, operator request: "a way to stop/kill an online agent").
-  // Every other action here is gated on `sid` — a resolvable session row — so an agent whose
-  // session is missing/unresolved offered NO way to stop it from the dashboard at all. This one
-  // is keyed on the AGENT and hits /agents/{id}/stop-worker, the authoritative teardown: it ends
-  // the live worker, terminal bindings and turn_busy pulse, reports `available`, and PRESERVES
-  // registration + session_handle so the agent can be started again later.
-  // Offered whenever the agent isn't already down, so it works for exactly the `online`/`working`
-  // case the operator hit.
-  const agentStatus = String(agent.status || '').trim().toLowerCase();
-  const canStopWorker = !['offline', 'stopped', 'available'].includes(agentStatus);
-  const actions = [
-    canStopWorker
-      ? `<button class="ghost danger" data-agent-stop-worker="${esc(id)}" title="Kill this agent's live worker. Identity, history and resume handle are kept — it can be started again.">Stop worker</button>`
-      : '',
-    sid ? `<button class="ghost" data-agent-control="restart" data-session="${esc(sid)}">Restart</button>` : '',
-    sid ? `<button class="ghost" data-agent-control="recreate" data-session="${esc(sid)}" title="Restart with a FRESH context (discards native session)">Reset</button>` : '',
-    sid ? `<button class="ghost danger" data-agent-control="stop" data-session="${esc(sid)}">Stop session</button>` : '',
-    sid ? `<button class="ghost" data-agent-compact="${esc(sid)}">Compact</button>` : '',
-    sid ? `<button class="ghost" data-agent-continue="${esc(sid)}">Continue as…</button>` : '',
-    `<button class="ghost" data-agent-mode="${esc(otherMode)}" data-agent="${esc(id)}">Switch to ${esc(otherMode)}</button>`,
-    `<button class="ghost" data-agent-edit="${esc(id)}">Edit…</button>`,
-    `<button class="ghost" data-agent-history="${esc(id)}">History</button>`,
-    sid ? `<button class="ghost danger" data-agent-delete-session="${esc(sid)}">Delete session</button>` : '',
-    `<button class="ghost danger" data-agent-remove="${esc(id)}">Remove agent</button>`,
-    `<button class="ghost" data-agent-open-sessions="${esc(sid)}">Open in Sessions</button>`,
-  ].filter(Boolean).join('');
-  // Always render this block. When there is no command, say WHY — an absent section is
-  // indistinguishable from a broken feature (operator report: "llama-manager does not have cli
-  // command that i can copy"; it has no session handle, so there is nothing to resume).
-  const cli = continueCliDetails(agent, session);
-  const cliCmd = cli.command;
-  const continueCliBlock = `
-      <div class="agent-drawer-cli">
-        <div class="agent-drawer-subhead">Continue in CLI</div>
-        ${cliCmd
-          ? `<p class="subtle">Resume this session in your own terminal — native ${esc(agent.runtime || 'runtime')} CLI.</p>
-        <p class="subtle cli-cmd-machine">${esc(resumeMachineNote(cli.machine))}</p>
-        <div class="cli-cmd-row"><code class="cli-cmd">${esc(cliCmd)}</code><button class="ghost" data-copy-cli="${esc(cliCmd)}" title="Copy the resume command">Copy</button></div>`
-          : `<p class="subtle">${esc(cli.reason)}</p>`}
-      </div>`;
-  const sessionChangedBanner = agent.sessionChanged ? `
-      <div class="session-changed-banner" role="alert">
-        <p>⚠ This agent reported a new session id <code>${esc(agent.pendingSessionId)}</code> that differs from its pinned handle <code>${esc(agent.sessionHandle || '—')}</code>. Delivery still targets the pinned handle until you resolve this.</p>
-        <div class="button-row">
-          <button class="primary" data-session-confirm="${esc(id)}">Confirm new id</button>
-          <button class="ghost" data-session-keep="${esc(id)}">Keep pinned</button>
-        </div>
-      </div>` : '';
-  byId('inspector-content').innerHTML = `
-    <div class="agent-drawer">
-      <div class="agent-drawer-head"><strong>${esc(id)}</strong>${renderStatusChip(agent.status || 'unknown', statusWhyContext('agent', agent, agent.status))}</div>
-      ${sessionChangedBanner}
-      <dl class="chat-kv agent-drawer-kv">
-        ${row('Runtime', esc(agent.runtime || (session && sessionRuntime(session)) || '—'))}
-        ${row('Mode', esc(mode))}
-        ${row('Environment', esc((env && (env.label || env.id)) || sessionEnvironmentId(session) || '—'))}
-        ${row('Workspace', esc((session && (session.workspace || session.cwd)) || agent.cwd || '—'))}
-        ${row('Session', sid ? `${esc(sid)} · ${esc(session.status || 'unknown')}` : '<span class="subtle">no active session</span>')}
-        ${row('Machine', esc(agent.machineId || '—'))}
-      </dl>
-      ${continueCliBlock}
-      <div class="agent-drawer-actions">${actions}</div>
-    </div>`;
-  // Remember WHICH agent the drawer is showing, so selecting a different agent can follow it
-  // (see syncInspectorToSelection) instead of leaving a stale panel open on the previous agent.
-  state.inspector = { ...state.inspector, kind: 'agent', runId: '', agentId: id };
-  byId('inspector')?.classList.add('open');
-  byId('inspector')?.classList.remove('run-inspector-sheet');
-}
+// openAgentDrawer moved to ./agent-drawer.mjs in v0.5.4.
 
 // Keep the details drawer in step with the conversation selection (2026-07-26, operator request:
 // "when i click on another agent then details panel should close or it should switch to that
@@ -3102,21 +3023,7 @@ function openAgentDrawer(agentId) {
 //  - selecting a DIFFERENT agent DM   → re-render the drawer for that agent
 //  - selecting a channel / closing    → close the drawer (a channel has no agent lifecycle)
 // No-op unless the drawer is actually open on an agent, so run/history drawers are untouched.
-function syncInspectorToSelection() {
-  const inspector = byId('inspector');
-  if (!inspector?.classList.contains('open')) return;
-  if (state.inspector?.kind !== 'agent') return;
-  const selected = String(state.chat?.selected || '');
-  const shownAgent = String(state.inspector?.agentId || '');
-  if (!selected || !selected.startsWith('dm:')) {
-    inspector.classList.remove('open');
-    state.inspector = { ...state.inspector, kind: '', agentId: '' };
-    return;
-  }
-  const nextAgent = selected.slice('dm:'.length);
-  if (!nextAgent || nextAgent === shownAgent) return;
-  openAgentDrawer(nextAgent);
-}
+// syncInspectorToSelection moved to ./agent-drawer.mjs in v0.5.4.
 
 // I9 — compaction / continuation lineage, derived from spawn records (metadata.continuedFrom*).
 async function openCompactionHistory(agentId) {

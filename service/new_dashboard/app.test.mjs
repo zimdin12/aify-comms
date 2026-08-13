@@ -102,23 +102,21 @@ test("xterm remount guard checks container identity, not just terminal id", () =
     "mountXtermForTerminal must remount when render recreated the host container");
 });
 
-test("chat agent details builds Continue in CLI from the linked session", () => {
-  const source = read("app.js");
-  // The command builder moved to cli-resume.mjs (2026-07-28) so it could be unit-tested — this file
-  // can only regex the SPA source, which cannot fail on wrong logic, only on moved text. The two
-  // behavioural claims this test used to approximate now live in cli-resume.test.mjs:
-  //   * "the handle can come from the SESSION when the agent row lacks it"
-  //   * "no session handle yields NO command but an explanatory reason"
-  // What stays here is the WIRING that only app.js can prove: the drawer passes its linked session
-  // through, and the block always renders so an absent command explains itself.
+test("Continue in CLI is wired from the drawer to the command builder", () => {
+  // TWO MOVES, one pattern. `continueCliDetails` went to cli-resume.mjs in 2026-07-28 so it could be
+  // unit-tested; `openAgentDrawer` — its only caller — went to agent-drawer.mjs in v0.5.4. Each time the
+  // behavioural claims went to the new module's own tests and the WIRING stayed here.
+  //
+  //   cli-resume.test.mjs   : the handle can come from the SESSION when the agent row omits it;
+  //                           no handle yields no command but an explanatory reason
+  //   agent-drawer.test.mjs : the block renders unconditionally, and stays shell-neutral
   const cliResume = read("cli-resume.mjs");
   assert.match(cliResume, /session\?\.sessionHandle \|\| session\?\.session_handle/,
     "a session handle must not disappear just because the agent list omits it");
-  assert.match(source, /continueCliDetails\(agent, session\)/,
-    "the chat details drawer must pass its linked session to the command builder");
-  assert.match(source, /continueCliBlock = `/,
-    "the Continue-in-CLI block must render unconditionally — an absent block reads as a broken feature");
-  assert.ok(!source.includes("aify-comms.cmd"),
+  const drawer = read("agent-drawer.mjs");
+  assert.match(drawer, /continueCliDetails\(agent, session\)/,
+    "the drawer must pass its linked session to the command builder, not just the agent row");
+  assert.ok(!read("app.js").includes("aify-comms.cmd"),
     "copyable dashboard commands should be shell-neutral; PowerShell resolves the shim itself");
 });
 
@@ -303,40 +301,30 @@ test("agent edit runtime choices include Hermes and preserve the current runtime
   assert.ok(choices.includes("future-runtime"), "an existing runtime must not be silently replaced");
 });
 
-test("details drawer offers an AGENT-level stop for a live worker", () => {
+test("the agent-level stop is routed and confirmed by app.js", () => {
   const source = read("app.js");
-  // Every other lifecycle action is gated on `sid` (a resolvable session row), which left an
-  // agent with no resolved session with no way to be stopped at all. The stop-worker button must
-  // be keyed on the agent id and hit the agent-level endpoint.
-  assert.match(source, /data-agent-stop-worker="\$\{esc\(id\)\}"/,
-    "stop-worker must be keyed on the agent id, not a session id");
+  // The BUTTON moved to agent-drawer.mjs with the drawer, and agent-drawer.test.mjs now renders it and
+  // asserts the status gate directly — which the regex here could not: it matched the gate's source text,
+  // so a gate listing the wrong statuses would have satisfied it exactly as well.
+  //
+  // What only app.js can prove is the other half: that the click actually goes somewhere, and that a
+  // destructive action asks first.
+  assert.match(source, /data-agent-stop-worker\]/, "the click handler must route the button");
   assert.match(source, /\/stop-worker`, \{\s*method: 'POST'/,
     "must call the authoritative agent-level teardown endpoint");
-  assert.match(source, /data-agent-stop-worker\]/, "click handler must route the button");
-  // Offered only when there is something to stop, and never for an already-down agent.
-  assert.match(source, /const canStopWorker = !\['offline', 'stopped', 'available'\]\.includes\(agentStatus\)/);
-  // Destructive → must confirm.
   const stopFn = source.match(/async function stopAgentWorker\([\s\S]*?\n\}/)?.[0] || "";
   assert.match(stopFn, /uiConfirm\(/, "killing a live worker must be confirmed");
-  // The session-scoped control keeps its own distinct label so the two aren't confusable.
-  assert.match(source, />Stop session</);
 });
 
-test("details drawer follows the selected agent instead of going stale", () => {
-  const source = read("app.js");
-  // The drawer records which agent it is showing...
-  assert.match(source, /kind: 'agent', runId: '', agentId: id/,
-    "the drawer must record its agent so the sync can compare");
-  // ...and the sync switches to a newly selected agent / closes for a non-agent selection.
-  const sync = source.match(/function syncInspectorToSelection\(\)[\s\S]*?\n\}/)?.[0] || "";
-  assert.ok(sync, "syncInspectorToSelection must exist");
-  assert.match(sync, /state\.inspector\?\.kind !== 'agent'/, "must not disturb run/history drawers");
-  assert.match(sync, /startsWith\('dm:'\)/);
-  assert.match(sync, /classList\.remove\('open'\)/, "a channel/no selection must close the drawer");
-  assert.match(sync, /openAgentDrawer\(nextAgent\)/, "a different agent must re-render the drawer");
-  assert.match(sync, /nextAgent === shownAgent\) return;/, "same agent must be a no-op (no re-render churn)");
-  // Wired into the controller as a dependency.
-  assert.match(source, /onSelectionChange: \(\) => syncInspectorToSelection\(\)/);
+test("the chat controller is wired to the drawer's selection sync", () => {
+  // `syncInspectorToSelection` moved to agent-drawer.mjs in v0.5.4. Its five outcomes — closed inspector,
+  // non-agent drawer, non-DM selection, same agent, different agent — are each asserted in
+  // agent-drawer.test.mjs by driving the function, which is strictly more than the regexes here could do:
+  // they matched the branch conditions as TEXT and would have passed on an inverted comparison.
+  //
+  // The wiring is the part that lives here and nowhere else. Without it the sync is never called and the
+  // drawer goes stale exactly as it did before the feature existed.
+  assert.match(read("app.js"), /onSelectionChange: \(\) => syncInspectorToSelection\(\)/);
 });
 
 test("chat controller notifies on every selection change", () => {
