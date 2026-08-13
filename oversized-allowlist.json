@@ -31,7 +31,7 @@
     },
     {
       "path": "mcp/stdio/hermes-managed-host.js",
-      "reason": "MEASURED 2026-08-14: 3 functions, 67 lines, reference nothing at module scope - the file reaches ~1,779. 959 of 1,845 lines are comments; `runDeliveryLoop` is 619 lines and its 7 seams are arrow-function consts declared INSIDE it, capturing its locals. Clearing it needs the delivery loop split - a redesign."
+      "reason": "CORRECTED 2026-08-14 by GROUP measurement (scripts/js_free_functions.py, group mode). The earlier per-function figure - 3 functions / 67 lines, \"needs a redesign\" - was wrong in the way that matters: the per-function view counts every intra-group call as a blocker, so a cluster that moves cleanly as a UNIT reads as immovable. Measured as a group, runDeliveryLoop + deliverRun + runPollCycle + noTuiAttachedMessage + classifyClaimError = 998 lines and the file drops to 691; all 8 tuning constants are read nowhere else. NO REDESIGN NEEDED - it is a two-module relocation (998 in one module would be a fresh violation), split on the boundary between what drives the iterations and what one iteration does. Built and verified in this session (bodies byte-identical, 125/125 host tests) but NOT landed: tests/hermes-gateway-extraction.test.js reconstructs this file byte-for-byte from every extracted module, so the EXTRACTIONS plan must be appended in the same change. WIP and four specific traps are in project memory v05x-structural-refactor-series."
     }
   ]
 }
