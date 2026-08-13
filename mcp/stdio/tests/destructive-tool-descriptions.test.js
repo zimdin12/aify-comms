@@ -10,12 +10,21 @@
 // pins the floor: name the destruction, and name the narrower tool to reach for instead.
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const source = readFileSync(join(here, "..", "server.js"), "utf8");
+// Every bridge source that registers tools, not server.js alone. The destructive tools moved to
+// `lifecycle-tools.mjs` in v0.5.4 and more groups will follow; a fixed path made this test measure where
+// a description LIVES rather than that it exists, and it went red on a move with no wording change.
+const stdio = join(here, "..");
+const toolSources = readdirSync(stdio)
+  .filter((name) => /\.(js|mjs)$/.test(name))
+  .map((name) => readFileSync(join(stdio, name), "utf8"))
+  .filter((src) => /server\.tool\(/.test(src));
+assert.ok(toolSources.length >= 2, "the tool-source scan should reach past server.js");
+const source = toolSources.join("\n");
 
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
@@ -25,7 +34,12 @@ function describeTool(name) {
   const at = source.indexOf(`"${name}",`);
   assert.notEqual(at, -1, `${name} must still be registered`);
   const rest = source.slice(at + name.length + 3);
-  const end = rest.indexOf("\n  {");
+  // Both indentation levels. A tool registered inside a `registerXTools(server, z)` wrapper has its
+  // schema at four spaces, not two; without this the slice missed the terminator and silently fell back
+  // to a 400-character window, which is long enough to pass today's assertions and short enough to
+  // truncate a longer description tomorrow. It was passing for the wrong reason.
+  const candidates = ["\n  {", "\n    {"].map((m) => rest.indexOf(m)).filter((i) => i !== -1);
+  const end = candidates.length ? Math.min(...candidates) : -1;
   return rest.slice(0, end === -1 ? 400 : end);
 }
 

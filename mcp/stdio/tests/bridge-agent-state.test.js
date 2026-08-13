@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -90,9 +90,17 @@ test("THE RESET SET IS EXACTLY THESE THREE — a fourth coupled Map must fail th
     assert.match(forget, new RegExp(`${name}\\.delete\\(agentId\\)`), `forgetRemoteAgent must delete from ${name}`);
   }
 
-  // The server-side reset must clear exactly the owned set, no more and no less.
-  const server = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  const cleared = [...server.matchAll(/^\s+(\w+)\.clear\(\);$/gm)].map((m) => m[1]);
+  // The all-agents reset must clear exactly the owned set, no more and no less.
+  //
+  // Scanned across the bridge rather than in server.js. I wrote this against server.js and it went red
+  // one commit later when comms_clear moved to `lifecycle-tools.mjs` — the SIXTH time in this lane that
+  // an assertion of mine measured where code LIVES instead of what it does. The reset can live anywhere;
+  // what must hold is that whoever performs it covers every owned Map.
+  const cleared = readdirSync(STDIO)
+    .filter((name) => /\.(js|mjs)$/.test(name))
+    .flatMap((name) => [
+      ...readFileSync(path.join(STDIO, name), "utf-8").matchAll(/^\s+(\w+)\.clear\(\);$/gm),
+    ].map((m) => m[1]));
   const ownedCleared = cleared.filter((n) => exported.includes(n));
   assert.deepEqual(
     [...new Set(ownedCleared)].sort(), exported,
