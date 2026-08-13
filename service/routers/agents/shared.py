@@ -101,10 +101,10 @@ def _agent_record_to_dict(*a, **k):
 
 
 
-async def _compute_agent_status(*a, **k):
-    from service.control_plane import _compute_agent_status as _impl
-
-    return await _impl(*a, **k)
+# Was a borrow shim: the owner lived in the control plane, which a router cannot import at
+# module level without a cycle. It moved to service/api_core/status_refresh.py in v0.5.4, so
+# a plain import works.
+from service.api_core.status_refresh import _compute_agent_status  # noqa: E402
 
 
 # Was a borrow shim for the same reason `engine_status` above was: the legacy status path lived in
@@ -133,10 +133,7 @@ from service.api_core.status_inputs import _compute_live_status_cache  # noqa: E
 
 
 
-async def _refresh_expired_agent_live_states(*a, **k):
-    from service.control_plane import _refresh_expired_agent_live_states as _impl
-
-    return await _impl(*a, **k)
+from service.api_core.status_refresh import _refresh_expired_agent_live_states  # noqa: E402
 
 
 

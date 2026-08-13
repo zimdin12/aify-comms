@@ -82,10 +82,10 @@ from service.api_core.message_store import _delete_messages_where  # noqa: E402
 
 
 
-async def _get_recipient_info(*a, **k):
-    from service.control_plane import _get_recipient_info as _impl
-
-    return await _impl(*a, **k)
+# Was a borrow shim: the owner lived in the control plane, which a router cannot import at
+# module level without a cycle. It moved to service/api_core/status_refresh.py in v0.5.4, so
+# a plain import works.
+from service.api_core.status_refresh import _get_recipient_info  # noqa: E402
 
 
 

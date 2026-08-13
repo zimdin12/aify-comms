@@ -40,11 +40,10 @@ router = domain_router()
 
 
 
-async def _compute_agent_status(*a, **k):
-    """BORROWED: still used by handlers that have not moved."""
-    from service.control_plane import _compute_agent_status as _impl
-
-    return await _impl(*a, **k)
+# Was a borrow shim: the owner lived in the control plane, which a router cannot import at
+# module level without a cycle. It moved to service/api_core/status_refresh.py in v0.5.4, so
+# a plain import works.
+from service.api_core.status_refresh import _compute_agent_status  # noqa: E402
 
 
 # Analytics data-quality ceiling (2026-06-19). NOT a status timer — used only by the
