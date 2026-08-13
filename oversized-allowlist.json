@@ -27,7 +27,7 @@
     },
     {
       "path": "service/new_dashboard/app.js",
-      "reason": "MEASURED 2026-08-14 (docs/APP_JS_STATE_MODULE_PACKET.md): only 6 functions, 28 lines, reference nothing at module scope - the file reaches ~4,876. A prototype proved that moving the `state` object frees ~202 lines, NOT the 2,651 first claimed: 122 of 164 functions call a sibling defined here and 141 sit in ONE connected component of 3,085 lines. Clearing it needs that component broken - a redesign of the render flow."
+      "reason": "RE-MEASURED 2026-08-14, and the previous reason here is WITHDRAWN (see the fourth correction in docs/APP_JS_STATE_MODULE_PACKET.md). It said clearing this file needs the 141-function render component broken - a redesign. That verdict came from a PER-FUNCTION criterion, which counts a call between two functions that would move together in the same slice as a blocker, and from treating browser globals (document/window/fetch) as blockers when an extracted .mjs runs in the same browser. The identical error had hermes-managed-host.js shelved as needing a runDeliveryLoop redesign; measured as a group it went 1,846 -> 728 with no redesign. Measured as groups here: renderAll reaches 54 functions / 1,484 lines needing only apiBase, byId, chatController and state; setPage 25 / 931. `state` now has an owner (state.mjs, with an identity gate). This file stays listed only until the byId/apiBase owners and the subject slices behind them land - it is being worked, not ruled unreachable."
     }
   ]
 }

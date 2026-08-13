@@ -186,3 +186,75 @@ that server.js is the live MCP bridge every agent connects through.
   `runDeliveryLoop` alone is 619 lines and its 7 seams are arrow-function consts declared INSIDE it,
   capturing its locals. The five extractable helpers total ~130 lines, reaching ~1,715. Clearing it
   needs `runDeliveryLoop` split, which is a redesign of the delivery loop.
+
+---
+
+## FOURTH CORRECTION, 2026-08-14 — the ceiling was an artefact of the criterion, and `state` has moved
+
+**Everything above concludes app.js is "not meaningfully reducible by relocation". That conclusion is
+withdrawn.** It was measured per function, and per-function measurement counts a call between two
+functions that would move together in the same slice as a blocker. Under that rule any cohesive cluster
+reads as welded in place, and the more cohesive it is, the more immovable it looks.
+
+This is the third time in this series the same error has produced the same wrong verdict. It said
+`hermes-managed-host.js` needed a redesign of its 619-line `runDeliveryLoop` before it could be split;
+measured as a group, that file went 1,846 → 728 in two slices on 2026-08-14 with no redesign at all. The
+packet even names the distinction — "a function that is not free ALONE may still be free WITH the ones it
+calls" is written in `scripts/js_free_functions.py` — and then does not apply it here.
+
+**A second error compounded it: browser globals were counted as blockers.** The checker treats `document`,
+`window`, `localStorage` and `fetch` as dependencies because it was written to find PURE, unit-testable
+functions. For a relocation that is the wrong question — app.js is loaded as `<script type="module">` and
+an extracted `.mjs` runs in the same browser with the same globals. A DOM-touching function relocates
+fine; it is merely not pure. Conflating "impure" with "immovable" removed most of the file from
+consideration before the call graph was even consulted.
+
+### What the group measurement actually shows
+
+Closure of each function over its callees, blockers counted as app.js module-scope names only, split into
+names the group would take WITH it (read by nothing else) and names it shares with the code left behind:
+
+| seed | functions | lines | shared blockers |
+|---|---|---|---|
+| `renderAll` | 54 | 1,484 | `apiBase`, `byId`, `chatController`, `state` |
+| `setPage` | 25 | 931 | `apiBase`, `byId`, `runFrom`, `state` |
+| `mountChatConsole` | 15 | 769 | `apiBase`, `byId`, `state` |
+| `mountXtermForTerminal` | 10 | 476 | `apiBase`, `state` |
+| `loadContractsForState` | 10 | 150 | `apiBase`, `byId`, `state` |
+| `renderContracts` | 8 | 125 | `byId`, `state` |
+| `codexConsoleConnect` | 4 | 104 | `codexConsoleConnections` |
+
+The binding constraint was never a 141-function knot. It is a handful of shared leaf names, and `state`
+is in almost every row.
+
+### Done: `state` now has an owner
+
+`service/new_dashboard/state.mjs`, exporting the 44-line declaration byte-identically. Proven by the
+existing reconstruction harness (a new `EXTRACTIONS` entry) and by `state-identity.test.mjs`, which is the
+JS analogue of the Python `test_process_global_identity.py`: exactly one module may declare `state`, app.js
+must import rather than declare it, and every importer must get the same object with mutations visible
+across imports. That last part is the property the 26 mutating functions depend on, and its failure mode is
+silent — two objects, no error, panels that never update.
+
+Safe because `state` is a `const`: never reassigned, only mutated. An ESM export is a live binding to one
+object.
+
+### What is now unblocked, and in what order
+
+`byId` (a one-line `document.getElementById` wrapper) and `apiBase` (a template string over `apiOrigin`)
+are the two remaining shared leaves. Both want neutral owners — `byId` belongs with the other DOM helpers
+in `ui.js`; `apiOrigin`/`apiBase`/`resolveApiOrigin` form their own small subject. Note that
+`resolveApiOrigin()` runs at module load and reads `location`, `localStorage` and `document`, so its module
+cannot be imported in Node without those globals being installed first; its test must set them before a
+dynamic import. That is worth doing rather than routing around — the function has four branches and no
+tests today.
+
+After those, the subject slices in the table above are ordinary relocations.
+
+### The reusable lesson
+
+The earlier correction in this document already says "I measured the constraint I was looking for and
+stopped". This is the same mistake one level up: having found that `state` was not the *only* blocker, I
+concluded the file was blocked, without asking whether the *other* blockers were real or artefacts of how
+I was counting. **Before accepting any "not reducible" verdict, state the criterion and check it against a
+case you have already disproven.** This series has one on file.

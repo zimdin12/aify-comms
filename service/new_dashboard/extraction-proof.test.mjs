@@ -158,6 +158,22 @@ const EXTRACTIONS = [
       { name: "continueCliCommand", at: 3465, marker: "// continueCliCommand moved to ./cli-resume.mjs in v0.5.4." },
     ],
   },
+  {
+    // The `state` object — 44 lines, and the first slice here that moves DATA rather than behaviour.
+    // It is proven the same way regardless: the declaration is byte-identical to the pristine one, with
+    // `export ` added, and reconstruct() strips that because `pristineExported` is absent (app.js declared
+    // it privately). What this slice cannot prove by reconstruction is the property that actually matters
+    // — that every reader gets ONE object — so `state-identity.test.mjs` carries that half.
+    module: "state.mjs",
+    importLine: "import { state } from './state.mjs';",
+    items: [
+      {
+        name: "state",
+        at: 43,
+        marker: "// state moved to ./state.mjs in v0.5.4 — see that module for why the earlier measurement said it would not help.",
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -169,6 +185,7 @@ const MODULES = () => ({
   "run-event.mjs": read("run-event.mjs"),
   "terminal-width.mjs": read("terminal-width.mjs"),
   "cli-resume.mjs": read("cli-resume.mjs"),
+  "state.mjs": read("state.mjs"),
 });
 
 function rebuild(overrides = {}) {

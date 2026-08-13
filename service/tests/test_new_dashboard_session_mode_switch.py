@@ -24,13 +24,14 @@ class NewDashboardSessionModeSwitchTests(unittest.TestCase):
         self.script = APP_JS.read_text(encoding="utf-8")
         self.html = INDEX_HTML.read_text(encoding="utf-8")
 
-    def test_state_seeds_settings_snapshot(self):
-        self.assertIn(
-            "settings: {}",
-            self.script,
-            "Plan 6 C3/C4: state.settings must be seeded so renderModeSwitchChip "
-            "can read manual_session_mode before the first refresh completes",
-        )
+    # test_state_seeds_settings_snapshot was RETIRED in v0.5.4 and replaced by
+    # `service/new_dashboard/state.test.mjs`, which imports the object and asserts the property instead of
+    # grepping app.js for the text "settings: {}".
+    #
+    # It was a location pin. It proved a line had been written somewhere in a 4,900-line file, and it broke
+    # when `state` moved to its own module even though the seeding was byte-identical. The replacement can
+    # fail on wrong VALUES, which this could not: `settings: {}` appearing inside a comment would have
+    # satisfied it.
 
     def test_refresh_loads_settings_via_api(self):
         # 2026-06-18 resilient-poll refactor (267b88f): refresh() now batches all GETs through
