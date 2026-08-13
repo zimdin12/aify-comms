@@ -22,6 +22,7 @@ import {
 } from "./aify-service-endpoint.mjs";
 import { registerArtifactTools } from "./artifact-tools.mjs";
 import { makeAutoRegister } from "./auto-registration.mjs";
+import { processRunControls } from "./run-controls.mjs";
 import { registerRegistrationTool } from "./registration-tool.mjs";
 import { registerChannelTools } from "./channel-tools.mjs";
 import { registerCompactTool } from "./compact-tool.mjs";
@@ -2906,77 +2907,6 @@ async function runDispatchLoop() {
   }
 }
 
-async function processRunControls(agentId, activeRun) {
-  if (!activeRun?.runId || !activeRun?.controller) return;
-  const claim = await httpCall("POST", "/dispatch/controls/claim", {
-    agentId,
-    runId: activeRun.runId,
-    machineId: MACHINE_ID,
-  });
-  const controls = claim.controls || [];
-  const steerControls = controls.filter((control) => control.action === "steer");
-  const otherControls = controls.filter((control) => control.action !== "steer");
-  for (const control of otherControls) {
-    try {
-      if (control.action === "interrupt") {
-        if (!activeRun.controller.capabilities?.interrupt || !activeRun.controller.interrupt) {
-          throw new Error("Interrupt is not supported by this runtime");
-        }
-        await activeRun.controller.interrupt();
-      } else if (control.action === "steer") {
-        if (!activeRun.controller.capabilities?.steer || !activeRun.controller.steer) {
-          throw new Error("Steer is not supported by this runtime");
-        }
-        await activeRun.controller.steer(control.body || "");
-      } else {
-        throw new Error(`Unknown control action "${control.action}"`);
-      }
-
-      await httpCall("PATCH", `/dispatch/controls/${encodeURIComponent(control.id)}`, {
-        status: "completed",
-        response: `${control.action} accepted`,
-      });
-    } catch (error) {
-      await httpCall("PATCH", `/dispatch/controls/${encodeURIComponent(control.id)}`, {
-        status: "failed",
-        response: error?.message || String(error),
-      });
-    }
-  }
-  if (steerControls.length) {
-    try {
-      if (!activeRun.controller.capabilities?.steer || !activeRun.controller.steer) {
-        throw new Error("Steer is not supported by this runtime");
-      }
-      const body = steerControls.length === 1
-        ? steerControls[0].body || ""
-        : [
-            "[AIFY STEER BATCH]",
-            `${steerControls.length} messages arrived while this run was active. Apply them to the current turn in order.`,
-            "",
-            ...steerControls.map((control, index) => [
-              `--- Steer ${index + 1} of ${steerControls.length} ---`,
-              control.body || "",
-            ].join("\n")),
-            "[/AIFY STEER BATCH]",
-          ].join("\n\n");
-      await activeRun.controller.steer(body);
-      for (const control of steerControls) {
-        await httpCall("PATCH", `/dispatch/controls/${encodeURIComponent(control.id)}`, {
-          status: "completed",
-          response: steerControls.length === 1 ? "steer accepted" : `batched steer accepted (${steerControls.length})`,
-        });
-      }
-    } catch (error) {
-      for (const control of steerControls) {
-        await httpCall("PATCH", `/dispatch/controls/${encodeURIComponent(control.id)}`, {
-          status: "failed",
-          response: error?.message || String(error),
-        });
-      }
-    }
-  }
-}
 
 // ── MCP Server ───────────────────────────────────────────────────────────────
 
