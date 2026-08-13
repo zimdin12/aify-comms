@@ -9,23 +9,33 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// v0.5.4: `isRetriableRequest`, `RETRIABLE_POST_PATHS` and `httpCall` moved out of server.js into
+// `aify-service-endpoint.mjs` (layer 0 of the server.js decomposition). Repointed rather than deleted:
+// the retry/nonce policy is unchanged, only its address is.
+//
+// WORTH UPGRADING LATER: this file reads SOURCE because server.js runs-on-import as the MCP entry
+// point, which made importing it impossible. That reason no longer applies to these three — they now
+// live in a leaf that imports cleanly, so these assertions could become real behavioural tests that
+// call the functions (see tests/aify-service-endpoint.test.js, which already does for the predicates).
+// Left as source-pinning here to keep this slice a relocation rather than a test rewrite.
 const server = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
+const endpoint = fs.readFileSync(path.join(__dirname, "..", "aify-service-endpoint.mjs"), "utf8");
 
 // 1. The retry predicate takes the body and gates /messages/send on a NON-EMPTY nonce.
 assert.match(
-  server,
+  endpoint,
   /function isRetriableRequest\(method, endpoint, body = null\)/,
   "isRetriableRequest must accept the request body to inspect the nonce",
 );
 assert.match(
-  server,
+  endpoint,
   /path === "\/messages\/send" && body && typeof body === "object" && String\(body\.clientNonce \|\| ""\)\.trim\(\)/,
   "/messages/send must be retriable ONLY when the body carries a non-empty clientNonce",
 );
 
 // 2. /messages/send must NOT be in the unconditional retriable set (that would retry
 //    nonce-less sends and double-send).
-const setMatch = server.match(/const RETRIABLE_POST_PATHS = new Set\(\[([\s\S]*?)\]\)/);
+const setMatch = endpoint.match(/const RETRIABLE_POST_PATHS = new Set\(\[([\s\S]*?)\]\)/);
 assert.ok(setMatch, "RETRIABLE_POST_PATHS set must exist");
 assert.doesNotMatch(
   setMatch[1],
@@ -35,7 +45,7 @@ assert.doesNotMatch(
 
 // 3. httpCall passes the body into the retriability check.
 assert.match(
-  server,
+  endpoint,
   /const retriable = isRetriableRequest\(method, endpoint, body\)/,
   "httpCall must pass the body to isRetriableRequest",
 );
