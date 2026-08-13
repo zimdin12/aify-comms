@@ -107,10 +107,10 @@ async def _compute_agent_status(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _compute_live_status_cache(*a, **k):
-    from service.control_plane import _compute_live_status_cache as _impl
-
-    return await _impl(*a, **k)
+# Was a borrow shim for the same reason `engine_status` above was: the legacy status path lived in
+# the control plane, which a router cannot import at module level. Both status paths moved to
+# service/api_core/status_inputs.py in v0.5.4, so this is a plain import.
+from service.api_core.status_inputs import _compute_live_status_cache  # noqa: E402
 
 
 

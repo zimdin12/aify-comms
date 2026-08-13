@@ -35,7 +35,18 @@ from pathlib import Path
 
 
 REPO = Path(__file__).resolve().parent.parent.parent
-CARRIER = REPO / "service" / "control_plane.py"
+#: WHERE `_compute_live_status_cache` LIVES, which is no longer the control plane. It moved to
+#: `service/api_core/status_inputs.py` in v0.5.4, joining `_gather_status_inputs` — the two status
+#: paths, legacy and engine, whose byproduct-parity promise is easier to keep in one module than
+#: across two. This constant is still named CARRIER because that is the role it plays here: the file
+#: the decision helper was lifted OUT of, whatever that file is called today.
+#:
+#: This is the cost of a location pin. Nothing about the split changed, but three assertions here
+#: failed the moment the code moved, because they assert where code LIVES rather than what it does.
+#: They are kept because "the helper has not crept back into its caller" is genuinely structural and
+#: has no behavioural equivalent — but the pin has to be re-aimed by hand on every move, and a reader
+#: who sees it red will reach for the wrong explanation first.
+CARRIER = REPO / "service" / "api_core" / "status_inputs.py"
 DECISION = REPO / "service" / "api_core" / "status_decision.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "compute_live_status_cache_before_split.py"
 

@@ -64,6 +64,12 @@ def _module_level(path: Path) -> dict[str, ast.AST]:
     return out
 
 
+#: The carrier that borrow shims delegate to. Named once so fixtures can BUILD an import line without
+#: embedding the literal string the series' debt metric greps for — see the comment in the detector
+#: test below for what happened when they did.
+CARRIER = "service.control_plane"
+
+
 def _is_delegating_shim(node: ast.AST) -> bool:
     """A shim is: optional docstring, ONE import from the router, ONE return of that import.
 
@@ -141,27 +147,30 @@ class NoForkedDeclarationsTests(unittest.TestCase):
         inputs, which cannot erode, and the production sweep below only asserts the direction of
         travel.
         """
+        # THE IMPORT LINE IS BUILT, NOT SPELLED OUT, and that is not fussiness. This series tracks its
+        # own debt by grepping the tree for the borrow-import line. Writing that line literally here
+        # put THREE fake shims into the count, so the slice that retired two real ones measured as a
+        # net INCREASE — and I reported the wrong figure in its receipt before checking. A test
+        # fixture must not be indistinguishable from the thing it describes.
+        borrow = f"    from {CARRIER} import f as _impl\n"
+
         shim = ast.parse(
-            "async def f(*a, **k):\n"
-            "    from service.control_plane import f as _impl\n"
-            "    return await _impl(*a, **k)\n"
+            "async def f(*a, **k):\n" + borrow + "    return await _impl(*a, **k)\n"
         ).body[0]
         self.assertTrue(_is_delegating_shim(shim), "the canonical borrow shim must be recognised")
 
         documented = ast.parse(
             "async def f(*a, **k):\n"
             '    """BORROWED: retires with messages."""\n'
-            "    from service.control_plane import f as _impl\n"
-            "    return await _impl(*a, **k)\n"
+            + borrow
+            + "    return await _impl(*a, **k)\n"
         ).body[0]
         self.assertTrue(_is_delegating_shim(documented), "a docstring must not hide the shape")
 
         with_logic = ast.parse(
             "async def f(*a, **k):\n"
-            "    from service.control_plane import f as _impl\n"
-            "    if a:\n"
-            "        return None\n"
-            "    return await _impl(*a, **k)\n"
+            + borrow
+            + "    if a:\n        return None\n    return await _impl(*a, **k)\n"
         ).body[0]
         self.assertFalse(
             _is_delegating_shim(with_logic),
