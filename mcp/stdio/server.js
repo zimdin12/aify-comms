@@ -23,6 +23,8 @@ import {
 import { registerArtifactTools } from "./artifact-tools.mjs";
 import { makeAutoRegister } from "./auto-registration.mjs";
 import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
+import { dedupePreserveOrder } from "./dedupe.mjs";
+import { cwdRootsForEnvironment, environmentHeartbeatPayload } from "./environment-identity.mjs";
 import { processRunControls } from "./run-controls.mjs";
 import { registerRegistrationTool } from "./registration-tool.mjs";
 import { registerChannelTools } from "./channel-tools.mjs";
@@ -64,7 +66,6 @@ import { fileURLToPath } from "url";
 import { loadSettingsEnv } from "./load-env.js";
 import { removeAgentBindingFile } from "./binding-file.js";
 import { supportedExecutionModes, wrapperChildExecutionModes } from "./dispatch-execution.js";
-import { advertisedEnvironmentRuntimes, advertisedTerminalRuntimes } from "./environment-runtimes.js";
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 import {
   canLaunchRuntime,
@@ -1035,16 +1036,6 @@ function noteControlClaimSuccess(label) {
 
 
 
-function dedupePreserveOrder(values) {
-  const seen = new Set();
-  const result = [];
-  for (const value of values || []) {
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    result.push(value);
-  }
-  return result;
-}
 
 
 // Plan 6 A2 (2026-05-26): runtime-authoritative session-handle resolver
@@ -1308,39 +1299,9 @@ function terminateResidentHost(reason = "Resident session stopped from dashboard
   }, 25).unref();
 }
 
-function environmentKind() {
-  const explicit = String(process.env.AIFY_ENVIRONMENT_KIND || "").trim();
-  if (explicit) return explicit;
-  if (process.env.WSL_DISTRO_NAME) return "wsl";
-  if (process.env.container || fs.existsSync("/.dockerenv")) return "docker";
-  if (process.platform === "win32") return "windows";
-  if (process.platform === "darwin") return "macos";
-  return "linux";
-}
 
-function environmentOs() {
-  if (process.platform === "win32") return "windows";
-  if (process.platform === "darwin") return "macos";
-  return "linux";
-}
 
-function environmentLabel(kind, hostname) {
-  const explicit = String(process.env.AIFY_ENVIRONMENT_LABEL || "").trim();
-  if (explicit) return explicit;
-  if (kind === "wsl") return `WSL ${process.env.WSL_DISTRO_NAME || ""} on ${hostname}`.replace(/\s+/g, " ").trim();
-  if (kind === "docker") return `Docker on ${hostname}`;
-  if (kind === "windows") return `Windows on ${hostname}`;
-  if (kind === "macos") return `macOS on ${hostname}`;
-  return `Linux on ${hostname}`;
-}
 
-function cwdRootsForEnvironment() {
-  const explicit = String(process.env.AIFY_CWD_ROOTS || "").trim();
-  if (explicit) {
-    return dedupePreserveOrder(explicit.split(path.delimiter).map((item) => item.trim()).filter(Boolean));
-  }
-  return dedupePreserveOrder([DEFAULT_CWD]);
-}
 
 // Tear down every managed-hermes triad survivor (gateway host, delivery loop,
 // daemon, console PTY) this env bridge owns. Targets come from a FRESH service
@@ -1646,53 +1607,6 @@ async function runBootTombstonedMarkerSweep() {
 }
 
 
-function environmentHeartbeatPayload() {
-  const hostname = (() => {
-    try { return os.hostname() || "unknown-host"; } catch { return "unknown-host"; }
-  })();
-  const kind = environmentKind();
-  const id = String(process.env.AIFY_ENVIRONMENT_ID || `${kind}:${hostname}:default`).trim();
-  const terminalSupported = bridgeTerminalSupported();
-  return {
-    id,
-    label: environmentLabel(kind, hostname),
-    machineId: MACHINE_ID,
-    os: environmentOs(),
-    kind,
-    bridgeId: BRIDGE_INSTANCE_ID,
-    bridgeVersion: BRIDGE_VERSION,
-    cwdRoots: cwdRootsForEnvironment(),
-    runtimes: advertisedEnvironmentRuntimes(),
-    terminal: terminalSupported,
-    pty: terminalSupported,
-    terminalRuntimes: advertisedTerminalRuntimes({ terminalSupported }),
-    metadata: {
-      pid: process.pid,
-      platform: process.platform,
-      arch: process.arch,
-      node: process.version,
-      cwd: DEFAULT_CWD,
-      wslDistro: process.env.WSL_DISTRO_NAME || "",
-      bridgeStartedAt: BRIDGE_STARTED_AT,
-      // The sha of the code THIS PROCESS IS ACTUALLY RUNNING (v0.2 item B1). It was already
-      // computed for the startup banner and then only written to stderr, where nothing can read
-      // it — so the one fact that proves a running bridge is current was thrown away at boot.
-      //
-      // Why it matters here specifically: `aify-doctor`'s `bridge-running` check reads /proc and
-      // SKIPS on Windows, so on this host nothing verifies that a running wrapper executes current
-      // code. `bridge-installed` only proves the FILES on disk are current, which is a different
-      // claim — a process keeps whatever it loaded at boot.
-      //
-      // That gap has a live artifact, not a hypothetical one: on 2026-08-10 I verified a
-      // just-shipped multipart fix through comms_share, saw the OLD corrupted output, and nearly
-      // recorded a working fix as broken. My own bridge was pre-restart and nothing said so.
-      //
-      // Reporting it on registration makes the check platform-independent: the server can compare
-      // what each LIVE bridge is running against the checkout, with no process inspection at all.
-      bridgeBuild: BRIDGE_BUILD_TAG,
-    },
-  };
-}
 
 
 // Unified-backing refactor 2026-05-24: read the `managed_via_wrapper` setting
