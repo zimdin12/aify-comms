@@ -53,6 +53,7 @@ import {
   isTransientHttpError,
 } from "./aify-service-endpoint.mjs";
 import { registerDispatchTools } from "./dispatch-tools.mjs";
+import { AGENTS_FILE, INBOX_DIR, MESSAGES_DIR, SHARED_DIR } from "./local-store.mjs";
 import { validateName } from "./safe-name.mjs";
 import { AIFY_AGENT_ID, AIFY_AGENT_ROLE, cleanEnvPlaceholder } from "./launch-identity.mjs";
 import { residentIdentityWarning } from "./register-identity.js";
@@ -1160,17 +1161,6 @@ const TERMINAL_MANAGER = new TerminalProcessManager({
 
 // ── Local filesystem paths (used only in local mode) ─────────────────────────
 
-const MESSAGES_DIR =
-  process.env.CLAUDE_MCP_MESSAGES_DIR ||
-  path.join(
-    path.dirname(
-      decodeURIComponent(new URL(import.meta.url).pathname).replace(/^\/([A-Z]:)/, "$1")
-    ),
-    ".messages"
-  );
-const AGENTS_FILE = path.join(MESSAGES_DIR, "agents.json");
-const INBOX_DIR = path.join(MESSAGES_DIR, "inbox");
-const SHARED_DIR = path.join(MESSAGES_DIR, "shared");
 
 // ── Input validation ────────────────────────────────────────────────────────
 
