@@ -100,12 +100,29 @@ const EXTRACTIONS = [
       { name: "runTargetAgent", at: 1704, marker: "// runTargetAgent moved to ./record-fields.mjs in v0.5.4." },
     ],
   },
+  {
+    // status.js ALREADY EXISTED and was already imported, so this slice WIDENS an import rather than
+    // adding one. `importWas` is what the line looked like before; reconstruct() restores it instead of
+    // deleting the line, which is the difference between proving a widening and proving an insertion.
+    module: "status.js",
+    // ONE LINE, not a block, and that is load-bearing: reconstruct() locates an import block by
+    // `indexOf(block[0])`, so a second `import {` opener in app.js would make the record-fields block
+    // resolve to this one instead. The pristine file had this import on a single line; keeping it that
+    // way keeps the opener unique rather than teaching the harness to disambiguate mid-slice.
+    importLine: "import { AGENT_STATUSES, LIVE_AGENT_STATUSES, STATUS_KINDS, renderStatusChip, resolveStatus, runStatusContext, statusWhyContext } from './status.js';",
+    importWas: "import { STATUS_KINDS, AGENT_STATUSES, LIVE_AGENT_STATUSES, resolveStatus, renderStatusChip } from './status.js';",
+    items: [
+      { name: "statusWhyContext", at: 438, marker: "// statusWhyContext moved to ./status.js in v0.5.4." },
+      { name: "runStatusContext", at: 3243, marker: "// runStatusContext moved to ./status.js in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
   "settings-fields.mjs": read("settings-fields.mjs"),
   "util.js": read("util.js"),
   "record-fields.mjs": read("record-fields.mjs"),
+  "status.js": read("status.js"),
 });
 
 function rebuild(overrides = {}) {

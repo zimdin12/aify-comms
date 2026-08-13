@@ -5,7 +5,7 @@ import { esc, fileSizeLabel, relTime, tsMs, usageFmtTokens, usageResetLabel } fr
 import { createTerminalInputPoster, createTerminalInputHandler, forceTerminalRepaint, waitForTerminalSize, wheelInputSequence } from './terminal-input.mjs';
 import { continueCliInfo, resumeMachineNote } from './cli-resume.mjs';
 import { collapseSupersededSessions, countSupersededSessions } from './sessions-list.mjs';
-import { STATUS_KINDS, AGENT_STATUSES, LIVE_AGENT_STATUSES, resolveStatus, renderStatusChip } from './status.js';
+import { AGENT_STATUSES, LIVE_AGENT_STATUSES, STATUS_KINDS, renderStatusChip, resolveStatus, runStatusContext, statusWhyContext } from './status.js';
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
 import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
 import { createChatController } from './chat.js';
@@ -446,39 +446,7 @@ async function removeChannelMember(name, agentId) {
   } catch (err) { toast(`Remove member failed: ${err?.message || err}`, 'error'); }
 }
 
-function statusWhyContext(kind, item = {}, rawStatus = item.status || 'unknown', context = {}) {
-  const base = resolveStatus(rawStatus, context);
-  const parts = [];
-  if (kind === 'session') {
-    parts.push(`Session ${sessionAgentId(item) || sessionId(item) || 'unknown'} is ${base.label}.`);
-    if (sessionEnvironmentId(item)) parts.push(`Environment: ${sessionEnvironmentId(item)}.`);
-    if (sessionRuntime(item)) parts.push(`Runtime: ${sessionRuntime(item)}.`);
-    if (item.workspace || item.cwd) parts.push(`Workspace: ${item.workspace || item.cwd}.`);
-  } else if (kind === 'run') {
-    parts.push(`Run ${item.id || 'unknown'} is ${base.label}.`);
-    if (runTargetAgent(item)) parts.push(`Target: ${runTargetAgent(item)}.`);
-    if (item.requestedAt) parts.push(`Requested ${relTime(item.requestedAt)} ago.`);
-    if (item.startedAt) parts.push(`Started ${relTime(item.startedAt)} ago.`);
-    if (item.error || item.blockedByActiveRun) parts.push(`Reason: ${item.error || item.blockedByActiveRun}.`);
-  } else if (kind === 'contract') {
-    parts.push(`Work Loop item ${item.subject || item.id || 'unknown'} is ${base.label}.`);
-    if (item.targetAgentId) parts.push(`Target: ${item.targetAgentId}.`);
-    if (item.lastReminderAt) parts.push(`Last reminder ${relTime(item.lastReminderAt)} ago.`);
-    if (item.overdue) parts.push('It is overdue.');
-  } else if (kind === 'agent') {
-    parts.push(`Agent ${item.id || 'unknown'} is ${base.label}.`);
-    if (item.runtime) parts.push(`Runtime: ${item.runtime}.`);
-    if (item.statusNote || item.status_note) parts.push(`Note: ${item.statusNote || item.status_note}.`);
-    if (item.lastSeen || item.last_seen) parts.push(`Last seen ${relTime(item.lastSeen || item.last_seen)} ago.`);
-  } else if (kind === 'environment') {
-    parts.push(`Environment ${item.label || item.id || 'unknown'} is ${base.label}.`);
-    if (item.bridgeId || item.bridge_id) parts.push(`Bridge: ${item.bridgeId || item.bridge_id}.`);
-    if (item.lastSeen || item.last_seen) parts.push(`Last heartbeat ${relTime(item.lastSeen || item.last_seen)} ago.`);
-  } else {
-    parts.push(`${kind || 'Item'} is ${base.label}.`);
-  }
-  return { ...context, label: context.label || base.label, why: parts.filter(Boolean).join(' ') };
-}
+// statusWhyContext moved to ./status.js in v0.5.4.
 
 function evaluateFlowGates() {
   Object.values(flowGates).forEach((gate) => {
@@ -3169,14 +3137,7 @@ async function loadRunEvents(runId, { before = '', order = state.inspector.event
   return api(`/dispatch/runs/${encodeURIComponent(runId)}/events?${params.toString()}`);
 }
 
-function runStatusContext(run) {
-  const blockerReason = String(run?.blockedByActiveRun || run?.blockedBy || run?.error || '').trim();
-  return {
-    label: run?.status || 'unknown',
-    blockerReason,
-    badges: blockerReason && resolveStatus(run?.status).kind === 'blocked' ? ['blocked'] : [],
-  };
-}
+// runStatusContext moved to ./status.js in v0.5.4.
 
 function runInspectorCapabilities(run, session = sessionForRun(run)) {
   const statusKind = resolveStatus(run?.status).kind;
