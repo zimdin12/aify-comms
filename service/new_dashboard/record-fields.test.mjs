@@ -20,7 +20,10 @@ import {
   messageIdOf,
   messageRunId,
   runPendingControlCount,
+  runTargetAgent,
+  sessionAgentId,
   sessionEnvironmentId,
+  sessionId,
   sessionRuntime,
 } from "./record-fields.mjs";
 
@@ -141,4 +144,60 @@ test("environmentRoots returns an empty array for a missing or non-array value",
   for (const env of [null, undefined, {}, { cwdRoots: "not-an-array" }, { cwdRoots: 7 }]) {
     assert.deepEqual(environmentRoots(env), [], `unexpected for ${JSON.stringify(env)}`);
   }
+});
+
+// ── the last three readers of this shape, moved in v0.5.4 ────────────────────────────────────────
+//
+// Each exists because the API spells the same field more than one way — camelCase from the newer routes,
+// snake_case from the older ones, and a bare short name in places. A reader that missed a spelling does not
+// throw; it returns "" and the row silently loses its identity, which is how a session stops matching its
+// own agent.
+
+test("sessionId accepts every spelling the API uses, in priority order", () => {
+  assert.equal(sessionId({ id: "a", sessionId: "b", session_id: "c" }), "a", "id wins");
+  assert.equal(sessionId({ sessionId: "b", session_id: "c" }), "b", "…then sessionId");
+  assert.equal(sessionId({ session_id: "c" }), "c", "…then session_id");
+});
+
+test("sessionAgentId accepts every spelling, including the bare `agent`", () => {
+  assert.equal(sessionAgentId({ agentId: "a", agent_id: "b", agent: "c" }), "a");
+  assert.equal(sessionAgentId({ agent_id: "b", agent: "c" }), "b");
+  assert.equal(sessionAgentId({ agent: "c" }), "c", "the short form is a real spelling, not a fallback");
+});
+
+test("runTargetAgent accepts every spelling of a run's target", () => {
+  // Four spellings, and this one matters most: `sessionForRun` resolves a run to a session through it, so a
+  // missed spelling detaches a running turn from the session showing it.
+  assert.equal(runTargetAgent({ targetAgentId: "a", target_agent: "b", agentId: "c", agent_id: "d" }), "a");
+  assert.equal(runTargetAgent({ target_agent: "b", agentId: "c" }), "b");
+  assert.equal(runTargetAgent({ agentId: "c", agent_id: "d" }), "c");
+  assert.equal(runTargetAgent({ agent_id: "d" }), "d");
+});
+
+test("all three answer EMPTY rather than undefined for a missing or junk record", () => {
+  // Callers compare these with `===` against other ids. `undefined` would compare unequal to everything and
+  // read as "no match" rather than "no data", which is the same outcome by accident rather than by design —
+  // and `String(undefined)` would produce the literal "undefined", which matches nothing but looks like an id.
+  for (const read of [sessionId, sessionAgentId, runTargetAgent]) {
+    for (const record of [undefined, null, {}, { unrelated: 1 }, ""]) {
+      const out = read(record);
+      assert.equal(typeof out, "string", `${read.name}(${JSON.stringify(record)}) must be a string`);
+      assert.equal(out, "", `${read.name}(${JSON.stringify(record)}) must be empty, not "${out}"`);
+    }
+  }
+});
+
+test("they coerce to string, so a numeric id still compares", () => {
+  // The API has returned numeric ids; every call site compares with `===` against a string.
+  assert.equal(sessionId({ id: 42 }), "42");
+  assert.equal(sessionAgentId({ agentId: 7 }), "7");
+  assert.equal(runTargetAgent({ targetAgentId: 9 }), "9");
+});
+
+test("a falsy-but-present value falls through rather than winning", () => {
+  // Current behaviour, pinned: these use `||`, so an empty string under the preferred name yields to the
+  // next spelling instead of returning "". That is what makes a partially-populated record still resolve.
+  assert.equal(sessionId({ id: "", sessionId: "b" }), "b");
+  assert.equal(sessionAgentId({ agentId: "", agent: "c" }), "c");
+  assert.equal(runTargetAgent({ targetAgentId: "", agent_id: "d" }), "d");
 });

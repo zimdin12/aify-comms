@@ -21,7 +21,10 @@ import {
   messageIdOf,
   messageRunId,
   runPendingControlCount,
+  runTargetAgent,
+  sessionAgentId,
   sessionEnvironmentId,
+  sessionId,
   sessionRuntime,
 } from './record-fields.mjs';
 import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
@@ -1551,13 +1554,9 @@ function closeStatusWhy() {
   _statusWhyReturnFocus = null;
 }
 
-function sessionId(session) {
-  return String(session?.id || session?.sessionId || session?.session_id || '');
-}
+// sessionId moved to ./record-fields.mjs in v0.5.4.
 
-function sessionAgentId(session) {
-  return String(session?.agentId || session?.agent_id || session?.agent || '');
-}
+// sessionAgentId moved to ./record-fields.mjs in v0.5.4.
 
 // sessionEnvironmentId moved to ./record-fields.mjs in v0.5.4.
 
@@ -1638,9 +1637,7 @@ function messagesForSession(session) {
 
 // messageRunId moved to ./record-fields.mjs in v0.5.4.
 
-function runTargetAgent(run) {
-  return String(run?.targetAgentId || run?.target_agent || run?.agentId || run?.agent_id || '');
-}
+// runTargetAgent moved to ./record-fields.mjs in v0.5.4.
 
 function sessionForAgent(agentId) {
   return state.sessions.find((session) => sessionAgentId(session) === agentId) || null;

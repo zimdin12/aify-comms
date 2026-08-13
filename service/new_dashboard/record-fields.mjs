@@ -53,3 +53,13 @@ export function environmentRoots(env) {
 export function runPendingControlCount(run) {
   return (run?.controls || []).filter((control) => ['pending', 'claimed'].includes(String(control.status || '').toLowerCase())).length;
 }
+
+export function sessionId(session) {
+  return String(session?.id || session?.sessionId || session?.session_id || '');
+}
+export function sessionAgentId(session) {
+  return String(session?.agentId || session?.agent_id || session?.agent || '');
+}
+export function runTargetAgent(run) {
+  return String(run?.targetAgentId || run?.target_agent || run?.agentId || run?.agent_id || '');
+}

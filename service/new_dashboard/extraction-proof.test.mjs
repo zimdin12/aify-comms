@@ -75,7 +75,10 @@ const EXTRACTIONS = [
       "  messageIdOf,",
       "  messageRunId,",
       "  runPendingControlCount,",
+      "  runTargetAgent,",
+      "  sessionAgentId,",
       "  sessionEnvironmentId,",
+      "  sessionId,",
       "  sessionRuntime,",
       "} from './record-fields.mjs';",
     ],
@@ -89,6 +92,12 @@ const EXTRACTIONS = [
       { name: "contractCategory", at: 2910, marker: "// contractCategory moved to ./record-fields.mjs in v0.5.4." },
       { name: "environmentRoots", at: 2990, marker: "// environmentRoots moved to ./record-fields.mjs in v0.5.4." },
       { name: "runPendingControlCount", at: 3267, marker: "// runPendingControlCount moved to ./record-fields.mjs in v0.5.4." },
+      // The last three readers of this shape. Indices MEASURED from the pristine fixture, not copied from
+      // the current file — `at` is a position in the pre-extraction app.js, and every earlier slice has
+      // already shifted the live one.
+      { name: "sessionId", at: 1609, marker: "// sessionId moved to ./record-fields.mjs in v0.5.4." },
+      { name: "sessionAgentId", at: 1613, marker: "// sessionAgentId moved to ./record-fields.mjs in v0.5.4." },
+      { name: "runTargetAgent", at: 1704, marker: "// runTargetAgent moved to ./record-fields.mjs in v0.5.4." },
     ],
   },
 ];
