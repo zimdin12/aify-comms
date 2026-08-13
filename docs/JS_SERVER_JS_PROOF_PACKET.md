@@ -238,3 +238,54 @@ a timeout is distinguished from an HTTP error.
 3. Is the layer-2 `registerXTools(server, deps)` wrapper a v0.5.x structural move, given the handler bodies are
    byte-identical?
 4. Does the four-way HTTP-caller duplication become its own packet alongside the `sleep`-×5 cleanup?
+
+---
+
+## CORRECTIONS AFTER EXECUTION (`97192fe8` onward)
+
+This packet was measured before any extraction. Doing the work falsified two of its numbers. Both are
+recorded here rather than quietly fixed, because the packet is the artifact the operator and reviewer
+decided from.
+
+### 1. Layer 0 was not 144 lines / 7 functions
+
+It is **15 items / ~190 lines**: five functions, eight constants, plus `splitServerUrls` and
+`defaultFallbackServerUrls` pulled in as transitive closure.
+
+The packet scoped layer 0 as "the latch and its readers". It missed that `SERVER_URLS` is BUILT with
+`uniqueServerUrls` at module scope while `httpCall` READS `SERVER_URLS` — so leaving the constants behind
+would have made the leaf import upward from the bridge, a cycle. URL resolution belongs with the latch,
+and the honest subject is not "the failover latch" but "how to reach the aify service at all".
+
+Delivered in `97192fe8`. server.js 6330 → 6203.
+
+### 2. Layer 1's residual set is NOT empty — this is the bigger error
+
+The packet said: *"All 29 become state-free the moment layer 0 owns the latch — zero remain
+state-bound. That is not an estimate; the residual set is empty."* Measured after layer 0 actually
+landed:
+
+| | packet | measured |
+|---|---|---|
+| helpers the tool region needs | 29 / 490 lines | **70 / 1,880 lines** |
+| state-free after layer 0 | 29 / 490 | **55 / 992** |
+| still state-bound | **0** | **15 / 888** |
+
+Fifteen helpers still touch module state, headed by `runDispatchLoop` (449 lines, dragging the four
+`__stop*Detector` handles), `runManagedTeardownForBridge`, `ensureRequiredReplyHandoff` and
+`armClaudeTurnEndDetector`.
+
+**Why the original number was wrong:** it counted the helper closure of the 33 tools excluding
+`comms_register` and stopped at direct helpers, rather than taking the full transitive closure. The
+closure reaches the dispatch loop and the teardown machinery, which are bridge lifecycle rather than tool
+support.
+
+**What this changes.** Layer 1 is still worth doing — 55 functions and 992 lines are genuinely
+state-free and extractable — but it is not the clean single lift the packet described, and the tool
+region (layer 2) still cannot follow it directly while 888 lines of its closure remain state-bound in the
+bridge. `runDispatchLoop` in particular is the same category as the hermes delivery loop: lifecycle state
+captured across a long-running function, not a relocatable helper.
+
+**The lesson, stated because it is the second time in this series:** a closure measured before the
+prerequisite lands is a prediction, not a measurement. Layer 0's own definition changed once the move was
+attempted, and layer 1's changed once layer 0 existed. Re-measure at the boundary, every time.
