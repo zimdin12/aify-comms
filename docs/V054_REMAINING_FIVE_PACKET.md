@@ -99,6 +99,30 @@ is real and small. Beyond that, any split means passing a twenty-plus-field cont
 pieces — which is option B's coupling wearing option C's clothes, and worth doing only if the goal is
 testability rather than line count. That distinction is the ruling.
 
+## `app.js`'s state has a SHAPE, which changes what option C costs there
+
+509 references is a count. The shape: **34 distinct keys, 96 functions touching state — and 60 of those 96
+touch exactly ONE key.**
+
+The other 36 average 3.3 keys, and the genuinely wide ones are few and are orchestrators by job description:
+
+| function | keys |
+|---|---|
+| `_refreshImpl` | 13 |
+| `renderAll` | 11 |
+| `renderRuns` | 7 |
+| `groupedSessionsByEnvironment` | 6 |
+| `lookup` | 6 |
+| `ensureSelectedSession` | 4 |
+
+The widest keys are the ones a dashboard would expect: `state.inspector` (19 readers), `state.agents` (16),
+`state.chat` (14), `state.sessions` (13).
+
+So option C for `app.js` is not "untangle 509 references". It is: give each key — or each small domain of
+keys — an owner, move the 60 single-key functions to the owner of the key they read, and leave the half
+dozen orchestrators in `app.js` reading from those owners. That is a real design with a real cost, but it is
+a different and smaller proposition than this packet implied when it described the file as one pile.
+
 ## The decision, stated once
 
 For each file the choice is the same shape:
@@ -147,6 +171,9 @@ ones nothing has forced me to re-measure yet.
   not a shape; I have not measured how many are confined to one screen's functions.
 - Whether `server.js`'s four loops can be separated without a shared scheduler object — several read `*Busy`
   flags another loop sets, and I have not traced whether that is coordination or coincidence.
-- ~~Whether `_compute_live_status_cache` can be split at all.~~ **MEASURED — see below.** What remains
-  unestablished is whether the four `server.js` loops coordinate through their `*Busy` flags or merely read
-  each other's, and whether `app.js`'s `state` splits by screen (509 references is a count, not a shape).
+- ~~Whether `_compute_live_status_cache` can be split at all.~~ **MEASURED — see below.**
+- ~~Whether the four `server.js` loops coordinate through their `*Busy` flags.~~ **MEASURED: they do not.**
+- ~~Whether `app.js`'s `state` splits by screen.~~ **MEASURED — see below.**
+- What remains: whether `runManagedTeardownForBridge` is guaranteed to have run before the synchronous exit
+  path on every shutdown route, and whether the six `app.js` orchestrators can read slice owners without
+  becoming a scheduler themselves. Both are design questions now, not measurement gaps.
