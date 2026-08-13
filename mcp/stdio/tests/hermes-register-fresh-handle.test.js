@@ -7,9 +7,19 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const serverText = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
 
-const registerStart = serverText.indexOf('server.tool(\n  "comms_register"');
+// THE TOOL LIVES IN `registration-tool.mjs` SINCE v0.5.4, and the two remaining source assertions below are
+// repointed at it rather than converted. They are about SESSION-HANDLE SELECTION — a different subject from
+// the extraction that moved them, and one that needs a previous-info fixture to test behaviourally. That
+// conversion is worth doing and is not this slice's business; the gateway-precedence assertion that used to
+// sit below them WAS converted, and now lives in `registration-inputs.test.js`.
+//
+// Located by NAME rather than by indentation. The previous version searched for `server.tool(\n  "…"` — two
+// literal spaces — so wrapping the tool in a registration function broke it with no behavioural change.
+const toolText = fs.readFileSync(path.join(__dirname, "..", "registration-tool.mjs"), "utf8");
+const registerStart = toolText.search(/^\s*server\.tool\(\s*$/m);
 assert.ok(registerStart >= 0, "comms_register tool should exist");
-const registerBody = serverText.slice(registerStart, serverText.indexOf("const capabilities =", registerStart));
+assert.ok(toolText.includes('"comms_register"'), "…and registration-tool.mjs should be the module holding it");
+const registerBody = toolText.slice(registerStart, toolText.indexOf("const capabilities =", registerStart));
 
 assert.ok(
   registerBody.includes("const hermesGatewayRegistration =") &&

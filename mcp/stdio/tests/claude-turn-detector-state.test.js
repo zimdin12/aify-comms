@@ -20,7 +20,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { declaringModules } from "./bridge-sources.mjs";
+import { bridgeSources, declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEAF = pathToFileURL(path.join(STDIO, "claude-turn-detector-state.mjs")).href;
@@ -108,16 +108,27 @@ test("exactly one module declares each piece of state", () => {
   }
 });
 
-test("server.js reaches it only through the operations", () => {
-  // The whole point of Option A. If server.js still touched a raw name, the state would have two owners and
-  // the arming guard would be bypassable.
-  const server = readFileSync(path.join(STDIO, "server.js"), "utf-8");
+test("THE BRIDGE reaches it only through the operations", () => {
+  // The whole point of Option A. If any module still touched a raw name, the state would have two owners
+  // and the arming guard would be bypassable.
+  //
+  // THIS USED TO SAY "server.js", AND THAT WAS THE BUG IN IT. I wrote it that way one slice earlier, and it
+  // broke when `comms_register` — the only caller of `isClaudeTurnDetectorArmed` — moved to its own module,
+  // with the invariant entirely intact. Naming a file asserts where code LIVES; the invariant is about who
+  // may TOUCH the state, which is every module or none. Scanning the whole bridge is both correct and
+  // strictly stronger: the old form could not have caught a raw access added anywhere else.
   for (const name of ["__effectiveAgentId", "__claudeTurnDetectorArmed", "__stopClaudeTurnEndDetector"]) {
-    assert.doesNotMatch(server, new RegExp(`(?<![\\w.])${name}(?![\\w])`), `${name} must not appear in server.js`);
+    // `[name, source]` pairs, read off the helper rather than assumed — my first version destructured
+    // `{ file, text }` and silently matched nothing.
+    const outside = bridgeSources()
+      .filter(([file]) => file !== "claude-turn-detector-state.mjs")
+      .filter(([, text]) => new RegExp(`(?<![\\w.])${name}(?![\\w])`).test(text))
+      .map(([file]) => file);
+    assert.deepEqual(outside, [], `${name} is private to its owner; reached raw from ${outside.join(", ")}`);
   }
-  assert.match(server, /(?<![\w.])armClaudeTurnEndDetector\(/, "server.js must still arm it");
-  assert.match(server, /(?<![\w.])stopClaudeTurnEndDetector\(\)/, "…and stop it on exit");
-  assert.match(server, /(?<![\w.])isClaudeTurnDetectorArmed\(\)/, "…and check before re-arming");
+  for (const op of ["armClaudeTurnEndDetector", "stopClaudeTurnEndDetector", "isClaudeTurnDetectorArmed"]) {
+    assert.ok(isUsedInBridge(op), `${op} must still be called by something — an unused operation is dead`);
+  }
 });
 
 test("the owner reaches only owned leaves", () => {
