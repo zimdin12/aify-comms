@@ -63,6 +63,26 @@ today**, and they are what reap workers and claim runs. But this is a redesign, 
 be byte-identical, it needs its own review standard, and it touches the code path that took the managed
 fleet down when it misbehaved.
 
+## `cleanupOnExit` ordering, since a per-loop `stop()` depends on it
+
+**There is no ordering constraint between the loops.** `clearInterval` calls are mutually independent, so
+each loop's `stop()` can be its own and the order they are called in cannot matter.
+
+The sequencing that DOES matter is between the teardown steps, not the loops, and the code states it:
+`runManagedTeardownSync` "may only reuse targets freshly confirmed by `runManagedTeardownForBridge`. An
+unexpected exit has no safe ownership snapshot, so it reaps nothing and the next boot sweep is the
+backstop." That is the `confirmedManagedTeardownAgentIds` pair from the five cross-function names — safe by
+construction, because an unconfirmed reap is a no-op rather than a wrong kill. `TERMINAL_MANAGER.stopAll()`
+precedes it; marker removal comes last.
+
+**AND A FREE IMPROVEMENT THE DESIGN WOULD BRING.** `cleanupOnExit` clears three of the six timers —
+`environmentHeartbeatTimer`, `spawnLoopTimer`, `terminalControlTimer` — and leaves `dispatchLoopTimer`,
+`environmentControlTimer` and `usageCollectorTimer` running. It is harmless today: the function is reached
+only from `process.on("exit")` and from `shutdownWithStatus` immediately before `process.exit(code)`, so the
+process is dying either way and `clearInterval` is a formality. But nothing distinguishes the three that are
+cleared from the three that are not, which is the signature of an omission rather than a decision. A
+per-loop `stop()` makes all six uniform at no cost.
+
 ## 4. Asking
 
 1. Is **A** acceptable — `server.js` leaves the 1000-line goal as a wiring file, with the loop family
@@ -80,5 +100,6 @@ fleet down when it misbehaved.
   while this section simultaneously admitted "several read `*Busy` flags another loop sets, and I have not
   traced whether that is real coordination". The measurement says NONE do. A claim I had explicitly flagged
   as untraced was stated as a finding twenty lines earlier in the same document.
-- What ordering `cleanupOnExit` requires when stopping the loops. It clears every timer today; whether the
-  order matters is not established, and it is the one thing a per-loop `stop()` could get wrong.
+- ~~What ordering `cleanupOnExit` requires when stopping the loops.~~ **ANSWERED: none between the loops.**
+  See below. What is still open is narrower: whether `runManagedTeardownForBridge` is guaranteed to have run
+  before the synchronous exit path on every shutdown route, or only on the graceful one.
