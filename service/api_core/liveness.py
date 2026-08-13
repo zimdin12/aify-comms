@@ -26,6 +26,13 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 
+from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.settings import _load_settings
+from service.api_core.capabilities import (
+    _has_codex_live_app_server,
+    _has_hermes_gateway_url,
+    _row_capabilities,
+)
 from service.api_core.serialization import _json_loads_or
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.sessions import LIVE_SESSION_STATUSES
@@ -326,3 +333,101 @@ async def _resident_bridge_is_fresh(db, row, *, lease_seconds: int) -> bool:
 # never a copy.
 
 TURN_BUSY_BACKSTOP_SECONDS = 30 * 60
+
+
+# v0.5.4: moved out of the control plane with `_has_live_worker_for`, its reader there. It is READ ON BOTH
+# SIDES — `_compute_live_status_cache` still uses it — so this is a deliberate owner chosen by subject
+# rather than by direction, and the control plane now imports it.
+#
+# IT SITS BESIDE `LIVE_SESSION_STATUSES` (imported above from the session reconcilers) ON PURPOSE, and the
+# two are NOT the same set. That one is the WIDER session-row liveness set the reconcilers use; this one is
+# the narrower agent-status-engine gate, which treats attached/active/idle as worker DETAIL rather than as
+# session-live. They were 3,000 lines apart and the distinction was recorded only in a comment beside the
+# other one. Collapsing them would change the agent-status engine.
+_LIVE_SESSION_STATUSES = {"starting", "running", "recovering", "restarting", "cli-takeover"}
+
+
+def _agent_wake_mode(row) -> str:
+    runtime = _normalize_runtime((row["runtime"] if row else "") or "generic")
+    session_mode = _normalize_session_mode((row["session_mode"] if row else "") or "resident")
+    session_handle = str((row["session_handle"] if row else "") or "").strip()
+    capabilities = _row_capabilities(row) if row else []
+    runtime_config = _json_loads_or(row["runtime_config"], {}) if row else {}
+
+    if (row["launch_mode"] or "detached") == "none":
+        return "disabled"
+    if session_mode == "managed" and "managed-run" in capabilities:
+        return "managed-worker"
+    if session_mode == "resident" and runtime == "claude-code" and "resident-run" in capabilities:
+        return "claude-live"
+    if session_mode == "resident" and runtime == "codex" and "resident-run" in capabilities and session_handle and _has_codex_live_app_server(runtime_config):
+        return "codex-live"
+    if session_mode == "resident" and runtime == "codex" and "resident-run" in capabilities and session_handle:
+        return "codex-thread-resume"
+    # Plan 4 Task 17: resident hermes uses gateway path (hermes-live) — the
+    # bridge captures gatewayUrl via discoverSessionId after hermes-aify starts,
+    # so resident hermes wake-mode is always gateway-channel. The legacy
+    # hermes-session-resume mode (spawn fresh hermes with provider config) is
+    # dead code post Plan 4 Task 7; gateway is the single source.
+    if session_mode == "resident" and runtime == "hermes" and "resident-run" in capabilities and _has_hermes_gateway_url(runtime_config):
+        return "hermes-live"
+    if session_mode == "resident" and runtime in {"opencode", "pi"}:
+        return "presence-only"
+    if session_mode == "resident" and runtime == "codex" and not session_handle:
+        return "codex-missing-handle"
+    if session_mode == "resident" and runtime == "hermes" and not _has_hermes_gateway_url(runtime_config):
+        return "hermes-missing-handle"
+    if session_mode == "resident" and runtime == "opencode" and not session_handle:
+        return "opencode-missing-handle"
+    if session_mode == "resident" and runtime == "pi" and not session_handle:
+        return "pi-missing-handle"
+    if session_mode == "resident" and runtime == "claude-code":
+        return "claude-needs-channel"
+    return "message-only"
+
+
+async def _agent_liveness(db, agent_id: str, *, agent_row=None) -> dict[str, bool]:
+    """ONE liveness predicate computed from terminal_sessions + bridge_instances.
+
+    Returns {worker_live, console_live, resident_bridge_fresh, sidecar_live}
+    using the EXACT lease/window the existing helpers use (resident_lease_seconds
+    default 150; the channel-sidecar stale window). Used by
+    _compute_session_display_status so the derived session badge reads the same
+    live truth as the agent dot.
+    """
+    agent_id = str(agent_id or "").strip()
+    out = {
+        "worker_live": False,
+        "console_live": False,
+        "resident_bridge_fresh": False,
+        "sidecar_live": False,
+    }
+    if db is None or not agent_id:
+        return out
+    if agent_row is None:
+        try:
+            agent_row = await (
+                await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
+            ).fetchone()
+        except Exception:
+            agent_row = None
+    # console/worker truth: a live, non-synth terminal_sessions row.
+    out["console_live"] = await _agent_has_live_terminal(db, agent_id)
+    out["worker_live"] = out["console_live"]
+    # channel-sidecar deliverability (claude-channel.js / hermes delivery loop).
+    out["sidecar_live"] = await _has_live_channel_sidecar(db, agent_id)
+    # resident bridge freshness — only meaningful for a resident agent. Reuse the
+    # exact helper + lease the status engine uses.
+    if agent_row is not None:
+        try:
+            settings = await _load_settings(db)
+            lease = int(settings.get("resident_lease_seconds", 150) or 150)
+        except Exception:
+            lease = 150
+        try:
+            out["resident_bridge_fresh"] = await _resident_bridge_is_fresh(
+                db, agent_row, lease_seconds=lease
+            )
+        except Exception:
+            out["resident_bridge_fresh"] = False
+    return out

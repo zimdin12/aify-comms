@@ -32,12 +32,14 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple, Optional
 
+from service.api_core.agent_sessions import _current_agent_session_row
 from service.api_core.liveness import (
+    _LIVE_SESSION_STATUSES,
     _has_live_channel_sidecar,
     _has_live_managed_wrapper_child,
     _has_live_terminal_session,
 )
-from service.api_core.runtime import _normalize_runtime
+from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
@@ -343,3 +345,28 @@ async def _worker_liveness_for(
         if await _has_live_managed_wrapper_child(db, agent_row["id"]):
             has_live_worker = True
     return _WorkerLiveness(has_live_worker, channel_managed_no_sidecar, channel_managed_no_console)
+
+
+# v0.5.4: `_has_live_worker_for` came here rather than to `api_core/liveness.py` with its two siblings,
+# and the reason is the import graph rather than the subject taxonomy — though both point the same way
+# here. It calls `_worker_liveness_for` in THIS module, and `channel_delivery` already imports `liveness`,
+# so the reverse direction is a cycle (caught at app startup, not by a test). This module's own subject
+# line already ends "...and whether a worker is live", so it was the right home anyway.
+async def _has_live_worker_for(db, agent_row, *, settings=None) -> bool:
+    """True when the agent has a LIVE serving worker (managed: console+sidecar /
+    channel-sidecar / wrapper-child; resident: live tracked session/terminal).
+
+    Thin boolean wrapper over _worker_liveness_for — the shared definition used by
+    BOTH the legacy _compute_live_status_cache derivation and the event-engine
+    _gather_status_inputs, so old/new never disagree on worker liveness. Resolves
+    `live_session` from the agent's current session row exactly as the legacy path
+    does (a live agent_sessions.status), so the result matches for a given DB state.
+    """
+    agent_session_mode = _normalize_session_mode(agent_row["session_mode"] or "resident")
+    session_row = await _current_agent_session_row(db, agent_row["id"])
+    session_status = str((session_row["status"] if session_row else "") or "").strip().lower()
+    live_session = session_status in _LIVE_SESSION_STATUSES
+    result = await _worker_liveness_for(
+        db, agent_row, agent_session_mode=agent_session_mode, live_session=live_session
+    )
+    return result.has_live_worker

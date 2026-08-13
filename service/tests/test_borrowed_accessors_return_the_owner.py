@@ -53,16 +53,23 @@ def _accessor_in(tree: ast.AST) -> list[tuple[str, str]]:
             continue
         if not node.name.startswith("_borrowed_"):
             continue
+        # THE OWNER IS NOT ALWAYS THE CARRIER. This looked only for `service.control_plane` until
+        # v0.5.4, which made the gate report "imports nothing" for an accessor whose owner had MOVED to
+        # an api_core leaf — the exact direction this series exists to produce. Any single owner module
+        # counts; what is asserted downstream is unchanged and is the property that matters: the
+        # accessor returns THAT module's object, by identity, never a copy.
         imported = None
+        owner = None
         for sub in ast.walk(node):
-            if isinstance(sub, ast.ImportFrom) and sub.module == "service.control_plane":
+            if isinstance(sub, ast.ImportFrom) and sub.module and sub.module.startswith("service."):
                 imported = sub.names[0].asname or sub.names[0].name
-        found.append((node.name, imported))
+                owner = sub.module
+        found.append((node.name, imported, owner))
     return found
 
 
 def _accessors() -> list[tuple[str, str, str]]:
-    """(module_path, accessor_name, borrowed_constant_name) for every `_borrowed_*` accessor."""
+    """(module_path, accessor_name, borrowed_constant_name, owner_module) per `_borrowed_*` accessor."""
     found = []
     for pattern in SEARCH:
         for path in REPO.glob(pattern):
@@ -72,8 +79,8 @@ def _accessors() -> list[tuple[str, str, str]]:
                 tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
             except SyntaxError:
                 continue
-            for name, imported in _accessor_in(tree):
-                found.append((path.relative_to(REPO).as_posix(), name, imported))
+            for name, imported, owner in _accessor_in(tree):
+                found.append((path.relative_to(REPO).as_posix(), name, imported, owner))
     return found
 
 
@@ -112,12 +119,15 @@ class BorrowedAccessorsTests(unittest.TestCase):
         """Identity, not equality. A copy would pass `==` and be a forked constant."""
         import importlib
 
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
-
+        # RESOLVED AGAINST THE ACCESSOR'S OWN DECLARED OWNER, not against the control plane. This read
+        # `getattr(api_v2, constant)` until v0.5.4, which kept passing for a moved constant only because
+        # the carrier re-imports it and therefore holds the same object — a coincidence, not the property
+        # under test. Once the carrier stops importing a constant it no longer uses, that comparison would
+        # raise AttributeError on a perfectly correct accessor.
         mismatched = []
-        for module_path, accessor, constant in _accessors():
+        for module_path, accessor, constant, owner in _accessors():
             if constant is None:
-                mismatched.append(f"{module_path}: {accessor} imports nothing from api_v2")
+                mismatched.append(f"{module_path}: {accessor} imports no constant from any owner")
                 continue
             module = importlib.import_module(module_path.removesuffix(".py").replace("/", "."))
             try:
@@ -125,8 +135,8 @@ class BorrowedAccessorsTests(unittest.TestCase):
             except Exception as error:  # noqa: BLE001 - a raising accessor is the failure
                 mismatched.append(f"{module_path}: {accessor}() raised {type(error).__name__}")
                 continue
-            if value is not getattr(api_v2, constant):
-                mismatched.append(f"{module_path}: {accessor}() is not api_v2.{constant}")
+            if value is not getattr(importlib.import_module(owner), constant):
+                mismatched.append(f"{module_path}: {accessor}() is not {owner}.{constant}")
         self.assertEqual(mismatched, [], "\n  ".join([""] + mismatched))
 
     def test_the_scan_finds_the_accessors(self):
@@ -152,13 +162,25 @@ class BorrowedAccessorsTests(unittest.TestCase):
         found = _accessor_in(ast.parse(synthetic))
         self.assertEqual(
             found,
-            [("_borrowed_synthetic_probe", "_SYNTHETIC_PROBE_CONSTANT")],
+            [("_borrowed_synthetic_probe", "_SYNTHETIC_PROBE_CONSTANT", "service.control_plane")],
             "the accessor detector no longer recognises the borrowed-accessor shape, so the two "
             "checks above would pass over an empty list while real accessors went unexamined",
         )
-        # Self-consistency of the live scan: every discovered accessor must carry both halves.
-        for module_path, accessor, constant in _accessors():
+        # A SECOND PROBE whose owner is a leaf, not the carrier. The detector matched only
+        # `service.control_plane` until v0.5.4 and so reported "imports nothing" for an accessor whose
+        # owner had moved — which is the direction this series produces, making the gate fail on correct
+        # code. This probe fails if that narrowing ever comes back.
+        moved = synthetic.replace("service.control_plane", "service.api_core.liveness")
+        self.assertEqual(
+            _accessor_in(ast.parse(moved)),
+            [("_borrowed_synthetic_probe", "_SYNTHETIC_PROBE_CONSTANT", "service.api_core.liveness")],
+            "the detector only recognises borrows from the carrier; an accessor whose owner moved to a "
+            "leaf would be reported as importing nothing",
+        )
+        # Self-consistency of the live scan: every discovered accessor must carry all three parts.
+        for module_path, accessor, constant, owner in _accessors():
             self.assertTrue(accessor, f"{module_path}: discovered an accessor with no name")
+            self.assertTrue(owner, f"{module_path}: {accessor} has no resolvable owner module")
 
 
 if __name__ == "__main__":

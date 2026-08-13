@@ -52,6 +52,8 @@ from service.config import get_config
 from service.api_core import settings as settings_core
 # v0.5.1i: single owner. The COUNTER is reached through the module, never by value.
 from service.api_core import events as events_core
+from service.api_core.channel_delivery import _has_live_worker_for
+from service.api_core.liveness import _LIVE_SESSION_STATUSES, _agent_liveness, _agent_wake_mode
 from service.api_core.active_run_lookup import (
     _current_active_run_row,
     _current_channel_awaiting_reply_run_row,
@@ -407,7 +409,6 @@ _SESSION_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "compl
 # spawn-in-progress is not marked offline merely because the environment bridge
 # instance id rotated (same rationale as a running session surviving a bridge
 # restart); genuine staleness is still caught by env-offline/heartbeat checks.
-_LIVE_SESSION_STATUSES = {"starting", "running", "recovering", "restarting", "cli-takeover"}
 # ENDED_AGENT_SESSION_STATUSES moved to service/api_core/agent_sessions.py in v0.5.4
 # (sole-reader chain: the whole derivation had one consumer).
 # _ENDED_AGENT_SESSION_STATUS_PARAMS moved to service/api_core/agent_sessions.py in v0.5.4
@@ -779,44 +780,6 @@ def _row_status_note(row) -> str:
     return str(row["status_note"] or "").strip()
 
 
-def _agent_wake_mode(row) -> str:
-    runtime = _normalize_runtime((row["runtime"] if row else "") or "generic")
-    session_mode = _normalize_session_mode((row["session_mode"] if row else "") or "resident")
-    session_handle = str((row["session_handle"] if row else "") or "").strip()
-    capabilities = _row_capabilities(row) if row else []
-    runtime_config = _json_loads_or(row["runtime_config"], {}) if row else {}
-
-    if (row["launch_mode"] or "detached") == "none":
-        return "disabled"
-    if session_mode == "managed" and "managed-run" in capabilities:
-        return "managed-worker"
-    if session_mode == "resident" and runtime == "claude-code" and "resident-run" in capabilities:
-        return "claude-live"
-    if session_mode == "resident" and runtime == "codex" and "resident-run" in capabilities and session_handle and _has_codex_live_app_server(runtime_config):
-        return "codex-live"
-    if session_mode == "resident" and runtime == "codex" and "resident-run" in capabilities and session_handle:
-        return "codex-thread-resume"
-    # Plan 4 Task 17: resident hermes uses gateway path (hermes-live) — the
-    # bridge captures gatewayUrl via discoverSessionId after hermes-aify starts,
-    # so resident hermes wake-mode is always gateway-channel. The legacy
-    # hermes-session-resume mode (spawn fresh hermes with provider config) is
-    # dead code post Plan 4 Task 7; gateway is the single source.
-    if session_mode == "resident" and runtime == "hermes" and "resident-run" in capabilities and _has_hermes_gateway_url(runtime_config):
-        return "hermes-live"
-    if session_mode == "resident" and runtime in {"opencode", "pi"}:
-        return "presence-only"
-    if session_mode == "resident" and runtime == "codex" and not session_handle:
-        return "codex-missing-handle"
-    if session_mode == "resident" and runtime == "hermes" and not _has_hermes_gateway_url(runtime_config):
-        return "hermes-missing-handle"
-    if session_mode == "resident" and runtime == "opencode" and not session_handle:
-        return "opencode-missing-handle"
-    if session_mode == "resident" and runtime == "pi" and not session_handle:
-        return "pi-missing-handle"
-    if session_mode == "resident" and runtime == "claude-code":
-        return "claude-needs-channel"
-    return "message-only"
-
 
 # _agent_execution_mode moved to service/api_core/execution_mode.py in v0.5.4.
 
@@ -866,56 +829,6 @@ async def _get_unread_count_map(db, agent_ids: list[str]) -> dict[str, int]:
 # _agent_liveness — deferred this pass (their many callers make ripping them out a
 # separate, risky migration). For now _agent_liveness is the SINGLE predicate the
 # new session deriver uses; the legacy helpers stay for their existing callers.
-async def _agent_liveness(db, agent_id: str, *, agent_row=None) -> dict[str, bool]:
-    """ONE liveness predicate computed from terminal_sessions + bridge_instances.
-
-    Returns {worker_live, console_live, resident_bridge_fresh, sidecar_live}
-    using the EXACT lease/window the existing helpers use (resident_lease_seconds
-    default 150; the channel-sidecar stale window). Used by
-    _compute_session_display_status so the derived session badge reads the same
-    live truth as the agent dot.
-    """
-    agent_id = str(agent_id or "").strip()
-    out = {
-        "worker_live": False,
-        "console_live": False,
-        "resident_bridge_fresh": False,
-        "sidecar_live": False,
-    }
-    if db is None or not agent_id:
-        return out
-    if agent_row is None:
-        try:
-            agent_row = await (
-                await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
-            ).fetchone()
-        except Exception:
-            agent_row = None
-    # console/worker truth: a live, non-synth terminal_sessions row.
-    out["console_live"] = await _agent_has_live_terminal(db, agent_id)
-    out["worker_live"] = out["console_live"]
-    # channel-sidecar deliverability (claude-channel.js / hermes delivery loop).
-    out["sidecar_live"] = await _has_live_channel_sidecar(db, agent_id)
-    # resident bridge freshness — only meaningful for a resident agent. Reuse the
-    # exact helper + lease the status engine uses.
-    if agent_row is not None:
-        try:
-            settings = await _load_settings(db)
-            lease = int(settings.get("resident_lease_seconds", 150) or 150)
-        except Exception:
-            lease = 150
-        try:
-            out["resident_bridge_fresh"] = await _resident_bridge_is_fresh(
-                db, agent_row, lease_seconds=lease
-            )
-        except Exception:
-            out["resident_bridge_fresh"] = False
-    return out
-
-
-
-
-
 
 # _turn_busy_state moved to service/api_core/turn_state.py in v0.5.4.
 
@@ -1276,25 +1189,6 @@ async def _agent_awaiting_input(db, agent_id: str) -> bool:
 
 # _worker_liveness_for moved to service/api_core/channel_delivery.py in v0.5.4.
 
-
-async def _has_live_worker_for(db, agent_row, *, settings=None) -> bool:
-    """True when the agent has a LIVE serving worker (managed: console+sidecar /
-    channel-sidecar / wrapper-child; resident: live tracked session/terminal).
-
-    Thin boolean wrapper over _worker_liveness_for — the shared definition used by
-    BOTH the legacy _compute_live_status_cache derivation and the event-engine
-    _gather_status_inputs, so old/new never disagree on worker liveness. Resolves
-    `live_session` from the agent's current session row exactly as the legacy path
-    does (a live agent_sessions.status), so the result matches for a given DB state.
-    """
-    agent_session_mode = _normalize_session_mode(agent_row["session_mode"] or "resident")
-    session_row = await _current_agent_session_row(db, agent_row["id"])
-    session_status = str((session_row["status"] if session_row else "") or "").strip().lower()
-    live_session = session_status in _LIVE_SESSION_STATUSES
-    result = await _worker_liveness_for(
-        db, agent_row, agent_session_mode=agent_session_mode, live_session=live_session
-    )
-    return result.has_live_worker
 
 
 async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs:

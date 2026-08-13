@@ -12,6 +12,7 @@ gate insisted the agent was running.
 """
 import asyncio
 
+from service.api_core.liveness import _LIVE_SESSION_STATUSES
 from service.db import get_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
@@ -121,8 +122,11 @@ class StartAgentLiveSessionGateTests(FastApiTestCase):
     def test_gate_uses_the_canonical_constants(self):
         """Pin the allowlist to the shared constants so a new session status cannot silently
         become 'live' in this gate again."""
+        # v0.5.4: `_LIVE_SESSION_STATUSES` moved to api_core/liveness.py, so it is read from its OWNER
+        # rather than through the carrier. Reading it off `api_v2` kept working only because the carrier
+        # re-exported it, which is the indirection this series is removing.
         union = {s.lower() for s in api_v2.LIVE_SESSION_STATUSES} | {
-            s.lower() for s in api_v2._LIVE_SESSION_STATUSES
+            s.lower() for s in _LIVE_SESSION_STATUSES
         }
         for terminal in ("lost", "ended", "stopped", "failed", "cancelled", "completed"):
             self.assertNotIn(terminal, union, f"{terminal} must never count as a live session")

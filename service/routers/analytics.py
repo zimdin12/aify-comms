@@ -25,6 +25,7 @@ from typing import Any
 
 from fastapi import Query, Request
 
+from service.api_core.liveness import _agent_wake_mode
 from service.api_core.routing import domain_router
 from service.api_core.serialization import _iso_from_ms
 from service.api_core.settings import _load_settings
@@ -37,12 +38,6 @@ logger = logging.getLogger("aify_comms.routers.analytics")
 
 router = domain_router()
 
-
-def _agent_wake_mode(*a, **k):
-    """BORROWED: still used by handlers and serializers that have not moved."""
-    from service.control_plane import _agent_wake_mode as _impl
-
-    return _impl(*a, **k)
 
 
 async def _compute_agent_status(*a, **k):

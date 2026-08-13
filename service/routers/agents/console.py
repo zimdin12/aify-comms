@@ -31,7 +31,6 @@ from service.routers.agents.shared import (
     DEFAULT_SETTINGS,
     LIVE_SESSION_STATUSES,
     _SESSION_MODES,
-    _agent_liveness,
     _agent_record_to_dict,
     _agent_session_to_dict,
     _agent_tombstone,

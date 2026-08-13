@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
 
+from service.api_core.liveness import _agent_liveness
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.runtime_state import _runtime_state_with_handle
 from service.api_core.routing import domain_router
@@ -47,7 +48,6 @@ from service.routers.agents.shared import (
     DEFAULT_SETTINGS,
     LIVE_SESSION_STATUSES,
     _SESSION_MODES,
-    _agent_liveness,
     _agent_record_to_dict,
     _agent_session_to_dict,
     _agent_tombstone,

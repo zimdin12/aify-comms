@@ -17,6 +17,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
 
+from service.api_core.liveness import _LIVE_SESSION_STATUSES
 from service.api_core.execution_mode import _auto_return_resident_to_managed_if_possible
 from service.api_core.routing import domain_router
 
@@ -87,11 +88,6 @@ logger = logging.getLogger("aify_comms.routers.agents.shared")
 
 
 
-
-async def _agent_liveness(*a, **k):
-    from service.control_plane import _agent_liveness as _impl
-
-    return await _impl(*a, **k)
 
 
 def _agent_record_to_dict(*a, **k):
@@ -224,8 +220,12 @@ def _borrowed_console_tail_max_lines():
 
 
 def _borrowed_live_session_statuses():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import _LIVE_SESSION_STATUSES
+    """BORROWED constant: one owner, never a copy (finding N7).
+
+    v0.5.4: the owner is now `api_core/liveness.py`, not the control plane. The accessor stays because its
+    callers are unchanged and the borrow still reads exactly one owner — only the owner moved.
+    """
+    from service.api_core.liveness import _LIVE_SESSION_STATUSES
 
     return _LIVE_SESSION_STATUSES
 

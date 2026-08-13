@@ -28,18 +28,6 @@ from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 
 
-async def _agent_liveness(db, agent_id, *, agent_row=None):
-    """Borrowed from the router — slice 3b, deferred.
-
-    `_agent_liveness` drags `_agent_has_live_terminal`, `_has_live_channel_sidecar` and
-    `_resident_bridge_is_fresh`, which api_v2's own TODO calls "a separate, risky migration" because
-    of their many callers. A function-scope import is safe in this direction: the router is fully
-    loaded by the time any reconciler runs. When 3b happens, this shim is what it deletes.
-    """
-    from service.control_plane import _agent_liveness as _impl
-
-    return await _impl(db, agent_id, agent_row=agent_row)
-
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +135,12 @@ async def _compute_session_display_status(db, session_row, agent_row=None) -> st
     raw_owner_mode = str((session_row["owner_mode"] if "owner_mode" in keys else "") or "").strip().lower()
     session_mode = str((session_row["mode"] if "mode" in keys else "") or "").strip().lower()
     is_resident = raw_owner_mode == "resident" or session_mode == "resident"
+
+    # FUNCTION-SCOPE IMPORT, deliberately. `_agent_liveness` moved to api_core/liveness.py in v0.5.4,
+    # and that module imports LIVE_SESSION_STATUSES from THIS one — so a module-level import here is a
+    # cycle. The underlying inversion is that an api_core leaf reaches up to a reconciler for a
+    # constant; moving LIVE_SESSION_STATUSES to a leaf would fix it properly and is not this slice.
+    from service.api_core.liveness import _agent_liveness
 
     liveness = await _agent_liveness(db, agent_id, agent_row=agent_row)
     if is_resident:

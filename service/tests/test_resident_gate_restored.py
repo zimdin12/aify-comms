@@ -13,9 +13,9 @@ sys.path.insert(0, str(ROOT.parent))
 
 import json
 
+from service.api_core.liveness import _agent_wake_mode
 from service.api_core.capabilities import _row_capabilities
 from service.api_core.execution_mode import _agent_execution_mode
-from service.control_plane import _agent_wake_mode
 from service.api_core.capabilities import _default_capabilities_for
 
 
