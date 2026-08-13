@@ -39,6 +39,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
 
+from service.api_core.validation import _reject_sender_truncated_body
 from service.api_core.dispatch_run_state import _finalize_dispatch_runs
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
@@ -96,13 +97,6 @@ async def _preflight_live_send_recipients(*a, **k):
     from service.control_plane import _preflight_live_send_recipients as _impl
 
     return await _impl(*a, **k)
-
-
-def _reject_sender_truncated_body(*a, **k):
-    from service.control_plane import _reject_sender_truncated_body as _impl
-
-    return _impl(*a, **k)
-
 
 
 

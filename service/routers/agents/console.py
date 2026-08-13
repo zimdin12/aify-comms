@@ -28,6 +28,8 @@ logger = logging.getLogger("aify_comms.routers.agents.console")
 from service.models import AgentConsoleInputRequest, VirtualTerminalEnsureRequest
 
 from service.api_core.dispatch_run_state import _append_dispatch_control
+from service.api_core.message_store import _get_unread_count_map
+from service.db import _is_lock_error
 from service.routers.agents.shared import (
     DEFAULT_SETTINGS,
     LIVE_SESSION_STATUSES,
@@ -60,13 +62,11 @@ from service.routers.agents.shared import (
     _get_dispatch_state_for_agent,
     _get_dispatch_state_map,
     _get_outbound_activity_map,
-    _get_unread_count_map,
     _get_ws,
     _has_codex_live_app_server,
     _has_live_terminal_session,
     _has_pending_or_booting_spawn_request,
     _invalidate_agent_live_state,
-    _is_lock_error,
     _iso_to_epoch,
     _json_loads_or,
     _live_state_get,

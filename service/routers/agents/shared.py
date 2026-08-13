@@ -123,23 +123,6 @@ async def _compute_live_status_cache(*a, **k):
 
 
 
-async def _get_unread_count_map(*a, **k):
-    from service.control_plane import _get_unread_count_map as _impl
-
-    return await _impl(*a, **k)
-
-
-
-
-
-
-
-
-def _is_lock_error(*a, **k):
-    from service.control_plane import _is_lock_error as _impl
-
-    return _impl(*a, **k)
-
 
 # _machine_family moved to service/api_core/registration_gates.py in v0.5.4.
 

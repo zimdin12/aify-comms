@@ -29,3 +29,13 @@ SAFE_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$')
 def validate_name(name: str, label: str = "name") -> None:
     if not SAFE_NAME_RE.match(name):
         raise HTTPException(status_code=400, detail=f"Invalid {label}: must be 1-128 alphanumeric chars, dots, hyphens, underscores.")
+
+
+# v0.5.4: moved out of the control plane. It REFUSES a request at the API boundary, raising HTTPException,
+# which is precisely this module's stated subject — admission control, security-adjacent, its own home.
+def _reject_sender_truncated_body(body):
+    if re.search(r"(?:\.\.\.|…)\[truncated\](?:\s*```)?\s*$", str(body or ""), re.I):
+        raise HTTPException(
+            422,
+            "Message body was already truncated by the sender; resend a complete concise body or link a durable artifact.",
+        )

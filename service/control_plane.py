@@ -42,6 +42,7 @@ from fastapi.exceptions import RequestValidationError
 _listen_events: dict[str, asyncio.Event] = {}
 
 from pydantic import BaseModel
+from service.api_core.message_store import _delete_messages_by_ids, _get_unread_count_map
 from service.config import get_config
 # v0.5.1g: single owner, moved verbatim, same call timing.
 # The CACHE is reached through the MODULE, never imported by value: a by-value import binds the dict
@@ -362,17 +363,6 @@ from service.terminal_write_queue import (  # v0.5.4: moved out; the control pla
 # v0.5.4: was imported from service.routers.terminals. The carrier reaching a LEAF through a
 # ROUTER is the dependency direction this slice exists to reverse — leaving it would have kept
 # the queue blocked while looking fixed.
-
-
-def _is_lock_error(exc: BaseException) -> bool:
-    """True for a transient SQLite contention error (`database is locked` / `busy`). Used by
-    the read endpoints to skip their best-effort cache writes and serve cached data rather than
-    503 — a SELECT never takes the write lock in WAL, so a read can always succeed."""
-    message = str(exc or "").lower()
-    return "locked" in message or "busy" in message
-
-
-
 
 
 
@@ -729,30 +719,6 @@ async def _select_message_ids(db, where_clause: str, params: tuple[Any, ...] = (
     return [str(row["id"]) for row in await cursor.fetchall() if str(row["id"] or "").strip()]
 
 
-async def _delete_messages_by_ids(db, message_ids: list[str], *, chunk_size: int = 250) -> int:
-    pending = _dedupe_preserve([str(message_id or "").strip() for message_id in message_ids if str(message_id or "").strip()])
-    if not pending:
-        return 0
-
-    deleted = 0
-    for start in range(0, len(pending), chunk_size):
-        chunk = pending[start:start + chunk_size]
-        placeholders = ",".join("?" for _ in chunk)
-        await db.execute(f"UPDATE messages SET in_reply_to = NULL WHERE in_reply_to IN ({placeholders})", chunk)
-        await db.execute(f"UPDATE dispatch_runs SET message_id = NULL WHERE message_id IN ({placeholders})", chunk)
-        await db.execute(f"UPDATE dispatch_runs SET in_reply_to = NULL WHERE in_reply_to IN ({placeholders})", chunk)
-        # Also clear the reply LINK (bughunt 2026-07-03): if a deleted/unsent message was
-        # a run's recorded reply, leaving result_message_id pointing at the now-gone row
-        # kept the contract 'answered' with no reply behind it — it never re-opened.
-        await db.execute(f"UPDATE dispatch_runs SET result_message_id = NULL WHERE result_message_id IN ({placeholders})", chunk)
-        await db.execute(f"UPDATE dispatch_controls SET source_message_id = '' WHERE source_message_id IN ({placeholders})", chunk)
-        await db.execute(f"DELETE FROM read_receipts WHERE message_id IN ({placeholders})", chunk)
-        cursor = await db.execute(f"DELETE FROM messages WHERE id IN ({placeholders})", chunk)
-        deleted += cursor.rowcount or 0
-    return deleted
-
-
-
 
 async def _delete_messages_where(db, where_clause: str, params: tuple[Any, ...] = ()) -> int:
     message_ids = await _select_message_ids(db, where_clause, params)
@@ -797,25 +763,6 @@ def _row_status_note(row) -> str:
 
 
 # _get_dispatch_state_map moved to service/api_core/dispatch_state.py in v0.5.4.
-
-
-async def _get_unread_count_map(db, agent_ids: list[str]) -> dict[str, int]:
-    if not agent_ids:
-        return {}
-    placeholders = ",".join("?" for _ in agent_ids)
-    cursor = await db.execute(
-        f"""
-        SELECT m.to_agent AS agent_id, COUNT(*) AS unread_count
-        FROM messages m
-        LEFT JOIN read_receipts rr ON m.id = rr.message_id AND rr.agent_id = m.to_agent
-        WHERE m.to_agent IN ({placeholders}) AND rr.message_id IS NULL
-        GROUP BY m.to_agent
-        """,
-        tuple(agent_ids),
-    )
-    rows = await cursor.fetchall()
-    return {row["agent_id"]: int(row["unread_count"] or 0) for row in rows}
-
 
 
 
@@ -3067,21 +3014,6 @@ _CONSOLE_TAIL_MAX_BYTES = 16 * 1024
 
 
 # ─── Messages ────────────────────────────────────────────────────────────────
-
-def _reject_sender_truncated_body(body):
-    if re.search(r"(?:\.\.\.|…)\[truncated\](?:\s*```)?\s*$", str(body or ""), re.I):
-        raise HTTPException(
-            422,
-            "Message body was already truncated by the sender; resend a complete concise body or link a durable artifact.",
-        )
-
-
-
-
-
-
-
-
 
 
 # ─── Agent Info ──────────────────────────────────────────────────────────────

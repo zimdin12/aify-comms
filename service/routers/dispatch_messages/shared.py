@@ -178,11 +178,6 @@ async def _create_dispatch_runs(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _delete_messages_by_ids(*a, **k):
-    from service.control_plane import _delete_messages_by_ids as _impl
-
-    return await _impl(*a, **k)
-
 
 async def _delete_messages_where(*a, **k):
     from service.control_plane import _delete_messages_where as _impl
@@ -216,11 +211,6 @@ async def _preflight_live_send_recipients(*a, **k):
 
     return await _impl(*a, **k)
 
-
-def _reject_sender_truncated_body(*a, **k):
-    from service.control_plane import _reject_sender_truncated_body as _impl
-
-    return _impl(*a, **k)
 
 
 async def _run_contract_reminders_once(*a, **k):

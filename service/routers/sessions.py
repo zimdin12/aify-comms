@@ -41,6 +41,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
 
+from service.db import _is_lock_error
 from service.api_core.dispatch_run_state import _append_dispatch_control
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.spawn_request_state import _has_claimable_spawn_request
@@ -99,25 +100,6 @@ router = domain_router()
 # Restart/Reset/Compact buttons). Only a cleanly-finished session is pure history.
 SESSION_CLEAN_HISTORY_STATUSES = {"ended", "completed", "cancelled"}
 _TERMINAL_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
-
-
-
-def _is_lock_error(*a, **k):
-    """BORROWED: still used by handlers that have not moved."""
-    from service.control_plane import _is_lock_error as _impl
-
-    return _impl(*a, **k)
-
-
-
-
-
-
-
-
-
-
-
 
 
 

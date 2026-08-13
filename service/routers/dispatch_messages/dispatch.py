@@ -71,6 +71,8 @@ from service.api_core.dispatch_run_state import (
     _finalize_dispatch_runs,
     _mark_dispatch_run_answered,
 )
+from service.api_core.message_store import _delete_messages_by_ids
+from service.api_core.validation import _reject_sender_truncated_body
 from service.routers.dispatch_messages.shared import (
     VALID_STATUSES,
     _append_terminal_control,
@@ -82,7 +84,6 @@ from service.routers.dispatch_messages.shared import (
     _coldstart_refusal_message,
     _console_dispatch_input_body,
     _create_dispatch_runs,
-    _delete_messages_by_ids,
     _delete_messages_where,
     _dispatch_requires_reply,
     _get_recipient_info,
@@ -96,7 +97,6 @@ from service.routers.dispatch_messages.shared import (
     _preflight_live_send_recipients,
     _primary_result_message_id,
     _record_terminal_delivery_contract,
-    _reject_sender_truncated_body,
     _resolve_recipient_ids,
     _resolve_reply_parent_message_id,
     _run_contract_reminders_once,

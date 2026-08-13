@@ -993,3 +993,14 @@ async def get_db(busy_timeout_ms: int = SQLITE_BUSY_TIMEOUT_MS) -> aiosqlite.Con
         await db.close()
         raise
     return db
+
+
+# v0.5.4: moved out of the control plane. "Is this exception SQLite's lock contention?" is a question about
+# the database, and this module owns the connection. It was reached from `sessions.py` and
+# `agents/shared.py` through borrow shims, which is the shape that says the carrier was only a hiding place.
+def _is_lock_error(exc: BaseException) -> bool:
+    """True for a transient SQLite contention error (`database is locked` / `busy`). Used by
+    the read endpoints to skip their best-effort cache writes and serve cached data rather than
+    503 — a SELECT never takes the write lock in WAL, so a read can always succeed."""
+    message = str(exc or "").lower()
+    return "locked" in message or "busy" in message

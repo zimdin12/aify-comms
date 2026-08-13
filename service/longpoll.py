@@ -33,6 +33,7 @@ and the hard single-uvicorn-worker constraint (see CLAUDE.md / DECISIONS.md).
 
 from __future__ import annotations
 
+from service.db import _is_lock_error
 import asyncio
 import time
 from collections import defaultdict
@@ -58,11 +59,6 @@ MAX_WAIT_S = 25.0
 # Wildcard scope: a waiter on "*" wakes on every notify; a notify("*") wakes everyone.
 GLOBAL_SCOPE = "*"
 
-
-def _is_lock_error(exc: BaseException) -> bool:
-    """True for a transient SQLite contention error (`database is locked` / `busy`)."""
-    msg = str(exc or "").lower()
-    return "locked" in msg or "busy" in msg
 
 
 def notify(scope: str = GLOBAL_SCOPE) -> int:
