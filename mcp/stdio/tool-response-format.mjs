@@ -2,7 +2,7 @@
 //
 // v0.5.4 layer 1 of the server.js decomposition, bounded deliberately. The reviewer's condition was a
 // narrow subject with narrow exports, explicitly NOT a `server-utils` barrel that would just give the
-// bridge a second monolith address. These nine are the subset of the 55 state-free helpers that are
+// bridge a second monolith address. These EIGHT are the subset of the 55 state-free helpers that are
 // PURE and SELF-CONTAINED: no I/O, no module state, and no calls to any other server.js function.
 // Everything else in that 55 either reaches a sibling helper or touches the environment, and belongs to
 // a later, separately-measured seam.
@@ -11,6 +11,13 @@
 // `formatInboxMessage` or a dropped field in `formatQueuedRun` is not a crash, it is a person being
 // misinformed about their fleet — and until now none of it was reachable from a test, because server.js
 // is the bin entry point and nothing imports it.
+//
+// IT WAS NINE UNTIL IT WAS EIGHT. `internalCompactUnsupportedText` was in the first draft of this
+// module and does not belong: it calls `normalizeRuntime`, an IMPORT in server.js. The scan that chose
+// this population checked for calls to local FUNCTIONS and never to imported names, so it passed as
+// self-contained and the module shipped an unresolved reference. `node --check` cannot see that — the
+// behavioural tests caught it. It went back to server.js rather than this module growing an import,
+// because dependency-freedom is the property the tests here rest on.
 //
 // PURE BY CONSTRUCTION, which is the property the tests below rely on: every function here takes plain
 // values and returns a string. If a future edit needs a database read or a module global, it does not

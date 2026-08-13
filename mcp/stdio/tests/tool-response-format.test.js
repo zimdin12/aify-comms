@@ -1,6 +1,6 @@
 // The wording of MCP tool responses, tested directly for the first time.
 //
-// These nine formatters decide what an operator READS about their fleet: inbox lines, dispatch state,
+// These eight formatters decide what an operator READS about their fleet: inbox lines, dispatch state,
 // queued runs, outbound activity, auto-reply text. Until v0.5.4 they lived in `server.js`, the bin entry
 // point, which nothing imports — so none of it was reachable from a test. A wrong word here is not a
 // crash; it is a person being misinformed, which is the failure mode that survives a green suite.
