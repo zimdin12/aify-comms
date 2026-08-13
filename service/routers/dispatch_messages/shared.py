@@ -179,10 +179,7 @@ async def _create_dispatch_runs(*a, **k):
 
 
 
-async def _delete_messages_where(*a, **k):
-    from service.control_plane import _delete_messages_where as _impl
-
-    return await _impl(*a, **k)
+from service.api_core.message_store import _delete_messages_where  # noqa: E402
 
 
 

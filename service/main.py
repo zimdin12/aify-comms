@@ -414,7 +414,7 @@ async def lifespan(app: FastAPI):
     # registered as sessionMode=resident are marked with a pending-flip
     # flag; once no open runs are targeting them, the loop migrates them
     # to sessionMode=managed. 5s tick keeps the flip latency tight.
-    from service.control_plane import _periodic_pi_resident_flip_loop
+    from service.pi_resident_flip import _periodic_pi_resident_flip_loop
     pi_flip_task = asyncio.create_task(_periodic_pi_resident_flip_loop())
 
     # WebSocket manager

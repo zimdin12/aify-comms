@@ -36,11 +36,7 @@ logger = logging.getLogger("aify_comms.routers.maintenance")
 router = domain_router()
 
 
-async def _delete_messages_where(*a, **k):
-    """BORROWED: retires with messages."""
-    from service.control_plane import _delete_messages_where as _impl
-
-    return await _impl(*a, **k)
+from service.api_core.message_store import _delete_messages_where  # noqa: E402
 
 
 

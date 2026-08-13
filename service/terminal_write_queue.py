@@ -269,3 +269,6 @@ class TerminalOutputWriteQueue:
 
 
 TERMINAL_OUTPUT_WRITES = TerminalOutputWriteQueue()
+
+async def flush_terminal_output_writes_for_tests() -> None:
+    await TERMINAL_OUTPUT_WRITES.flush_all()

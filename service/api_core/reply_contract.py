@@ -282,3 +282,15 @@ def _contract_reminder_due(
         if last_s and ((now_s or time.time()) - last_s) < repeat_minutes * 60:
             return False, f"last reminder was less than {repeat_minutes} minutes ago"
     return True, ""
+
+def _contract_reminder_is_full(reminder_number: int, *, settings: dict[str, Any]) -> bool:
+    """Reminder number N (1-based) gets the FULL format when full_every <= 1
+    (always full) or N is a multiple of full_every. Everything in between is a
+    LIGHT one-liner — reminders never stop firing (no backoff), they just get
+    cheaper between the periodic full nudges."""
+    full_every = _contract_reminder_full_every(settings)
+    if full_every <= 1:
+        return True
+    if reminder_number <= 0:
+        return True  # unknown ordinal — fail safe to the full format
+    return reminder_number % full_every == 0

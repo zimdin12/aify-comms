@@ -16,6 +16,7 @@ import a router and does not import the control plane, which is now a caller.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from service.api_core.capabilities import _default_capabilities_for
@@ -103,3 +104,21 @@ async def _drain_and_flip_pi_resident_agents() -> None:
         await db.commit()
     finally:
         await db.close()
+
+# The loop that drives the drain above. It lived in the control plane only because the lifespan
+# wiring in service/main.py imported it from there; main.py now reaches the owner directly.
+async def _periodic_pi_resident_flip_loop() -> None:
+    """Background loop — every ~5s drain & flip pi resident agents.
+
+    Best-effort: any exception during a tick is swallowed so the next
+    tick retries. Wired into the FastAPI lifespan in service/main.py.
+    """
+    while True:
+        try:
+            await asyncio.sleep(5.0)
+            await _drain_and_flip_pi_resident_agents()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # next tick retries
+            pass

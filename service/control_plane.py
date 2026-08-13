@@ -47,7 +47,7 @@ _listen_events: dict[str, asyncio.Event] = {}
 from service.pi_resident_flip import _drain_and_flip_pi_resident_agents
 from service.api_core.manual_status import _MANUAL_STATUSES
 from service.api_core.status_decision import StatusFacts, _decide_effective_status
-from service.api_core.message_store import _delete_messages_by_ids, _get_unread_count_map
+from service.api_core.message_store import _get_unread_count_map
 from service.config import get_config
 from service.api_core.dispatch_run_state import _append_dispatch_control, _finalize_dispatch_runs
 from service.api_core.dispatch_text import _auto_handoff_body_for_run
@@ -126,7 +126,7 @@ from service.api_core.liveness import (  # v0.5.4: moved out; the control plane 
 from service.api_core.reply_contract import (  # v0.5.4: moved out; the control plane is now a CALLER
     _contract_list_query,
     _contract_reminder_body,
-    _contract_reminder_full_every,
+    _contract_reminder_is_full,
 )
 from service.api_core.dispatch_text import (  # v0.5.4: moved out; the control plane is now a CALLER
     _auto_handoff_subject_for_run,
@@ -587,15 +587,8 @@ _SHELL_PLACEHOLDER_HANDLE_RE = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$")
 
 
 
-async def _select_message_ids(db, where_clause: str, params: tuple[Any, ...] = ()) -> list[str]:
-    cursor = await db.execute(f"SELECT id FROM messages WHERE {where_clause}", params)
-    return [str(row["id"]) for row in await cursor.fetchall() if str(row["id"] or "").strip()]
 
 
-
-async def _delete_messages_where(db, where_clause: str, params: tuple[Any, ...] = ()) -> int:
-    message_ids = await _select_message_ids(db, where_clause, params)
-    return await _delete_messages_by_ids(db, message_ids)
 
 
 # _agent_tombstone moved to service/api_core/agent_sessions.py in v0.5.4.
@@ -1734,21 +1727,6 @@ async def _compute_agent_status(row, db=None):
 
 
 
-async def _periodic_pi_resident_flip_loop() -> None:
-    """Background loop — every ~5s drain & flip pi resident agents.
-
-    Best-effort: any exception during a tick is swallowed so the next
-    tick retries. Wired into the FastAPI lifespan in service/main.py.
-    """
-    while True:
-        try:
-            await asyncio.sleep(5.0)
-            await _drain_and_flip_pi_resident_agents()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            # next tick retries
-            pass
 
 
 async def _get_recipient_info(db, recipient_id: str):
@@ -1924,7 +1902,6 @@ async def _preflight_live_send_recipients(
 # the declaration must stay beside the class so a second instance cannot appear.
 
 
-async def flush_terminal_output_writes_for_tests() -> None:
     await TERMINAL_OUTPUT_WRITES.flush_all()
 
 # _release_stale_console_owner_for_claim moved to service/routers/dispatch_messages/shared.py in
@@ -2695,17 +2672,6 @@ def _wake_agent(agent_id: str):
 # _contract_reminder_full_every moved to service/api_core/reply_contract.py in v0.5.4.
 
 
-def _contract_reminder_is_full(reminder_number: int, *, settings: dict[str, Any]) -> bool:
-    """Reminder number N (1-based) gets the FULL format when full_every <= 1
-    (always full) or N is a multiple of full_every. Everything in between is a
-    LIGHT one-liner — reminders never stop firing (no backoff), they just get
-    cheaper between the periodic full nudges."""
-    full_every = _contract_reminder_full_every(settings)
-    if full_every <= 1:
-        return True
-    if reminder_number <= 0:
-        return True  # unknown ordinal — fail safe to the full format
-    return reminder_number % full_every == 0
 
 
 # _contract_reminder_body moved to service/api_core/reply_contract.py in v0.5.4.

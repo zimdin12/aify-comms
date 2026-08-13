@@ -21,6 +21,7 @@ from service.api_core.turn_state import TURN_BUSY_STALE_SECONDS, _turn_busy_stat
 from service.api_core.settings import DEFAULT_SETTINGS
 from service.api_core.virtual_rpc import VIRTUAL_PI_RPC_COMMAND
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
+from service import terminal_write_queue
 # v0.5.2l: dispatch run serialization moved into the dispatch+messages package.
 from service.routers.dispatch_messages import dispatch as dispatch_router
 from service.routers.dispatch_messages import shared as dispatch_shared  # v0.5.3: owner of _turn_busy_holds_delivery
@@ -1758,7 +1759,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             )
             self.assertEqual(response.status_code, 200, response.text)
 
-        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
 
         fetched = self.client.get(f"/api/v1/terminals/{terminal_id}")
         self.assertEqual(fetched.status_code, 200, fetched.text)
@@ -1836,7 +1837,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             json={"bridgeId": "bridge-current", "output": "x", "status": "attached"},
         )
         self.assertEqual(response.status_code, 200, response.text)
-        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
 
         terminal_output_events = [
             args[1]
@@ -1863,7 +1864,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             ("2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z", terminal_id),
         )
 
-        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
 
         terminal = self._fetchone("SELECT status, output FROM terminal_sessions WHERE id = ?", (terminal_id,))
         self.assertEqual(terminal["status"], "stopped")
@@ -1887,7 +1888,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             json={"bridgeId": "bridge-current", "output": "$ ", "status": "attached"},
         )
         self.assertEqual(attached.status_code, 200, attached.text)
-        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
 
         listed = self.client.get("/api/v1/agents")
         self.assertEqual(listed.status_code, 200, listed.text)
@@ -1909,7 +1910,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             json={"bridgeId": "bridge-current", "output": "$ ", "status": "attached"},
         )
         self.assertEqual(attached.status_code, 200, attached.text)
-        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
         # Backdate console activity past the console-active window and expire
         # any cached live status so the read path recomputes.
         self._execute(
@@ -4792,7 +4793,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             json={"bridgeId": "bridge-current", "output": "\x1b[Hafter resize", "status": "attached"},
         )
         self.assertEqual(appended.status_code, 200, appended.text)
-        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
         fetched = self.client.get(f"/api/v1/terminals/{terminal_id}")
         self.assertEqual(fetched.json()["terminal"]["renderedCols"], 120)
         self.assertEqual(fetched.json()["terminal"]["renderedRows"], 40)
@@ -5519,7 +5520,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             },
         )
         self.assertEqual(output.status_code, 200, output.text)
-        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
         listed = self.client.get("/api/v1/agents")
         self.assertEqual(listed.status_code, 200, listed.text)
         agent = listed.json()["agents"]["console-agent"]
@@ -5560,7 +5561,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             },
         )
         self.assertEqual(output.status_code, 200, output.text)
-        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
         self._execute(
             "UPDATE dispatch_runs SET requested_at = ?, claimed_at = ?, started_at = ? WHERE id = ?",
             ("2000-01-01T00:00:00Z", "2000-01-01T00:00:00Z", "2000-01-01T00:00:00Z", run_id),
@@ -5607,7 +5608,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             },
         )
         self.assertEqual(output.status_code, 200, output.text)
-        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
 
         listed = self.client.get("/api/v1/agents")
         self.assertEqual(listed.status_code, 200, listed.text)
@@ -5652,7 +5653,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             },
         )
         self.assertEqual(output.status_code, 200, output.text)
-        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
         stale_run_at = _iso_from_ms(int((time.time() - 120) * 1000))
         quiet_terminal_at = _iso_from_ms(int((time.time() - 20) * 1000))
         self._execute(
@@ -5703,7 +5704,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             },
         )
         self.assertEqual(output.status_code, 200, output.text)
-        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
         stale_run_at = _iso_from_ms(int((time.time() - 120) * 1000))
         recent_terminal_at = _iso_from_ms(int((time.time() - 9) * 1000))
         self._execute(
@@ -5748,7 +5749,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             },
         )
         self.assertEqual(output.status_code, 200, output.text)
-        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
         self._execute("UPDATE terminal_sessions SET updated_at = ? WHERE id = ?", ("2000-01-01T00:00:00Z", terminal_id))
 
         listed = self.client.get("/api/v1/agents")
@@ -5787,7 +5788,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             },
         )
         self.assertEqual(output.status_code, 200, output.text)
-        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
 
         listed = self.client.get("/api/v1/agents")
         self.assertEqual(listed.status_code, 200, listed.text)
@@ -5824,7 +5825,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             },
         )
         self.assertEqual(output.status_code, 200, output.text)
-        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
 
         run = self._fetchone("SELECT status, finished_at FROM dispatch_runs WHERE id = ?", (run_id,))
         self.assertEqual(run["status"], "cancelled")
@@ -11200,7 +11201,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "output": "Your call — I need a decision:\n1. Continue\n2. Stop\nSay the word and I execute.",
             },
         )
-        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
         overdue_at = _iso_from_ms(int((time.time() - 120) * 1000))
         self._execute("UPDATE dispatch_runs SET requested_at = ? WHERE id = ?", (overdue_at, run_id))
 
@@ -14235,6 +14236,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         import asyncio, datetime as _dt
         from service.db import get_db
         from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
+        from service import terminal_write_queue
         # Helper seeds env + sess_cruft-agent + 1 live terminal (t_live).
         self._seed_managed_claude_with_attached_terminal("cruft-agent", "t_live")
         base = _dt.datetime.now(_dt.timezone.utc)

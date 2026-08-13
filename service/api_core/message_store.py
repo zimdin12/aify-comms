@@ -16,6 +16,8 @@ transaction. A LEAF: imports one api_core sibling and nothing else.
 
 from __future__ import annotations
 
+from typing import Any
+
 from service.api_core.serialization import _dedupe_preserve
 
 
@@ -58,3 +60,15 @@ async def _get_unread_count_map(db, agent_ids: list[str]) -> dict[str, int]:
     )
     rows = await cursor.fetchall()
     return {row["agent_id"]: int(row["unread_count"] or 0) for row in rows}
+
+# The two message-id helpers that used to sit in the control plane. They belong with
+# `_delete_messages_by_ids`, which `_delete_messages_where` calls: the whole closure is now local
+# and the routers that use it stop borrowing through the carrier.
+async def _select_message_ids(db, where_clause: str, params: tuple[Any, ...] = ()) -> list[str]:
+    cursor = await db.execute(f"SELECT id FROM messages WHERE {where_clause}", params)
+    return [str(row["id"]) for row in await cursor.fetchall() if str(row["id"] or "").strip()]
+
+
+async def _delete_messages_where(db, where_clause: str, params: tuple[Any, ...] = ()) -> int:
+    message_ids = await _select_message_ids(db, where_clause, params)
+    return await _delete_messages_by_ids(db, message_ids)
