@@ -537,7 +537,7 @@ _SHELL_PLACEHOLDER_HANDLE_RE = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$")
 
 
 
-# _machine_family moved to service/routers/agents/shared.py in v0.5.3 — the agents package was its
+# _machine_family moved to service/routers/agents/shared.py in v0.5.3, then on to service/api_core/registration_gates.py in v0.5.4 — the agents package was its
 # only consumer once the domains moved, so the borrow shim became the last thing keeping it here.
 
 
@@ -557,7 +557,7 @@ _SHELL_PLACEHOLDER_HANDLE_RE = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$")
 # _dispatch_reply_state moved to service/api_core/reply_contract.py in v0.5.4.
 
 
-# _dispatch_reply_pending moved to service/routers/dispatch_messages/shared.py in v0.5.3 — the
+# _dispatch_reply_pending moved to service/routers/dispatch_messages/shared.py in v0.5.3, then on to service/api_core/reply_contract.py in v0.5.4 — the
 # dispatch+messages package was its only consumer. `_dispatch_reply_state`, which it calls, is still
 # router-owned and stays borrowed there.
 
@@ -651,7 +651,8 @@ async def _delete_messages_where(db, where_clause: str, params: tuple[Any, ...] 
 # _turn_busy_state moved to service/api_core/turn_state.py in v0.5.4.
 
 
-# _turn_busy_holds_delivery moved to service/routers/dispatch_messages/shared.py in v0.5.3.
+# _turn_busy_holds_delivery moved to service/routers/dispatch_messages/shared.py in v0.5.3, then on
+# to service/api_core/claim_gating.py in v0.5.4.
 
 
 
@@ -684,7 +685,8 @@ async def _delete_messages_where(db, where_clause: str, params: tuple[Any, ...] 
 # _active_wrapper_terminal_not_ready_reason moved to service/api_core/claim_gating.py in v0.5.4.
 
 
-# _bridge_claim_block_reason moved to service/routers/dispatch_messages/shared.py in v0.5.3.
+# _bridge_claim_block_reason moved to service/routers/dispatch_messages/shared.py in v0.5.3, then on
+# to service/api_core/claim_gating.py in v0.5.4.
 
 
 
@@ -705,10 +707,12 @@ STUCK_STOPPING_GRACE_SECONDS = 900  # a 'stopping' PTY that never reached 'stopp
 
 
 
-# _stop_virtual_terminals_for_superseded_bridges moved to service/routers/agents/shared.py in v0.5.3.
+# _stop_virtual_terminals_for_superseded_bridges moved to service/routers/agents/shared.py in v0.5.3,
+# then on to service/api_core/bridge_supersede.py in v0.5.4.
 
 
-# _fail_active_runs_for_superseded_bridges moved to service/routers/agents/shared.py in v0.5.3.
+# _fail_active_runs_for_superseded_bridges moved to service/routers/agents/shared.py in v0.5.3, then
+# on to service/api_core/bridge_supersede.py in v0.5.4.
 
 
 # _fail_pending_controls_for_run moved to service/api_core/active_run_discard.py in v0.5.4.
@@ -1906,7 +1910,8 @@ async def _preflight_live_send_recipients(
 
 
 
-# _terminal_status_transition moved to service/routers/terminals.py in v0.5.3.
+# _terminal_status_transition moved to service/routers/terminals.py in v0.5.3, then on to
+# service/api_core/terminal_status.py in v0.5.4.
 
 
 
@@ -1922,7 +1927,8 @@ async def _preflight_live_send_recipients(
 async def flush_terminal_output_writes_for_tests() -> None:
     await TERMINAL_OUTPUT_WRITES.flush_all()
 
-# _release_stale_console_owner_for_claim moved to service/routers/dispatch_messages/shared.py in v0.5.3.
+# _release_stale_console_owner_for_claim moved to service/routers/dispatch_messages/shared.py in
+# v0.5.3, then on to service/api_core/claim_gating.py in v0.5.4.
 
 
 # _release_stale_terminal_owner moved to service/api_core/terminal_ownership.py in v0.5.4.
@@ -1935,7 +1941,8 @@ async def flush_terminal_output_writes_for_tests() -> None:
 # _has_pending_or_booting_spawn_request moved to service/api_core/managed_env.py in v0.5.4.
 
 
-# _has_claimable_steerable_run moved to service/routers/dispatch_messages/shared.py in v0.5.3.
+# _has_claimable_steerable_run moved to service/routers/dispatch_messages/shared.py in v0.5.3, then
+# on to service/api_core/claim_gating.py in v0.5.4.
 
 
 # _select_online_environment_for_runtime moved to service/api_core/managed_env.py in v0.5.4.
@@ -2284,7 +2291,8 @@ def _dispatch_message_id_for_recipient(
 # _mark_dispatch_source_messages_read moved to service/api_core/claim_gating.py in v0.5.4.
 
 
-# _dispatch_conversation_context moved to service/routers/dispatch_messages/shared.py in v0.5.3.
+# _dispatch_conversation_context moved to service/routers/dispatch_messages/shared.py in v0.5.3,
+# then on to service/api_core/claim_gating.py in v0.5.4.
 
 
 
