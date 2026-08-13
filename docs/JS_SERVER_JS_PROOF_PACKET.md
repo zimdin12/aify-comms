@@ -362,3 +362,48 @@ joining a shared-primitives module.
 
 **Not extracted.** This is the measurement; the tier-1 owner decision is the reviewer's, and getting it
 wrong makes every later group extraction wrong in the same way.
+
+### 5. Tier-1 shared-helper owners — measured per helper
+
+The reviewer's required packet before tier-1 extraction: per helper, a proposed owner, its consumers,
+what constants it needs, and **whether that owner moves FILE AUTHORITY or only reads**.
+
+| helper | L | proposed owner | needs | authority |
+|---|---|---|---|---|
+| `readAgents` | 7 | agent registry (new leaf) | `AGENTS_FILE` | **moves** — clean |
+| `writeAgents` | 3 | agent registry (same leaf) | `AGENTS_FILE` | **moves** — clean |
+| `validateName` | 5 | name validation (new leaf) | `SAFE_NAME_RE` | none — pure |
+| `normalizeSessionMode` | 4 | session-mode owner | none | none — pure |
+| `parseJson` | 9 | single-purpose JSON fallback | none | none — pure |
+| `summarizeEnvironment` | 5 | environment summary | none | none — pure |
+| `readInbox` | 17 | **STAYS** (see below) | `INBOX_DIR` | **cannot move** |
+| `deliverMessage` | 9 | **STAYS** (see below) | `INBOX_DIR` | **cannot move** |
+| `forgetRemoteAgent` | 8 | **STAYS** — deps-passed | `ACTIVE_RUNS` + counters | process state |
+| `__markControllerStart` | 7 | **STAYS** — deps-passed | controller promise map | process state |
+| `spawnTriggeredAgent` | 84 | **STAYS** — deps-passed | `LOCAL_RUNTIME_STATE`, httpCall, launchRuntimeRun | behaviour (reviewer-ruled) |
+
+**AUTHORITY IS THE DECIDING TEST, and it splits the file-backed helpers in two.**
+
+- `AGENTS_FILE` has **zero** references beyond its declaration — only `readAgents` and `writeAgents`
+  touch it. The agent-registry owner takes the file with it and nothing is stranded.
+- `SAFE_NAME_RE` likewise: zero references beyond its declaration, one reader.
+- `INBOX_DIR` has **six** top-level references outside any function, including the startup directory
+  bootstrap (`for (const dir of [MESSAGES_DIR, INBOX_DIR, SHARED_DIR])`) and two inline readers inside
+  tool handlers. Moving it would strand those, and leaving it behind while moving its readers means an
+  inbox owner that imports its own directory upward from the bridge.
+
+So `readInbox`/`deliverMessage` are NOT tier-1 candidates despite looking exactly like `readAgents`/
+`writeAgents`. The difference is invisible in the function bodies and only appears when you count
+references OUTSIDE functions — the same check that was missing when layer 0's population was first
+scoped.
+
+**Net tier-1: four small owners, 33 lines moved.** Agent registry (10L + the file constant), name
+validation (5L + regex), session mode (4L), JSON fallback (9L), environment summary (5L). Deliberately
+NOT one `shared-primitives` module: the reviewer's split-by-subject ruling, and merging a JSON parser
+with an agent store is how a primitives leaf becomes a junk drawer.
+
+**Five helpers stay in `server.js` and reach tool groups as explicit deps** — the two inbox functions on
+authority grounds, and the three behaviour/process-state ones on the reviewer's ruling.
+
+**Not extracted.** 33 lines across four leaves is small, and the value is not the line count: it is that
+no tool group ends up owning a primitive five other groups need.
