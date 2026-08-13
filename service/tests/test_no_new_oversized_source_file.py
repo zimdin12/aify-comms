@@ -65,12 +65,23 @@ def _line_count(path: Path) -> int:
     return len(io.open(path, encoding="utf-8", errors="replace").read().split("\n")) - 1
 
 
+def is_exempt(rel_path: str) -> bool:
+    """Is this repo-relative path allowlisted? A PURE predicate, so identity can be tested directly.
+
+    Split out on the reviewer's request. The gate's whole correctness rests on this being path identity
+    rather than name identity, and asserting that against the real tree cannot demonstrate it — the tree
+    happens to contain only one `control_plane.py`. A pure predicate can be shown two synthetic paths that
+    share a basename and prove they are distinguished.
+    """
+    return rel_path in ALLOWED
+
+
 class NoNewOversizedSourceFileTests(unittest.TestCase):
     def test_no_python_file_outside_the_allowlist_is_oversized(self):
         offenders = [
             f"{_rel(p)}: {_line_count(p)} lines"
             for p in _source_files()
-            if _rel(p) not in ALLOWED and _line_count(p) >= LIMIT
+            if not is_exempt(_rel(p)) and _line_count(p) >= LIMIT
         ]
         self.assertEqual(
             offenders,
@@ -102,12 +113,28 @@ class NoNewOversizedSourceFileTests(unittest.TestCase):
             self.assertTrue(entry.get("reason", "").strip(), f"{entry['path']} has no recorded reason")
             self.assertNotIn("\\", entry["path"], "paths must be repo-relative POSIX")
 
-    def test_the_allowlist_matches_on_path_not_basename(self):
-        """Guards the hole the first version had: a basename match exempts every same-named file.
+    def test_two_files_sharing_a_basename_are_distinguished(self):
+        """The defect this gate shipped with, pinned as a property of the predicate.
 
-        Asserted as a property of the entries rather than by planting a decoy file: every path contains a
-        directory separator, so no entry can be read as a bare filename.
+        The first version keyed on `p.name`, so ANY file called `control_plane.py` anywhere was exempt.
+        The real tree cannot demonstrate the fix — it contains exactly one of each — so the predicate is
+        exercised directly with synthetic paths that share a basename.
         """
+        self.assertTrue(is_exempt("service/control_plane.py"), "the allowlisted path must be exempt")
+        for impostor in (
+            "service/routers/control_plane.py",
+            "service/api_core/control_plane.py",
+            "control_plane.py",
+            "service/control_plane.py.bak",
+            "other/service/control_plane.py",
+        ):
+            self.assertFalse(
+                is_exempt(impostor),
+                f"{impostor} shares a basename with an allowlisted file and must NOT inherit its exemption",
+            )
+
+    def test_the_allowlist_entries_are_paths_not_basenames(self):
+        """A bare filename in the JSON would silently reintroduce basename matching."""
         for rel in ALLOWED:
             self.assertIn("/", rel, f"{rel} looks like a basename; the allowlist is path-keyed")
 

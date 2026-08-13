@@ -57,12 +57,21 @@ function sourceFiles() {
 
 const rel = (file) => path.relative(REPO, file).replace(/\\/g, "/");
 
+/**
+ * Is this repo-relative path allowlisted? A PURE predicate, so identity can be tested directly.
+ *
+ * Split out on the reviewer's request. This gate's correctness rests entirely on PATH identity rather than
+ * NAME identity, and the real tree cannot demonstrate that — it holds exactly one `server.js`. A pure
+ * predicate can be shown synthetic paths that share a basename and proved to distinguish them.
+ */
+const isExempt = (relPath) => ALLOWED.has(relPath);
+
 /** Newline count, matching `wc -l` — the convention every receipt in this series uses. */
 const lineCount = (file) => readFileSync(file, "utf-8").split("\n").length - 1;
 
 test("no JS file outside the allowlist is oversized", () => {
   const offenders = sourceFiles()
-    .filter((f) => !ALLOWED.has(rel(f)) && lineCount(f) >= LIMIT)
+    .filter((f) => !isExempt(rel(f)) && lineCount(f) >= LIMIT)
     .map((f) => `${rel(f)}: ${lineCount(f)} lines`);
   assert.deepEqual(
     offenders,
@@ -89,8 +98,27 @@ test("the allowlist has no stale JS entries", () => {
   assert.deepEqual(stale, [], stale.join("\n  "));
 });
 
-test("the allowlist is path-keyed, not basename-keyed", () => {
-  // Guards the hole the first version had: a basename match exempts every same-named file in the tree.
+test("two files sharing a basename are distinguished", () => {
+  // The defect this gate SHIPPED with, pinned as a property of the predicate. The first version keyed on
+  // `path.basename`, so any file called `server.js` anywhere was exempt. The real tree cannot demonstrate
+  // the fix — it holds exactly one of each — so the predicate is exercised with synthetic paths.
+  assert.ok(isExempt("mcp/stdio/server.js"), "the allowlisted path must be exempt");
+  for (const impostor of [
+    "mcp/stdio/adapters/server.js",
+    "service/new_dashboard/server.js",
+    "server.js",
+    "mcp/stdio/server.js.bak",
+    "vendor/mcp/stdio/server.js",
+  ]) {
+    assert.ok(
+      !isExempt(impostor),
+      `${impostor} shares a basename with an allowlisted file and must NOT inherit its exemption`,
+    );
+  }
+});
+
+test("the allowlist entries are paths, not basenames", () => {
+  // A bare filename in the JSON would silently reintroduce basename matching on both sides.
   for (const entry of ALLOWED) {
     assert.ok(entry.includes("/"), `${entry} looks like a basename; the allowlist is path-keyed`);
   }
