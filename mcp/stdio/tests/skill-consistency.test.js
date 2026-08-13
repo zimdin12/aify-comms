@@ -44,10 +44,23 @@ for (const path of markdownFiles) {
   }
 }
 
-const server = readFileSync(join(repo, "mcp/stdio/server.js"), "utf8");
+// Reads every bridge source that registers tools, not just server.js. The dispatch group moved to
+// `dispatch-tools.mjs` in v0.5.4 and more groups will follow; a fixed file list would silently shrink
+// this check's coverage each time, and the failure mode — a skill documenting a tool that no longer
+// exists — is one nobody hits until an agent tries to call it.
+const stdioDir = join(repo, "mcp/stdio");
+const toolSources = readdirSync(stdioDir)
+  .filter((name) => /\.(js|mjs)$/.test(name))
+  .map((name) => readFileSync(join(stdioDir, name), "utf8"))
+  .filter((src) => /server\.tool\(/.test(src));
+assert.ok(toolSources.length >= 2, "the tool-source scan should reach past server.js");
 const registeredTools = new Set(
-  [...server.matchAll(/server\.tool\(\s*["'](comms_[a-z0-9_]+)["']/g)].map((match) => match[1]),
+  toolSources.flatMap((src) =>
+    // `\s*` after `(` absorbs the indentation a registration gains inside a `registerXTools` wrapper.
+    [...src.matchAll(/server\.tool\(\s*["'](comms_[a-z0-9_]+)["']/g)].map((match) => match[1]),
+  ),
 );
+assert.ok(registeredTools.size >= 25, `tool inventory looks wrong: ${registeredTools.size}`);
 for (const path of markdownFiles) {
   const inlineCode = [...readFileSync(path, "utf8").matchAll(/`([^`]+)`/g)].map((match) => match[1]).join("\n");
   for (const match of inlineCode.matchAll(/\b(comms_[a-z0-9_]+)\b/g)) {

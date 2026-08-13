@@ -20,13 +20,24 @@
 // listed below as intentionally-absent is a decision.
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { test } from "node:test";
 
-const STDIO = readFileSync(new URL("../server.js", import.meta.url), "utf8");
+// THE STDIO SURFACE IS NO LONGER ONE FILE. Until v0.5.4 every tool was registered in `server.js`, so
+// reading that file WAS the inventory. The dispatch group now lives in `dispatch-tools.mjs`, and more
+// groups will follow — so this reads the whole directory instead of a fixed list. A hardcoded list
+// would have to be edited by the same person doing the extraction, which is exactly when a tool goes
+// missing from the inventory unnoticed; the point of this file is to notice.
+const STDIO_DIR = new URL("../", import.meta.url);
+const TOOL_SOURCES = readdirSync(STDIO_DIR)
+  .filter((name) => /\.(js|mjs)$/.test(name))
+  .map((name) => readFileSync(new URL(name, STDIO_DIR), "utf8"))
+  .filter((src) => /server\.tool\(/.test(src));
+const STDIO = TOOL_SOURCES.join("\n");
 const SSE = readFileSync(new URL("../../sse_server.py", import.meta.url), "utf8");
 
-// `server.tool("name",` — the stdio registration form.
+// `server.tool("name",` — the stdio registration form. The leading `\s*` absorbs the indentation a
+// registration picks up when it moves inside a `registerXTools(server, z)` wrapper.
 function stdioTools() {
   return new Set([...STDIO.matchAll(/server\.tool\(\s*\n?\s*"(comms_[a-z_]+)"/g)].map((m) => m[1]));
 }
@@ -97,6 +108,12 @@ test("both transports actually parsed — a zero inventory would pass everything
   // the suite goes quietly green over an empty set.
   assert.ok(stdioTools().size >= 25, `stdio inventory looks wrong: ${stdioTools().size}`);
   assert.ok(sseTools().size >= 15, `SSE inventory looks wrong: ${sseTools().size}`);
+  // And that the directory scan is genuinely reaching past server.js. If a future rename made it match
+  // only one file again, every assertion above would still pass while silently covering less.
+  assert.ok(
+    TOOL_SOURCES.length >= 2,
+    `only ${TOOL_SOURCES.length} source file(s) register tools — the multi-file scan is not working`,
+  );
 });
 
 test("the tools that turn API JSON into CONCLUSIONS exist in both", () => {

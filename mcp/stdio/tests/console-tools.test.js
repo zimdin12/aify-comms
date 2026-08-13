@@ -11,10 +11,15 @@ process.env.AIFY_AGENT_ID = "manager-bot";
 const {
   commsConsoleTailHandler,
   commsConsoleInputHandler,
-  commsInterruptHandler,
   CONSOLE_INPUT_TOOL_DESCRIPTION,
   COMMS_SEND_TOOL_DESCRIPTION,
 } = await import("../server.js");
+
+// `comms_interrupt` moved to the dispatch group in v0.5.4. It is exercised here rather than in
+// `dispatch-tools.test.js` because what it asserts is console behaviour — the Ctrl+C byte and the
+// endpoint it reaches — which is this file's subject. The tool's registration and schema are proven
+// next to its four siblings; only the handler is imported here.
+const { commsInterruptHandler } = await import("../dispatch-tools.mjs");
 
 assert.match(CONSOLE_INPUT_TOOL_DESCRIPTION, /recovery-only/i);
 assert.match(CONSOLE_INPUT_TOOL_DESCRIPTION, /read the console first/i);
