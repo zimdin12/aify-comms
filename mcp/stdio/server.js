@@ -52,6 +52,7 @@ import {
   httpCall,
   isTransientHttpError,
 } from "./aify-service-endpoint.mjs";
+import { AIFY_AGENT_ID, AIFY_AGENT_ROLE, cleanEnvPlaceholder } from "./launch-identity.mjs";
 import { residentIdentityWarning } from "./register-identity.js";
 import { randomUUID } from "crypto";
 import fs from "fs";
@@ -228,12 +229,6 @@ function computeBridgeBuildTag() {
 const BRIDGE_BUILD_TAG = computeBridgeBuildTag();
 // Log to stderr on startup so users can see which code is running.
 console.error(`[aify-comms bridge] version=${BRIDGE_VERSION} build=${BRIDGE_BUILD_TAG} instance=${BRIDGE_INSTANCE_ID} pid=${process.pid} cwd=${process.cwd()} script=${fileURLToPath(import.meta.url)}`);
-function cleanEnvPlaceholder(value) {
-  const s = String(value || "").trim();
-  return /^\$\{[^}]+\}$/.test(s) ? "" : s;
-}
-const AIFY_AGENT_ID = cleanEnvPlaceholder(process.env.AIFY_AGENT_ID || process.env.AIFY_COMMS_AGENT_ID || "");
-const AIFY_AGENT_ROLE = String(process.env.AIFY_AGENT_ROLE || process.env.AIFY_COMMS_AGENT_ROLE || "coder").trim();
 
 // Write the Codex runtime marker from this long-lived bridge process when
 // we detect we are running inside a codex-aify wrapper (which sets the
