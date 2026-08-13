@@ -64,6 +64,7 @@ import {
 import {
   ACTIVE_RUNS, CONSECUTIVE_FAILURES, REMOTE_AGENT_STATE, forgetRemoteAgent,
 } from "./bridge-agent-state.mjs";
+import { __markControllerStart, anyControllerActive } from "./controller-activity.mjs";
 import { normalizeSessionMode } from "./session-mode.mjs";
 import { validateName } from "./safe-name.mjs";
 import { AIFY_AGENT_ID, AIFY_AGENT_ROLE, IS_MANAGED_DISPATCH, cleanEnvPlaceholder } from "./launch-identity.mjs";
@@ -317,20 +318,15 @@ const __stopHandleHeartbeat = startSessionHandleHeartbeat({
 });
 
 // Plan 4 Task 13 (2026-05-25): turn-busy heartbeat. While any controller's
-// start() promise is unresolved (tracked via ACTIVE_CONTROLLER_PROMISES,
-// populated at controller-start time below), POSTs turn_busy=1 every 30s to
-// keep server-side status fresh independent of pre_llm_call / PostToolUse
-// hook firing. Solves the operator-observed "working flapping to online
-// during long turns" issue. No-op when AIFY_AGENT_ID is unset (managed
-// dispatch bridges without an owning agent).
-const ACTIVE_CONTROLLER_PROMISES = new Set();
-function __markControllerStart(promise) {
-  if (!promise || typeof promise.then !== "function") return promise;
-  ACTIVE_CONTROLLER_PROMISES.add(promise);
-  const cleanup = () => { ACTIVE_CONTROLLER_PROMISES.delete(promise); };
-  promise.then(cleanup, cleanup);
-  return promise;
-}
+// start() promise is unresolved, POSTs turn_busy=1 every 30s to keep
+// server-side status fresh independent of pre_llm_call / PostToolUse hook
+// firing. Solves the operator-observed "working flapping to online during
+// long turns" issue. No-op when AIFY_AGENT_ID is unset (managed dispatch
+// bridges without an owning agent).
+//
+// The tracking moved to `controller-activity.mjs` in v0.5.4, which owns the promise
+// set and keeps it private behind `__markControllerStart` / `anyControllerActive`.
+// This comment named the collection directly until then.
 // Turn-busy heartbeat re-pulse — NATIVE RUNTIMES ONLY (codex/pi/hermes).
 //
 // pure-event-status change #4 (2026-06-02): the claude transcript-growth signal
@@ -355,7 +351,7 @@ const __stopTurnBusyHeartbeat = startTurnBusyHeartbeat({
   agentId: AIFY_AGENT_ID,
   intervalMs: 30_000,
   // Active ONLY when a native runtime controller is mid-turn (codex/pi/hermes).
-  isActive: () => ACTIVE_CONTROLLER_PROMISES.size > 0,
+  isActive: () => anyControllerActive(),
   // Pass BRIDGE_INSTANCE_ID so the keep-alive also refreshes this bridge's
   // bridge_instances.last_seen — without it a controller turn longer than the
   // server's active-run bridge-stale window is reaped as a dead bridge
