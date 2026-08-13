@@ -132,15 +132,6 @@ async def _compute_live_status_cache(*a, **k):
 # _fail_active_runs_for_superseded_bridges moved to service/api_core/bridge_supersede.py in v0.5.4.
 
 
-async def _get_blocking_active_run(*a, **k):
-    from service.control_plane import _get_blocking_active_run as _impl
-
-    return await _impl(*a, **k)
-
-
-
-
-
 
 async def _get_unread_count_map(*a, **k):
     from service.control_plane import _get_unread_count_map as _impl

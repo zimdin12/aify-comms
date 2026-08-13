@@ -79,7 +79,6 @@ from service.routers.dispatch_messages.shared import (
     _delete_messages_where,
     _dispatch_requires_reply,
     _finalize_dispatch_runs,
-    _get_blocking_active_run,
     _get_recipient_info,
     _has_live_managed_wrapper_child,
     _is_replaceable_auto_handoff_message,

@@ -41,6 +41,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
 
+from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.spawn_request_state import _has_claimable_spawn_request
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
@@ -98,14 +99,6 @@ router = domain_router()
 # Restart/Reset/Compact buttons). Only a cleanly-finished session is pure history.
 SESSION_CLEAN_HISTORY_STATUSES = {"ended", "completed", "cancelled"}
 _TERMINAL_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
-
-
-async def _get_blocking_active_run(*a, **k):
-    """BORROWED: still used by handlers that have not moved."""
-    from service.control_plane import _get_blocking_active_run as _impl
-
-    return await _impl(*a, **k)
-
 
 
 

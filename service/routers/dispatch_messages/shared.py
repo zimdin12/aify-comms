@@ -220,13 +220,6 @@ async def _finalize_dispatch_runs(*a, **k):
     return await _impl(*a, **k)
 
 
-async def _get_blocking_active_run(*a, **k):
-    from service.control_plane import _get_blocking_active_run as _impl
-
-    return await _impl(*a, **k)
-
-
-
 
 async def _get_recipient_info(*a, **k):
     from service.control_plane import _get_recipient_info as _impl

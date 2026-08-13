@@ -16,6 +16,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
 
+from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.runtime_state import _runtime_state_replacing_handle, _runtime_state_with_handle
 from service.api_core.routing import domain_router
 
@@ -58,7 +59,6 @@ from service.routers.agents.shared import (
     _environment_effective_status,
     _environment_record_to_dict,
     _fail_active_runs_for_superseded_bridges,
-    _get_blocking_active_run,
     _get_dispatch_state_for_agent,
     _get_dispatch_state_map,
     _get_outbound_activity_map,

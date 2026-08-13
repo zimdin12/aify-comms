@@ -52,6 +52,12 @@ from service.config import get_config
 from service.api_core import settings as settings_core
 # v0.5.1i: single owner. The COUNTER is reached through the module, never by value.
 from service.api_core import events as events_core
+from service.api_core.active_run_lookup import (
+    _current_active_run_row,
+    _current_channel_awaiting_reply_run_row,
+    _find_mergeable_queued_run,
+    _get_blocking_active_run,
+)
 from service.api_core.managed_env import _managed_environment_unavailable_reason
 from service.api_core.events import (
     _append_dispatch_event,
@@ -847,15 +853,6 @@ async def _get_unread_count_map(db, agent_ids: list[str]) -> dict[str, int]:
 
 
 
-async def _get_blocking_active_run(db, agent_id: str, exclude_run_id: str = "") -> Optional[dict[str, Any]]:
-    state = await _get_dispatch_state_for_agent(db, agent_id)
-    active = state.get("activeRun")
-    if not active:
-        return None
-    if exclude_run_id and active.get("runId") == exclude_run_id:
-        return None
-    return active
-
 
 # _resident_bridge_is_fresh moved to service/api_core/liveness.py in v0.5.4.
 
@@ -1128,52 +1125,6 @@ def _status_refresh_after(agent_last_seen: str, env_last_seen: str, *, liveness_
 
 # _current_agent_session_row moved to service/api_core/agent_sessions.py in v0.5.4.
 
-
-async def _current_active_run_row(db, agent_id: str):
-    # Only a genuinely claimed/running dispatch run counts as "working".
-    # NOTE: terminal-delivery runs sit 'delivered'+unfinished as their
-    # normal lingering state long after the agent finished (they reconcile
-    # lazily), so 'delivered' is NOT a reliable working signal — treating it
-    # as one pins idle agents to "working" (worse failure mode). Accurate
-    # mid-turn detection needs a bridge-reported turn-busy signal, tracked
-    # separately; do not re-add a delivered-run heuristic here.
-    cursor = await db.execute(
-        """
-        SELECT id, status, subject, from_agent, dispatch_mode, execution_mode, runtime, requested_at, claimed_at, started_at, claim_bridge_id
-        FROM dispatch_runs
-        WHERE target_agent = ? AND status IN ('claimed', 'running')
-        ORDER BY COALESCE(started_at, claimed_at, requested_at) ASC
-        LIMIT 1
-        """,
-        (agent_id,),
-    )
-    return await cursor.fetchone()
-
-
-async def _current_channel_awaiting_reply_run_row(db, agent_id: str):
-    # claude-channel.js delivers both 'channel' and 'resident' execution_mode
-    # dispatches and now (post-fix) marks any require_reply=1 run as
-    # 'delivered' to preserve the reply contract. While in 'delivered'
-    # awaiting the agent's reply, the agent IS working — surface that as
-    # "working" in the dashboard. _current_active_run_row deliberately
-    # excludes 'delivered' to avoid pinning idle terminal-delivery agents
-    # to working. The discriminator that lets us treat THIS case safely
-    # is execution_mode IN ('channel', 'resident') — terminal-delivery
-    # runs carry execution_mode='managed', so they're filtered out.
-    cursor = await db.execute(
-        """
-        SELECT id, subject, from_agent, execution_mode, runtime, requested_at, claimed_at, started_at
-        FROM dispatch_runs
-        WHERE target_agent = ?
-          AND status = 'delivered'
-          AND execution_mode IN ('channel', 'resident')
-          AND require_reply = 1
-        ORDER BY COALESCE(started_at, claimed_at, requested_at) DESC
-        LIMIT 1
-        """,
-        (agent_id,),
-    )
-    return await cursor.fetchone()
 
 
 # _ANSI_RE moved to service/api_core/terminal_text.py in v0.5.4 with its readers.
@@ -2658,28 +2609,6 @@ def _stronger_priority(left: str, right: str) -> str:
 
 # _dispatch_buffer_full_hint moved to service/api_core/dispatch_buffer.py in v0.5.4.
 
-
-async def _find_mergeable_queued_run(
-    db,
-    *,
-    recipient_id: str,
-    from_agent: str,
-):
-    # Keep queued merge ownership scoped to one sender. Cross-sender merge
-    # loses the contract owner and makes handoff replies go to the wrong agent.
-    cursor = await db.execute(
-        """
-        SELECT *
-        FROM dispatch_runs
-        WHERE target_agent = ?
-          AND from_agent = ?
-          AND status = 'queued'
-        ORDER BY requested_at ASC
-        LIMIT 1
-        """,
-        (recipient_id, from_agent),
-    )
-    return await cursor.fetchone()
 
 
 # _discard_superseded_active_run moved to service/api_core/active_run_discard.py in v0.5.4.

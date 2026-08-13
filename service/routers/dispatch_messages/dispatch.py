@@ -24,6 +24,7 @@ from typing import Any, Optional
 from fastapi import HTTPException, Query, Request
 
 from service import longpoll
+from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.managed_env import _managed_environment_unavailable_reason
 from service.api_core.events import _append_dispatch_event, _append_terminal_event
 from service.api_core.routing import domain_router
@@ -81,7 +82,6 @@ from service.routers.dispatch_messages.shared import (
     _delete_messages_where,
     _dispatch_requires_reply,
     _finalize_dispatch_runs,
-    _get_blocking_active_run,
     _get_recipient_info,
     _has_live_managed_wrapper_child,
     _is_replaceable_auto_handoff_message,
