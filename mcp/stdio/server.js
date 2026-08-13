@@ -53,6 +53,7 @@ import {
 } from "./aify-service-endpoint.mjs";
 import { registerArtifactTools } from "./artifact-tools.mjs";
 import { registerDispatchTools } from "./dispatch-tools.mjs";
+import { registerEnvironmentTools } from "./environment-tools.mjs";
 import { registerInboxTools } from "./inbox-tools.mjs";
 import { registerLifecycleTools } from "./lifecycle-tools.mjs";
 import { registerSearchTool } from "./search-tool.mjs";
@@ -3825,11 +3826,7 @@ server.tool(
   }
 );
 
-function summarizeEnvironment(env) {
-  const runtimes = (env.runtimes || []).map((item) => item.runtime).filter(Boolean).join(", ") || "no runtimes";
-  const roots = (env.cwdRoots || []).join(", ") || "no roots";
-  return `- ${env.id} [${env.status || "unknown"}] ${env.label || ""}\n  ${env.os || "unknown"}/${env.kind || "unknown"}; runtimes: ${runtimes}; roots: ${roots}`;
-}
+registerEnvironmentTools(server, z);
 
 function pickCompactSession(sessions = []) {
   const scores = {
@@ -3899,20 +3896,6 @@ Open tasks:
 Next action:`;
 }
 
-server.tool(
-  "comms_envs",
-  "List connected environment bridges. Use this before spawning persistent managed agents so you can choose the right host, runtime, and workspace root.",
-  {},
-  async () => {
-    if (!IS_REMOTE) {
-      return { content: [{ type: "text", text: "Environment-backed spawn requires remote server mode. Start aify-comms against the dashboard service first." }], isError: true };
-    }
-    const r = await httpCall("GET", "/environments");
-    const envs = r.environments || [];
-    if (!envs.length) return { content: [{ type: "text", text: "No environment bridges are connected. Start `aify-comms` in WSL/Linux and/or `aify-comms.cmd` in Windows." }] };
-    return { content: [{ type: "text", text: `${envs.length} environment(s):\n${envs.map(summarizeEnvironment).join("\n")}` }] };
-  }
-);
 
 server.tool(
   "comms_usage",
@@ -3949,75 +3932,6 @@ server.tool(
   }
 );
 
-server.tool(
-  "comms_spawn",
-  "Create a persistent dashboard-managed agent session through an environment bridge. This is the only normal agent-spawn path; choose an environment from comms_envs or omit environmentId to use the first online environment supporting the runtime.",
-  {
-    from: z.string().describe("Owning/manager agent ID"),
-    environmentId: z.string().optional().describe("Environment ID from comms_envs. If omitted, first online environment supporting runtime is used."),
-    agentId: z.string().describe("Stable agent ID to create"),
-    role: z.string().describe("Agent role: manager, coder, reviewer, tester, researcher, architect, operator"),
-    runtime: z.string().describe("Runtime for the persistent agent session: codex, claude-code, hermes, opencode, or pi"),
-    workspace: z.string().optional().describe("Workspace path inside the selected environment's advertised roots"),
-    name: z.string().optional().describe("Friendly name"),
-    model: z.string().optional().describe("Preferred model/profile value"),
-    instructions: z.string().optional().describe("Standing instructions for the agent"),
-    initialMessage: z.string().optional().describe("Initial task/brief to deliver after spawn"),
-    subject: z.string().optional().describe("Initial task subject"),
-    priority: z.enum(["normal", "high", "urgent"]).optional().describe("Priority for the initial task"),
-  },
-  async ({ from, environmentId, agentId, role, runtime, workspace, name, model, instructions, initialMessage, subject, priority }) => {
-    if (!IS_REMOTE) {
-      return { content: [{ type: "text", text: "Environment-backed spawn requires remote server mode. Start aify-comms against the dashboard service first." }], isError: true };
-    }
-    try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
-    const resolvedRuntime = normalizeRuntime(runtime || "generic");
-    const envs = (await httpCall("GET", "/environments")).environments || [];
-    let env = environmentId
-      ? envs.find((item) => item.id === environmentId)
-      : envs.find((item) =>
-          String(item.status || "").toLowerCase() === "online" &&
-          (item.runtimes || []).some((runtimeInfo) => normalizeRuntime(runtimeInfo.runtime || "") === resolvedRuntime)
-        );
-    if (!env) {
-      const hint = envs.length ? `Available environments:\n${envs.map(summarizeEnvironment).join("\n")}` : "No environment bridges are connected.";
-      return { content: [{ type: "text", text: `No matching environment found for runtime "${resolvedRuntime}".\n${hint}` }], isError: true };
-    }
-    if (String(env.status || "").toLowerCase() !== "online") {
-      return { content: [{ type: "text", text: `Environment "${env.id}" is ${env.status || "unknown"}, not online. Start its bridge first.` }], isError: true };
-    }
-    const supportsRuntime = (env.runtimes || []).some((runtimeInfo) => normalizeRuntime(runtimeInfo.runtime || "") === resolvedRuntime);
-    if (!supportsRuntime) {
-      return { content: [{ type: "text", text: `Environment "${env.id}" does not advertise runtime "${resolvedRuntime}".` }], isError: true };
-    }
-    const selectedWorkspace = workspace || (env.cwdRoots || [])[0] || "";
-    const r = await httpCall("POST", "/spawn-requests", {
-      createdBy: from,
-      environmentId: env.id,
-      agentId,
-      role,
-      name,
-      runtime: resolvedRuntime,
-      workspace: selectedWorkspace,
-      model: model || "",
-      instructions: instructions || "",
-      initialMessage: initialMessage || "",
-      subject: subject || (initialMessage ? `Brief ${agentId}` : ""),
-      priority: priority || "normal",
-      mode: "managed-warm",
-      resumePolicy: "native_first",
-    });
-    const req = r.spawnRequest || {};
-    return {
-      content: [{
-        type: "text",
-        text:
-          `Queued persistent agent "${agentId}" in ${env.id} (${resolvedRuntime}, ${selectedWorkspace || "default workspace"}). ` +
-          `Spawn request: ${req.id || "unknown"} [${req.status || "queued"}].`,
-      }],
-    };
-  }
-);
 
 server.tool(
   "comms_compact",
