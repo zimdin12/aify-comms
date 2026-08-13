@@ -121,3 +121,24 @@ python -m py_compile service/control_plane.py service/reconcilers/*.py service/c
 ```
 
 Full end-to-end test is a two-session live round-trip. Register two agents, use `comms_send` from one to the other, verify the target wakes or receives a steer/queued turn according to capability, and verify the response is threaded back in chat.
+
+### The 1000-line gate fails your change — read this before "fixing" it
+
+No product source file may reach 1000 lines. Two tests enforce it:
+`service/tests/test_no_new_oversized_source_file.py` (Python) and
+`mcp/stdio/tests/no-new-oversized-source-file.test.js` (JS). Both read ONE policy file,
+`oversized-allowlist.json` at the repo root.
+
+**Adding your file to the allowlist is a REVIEWER DECISION, not a fix.** Its five entries are files with an
+open decision packet or a standing ruling, each carrying the reason. Appending a sixth to make a red test
+green is the exact move the gate exists to stop.
+
+The failure this gate was built from: a v0.5.4 relocation moved a 6-line helper into `service/db.py` — the
+correct subject owner — taking it 995 → 1006. `control_plane.py` shrank and a NEW file went over. The
+undefined-name sweep, the stale-owner census, `create_app()` and all three suites were green, because none
+of them measures the DESTINATION of a move. **When relocating, measure the destination's line count, not
+just its dependency direction and transaction ownership.**
+
+The allowlist is keyed by PATH, not basename — an earlier version keyed by basename and would have exempted
+any file named `app.js` anywhere. A pure predicate in each gate pins that, and both fail if a listed file is
+deleted or drops below the limit, so the list shrinks honestly instead of rotting into unchecked names.
