@@ -34,6 +34,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from service.api_core.managed_env import _managed_environment_unavailable_reason
 from service.api_core.runtime import (
     _normalize_runtime,
     _normalize_session_mode,
@@ -199,25 +200,6 @@ async def _create_dispatch_runs(*a, **k):
 async def _finalize_dispatch_runs(*a, **k):
     from service.control_plane import _finalize_dispatch_runs as _i
     return await _i(*a, **k)
-
-
-async def _managed_environment_unavailable_reason(*a, **k):
-    from service.control_plane import _managed_environment_unavailable_reason as _i
-    return await _i(*a, **k)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

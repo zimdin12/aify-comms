@@ -235,12 +235,6 @@ async def _get_recipient_info(*a, **k):
 
 
 
-async def _managed_environment_unavailable_reason(*a, **k):
-    from service.control_plane import _managed_environment_unavailable_reason as _impl
-
-    return await _impl(*a, **k)
-
-
 
 async def _mirror_missing_dispatch_handoff(*a, **k):
     from service.control_plane import _mirror_missing_dispatch_handoff as _impl

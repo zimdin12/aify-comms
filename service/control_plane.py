@@ -52,6 +52,7 @@ from service.config import get_config
 from service.api_core import settings as settings_core
 # v0.5.1i: single owner. The COUNTER is reached through the module, never by value.
 from service.api_core import events as events_core
+from service.api_core.managed_env import _managed_environment_unavailable_reason
 from service.api_core.events import (
     _append_dispatch_event,
     _append_terminal_control,
@@ -813,14 +814,6 @@ def _agent_wake_mode(row) -> str:
 
 # _agent_execution_mode moved to service/api_core/execution_mode.py in v0.5.4.
 
-
-async def _managed_environment_unavailable_reason(db, row) -> Optional[str]:
-    environment_id, env_status, _env_bridge = await _managed_environment_status(db, row)
-    if not environment_id:
-        return None
-    if env_status not in {"online", "degraded"}:
-        return f'managed environment "{environment_id}" is {env_status}'
-    return None
 
 
 # _dispatch_fix_hint moved to service/api_core/dispatch_hint.py in v0.5.4.

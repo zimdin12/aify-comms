@@ -267,3 +267,15 @@ async def _select_online_environment_for_runtime(
             continue
         return environment
     return None
+
+
+# v0.5.4: moved out of the control plane, which had no claim on it beyond history. Its ONLY dependency
+# is `_managed_environment_status` directly above, and both of its readers reached it through borrow
+# shims — the all-consumers-through-a-shim shape that says the carrier was a hiding place, not an owner.
+async def _managed_environment_unavailable_reason(db, row) -> Optional[str]:
+    environment_id, env_status, _env_bridge = await _managed_environment_status(db, row)
+    if not environment_id:
+        return None
+    if env_status not in {"online", "degraded"}:
+        return f'managed environment "{environment_id}" is {env_status}'
+    return None
