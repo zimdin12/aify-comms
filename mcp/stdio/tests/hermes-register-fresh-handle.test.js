@@ -28,17 +28,18 @@ assert.match(
   "Previous handle reuse should be gated by allowPreviousSessionHandle",
 );
 
-// 46f313b (2026-06-03, agent-keyed gateway marker): the first-choice source is
-// now the module-level AIFY_HERMES_GATEWAY_URL — the startup-validated env URL,
-// with a fallback to the AGENT-keyed gateway marker when the env is the literal
-// "${AIFY_HERMES_GATEWAY_URL}" placeholder. It still precedes the cwd runtime
-// marker, preserving this test's contract: the current MCP process's own gateway
-// wins over cwd-keyed markers (which collide for same-folder agents).
-assert.match(
-  serverText,
-  /const rawGatewayUrl = String\(AIFY_HERMES_GATEWAY_URL \|\| process\.env\.AIFY_HERMES_GATEWAY_URL \|\| marker\?\.gatewayUrl \|\| ""\)\.trim\(\)/,
-  "Hermes registration must prefer the current MCP process gateway over cwd runtime markers",
-);
+// THE GATEWAY-PRECEDENCE ASSERTION THAT WAS HERE HAS MOVED, and became a real test on the way.
+//
+// It was a regex over `server.js` matching the exact text of the `rawGatewayUrl` chain — added by 46f313b
+// (2026-06-03, agent-keyed gateway marker) to pin that this MCP process's own gateway outranks the cwd
+// runtime marker, because cwd-keyed markers collide for same-folder agents. It proved the line was WRITTEN;
+// it could not prove the precedence held, and it broke the moment `resolvedRuntimeConfigForRegistration`
+// moved to its owner in v0.5.4 without a single behavioural change.
+//
+// `tests/registration-inputs.test.js` now asserts the same contract by resolving a real config against a
+// real marker written by `writeRuntimeMarker` under an isolated `XDG_STATE_HOME`: the marker supplies the
+// gateway when nothing else does, and is outranked when this process has its own. A reordering mutation of
+// that chain fails it, which the regex form could not distinguish from a reformatting.
 
 assert.match(
   serverText,
