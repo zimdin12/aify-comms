@@ -30,7 +30,7 @@ import {
   resolvedRuntimeMarker,
 } from "../registration-inputs.mjs";
 import { AIFY_HERMES_GATEWAY_URL } from "../hermes-gateway-config.mjs";
-import { declaringModules } from "./bridge-sources.mjs";
+import { bridgeSources, declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEAF = pathToFileURL(path.join(STDIO, "registration-inputs.mjs")).href;
@@ -242,9 +242,21 @@ test("exactly one module declares each, and server.js still uses them", () => {
   assert.deepEqual(declaringModules("DEFAULT_CWD"), [{ file: "registration-inputs.mjs", kind: "binding" }],
     "DEFAULT_CWD moved here rather than being captured twice — see the header note");
 
-  const server = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  assert.match(server, /(?<![\w.])normalizeRegistrationCwd\(/, "server.js still normalizes registration cwds");
-  assert.match(server, /(?<![\w.])DEFAULT_CWD(?![\w])/, "…and still reads the default cwd it imports back");
+  // THE BRIDGE, not `server.js`. I wrote the file-named form three commits ago and it broke one slice later
+  // when `autoRegisterConfiguredAgent` — the last server.js caller of `normalizeRegistrationCwd` — moved to
+  // its own owner, with nothing about this module changed. An owner's contract is that SOMETHING still calls
+  // it; which file does is the thing this series keeps changing on purpose.
+  for (const name of ["normalizeRegistrationCwd", "resolvedRuntimeConfigForRegistration",
+    "claimCapturedClaudeSession", "DEFAULT_CWD"]) {
+    assert.ok(isUsedInBridge(name), `${name} must still be used by something — an unused owner is dead code`);
+  }
+  // `resolvedRuntimeMarker` is deliberately absent from that list: its only caller is
+  // `resolvedRuntimeConfigForRegistration`, inside this same module, so nothing outside reaches it.
+  assert.equal(
+    bridgeSources().filter(([file, text]) =>
+      file !== "registration-inputs.mjs" && /(?<![\w.])resolvedRuntimeMarker\(/.test(text)).length,
+    0, "resolvedRuntimeMarker is internal to its owner; an outside caller means the surface changed",
+  );
 });
 
 test("the owner holds no state and reaches only owned leaves", () => {

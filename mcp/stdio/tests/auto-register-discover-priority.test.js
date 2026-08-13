@@ -7,7 +7,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeInitialSessionHandle } from "../server.js";
+// Imported from its OWNER, not from `server.js`. It used to come from the bin entry point, which meant
+// testing nine lines of session-handle precedence loaded the entire bridge.
+import { computeInitialSessionHandle } from "../auto-registration.mjs";
 
 test("computeInitialSessionHandle prefers discoverSessionId over env-default", async () => {
   const adapter = {

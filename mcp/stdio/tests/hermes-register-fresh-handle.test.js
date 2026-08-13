@@ -16,6 +16,9 @@ const serverText = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf
 // Located by NAME rather than by indentation. The previous version searched for `server.tool(\n  "…"` — two
 // literal spaces — so wrapping the tool in a registration function broke it with no behavioural change.
 const toolText = fs.readFileSync(path.join(__dirname, "..", "registration-tool.mjs"), "utf8");
+// Auto-registration moved to its own owner in v0.5.4; the two placeholder assertions at the bottom are
+// about THAT path, not the tool.
+const autoText = fs.readFileSync(path.join(__dirname, "..", "auto-registration.mjs"), "utf8");
 const registerStart = toolText.search(/^\s*server\.tool\(\s*$/m);
 assert.ok(registerStart >= 0, "comms_register tool should exist");
 assert.ok(toolText.includes('"comms_register"'), "…and registration-tool.mjs should be the module holding it");
@@ -52,11 +55,14 @@ assert.match(
 // that chain fails it, which the regex form could not distinguish from a reformatting.
 
 assert.match(
-  serverText,
+  autoText,
   /terminalId: cleanEnvPlaceholder\(process\.env\.AIFY_TERMINAL_ID \|\| ""\)/,
   "Auto-registration must not persist unresolved ${AIFY_TERMINAL_ID} placeholders",
 );
 
+// STILL `serverText`: auto-registration moved to its own owner, but RE-registration — the heartbeat path
+// that refreshes an already-registered agent — did not. Two different call sites with near-identical text,
+// and pointing both at the new module made only one of them fail, which is how the difference surfaced.
 assert.match(
   serverText,
   /terminalId: cleanEnvPlaceholder\(process\.env\.AIFY_TERMINAL_ID \|\| info\.terminalId \|\| ""\)/,
