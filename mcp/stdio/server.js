@@ -51,6 +51,9 @@ import { parseJson } from "./parse-json.mjs";
 import {
   AIFY_HERMES_GATEWAY_TOKEN_ENV_FROM_MARKER, AIFY_HERMES_GATEWAY_URL,
 } from "./hermes-gateway-config.mjs";
+import {
+  baseAgentHeartbeatFields, currentTurnHeartbeatFields, reportTurnBusy,
+} from "./agent-heartbeat.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
 import {
   armClaudeTurnEndDetector, isClaudeTurnDetectorArmed, stopClaudeTurnEndDetector,
@@ -73,7 +76,6 @@ import {
   writeClaudeSessionId,
 } from "./claude-session-store.js";
 import { supportedExecutionModes, wrapperChildExecutionModes } from "./dispatch-execution.js";
-import { activeTurnHeartbeatPayload, agentHeartbeatPayload } from "./turn-busy.js";
 import { advertisedEnvironmentRuntimes, advertisedTerminalRuntimes } from "./environment-runtimes.js";
 import { listRuntimeMarkers, readRuntimeMarker, writeRuntimeMarker, removeRuntimeMarker, selectClaudeChannelMarkerForParent } from "./runtime-markers.js";
 import {
@@ -2019,22 +2021,6 @@ function environmentHeartbeatPayload() {
   };
 }
 
-function baseAgentHeartbeatFields(state = {}) {
-  return {
-    bridgeId: BRIDGE_INSTANCE_ID,
-    machineId: state?.info?.machineId || MACHINE_ID,
-      terminalId: cleanEnvPlaceholder(process.env.AIFY_TERMINAL_ID || state?.info?.terminalId || ""),
-  };
-}
-
-function currentTurnHeartbeatFields(state = {}, activeRun = null) {
-  const base = baseAgentHeartbeatFields(state);
-  if (!activeRun) return agentHeartbeatPayload(base);
-  return activeTurnHeartbeatPayload({
-    ...base,
-    activeRun,
-  });
-}
 
 // Unified-backing refactor 2026-05-24: read the `managed_via_wrapper` setting
 // so the dispatch loop knows which runtimes to skip claiming for (the
@@ -2083,18 +2069,6 @@ async function reportAgentHeartbeat(agentId, state = {}, activeRun = null) {
   );
 }
 
-async function reportTurnBusy(agentId, state = {}, { busy, runId = "", runtime = "" } = {}) {
-  return httpCall(
-    "POST",
-    `/agents/${encodeURIComponent(agentId)}/heartbeat`,
-    agentHeartbeatPayload({
-      ...baseAgentHeartbeatFields(state),
-      turnBusy: !!busy,
-      turnRunId: runId,
-      turnRuntime: runtime,
-    }),
-  );
-}
 
 
 function effectiveEnvironmentPayload() {

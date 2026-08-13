@@ -81,15 +81,15 @@ test("a stopped resident can recover delivery without restarting Claude", { time
     }
     res.end(JSON.stringify({ ok: true }));
   });
-  await new Promise((resolve) => api.listen(0, "127.0.0.1", resolve));
+  await new Promise((resolve) => api.listen(0, "127.0.0.2", resolve));
 
   const child = spawn(process.execPath, [fileURLToPath(new URL("../claude-channel.js", import.meta.url))], {
     env: {
       ...process.env,
       TMP: stoppedTmp,
       TEMP: stoppedTmp,
-      AIFY_SERVER_URL: `http://127.0.0.1:${api.address().port}`,
-      CLAUDE_MCP_SERVER_URL: `http://127.0.0.1:${api.address().port}`,
+      AIFY_SERVER_URL: `http://127.0.0.2:${api.address().port}`,
+      CLAUDE_MCP_SERVER_URL: `http://127.0.0.2:${api.address().port}`,
       AIFY_COMMS_CHANNEL_POLL_MS: "10",
       AIFY_CHANNEL_RELEASE_RECHECK_MS: "5000",
       AIFY_CHANNEL_PARENT_GUARD_MS: "60000",

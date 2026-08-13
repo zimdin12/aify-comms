@@ -12,7 +12,7 @@ const fakeServer = resolve(__dirname, "fixtures/fake-codex-app-server.mjs");
 function pickPort() {
   return new Promise((resolvePort, reject) => {
     const s = createServer();
-    s.listen(0, "127.0.0.1", () => {
+    s.listen(0, "127.0.0.2", () => {
       const address = s.address();
       const port = address && typeof address === "object" ? address.port : 0;
       s.close(() => resolvePort(port));
@@ -23,7 +23,7 @@ function pickPort() {
 
 async function withFakeCodexAppServer(fn) {
   const port = await pickPort();
-  const url = `ws://127.0.0.1:${port}`;
+  const url = `ws://127.0.0.2:${port}`;
   const child = spawn(process.execPath, [fakeServer, "--listen", url], {
     cwd: process.cwd(),
     env: {

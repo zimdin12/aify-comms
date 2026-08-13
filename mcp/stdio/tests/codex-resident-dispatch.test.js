@@ -24,7 +24,7 @@ function pickFreePort() {
     const srv = net.createServer();
     srv.unref();
     srv.on("error", reject);
-    srv.listen(0, "127.0.0.1", () => {
+    srv.listen(0, "127.0.0.2", () => {
       const port = srv.address().port;
       srv.close(() => resolve(port));
     });
@@ -33,7 +33,7 @@ function pickFreePort() {
 
 async function startFakeAppServer(t, { threadId, script = "hello" } = {}) {
   const port = await pickFreePort();
-  const url = `ws://127.0.0.1:${port}`;
+  const url = `ws://127.0.0.2:${port}`;
   const proc = spawn(process.execPath, [FAKE, "--listen", url], {
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, FAKE_CODEX_RESIDENT_THREAD: threadId || "", FAKE_CODEX_SCRIPT: script },

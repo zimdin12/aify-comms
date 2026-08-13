@@ -24,13 +24,13 @@ const server = http.createServer((req, res) => {
   res.writeHead(body === null ? 404 : 200, { "content-type": "application/json" });
   res.end(JSON.stringify(body === null ? { error: "not found" } : body));
 });
-await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+await new Promise((resolve) => server.listen(0, "127.0.0.2", resolve));
 // unref so the listening socket does not hold the event loop open — node --test waits for it to drain and
 // the run hangs instead of finishing. The comms-contracts test closes its server at the end of a script;
 // this file uses the test runner, which needs the handle to be non-blocking as well.
 server.unref();
 
-process.env.AIFY_SERVER_URL = `http://127.0.0.1:${server.address().port}`;
+process.env.AIFY_SERVER_URL = `http://127.0.0.2:${server.address().port}`;
 process.env.CLAUDE_MCP_SERVER_URL = "";
 process.env.AIFY_AGENT_ID = "agent-a";
 

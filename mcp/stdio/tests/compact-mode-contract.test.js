@@ -41,10 +41,10 @@ const server = http.createServer((req, res) => {
     return res.end(JSON.stringify({ ok: true, agentId: "target", spawned: true }));
   });
 });
-await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+await new Promise((resolve) => server.listen(0, "127.0.0.2", resolve));
 server.unref();
 
-process.env.AIFY_SERVER_URL = `http://127.0.0.1:${server.address().port}`;
+process.env.AIFY_SERVER_URL = `http://127.0.0.2:${server.address().port}`;
 process.env.CLAUDE_MCP_SERVER_URL = "";
 
 const { registerCompactTool } = await import("../compact-tool.mjs");
