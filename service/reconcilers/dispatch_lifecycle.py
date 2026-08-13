@@ -43,15 +43,13 @@ from service.reconcilers.status_cache import invalidate_agent_live_state as _inv
 logger = logging.getLogger(__name__)
 
 
-async def engine_status(*a, **k):
-    """BORROWED, and nearly a silent bug: there is a `derive` in `service.status_engine` AND an
-    `engine_status` in the router, and they are not the same function. The scan reported the name as
-    undefined, I reached for the engine's `derive`, and only checking the router showed
-    `api_v2.engine_status` at line 4705 — a DB-reading wrapper, not the pure state machine.
-    Importing the wrong one would have compiled, passed a cycle smoke test, and quietly changed how
-    orphaned managed runs are judged."""
-    from service.control_plane import engine_status as _i
-    return await _i(*a, **k)
+# NOT `derive`. There is a `derive` in `service.status_engine` AND an `engine_status`, and they are
+# not the same function: `derive` is the pure state machine, `engine_status` is the DB-reading wrapper
+# that gathers its inputs first. This was a borrow shim precisely because the wrapper lived in the
+# control plane and importing that from a reconciler is a cycle. It moved to a layer-1 module in
+# v0.5.4, so the indirection is gone — but the near-miss it guarded is not: importing the wrong one
+# would compile, pass a cycle smoke test, and quietly change how orphaned managed runs are judged.
+from service.api_core.status_inputs import engine_status
 
 
 

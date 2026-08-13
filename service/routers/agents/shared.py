@@ -157,10 +157,10 @@ def _row_status_note(*a, **k):
 
 
 
-async def engine_status(*a, **k):
-    from service.control_plane import engine_status as _impl
-
-    return await _impl(*a, **k)
+# Was a borrow shim: the DB-reading wrapper lived in the control plane, and a router importing that
+# at module level is a cycle. It moved to service/api_core/status_inputs.py in v0.5.4, so this is a
+# plain import now. NOT `derive` — that is the pure state machine this wrapper feeds.
+from service.api_core.status_inputs import engine_status  # noqa: E402
 
 
 def _borrowed_list_agents_refresh_limit():

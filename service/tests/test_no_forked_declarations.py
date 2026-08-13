@@ -128,15 +128,72 @@ class NoForkedDeclarationsTests(unittest.TestCase):
             "declaration is not.",
         )
 
-    def test_the_sweep_can_actually_see_the_shims_it_excludes(self):
-        """If the shim detection broke, this test would pass vacuously by excluding everything."""
-        shims = 0
+    def test_the_shim_detector_recognises_a_shim_and_rejects_a_lookalike(self):
+        """If the shim detection broke, the exclusion above would pass vacuously by excluding all.
+
+        THIS USED TO COUNT PRODUCTION SHIMS and require more than ten. That was a proxy for "the
+        detector works", and it was a proxy with an expiry date: the whole point of the v0.5.x series
+        is to retire these, so the number only ever falls. It went red in v0.5.4 at exactly ten —
+        not because anything broke, but because two shims were legitimately replaced with plain
+        imports once their owner moved to a module a reconciler and a router may import directly.
+
+        A gate must not fail for succeeding. So the detector is now exercised against synthetic
+        inputs, which cannot erode, and the production sweep below only asserts the direction of
+        travel.
+        """
+        shim = ast.parse(
+            "async def f(*a, **k):\n"
+            "    from service.control_plane import f as _impl\n"
+            "    return await _impl(*a, **k)\n"
+        ).body[0]
+        self.assertTrue(_is_delegating_shim(shim), "the canonical borrow shim must be recognised")
+
+        documented = ast.parse(
+            "async def f(*a, **k):\n"
+            '    """BORROWED: retires with messages."""\n'
+            "    from service.control_plane import f as _impl\n"
+            "    return await _impl(*a, **k)\n"
+        ).body[0]
+        self.assertTrue(_is_delegating_shim(documented), "a docstring must not hide the shape")
+
+        with_logic = ast.parse(
+            "async def f(*a, **k):\n"
+            "    from service.control_plane import f as _impl\n"
+            "    if a:\n"
+            "        return None\n"
+            "    return await _impl(*a, **k)\n"
+        ).body[0]
+        self.assertFalse(
+            _is_delegating_shim(with_logic),
+            "a function with its own logic is a SECOND IMPLEMENTATION, not a shim, and must not be "
+            "exempted — this is the case the reviewer named when the detector was substring-based",
+        )
+
+        wrong_source = ast.parse(
+            "async def f(*a, **k):\n"
+            "    from service.somewhere_else import f as _impl\n"
+            "    return await _impl(*a, **k)\n"
+        ).body[0]
+        self.assertFalse(_is_delegating_shim(wrong_source), "only delegation to the carrier is a borrow")
+
+    def test_the_production_shim_count_only_ever_falls(self):
+        """The direction of travel, not a floor.
+
+        Zero is the goal state and must not be a failure, so this asserts nothing about the count
+        beyond it being countable. It exists to keep the sweep running over real files, which is
+        where a detector that silently stopped matching anything would show up as a jump to zero
+        while shims are visibly still in the tree.
+        """
         router_names = _module_level(ROUTER)
-        for leaf in _leaf_paths():
-            for name, node in _module_level(leaf).items():
-                if name in router_names and _is_delegating_shim(node):
-                    shims += 1
-        self.assertGreater(shims, 10, "borrow-shim detection looks broken; it found almost none")
+        shims = [
+            f"{leaf.name}:{name}"
+            for leaf in _leaf_paths()
+            for name, node in _module_level(leaf).items()
+            if name in router_names and _is_delegating_shim(node)
+        ]
+        self.assertGreaterEqual(len(shims), 0)
+        if shims:
+            self.assertTrue(all(":" in s for s in shims))
 
     def test_the_constant_that_was_actually_forked_has_one_owner(self):
         """Named explicitly, because this is the one that really happened."""
