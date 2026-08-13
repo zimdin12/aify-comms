@@ -59,6 +59,9 @@ import {
   INBOX_DIR, MESSAGES_DIR, SHARED_DIR,
   deliverMessage, readAgents, readInbox, writeAgents,
 } from "./local-store.mjs";
+import {
+  ACTIVE_RUNS, CONSECUTIVE_FAILURES, REMOTE_AGENT_STATE, forgetRemoteAgent,
+} from "./bridge-agent-state.mjs";
 import { normalizeSessionMode } from "./session-mode.mjs";
 import { validateName } from "./safe-name.mjs";
 import { AIFY_AGENT_ID, AIFY_AGENT_ROLE, IS_MANAGED_DISPATCH, cleanEnvPlaceholder } from "./launch-identity.mjs";
@@ -857,8 +860,6 @@ async function shutdownWithStatus(code) {
 process.on("exit", cleanupOnExit);
 process.on("SIGINT", () => { shutdownWithStatus(130); });
 process.on("SIGTERM", () => { shutdownWithStatus(143); });
-const REMOTE_AGENT_STATE = new Map();
-const ACTIVE_RUNS = new Map();
 const LOCAL_RUNTIME_STATE = new Map();
 // agentId → { terminalId, runtime } for the bridge's synthesized RPC
 // terminal. Cached so subsequent dispatches reuse the same virtual
@@ -917,7 +918,6 @@ let managedEnvironmentSyncBusy = false;
 let spawnClaimFailureCount = 0;
 let spawnClaimLastLogAt = 0;
 let remoteEffectiveCwdRoots = null;
-const CONSECUTIVE_FAILURES = new Map();
 const AUTO_REREGISTER_AFTER_FAILURES = 4;
 const RESIDENT_BINDING_FAILURES = new Map();
 const RESIDENT_BINDING_LOST_AFTER_FAILURES = 2;
@@ -1701,14 +1701,6 @@ async function reregisterAgentFromState(agentId, state) {
   }
 }
 
-function forgetRemoteAgent(agentId, reason = "") {
-  REMOTE_AGENT_STATE.delete(agentId);
-  ACTIVE_RUNS.delete(agentId);
-  CONSECUTIVE_FAILURES.delete(agentId);
-  if (reason) {
-    console.error(`[aify] stopped tracking "${agentId}": ${reason}`);
-  }
-}
 
 async function residentRuntimeBindingLost(agentId, info = {}) {
   const sessionMode = normalizeSessionMode(info.sessionMode);
