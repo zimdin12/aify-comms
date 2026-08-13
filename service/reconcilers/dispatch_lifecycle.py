@@ -56,9 +56,9 @@ from service.api_core.status_inputs import engine_status
 
 
 
-async def _mirror_missing_dispatch_handoff(*a, **k):
-    from service.control_plane import _mirror_missing_dispatch_handoff as _i
-    return await _i(*a, **k)
+# Was a borrow shim: the owner lived in the control plane, which a reconciler cannot import at
+# module level without a cycle. It moved to service/api_core/dispatch_sweeps.py in v0.5.4.
+from service.api_core.dispatch_sweeps import _mirror_missing_dispatch_handoff
 
 
 

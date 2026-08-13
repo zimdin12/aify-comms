@@ -72,10 +72,9 @@ _CHANNEL_FANOUT_DEDUP_WINDOW_MS = 30_000
 
 
 
-async def _create_dispatch_runs(*a, **k):
-    from service.control_plane import _create_dispatch_runs as _impl
-
-    return await _impl(*a, **k)
+# Was a borrow shim: the owner lived in the control plane, which this module cannot import at
+# module level without a cycle. It moved to service/api_core/dispatch_runs.py in v0.5.4.
+from service.api_core.dispatch_runs import _create_dispatch_runs  # noqa: E402
 
 
 from service.api_core.message_store import _delete_messages_where  # noqa: E402
@@ -90,10 +89,9 @@ from service.api_core.status_refresh import _get_recipient_info  # noqa: E402
 
 
 
-async def _preflight_live_send_recipients(*a, **k):
-    from service.control_plane import _preflight_live_send_recipients as _impl
-
-    return await _impl(*a, **k)
+# Was a borrow shim: the owner lived in the control plane, which this module cannot import at
+# module level without a cycle. It moved to service/api_core/dispatch_runs.py in v0.5.4.
+from service.api_core.dispatch_runs import _preflight_live_send_recipients  # noqa: E402
 
 
 

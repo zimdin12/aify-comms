@@ -172,10 +172,9 @@ def _borrowed_unthreaded_handoff_window_ms():
 
 
 
-async def _create_dispatch_runs(*a, **k):
-    from service.control_plane import _create_dispatch_runs as _impl
-
-    return await _impl(*a, **k)
+# Was a borrow shim: the owner lived in the control plane, which this module cannot import at
+# module level without a cycle. It moved to service/api_core/dispatch_runs.py in v0.5.4.
+from service.api_core.dispatch_runs import _create_dispatch_runs  # noqa: E402
 
 
 
@@ -197,23 +196,20 @@ from service.api_core.status_refresh import _get_recipient_info  # noqa: E402
 
 
 
-async def _mirror_missing_dispatch_handoff(*a, **k):
-    from service.control_plane import _mirror_missing_dispatch_handoff as _impl
+# Was a borrow shim: the owner lived in the control plane, which this module cannot import at
+# module level without a cycle. It moved to service/api_core/dispatch_sweeps.py in v0.5.4.
+from service.api_core.dispatch_sweeps import _mirror_missing_dispatch_handoff  # noqa: E402
 
-    return await _impl(*a, **k)
 
-
-async def _preflight_live_send_recipients(*a, **k):
-    from service.control_plane import _preflight_live_send_recipients as _impl
-
-    return await _impl(*a, **k)
+# Was a borrow shim: the owner lived in the control plane, which this module cannot import at
+# module level without a cycle. It moved to service/api_core/dispatch_runs.py in v0.5.4.
+from service.api_core.dispatch_runs import _preflight_live_send_recipients  # noqa: E402
 
 
 
-async def _run_contract_reminders_once(*a, **k):
-    from service.control_plane import _run_contract_reminders_once as _impl
-
-    return await _impl(*a, **k)
+# Was a borrow shim: the owner lived in the control plane, which this module cannot import at
+# module level without a cycle. It moved to service/api_core/dispatch_sweeps.py in v0.5.4.
+from service.api_core.dispatch_sweeps import _run_contract_reminders_once  # noqa: E402
 
 
 

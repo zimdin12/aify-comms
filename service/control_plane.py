@@ -33,39 +33,25 @@ import json
 import sqlite3
 import re
 import time
-import uuid
-from typing import Any, Optional
 
-from fastapi import Request
 
 # _listen_events moved to service/longpoll.py in v0.5.4 with `_wake_agent` — that module already
 # owned the other waiter registry, and the identity gate names it as the sole owner.
 
 from service.api_core.status_decision import StatusFacts, _decide_effective_status
 from service.config import get_config
-from service.api_core.dispatch_run_state import _append_dispatch_control, _finalize_dispatch_runs
-from service.api_core.dispatch_text import _auto_handoff_body_for_run
-from service.api_core.active_run_lookup import (
-    _find_mergeable_queued_run,
-)
-from service.api_core.managed_env import _managed_environment_unavailable_reason
-from service.api_core.events import (
-    _append_dispatch_event,
-)
 # v0.5.2a: the shared route class lives with the domain-router factory so no domain can build a
 # router without the SQLite lock-retry. See service/api_core/routing.py.
-from service.api_core.ws import _get_ws  # v0.5.1h: accessor only; manager stays on app.state
-from service.api_core.settings import _load_settings
 from service.api_core.validation import SAFE_NAME_RE, validate_name  # v0.5.1f: one owner
 from service.api_core.runtime import (  # v0.5.1e: single owner, resolved against the contract
     _normalize_runtime,
-    _normalize_session_mode,
 )
-from service.api_core.serialization import (  # v0.5.1c: single owner, no copy
-    _json_loads_or,
-    _row_require_reply,
+from service.api_core.dispatch_runs import (
+    _create_dispatch_runs,
 )
-from service.api_core.claim_gating import _dispatch_message_id_for_recipient
+from service.api_core.dispatch_sweeps import (
+    _run_contract_reminders_once,
+)
 from service.api_core.status_refresh import (
     _compute_agent_status,
     _refresh_agent_live_state,
@@ -87,13 +73,6 @@ from service.clock import now as _now
 # writes landing in different ones — silently. Reach it as `status_cache._LIVE_STATE_CACHE`.
 # `service/tests/test_process_global_identity.py` fails the suite if that rule is broken.
 from service.env_status import environment_effective_status as _environment_effective_status
-from service.api_core.dispatch_state import _get_dispatch_state_for_agent
-from service.api_core.turn_state import (  # v0.5.4: moved out; the control plane is now a CALLER
-    _turn_busy_state,
-)
-from service.api_core.channel_delivery import (  # v0.5.4: moved out; the control plane is now a CALLER
-    _apply_channel_routing_to_claude_runs,
-)
 from service.api_core.recovery_writes import (  # v0.5.4: moved out; the control plane is now a CALLER
     _requeue_instead_of_failing_undelivered_claim,
 )
@@ -103,24 +82,13 @@ from service.api_core.managed_env import (  # v0.5.4: moved out; the control pla
     _managed_console_is_booting,
 )
 from service.api_core.liveness import (  # v0.5.4: moved out; the control plane is now a CALLER
-    _resident_bridge_is_fresh,
     ACTIVE_RUN_BRIDGE_STALE_SECONDS,
     _has_live_terminal_session,
-)
-from service.api_core.reply_contract import (  # v0.5.4: moved out; the control plane is now a CALLER
-    _contract_list_query,
-    _contract_reminder_body,
-    _contract_reminder_is_full,
-)
-from service.api_core.dispatch_text import (  # v0.5.4: moved out; the control plane is now a CALLER
-    _auto_handoff_subject_for_run,
-    _build_pending_dispatch_subject,
 )
 from service.api_core.records import (
     # v0.5.4: moved out; the control plane is now a CALLER,
     _agent_record_to_dict,
     _row_status_note,
-    _status_with_dispatch,
 )
 from service.api_core.capabilities import (  # v0.5.4: moved out; the control plane is now a CALLER
     _has_live_rpc_controller,
@@ -198,20 +166,11 @@ from service.models import (
 # v0.5.3: the ROUTER COMPOSITION that used to live here moved to service/routers/api_v2.py,
 # which is now nothing but composition. This module is the control plane: helpers, constants
 # and the two queue classes. It declares no routes and owns no router.
-from service.api_core.dispatch_state import (  # v0.5.4: moved out; the carrier is a CALLER
-    _DISPATCH_TERMINAL_STATUSES,
-    _is_delivery_only_claude_run,
-)
 from service.api_core.dispatch_text import (  # v0.5.4: moved out; the carrier is a CALLER
     _pending_dispatch_count,
 )
-from service.api_core.execution_mode import (  # v0.5.4: both moved out of this file
-    _agent_execution_mode,
-    _auto_return_resident_to_managed_if_possible,
-)
 from service.api_core.active_run_discard import (  # v0.5.4: moved out; the carrier is a CALLER
     _discard_unclaimable_active_run,
-    _discard_unusable_active_run,
     _fail_stale_active_run,
 )
 from service.terminal_write_queue import (  # v0.5.4: moved out; the control plane is now a CALLER
@@ -819,16 +778,6 @@ LIST_AGENTS_REFRESH_LIMIT = 8
 # _managed_environment_status moved to service/api_core/managed_env.py in v0.5.4.
 
 
-from service.api_core.capabilities import (
-    _row_capabilities,
-)
-from service.api_core.reply_contract import _contract_reminder_due
-from service.api_core.dispatch_buffer import (
-    _DISPATCH_BUFFER_CAP,
-    _append_pending_dispatch_body,
-    _dispatch_buffer_full_hint,
-)
-from service.api_core.dispatch_hint import _dispatch_fix_hint
 
 # Grace before a spawn is finalized because its bound terminal reached a terminal
 # status. Deliberately SHORTER than SPAWN_ORPHAN_GRACE_SECONDS: that reaper infers
@@ -898,157 +847,6 @@ from service.api_core.dispatch_hint import _dispatch_fix_hint
 
 
 
-async def _preflight_live_send_recipients(
-    db,
-    recipients: list[str],
-    *,
-    allow_steer: bool = False,
-    allow_queue_busy: bool = False,
-) -> tuple[list[tuple[str, str]], list[dict[str, Any]]]:
-    """Return launchable recipients or per-recipient reasons without writing messages.
-
-    Normal chat is live-wake-only: do not leave future inbox work behind when a
-    recipient cannot start handling the message now.
-    """
-    settings = await _load_settings(db)
-    launchable: list[tuple[str, str]] = []
-    not_started: list[dict[str, Any]] = []
-    unavailable_statuses = {"offline", "stale", "stopped"}
-    allow_busy_enqueue = allow_queue_busy or allow_steer
-
-    for recipient_id in recipients:
-        agent_cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))
-        row = await agent_cursor.fetchone()
-        if not row:
-            not_started.append(_dispatch_fix_hint(recipient_id, None, "agent is not registered"))
-            continue
-        row, _transition = await _auto_return_resident_to_managed_if_possible(db, row, settings=settings)
-        if _normalize_runtime(row["runtime"] or "") == "pi":
-            runtime_state = _json_loads_or(row["runtime_state"], {})
-            if runtime_state.get("pi_resident_pending_flip"):
-                hint = _dispatch_fix_hint(
-                    recipient_id,
-                    row,
-                    "agent is migrating from resident to managed (pi flip pending)",
-                )
-                hint["recipientStatus"] = "migrating"
-                hint["fix"] = (
-                    f'Agent "{recipient_id}" is migrating from resident to managed. '
-                    "Retry after the drain loop flips the agent once active runs complete."
-                )
-                not_started.append(hint)
-                continue
-        if _normalize_session_mode(row["session_mode"] or "resident") == "resident":
-            if not await _resident_bridge_is_fresh(db, row, lease_seconds=settings.get("resident_lease_seconds", 150)):
-                hint = _dispatch_fix_hint(recipient_id, row, "resident bridge heartbeat is gone; restart the resident wrapper or switch to managed")
-                hint["recipientStatus"] = "offline"
-                not_started.append(hint)
-                continue
-
-        dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
-        active = dispatch_state.get("activeRun")
-        if active and await _discard_unusable_active_run(db, recipient_id, active):
-            dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
-        base_status = await _compute_agent_status(row, db)
-        effective_status = _status_with_dispatch(base_status, dispatch_state)
-
-        if effective_status in unavailable_statuses:
-            hint = _dispatch_fix_hint(recipient_id, row, f'agent status is "{effective_status}"')
-            hint["recipientStatus"] = effective_status
-            not_started.append(hint)
-            continue
-
-        execution_mode, reason = _agent_execution_mode(row, settings=settings)
-        if reason or not execution_mode:
-            hint = _dispatch_fix_hint(recipient_id, row, reason or "active dispatch unavailable")
-            hint["recipientStatus"] = effective_status
-            not_started.append(hint)
-            continue
-
-        environment_reason = await _managed_environment_unavailable_reason(db, row)
-        if environment_reason:
-            hint = _dispatch_fix_hint(recipient_id, row, environment_reason)
-            hint["recipientStatus"] = "offline"
-            not_started.append(hint)
-            continue
-
-        if dispatch_state.get("hasActiveRun"):
-            active = dispatch_state.get("activeRun") or {}
-            capabilities = _row_capabilities(row)
-            if allow_steer and "steer" in capabilities:
-                launchable.append((recipient_id, execution_mode))
-                continue
-            if allow_busy_enqueue:
-                launchable.append((recipient_id, execution_mode))
-                continue
-            hint = _dispatch_fix_hint(recipient_id, row, "agent is working")
-            hint["recipientStatus"] = "working"
-            hint["activeRun"] = active
-            active_suffix = f" on {active.get('runId')}" if active.get("runId") else ""
-            hint["fix"] = (
-                f'Agent "{recipient_id}" is already working{active_suffix}. '
-                "Wait, interrupt the active run, or send with steer=true so aify can inject now when supported and queue/merge as the next-turn fallback otherwise."
-            )
-            not_started.append(hint)
-            continue
-
-        queued_runs = int(dispatch_state.get("queuedRuns") or 0)
-        if queued_runs > 0:
-            if allow_busy_enqueue:
-                launchable.append((recipient_id, execution_mode))
-                continue
-            hint = _dispatch_fix_hint(recipient_id, row, "agent already has queued work")
-            hint["recipientStatus"] = effective_status
-            hint["queuedRuns"] = queued_runs
-            hint["fix"] = (
-                f'Agent "{recipient_id}" already has {queued_runs} queued run(s). '
-                "Wait for the queue to drain, cancel stale runs, or send normally so aify can steer or merge when possible. Use queueIfBusy=true only when you intentionally want next-turn delivery."
-            )
-            not_started.append(hint)
-            continue
-
-        # WS5 Task 5.1b REVERSED (2026-06-02): the deaf-target fail-fast was
-        # removed. A send to a managed sidecar-delivery target whose delivery loop
-        # released/lost its claimer lease previously failed fast (ok:false, no run)
-        # — but in live use that LOST messages to an agent that was merely
-        # mid-restart (lease released then re-acquired moments later). The operator
-        # reversed the decision: ALWAYS QUEUE here. The
-        # `_reap_undeliverable_queued_runs` backstop reaper is now the sole safety
-        # net — it fails a queued run only after it has been genuinely
-        # undeliverable for the backstop window. `_managed_target_is_deaf` was
-        # REMOVED in v0.5 after it was proven that nothing ever used it for the
-        # status/deliverability classification it had been retained for; the lease
-        # helpers and that backstop are what remain.
-        launchable.append((recipient_id, execution_mode))
-
-    return launchable, not_started
-
-
-
-
-
-
-
-
-
-
-
-
-# _terminal_status_transition moved to service/routers/terminals.py in v0.5.3, then on to
-# service/api_core/terminal_status.py in v0.5.4.
-
-
-
-
-# class TerminalOutputWriteQueue moved to service/terminal_write_queue.py in v0.5.4,
-# with its singleton. It is not an api_core leaf: it owns its own transaction.
-
-
-# TERMINAL_OUTPUT_WRITES moved to service/terminal_write_queue.py in v0.5.4 —
-# the declaration must stay beside the class so a second instance cannot appear.
-
-
-    await TERMINAL_OUTPUT_WRITES.flush_all()
 
 # _release_stale_console_owner_for_claim moved to service/routers/dispatch_messages/shared.py in
 # v0.5.3, then on to service/api_core/claim_gating.py in v0.5.4.
@@ -1100,18 +898,9 @@ async def _preflight_live_send_recipients(
 
 
 
-_PRIORITY_ORDER = {"normal": 0, "high": 1, "urgent": 2}
 # _MERGED_DISPATCH_HEADER moved to service/api_core/dispatch_text.py in v0.5.4.
 # _MERGED_DISPATCH_FOOTER moved to service/api_core/dispatch_text.py in v0.5.4.
 # _DISPATCH_BUFFER_CAP moved to service/api_core/dispatch_buffer.py in v0.5.4.
-
-
-def _stronger_priority(left: str, right: str) -> str:
-    left_key = str(left or "normal").strip().lower() or "normal"
-    right_key = str(right or "normal").strip().lower() or "normal"
-    return left_key if _PRIORITY_ORDER.get(left_key, 0) >= _PRIORITY_ORDER.get(right_key, 0) else right_key
-
-
 
 
 
@@ -1155,245 +944,6 @@ def _stronger_priority(left: str, right: str) -> str:
 
 
 # _discard_unusable_active_run moved to service/api_core/active_run_discard.py in v0.5.4.
-
-
-
-
-
-async def _create_dispatch_runs(
-    db,
-    recipients: list[str],
-    *,
-    from_agent: str,
-    message_type: str,
-    subject: str,
-    body: str,
-    priority: str,
-    in_reply_to: Optional[str],
-    dispatch_mode: str,
-    execution_mode: str,
-    requested_runtime: Optional[str],
-    message_id: Optional[str] = None,
-    source_message_ids: Optional[dict[str, str]] = None,
-    steer: bool = False,
-    queue_if_busy: bool = False,
-    require_reply: bool = False,
-    allow_merge: bool = True,
-):
-    runs = []
-    requested_at = _now()
-    for recipient_id in recipients:
-        source_message_id = _dispatch_message_id_for_recipient(
-            recipient_id,
-            message_id=message_id,
-            source_message_ids=source_message_ids,
-        )
-        # steer=true: if target has an active run, deliver as a steer
-        # control on that run (injected between tool calls) instead of
-        # queuing a new dispatch. Symmetric for Claude and Codex.
-        if steer:
-            row_cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))
-            recipient_row = await row_cursor.fetchone()
-            capabilities = _row_capabilities(recipient_row) if recipient_row else []
-            active_state = await _get_dispatch_state_for_agent(db, recipient_id)
-            active_run = active_state.get("activeRun")
-            if active_run and await _discard_unusable_active_run(db, recipient_id, active_run):
-                active_state = await _get_dispatch_state_for_agent(db, recipient_id)
-                active_run = active_state.get("activeRun")
-            active_execution_mode = str((active_run.get("executionMode") if active_run else "") or "").strip().lower()
-            recipient_runtime = _normalize_runtime((recipient_row["runtime"] if recipient_row else "") or requested_runtime)
-            # ASYMMETRY(hermes): its gateway sidecar does not consume dispatch_controls;
-            # route channel/resident steer through its claim loop and native session.steer.
-            steer_via_claim = recipient_runtime == "hermes" and active_execution_mode in {"channel", "resident"}
-            if steer and active_run and "steer" in capabilities and not steer_via_claim:
-                steer_body = f"[Message from {from_agent}]\nSubject: {subject}\n\n{body}"
-                control_id = await _append_dispatch_control(
-                    db,
-                    active_run["runId"],
-                    from_agent=from_agent,
-                    action="steer",
-                    body=steer_body,
-                    source_message_id=source_message_id,
-                )
-                steer_contract_run_id = None
-                if source_message_id:
-                    steer_contract_run_id = f"run_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-                    await db.execute(
-                        """
-                        INSERT INTO dispatch_runs (
-                            id, message_id, from_agent, target_agent, dispatch_mode, execution_mode, requested_runtime,
-                            message_type, subject, body, priority, in_reply_to, status, require_reply, requested_at
-                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                        """,
-                        (
-                            steer_contract_run_id,
-                            source_message_id,
-                            from_agent,
-                            recipient_id,
-                            "steer",
-                            execution_mode,
-                            requested_runtime or "",
-                            message_type,
-                            subject,
-                            body,
-                            priority,
-                            in_reply_to,
-                            "delivered",
-                            1 if require_reply else 0,
-                            requested_at,
-                        ),
-                    )
-                    await _append_dispatch_event(
-                        db,
-                        steer_contract_run_id,
-                        "steered",
-                        f"Delivered as steer control {control_id} into active run {active_run['runId']}",
-                    )
-                runs.append({
-                    "runId": active_run["runId"],
-                    "targetAgentId": recipient_id,
-                    "status": "steered",
-                    "steered": True,
-                    "requireReply": require_reply,
-                    "controlId": control_id,
-                    "contractRunId": steer_contract_run_id,
-                    "steeredIntoActiveRun": {
-                        "runId": active_run["runId"],
-                        "status": active_run["status"],
-                        "subject": active_run["subject"],
-                    },
-                })
-                continue
-
-        # allow_merge=False (channel offline-replay, #238): a merge folds this dispatch
-        # into an existing queued run but KEEPS that run's original message_id (see the
-        # "Keep message_id … pointing at the FIRST item" comment below), so the replayed
-        # message's fanout id would NEVER land on any run — the replay watermark
-        # (NOT EXISTS dispatch_runs WHERE message_id = fanout_id) would stay true and the
-        # reconciler would re-replay it every 60s sweep, appending the body forever. The
-        # replay must therefore insert a DEDICATED run keyed on its own message_id.
-        mergeable_run = None
-        if allow_merge:
-            mergeable_run = await _find_mergeable_queued_run(
-                db,
-                recipient_id=recipient_id,
-                from_agent=from_agent,
-            )
-        if mergeable_run:
-            merge_result = _append_pending_dispatch_body(
-                mergeable_run,
-                from_agent=from_agent,
-                message_type=message_type,
-                subject=subject,
-                body=body,
-                priority=priority,
-                requested_at=requested_at,
-                message_id=source_message_id,
-                in_reply_to=str(in_reply_to or ""),
-            )
-            if merge_result is None:
-                # Buffer cap hit. Surface a rejection without dropping the existing
-                # buffered run. Caller propagates this into notStarted.
-                current_count = _pending_dispatch_count(str(mergeable_run["body"] or ""))
-                row_cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))
-                recipient_row = await row_cursor.fetchone()
-                recipient_status = "unknown"
-                has_active = False
-                if recipient_row:
-                    settings = await _load_settings(db)
-                    recipient_status = await _compute_agent_status(recipient_row, db)
-                    dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
-                    has_active = bool(dispatch_state.get("hasActiveRun"))
-                    recipient_status = _status_with_dispatch(recipient_status, dispatch_state)
-                rejection_hint = _dispatch_buffer_full_hint(
-                    recipient_id,
-                    recipient_row,
-                    from_agent=from_agent,
-                    current_count=current_count,
-                    recipient_status=recipient_status,
-                    has_active_run=has_active,
-                )
-                await _append_dispatch_event(
-                    db,
-                    mergeable_run["id"],
-                    "buffer_full",
-                    f"Rejected dispatch from {from_agent}: buffer cap {_DISPATCH_BUFFER_CAP} reached",
-                )
-                runs.append({
-                    "runId": None,
-                    "targetAgentId": recipient_id,
-                    "status": "rejected",
-                    "rejected": True,
-                    "rejectionHint": rejection_hint,
-                })
-                continue
-
-            merged_body, merged_count = merge_result
-            # Keep message_id and in_reply_to pointing at the FIRST item that
-            # opened this buffered run. Per-item ids are preserved in the body
-            # text so the receiver can still pull each original from inbox.
-            # GUARDED merge (review must-fix, 2026-06-10): the run was read as 'queued' but a
-            # concurrent /dispatch/claim (BEGIN IMMEDIATE) can flip it to 'claimed' between the
-            # read and this write — the bridge then delivers the PRE-merge body and completes the
-            # run, silently losing the merged message. Guard on status='queued' and check
-            # rowcount: 0 rows updated → the run was claimed mid-merge → fall through to insert a
-            # FRESH queued run instead.
-            merge_cursor = await db.execute(
-                """
-                UPDATE dispatch_runs
-                SET subject = ?, body = ?, priority = ?, dispatch_mode = ?, message_type = ?, require_reply = ?,
-                    queue_if_busy = ?, steer_if_busy = ?
-                WHERE id = ? AND status = 'queued'
-                """,
-                (
-                    _build_pending_dispatch_subject(merged_count, subject),
-                    merged_body,
-                    _stronger_priority(mergeable_run["priority"], priority),
-                    "require_start" if mergeable_run["dispatch_mode"] == "require_start" or dispatch_mode == "require_start" else mergeable_run["dispatch_mode"],
-                    message_type,
-                    1 if (bool(mergeable_run["require_reply"]) or require_reply) else 0,
-                    1 if (bool(mergeable_run["queue_if_busy"]) or queue_if_busy) else 0,
-                    1 if (bool(mergeable_run["steer_if_busy"]) or steer) else 0,
-                    mergeable_run["id"],
-                ),
-            )
-            if merge_cursor.rowcount and merge_cursor.rowcount > 0:
-                await _append_dispatch_event(
-                    db,
-                    mergeable_run["id"],
-                    "merged",
-                    f"Buffered update from {from_agent}: {subject}",
-                )
-                runs.append({
-                    "runId": mergeable_run["id"],
-                    "targetAgentId": recipient_id,
-                    "status": "queued",
-                    "merged": True,
-                    "mergedCount": merged_count,
-                    "requireReply": bool(mergeable_run["require_reply"]) or require_reply,
-                })
-                continue
-            # else: claimed mid-merge — fall through to the fresh-insert path below.
-
-        run_id = f"run_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-        await db.execute(
-            """
-            INSERT INTO dispatch_runs (
-                id, message_id, from_agent, target_agent, dispatch_mode, execution_mode, requested_runtime,
-                message_type, subject, body, priority, in_reply_to, status, require_reply,
-                queue_if_busy, steer_if_busy, requested_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                run_id, source_message_id or None, from_agent, recipient_id, dispatch_mode, execution_mode, requested_runtime or "",
-                message_type, subject, body, priority, in_reply_to, "queued", 1 if require_reply else 0,
-                1 if queue_if_busy else 0, 1 if steer else 0, requested_at
-            )
-        )
-        await _append_dispatch_event(db, run_id, "queued", f"{message_type}: {subject}")
-        runs.append({"runId": run_id, "targetAgentId": recipient_id, "status": "queued", "requireReply": require_reply})
-    return runs
-
 
 
 
@@ -1443,113 +993,6 @@ _UNTHREADED_HANDOFF_WINDOW_MS = 24 * 60 * 60 * 1000
 
 
 # _is_provider_rate_limit_error moved to service/api_core/dispatch_text.py in v0.5.4.
-
-
-
-async def _mirror_missing_dispatch_handoff(db, row) -> Optional[str]:
-    if not row or not _row_require_reply(row) or str(row["result_message_id"] or "").strip():
-        return None
-    if _is_delivery_only_claude_run(row):
-        return None
-
-    status = str(row["status"] or "").strip().lower()
-    if status not in _DISPATCH_TERMINAL_STATUSES:
-        return None
-
-    ts = int(time.time() * 1000)
-    message_id = f"{ts}-{uuid.uuid4().hex[:8]}"
-    message_type = "error" if status == "failed" else "response"
-    from_agent = str(row["target_agent"] or "").strip()
-    to_agent = str(row["from_agent"] or "").strip()
-    subject = _auto_handoff_subject_for_run(row)
-    body = _auto_handoff_body_for_run(row)
-    priority = row["priority"] or "normal"
-    launchable_recipients: list[tuple[str, str]] = []
-    not_started: list[dict[str, Any]] = []
-    if to_agent and to_agent != "dashboard":
-        launchable_recipients, not_started = await _preflight_live_send_recipients(
-            db,
-            [to_agent],
-            allow_steer=True,
-            allow_queue_busy=True,
-        )
-
-    await db.execute(
-        """
-        INSERT INTO messages (
-            id, from_agent, to_agent, source, type, subject, body, priority,
-            dispatch_requested, in_reply_to, timestamp
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-        """,
-        (
-            message_id,
-            from_agent,
-            to_agent,
-            "direct",
-            message_type,
-            subject,
-            body,
-            priority,
-            1 if launchable_recipients else 0,
-            row["message_id"],
-            ts,
-        ),
-    )
-    await db.execute(
-        "UPDATE dispatch_runs SET result_message_id = ? WHERE id = ?",
-        (message_id, row["id"]),
-    )
-    await _append_dispatch_event(
-        db,
-        row["id"],
-        "handoff",
-        f"Auto-mirrored missing handoff to {to_agent}",
-    )
-    if launchable_recipients:
-        delivery_runs = await _create_dispatch_runs(
-            db,
-            [recipient_id for recipient_id, _ in launchable_recipients],
-            from_agent=from_agent,
-            message_type=message_type,
-            subject=subject,
-            body=body,
-            priority=priority,
-            in_reply_to=row["message_id"],
-            dispatch_mode="start_if_possible",
-            execution_mode="managed",
-            requested_runtime=None,
-            message_id=message_id,
-            steer=True,
-            require_reply=False,
-        )
-        # Auto-mirrored handoff dispatches for managed claude must also
-        # honor insert_messages_via_console=false (channel-route default).
-        settings_for_handoff = await _load_settings(db)
-        await _apply_channel_routing_to_claude_runs(db, delivery_runs, settings_for_handoff)
-        delivery_runs = await _finalize_dispatch_runs(
-            db,
-            delivery_runs,
-            launchable_recipients,
-            not_started,
-        )
-        run_ids = [str(run.get("runId") or "") for run in delivery_runs if run.get("runId")]
-        if run_ids:
-            await _append_dispatch_event(
-                db,
-                row["id"],
-                "handoff",
-                f"Queued mirrored handoff delivery to {to_agent}: {', '.join(run_ids)}",
-            )
-    elif not_started:
-        reasons = "; ".join(str(item.get("reason") or "not startable") for item in not_started)
-        await _append_dispatch_event(
-            db,
-            row["id"],
-            "handoff",
-            f"Mirrored handoff stored for {to_agent}; live delivery not queued: {reasons}",
-        )
-    return message_id
-
 
 
 
@@ -1809,185 +1252,6 @@ _CONSOLE_TAIL_MAX_BYTES = 16 * 1024
 
 
 # _contract_reminder_body moved to service/api_core/reply_contract.py in v0.5.4.
-
-
-async def _run_contract_reminders_once(
-    db,
-    *,
-    request: Optional[Request] = None,
-    run_id: Optional[str] = None,
-    dry_run: bool = False,
-    limit: int = 50,
-    now_s: Optional[float] = None,
-    recent_only: bool = False,
-    target_agent_id: Optional[str] = None,
-    ignore_repeat: bool = False,
-) -> dict[str, Any]:
-    settings = await _load_settings(db)
-    where = [
-        "AND COALESCE(r.result_message_id, '') = ''",
-        "AND r.status NOT IN ('completed','failed','cancelled')",
-        "AND r.from_agent != r.target_agent",
-        "AND r.target_agent != 'dashboard'",
-    ]
-    params: list[Any] = []
-    if run_id:
-        where.append("AND r.id = ?")
-        params.append(run_id)
-    if target_agent_id:
-        where.append("AND r.target_agent = ?")
-        params.append(str(target_agent_id).strip())
-    if recent_only:
-        stale_hours = max(1, int(settings.get("contract_stale_hours", 24) or 24))
-        where.append("AND datetime(r.requested_at) >= datetime('now', ?)")
-        params.append(f"-{stale_hours} hours")
-    params.append(limit)
-    cursor = await db.execute(_contract_list_query(where_sql="\n".join(where), order_sql="ORDER BY r.requested_at ASC"), params)
-    candidates = await cursor.fetchall()
-    reminded = []
-    skipped = []
-    now_s = now_s or time.time()
-    for row in candidates:
-        due, reason = _contract_reminder_due(row, settings=settings, now_s=now_s, ignore_repeat=ignore_repeat)
-        if not due:
-            skipped.append({"runId": row["id"], "reason": reason})
-            continue
-
-        terminal_blocked_without_live_backing = False
-        if (
-            str(row["dispatch_mode"] or "").strip().lower() == "terminal"
-            and str(row["status"] or "").strip().lower() in {"claimed", "running"}
-        ):
-            agent_row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (row["target_agent"],))).fetchone()
-            live_state = await _compute_live_status_cache(db, agent_row, settings=settings) if agent_row else {}
-            if str(live_state.get("status") or "").strip().lower() == "blocked":
-                live_reason = str(live_state.get("reason") or "").strip().lower()
-                if live_reason.startswith("awaiting console"):
-                    reason = "target is blocked awaiting operator input"
-                    skipped.append({"runId": row["id"], "targetAgentId": row["target_agent"], "reason": reason})
-                    await _append_dispatch_event(db, row["id"], "reply_reminder_skipped", reason)
-                    continue
-                if "no live terminal backing" in live_reason:
-                    terminal_blocked_without_live_backing = True
-
-        active_state = await _get_dispatch_state_for_agent(db, row["target_agent"])
-        # Busy = a claimed/running dispatch run OR a fresh turn_busy (the same
-        # definition the status engine + claim-gate use). Without the turn_busy
-        # half, a mid-turn agent with no tracked run (resident claude on its own
-        # turn) was reminder-nagged while it was clearly working.
-        #
-        # BUT: a delivered require_reply run sets turn_busy with turn_run_id =
-        # THAT run on its own delivery re-pulse. If we treat that as "busy" we
-        # skip THIS run's own reminder — forever — and the handoff never gets
-        # nudged, so the agent never replies and the run closes stale (confirmed
-        # deadlock: ~24 consecutive reply_reminder_skipped "target is busy" then
-        # "Closed stale delivered run requiring a reply"). So turn_busy only
-        # counts as busy-for-skip when it is for OTHER work — a DIFFERENT run id
-        # than the one we are about to remind. A claimed/running dispatch run
-        # (hasActiveRun) always counts: the agent is genuinely executing.
-        turn_fresh, turn_run_id = await _turn_busy_state(db, row["target_agent"])
-        busy_for_other_work = turn_fresh and turn_run_id != row["id"]
-        target_busy = bool(active_state.get("hasActiveRun")) or busy_for_other_work
-        if target_busy and not terminal_blocked_without_live_backing:
-            reason = "target is busy; reminder will be retried when the agent is idle"
-            skipped.append({"runId": row["id"], "targetAgentId": row["target_agent"], "reason": reason})
-            await _append_dispatch_event(db, row["id"], "reply_reminder_skipped", reason)
-            continue
-
-        subject = f"Reminder: reply overdue - {str(row['subject'] or row['id'])[:96]}"
-        # The reminder about to be sent is ordinal reminder_count + 1 (the
-        # contract query counts prior 'reply_reminder' events for this run).
-        prior_reminders = int((row["reminder_count"] if "reminder_count" in row.keys() else 0) or 0)
-        body = _contract_reminder_body(
-            row,
-            full=_contract_reminder_is_full(prior_reminders + 1, settings=settings),
-        )
-        if dry_run:
-            reminded.append({"runId": row["id"], "targetAgentId": row["target_agent"], "subject": subject, "dryRun": True})
-            continue
-
-        launchable, not_started = await _preflight_live_send_recipients(
-            db,
-            [row["target_agent"]],
-            allow_steer=True,
-            allow_queue_busy=True,
-        )
-        if not launchable:
-            skipped.append({"runId": row["id"], "targetAgentId": row["target_agent"], "reason": "target cannot receive live reminder", "notStarted": not_started})
-            await _append_dispatch_event(db, row["id"], "reply_reminder_skipped", json.dumps(not_started))
-            continue
-
-        message_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
-        timestamp_ms = int(time.time() * 1000)
-        await db.execute(
-            """
-            INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, timestamp)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                message_id,
-                row["from_agent"],
-                row["target_agent"],
-                "direct",
-                "info",
-                subject,
-                body,
-                "high" if str(row["priority"] or "").lower() == "urgent" else "normal",
-                1,
-                row["message_id"] or None,
-                timestamp_ms,
-            ),
-        )
-        runs = await _create_dispatch_runs(
-            db,
-            [target for target, _ in launchable],
-            from_agent=row["from_agent"],
-            message_type="info",
-            subject=subject,
-            body=body,
-            priority="high" if str(row["priority"] or "").lower() == "urgent" else "normal",
-            in_reply_to=row["message_id"] or None,
-            dispatch_mode="start_if_possible",
-            execution_mode="managed",
-            requested_runtime=None,
-            message_id=message_id,
-            source_message_ids={row["target_agent"]: message_id},
-            steer=True,
-            require_reply=False,
-        )
-        finalized = await _finalize_dispatch_runs(db, runs, launchable, not_started)
-        await _append_dispatch_event(db, row["id"], "reply_reminder", f"Sent reminder message {message_id}")
-        reminded.append({
-            "runId": row["id"],
-            "targetAgentId": row["target_agent"],
-            "messageId": message_id,
-            "dispatchRuns": finalized,
-        })
-
-    ws = await _get_ws(request) if request else None
-    if ws and reminded and not dry_run:
-        await ws.broadcast("contract_reminders_sent", {"count": len(reminded)})
-    return {"ok": True, "dryRun": dry_run, "reminded": reminded, "skipped": skipped}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

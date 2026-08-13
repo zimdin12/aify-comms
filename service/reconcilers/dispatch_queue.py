@@ -193,9 +193,9 @@ async def _mirror_undeliverable_queued_run_to_sender(db, row, *, reason: str) ->
 
 
 
-async def _create_dispatch_runs(*a, **k):
-    from service.control_plane import _create_dispatch_runs as _i
-    return await _i(*a, **k)
+# Was a borrow shim: the owner lived in the control plane, which a reconciler cannot import at
+# module level without a cycle. It moved to service/api_core/dispatch_runs.py in v0.5.4.
+from service.api_core.dispatch_runs import _create_dispatch_runs
 
 
 

@@ -41,15 +41,9 @@ router = domain_router()
 
 
 
-async def _run_contract_reminders_once(*a, **k):
-    """BORROWED from the router: still used by handlers that have not moved yet.
-
-    Function-scope import, so there is no module-level cycle — `api_v2` imports this domain at
-    import time, and this reaches back only when called, long after the router is loaded.
-    """
-    from service.control_plane import _run_contract_reminders_once as _impl
-
-    return await _impl(*a, **k)
+# Was a borrow shim: the owner lived in the control plane, which this module cannot import at
+# module level without a cycle. It moved to service/api_core/dispatch_sweeps.py in v0.5.4.
+from service.api_core.dispatch_sweeps import _run_contract_reminders_once  # noqa: E402
 
 
 

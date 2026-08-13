@@ -152,10 +152,9 @@ _SPAWN_MODES = {"managed-warm"}
 
 
 
-async def _create_dispatch_runs(*a, **k):
-    from service.control_plane import _create_dispatch_runs as _impl
-
-    return await _impl(*a, **k)
+# Was a borrow shim: the owner lived in the control plane, which this module cannot import at
+# module level without a cycle. It moved to service/api_core/dispatch_runs.py in v0.5.4.
+from service.api_core.dispatch_runs import _create_dispatch_runs  # noqa: E402
 
 
 
