@@ -82,14 +82,10 @@ from service.api_core.managed_env import (  # v0.5.4: moved out; the control pla
 )
 from service.api_core.liveness import (  # v0.5.4: moved out; the control plane is now a CALLER
     ACTIVE_RUN_BRIDGE_STALE_SECONDS,
-    _has_live_terminal_session,
 )
 from service.api_core.records import (
     # v0.5.4: moved out; the control plane is now a CALLER,
     _agent_record_to_dict,
-)
-from service.api_core.capabilities import (  # v0.5.4: moved out; the control plane is now a CALLER
-    _has_live_rpc_controller,
 )
 from service.env_status import _ENVIRONMENT_HEARTBEAT_STATUSES
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state

@@ -92,6 +92,51 @@ class PatchTargetsResolveTests(unittest.TestCase):
             "found no string patch targets at all; the matcher is broken, not the codebase",
         )
 
+    def test_nothing_patches_a_module_that_declares_no_functions(self):
+        """The silent-green case the docstring above disclaims — now decidable for one module.
+
+        Resolving a target proves a patch will BIND, not that production reads the name through that
+        module, and proving the latter in general needs call-graph analysis this repo does not have.
+        But there is a special case where no analysis is needed: **a module that declares no functions
+        calls nothing**, so a patch installed in its namespace cannot be consulted by it, and any
+        caller reached the real owner some other way. Every such patch is inert by construction.
+
+        `service/control_plane.py` became exactly that in v0.5.4 — 928 lines of constants, imports and
+        tombstones with zero `def`s — and three inert patches were found aimed at it: the agents
+        cached-read guard, and both fakes in `test_status_taxonomy`. All three passed green for as
+        long as they had been wrong.
+
+        The rule is stated over any module rather than hardcoding this one, so it keeps holding if a
+        different carrier is emptied later.
+        """
+        import ast as _ast
+
+        inert = []
+        for where, lineno, target in _patch_targets():
+            module_path, _, attr = target.rpartition(".")
+            if not module_path.startswith("service."):
+                continue
+            rel = REPO / (module_path.replace(".", "/") + ".py")
+            if not rel.exists():
+                continue
+            try:
+                tree = _ast.parse(rel.read_text(encoding="utf-8", errors="replace"))
+            except SyntaxError:
+                continue
+            declares_functions = any(
+                isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef)) for n in _ast.walk(tree)
+            )
+            if not declares_functions:
+                inert.append(f"{where}:{lineno}  {target}")
+
+        self.assertEqual(
+            inert,
+            [],
+            "a test patches a name in a module that declares NO functions. That module calls nothing, "
+            "so the mock is never consulted and the test asserts less than it appears to — patch the "
+            "module that CALLS the name instead:\n  " + "\n  ".join(inert),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

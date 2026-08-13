@@ -40,8 +40,13 @@ def test_managed_agent_no_worker_returns_available(monkeypatch):
     def fake_rpc(*args, **kwargs):
         return False
 
-    with mock.patch("service.control_plane._has_live_terminal_session", side_effect=fake_terminal), \
-         mock.patch("service.control_plane._has_live_rpc_controller", side_effect=fake_rpc):
+    # PATCH THE CALLER'S NAMESPACE. `_compute_agent_status` lives in `api_core/status_refresh.py` and
+    # imports both of these from their owners, so a patch aimed at `service.control_plane` — which
+    # merely re-exports them and, since v0.5.4, declares NO FUNCTIONS AT ALL — installs a mock nobody
+    # consults. Both patches here were inert, and the assertion below was passing against the real
+    # helpers rather than the fakes.
+    with mock.patch("service.api_core.status_refresh._has_live_terminal_session", side_effect=fake_terminal), \
+         mock.patch("service.api_core.status_refresh._has_live_rpc_controller", side_effect=fake_rpc):
         result = asyncio.run(_compute_agent_status(row, db=None))
         assert result == "available", f"managed-no-worker should be 'available', got {result!r}"
 
