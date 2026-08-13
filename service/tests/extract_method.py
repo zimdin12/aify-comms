@@ -680,6 +680,28 @@ def call_signature_violations(split_fn: ast.AST, helper_fn: ast.AST) -> list[str
     if problems_await:
         return problems_await
 
+    # MULTI-OUTPUT TARGET SHAPES the round trip cannot verify (v0.5.4, added with tuple support).
+    #
+    # `inline_back` proves a multi-output split by comparing target names against returned names.
+    # Any shape where that comparison is not meaningful must be REFUSED rather than compared
+    # loosely — an unverifiable input silently passing is the false-pass class this gate exists to
+    # prevent, and it is exactly how the earlier live-out and await holes behaved.
+    if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Tuple):
+        elts = stmt.targets[0].elts
+        if any(not isinstance(e, ast.Name) for e in elts):
+            return ["multi-output call unpacks into a non-Name target (attribute/subscript/starred); "
+                    "the round trip cannot verify element identity"]
+        body_tail = _helper_body(helper_fn)
+        returned = body_tail[-1].value if body_tail and isinstance(body_tail[-1], ast.Return) else None
+        if not isinstance(returned, ast.Tuple):
+            return ["multi-output call unpacks a helper whose trailing return is not a TUPLE literal; "
+                    "element identity is unverifiable"]
+        if any(not isinstance(e, ast.Name) for e in returned.elts):
+            return ["helper's returned tuple contains a non-Name element; element identity is unverifiable"]
+        if len(returned.elts) != len(elts):
+            return [f"multi-output arity mismatch: call unpacks {len(elts)} names, "
+                    f"helper returns {len(returned.elts)}"]
+
     args = helper_fn.args
     if args.defaults or args.kw_defaults:
         return ["helper has DEFAULT parameter values; outside the supported extraction dialect"]
@@ -880,11 +902,40 @@ def inline_back(split_fn: ast.AST, helper_fn: ast.AST) -> ast.AST:
         # block already computed it under that name. A self-assignment is a no-op, so dropping it
         # is a normalization, not a concession: keeping it would fail every correct extraction of
         # this shape and make the gate useless.
+        # MULTI-OUTPUT (v0.5.4): `a, b, c = _helper(...)` returning `return a, b, c`.
+        #
+        # Added because a real extraction needed it and the gate refused: the status derivation's
+        # decision block has THREE live-outs, and a verifier that can only express one would have
+        # forced either a worse split or no gate at all. It is a DIALECT CHANGE, so it landed as its
+        # own slice with the refusal probes below, not inside the production extraction.
+        #
+        # ORDER IS THE WHOLE RISK. `a, b = _h()` returning `(b, a)` is a transposition: same names,
+        # same types, silently swapped values. It is treated as NOT self-assigning, so inline-back
+        # emits `a, b = b, a`, which does not reconstruct the original and the round trip fails.
+        # That is the intended outcome — the one shape most likely to be wrong is the one the gate
+        # must not wave through.
+        def _names(node):
+            """The Name ids of a tuple target/value, or None if any element is not a plain Name."""
+            if not isinstance(node, ast.Tuple):
+                return None
+            ids = []
+            for elt in node.elts:
+                if not isinstance(elt, ast.Name):
+                    return None  # attribute/subscript/starred target: unverifiable, refuse below
+                ids.append(elt.id)
+            return ids
+
+        target_names = _names(targets[0]) if len(targets) == 1 else None
+        returned_names = _names(returned)
         self_assign = (
             len(targets) == 1
             and isinstance(targets[0], ast.Name)
             and isinstance(returned, ast.Name)
             and targets[0].id == returned.id
+        ) or (
+            target_names is not None
+            and returned_names is not None
+            and target_names == returned_names  # SAME NAMES IN THE SAME ORDER
         )
         if self_assign:
             body = body[:-1]
