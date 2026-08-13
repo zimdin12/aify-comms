@@ -27,7 +27,7 @@
     },
     {
       "path": "service/new_dashboard/app.js",
-      "reason": "QUANTIFIED 2026-08-13 in docs/APP_JS_STATE_MODULE_PACKET.md: 96 of 164 top-level functions (2,651 lines) touch the module-scope `state` object and cannot move while it lives here; only 23 functions (206 lines) are free, so relocation bottoms out near 4,700. Lifting it needs `state` moved to its own module - a design change, not a relocation, and an operator decision"
+      "reason": "CORRECTED 2026-08-14 by PROTOTYPE (docs/APP_JS_STATE_MODULE_PACKET.md): moving `state` out was measured, not inferred, and frees only ~202 lines - `state` is NOT the binding constraint. 122 of 164 functions call a sibling defined in app.js, and 141 of them sit in ONE connected component of 3,085 lines. Re-measured on the real file under ONE criterion: 11 functions (67 lines) plus one 22-line component are movable today, reaching ~4,814. Clearing this file needs that component broken, which is a redesign of the render flow, not a relocation"
     },
     {
       "path": "mcp/stdio/hermes-managed-host.js",
