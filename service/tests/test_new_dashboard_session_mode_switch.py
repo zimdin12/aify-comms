@@ -146,14 +146,19 @@ class NewDashboardSessionModeSwitchTests(unittest.TestCase):
         # exposes manual_session_mode (now one knob among many).
         self.assertIn('id="settings-form"', self.html, "Settings page must declare the settings-form host")
         self.assertIn('id="settings-save"', self.html, "Settings page must declare a Save button")
-        self.assertIn("SETTINGS_SCHEMA", self.script, "a schema-driven settings editor must exist")
-        self.assertIn("key: 'manual_session_mode'", self.script,
-                      "the settings schema must still expose manual_session_mode")
+        # The two script assertions here ("SETTINGS_SCHEMA" and "key: 'manual_session_mode'") were
+        # RETIRED in v0.5.4: the schema moved to service/new_dashboard/settings-panel.mjs and is now
+        # asserted by settings-panel.test.mjs, which READS the schema object rather than grepping for
+        # its text -- it checks the key is present AND that its type is still a toggle, which the
+        # string match could not. The HTML assertions above stay: they are a real cross-file contract
+        # with index.html that the replacement does not cover.
 
-    def test_render_settings_builds_from_state_and_schema(self):
-        self.assertIn("function renderSettings()", self.script, "renderSettings() must be defined")
-        self.assertIn("state.settings", self.script, "renderSettings must read from state.settings")
-        self.assertIn("SETTINGS_SCHEMA.map", self.script, "renderSettings must build groups from the schema")
+    # test_render_settings_builds_from_state_and_schema was RETIRED in v0.5.4 and replaced by
+    # service/new_dashboard/settings-panel.test.mjs, which CALLS renderSettings against a fake DOM and
+    # asserts the rendered output: one tab and one panel per schema group, the Help tab, the active tab
+    # marked, and the in-progress-edit guard behaving -- a focused INPUT must not be rebuilt out from
+    # under the operator, while a focused TAB must still switch. That last distinction is a bug that
+    # actually shipped (2026-06-29) and no source regex can tell the fixed version from the broken one.
 
     def test_save_handler_puts_settings(self):
         self.assertIn("async function saveSettings()", self.script, "saveSettings helper must be defined")

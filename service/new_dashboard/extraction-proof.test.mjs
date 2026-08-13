@@ -207,6 +207,25 @@ const EXTRACTIONS = [
       { name: "sessionGroupCollapsed", at: 1805, marker: "// sessionGroupCollapsed moved to ./session-rail.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "settings-panel.mjs",
+    importLine: "import { previewAppearance, refreshActiveTerminalTheme, renderSettings, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';",
+    items: [
+      { name: "EFFORT_OPTS", at: 988, marker: "// EFFORT_OPTS moved to ./settings-panel.mjs in v0.5.4." },
+      { name: "PI_EFFORT_OPTS", at: 990, marker: "// PI_EFFORT_OPTS moved to ./settings-panel.mjs in v0.5.4." },
+      { name: "SETTINGS_SCHEMA", at: 991, marker: "// SETTINGS_SCHEMA moved to ./settings-panel.mjs in v0.5.4." },
+      { name: "SETTINGS_TAB_LABELS", at: 1051, marker: "// SETTINGS_TAB_LABELS moved to ./settings-panel.mjs in v0.5.4." },
+      { name: "SETTINGS_TAB_DESC", at: 1055, marker: "// SETTINGS_TAB_DESC moved to ./settings-panel.mjs in v0.5.4." },
+      { name: "HELP_TAB", at: 1063, marker: "// HELP_TAB moved to ./settings-panel.mjs in v0.5.4." },
+      { name: "activeSettingsTab", at: 1110, marker: "// activeSettingsTab moved to ./settings-panel.mjs in v0.5.4." },
+      { name: "renderSettings", at: 1118, marker: "// renderSettings moved to ./settings-panel.mjs in v0.5.4." },
+      { name: "readAppearanceInputs", at: 1147, marker: "// readAppearanceInputs moved to ./settings-panel.mjs in v0.5.4." },
+      { name: "previewAppearance", at: 1159, marker: "// previewAppearance moved to ./settings-panel.mjs in v0.5.4." },
+      { name: "terminalAccentColor", at: 1875, marker: "// terminalAccentColor moved to ./settings-panel.mjs in v0.5.4." },
+      { name: "terminalThemeFromDashboard", at: 1883, marker: "// terminalThemeFromDashboard moved to ./settings-panel.mjs in v0.5.4." },
+      { name: "refreshActiveTerminalTheme", at: 1901, marker: "// refreshActiveTerminalTheme moved to ./settings-panel.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -221,6 +240,7 @@ const MODULES = () => ({
   "state.mjs": read("state.mjs"),
   "ui.js": read("ui.js"),
   "session-rail.mjs": read("session-rail.mjs"),
+  "settings-panel.mjs": read("settings-panel.mjs"),
 });
 
 function rebuild(overrides = {}) {
@@ -342,12 +362,18 @@ test("reconstruction FAILS when a body is restored at the wrong line", () => {
 
 test("reconstruction FAILS when whitespace outside the extracted spans moves", () => {
   const original = read("app.js");
-  // VERIFY THE TAMPER LANDED before reading the result. My first version replaced a string that does not
-  // occur in app.js, so it tampered with nothing and the test passed while proving nothing — the same
-  // class as a mutation applied to a docstring instead of to code.
-  const needle = "const SETTINGS_SCHEMA = [";
-  assert.ok(original.includes(needle), "the tamper target must exist in app.js");
-  const tampered = original.replace(needle, "const  SETTINGS_SCHEMA = [");
+  // VERIFY THE TAMPER LANDED before reading the result. An early version replaced a string that does not
+  // occur in app.js, so it tampered with nothing and passed while proving nothing — the same class as a
+  // mutation applied to a docstring instead of to code.
+  //
+  // THE TARGET IS THE FIRST LINE, not a named declaration. It used to be `const SETTINGS_SCHEMA = [`,
+  // and the settings-panel slice moved that out of app.js — so this test failed because the extraction
+  // it was meant to guard had SUCCEEDED. Five gates in this series have now been anchored to something
+  // the decomposition was busy removing. Every slice relocates declarations; none of them relocates the
+  // top of the file, so a line-zero anchor cannot go stale the same way.
+  const lines = original.split(LF);
+  assert.ok(lines[0].length > 0, "app.js must start with a non-empty line to tamper with");
+  const tampered = [`${lines[0]} `, ...lines.slice(1)].join(LF);
   assert.notEqual(tampered, original, "the tamper must actually change the source");
   assert.notEqual(rebuild({ after: tampered }), read(PRISTINE));
 });

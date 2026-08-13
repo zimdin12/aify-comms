@@ -36,6 +36,7 @@ import { applyRenderedWidth } from './terminal-width.mjs';
 import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
 import { state } from './state.mjs';
 import { SESSION_FILTER_KINDS, agentForSession, renderSessionRail, selectedSessionIds } from './session-rail.mjs';
+import { previewAppearance, refreshActiveTerminalTheme, renderSettings, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
 
 function resolveApiOrigin() {
   const params = new URLSearchParams(location.search);
@@ -921,74 +922,16 @@ function renderAll() {
 // Settings parity (Phase 1.7): curated, GROUPED editor over PUT /settings (which merges a
 // partial). Rare/advanced knobs stay on the classic dashboard. Each item: key + type
 // (toggle/number/text/select). The effort selects use the standard tiers.
-const EFFORT_OPTS = ['low', 'medium', 'high', 'xhigh'];
+// EFFORT_OPTS moved to ./settings-panel.mjs in v0.5.4.
 // Pi accepts an empty effort meaning "OMP default" — preserve that as a selectable option.
-const PI_EFFORT_OPTS = ['', 'low', 'medium', 'high', 'xhigh'];
-const SETTINGS_SCHEMA = [
-  { group: 'Appearance', appearance: true, items: [
-    { key: 'dashboard_theme', label: 'Color scheme', type: 'theme' },
-    { key: 'dashboard_primary_color', label: 'Primary color', type: 'color', hint: 'Actions, brand, focus.' },
-    { key: 'dashboard_secondary_color', label: 'Secondary color', type: 'color', hint: 'Selection, links.' },
-    { key: 'dashboard_tertiary_color', label: 'Tertiary color', type: 'color', hint: 'Depth, charts.' },
-    { key: 'dashboard_title', label: 'Dashboard title', type: 'text' },
-  ] },
-  { group: 'Status & lifecycle', items: [
-    { key: 'resident_lease_seconds', label: 'Resident bridge lease (s)', type: 'number', min: 30, max: 3600 },
-    { key: 'environment_offline_seconds', label: 'Environment offline after (s)', type: 'number', min: 30, max: 3600 },
-    { key: 'agent_liveness_seconds', label: 'Agent offline after no heartbeat (s)', type: 'number', min: 30, max: 600 },
-    { key: 'worker_idle_close_enabled', label: 'Auto-close idle managed workers', type: 'toggle' },
-    { key: 'worker_idle_close_minutes', label: 'Idle close after (min)', type: 'number', min: 0, max: 1440 },
-    { key: 'auto_confirm_session_id', label: 'Auto-confirm new session IDs', type: 'toggle' },
-    { key: 'manual_session_mode', label: 'Show resident↔managed switch chips', type: 'toggle' },
-  ] },
-  { group: 'Reply contracts', items: [
-    { key: 'reply_contracts_enabled', label: 'Reply contracts enabled', type: 'toggle' },
-    { key: 'reply_reminder_minutes', label: 'First reminder after (min)', type: 'number', min: 1, max: 240 },
-    { key: 'reply_reminder_repeat_minutes', label: 'Reminder repeat (min)', type: 'number', min: 1, max: 1440 },
-    { key: 'reply_reminder_max_count', label: 'Max reminders (0 = unlimited)', type: 'number', min: 0, max: 20 },
-    { key: 'reply_reminder_full_every', label: 'Full reminder every Nth (0 = always full)', type: 'number', min: 0, max: 20 },
-    { key: 'contract_stale_hours', label: 'Contract history window (h)', type: 'number', min: 1, max: 720 },
-  ] },
-  { group: 'Managed runtimes', items: [
-    { key: 'managed_terminal_backing_enabled', label: 'Terminal-backed managed sessions', type: 'toggle' },
-    { key: 'insert_messages_via_console', label: 'Legacy PTY-input delivery', type: 'toggle', hint: 'Default off — scrambles concurrent typing. Channel delivery is preferred.' },
-    { key: 'managed_pty_eager_spawn', label: 'Eager-spawn managed PTY', type: 'toggle' },
-    { key: 'managed_via_wrapper', label: 'Wrapper-backed managed runtimes', type: 'csv', hint: 'Comma-separated, e.g. codex, hermes.' },
-    { key: 'managed_claude_model', label: 'Managed claude model', type: 'text' },
-    { key: 'managed_claude_effort', label: 'Managed claude effort', type: 'select', options: EFFORT_OPTS },
-    { key: 'managed_codex_model', label: 'Managed codex model', type: 'text' },
-    { key: 'managed_codex_effort', label: 'Managed codex effort', type: 'select', options: EFFORT_OPTS },
-    { key: 'managed_pi_model', label: 'Managed pi model', type: 'text' },
-    { key: 'managed_pi_effort', label: 'Managed pi effort', type: 'select', options: PI_EFFORT_OPTS, optionLabels: { '': 'OMP default' } },
-  ] },
-  { group: 'Retention & rotation', items: [
-    { key: 'rotation_enabled', label: 'Rotation enabled', type: 'toggle' },
-    { key: 'retention_days', label: 'Retention (days)', type: 'number', min: 1, max: 3650 },
-    { key: 'max_messages_per_agent', label: 'Max messages / agent', type: 'number', min: 10, max: 100000 },
-    { key: 'max_shared_size_mb', label: 'Max shared file size (MB)', type: 'number', min: 10, max: 100000 },
-    { key: 'active_run_stale_minutes', label: 'Terminal run stale cleanup (min)', type: 'number', min: 5, max: 240 },
-    { key: 'active_managed_run_stale_minutes', label: 'Managed run stale cleanup (min)', type: 'number', min: 1, max: 120 },
-  ] },
-  { group: 'Dashboard', items: [
-    { key: 'dashboard_refresh_seconds', label: 'Poll fallback (s)', type: 'number', min: 5, max: 300, hint: 'A safety net only — live updates arrive over WebSocket.' },
-  ] },
-];
+// PI_EFFORT_OPTS moved to ./settings-panel.mjs in v0.5.4.
+// SETTINGS_SCHEMA moved to ./settings-panel.mjs in v0.5.4.
 
 
 // Short tab labels for the settings tab bar (the full group names are long).
-const SETTINGS_TAB_LABELS = {
-  'Appearance': 'Appearance', 'Status & lifecycle': 'Status', 'Reply contracts': 'Contracts',
-  'Managed runtimes': 'Runtimes', 'Retention & rotation': 'Retention', 'Dashboard': 'Dashboard',
-};
-const SETTINGS_TAB_DESC = {
-  'Appearance': 'Theme, accent colors, and the dashboard title.',
-  'Status & lifecycle': 'How liveness is derived and when agents are marked idle/offline.',
-  'Reply contracts': 'Reply-reminder cadence and how long contracts stay tracked.',
-  'Managed runtimes': 'Defaults applied to dashboard-spawned managed agents.',
-  'Retention & rotation': 'Message/file retention and stale-record cleanup windows.',
-  'Dashboard': 'Dashboard-only preferences.',
-};
-const HELP_TAB = 'Help';
+// SETTINGS_TAB_LABELS moved to ./settings-panel.mjs in v0.5.4.
+// SETTINGS_TAB_DESC moved to ./settings-panel.mjs in v0.5.4.
+// HELP_TAB moved to ./settings-panel.mjs in v0.5.4.
 
 // One aligned field row: label (+hint) on the left, control on the right. Toggles render a real
 // switch. The theme picker spans the full width (select + preview tiles). Same input ids +
@@ -996,70 +939,18 @@ const HELP_TAB = 'Help';
 // settingsFieldHtml moved to ./settings-fields.mjs in v0.5.4 (with themePreviewTilesHtml, which
 // only it calls and which stays private there).
 
-function activeSettingsTab() {
-  const tabs = [...SETTINGS_SCHEMA.map((g) => g.group), HELP_TAB];
-  return tabs.includes(state.settingsTab) ? state.settingsTab : SETTINGS_SCHEMA[0].group;
-}
+// activeSettingsTab moved to ./settings-panel.mjs in v0.5.4.
 
 // Tabbed settings: one panel visible at a time (short page), but ALL schema panels stay in the
 // DOM so Save collects every field regardless of the active tab. Help is its own tab and toggles
 // the static help-band.
-function renderSettings() {
-  const host = byId('settings-form');
-  if (!host) return;
-  // Don't rebuild while the operator is editing a FIELD — the 15s poll re-renders settings and
-  // would otherwise wipe an in-progress edit (deep-audit C1). Scope strictly to editable inputs:
-  // the tab buttons live inside this same host, so guarding on any focused descendant also blocked
-  // tab switches (a real click focuses the tab → early return → panel never switched). 2026-06-29 fix.
-  const _ae = document.activeElement;
-  if (_ae && host.contains(_ae) && _ae.matches && _ae.matches('input, select, textarea')) return;
-  const s = state.settings || {};
-  const active = activeSettingsTab();
-  const tabBar = `<div class="settings-tabs" role="group" aria-label="Settings sections">`
-    + SETTINGS_SCHEMA.map((g) => `<button type="button" class="settings-tab${g.group === active ? ' active' : ''}" data-settings-tab="${esc(g.group)}">${esc(SETTINGS_TAB_LABELS[g.group] || g.group)}</button>`).join('')
-    + `<button type="button" class="settings-tab${active === HELP_TAB ? ' active' : ''}" data-settings-tab="${HELP_TAB}">${HELP_TAB}</button>`
-    + `</div>`;
-  const panels = SETTINGS_SCHEMA.map((grp) => `
-    <section class="settings-panel${grp.group === active ? ' active' : ''}${grp.appearance ? ' settings-appearance' : ''}" data-settings-panel="${esc(grp.group)}">
-      ${SETTINGS_TAB_DESC[grp.group] ? `<p class="settings-panel-desc">${esc(SETTINGS_TAB_DESC[grp.group])}</p>` : ''}
-      ${grp.items.map((item) => settingsFieldHtml(item, s[item.key], s)).join('')}
-    </section>`).join('');
-  host.innerHTML = tabBar + panels;
-  // Help tab shows the static help-band; schema tabs hide it. Save/Classic buttons hide on Help.
-  const helpBand = byId('help-band');
-  if (helpBand) helpBand.hidden = active !== HELP_TAB;
-  const saveBtn = byId('settings-save');
-  if (saveBtn) saveBtn.style.display = active === HELP_TAB ? 'none' : '';
-}
+// renderSettings moved to ./settings-panel.mjs in v0.5.4.
 
 // Read the (possibly unsaved) Appearance editor controls into a partial settings object.
-function readAppearanceInputs() {
-  const val = (k) => byId(`set-${k}`)?.value;
-  return {
-    dashboard_theme: val('dashboard_theme'),
-    dashboard_primary_color: val('dashboard_primary_color'),
-    dashboard_secondary_color: val('dashboard_secondary_color'),
-    dashboard_tertiary_color: val('dashboard_tertiary_color'),
-    dashboard_title: val('dashboard_title'),
-  };
-}
+// readAppearanceInputs moved to ./settings-panel.mjs in v0.5.4.
 
 // Live-preview the Appearance editor without saving (theme tile, select, or color picker).
-function previewAppearance() {
-  const a = readAppearanceInputs();
-  previewTheme({ theme: a.dashboard_theme, primary: a.dashboard_primary_color, secondary: a.dashboard_secondary_color, tertiary: a.dashboard_tertiary_color });
-  refreshActiveTerminalTheme(); // live-preview the console accent as the operator edits the palette
-  const title = String(a.dashboard_title || 'AIFY Comms').trim() || 'AIFY Comms';
-  document.title = title;
-  const brand = document.querySelector('.brand-copy strong');
-  if (brand) brand.textContent = title;
-  // Keep the hex labels next to the color pickers in sync.
-  document.querySelectorAll('.field-control-color').forEach((wrap) => {
-    const input = wrap.querySelector('input[type="color"]');
-    const code = wrap.querySelector('.field-color-hex');
-    if (input && code) code.textContent = input.value;
-  });
-}
+// previewAppearance moved to ./settings-panel.mjs in v0.5.4.
 
 async function saveSettings() {
   const statusEl = byId('settings-status');
@@ -1628,24 +1519,8 @@ let consoleInputBlockedToastAt = 0;
 // designed for dark terminals and a light background would misrender them — but the cursor and
 // selection follow the dashboard's accent so the console reads as part of the themed UI. Accent
 // comes from the live `--accent` CSS var (honors a CUSTOM palette), falling back to the preset.
-function terminalAccentColor() {
-  try {
-    const v = getComputedStyle(document.body).getPropertyValue('--accent').trim();
-    if (/^#[0-9a-fA-F]{6}$/.test(v)) return v;
-  } catch {}
-  const preset = THEMES[String(document.body.dataset.theme || 'default')] || THEMES.default;
-  return preset.accent || '#51c5b0';
-}
-function terminalThemeFromDashboard() {
-  const accent = terminalAccentColor();
-  return {
-    background: '#0b0e13',
-    foreground: '#cdd6f4',
-    cursor: accent,
-    cursorAccent: '#0b0e13',
-    selectionBackground: `${accent}55`, // ~33% alpha tint of the accent
-  };
-}
+// terminalAccentColor moved to ./settings-panel.mjs in v0.5.4.
+// terminalThemeFromDashboard moved to ./settings-panel.mjs in v0.5.4.
 // Re-theme the mounted console on a live theme/palette change. Updating term.options.theme alone
 // leaves STALE colors on screen under the WebGL renderer, which caches glyph colors in its texture
 // atlas — so we clear the atlas too (exactly what Hermes does on a theme switch). No-op when no
@@ -1654,15 +1529,7 @@ function terminalThemeFromDashboard() {
 // CHANGE-GATED: this is called from the ~15s poll (_refreshImpl applies settings every tick), not
 // only on real theme edits. clearTextureAtlas() forces a full glyph re-rasterization, so calling it
 // every poll would flicker an open console. Only act when the accent actually changed.
-function refreshActiveTerminalTheme() {
-  const entry = state.activeXterm;
-  if (!entry || !entry.term) return;
-  const accent = terminalAccentColor();
-  if (entry._themeAccent === accent) return;
-  entry._themeAccent = accent;
-  try { entry.term.options.theme = terminalThemeFromDashboard(); } catch {}
-  try { entry.webgl?.clearTextureAtlas?.(); } catch {}
-}
+// refreshActiveTerminalTheme moved to ./settings-panel.mjs in v0.5.4.
 
 async function mountXtermForTerminal(terminalId, agentId, container, { canInput = true } = {}) {
   if (!container || !terminalId) return;

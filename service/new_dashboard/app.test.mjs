@@ -251,23 +251,23 @@ test("Batch 2: WS half-open watchdog + resume-reconnect wired", () => {
   assert.match(source, /\nwireRealtimeResumeReconnect\(\);/, "resume reconnect must be wired at boot");
 });
 
-test("terminal theme follows the dashboard accent + clears WebGL atlas on change", () => {
+test("terminal theme wiring stays in app.js — the derivation itself moved", () => {
   const source = read("app.js");
-  // Theme is derived (not a hardcoded literal) and stays dark for TUI legibility.
-  assert.match(source, /function terminalThemeFromDashboard\(\)/);
+  // SPLIT in v0.5.4. `terminalThemeFromDashboard` and `refreshActiveTerminalTheme` moved to
+  // settings-panel.mjs and are now covered by settings-panel.test.mjs, which CALLS them — including the
+  // poll-safety gate (an unchanged accent must not clear the WebGL atlas, or an open console flickers
+  // every ~15s tick). This test used to match those functions' source text, which proves a line was
+  // written and nothing about whether it works, and it broke when they moved even though the behaviour
+  // did not change.
+  //
+  // What remains here is WIRING, which is what a source check is genuinely for while app.js itself
+  // cannot be imported: that the terminal is constructed with the derived theme rather than a literal,
+  // that the webgl addon is kept on the entry so its atlas is reachable, and that the re-theme is
+  // called from the save/preview/undo appearance paths.
   assert.match(source, /theme: terminalThemeFromDashboard\(\)/, "ctor must use the derived theme");
   assert.ok(!/theme: \{ background: '#0b0e13', foreground: '#cdd6f4', cursor: '#51c5b0' \}/.test(source),
     "the hardcoded fixed terminal theme must be gone");
-  // Live re-theme clears the WebGL glyph-color atlas (else stale-colored cells).
-  assert.match(source, /function refreshActiveTerminalTheme\(\)/);
-  assert.match(source, /entry\.webgl\?\.clearTextureAtlas\?\.\(\)/);
-  // ...but MUST be change-gated: it runs on the ~15s poll, and an unconditional atlas clear would
-  // flicker an open console every tick.
-  assert.match(source, /if \(entry\._themeAccent === accent\) return;/,
-    "refreshActiveTerminalTheme must no-op when the accent is unchanged (poll-safety)");
-  // The webgl addon is stored on the entry so the atlas can be cleared.
   assert.match(source, /webgl: webglAddon/);
-  // And the re-theme is wired into the appearance apply/preview paths.
   assert.ok((source.match(/refreshActiveTerminalTheme\(\);/g) || []).length >= 3,
     "re-theme must be wired into save/preview/undo appearance paths");
 });
