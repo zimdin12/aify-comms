@@ -35,6 +35,7 @@ import { renderRunEvent } from './run-event.mjs';
 import { applyRenderedWidth } from './terminal-width.mjs';
 import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
 import { state } from './state.mjs';
+import { SESSION_FILTER_KINDS, agentForSession, renderSessionRail, selectedSessionIds } from './session-rail.mjs';
 
 function resolveApiOrigin() {
   const params = new URLSearchParams(location.search);
@@ -1485,46 +1486,11 @@ function closeStatusWhy() {
 
 // sessionRuntime moved to ./record-fields.mjs in v0.5.4.
 
-function agentForSession(session) {
-  const agentId = sessionAgentId(session);
-  return state.agents.find((agent) => String(agent.id) === agentId) || {};
-}
+// agentForSession moved to ./session-rail.mjs in v0.5.4.
 
-function groupedSessionsByEnvironment() {
-  const groups = new Map();
-  const filter = state.sessionStatusFilter;
-  const find = state.filter.trim().toLowerCase();
-  // Collapse an agent's SUPERSEDED rows (see sessions-list.mjs). Applied HERE, at the list render,
-  // rather than where `state.sessions` is assigned: that array also builds `state.terminalOwners`
-  // and backs `sessionForAgent`, so narrowing it would silently change lookups far from this page.
-  const visibleSessions = state.showSupersededSessions
-    ? state.sessions
-    : collapseSupersededSessions(state.sessions, { agentIdOf: sessionAgentId });
-  visibleSessions.forEach((session) => {
-    // WS-F status multiselect: empty filter = all; otherwise keep only matching status kinds.
-    if (filter && filter.size) {
-      const agent = agentForSession(session);
-      const kind = resolveStatus(session.status || agent.status || 'unknown').kind;
-      if (!filter.has(kind)) return;
-    }
-    // WS-H6: the top-bar global Find also narrows Sessions (id / agent / workspace / runtime).
-    if (find) {
-      const hay = [sessionId(session), sessionAgentId(session), session.workspace || session.cwd, sessionRuntime(session), sessionEnvironmentId(session)].join(' ').toLowerCase();
-      if (!hay.includes(find)) return;
-    }
-    const envId = sessionEnvironmentId(session);
-    if (!groups.has(envId)) {
-      const env = state.environments.find((item) => String(item.id || item.environmentId) === envId) || {};
-      groups.set(envId, { id: envId, label: env.label || env.name || envId, sessions: [] });
-    }
-    groups.get(envId).sessions.push(session);
-  });
-  return [...groups.values()].sort((a, b) => String(a.label).localeCompare(String(b.label)));
-}
+// groupedSessionsByEnvironment moved to ./session-rail.mjs in v0.5.4.
 
-function selectedSessionIds() {
-  return [...state.selectedSessionIds].filter((id) => state.sessions.some((session) => sessionId(session) === id));
-}
+// selectedSessionIds moved to ./session-rail.mjs in v0.5.4.
 
 function selectedSession() {
   return state.sessions.find((session) => sessionId(session) === state.selectedSessionId) || null;
@@ -1576,92 +1542,25 @@ function runSourceMessage(run) {
   return state.messages.find((message) => messageId(message) === id) || null;
 }
 
-function renderSessionBulkToolbar() {
-  const toolbar = byId('session-bulk-toolbar');
-  const ids = selectedSessionIds();
-  toolbar.hidden = ids.length === 0;
-  toolbar.innerHTML = ids.length
-    ? `<span>${ids.length} selected</span>
-       <button class="ghost" data-bulk-session-action="recreate">Reset</button>
-       <button class="ghost" data-bulk-session-action="restart">Restart</button>
-       <button class="ghost danger" data-bulk-session-action="stop">Stop</button>
-       <button class="ghost danger" data-bulk-session-action="delete">Delete</button>`
-    : '';
-}
+// renderSessionBulkToolbar moved to ./session-rail.mjs in v0.5.4.
 
 // WS-F: status multiselect filter chips for the Sessions rail.
 // Proof-based 6-state model only — `idle`/`stale` were removed in the status rewrite, so they must
 // not appear as session filter chips (dead chips that match nothing).
 // H1: these were hand-copies of status_engine.VALID_STATUSES. They now alias the single JS
 // owner in status.js, which is bound to the Python source by a test.
-const SESSION_FILTER_KINDS = AGENT_STATUSES;
+// SESSION_FILTER_KINDS moved to ./session-rail.mjs in v0.5.4.
 const SESSION_LIVE_KINDS = LIVE_AGENT_STATUSES;
-function renderSessionStatusFilter() {
-  const host = byId('session-status-filter');
-  if (!host) return;
-  const presets = `<span class="filter-presets">`
-    + `<button type="button" class="filter-preset" data-session-status-preset="all">All</button>`
-    + `<button type="button" class="filter-preset" data-session-status-preset="none">None</button>`
-    + `<button type="button" class="filter-preset" data-session-status-preset="live">Live</button>`
-    + `</span>`;
-  const chips = SESSION_FILTER_KINDS.map((k) =>
-    `<button type="button" class="session-filter-chip${state.sessionStatusFilter.has(k) ? ' active' : ''}" data-session-status-filter="${k}" aria-pressed="${state.sessionStatusFilter.has(k) ? 'true' : 'false'}">${k}</button>`
-  ).join('');
-  // "N hidden" so a filtered-empty rail reads as filtered, not "no sessions."
-  let hiddenNote = '';
-  const filter = state.sessionStatusFilter;
-  if (filter && filter.size) {
-    const hidden = state.sessions.filter((s) => !filter.has(resolveStatus(s.status || agentForSession(s).status || 'unknown').kind)).length;
-    if (hidden) hiddenNote = `<span class="filter-hidden-note">${hidden} hidden by filter</span>`;
-  }
-  // Superseded rows are collapsed so one agent reads as ONE entry — but say how many, so the list
-  // never silently shrinks (a quiet cap reads as "that is everything").
-  const superseded = countSupersededSessions(state.sessions, { agentIdOf: sessionAgentId });
-  if (state.showSupersededSessions) {
-    hiddenNote += `<button type="button" class="filter-hidden-note" data-toggle-superseded title="Collapse older sessions again so each agent reads as one entry">showing older sessions — collapse</button>`;
-  } else if (superseded) {
-    hiddenNote += `<button type="button" class="filter-hidden-note" data-toggle-superseded title="Older non-live sessions for agents that already have a newer one. Click to show them — they are not reachable anywhere else, and Delete session is only offered on a visible row.">${superseded} older session${superseded === 1 ? '' : 's'} collapsed — show</button>`;
-  }
-  host.innerHTML = presets + chips + hiddenNote;
-}
+// renderSessionStatusFilter moved to ./session-rail.mjs in v0.5.4.
 
 function persistSessionStatusFilter() {
   try { localStorage.setItem('aifySessionStatusFilter', JSON.stringify([...state.sessionStatusFilter])); } catch { /* ignore */ }
 }
 
-function renderSessionRail() {
-  const groups = groupedSessionsByEnvironment();
-  renderSessionBulkToolbar();
-  renderSessionStatusFilter();
-  byId('session-rail').innerHTML = groups.length ? groups.map((group) => `
-    <details class="session-env-group" data-env-group="${esc(group.id)}"${sessionGroupCollapsed(group.id) ? '' : ' open'}>
-      <summary class="session-env-title">${esc(group.label)} <span>${group.sessions.length}</span></summary>
-      ${group.sessions.map((session) => {
-        const id = sessionId(session);
-        const agent = agentForSession(session);
-        const status = session.status || agent.status || 'unknown';
-        const active = id === state.selectedSessionId ? ' active' : '';
-        const checked = state.selectedSessionIds.has(id) ? ' checked' : '';
-        return `
-          <article class="session-row${active}" data-session-select="${esc(id)}" data-kind="session" data-id="${esc(id)}">
-            <input class="session-check" type="checkbox" data-session-checkbox="${esc(id)}"${checked} title="Select session">
-            <div class="session-row-body">
-              <div class="item-title">
-                <strong class="clip">${esc(sessionAgentId(session) || id)}</strong>
-                <span class="item-title-status">${renderStatusChip(status, statusWhyContext('session', session, status))}${String(agent.status || '').startsWith('blocked') ? '<span class="chat-await-badge" title="Agent is blocked on an interactive prompt — open its Console">⌛ input</span>' : ''}</span>
-              </div>
-              <p class="preview">${esc(session.workspace || session.cwd || '')}</p>
-              <span class="session-runtime-badge" data-runtime="${esc(sessionRuntime(session))}">${esc(sessionRuntime(session))}</span>
-            </div>
-          </article>`;
-      }).join('')}
-    </details>`).join('') : '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No sessions yet</strong><p>Spawn a managed session from Environments to get an agent running.</p><button class="primary" data-page-jump="environments">Spawn a session</button></div>';
-}
+// renderSessionRail moved to ./session-rail.mjs in v0.5.4.
 
 // Persisted collapse state for session env-groups (WS-J collapsibles).
-function sessionGroupCollapsed(envId) {
-  try { return (JSON.parse(localStorage.getItem('aifyCollapsedSessionGroups') || '[]') || []).includes(envId); } catch { return false; }
-}
+// sessionGroupCollapsed moved to ./session-rail.mjs in v0.5.4.
 function toggleSessionGroupCollapsed(envId, collapsed) {
   try {
     const set = new Set(JSON.parse(localStorage.getItem('aifyCollapsedSessionGroups') || '[]') || []);

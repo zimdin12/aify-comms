@@ -258,3 +258,47 @@ stopped". This is the same mistake one level up: having found that `state` was n
 concluded the file was blocked, without asking whether the *other* blockers were real or artefacts of how
 I was counting. **Before accepting any "not reducible" verdict, state the criterion and check it against a
 case you have already disproven.** This series has one on file.
+
+## FIFTH CORRECTION, 2026-08-14 — a slice was written, proven, and REVERTED; the closure tool was wrong
+
+The fourth correction above is right that group measurement unblocks app.js, and two enablers plus the
+first subject slice have shipped on the strength of it. But the tool it was measured with had a defect
+worth recording, because the failure it produced passed every gate this repo has.
+
+**The closure walk expanded FUNCTIONS only.** A `const` the group would take with it was reported as
+"owned" without its initializer ever being read. So `renderRunInspector` measured as a 192-line group
+needing nothing from app.js, and `flowGates` came along as owned — while `flowGates`' entries call
+`flowAssertions`, which probes half the file (`connectRealtimeSocket`, `renderSessionWorkspace`,
+`createSpawnRequest`, …). The extracted module referenced a name that did not exist in it.
+
+It was written, the reconstruction proof passed byte-identically, `node --check` passed, and it was
+reverted only because the module was read by eye afterwards. **`node --check` cannot catch this**: an
+unresolved identifier in an ES module is a runtime ReferenceError, not a parse error.
+
+Worse, the tempting repair — move `flowAssertions` too — would have failed *silently*. Its probes are
+`typeof someName === 'function'`, and `typeof` on an undeclared name does not throw; it returns
+`"undefined"`. Every flow gate would have quietly evaluated false. No test in the repo asserts on them.
+
+Measured correctly, `renderRunInspector` reaches **138 declarations / 2,532 lines**.
+
+### What replaced the tool
+
+Four hand-rolled parsers gave four different answers before this was settled — brace counting over raw text
+(HTML template literals moved the depth counter, 121 of 164 functions found), masking strings before
+comments (an apostrophe in prose opened a phantom string, down to 19), and adding regex-literal handling
+(nested templates inside `${…}` closed the mask early, 58 still lost). The survey now imports
+`declarationSpan` from `extraction-proof.mjs` — the same function the proof itself depends on — and
+**gates itself**, asserting the span table covers every top-level function before printing any number.
+
+Two rules came out of it, both now in project memory:
+
+* Scan identifiers **without** stripping string literals. Over-inclusive can only refuse a movable group;
+  under-inclusive approves an immovable one, which is what happened here.
+* After extracting, compute which of app.js's **imported** names the new module now references. The
+  subject survey answers only what a group needs from app.js's *declarations*, so a module can read
+  "needs NOTHING" and still be full of unresolved sibling imports. This is the JS analogue of the Python
+  symtable undefined-name sweep, and it is now run on every slice before the suites.
+
+### Where `apiBase` went
+
+The third and last leaf is not a script but a ruling: see **`docs/APP_JS_APIBASE_PACKET.md`**.
