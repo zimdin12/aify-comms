@@ -54,6 +54,31 @@ The class alone is 960.
   this round extracted into `api_core/records.py` — taking the file 3,181 -> 3,088 and retiring a documented
   borrow shim. What is left outside the hub is 55 lines.
 
+## What is inside the status-cache hub, since option C turns on it
+
+`_compute_live_status_cache` is 432 lines, async, with **21 awaits and ZERO loops**. It is not an algorithm —
+it is a straight-line FACT-GATHERER. The decision it feeds was already extracted: line 1443 is
+`effective_status, reason, awaiting_reply = await _decide_effective_status(...)`, living in
+`api_core/status_decision.py`. What is left is assembling that call's inputs.
+
+**It has exactly one clean seam, and it is early.** Cutting after L1249 — about 70 lines in, between its two
+row-fetching `try` blocks — leaves 8 locals crossing. Every later cut point crosses 14 or more, and the
+density only rises:
+
+| point | reads earlier locals |
+|---|---|
+| `_decide_effective_status(...)` call, L1443 | **22** |
+| the managed-session block, L1571 | 7, reaching 64 statements back |
+| the final `return {...}`, L1601 | **10**, reaching 65 statements back |
+
+Sixty-seven top-level statements assign 70 local names, and statements routinely reach 40-65 statements back
+for them.
+
+**So splitting the hub is expensive, not cheap.** Extracting the first ~70 lines as a "fetch the rows" step
+is real and small. Beyond that, any split means passing a twenty-plus-field context object between the
+pieces — which is option B's coupling wearing option C's clothes, and worth doing only if the goal is
+testability rather than line count. That distinction is the ruling.
+
 ## The decision, stated once
 
 For each file the choice is the same shape:
@@ -102,5 +127,6 @@ ones nothing has forced me to re-measure yet.
   not a shape; I have not measured how many are confined to one screen's functions.
 - Whether `server.js`'s four loops can be separated without a shared scheduler object — several read `*Busy`
   flags another loop sets, and I have not traced whether that is coordination or coincidence.
-- Whether `_compute_live_status_cache` can be split at all, or whether the status cache is irreducibly one
-  thing. I measured what REACHES it, not what is inside it.
+- ~~Whether `_compute_live_status_cache` can be split at all.~~ **MEASURED — see below.** What remains
+  unestablished is whether the four `server.js` loops coordinate through their `*Busy` flags or merely read
+  each other's, and whether `app.js`'s `state` splits by screen (509 references is a count, not a shape).
