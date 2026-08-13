@@ -50,6 +50,8 @@ const SESSION = "hermes-active-session.mjs";
 const REPORTING = "hermes-run-reporting.mjs";
 const INFLIGHT = "hermes-inflight.mjs";
 const AIFYHTTP = "aify-http.mjs";
+const DELIVERY_LOOP = "hermes-delivery-loop.mjs";
+const DELIVERY_RUN = "hermes-delivery-run.mjs";
 
 /** Indices are 0-based positions in the PRISTINE fixture, measured from it. */
 const EXTRACTIONS = [
@@ -149,6 +151,34 @@ const EXTRACTIONS = [
       { name: "resolveHermesPython", at: 726, marker: "// resolveHermesPython moved to ./hermes-active-session.mjs in v0.5.4.", pristineExported: true },
     ],
   },
+  {
+    // v0.5.4 delivery split, into TWO modules because together they are 998 lines. Spans are
+    // DECLARATION-ONLY: the prover reads each body with `declarationSpan`, which stops at the
+    // declaration, so a span carrying its leading comments cannot round-trip. Those comments stay in
+    // the host.
+    module: DELIVERY_RUN,
+    items: [
+      { name: "EMPTY_ATTACH_FAIL_THRESHOLD", at: 143, marker: null },
+      { name: "noTuiAttachedMessage", at: 1018, marker: null, pristineExported: true },
+      { name: "deliverRun", at: 1309, marker: null, pristineExported: true },
+      { name: "runPollCycle", at: 1757, marker: null, pristineExported: true },
+      { name: "CLAIM_404_GRACE", at: 1967, marker: null },
+      { name: "classifyClaimError", at: 1977, marker: null, pristineExported: true },
+    ],
+  },
+  {
+    module: DELIVERY_LOOP,
+    items: [
+      { name: "POLL_MS", at: 115, marker: null },
+      { name: "GATEWAY_TURN_POLL_MS", at: 186, marker: null },
+      { name: "GATEWAY_TURN_IDLE_DEBOUNCE", at: 190, marker: null },
+      { name: "GATEWAY_PROBE_MS", at: 205, marker: null },
+      { name: "GATEWAY_PROBE_THRESHOLD", at: 209, marker: null },
+      { name: "NO_TUI_TEARDOWN_CYCLES", at: 226, marker: null },
+      { name: "NO_TUI_GRACE_MS", at: 240, marker: null },
+      { name: "runDeliveryLoop", at: 2084, marker: null, pristineExported: true },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -158,11 +188,24 @@ const MODULES = () => ({
   [REPORTING]: read(REPORTING),
   [INFLIGHT]: read(INFLIGHT),
   [AIFYHTTP]: read(AIFYHTTP),
+  [DELIVERY_LOOP]: read(DELIVERY_LOOP),
+  [DELIVERY_RUN]: read(DELIVERY_RUN),
 });
 
 // Import lines the extractions added, in their CURRENT form. The env line is shared by both slices — the
 // gateway created it, the session slice added TMP_DIR to it — so it is pinned once, as it stands now.
 const IMPORT_EDITS = [
+  {
+    // The delivery split. Pinned as a BLOCK so a reworded comment fails here rather than leaving
+    // prose in the reconstruction. NO leading blank element: `reconstruct` locates a block with
+    // `lines.indexOf(block[0])`, and an empty first entry matches the file's FIRST blank line.
+    addedBlock: [
+      "// v0.5.4: the delivery loop and the per-run work moved to ./hermes-delivery-loop.mjs and",
+      "// ./hermes-delivery-run.mjs — 998 lines together, which one module could not hold without a fresh",
+      "// violation of the 1000-line rule. The CLI entry points below stay here and call in.",
+      'import { runDeliveryLoop } from "./hermes-delivery-loop.mjs";',
+    ],
+  },
   {
     // The env import became a multi-line block when resolveHermesPython joined it, so it is pinned as one.
     addedBlock: [

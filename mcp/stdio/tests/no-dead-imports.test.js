@@ -71,8 +71,16 @@ test("the carve-out is REAL and is not quietly growing", () => {
   // TWENTY-ONE, counted by this file's own detector rather than by a one-off script. I first wrote 19 from
   // an inline `node -e` whose regex the shell had mangled, and it silently missed `os` and
   // `pickMostRecentSession`. The number in a gate must come from the gate.
+  //
+  // SEVENTY-FOUR since the v0.5.4 delivery split, and the new ones are EXPLAINED rather than cleaned.
+  // `runDeliveryLoop`, `deliverRun`, `runPollCycle`, `classifyClaimError` and `noTuiAttachedMessage`
+  // moved to ./hermes-delivery-loop.mjs and ./hermes-delivery-run.mjs, taking their usages with them and
+  // leaving 53 more imports unused here. Cleaning them in the SAME change is what the carve-out above
+  // forbids: the reconstruction proof byte-compares this file, so collapsing multi-line import blocks
+  // breaks it. I did exactly that once and lost the slice. The sweep is the next slice, and it updates
+  // `hermes-gateway-extraction.test.js` in the same commit.
   const [, text] = bridgeSources().find(([file]) => file === "hermes-managed-host.js");
-  assert.equal(deadImportsIn(text).length, 21,
+  assert.equal(deadImportsIn(text).length, 74,
     "hermes-managed-host.js's dead-import count changed — clean it and drop the carve-out, or explain the new one");
 });
 

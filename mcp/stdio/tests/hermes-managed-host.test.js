@@ -59,14 +59,15 @@ import {
   makeInFlightPulse,
 } from "../hermes-inflight.mjs";
 import { makeTeardown } from "../hermes-gateway.mjs";
+// v0.5.4: the delivery code left the host. Imported from its OWNERS, not re-exported through the
+// host — a module that only forwards a name is the indirection this series removed elsewhere.
+import { runCli, runEnsureHostCli } from "../hermes-managed-host.js";
 import {
   deliverRun,
   noTuiAttachedMessage,
-  runCli,
-  runDeliveryLoop,
-  runEnsureHostCli,
   runPollCycle,
-} from "../hermes-managed-host.js";
+} from "../hermes-delivery-run.mjs";
+import { runDeliveryLoop } from "../hermes-delivery-loop.mjs";
 import {
   isTuiDepsBuildFailure,
   tuiDepsBuildFailureMessage,

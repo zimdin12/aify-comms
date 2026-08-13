@@ -28,10 +28,6 @@
     {
       "path": "service/new_dashboard/app.js",
       "reason": "MEASURED 2026-08-14 (docs/APP_JS_STATE_MODULE_PACKET.md): only 6 functions, 28 lines, reference nothing at module scope - the file reaches ~4,876. A prototype proved that moving the `state` object frees ~202 lines, NOT the 2,651 first claimed: 122 of 164 functions call a sibling defined here and 141 sit in ONE connected component of 3,085 lines. Clearing it needs that component broken - a redesign of the render flow."
-    },
-    {
-      "path": "mcp/stdio/hermes-managed-host.js",
-      "reason": "CORRECTED 2026-08-14 by GROUP measurement (scripts/js_free_functions.py, group mode). The earlier per-function figure - 3 functions / 67 lines, \"needs a redesign\" - was wrong in the way that matters: the per-function view counts every intra-group call as a blocker, so a cluster that moves cleanly as a UNIT reads as immovable. Measured as a group, runDeliveryLoop + deliverRun + runPollCycle + noTuiAttachedMessage + classifyClaimError = 998 lines and the file drops to 691; all 8 tuning constants are read nowhere else. NO REDESIGN NEEDED - it is a two-module relocation (998 in one module would be a fresh violation), split on the boundary between what drives the iterations and what one iteration does. Built and verified in this session (bodies byte-identical, 125/125 host tests) but NOT landed: tests/hermes-gateway-extraction.test.js reconstructs this file byte-for-byte from every extracted module, so the EXTRACTIONS plan must be appended in the same change. WIP and four specific traps are in project memory v05x-structural-refactor-series."
     }
   ]
 }
