@@ -30,6 +30,7 @@ import {
 } from './record-fields.mjs';
 import { environmentStartCommand } from './environment-start-command.mjs';
 import { renderRunEvent } from './run-event.mjs';
+import { applyRenderedWidth } from './terminal-width.mjs';
 import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
 
 function resolveApiOrigin() {
@@ -2195,29 +2196,7 @@ function agentForTerminal(terminalId) {
 // push that size down to the PTY — the app then re-renders to fit the box exactly (and that full
 // re-render also clears any garbage the screen had inherited). The wide-mirror path stays ONLY for
 // a RESIDENT console, where the terminal belongs to the operator and we must not resize it.
-function applyRenderedWidth(entry, term, container, data, ownsPty = false) {
-  if (ownsPty) {
-    const base = (entry && entry.fitCols) || term.cols;
-    if (container) container.classList.remove('console-wide-mirror');
-    try { if (term.cols !== base) term.resize(base, term.rows); } catch { /* xterm handles it */ }
-    if (entry) { entry.widened = false; entry.renderedCols = base; }
-    return;
-  }
-  // Compare against the pane's FITTED width (entry.fitCols), not the current term.cols —
-  // term may already be widened from a prior snapshot, and we must be able to shrink back.
-  const base = (entry && entry.fitCols) || term.cols;
-  const rc = Number(data?.terminal?.renderedCols) || 0;
-  const rr = Number(data?.terminal?.renderedRows) || term.rows;
-  if (rc && rc > base) {
-    try { term.resize(rc, Math.max(term.rows, rr)); } catch {}
-    if (container) container.classList.add('console-wide-mirror');
-    if (entry) { entry.widened = true; entry.renderedCols = rc; }
-  } else {
-    if (container) container.classList.remove('console-wide-mirror');
-    try { if (term.cols !== base) term.resize(base, term.rows); } catch {}
-    if (entry) { entry.widened = false; entry.renderedCols = base; }
-  }
-}
+// applyRenderedWidth moved to ./terminal-width.mjs in v0.5.4.
 
 // Re-fetch the authoritative buffer and repaint (used by the Refresh button and on a
 // detected seq gap, mirroring the old dashboard's resync path).

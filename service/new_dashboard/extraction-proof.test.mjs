@@ -137,6 +137,14 @@ const EXTRACTIONS = [
       { name: "renderRunEvent", at: 3280, marker: "// renderRunEvent moved to ./run-event.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "terminal-width.mjs",
+    importLine: "import { applyRenderedWidth } from './terminal-width.mjs';",
+    items: [
+      { name: "applyRenderedWidth", at: 2293,
+        marker: "// applyRenderedWidth moved to ./terminal-width.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -146,6 +154,7 @@ const MODULES = () => ({
   "status.js": read("status.js"),
   "environment-start-command.mjs": read("environment-start-command.mjs"),
   "run-event.mjs": read("run-event.mjs"),
+  "terminal-width.mjs": read("terminal-width.mjs"),
 });
 
 function rebuild(overrides = {}) {
