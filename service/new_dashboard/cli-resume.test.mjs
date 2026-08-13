@@ -5,7 +5,13 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { continueCliInfo, CLI_RESUME_RUNTIMES, resumeMachineNote } from './cli-resume.mjs';
+import {
+  CLI_RESUME_RUNTIMES,
+  continueCliCommand,
+  continueCliDetails,
+  continueCliInfo,
+  resumeMachineNote,
+} from "./cli-resume.mjs";
 
 test('claude-code builds the claude-aify resume command', () => {
   const { command, reason } = continueCliInfo({ id: 'graph-tech-lead', runtime: 'claude-code', sessionHandle: 'd8ba8de3' });
@@ -142,5 +148,37 @@ test('N11: an UNKNOWN session mode does not assume managed', () => {
     { id: 'x', runtime: 'codex', sessionHandle: 'h', session_mode: 'resident' },
   ]) {
     assert.doesNotMatch(continueCliInfo(agent).command, /CODEX_HOME/, JSON.stringify(agent));
+  }
+});
+
+// ── continueCliDetails / continueCliCommand, moved from app.js in v0.5.4 ─────────────────────────
+//
+// These are the DEFAULT binding of the injection `continueCliInfo` exposes. The seam stays open — the
+// tests above still supply their own readers — but callers no longer re-bind it at each call site, which
+// is where a caller could quietly pass the wrong reader and get a command for the wrong runtime.
+
+test("continueCliDetails binds the real record readers", () => {
+  // A hermes session recorded in snake_case must resolve exactly as a camelCase one. If the binding passed
+  // the wrong reader, the runtime would come back empty and the command would be for the wrong CLI.
+  const agent = { id: "agent-a" };
+  const camel = continueCliDetails(agent, { runtime: "claude-code", agentId: "agent-a" });
+  const snake = continueCliDetails(agent, { runtime: "claude-code", agent_id: "agent-a" });
+  assert.deepEqual(camel, snake, "both spellings must produce the same details");
+});
+
+test("continueCliCommand is exactly the command from the details", () => {
+  // It exists so a caller wanting only the string does not have to know the shape of the details object.
+  const agent = { id: "agent-a" };
+  const session = { runtime: "claude-code", agentId: "agent-a" };
+  assert.equal(continueCliCommand(agent, session), continueCliDetails(agent, session).command);
+});
+
+test("both survive an unknown runtime and a missing session", () => {
+  // Rendered per agent row; one odd record must not blank the drawer.
+  for (const session of [undefined, null, {}, { runtime: "nonsense" }]) {
+    const details = continueCliDetails({ id: "a" }, session ?? {});
+    assert.equal(typeof details, "object", `${JSON.stringify(session)} must still yield details`);
+    const command = continueCliCommand({ id: "a" }, session ?? {});
+    assert.ok(command === "" || typeof command === "string", "the command must be a string or empty");
   }
 });

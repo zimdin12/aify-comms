@@ -69,6 +69,8 @@ const EXTRACTIONS = [
     importBlock: [
       "import {",
       "  asAgentArray,",
+      "  asArray,",
+      "  contractActionable,",
       "  contractCategory,",
       "  environmentRoots,",
       "  environmentRuntimes,",
@@ -100,6 +102,8 @@ const EXTRACTIONS = [
       { name: "sessionAgentId", at: 1613, marker: "// sessionAgentId moved to ./record-fields.mjs in v0.5.4." },
       { name: "runTargetAgent", at: 1704, marker: "// runTargetAgent moved to ./record-fields.mjs in v0.5.4." },
       { name: "environmentRuntimes", at: 2983, marker: "// environmentRuntimes moved to ./record-fields.mjs in v0.5.4." },
+      { name: "asArray", at: 738, marker: "// asArray moved to ./record-fields.mjs in v0.5.4." },
+      { name: "contractActionable", at: 1410, marker: "// contractActionable moved to ./record-fields.mjs in v0.5.4." },
     ],
   },
   {
@@ -145,6 +149,15 @@ const EXTRACTIONS = [
         marker: "// applyRenderedWidth moved to ./terminal-width.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "cli-resume.mjs",
+    importLine: "import { continueCliCommand, continueCliDetails, continueCliInfo, resumeMachineNote } from './cli-resume.mjs';",
+    importWas: "import { continueCliInfo, resumeMachineNote } from './cli-resume.mjs';",
+    items: [
+      { name: "continueCliDetails", at: 3461, marker: "// continueCliDetails moved to ./cli-resume.mjs in v0.5.4." },
+      { name: "continueCliCommand", at: 3465, marker: "// continueCliCommand moved to ./cli-resume.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -155,6 +168,7 @@ const MODULES = () => ({
   "environment-start-command.mjs": read("environment-start-command.mjs"),
   "run-event.mjs": read("run-event.mjs"),
   "terminal-width.mjs": read("terminal-width.mjs"),
+  "cli-resume.mjs": read("cli-resume.mjs"),
 });
 
 function rebuild(overrides = {}) {

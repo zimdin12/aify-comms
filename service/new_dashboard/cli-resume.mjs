@@ -31,6 +31,8 @@ export const CLI_RESUME_RUNTIMES = new Set(['claude-code', 'hermes', 'codex']);
 // default apply, which is by construction the store the session was written to.
 export const MANAGED_CODEX_HOME = '$HOME/.local/state/aify-comms/managed-codex-home';
 
+import { sessionAgentId, sessionRuntime } from './record-fields.mjs';
+
 export function continueCliInfo(agent, session, { sessionRuntime = () => '', sessionAgentId = () => '' } = {}) {
   const handle = String(
     agent?.sessionHandle || agent?.session_handle || session?.sessionHandle || session?.session_handle || '',
@@ -98,4 +100,16 @@ export function resumeMachineNote(machine) {
     ? `Run this on ${machine} — the session lives in that host's filesystem, so it will not resume anywhere else.`
     : 'This agent has no recorded machine, so the host that owns this session is unknown — resume it '
       + 'where the agent was last running.';
+}
+
+// The DEFAULT binding of the injection above. `continueCliInfo` takes its two record readers as parameters
+// so a test can supply its own; these two supply the real ones, which is what every caller in the dashboard
+// actually wants. Keeping the bound form beside the injectable one means the seam stays open for tests
+// while callers stop re-binding it at each call site.
+export function continueCliDetails(agent, session) {
+  return continueCliInfo(agent, session, { sessionRuntime, sessionAgentId });
+}
+
+export function continueCliCommand(agent, session) {
+  return continueCliDetails(agent, session).command;
 }

@@ -3,7 +3,7 @@
 // the single delegated event handler + init) until later Phase-0 slices split those too.
 import { esc, fileSizeLabel, relTime, tsMs, usageFmtTokens, usageResetLabel } from './util.js';
 import { createTerminalInputPoster, createTerminalInputHandler, forceTerminalRepaint, waitForTerminalSize, wheelInputSequence } from './terminal-input.mjs';
-import { continueCliInfo, resumeMachineNote } from './cli-resume.mjs';
+import { continueCliCommand, continueCliDetails, continueCliInfo, resumeMachineNote } from './cli-resume.mjs';
 import { collapseSupersededSessions, countSupersededSessions } from './sessions-list.mjs';
 import { AGENT_STATUSES, LIVE_AGENT_STATUSES, STATUS_KINDS, renderStatusChip, resolveStatus, runStatusContext, statusWhyContext } from './status.js';
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
@@ -15,6 +15,8 @@ import { THEMES, applyTheme, applyCachedTheme, previewTheme, paletteFromSettings
 import { settingsFieldHtml } from './settings-fields.mjs';
 import {
   asAgentArray,
+  asArray,
+  contractActionable,
   contractCategory,
   environmentRoots,
   environmentRuntimes,
@@ -715,12 +717,7 @@ async function loadRunsForStatus(status = state.runStatusFilter, render = true) 
 
 // asAgentArray moved to ./record-fields.mjs in v0.5.4.
 
-function asArray(payload, key) {
-  const value = payload?.[key];
-  if (Array.isArray(value)) return value;
-  if (value && typeof value === 'object') return Object.entries(value).map(([id, item]) => ({ id, ...item }));
-  return [];
-}
+// asArray moved to ./record-fields.mjs in v0.5.4.
 
 async function refresh() {
   // Coalesce concurrent refreshes so the poll bundle can't pile up (see _refreshInFlight).
@@ -1327,11 +1324,7 @@ function contractCard(contract, { selectable = true } = {}) {
     </article>`;
 }
 
-function contractActionable(contract) {
-  const target = String(contract?.targetAgentId || '').trim();
-  const current = String(contract?.state || '').toLowerCase();
-  return Boolean(contract?.id && target && target !== 'dashboard' && !['answered', 'closed'].includes(current));
-}
+// contractActionable moved to ./record-fields.mjs in v0.5.4.
 
 function renderAttention() {
   const items = filtered(state.contracts, ['subject', 'preview', 'from', 'targetAgentId'])
@@ -3292,13 +3285,9 @@ function openIdentityDirectory() {
 // managed-only). Linux/WSL shell form.
 // Thin adapters over cli-resume.mjs (pure + unit-tested there). The runtime/agent-id accessors are
 // injected because they live in this module.
-function continueCliDetails(agent, session) {
-  return continueCliInfo(agent, session, { sessionRuntime, sessionAgentId });
-}
+// continueCliDetails moved to ./cli-resume.mjs in v0.5.4.
 
-function continueCliCommand(agent, session) {
-  return continueCliDetails(agent, session).command;
-}
+// continueCliCommand moved to ./cli-resume.mjs in v0.5.4.
 
 function openAgentDrawer(agentId) {
   const id = String(agentId || '').trim();

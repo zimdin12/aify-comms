@@ -70,3 +70,16 @@ export function environmentRuntimes(env) {
     .map((runtime) => typeof runtime === 'string' ? { runtime, available: true } : runtime)
     .filter((runtime) => runtime && runtime.runtime) : [];
 }
+
+export function asArray(payload, key) {
+  const value = payload?.[key];
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object') return Object.entries(value).map(([id, item]) => ({ id, ...item }));
+  return [];
+}
+
+export function contractActionable(contract) {
+  const target = String(contract?.targetAgentId || '').trim();
+  const current = String(contract?.state || '').toLowerCase();
+  return Boolean(contract?.id && target && target !== 'dashboard' && !['answered', 'closed'].includes(current));
+}

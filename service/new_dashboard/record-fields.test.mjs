@@ -14,6 +14,8 @@ import { test } from "node:test";
 
 import {
   asAgentArray,
+  asArray,
+  contractActionable,
   contractCategory,
   environmentRoots,
   messageId,
@@ -200,4 +202,47 @@ test("a falsy-but-present value falls through rather than winning", () => {
   assert.equal(sessionId({ id: "", sessionId: "b" }), "b");
   assert.equal(sessionAgentId({ agentId: "", agent: "c" }), "c");
   assert.equal(runTargetAgent({ targetAgentId: "", agent_id: "d" }), "d");
+});
+
+// ── asArray / contractActionable, moved from app.js in v0.5.4 ────────────────────────────────────
+
+test("asArray accepts BOTH shapes the API returns for a collection", () => {
+  // Some routes send a list, others a map keyed by id. A caller that assumed one shape would render an
+  // empty page against the other — with no error, because `.map` on `{}` never runs.
+  assert.deepEqual(asArray({ items: [{ id: "a" }] }, "items"), [{ id: "a" }], "a list passes through");
+  assert.deepEqual(asArray({ items: { a: { n: 1 } } }, "items"), [{ id: "a", n: 1 }],
+    "a map becomes a list, with the key promoted to `id`");
+});
+
+test("asArray gives an empty list rather than undefined for anything else", () => {
+  // Callers immediately `.map`/`.filter` the result; `undefined` would throw inside a render.
+  for (const payload of [undefined, null, {}, { items: null }, { items: "text" }, { items: 7 }]) {
+    assert.deepEqual(asArray(payload, "items"), [], `${JSON.stringify(payload)} must yield []`);
+  }
+});
+
+test("asArray does not lose a map entry's own id", () => {
+  // The key is the id, but an entry may also carry one. Current behaviour: the entry's own value wins,
+  // because it is spread AFTER the key.
+  assert.deepEqual(asArray({ m: { k: { id: "inner" } } }, "m"), [{ id: "inner" }]);
+});
+
+test("contractActionable is TRUE only for a contract someone can actually act on", () => {
+  // It gates an action button. A false positive offers an action that fails; a false negative hides work
+  // an operator owes.
+  const open = { id: "c1", targetAgentId: "agent-a", state: "open" };
+  assert.equal(contractActionable(open), true);
+  assert.equal(contractActionable({ ...open, state: "answered" }), false, "answered is done");
+  assert.equal(contractActionable({ ...open, state: "closed" }), false, "closed is done");
+  assert.equal(contractActionable({ ...open, state: "CLOSED" }), false, "…case-insensitively");
+  assert.equal(contractActionable({ ...open, targetAgentId: "dashboard" }), false,
+    "a contract targeting the dashboard has no agent to act");
+  assert.equal(contractActionable({ ...open, targetAgentId: "  " }), false, "…nor does a blank target");
+  assert.equal(contractActionable({ ...open, id: "" }), false, "…nor one with no id to act on");
+});
+
+test("contractActionable never throws on a missing record", () => {
+  for (const c of [undefined, null, {}, { id: "x" }]) {
+    assert.equal(contractActionable(c), false, `${JSON.stringify(c)} must be inactionable, not an error`);
+  }
 });
