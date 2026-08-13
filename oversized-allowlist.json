@@ -23,15 +23,15 @@
   "allowed": [
     {
       "path": "mcp/stdio/server.js",
-      "reason": "packet accepted as measurement (docs/JS_SERVER_JS_PROOF_PACKET.md); awaiting operator scope"
+      "reason": "MEASURED 2026-08-14 (docs/APP_JS_STATE_MODULE_PACKET.md, 'the three remaining files'): 7 of 47 top-level functions, 88 lines, reference nothing at module scope and are movable; the file reaches ~2,918. 1,199 lines sit outside any function and 585 are comments. An earlier figure of 532 lines was produced by a checker that counted only CALL targets and missed variable reads - do not use it. Clearing this file needs a redesign, not relocation; it is also the live MCP bridge, which is why the standing ruling puts it last."
     },
     {
       "path": "service/new_dashboard/app.js",
-      "reason": "CORRECTED 2026-08-14 by PROTOTYPE (docs/APP_JS_STATE_MODULE_PACKET.md): moving `state` out was measured, not inferred, and frees only ~202 lines - `state` is NOT the binding constraint. 122 of 164 functions call a sibling defined in app.js, and 141 of them sit in ONE connected component of 3,085 lines. Re-measured on the real file under ONE criterion: 11 functions (67 lines) plus one 22-line component are movable today, reaching ~4,814. Clearing this file needs that component broken, which is a redesign of the render flow, not a relocation"
+      "reason": "MEASURED 2026-08-14 (docs/APP_JS_STATE_MODULE_PACKET.md): only 6 functions, 28 lines, reference nothing at module scope - the file reaches ~4,876. A prototype proved that moving the `state` object frees ~202 lines, NOT the 2,651 first claimed: 122 of 164 functions call a sibling defined here and 141 sit in ONE connected component of 3,085 lines. Clearing it needs that component broken - a redesign of the render flow."
     },
     {
       "path": "mcp/stdio/hermes-managed-host.js",
-      "reason": "MEASURED 2026-08-13: 959 of 1,845 lines are comments; `runDeliveryLoop` is 619 lines and its 7 seams are arrow-function consts declared INSIDE it, capturing its locals. The 5 extractable helpers total ~130 lines, reaching ~1,715. Clearing it needs the delivery loop split - a redesign. See docs/APP_JS_STATE_MODULE_PACKET.md"
+      "reason": "MEASURED 2026-08-14: 3 functions, 67 lines, reference nothing at module scope - the file reaches ~1,779. 959 of 1,845 lines are comments; `runDeliveryLoop` is 619 lines and its 7 seams are arrow-function consts declared INSIDE it, capturing its locals. Clearing it needs the delivery loop split - a redesign."
     }
   ]
 }

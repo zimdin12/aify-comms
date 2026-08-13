@@ -141,6 +141,42 @@ Leave app.js on the allowlist with this measurement attached. The entry currentl
 "reviewer-ruled relocation ceiling; remaining reduction needs factory conversion" — accurate, and now
 quantified: 206 movable lines against 2,651 blocked.
 
+## THIRD CORRECTION — the checker itself was wrong, and all three files are now measured the same way
+
+Four figures for "what can move out of app.js" appeared in this document — 206, 345, 89, 116 — each
+from a different criterion, none of them stated. The last was produced by a checker that stripped
+STRING LITERALS BEFORE COMMENTS, so an apostrophe in prose ("can't have mismatched", "agent's
+messages") opened a phantom string that ran to the next real quote and swallowed the code between.
+That is why `renderAnalyticsPage` was reported as free when its next line calls `byId` and reads
+`state.analytics.data`. Caught by reading three of the ten results by eye before publishing; all three
+were obviously wrong.
+
+`scratchpad/js_free_fns.py` now strips comments first and states its criterion at the top:
+
+> a function is FREE if, after stripping comments then string literals, no identifier in its body is a
+> module-level name declared in the same file, and it touches none of `state`, `document`, `window`,
+> `localStorage`, `fetch`.
+
+Deliberately OVER-inclusive: it can only refuse a function that was in fact movable, never approve one
+that is not.
+
+### All three remaining files, one criterion, 2026-08-14
+
+| file | lines | free functions | free lines | reaches |
+|---|---|---|---|---|
+| `service/new_dashboard/app.js` | 4,904 | 6 | 28 | ~4,876 |
+| `mcp/stdio/server.js` | 3,006 | 7 | 88 | ~2,918 |
+| `mcp/stdio/hermes-managed-host.js` | 1,846 | 3 | 67 | ~1,779 |
+
+**None of the three is meaningfully reducible by relocation.** All need a redesign of the structure
+that holds them together: app.js's 141-function render component, server.js's module-scope bridge
+state, hermes's 619-line `runDeliveryLoop`.
+
+**RETRACTION.** On the strength of the wrong 532-line figure I suggested the reviewer's ordering
+(app.js first, server.js last) deserved revisiting because server.js looked far more tractable. It is
+not — 88 lines. The ordering ruling stands, and its stated reason was never tractability anyway: it is
+that server.js is the live MCP bridge every agent connects through.
+
 ## The other two files, for completeness
 
 * **`mcp/stdio/server.js` — 3,005.** Packet accepted as measurement
