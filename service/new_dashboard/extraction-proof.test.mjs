@@ -235,6 +235,20 @@ const EXTRACTIONS = [
       { name: "syncInspectorToSelection", at: 3558, marker: "// syncInspectorToSelection moved to ./agent-drawer.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "work-loop-panels.mjs",
+    importLine: "import { contractCard, diagnosticKey, filtered, renderActivityFeed, renderAttention, renderContractBoard } from './work-loop-panels.mjs';",
+    items: [
+      { name: "filtered", at: 911, marker: "// filtered moved to ./work-loop-panels.mjs in v0.5.4." },
+      { name: "contractCard", at: 1386, marker: "// contractCard moved to ./work-loop-panels.mjs in v0.5.4." },
+      { name: "renderAttention", at: 1416, marker: "// renderAttention moved to ./work-loop-panels.mjs in v0.5.4." },
+      { name: "diagnosticKey", at: 1429, marker: "// diagnosticKey moved to ./work-loop-panels.mjs in v0.5.4." },
+      { name: "activityItems", at: 1520, marker: "// activityItems moved to ./work-loop-panels.mjs in v0.5.4." },
+      { name: "renderActivityFeed", at: 1553, marker: "// renderActivityFeed moved to ./work-loop-panels.mjs in v0.5.4." },
+      { name: "CONTRACT_BOARD_COLUMNS", at: 2918, marker: "// CONTRACT_BOARD_COLUMNS moved to ./work-loop-panels.mjs in v0.5.4." },
+      { name: "renderContractBoard", at: 2927, marker: "// renderContractBoard moved to ./work-loop-panels.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -251,6 +265,7 @@ const MODULES = () => ({
   "session-rail.mjs": read("session-rail.mjs"),
   "settings-panel.mjs": read("settings-panel.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
+  "work-loop-panels.mjs": read("work-loop-panels.mjs"),
 });
 
 function rebuild(overrides = {}) {

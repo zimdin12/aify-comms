@@ -80,10 +80,14 @@ test("Work Loop board view: toggle, renderer, and card reuse are wired", () => {
   // The List/Board toggle exists in the Work Loop toolbar.
   assert.match(html, /data-contract-view="list"/, "List toggle button must exist");
   assert.match(html, /data-contract-view="board"/, "Board toggle button must exist");
-  // The renderer + column model exist and the board reuses contractCard (so selection/actions work).
-  assert.match(source, /const CONTRACT_BOARD_COLUMNS = \[/, "board column model must exist");
-  assert.match(source, /function renderContractBoard\(/, "board renderer must exist");
-  assert.match(source, /overdue.*match:.*c\.overdue/, "overdue must be a board column that wins on the flag");
+  // The column model and the renderer MOVED to work-loop-panels.mjs in v0.5.4, and
+  // work-loop-panels.test.mjs now asserts them by behaviour: each column predicate is called with the
+  // states it must and must not claim, an unrecognised state lands in Other rather than vanishing, and an
+  // empty terminal column is hidden while the always-on ones render. The regexes here matched the
+  // predicates as TEXT, so a column model listing the wrong states would have satisfied them exactly as
+  // well — and they broke when the code moved though nothing about the board changed.
+  //
+  // What stays is the wiring only app.js and its siblings can prove.
   assert.ok(source.includes("state.contractView === 'board'"), "renderContracts must branch on the persisted view");
   // The click handler is scoped to the button (must not swallow card actions — same lesson as work-view).
   assert.match(source, /event\.target\.closest\('button\[data-contract-view\]'\)/,

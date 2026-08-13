@@ -38,6 +38,7 @@ import { state } from './state.mjs';
 import { SESSION_FILTER_KINDS, agentForSession, renderSessionRail, selectedSessionIds } from './session-rail.mjs';
 import { previewAppearance, refreshActiveTerminalTheme, renderSettings, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
 import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './agent-drawer.mjs';
+import { contractCard, diagnosticKey, filtered, renderActivityFeed, renderAttention, renderContractBoard } from './work-loop-panels.mjs';
 
 function resolveApiOrigin() {
   const params = new URLSearchParams(location.search);
@@ -846,11 +847,7 @@ async function _refreshImpl() {
   }
 }
 
-function filtered(items, fields) {
-  const needle = state.filter.trim().toLowerCase();
-  if (!needle) return items;
-  return items.filter((item) => fields.some((field) => String(item[field] || '').toLowerCase().includes(needle)));
-}
+// filtered moved to ./work-loop-panels.mjs in v0.5.4.
 
 // Single-item version of the top-bar global Find (for callers that do their own filtering).
 function matchesGlobalFilter(item, fields) {
@@ -1151,48 +1148,13 @@ function renderMetrics() {
   ].join('');
 }
 
-function contractCard(contract, { selectable = true } = {}) {
-  const actionable = contractActionable(contract);
-  const key = diagnosticKey('contract', contract.id);
-  const checked = state.selectedDiagnosticIds.has(key) ? ' checked' : '';
-  return `
-    <article class="contract" data-kind="contract" data-id="${esc(contract.id)}">
-      ${selectable ? `<input class="diagnostic-check" type="checkbox" data-diagnostic-select="${esc(contract.id)}" data-diagnostic-kind="contract"${checked} title="Select Work Loop item">` : ''}
-      <div>
-        <div class="item-title">
-          <strong class="clip">${esc(contract.subject || contract.id)}</strong>
-          ${renderStatusChip(contract.overdue ? 'failed' : contract.state || contract.status, statusWhyContext('contract', contract, contract.overdue ? 'failed' : contract.state || contract.status, { label: contract.state || contract.status }))}
-        </div>
-        <p class="preview">${esc(contract.preview || '')}</p>
-        <div class="contract-meta">
-          ${esc(contract.from)} → ${esc(contract.targetAgentId)} · ${esc(contract.type)}${relTime(contract.requestedAt) ? ` · ${relTime(contract.requestedAt)} old` : ''} · ${contract.lastReminderAt ? `last reminded ${relTime(contract.lastReminderAt)} ago` : 'not reminded'}
-        </div>
-      </div>
-      <div class="contract-actions">
-        <button class="ghost" data-run-inspector="${esc(contract.id)}" data-run-source="work">Inspect</button>
-        ${actionable ? `<button class="ghost" data-remind-contract="${esc(contract.id)}">Remind</button><button class="ghost danger" data-close-contract="${esc(contract.id)}">Close</button>` : ''}
-      </div>
-    </article>`;
-}
+// contractCard moved to ./work-loop-panels.mjs in v0.5.4.
 
 // contractActionable moved to ./record-fields.mjs in v0.5.4.
 
-function renderAttention() {
-  const items = filtered(state.contracts, ['subject', 'preview', 'from', 'targetAgentId'])
-    .filter((c) => c.overdue || c.state === 'working' || c.state === 'queued')
-    .slice(0, 8);
-  const host = byId('attention-list');
-  if (!host) return; // never let a missing node throw out of the unconditional renderAll loop
-  // WS-G: when clear, collapse to a slim one-liner instead of a tall empty card.
-  host.classList.toggle('is-clear', items.length === 0);
-  host.innerHTML = items.length
-    ? items.map((contract) => contractCard(contract, { selectable: false })).join('')
-    : '<p class="attention-clear">✓ Work Loop clear — no overdue or in-flight replies.</p>';
-}
+// renderAttention moved to ./work-loop-panels.mjs in v0.5.4.
 
-function diagnosticKey(kind, id) {
-  return `${kind}:${id}`;
-}
+// diagnosticKey moved to ./work-loop-panels.mjs in v0.5.4.
 
 function selectedDiagnostics() {
   const selected = [];
@@ -1281,62 +1243,9 @@ function renderDiagnosticsBulkToolbar() {
     <button class="ghost" data-diagnostic-action="clear">Clear</button>`;
 }
 
-function activityItems() {
-  const runItems = state.runs.slice(0, 8).map((run) => ({
-    kind: 'run',
-    id: run.id,
-    title: run.subject || run.id,
-    meta: `${runTargetAgent(run) || 'unassigned'} · ${relTime(run.startedAt || run.requestedAt)} ago`,
-    status: run.status || 'unknown',
-    at: tsMs(run.startedAt || run.requestedAt) || 0,
-    source: run,
-  }));
-  const messageItems = state.messages.slice(0, 8).map((message) => ({
-    kind: 'message',
-    id: messageId(message),
-    title: message.subject || message.body || '(no subject)',
-    meta: `${message.from || 'unknown'} → ${message.to || message.targetAgentId || 'dashboard'} · ${relTime(message.createdAt || message.timestamp || message.time)} ago`,
-    status: message.read ? 'completed' : 'queued',
-    at: tsMs(message.createdAt || message.timestamp || message.time) || 0,
-    source: message,
-  }));
-  const contractItems = state.contracts.slice(0, 8).map((contract) => ({
-    kind: 'contract',
-    id: contract.id,
-    title: contract.subject || contract.id,
-    meta: `${contract.targetAgentId || 'unknown'} · ${relTime(contract.requestedAt)} old`,
-    status: contract.overdue ? 'failed' : contract.state || contract.status || 'unknown',
-    at: tsMs(contract.lastReminderAt || contract.requestedAt) || 0,
-    source: contract,
-  }));
-  return [...runItems, ...messageItems, ...contractItems]
-    .sort((a, b) => b.at - a.at)
-    .slice(0, 10);
-}
+// activityItems moved to ./work-loop-panels.mjs in v0.5.4.
 
-function renderActivityFeed() {
-  const feed = byId('activity-feed');
-  if (!feed) return;
-  const items = activityItems();
-  feed.innerHTML = items.length ? items.map((item) => {
-    const context = item.kind === 'run'
-      ? statusWhyContext('run', item.source, item.status)
-      : item.kind === 'contract'
-        ? statusWhyContext('contract', item.source, item.status, { label: item.source.state || item.source.status || item.status })
-        : statusWhyContext('message', item.source, item.status, { label: item.source.type || item.status, why: `Message from ${item.source.from || 'unknown'} to ${item.source.to || item.source.targetAgentId || 'dashboard'}.` });
-    const inspectAttrs = item.kind === 'run' || item.kind === 'contract'
-      ? `data-run-inspector="${esc(item.id)}" data-run-source="activity"`
-      : `data-kind="message" data-id="${esc(item.id)}"`;
-    return `
-      <article class="activity-item" ${inspectAttrs}>
-        <div class="item-title">
-          <strong class="clip">${esc(item.title)}</strong>
-          ${renderStatusChip(item.status, context)}
-        </div>
-        <p class="preview">${esc(item.meta)}</p>
-      </article>`;
-  }).join('') : '<div class="activity-item"><strong>No recent activity loaded</strong><p class="preview">Activity appears after messages, runs, or Work Loop updates.</p></div>';
-}
+// renderActivityFeed moved to ./work-loop-panels.mjs in v0.5.4.
 
 let _statusWhyReturnFocus = null;
 function openStatusWhy(trigger) {
@@ -2513,44 +2422,9 @@ function renderSessionWorkspace() {
 // state — always wins its urgency slot). `always` columns render even when empty so
 // the board shape is stable in the default Open filter; terminal columns only appear
 // when they actually hold cards (or when the State filter loaded them).
-const CONTRACT_BOARD_COLUMNS = [
-  { key: 'overdue',  label: 'Overdue',  always: true,  match: (c) => !!c.overdue },
-  { key: 'working',  label: 'Working',  always: true,  match: (c) => c.state === 'working' },
-  { key: 'queued',   label: 'Queued',   always: true,  match: (c) => c.state === 'queued' },
-  { key: 'awaiting', label: 'Awaiting', always: true,  match: (c) => ['sent', 'seen', 'missing_reply'].includes(c.state) },
-  { key: 'answered', label: 'Answered', always: false, match: (c) => ['answered', 'closed'].includes(c.state) },
-  { key: 'failed',   label: 'Failed',   always: false, match: (c) => c.state === 'failed' },
-];
+// CONTRACT_BOARD_COLUMNS moved to ./work-loop-panels.mjs in v0.5.4.
 
-function renderContractBoard(contracts) {
-  const buckets = new Map(CONTRACT_BOARD_COLUMNS.map((col) => [col.key, []]));
-  const other = [];
-  for (const contract of contracts) {
-    const col = CONTRACT_BOARD_COLUMNS.find((c) => c.match(contract));
-    (col ? buckets.get(col.key) : other).push(contract);
-  }
-  const columns = CONTRACT_BOARD_COLUMNS
-    .filter((col) => col.always || buckets.get(col.key).length)
-    .map((col) => {
-      const cards = buckets.get(col.key);
-      const body = cards.length
-        ? cards.map((c) => contractCard(c)).join('')
-        : '<p class="board-col-empty">Clear</p>';
-      return `<div class="contract-board-col c-${col.key}">
-        <div class="board-col-head"><span class="board-col-label">${esc(col.label)}</span><span class="board-col-count">${cards.length}</span></div>
-        <div class="board-col-body">${body}</div>
-      </div>`;
-    });
-  // Anything with an unrecognized state (forward-compat) gets its own trailing column
-  // rather than silently vanishing from the board.
-  if (other.length) {
-    columns.push(`<div class="contract-board-col c-other">
-      <div class="board-col-head"><span class="board-col-label">Other</span><span class="board-col-count">${other.length}</span></div>
-      <div class="board-col-body">${other.map((c) => contractCard(c)).join('')}</div>
-    </div>`);
-  }
-  return `<div class="contract-board">${columns.join('')}</div>`;
-}
+// renderContractBoard moved to ./work-loop-panels.mjs in v0.5.4.
 
 function renderContracts() {
   const selected = byId('contract-state')?.value || 'open';
