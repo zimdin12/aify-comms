@@ -260,13 +260,20 @@ if (AIFY_CODEX_APP_SERVER_URL) {
 
 
 const __HEARTBEAT_MS = Number(process.env.AIFY_SESSION_HEARTBEAT_MS || "60000") || 60000;
-const __serverUrl = String(process.env.AIFY_SERVER_URL || process.env.CLAUDE_MCP_SERVER_URL || "http://127.0.0.1:8800").trim();
-const __stopHandleHeartbeat = startSessionHandleHeartbeat({
-  adapter: __runtimeAdapter,
-  agentId: AIFY_AGENT_ID,
-  intervalMs: __HEARTBEAT_MS,
-  postFn: makeDefaultHandlePoster(__serverUrl, API_KEY),
-});
+// STARTED ONLY IN REMOTE MODE. This poster is handed a base URL and fetches it directly, without going
+// through `httpCall` — so before v0.5.4 it beat against `http://127.0.0.1:8800` forever in local mode,
+// because the URL it was given carried that default and could never be empty. The `!__serverUrl` guards
+// elsewhere were written to prevent exactly this and could not fire. Gating the START is what actually
+// stops it: nothing runs, nothing ticks, and nothing throws. The no-op stopper keeps `cleanupOnExit`
+// calling the same slots in the same order.
+const __stopHandleHeartbeat = IS_REMOTE
+  ? startSessionHandleHeartbeat({
+      adapter: __runtimeAdapter,
+      agentId: AIFY_AGENT_ID,
+      intervalMs: __HEARTBEAT_MS,
+      postFn: makeDefaultHandlePoster(SERVER_URL, API_KEY),
+    })
+  : () => {};
 
 // Plan 4 Task 13 (2026-05-25): turn-busy heartbeat. While any controller's
 // start() promise is unresolved, POSTs turn_busy=1 every 30s to keep
@@ -298,7 +305,9 @@ const __stopHandleHeartbeat = startSessionHandleHeartbeat({
 // derived status. claude has no such controller, so claude never triggers this
 // re-pulse; its liveness is carried by the unconditional liveness heartbeat
 // below, and its 'working' status by the pure-event turn_busy.
-const __stopTurnBusyHeartbeat = startTurnBusyHeartbeat({
+// Started only in remote mode, same reasoning as the session-handle heartbeat above: its poster takes a
+// base URL and fetches it directly rather than through `httpCall`.
+const __stopTurnBusyHeartbeat = !IS_REMOTE ? () => {} : startTurnBusyHeartbeat({
   agentId: AIFY_AGENT_ID,
   intervalMs: 30_000,
   // Active ONLY when a native runtime controller is mid-turn (codex/pi/hermes).
@@ -307,7 +316,7 @@ const __stopTurnBusyHeartbeat = startTurnBusyHeartbeat({
   // bridge_instances.last_seen — without it a controller turn longer than the
   // server's active-run bridge-stale window is reaped as a dead bridge
   // mid-turn even though the turn is alive.
-  postFn: makeDefaultTurnBusyPoster(__serverUrl, API_KEY, BRIDGE_INSTANCE_ID),
+  postFn: makeDefaultTurnBusyPoster(SERVER_URL, API_KEY, BRIDGE_INSTANCE_ID),
 });
 
 // A3 (status-liveness): unconditional liveness beat. Unlike the turn-busy
@@ -318,7 +327,7 @@ const __stopTurnBusyHeartbeat = startTurnBusyHeartbeat({
 const __stopLivenessHeartbeat = startLivenessHeartbeat({
   intervalMs: 30_000,
   beat: async () => {
-    if (!AIFY_AGENT_ID || !__serverUrl) return;
+    if (!AIFY_AGENT_ID || !IS_REMOTE) return;
     await httpCall("POST", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/heartbeat`, {
       bridgeId: BRIDGE_INSTANCE_ID,
       bridgeKind: "resident",
@@ -391,7 +400,7 @@ function armClaudeTurnEndDetector(agentId) {
     // typed, channel-woken, AND scheduled turns — the robust replacement for the
     // removed PostToolUse re-pulse. Idempotent (edge-triggered in the detector).
     postTurnStart: async () => {
-      if (!__effectiveAgentId || !__serverUrl) return;
+      if (!__effectiveAgentId || !IS_REMOTE) return;
       await httpCall("POST", `/agents/${encodeURIComponent(__effectiveAgentId)}/turn-start`, {
         bridgeId: BRIDGE_INSTANCE_ID,
         turnRuntime: "claude-code",
@@ -399,7 +408,7 @@ function armClaudeTurnEndDetector(agentId) {
       });
     },
     postTurnEnd: async () => {
-      if (!__effectiveAgentId || !__serverUrl) return;
+      if (!__effectiveAgentId || !IS_REMOTE) return;
       await httpCall("POST", `/agents/${encodeURIComponent(__effectiveAgentId)}/turn-end`, {
         bridgeId: BRIDGE_INSTANCE_ID,
         turnRuntime: "claude-code",
@@ -453,7 +462,7 @@ if (
     workingRefreshMs: 45_000,
     readTranscript: async () => __runtimeAdapter.transcriptTail({ agentId: AIFY_AGENT_ID }),
     postTurnStart: async () => {
-      if (!AIFY_AGENT_ID || !__serverUrl) return;
+      if (!AIFY_AGENT_ID || !IS_REMOTE) return;
       await httpCall("POST", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/turn-start`, {
         bridgeId: BRIDGE_INSTANCE_ID,
         turnRuntime: "codex",
@@ -461,7 +470,7 @@ if (
       });
     },
     postTurnEnd: async () => {
-      if (!AIFY_AGENT_ID || !__serverUrl) return;
+      if (!AIFY_AGENT_ID || !IS_REMOTE) return;
       await httpCall("POST", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/turn-end`, {
         bridgeId: BRIDGE_INSTANCE_ID,
         turnRuntime: "codex",
@@ -584,7 +593,7 @@ if (AIFY_HERMES_GATEWAY_URL && AIFY_AGENT_ID) {
     threshold: Math.max(1, Number(process.env.AIFY_HERMES_GATEWAY_PROBE_THRESHOLD || 3)),
     probe: makeGatewayReachabilityProbe({ indexUrl: gatewayIndexUrlFromWs(AIFY_HERMES_GATEWAY_URL) }),
     reportDead: async ({ consecutiveFailures } = {}) => {
-      if (!__serverUrl) return;
+      if (!IS_REMOTE) return;
       await reportGatewayDead({
         httpCall,
         agentId: AIFY_AGENT_ID,
@@ -641,7 +650,7 @@ if (
     // while working). busy:true via /turn-start; no runId (an autonomous /
     // direct-typed resident turn has no aify run).
     postTurnStart: async () => {
-      if (!AIFY_AGENT_ID || !__serverUrl) return;
+      if (!AIFY_AGENT_ID || !IS_REMOTE) return;
       await httpCall("POST", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/turn-start`, {
         bridgeId: BRIDGE_INSTANCE_ID,
         turnRuntime: "hermes",
@@ -650,7 +659,7 @@ if (
     },
     // CLEAR on sustained idle — authoritative /turn-end, only ever clears.
     postTurnEnd: async () => {
-      if (!AIFY_AGENT_ID || !__serverUrl) return;
+      if (!AIFY_AGENT_ID || !IS_REMOTE) return;
       await httpCall("POST", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/turn-end`, {
         bridgeId: BRIDGE_INSTANCE_ID,
         turnRuntime: "hermes",
