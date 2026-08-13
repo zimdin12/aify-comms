@@ -20,9 +20,9 @@ import {
   detectPiRuntimeFailure,
 } from "../runtimes-helpers.js";
 
-// PiSession + acquirePiSession live in pi-session.js — direct import is safe
-// (not part of the runtimes.js <-> adapters/ cycle).
-import { acquirePiSession } from "../pi-session.js";
+// acquirePiSession lives in pi-session-pool.mjs (the class itself is in pi-session.js) — direct
+// import is safe (not part of the runtimes.js <-> adapters/ cycle).
+import { acquirePiSession } from "../pi-session-pool.mjs";
 
 export class PiController extends BaseController {
   constructor(opts) {

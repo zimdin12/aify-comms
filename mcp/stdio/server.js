@@ -89,7 +89,7 @@ import {
   terminateProcessTree,
 } from "./runtimes.js";
 
-import { shutdownAllPiSessions, getPiSession, acquirePiSession } from "./pi-session.js";
+import { shutdownAllPiSessions, getPiSession, acquirePiSession } from "./pi-session-pool.mjs";
 import { shutdownAllCodexSessions } from "./codex-session.js";
 import { shutdownAllHermesSessions } from "./hermes-session.js";
 import { shutdownAllHermesGatewaySessions } from "./hermes-managed-gateway-session.js";

@@ -39,7 +39,7 @@
     },
     {
       "path": "mcp/stdio/pi-session.js",
-      "reason": "relocation provably cannot clear it: moving all 19 top-level functions leaves 1,030 lines"
+      "reason": "relocation provably cannot clear it: the file is a 960-line class. Measured 2026-08-13 at 1,044 lines after the session pool moved out to pi-session-pool.mjs; the 4 free functions still here are worth ~43 more, so relocation bottoms out just above the limit and the remainder needs a decision about splitting the class"
     }
   ]
 }

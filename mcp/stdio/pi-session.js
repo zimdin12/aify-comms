@@ -10,11 +10,10 @@ import {
   colorize,
   formatPiEventAsTerminalFrame,
 } from "./pi-terminal-frame.mjs";
+import { piSessionPool } from "./pi-session-registry.mjs";
 import {
   spawnProcess,
   terminateProcessTree,
-  defaultPiCommand,
-  runtimeLaunchAvailability,
   normalizePiModelOverride,
   getRuntimeConfig,
   detectPiRuntimeFailure,
@@ -25,8 +24,6 @@ import {
   quoteForDisplay,
   diagnosticsFor,
 } from "./runtimes.js";
-
-const piSessionPool = new Map();
 
 const MAX_PI_ASSISTANT_CAPTURE_CHARS = 262144;
 const DEFAULT_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
@@ -1044,75 +1041,4 @@ export class PiSession {
       try { activeTurn.reject(new Error(`Pi runtime stopped (${reason})`)); } catch {}
     }
   }
-}
-
-function resolvePiLauncher() {
-  const availability = runtimeLaunchAvailability("pi");
-  if (!availability.available) throw new Error(availability.message);
-  return defaultPiCommand();
-}
-
-export async function acquirePiSession({ agentId, agentInfo, sessionId = "", cwd, onPoolEvent }) {
-  const key = String(agentId || "").trim();
-  if (!key) throw new Error("acquirePiSession requires an agentId");
-  let session = piSessionPool.get(key);
-  if (!session) {
-    session = new PiSession({ agentId: key, agentInfo, sessionId, onPoolEvent });
-    piSessionPool.set(key, session);
-  } else {
-    if (agentInfo) session.agentInfo = agentInfo;
-    if (onPoolEvent) session._onPoolEvent = onPoolEvent;
-  }
-  const launcher = resolvePiLauncher();
-  const config = getRuntimeConfig(agentInfo);
-  const model = normalizePiModelOverride(agentInfo?.model || config.model || "");
-  const thinking = String(config.thinking || config.effort || "").trim();
-  await session.ensureStarted({
-    launcher,
-    cwd: cwd || agentInfo?.cwd || process.cwd(),
-    model,
-    thinking,
-    sessionId,
-    agentInfo,
-  });
-  return session;
-}
-
-export function getPiSession(agentId) {
-  const key = String(agentId || "").trim();
-  if (!key) return null;
-  return piSessionPool.get(key) || null;
-}
-
-export async function shutdownAllPiSessions(reason = "shutdown") {
-  const sessions = [...piSessionPool.values()];
-  piSessionPool.clear();
-  await Promise.all(sessions.map((s) => s.stop(reason).catch(() => {})));
-}
-
-export function __resetPiSessionPoolForTests() {
-  for (const session of piSessionPool.values()) {
-    try {
-      if (session._proc) terminateProcessTree(session._proc);
-    } catch {
-      // swallow
-    }
-    session._proc = null;
-    session._state = "dead";
-    if (session._idleTimer) clearTimeout(session._idleTimer);
-    if (session._startupTimer) clearTimeout(session._startupTimer);
-    session._idleTimer = null;
-    session._startupTimer = null;
-    session._activeTurn = null;
-    session._pendingCommandAcks.clear();
-  }
-  piSessionPool.clear();
-}
-
-export function __piSessionPoolSize() {
-  return piSessionPool.size;
-}
-
-export function __piSessionPoolEntriesForTests() {
-  return [...piSessionPool.values()];
 }

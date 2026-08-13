@@ -17,7 +17,7 @@ const {
   normalizeRuntime,
   runtimeLaunchAvailability,
 } = await import("../runtimes.js");
-const { __resetPiSessionPoolForTests, __piSessionPoolSize, acquirePiSession, shutdownAllPiSessions } = await import("../pi-session.js");
+const { __resetPiSessionPoolForTests, __piSessionPoolSize, acquirePiSession, shutdownAllPiSessions } = await import("../pi-session-pool.mjs");
 
 assert.equal(normalizeRuntime("pi"), "pi");
 assert.equal(normalizeRuntime("omp"), "pi");
@@ -711,8 +711,11 @@ const crash1 = launchRuntimeRun({
 });
 await crash1.promise;
 // Forcibly kill the live child to simulate a between-turn crash.
-const crashSessionPool = await import("../pi-session.js");
-for (const session of crashSessionPool.__piSessionPoolEntriesForTests?.() || []) {
+const crashSessionPool = await import("../pi-session-pool.mjs");
+// Called unguarded on purpose. This was `?.() || []`, which would have let the loop run zero times
+// — and the assertion below still pass — if the export ever moved or was renamed. A call site that
+// cannot fail is not a repointed call site.
+for (const session of crashSessionPool.__piSessionPoolEntriesForTests()) {
   if (session._proc) try { session._proc.kill(); } catch {}
 }
 await new Promise((resolve) => setTimeout(resolve, 100));
