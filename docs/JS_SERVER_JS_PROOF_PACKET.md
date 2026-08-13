@@ -317,3 +317,48 @@ one was labelled as if it answered this one.
 helpers, not 992, and nothing in it touches the loop. What remains before extracting is subject grouping —
 1,745 lines of tool handlers is not one module, and the reviewer's standing condition forbids a barrel
 that exports half the bridge.
+
+### 4. Layer 2 subject grouping — measured, not named
+
+The reviewer's condition forbids "a broad tool-region barrel that exports half of server.js", so the
+question before extracting 1,745 lines is what the OWNERS are. Grouped by subject, then checked against
+actual helper dependency:
+
+| group | tools | lines | helpers reached |
+|---|---|---|---|
+| messaging | 8 | 692 | 16 |
+| console | 5 | 267 | 4 |
+| channels | 5 | 245 | 8 |
+| lifecycle | 5 | 205 | 5 |
+| dispatch | 5 | 170 | 2 |
+| status | 5 | 166 | 9 |
+
+All 33 tools land in a group; none is left over, which is weak evidence the subjects are real rather than
+imposed.
+
+**The constraint that decides the design: 11 of the 23 helpers are used by MORE THAN ONE group.**
+
+| | count | lines |
+|---|---|---|
+| group-exclusive — can move with their group | 12 | 249 |
+| shared — need one owner, or stay | 11 | 158 |
+
+The shared set is the interesting half. `readAgents` and `validateName` are used by FIVE groups each;
+`writeAgents` by four; `parseJson` and `normalizeSessionMode` by three. These are not tool-region
+helpers at all — they are the bridge's own primitives, and giving any single tool group ownership of
+`readAgents` would make four other groups import from it. That is the barrel reappearing with a
+different name.
+
+**So the shape is three tiers, not one move:**
+
+1. the 11 shared primitives need their own owner (or stay in server.js behind explicit deps) BEFORE any
+   group moves — otherwise the first group extracted becomes everyone else's dependency;
+2. the 12 group-exclusive helpers move WITH their group;
+3. the six tool groups move independently, each behind its own `registerXTools(server, deps)` wrapper.
+
+`spawnTriggeredAgent` (84 lines, shared by channels and messaging) is the one that does not fit the
+pattern — it is large and it is behaviour, not a primitive. It likely needs its own owner rather than
+joining a shared-primitives module.
+
+**Not extracted.** This is the measurement; the tier-1 owner decision is the reviewer's, and getting it
+wrong makes every later group extraction wrong in the same way.
