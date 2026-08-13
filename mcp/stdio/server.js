@@ -53,6 +53,7 @@ import {
   isTransientHttpError,
 } from "./aify-service-endpoint.mjs";
 import { registerDispatchTools } from "./dispatch-tools.mjs";
+import { validateName } from "./safe-name.mjs";
 import { AIFY_AGENT_ID, AIFY_AGENT_ROLE, cleanEnvPlaceholder } from "./launch-identity.mjs";
 import { residentIdentityWarning } from "./register-identity.js";
 import { randomUUID } from "crypto";
@@ -1172,12 +1173,6 @@ const INBOX_DIR = path.join(MESSAGES_DIR, "inbox");
 const SHARED_DIR = path.join(MESSAGES_DIR, "shared");
 
 // ── Input validation ────────────────────────────────────────────────────────
-const SAFE_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
-function validateName(name, label = "name") {
-  if (!SAFE_NAME_RE.test(name)) {
-    throw new Error(`Invalid ${label}: must be 1-128 alphanumeric chars, dots, hyphens, underscores. Got: "${name}"`);
-  }
-}
 
 if (!IS_REMOTE) {
   for (const dir of [MESSAGES_DIR, INBOX_DIR, SHARED_DIR]) {
