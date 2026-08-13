@@ -107,8 +107,18 @@ test("server.js kept none of the three — exactly one owner", () => {
     assert.doesNotMatch(src, new RegExp(`server\\.tool\\(\\s*\\n?\\s*"${name}"`), `${name} still in server.js`);
   }
   assert.match(src, /registerInboxTools\(server, z\);/, "server.js must still CALL the wrapper");
-  // comms_search deliberately did NOT come along — it searches the whole corpus, not this mailbox.
-  assert.match(src, /server\.tool\(\s*\n?\s*"comms_search"/, "comms_search stays with the broader surface");
+});
+
+test("comms_search is NOT part of this group — the subject boundary, not a location", () => {
+  // `comms_search` sits between two of these tools in server.js and was deliberately excluded: an inbox
+  // is the caller's own mailbox, while search covers the whole corpus including artifacts.
+  //
+  // My first version asserted it was still registered IN server.js, which was true when written and
+  // wrong one commit later when search moved to its own module. That pinned a LOCATION; the property is
+  // that search does not belong to the inbox group, and it holds wherever search ends up living.
+  const inbox = readFileSync(path.join(STDIO, "inbox-tools.mjs"), "utf-8");
+  assert.doesNotMatch(inbox, /"comms_search"/, "search must not have drifted into the inbox module");
+  assert.ok(!tools.has("comms_search"), "the inbox wrapper must not register search");
 });
 
 process.on("exit", () => { try { rmSync(STORE, { recursive: true, force: true }); } catch { /* best effort */ } });
