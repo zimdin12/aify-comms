@@ -449,3 +449,37 @@ messaging name.
 
 **Not extracted.** The measurement says which slice is safe to attempt first; it does not license the
 attempt.
+
+### 7. `dispatch` group — tier-1 clearance, measured
+
+The reviewer approved `dispatch` as the first group extraction *"only after the tier-1 shared-owner
+cleanup is either completed or proven irrelevant to dispatch's actual closure. If dispatch truly needs
+none of the tier-1 shared helpers, say that explicitly."*
+
+Measured at `ea0edeff`:
+
+| tool | line | size |
+|---|---|---|
+| `comms_dispatch` | 4453 | 65 |
+| `comms_run_status` | 4519 | 40 |
+| `comms_contracts` | 4571 | 32 |
+| `comms_run_interrupt` | 4604 | 24 |
+| `comms_interrupt` | 4650 | 9 |
+
+**170 lines, 5 tools.** Closure: exactly two helpers, `commsInterruptHandler` (20L) and
+`summarizeContract` (10L), both group-exclusive — they move with the group and are needed by nothing
+else.
+
+**TIER-1 SHARED HELPERS NEEDED: NONE.** Not one of the eleven. So the tier-1 owner work is irrelevant to
+this group and `dispatch` may proceed without waiting for it, per the reviewer's stated condition.
+
+**Module state needed: NONE.** **Deps: exactly 2** — `AIFY_AGENT_ID` and `IS_REMOTE`, both bridge
+constants — matching the deps-shape measurement rather than exceeding it once looked at closely.
+
+**Negative proof re-run in this tree:** `comms_register` is not in the closure; `runDispatchLoop` is not
+in the closure.
+
+This is the smallest, most isolated group in the file, which is why it is the proving slice: if the
+wrapper pattern, the fake-server tests and the reconstruction proof do not hold for a 5-tool group with
+two constants and no shared helpers, they will not hold anywhere, and nothing else is entangled with it
+while that is found out.
