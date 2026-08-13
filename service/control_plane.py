@@ -73,9 +73,12 @@ from service.api_core.runtime import (  # v0.5.1e: single owner, resolved agains
 )
 from service.api_core.serialization import (  # v0.5.1c: single owner, no copy
     _json_loads_or,
-    _iso_from_ms,
+    _iso_add_seconds,
+    _row_get,
     _row_require_reply,
 )
+from service.api_core.claim_gating import _dispatch_message_id_for_recipient
+from service.reconcilers.status_cache import _status_refresh_after
 from service.db import get_db
 from service.terminal_snapshot import render_live_screen as _render_live_terminal_screen
 from service.status_engine import derive, StatusInputs
@@ -735,25 +738,8 @@ STUCK_STOPPING_GRACE_SECONDS = 900  # a 'stopping' PTY that never reached 'stopp
 # _environment_record_to_dict moved to service/api_core/records.py in v0.5.4.
 
 
-def _iso_add_seconds(value: str, seconds: int) -> str:
-    # Compose the canonical parse/format helpers so refresh_after timestamps use
-    # the same second-precision "...Z" form as _now() (what they're compared to).
-    epoch = _iso_to_epoch(value)
-    if not epoch:
-        return ""
-    return _iso_from_ms(int((epoch + max(0, int(seconds))) * 1000))
 
 
-def _status_refresh_after(agent_last_seen: str, env_last_seen: str, *, liveness_seconds: int, env_offline_seconds: int) -> str:
-    # Cache TTL keyed on the liveness windows (proof-based, 2026-06-18): recompute when the
-    # agent could cross its liveness window or its env could go offline — no idle/offline
-    # minute decay. The reconcile sweep + push events also keep the cache fresh.
-    candidates = [
-        _iso_add_seconds(agent_last_seen, int(liveness_seconds or 0)),
-        _iso_add_seconds(env_last_seen, int(env_offline_seconds or 0)),
-    ]
-    candidates = [value for value in candidates if value]
-    return min(candidates) if candidates else ""
 
 
 # _current_agent_session_row moved to service/api_core/agent_sessions.py in v0.5.4.
@@ -1551,15 +1537,6 @@ from service.api_core.dispatch_hint import _dispatch_fix_hint
 # service/api_core/terminal_output.py in v0.5.4.
 
 
-def _row_get(row, key, default=None):
-    """Safely fetch a field from either a dict or a sqlite3.Row."""
-    try:
-        value = row[key]
-    except (KeyError, IndexError, TypeError):
-        return default
-    return value if value is not None else default
-
-
 
 
 async def _compute_agent_status(row, db=None):
@@ -2152,13 +2129,6 @@ async def _create_dispatch_runs(
 
 
 
-def _dispatch_message_id_for_recipient(
-    recipient_id: str,
-    *,
-    message_id: Optional[str],
-    source_message_ids: Optional[dict[str, str]] = None,
-) -> str:
-    return str((source_message_ids or {}).get(recipient_id, message_id or "") or "").strip()
 
 
 # _dispatch_source_message_ids moved to service/api_core/claim_gating.py in v0.5.4.

@@ -34,7 +34,7 @@ from service.routers.api_v2 import router
 from service.tests._base import FastApiTestCase, DummyWS, PRE_PLAN4_SETTINGS
 from service.api_core.events import _append_terminal_control
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
-from service.api_core.serialization import _iso_from_ms
+from service.api_core.serialization import _iso_add_seconds, _iso_from_ms
 from service.api_core.settings import _load_settings
 from service.api_core.liveness import _resident_bridge_is_fresh
 from service.api_core import dispatch_start  # v0.5.4: call the OWNER, not the carrier alias
@@ -2918,7 +2918,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         cache = self._async_compute_live_status("tb-refresh-claude")
         self.assertEqual(cache["status"], "working", cache)
-        limit = api_v2._iso_add_seconds(now, liveness.TURN_BUSY_BACKSTOP_SECONDS)
+        limit = _iso_add_seconds(now, liveness.TURN_BUSY_BACKSTOP_SECONDS)
         self.assertTrue(cache["refresh_after"], cache)
         self.assertLessEqual(
             cache["refresh_after"], limit,

@@ -26,6 +26,8 @@ import json
 import time
 from typing import Any
 
+from service.clock import iso_to_epoch as _iso_to_epoch
+
 
 def _json_loads_or(value: Any, default):
     if value in (None, ""):
@@ -137,3 +139,25 @@ def _quote_untrusted_subject(subject: str, limit: int = 80) -> str:
 
 def _row_require_reply(row) -> bool:
     return bool(int((row["require_reply"] if row and "require_reply" in row.keys() else 0) or 0))
+
+# Two row/timestamp helpers from the control plane, v0.5.4. `_row_get` joins `_row_require_reply`
+# above it -- both read a field out of something that may be a dict or a sqlite3.Row.
+# `_iso_add_seconds` composes `_iso_from_ms` (here) with `iso_to_epoch` (service/clock.py), which is
+# why it needs the one import added above: its closure spans two modules and this is the one that
+# owns the FORMATTING half. clock.py stays dependency-free -- the import runs this way only.
+def _row_get(row, key, default=None):
+    """Safely fetch a field from either a dict or a sqlite3.Row."""
+    try:
+        value = row[key]
+    except (KeyError, IndexError, TypeError):
+        return default
+    return value if value is not None else default
+
+
+def _iso_add_seconds(value: str, seconds: int) -> str:
+    # Compose the canonical parse/format helpers so refresh_after timestamps use
+    # the same second-precision "...Z" form as _now() (what they're compared to).
+    epoch = _iso_to_epoch(value)
+    if not epoch:
+        return ""
+    return _iso_from_ms(int((epoch + max(0, int(seconds))) * 1000))

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from service.api_core.serialization import _iso_add_seconds
 from service.clock import now as _now
 
 # ---- In-memory live-status cache (2026-06-18) --------------------------------------------
@@ -208,3 +209,18 @@ async def invalidate_agent_live_state(db, agent_id: str) -> None:
     # the last DERIVED status readable in the meantime. (db kept in the signature for the ~45
     # existing call sites; no DB write happens.)
     _live_state_expire(agent_id)
+
+# v0.5.4: the TTL rule for the cache this module owns. It computes `refresh_after` from the two
+# liveness windows, so it belongs beside `_LIVE_STATE_CACHE` rather than beside the timestamp
+# arithmetic it happens to call -- `_iso_add_seconds` is FORMATTING and lives in serialization.py;
+# this is POLICY about when a cached status stops being trustworthy.
+def _status_refresh_after(agent_last_seen: str, env_last_seen: str, *, liveness_seconds: int, env_offline_seconds: int) -> str:
+    # Cache TTL keyed on the liveness windows (proof-based, 2026-06-18): recompute when the
+    # agent could cross its liveness window or its env could go offline — no idle/offline
+    # minute decay. The reconcile sweep + push events also keep the cache fresh.
+    candidates = [
+        _iso_add_seconds(agent_last_seen, int(liveness_seconds or 0)),
+        _iso_add_seconds(env_last_seen, int(env_offline_seconds or 0)),
+    ]
+    candidates = [value for value in candidates if value]
+    return min(candidates) if candidates else ""

@@ -564,3 +564,13 @@ async def _mark_dispatch_source_messages_read(db, row, agent_id: str, read_at: s
             (message_id, agent_id, read_at),
         )
     return len(existing_ids)
+
+# Joins `_dispatch_source_message_ids` in this module, v0.5.4: that function BUILDS the per-recipient
+# map and this one READS it, so they answer the same question from opposite ends.
+def _dispatch_message_id_for_recipient(
+    recipient_id: str,
+    *,
+    message_id: Optional[str],
+    source_message_ids: Optional[dict[str, str]] = None,
+) -> str:
+    return str((source_message_ids or {}).get(recipient_id, message_id or "") or "").strip()
