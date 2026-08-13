@@ -125,10 +125,19 @@ test("the two DIRECT posters are started only when IS_REMOTE, and take the owned
 test("the eight callback guards now ask IS_REMOTE — the question they meant", () => {
   // They read `!__serverUrl` and could not fire. Counted, because "some were converted" is the failure this
   // catches: a leftover would be a guard that still cannot fire, sitting next to seven that can.
-  const converted = (SERVER.match(/if \(!(?:AIFY_AGENT_ID|__effectiveAgentId) \|\| !IS_REMOTE\) return;/g) || []).length
-    + (SERVER.match(/if \(!IS_REMOTE\) return;/g) || []).length;
+  //
+  // COUNTED ACROSS THE BRIDGE, not in server.js alone. Two of the eight live inside the claude turn-end
+  // detector's block, which moved to its own owner in a later slice — so a server.js-only count went from
+  // eight to six and failed against correct code. That is the ninth time in this decomposition an assertion
+  // of mine measured where code lives; the property is that all eight ask the right question, wherever they
+  // are.
+  let converted = 0;
+  for (const [, src] of bridgeSources()) {
+    converted += (src.match(/if \(!(?:AIFY_AGENT_ID|__effectiveAgentId) \|\| !IS_REMOTE\) return;/g) || []).length;
+    converted += (src.match(/if \(!IS_REMOTE\) return;/g) || []).length;
+    assert.doesNotMatch(src, /!__serverUrl\) return;/, "no guard anywhere may still test the deleted derivation");
+  }
   assert.equal(converted, 8, `all eight guards must be converted, found ${converted}`);
-  assert.doesNotMatch(SERVER, /!__serverUrl\) return;/, "no guard may still test the deleted derivation");
 });
 
 test("IS_REMOTE's meaning for TOOLS is unchanged", () => {
@@ -144,14 +153,18 @@ test("IS_REMOTE's meaning for TOOLS is unchanged", () => {
 test("cleanupOnExit still calls the same seven stoppers in the same order", () => {
   // The reviewer parked the teardown-registry reshape, so today's explicit order must survive. The no-op
   // stoppers exist precisely so the non-started case keeps its slot.
-  const order = [...SERVER.matchAll(/^\s*try \{ (__stop\w+)\(\); \}/gm)].map((m) => m[1]);
+  // The regex matches both the `__stopX` handles and the plain `stopX` operations, because the claude
+  // detector's stopper became a real exported FUNCTION when its state moved to an owner — the handle no
+  // longer leaves that module. Its POSITION is unchanged, which is what this test is for; only the spelling
+  // moved, and a test that pinned the spelling would block every future owner move for no benefit.
+  const order = [...SERVER.matchAll(/^\s*try \{ (_{0,2}stop\w+)\(\); \}/gm)].map((m) => m[1]);
   assert.deepEqual(order, [
     "__stopHandleHeartbeat",
     "__stopTurnBusyHeartbeat",
     "__stopLivenessHeartbeat",
     "__stopGatewayProbe",
     "__stopResidentHermesTurnDetector",
-    "__stopClaudeTurnEndDetector",
+    "stopClaudeTurnEndDetector",
     "__stopCodexTurnDetector",
-  ], "teardown order must be unchanged by this fix");
+  ], "teardown ORDER must be unchanged — the claude entry is now an operation, in the same slot");
 });

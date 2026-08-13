@@ -52,6 +52,9 @@ import {
   AIFY_HERMES_GATEWAY_TOKEN_ENV_FROM_MARKER, AIFY_HERMES_GATEWAY_URL,
 } from "./hermes-gateway-config.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
+import {
+  armClaudeTurnEndDetector, isClaudeTurnDetectorArmed, stopClaudeTurnEndDetector,
+} from "./claude-turn-detector-state.mjs";
 import { __runtimeAdapter } from "./runtime-adapter.mjs";
 import { normalizeSessionMode } from "./session-mode.mjs";
 import { validateName } from "./safe-name.mjs";
@@ -335,89 +338,6 @@ const __stopLivenessHeartbeat = startLivenessHeartbeat({
     });
   },
 });
-
-// Claude hook-independent turn-END detector (pure-event-status change #1,
-// 2026-06-02). The claude Stop hook (install.sh -> POST /turn-end) is NOT a
-// guaranteed turn terminator — it misses on interrupt/ESC, MCP-continuations, a
-// crash, or when its short-timeout curl fails. A missed Stop hook leaves the
-// agent turn_busy=1 with no event to clear it (the sc-claude "stuck at
-// turn_busy=1" symptom), and with STATUS now pure-event (no short status window)
-// that would read `working` until the single long ceiling. This loop reads a
-// STRUCTURAL summary of the transcript TAIL (transcriptTail → { lastRole,
-// lastStopReason, pendingToolUse }) and fires /turn-end ONLY when the last
-// assistant message YIELDED to the user (terminal stop_reason, no pending
-// tool_use) — an event-driven turn-end independent of the Stop hook, for BOTH
-// resident and managed claude (same wrapper). The Stop hook stays the fast-path
-// clear; this is the backstop. NOT growth-based: the parent transcript is STATIC
-// during a long blocking tool call, a long generation, or a Task sub-agent
-// dispatch (sub-agents write a SEPARATE subagents/*.jsonl), so a "stopped
-// growing" signal would FALSE-CLEAR turn_busy mid-turn — reading tail STRUCTURE
-// keeps the agent `working` through all of those. ANTI-FEEDBACK-LOOP: keys ONLY
-// on transcript STRUCTURE (process truth), never on the server's computed status,
-// and only ever POSTs /turn-end (a CLEAR) — it can never re-arm turn_busy. A
-// null/unreadable tail is treated as NOT-ended (never false-clear).
-// LATE IDENTITY (2026-07-14). This detector used to be armed ONCE, at module load, from the
-// AIFY_AGENT_ID env var — so a session launched without `--aify-agent` never armed it, and
-// NOTHING later could. But `comms_register` is precisely the moment the bridge LEARNS its
-// agent id (it writes the binding file from it). Registering therefore *should* turn status
-// on, and operators reasonably expect it to. It didn't, silently — the general-manager
-// incident. So: the effective agent id is a variable, not a constant, and the detector can be
-// armed late by `armClaudeTurnEndDetector(agentId)` from the register handler.
-let __effectiveAgentId = AIFY_AGENT_ID;
-let __claudeTurnDetectorArmed = false;
-let __stopClaudeTurnEndDetector = () => {};
-
-function armClaudeTurnEndDetector(agentId) {
-  const id = String(agentId || "").trim();
-  if (__claudeTurnDetectorArmed || !id) return false;
-  if (
-    !__runtimeAdapter ||
-    __runtimeAdapter.name !== "claude-code" ||
-    typeof __runtimeAdapter.transcriptTail !== "function"
-  ) {
-    return false;
-  }
-  __effectiveAgentId = id;
-  __claudeTurnDetectorArmed = true;
-  __stopClaudeTurnEndDetector = startClaudeTurnEndDetector({
-    // PURE-EVENT (2026-06-19): 30s→5s. With the server-side turn-end GRACE removed, this
-    // structural detector IS the flap fix for a managed claude's premature/duplicate Stop
-    // hooks: a premature Stop clears turn_busy, and this detector re-asserts /turn-start
-    // within one tick once it sees the transcript is still in-flight (pendingToolUse / non-
-    // terminal tail). 5s keeps that heal window short (was up to 30s) without meaningful
-    // transcript-read load. Mirrors the hermes gateway detector's ~3s cadence.
-    intervalMs: 5_000,
-    // Re-stamp /turn-start while the transcript stays in-flight (KEEP-FRESH,
-    // 2026-06-12): the server's delivery-completion clear can wipe a LIVE turn's
-    // turn_busy (steered message lands mid-turn → no reply-owing run → clear), and
-    // an edge-triggered start never re-fires. Same value as the hermes detector.
-    workingRefreshMs: 45_000,
-    readTranscript: async () => __runtimeAdapter.transcriptTail({ agentId: __effectiveAgentId }),
-    // SET working when the transcript tail transitions into in-flight. RESIDENT
-    // under-report fix (2026-06-02): a channel-woken / scheduled claude turn never
-    // fires UserPromptSubmit→/turn-start, so turn_busy stays 0 and the dashboard
-    // shows the agent NOT working. Keying on the transcript (process truth) covers
-    // typed, channel-woken, AND scheduled turns — the robust replacement for the
-    // removed PostToolUse re-pulse. Idempotent (edge-triggered in the detector).
-    postTurnStart: async () => {
-      if (!__effectiveAgentId || !IS_REMOTE) return;
-      await httpCall("POST", `/agents/${encodeURIComponent(__effectiveAgentId)}/turn-start`, {
-        bridgeId: BRIDGE_INSTANCE_ID,
-        turnRuntime: "claude-code",
-        source: "bridge-transcript-detector",
-      });
-    },
-    postTurnEnd: async () => {
-      if (!__effectiveAgentId || !IS_REMOTE) return;
-      await httpCall("POST", `/agents/${encodeURIComponent(__effectiveAgentId)}/turn-end`, {
-        bridgeId: BRIDGE_INSTANCE_ID,
-        turnRuntime: "claude-code",
-        source: "bridge-transcript-detector",
-      });
-    },
-  });
-  return true;
-}
 
 // Boot-time arm: the normal path (wrapper exported AIFY_AGENT_ID). When it did NOT,
 // this no-ops and the register handler arms us late — see armClaudeTurnEndDetector.
@@ -738,7 +658,7 @@ function cleanupOnExit() {
   try { __stopLivenessHeartbeat(); } catch { /* best effort */ }
   try { __stopGatewayProbe(); } catch { /* best effort */ }
   try { __stopResidentHermesTurnDetector(); } catch { /* best effort */ }
-  try { __stopClaudeTurnEndDetector(); } catch { /* best effort */ }
+  try { stopClaudeTurnEndDetector(); } catch { /* best effort */ }
   try { __stopCodexTurnDetector(); } catch { /* best effort */ }
   if (spawnLoopTimer) {
     clearInterval(spawnLoopTimer);
@@ -3566,7 +3486,7 @@ server.tool(
     // call is the bridge learning who it is, so use it: claim the session id the hook
     // captured before we had an identity, then arm the detector. Registering now does what
     // an operator always assumed it did.
-    if (!__claudeTurnDetectorArmed && agentId) {
+    if (!isClaudeTurnDetectorArmed() && agentId) {
       const claimed = claimCapturedClaudeSession(agentId);
       if (armClaudeTurnEndDetector(agentId)) {
         console.error(
