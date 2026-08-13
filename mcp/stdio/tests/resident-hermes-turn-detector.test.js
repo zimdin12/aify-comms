@@ -11,10 +11,12 @@
 // detector is fed a STUBBED readGatewayStatus + stubbed posts.
 import assert from "node:assert/strict";
 import { test } from "node:test";
+// Imported from their OWNER, not from `server.js`. They used to come from the bin entry point, which meant
+// this test loaded the entire bridge to reach two functions.
 import {
   shouldArmResidentHermesTurnDetector,
   makeResidentGatewayStatusReader,
-} from "../server.js";
+} from "../resident-gateway-status.mjs";
 import { startHermesGatewayTurnDetector } from "../hermes-gateway-turn-detector.js";
 
 // ---------------------------------------------------------------------------
