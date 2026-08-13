@@ -11,6 +11,7 @@ import {
   formatPiEventAsTerminalFrame,
 } from "./pi-terminal-frame.mjs";
 import { piSessionPool } from "./pi-session-registry.mjs";
+import { createDeferred, idleTimeoutFor, startupTimeoutFor, timeoutFor } from "./pi-session-timeouts.mjs";
 import {
   spawnProcess,
   terminateProcessTree,
@@ -26,61 +27,9 @@ import {
 } from "./runtimes.js";
 
 const MAX_PI_ASSISTANT_CAPTURE_CHARS = 262144;
-const DEFAULT_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
-const STARTUP_TIMEOUT_DEFAULT_MS = 45000;
 const INTERRUPT_GRACE_MS = 5000;
 const MAX_TERMINAL_FRAME_BUFFER_CHARS = 65536;
 
-
-
-
-
-
-
-
-
-
-function createDeferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  // Attach a no-op .catch so a rejection on a Deferred that ends up with
-  // no real awaiter doesn't become an unhandled-rejection. Real awaiters
-  // sharing `promise` still see their own .catch handlers fire.
-  //
-  // v0.5.4: pi was the ONLY one of the four session modules missing this.
-  // `codex-session.js`, `hermes-session.js` and `hermes-managed-gateway-session.js`
-  // all carried it; the guard was added to them and not here.
-  promise.catch(() => {});
-  return { promise, resolve, reject };
-}
-
-function idleTimeoutFor(agentInfo) {
-  const cfg = getRuntimeConfig(agentInfo);
-  const fromConfig = Number(cfg.piIdleTimeoutMs);
-  if (Number.isFinite(fromConfig) && fromConfig > 0) return fromConfig;
-  const fromEnv = Number(process.env.AIFY_PI_IDLE_TIMEOUT_MS);
-  if (Number.isFinite(fromEnv) && fromEnv > 0) return fromEnv;
-  return DEFAULT_IDLE_TIMEOUT_MS;
-}
-
-function startupTimeoutFor(agentInfo) {
-  const cfg = getRuntimeConfig(agentInfo);
-  const fromConfig = Number(cfg.startupTimeoutMs);
-  if (Number.isFinite(fromConfig) && fromConfig > 0) return fromConfig;
-  const fromEnv = Number(process.env.AIFY_PI_STARTUP_TIMEOUT_MS);
-  if (Number.isFinite(fromEnv) && fromEnv > 0) return fromEnv;
-  return STARTUP_TIMEOUT_DEFAULT_MS;
-}
-
-function timeoutFor(agentInfo) {
-  const cfg = getRuntimeConfig(agentInfo);
-  const value = Number(cfg.timeoutMs);
-  return Number.isFinite(value) && value > 0 ? value : 12 * 60 * 60 * 1000;
-}
 
 export class PiSession {
   constructor({ agentId, agentInfo, sessionId = "", onPoolEvent = null } = {}) {

@@ -24,8 +24,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// pi's copies moved to `pi-session-timeouts.mjs` in v0.5.4 — a pi-ONLY module, so they are still one
+// per runtime and this agreement still has four participants. THE COST OF A LOCATION PIN: all five
+// cases here went red on that move even though nothing about the agreement changed, because they
+// assert where the code LIVES in order to compare copies that genuinely may differ. Kept, because
+// comparing four implementations has no behavioural equivalent — but re-aimed by hand.
 const MODULES = [
-  "pi-session.js",
+  "pi-session-timeouts.mjs",
   "codex-session.js",
   "hermes-session.js",
   "hermes-managed-gateway-session.js",
@@ -119,7 +124,7 @@ test("the timeout helpers beside it are NOT duplicates and must stay separate", 
   // and env var. That is per-runtime policy, not duplication, and merging them would silently give one
   // runtime another's timeout.
   const keys = {
-    "pi-session.js": ["piIdleTimeoutMs", "AIFY_PI_IDLE_TIMEOUT_MS"],
+    "pi-session-timeouts.mjs": ["piIdleTimeoutMs", "AIFY_PI_IDLE_TIMEOUT_MS"],
     "codex-session.js": ["codexIdleTimeoutMs", "AIFY_CODEX_IDLE_TIMEOUT_MS"],
     "hermes-session.js": ["hermesIdleTimeoutMs", "AIFY_HERMES_IDLE_TIMEOUT_MS"],
   };
