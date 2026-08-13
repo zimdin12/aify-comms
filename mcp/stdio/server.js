@@ -55,6 +55,7 @@ import {
   baseAgentHeartbeatFields, currentTurnHeartbeatFields, reportTurnBusy,
 } from "./agent-heartbeat.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
+import { clearLocalActiveRun, reconcileLocalActiveRun } from "./local-active-run.mjs";
 import {
   armClaudeTurnEndDetector, isClaudeTurnDetectorArmed, stopClaudeTurnEndDetector,
 } from "./claude-turn-detector-state.mjs";
@@ -94,7 +95,7 @@ import {
   runtimeStateWithoutSessionHandle,
   terminateProcessTree,
 } from "./runtimes.js";
-import { shouldDropLocalActiveRun } from "./dispatch-state.js";
+
 import { shutdownAllPiSessions, getPiSession, acquirePiSession } from "./pi-session.js";
 import { shutdownAllCodexSessions } from "./codex-session.js";
 import { shutdownAllHermesSessions } from "./hermes-session.js";
@@ -2740,43 +2741,6 @@ ensureUsageCollector();
 ensureEnvironmentHeartbeat();
 ensureTerminalControlLoop();
 
-async function clearLocalActiveRun(agentId, state, active, reason) {
-  if (!active?.runId) return;
-  try {
-    active.controller?.interrupt?.(`Local active run cleared (${reason})`);
-  } catch {
-    // best effort; the important part is unblocking the claim loop
-  }
-  ACTIVE_RUNS.delete(agentId);
-  await reportTurnBusy(agentId, state, {
-    busy: false,
-    runId: active.runId,
-    runtime: active.runtime || normalizeRuntime(state?.info?.runtime || "generic"),
-  }).catch(() => {});
-}
-
-async function reconcileLocalActiveRun(agentId, state, active) {
-  if (!active?.runId) return false;
-  let backendRun = null;
-  try {
-    const response = await httpCall("GET", `/dispatch/runs/${encodeURIComponent(active.runId)}`);
-    backendRun = response?.run || null;
-  } catch (error) {
-    if (error?.status !== 404) {
-      // Transient backend failures must not make us forget an actually running
-      // local turn and accidentally claim duplicate work.
-      return false;
-    }
-  }
-  const decision = shouldDropLocalActiveRun(active, backendRun, {
-    bridgeId: BRIDGE_INSTANCE_ID,
-    agentId,
-  });
-  if (!decision.drop) return false;
-  await clearLocalActiveRun(agentId, state, active, decision.reason);
-  console.error(`[aify] dropped stale local active run for "${agentId}" (${active.runId}): ${decision.reason}`);
-  return true;
-}
 
 
 async function runDispatchLoop() {
