@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { reportResidentLost } from "../server.js";
+// Imported from its OWNER. It used to come from `server.js`, the bin entry point, so a test of a
+// pure decision function loaded the entire bridge.
+import { reportResidentLost } from "../resident-lost.mjs";
 
 // reportResidentLost is the seam shutdownWithStatus calls on the clean-exit
 // path: when an operator cleanly closes a RESIDENT *-aify session, the bridge
@@ -131,3 +133,26 @@ import { reportResidentLost } from "../server.js";
 }
 
 console.log("resident-clean-exit-lost: all assertions passed");
+
+// ── ownership, added when this moved out of the bin entry point in v0.5.4 ──────────────────────────
+import fsOwn from "node:fs";
+import pathOwn from "node:path";
+import { fileURLToPath as f2u } from "node:url";
+import { declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
+
+{
+  const stdio = pathOwn.resolve(pathOwn.dirname(f2u(import.meta.url)), "..");
+  assert.deepEqual(declaringModules("reportResidentLost"),
+    [{ file: "resident-lost.mjs", kind: "function" }],
+    "a second copy could report a loss the gates were meant to refuse");
+  assert.ok(isUsedInBridge("reportResidentLost"), "the clean-exit path must still call it");
+  const src = fsOwn.readFileSync(pathOwn.join(stdio, "resident-lost.mjs"), "utf-8");
+  assert.doesNotMatch(src, /^let\s/m, "no module-level mutable state");
+  // Scoped to an IMPORT, not to the word: the module's own header explains that `httpCall` is a parameter,
+  // and a bare word-match forbids the explanation as well as the thing.
+  assert.doesNotMatch(src, /^import \{[^}]*\bhttpCall\b/m,
+    "the transport stays INJECTED — importing one would remove the seam this is testable through");
+  assert.match(src, /httpCall: call/, "…and it is still destructured from the caller's argument");
+  assert.deepEqual([...src.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]).sort(),
+    ["./runtimes.js", "./session-mode.mjs"]);
+}

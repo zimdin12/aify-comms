@@ -24,6 +24,8 @@ import { registerArtifactTools } from "./artifact-tools.mjs";
 import { makeAutoRegister } from "./auto-registration.mjs";
 import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
 import { dedupePreserveOrder } from "./dedupe.mjs";
+import { decideConsolePulse } from "./console-pulse.mjs";
+import { reportResidentLost } from "./resident-lost.mjs";
 import {
   makeResidentGatewayStatusReader,
   shouldArmResidentHermesTurnDetector,
@@ -661,29 +663,6 @@ function pulseTerminalTurnBusy(terminalId, agentId) {
   }, TERMINAL_TURN_BUSY_QUIET_MS);
 }
 
-// Pure gate (exported for tests): given a terminal's runtime + console classification,
-// decide which working pulse to emit. Claude uses the spinner-gated console-working
-// lease (the strong, specific "claude is generating" signal — the TUI footer). Other
-// runtimes keep the legacy any-output terminal pulse (they own native turn detectors).
-export function decideConsolePulse({ runtime, consoleClass, agentId, turnInFlight = false }) {
-  const aid = String(agentId || "").trim();
-  if (!aid) return { kind: "none" };
-  if (runtime === "claude-code") {
-    // The spinner footer ("working") is the strong, specific generating signal → refresh.
-    if (consoleClass === "working") return { kind: "console-working", agentId: aid };
-    // Defense-in-depth (#224, 2026-06-18): a transient "unknown" footer frame mid-generation
-    // (neither a clear spinner nor the idle prompt) must NOT let the lease lapse WHEN a turn is
-    // already known in flight — refresh across the ambiguous frame. NEVER on "idle" (a clear
-    // at-rest reading) and never when no turn is known, so this can't manufacture working at rest.
-    if (consoleClass === "unknown" && turnInFlight) return { kind: "console-working", agentId: aid };
-    return { kind: "none" };
-  }
-  // Non-claude runtimes (codex/hermes/pi) own native turn detectors (codex turn/completed,
-  // hermes gateway idle/running, pi agent_end). The legacy any-output terminal pulse was
-  // effectively DEAD before this change (stateFor omitted agentId, so it never fired), so we
-  // keep it disabled rather than newly activating an untested output-based `working` for them.
-  return { kind: "none" };
-}
 
 const CONSOLE_WORKING_REMIT_MS = 2000;
 // How recently a console-working pulse must have fired for a subsequent "unknown" footer frame
@@ -1127,54 +1106,6 @@ async function reportResidentRuntimeLost(agentId, info = {}, reason = "resident 
   }
 }
 
-// Clean-exit resident-lost signal. When an operator cleanly closes a RESIDENT
-// *-aify session (Ctrl-D / window close / SIGTERM), nothing else POSTs a
-// "resident is leaving" signal, so the agent keeps showing `available` for the
-// full ~150s heartbeat lease until bridge_instances.last_seen ages out. This
-// long-lived bridge IS the resident MCP bridge that owns
-// runtime_state.bridgeInstanceId, so it can self-correct on the way out by
-// POSTing the SAME /agents/{id}/resident-lost signal the reactive paths use
-// (reportResidentRuntimeLost above). It carries bridgeId — unlike the
-// managed-host's bridgeId-less variant — because this bridge id matches the
-// owning runtime_state and passes the server's bridge_not_current guard.
-//
-// STRICTLY gated to RESIDENT sessions only: managed teardown is handled by
-// terminal reaping, and a managed bridge must never flip its own agent off
-// `available`. Pure + dependency-injected so it's unit-testable: it does NOT
-// POST unless (resident AND an agent id is bound). Best-effort: never throws.
-export async function reportResidentLost({
-  httpCall: call,
-  agentId,
-  bridgeId,
-  sessionMode,
-  lifecycleOwner = "bridge",
-  machineId = MACHINE_ID,
-  runtime = "generic",
-  reason = "Resident *-aify session closed cleanly; self-correcting off 'available' (resident-lost).",
-} = {}) {
-  const id = String(agentId || "").trim();
-  // Resident gate: managed sessions must NOT POST resident-lost.
-  if (normalizeSessionMode(sessionMode) !== "resident") return false;
-  // Some harnesses spawn this MCP bridge as a short-lived per-turn child. Their
-  // wrapper/sidecar owns the actual resident TUI lifecycle and reports the real
-  // close; a child exit is not evidence that the operator's TUI disappeared.
-  if (String(lifecycleOwner || "bridge").trim().toLowerCase() !== "bridge") return false;
-  if (!call || !id) return false;
-  try {
-    await call("POST", `/agents/${encodeURIComponent(id)}/resident-lost`, {
-      bridgeId,
-      machineId,
-      runtime: normalizeRuntime(runtime || "generic"),
-      reason,
-    });
-    return true;
-  } catch (error) {
-    console.error(
-      `[aify] clean-exit resident-lost for "${id}" failed (best-effort): ${error?.message || String(error)}`,
-    );
-    return false;
-  }
-}
 
 // Idempotency guard so the clean-exit resident-lost POST can't double-fire
 // across the SIGTERM→shutdownWithStatus and process.on('exit') handlers.
