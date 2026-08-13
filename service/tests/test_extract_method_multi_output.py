@@ -50,6 +50,23 @@ def _summarize(rows, flag):
 '''
 
 
+def _helper_return(source: str, new_return: str) -> str:
+    """Replace ONLY the helper's trailing return, never the caller's.
+
+    `GOOD_SPLIT` contains `return total, label` TWICE — once in the caller, once as the helper's
+    trailing return. The first version of the probes below used a broad `str.replace`, which mutated
+    BOTH and produced a split whose caller no longer reconstructs the original. Those probes then
+    passed for the wrong reason: the assertion fired on a malformed fixture instead of on the refusal
+    being tested. The reviewer caught it, and it is the exact false-confidence class these probes exist
+    to prevent — a bad-shape probe must fail on the SHAPE, not on collateral damage.
+
+    `rindex` finds the last occurrence, which is the helper's, matching what the transposition probe
+    already did correctly.
+    """
+    cut = source.rindex("    return total, label")
+    return source[:cut] + "    " + new_return + "\n"
+
+
 class MultiOutputDialectTests(unittest.TestCase):
     def test_a_correct_multi_output_split_is_accepted(self):
         """The shape the dialect was added for: same names, same order, single trailing return."""
@@ -75,28 +92,35 @@ class MultiOutputDialectTests(unittest.TestCase):
 
     def test_arity_mismatch_is_REFUSED(self):
         """Unpacking two names from a helper that returns three cannot be verified element-wise."""
-        wrong = GOOD_SPLIT.replace("return total, label", "return total, label, flag")
-        with self.assertRaises(AssertionError):
+        wrong = _helper_return(GOOD_SPLIT, "return total, label, flag")
+        self.assertEqual(1, wrong.count("return total, label, flag"), "only the helper may be mutated")
+        with self.assertRaises(AssertionError) as caught:
             assert_extraction_preserves_behaviour(ORIGINAL, wrong, "_summarize")
+        self.assertIn("multi-output arity mismatch", str(caught.exception))
 
     def test_a_non_tuple_return_under_tuple_unpacking_is_REFUSED(self):
         """`a, b = _h()` where the helper returns a LIST: element identity is unverifiable."""
-        wrong = GOOD_SPLIT.replace("return total, label", "return [total, label]")
-        with self.assertRaises(AssertionError):
+        wrong = _helper_return(GOOD_SPLIT, "return [total, label]")
+        self.assertIn("    return total, label\n", wrong, "the caller's return must be untouched")
+        with self.assertRaises(AssertionError) as caught:
             assert_extraction_preserves_behaviour(ORIGINAL, wrong, "_summarize")
+        self.assertIn("not a TUPLE literal", str(caught.exception))
 
     def test_a_non_name_unpack_target_is_REFUSED(self):
         """`obj.x, b = _h()` — the round trip cannot compare an attribute target to a returned name."""
         wrong = GOOD_SPLIT.replace("    total, label = _summarize(rows, flag)",
                                    "    holder.total, label = _summarize(rows, flag)")
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(AssertionError) as caught:
             assert_extraction_preserves_behaviour(ORIGINAL, wrong, "_summarize")
+        self.assertIn("non-Name target", str(caught.exception))
 
     def test_a_returned_non_name_element_is_REFUSED(self):
         """`return total, label.strip()` — the second element is an expression, not an identity."""
-        wrong = GOOD_SPLIT.replace("return total, label", "return total, label.strip()")
-        with self.assertRaises(AssertionError):
+        wrong = _helper_return(GOOD_SPLIT, "return total, label.strip()")
+        self.assertIn("    return total, label\n", wrong, "the caller's return must be untouched")
+        with self.assertRaises(AssertionError) as caught:
             assert_extraction_preserves_behaviour(ORIGINAL, wrong, "_summarize")
+        self.assertIn("non-Name element", str(caught.exception))
 
     def test_a_dropped_statement_still_fails_under_the_new_dialect(self):
         """The dialect must not weaken the ORIGINAL guarantee: a lost line still breaks the round trip."""
