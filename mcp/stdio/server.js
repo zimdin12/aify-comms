@@ -51,6 +51,7 @@ import { parseJson } from "./parse-json.mjs";
 import {
   AIFY_HERMES_GATEWAY_TOKEN_ENV_FROM_MARKER, AIFY_HERMES_GATEWAY_URL,
 } from "./hermes-gateway-config.mjs";
+import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
 import { __runtimeAdapter } from "./runtime-adapter.mjs";
 import { normalizeSessionMode } from "./session-mode.mjs";
 import { validateName } from "./safe-name.mjs";
@@ -176,7 +177,6 @@ const IS_ENVIRONMENT_BRIDGE =
 // init/Relay and linger). process.ppid changes on reparenting; this snapshot does not.
 const ORIGINAL_PARENT_PID = Number(process.ppid) || 0;
 const MACHINE_ID = defaultMachineId();
-const BRIDGE_INSTANCE_ID = randomUUID();
 // Same one source as every handshake (see version.js). This one also reaches the server as
 // `bridgeVersion` on registration and the startup banner, so a stale literal here misreported
 // the bridge's version to the control plane too, not just to MCP clients.
