@@ -12,7 +12,7 @@ an owner it could belong to and no state it had to carry. What is left has state
 | file | lines | what the bulk is | ceiling by relocation |
 |---|---|---|---|
 | `app.js` | 4,935 | one module-scope `state` object, **509 references**, touched by 97 of 169 functions | ~4,570 |
-| `control_plane.py` | 3,180 | the status-cache component (operator-scope, previously ruled) | — |
+| `control_plane.py` | 3,088 | `_compute_live_status_cache`, a 432-line hub nearly every closure reaches | ~3,030 |
 | `server.js` | 3,005 | four poll loops over 27 mutable module names; `runDispatchLoop` 449L | ~2,900 |
 | `hermes-managed-host.js` | 1,845 | `runDeliveryLoop` 619L; **754 lines outside any declaration** | — |
 | `pi-session.js` | 1,110 | the `PiSession` class, 960L | ~1,017 |
@@ -46,6 +46,13 @@ The class alone is 960.
   boot sweep and five three-liners across unrelated subjects.
 - **`pi-session.js`: ~30 lines** of timeout helpers. The session pool below them is blocked by a real
   circular import.
+- **`control_plane.py`: three singletons, 55 lines.** This was the one blocker I had NOT verified myself —
+  the note said "the status-cache component, operator-scope, previously ruled", and it was right, but I had
+  been treating the whole file as blocked on the strength of it. Measured: 28 top-level functions / 1,538
+  lines, with nearly every seed's transitive closure running through `_compute_live_status_cache` (432
+  lines, the hub) to produce closures of 578-1,161 lines. Outside it sat a 90-line serializer group, which
+  this round extracted into `api_core/records.py` — taking the file 3,181 -> 3,088 and retiring a documented
+  borrow shim. What is left outside the hub is 55 lines.
 
 ## The decision, stated once
 
@@ -95,4 +102,5 @@ ones nothing has forced me to re-measure yet.
   not a shape; I have not measured how many are confined to one screen's functions.
 - Whether `server.js`'s four loops can be separated without a shared scheduler object — several read `*Busy`
   flags another loop sets, and I have not traced whether that is coordination or coincidence.
-- Anything about `control_plane.py`'s status-cache component beyond the standing operator-scope ruling.
+- Whether `_compute_live_status_cache` can be split at all, or whether the status cache is irreducibly one
+  thing. I measured what REACHES it, not what is inside it.
