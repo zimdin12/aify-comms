@@ -66,6 +66,41 @@ server is configured, which is what `SERVER_URL` does. The default defeated the 
 the heartbeats do not consult `IS_REMOTE`, they consult `__serverUrl`. Whether any agent here has run in that
 state I have not established and would not claim.
 
+## 2b. SEVERITY, CORRECTED DOWNWARD after reading `install.sh`
+
+I asked in §6 Q3 whether any deployment relies on the internal default, and said only the operator could
+answer. The repo answers it, and I should have looked before asking:
+
+- `install.sh:141-143` — if `SERVER_URL` is unset it is assigned `DEFAULT_AIFY_SERVER_URL`, so it is never
+  empty by the time anything is written.
+- `install.sh:711,716` — every MCP config gets `"AIFY_SERVER_URL"` **and** `"CLAUDE_MCP_SERVER_URL"` set to
+  that same value.
+- `install.sh:1648-1649` — every wrapper exports both, the second defaulting to the first.
+
+There is also a comment at L116-120 recording an incident where the claude wrapper was the one inconsistent
+path, fixed precisely "so every client gets a usable URL".
+
+**So in any supported install both variables are set, to the same value, and `IS_REMOTE` is always true.** That
+changes the severity of each item:
+
+| item | reachable in a supported install? |
+|---|---|
+| eight dead guards | **no** — there is always a server URL, so the guard would not have fired anyway |
+| opposite env precedence | **no** — install.sh sets both to the SAME value |
+| missing loopback coercion | **YES** — the install prompt accepts whatever the operator types, and `localhost` is the obvious thing to type |
+
+So the defect I led with is real but only reachable OUTSIDE a supported install — someone running
+`server.js` by hand, or with a partial environment. I overstated it by not reading `install.sh` first, and I
+would rather correct that than let a packet argue for a fix on a premise it does not need.
+
+**The item with live consequence is the coercion gap**, and it is the one I ranked third. An operator who
+enters `http://localhost:8800` at the install prompt gets coerced tool calls and uncoerced heartbeats, on
+Windows with Docker Desktop, which is this project's platform. That is status flapping with no error in the
+logs.
+
+The dead guards are still worth removing — a guard that cannot fire misleads the next reader into thinking the
+case is handled — but as cleanup, not as an incident.
+
 ## 3. The duplication, which is the smaller half
 
 - **Precedence is opposite.** With both env vars set to different values, the HTTP client talks to one server
@@ -134,8 +169,8 @@ That is one owner, one precedence, one coercion, and a guard that can fire.
 1. Accept the finding: the eight `!__serverUrl` guards are unreachable and local-mode bridges post to a
    hardcoded default?
 2. Is §4 the right fix, with `!IS_REMOTE` as the guard the eight sites should have used?
-3. §5's migration risk — a deployment relying on the default port with no env var set — is that a real
-   configuration in this fleet, or can it be ruled out? If it cannot, the fix needs a deprecation step rather
-   than a straight deletion, and I would rather ask than assume.
+3. ~~§5's migration risk~~ — **withdrawn, answered by `install.sh` in §2b.** Every supported install sets
+   both variables explicitly, so nothing relies on the internal default and the fix needs no deprecation
+   step. I asked the operator a question the repo could answer; §2b is the correction.
 4. Should this ship as its own tagged behavioural change rather than inside the structural lane? It is the
    first genuinely behavioural fix I have proposed in this series.
