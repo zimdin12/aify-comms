@@ -43,6 +43,7 @@ _listen_events: dict[str, asyncio.Event] = {}
 
 from pydantic import BaseModel
 from service.pi_resident_flip import _drain_and_flip_pi_resident_agents
+from service.api_core.manual_status import _MANUAL_STATUSES
 from service.api_core.status_decision import StatusFacts, _decide_effective_status
 from service.api_core.message_store import _delete_messages_by_ids, _get_unread_count_map
 from service.config import get_config
@@ -209,9 +210,14 @@ from service.api_core.dispatch_text import (  # v0.5.4: moved out; the control p
     _is_provider_rate_limit_error,
     _render_pending_dispatch_item,
 )
-from service.api_core.records import (  # v0.5.4: moved out; the control plane is now a CALLER
+from service.api_core.records import (
+    # v0.5.4: moved out; the control plane is now a CALLER,
+    _LEGACY_RAW_STATUS_TO_CANONICAL,
+    _agent_record_to_dict,
     _agent_session_to_dict,
     _environment_record_to_dict,
+    _row_status_note,
+    _status_with_dispatch,
     _terminal_session_to_dict,
 )
 from service.api_core.capabilities import (  # v0.5.4: moved out; the control plane is now a CALLER
@@ -368,7 +374,6 @@ from service.terminal_write_queue import (  # v0.5.4: moved out; the control pla
 
 
 
-_MANUAL_STATUSES = {"stopped"}
 
 # Both terminal status sets now live in service/api_core/terminal_status.py, and the history is
 # kept because the reasoning was overtaken twice. v0.5.3 moved _TERMINAL_MONOTONIC_STATUSES to
@@ -744,10 +749,6 @@ async def _delete_messages_where(db, where_clause: str, params: tuple[Any, ...] 
 # _row_capabilities moved to service/api_core/capabilities.py in v0.5.4.
 
 
-def _row_status_note(row) -> str:
-    if not row or "status_note" not in row.keys():
-        return ""
-    return str(row["status_note"] or "").strip()
 
 
 
@@ -847,103 +848,10 @@ STUCK_STOPPING_GRACE_SECONDS = 900  # a 'stopping' PTY that never reached 'stopp
 # _fail_pending_controls_for_run moved to service/api_core/active_run_discard.py in v0.5.4.
 
 
-def _status_with_dispatch(status: str, dispatch_state: Optional[dict[str, Any]]) -> str:
-    # Only an actively-RUNNING dispatch run means the agent is 'working'. A merely
-    # 'claimed' run (a bridge claimed it to deliver, but the turn hasn't started — or
-    # the agent already finished and the run just isn't closed yet) does NOT: an idle
-    # agent with a stale claimed run must reflect the engine's turn_busy-based verdict
-    # (online), not a phantom 'working'. This was the root cause of agents showing
-    # 'working' while actually idle (2026-06-18). The running→working promotion is kept
-    # so a just-delivered turn reads 'working' before the bridge's turn-start event lands.
-    if not dispatch_state:
-        return status
-    active = dispatch_state.get("activeRun") or {}
-    if active.get("status") == "running" and status not in _MANUAL_STATUSES and status not in {"stale", "offline", "blocked"}:
-        return "working"
-    return status
 
 
-# Legacy raw agents.status values that predate the proof-based 6-status vocabulary. The
-# bridge heartbeat still stamps agents.status='active', and older DBs may carry 'idle'/
-# 'stale' rows; if a live_state row is ever missing, that raw value must NOT leak to the UI
-# as a non-canonical status. 'stale' was a time-decay state removed 2026-06-18 — any lingering
-# row normalizes to 'offline' (the proof-based engine never writes it; the cleanup writer that
-# used to stamp it was removed in the same pass).
-_LEGACY_RAW_STATUS_TO_CANONICAL = {"active": "online", "idle": "online", "stale": "offline"}
 
 
-def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optional[dict[str, Any]] = None, *, live_reason: Optional[str] = None, outbound: Optional[dict[str, Any]] = None):
-    runtime = _normalize_runtime(row["runtime"] or "generic")
-    session_mode = _normalize_session_mode(row["session_mode"] or "resident")
-    # live_reason is the derived status reason from the in-memory cache (the live_state table
-    # was retired 2026-06-18). Fall back to the row's live_reason column (legacy/JOIN paths) or
-    # the raw status note. `status` carries the derived live status from the cache.
-    status_note = str(
-        (live_reason if live_reason is not None else (row["live_reason"] if "live_reason" in row.keys() else ""))
-        or _row_status_note(row) or ""
-    ).strip()
-    base_status = str((row["live_status"] if "live_status" in row.keys() else "") or status or row["status"] or "idle").strip()
-    # `ready` is an internal bridge/controller readiness bit. Keep it out of
-    # the public agent taxonomy so operators see one idle-live state: online.
-    if base_status.lower() == "ready":
-        base_status = "online"
-    # Never surface a legacy raw status (e.g. heartbeat-stamped 'active') as-is.
-    base_status = _LEGACY_RAW_STATUS_TO_CANONICAL.get(base_status.lower(), base_status)
-    effective_status = _status_with_dispatch(base_status, dispatch_state)
-    # Usage/quota (2026-06-26): bind the agent to a quota pool (explicit override in
-    # runtime_config.usageSource, else derived from runtime) and merge that pool's live
-    # remaining %% from the in-memory usage cache. Advisory only — never gates anything.
-    _rc_for_usage = _json_loads_or(row["runtime_config"], {}) if "runtime_config" in row.keys() else {}
-    _usage_source = (_rc_for_usage.get("usageSource") if isinstance(_rc_for_usage, dict) else None) or derive_usage_source(runtime, _rc_for_usage)
-    _pool = usage_get(_usage_source) if _usage_source else None
-    return {
-        "role": row["role"],
-        "name": row["name"],
-        "cwd": row["cwd"],
-        "model": row["model"],
-        "description": (row["description"] if "description" in row.keys() else "") or "",
-        "instructions": row["instructions"],
-        "status": effective_status,
-        "statusRaw": effective_status,
-        "statusNote": status_note,
-        "registeredAt": row["registered_at"],
-        "lastSeen": row["last_seen"],
-        "unread": unread,
-        "runtime": runtime,
-        "usageSource": _usage_source or "",
-        "poolWeeklyPctLeft": ((_pool.get("weekly") or {}).get("left_pct") if _pool else None),
-        "poolSeverity": ((_pool.get("severity") if _pool else None) or ""),
-        "quotaCritical": bool(_pool and _pool.get("severity") == "critical"),
-        "machineId": row["machine_id"] or "",
-        "launchMode": row["launch_mode"] or "detached",
-        "sessionMode": session_mode,
-        "wakeMode": _agent_wake_mode(row),
-        "sessionHandle": row["session_handle"] or "",
-        # Sticky session identity (governance, 2026-05-30): a non-empty
-        # pendingSessionId means the agent reported an in-session id different
-        # from its persisted handle; delivery still targets sessionHandle and
-        # the dashboard shows a `session-changed` badge with Confirm/Keep
-        # actions until the operator resolves it.
-        "pendingSessionId": (row["pending_session_id"] if "pending_session_id" in row.keys() else "") or "",
-        "sessionChanged": bool((row["pending_session_id"] if "pending_session_id" in row.keys() else "") or ""),
-        "managedBy": row["managed_by"] or "",
-        "capabilities": _row_capabilities(row),
-        "runtimeConfig": _json_loads_or(row["runtime_config"], {}),
-        "runtimeState": _json_loads_or(row["runtime_state"], {}),
-        "dispatchState": dispatch_state or {"hasActiveRun": False, "activeRun": None, "queuedRuns": 0},
-        # What this agent last PRODUCED. Every other field here answers about inbound traffic or
-        # registration liveness; see _get_outbound_activity_map for the false "silent lane" claim
-        # that absence caused. Empty dict when unknown — never a fabricated timestamp.
-        "outbound": outbound or {},
-        "favorited": bool(int((row["favorited"] if "favorited" in row.keys() else 0) or 0)),
-        # Dashboard rendering hint: resident sessions live in an
-        # operator-launched terminal outside aify's PTY tracking — the
-        # dashboard's "Start Console" button can't open or attach to
-        # them, so the dashboard should hide the button for these.
-        # Managed sessions have either a real wrapper PTY OR a
-        # synthesized virtual rpc terminal — Console attaches to either.
-        "consoleAvailable": session_mode != "resident",
-    }
 
 
 #: Stored environment statuses that still claim a HEARTBEATING bridge, and must therefore be aged

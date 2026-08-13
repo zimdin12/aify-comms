@@ -208,8 +208,13 @@ def _borrowed_live_session_statuses():
 
 
 def _borrowed_manual_statuses():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import _MANUAL_STATUSES
+    """One owner, never a copy (finding N7) — and the owner is now a LEAF, not the control plane.
+
+    This borrowed through `service.control_plane` while `_MANUAL_STATUSES` lived there. v0.5.4 moved it to
+    `api_core/manual_status.py`, a stdlib-only leaf, so this reads the owner directly and
+    the control plane is no longer in the path.
+    """
+    from service.api_core.manual_status import _MANUAL_STATUSES
 
     return _MANUAL_STATUSES
 
