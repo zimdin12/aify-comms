@@ -56,7 +56,13 @@ import { armClaudeTurnEndDetector, stopClaudeTurnEndDetector } from "./claude-tu
 import { __runtimeAdapter } from "./runtime-adapter.mjs";
 import { normalizeSessionMode } from "./session-mode.mjs";
 import { validateName } from "./safe-name.mjs";
-import { AIFY_AGENT_ID, AIFY_AGENT_ROLE, IS_MANAGED_DISPATCH, cleanEnvPlaceholder } from "./launch-identity.mjs";
+import {
+  AIFY_AGENT_ID,
+  AIFY_AGENT_ROLE,
+  IS_ENVIRONMENT_BRIDGE,
+  IS_MANAGED_DISPATCH,
+  cleanEnvPlaceholder,
+} from "./launch-identity.mjs";
 import { randomUUID } from "crypto";
 import fs from "fs";
 import os from "os";
@@ -160,9 +166,6 @@ loadSettingsEnv();
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
-const IS_ENVIRONMENT_BRIDGE =
-  process.argv.includes("--environment-bridge") ||
-  ["1", "true", "yes"].includes(String(process.env.AIFY_ENVIRONMENT_BRIDGE || "").toLowerCase());
 // Captured ONCE at startup: for an MCP-child bridge this is the controlling
 // harness (claude/codex/hermes). Used by the harness-death guard in main() so a
 // dead harness can't leave this process orphaned (it would otherwise reparent to

@@ -17,6 +17,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { AIFY_AGENT_ID, AIFY_AGENT_ROLE, cleanEnvPlaceholder } from "../launch-identity.mjs";
+import { declaringModules } from "./bridge-sources.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEAF = pathToFileURL(path.join(STDIO, "launch-identity.mjs")).href;
@@ -144,4 +145,46 @@ test("managed-dispatch mode is a launch fact, read from the environment at start
   for (const falsy of ["", "0", "false", "no", "maybe", "TRUE ", "1 "]) {
     assert.equal(read(falsy), "false", `${JSON.stringify(falsy)} must NOT enable managed-dispatch mode`);
   }
+});
+
+test("IS_ENVIRONMENT_BRIDGE is set by EITHER the flag or the env var", () => {
+  // Two ways in because there are two ways to start one: an operator runs it by hand with
+  // `--environment-bridge`, and a wrapper sets `AIFY_ENVIRONMENT_BRIDGE`. Both must work, and the flag must
+  // work even when the env says nothing — a bridge that silently came up as an ordinary agent bridge would
+  // leave the environment with no host for dashboard-managed spawns, which fail with nothing to point at.
+  const read = (env, argv = []) => execFileSync(
+    process.execPath,
+    ["--input-type=module", "-e",
+      "const m = await import(" + JSON.stringify(LEAF)
+      + "); process.stdout.write(String(m.IS_ENVIRONMENT_BRIDGE));",
+      // `--` first: without it node parses `--environment-bridge` as one of ITS options and exits
+      // "bad option". The separator is what makes it reach `process.argv`, which is what the flag path reads.
+      "--", ...argv],
+    { env: { ...process.env, AIFY_ENVIRONMENT_BRIDGE: env }, encoding: "utf-8" },
+  ).trim();
+
+  assert.equal(read("", ["--environment-bridge"]), "true", "the flag alone must be enough");
+  for (const truthy of ["1", "true", "yes", "TRUE", "Yes"]) {
+    assert.equal(read(truthy), "true", `${truthy} must enable environment-bridge mode`);
+  }
+  // OFF is the safe default, and the same near-misses as managed-dispatch above. Starting as an environment
+  // bridge by accident is the worse direction: it supersedes the bridge already serving the environment and
+  // reaps its managed workers. That has taken a fleet down once.
+  for (const falsy of ["", "0", "false", "no", "maybe", "TRUE ", "1 "]) {
+    assert.equal(read(falsy), "false", `${JSON.stringify(falsy)} must NOT enable environment-bridge mode`);
+  }
+  // A near-miss on the FLAG must not count either — argv is matched exactly, not by prefix.
+  for (const wrong of ["--environment-bridge=1", "-environment-bridge", "--environment_bridge"]) {
+    assert.equal(read("", [wrong]), "false", `${wrong} must not be mistaken for the flag`);
+  }
+});
+
+test("exactly one module declares IS_ENVIRONMENT_BRIDGE, and server.js reads it back", () => {
+  assert.deepEqual(
+    declaringModules("IS_ENVIRONMENT_BRIDGE"), [{ file: "launch-identity.mjs", kind: "binding" }],
+    "a second declaration would let two parts of the bridge disagree about what this process is",
+  );
+  const server = readFileSync(path.join(STDIO, "server.js"), "utf-8");
+  assert.match(server, /(?<![\w.])IS_ENVIRONMENT_BRIDGE(?![\w])/, "server.js is still its main reader");
+  assert.doesNotMatch(server, /^const IS_ENVIRONMENT_BRIDGE/m, "…and must not re-declare it");
 });

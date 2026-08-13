@@ -40,3 +40,20 @@ export const AIFY_AGENT_ROLE = String(process.env.AIFY_AGENT_ROLE || process.env
 // dependency because one tool reads it. Three readers across the bridge say otherwise.
 export const IS_MANAGED_DISPATCH =
   ["1", "true", "yes"].includes(String(process.env.AIFY_MANAGED_DISPATCH || "").toLowerCase());
+
+// Whether this process was launched as THE ENVIRONMENT BRIDGE — the one that owns an environment, hosts
+// dashboard-managed spawns and reaps their workers — rather than as an ordinary agent's MCP bridge. Launch
+// identity in exactly the sense above: decided by how it was started, never acquired later.
+//
+// TWENTY-TWO READERS IN `server.js` AND NO OWNER, which is what earned it the move. It gates the spawn loop,
+// the environment heartbeat, the managed-teardown paths and the survivor sweeps — so it is not a local
+// detail of any one of them, and every future extraction that touches those would have had to import it
+// upward from the file it was leaving.
+//
+// UNLIKE the two above it reads `process.argv` as well as the environment, because the flag is how an
+// operator starts one by hand and the env var is how a wrapper does. Both are fixed for the process's life,
+// so re-deriving it elsewhere would agree — but 22 readers of an unowned name is the shape this series
+// exists to remove, not a duplication risk to weigh.
+export const IS_ENVIRONMENT_BRIDGE =
+  process.argv.includes("--environment-bridge") ||
+  ["1", "true", "yes"].includes(String(process.env.AIFY_ENVIRONMENT_BRIDGE || "").toLowerCase());
