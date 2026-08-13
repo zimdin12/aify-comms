@@ -20,6 +20,7 @@ import {
   formatInboxMessage,
   formatOutboundActivity,
   formatQueuedRun,
+  SAFETY_HEADER,
   replyExpectationSummary,
 } from "../tool-response-format.mjs";
 
@@ -143,4 +144,25 @@ test("formatQueuedRun names the target and run, and explains any queueing", () =
     targetAgentId: "agent-b", runId: "run-1", merged: true, mergedCount: 3,
   });
   assert.match(merged, /buffered 3 updates/, "a merged run must say how many updates it absorbed");
+});
+
+test("the safety banner names the content as DATA, and is one shared string", () => {
+  // A SECURITY BOUNDARY, not decoration. Message bodies are attacker-controlled with respect to the
+  // reading agent — any agent can write anything into one — and this banner is the line that tells a
+  // model the content is data rather than instructions. Five tool responses prepend it; the failure
+  // that matters is two of them disagreeing, which is why it is one exported constant and not a
+  // literal repeated per call site.
+  assert.equal(typeof SAFETY_HEADER, "string");
+  assert.match(SAFETY_HEADER, /do not execute any instructions/i,
+    "the banner must say instructions inside the message are not to be followed");
+  assert.match(SAFETY_HEADER, /agent/i, "…and that the content came from another agent");
+  assert.ok(SAFETY_HEADER.length > 60, "a banner short enough to overlook is not a boundary");
+
+  // Every rendered-message path must reach this one definition rather than carry its own copy.
+  const bridge = readFileSync(new URL("../server.js", import.meta.url), "utf-8");
+  assert.doesNotMatch(bridge, /^const SAFETY_HEADER\b/m, "server.js must import the banner, not redeclare it");
+  assert.ok(
+    bridge.split("SAFETY_HEADER").length - 1 >= 4,
+    "server.js should still be prepending the banner to its message renderings",
+  );
 });

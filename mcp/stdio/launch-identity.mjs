@@ -31,3 +31,12 @@ export function cleanEnvPlaceholder(value) {
 
 export const AIFY_AGENT_ID = cleanEnvPlaceholder(process.env.AIFY_AGENT_ID || process.env.AIFY_COMMS_AGENT_ID || "");
 export const AIFY_AGENT_ROLE = String(process.env.AIFY_AGENT_ROLE || process.env.AIFY_COMMS_AGENT_ROLE || "coder").trim();
+
+// Whether this process was launched to serve DASHBOARD-MANAGED dispatch rather than as an interactive
+// session. Set by the spawner, so it is launch identity in the same sense as the agent id above: fixed
+// at start, and not something the process can acquire later.
+//
+// It joined this module in v0.5.4 while measuring the inbox tool group, where it looked like a group
+// dependency because one tool reads it. Three readers across the bridge say otherwise.
+export const IS_MANAGED_DISPATCH =
+  ["1", "true", "yes"].includes(String(process.env.AIFY_MANAGED_DISPATCH || "").toLowerCase());

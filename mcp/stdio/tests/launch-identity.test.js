@@ -122,3 +122,26 @@ test("the leaf imports nothing — it is reachable from any module without a cyc
   const src = readFileSync(path.join(STDIO, "launch-identity.mjs"), "utf-8");
   assert.ok(!/^import\s/m.test(src), "a launch-identity leaf should need no imports");
 });
+
+test("managed-dispatch mode is a launch fact, read from the environment at start", () => {
+  // Set by the spawner, so it is launch identity in the same sense as the agent id: fixed at start and
+  // not acquirable later. Child processes for the usual reason — it resolves at module load, so an
+  // in-process assertion is satisfied by a constant.
+  const read = (value) => execFileSync(
+    process.execPath,
+    ["--input-type=module", "-e",
+      "import { IS_MANAGED_DISPATCH } from " + JSON.stringify(LEAF)
+      + "; process.stdout.write(String(IS_MANAGED_DISPATCH));"],
+    { env: { ...process.env, AIFY_MANAGED_DISPATCH: value }, encoding: "utf-8" },
+  ).trim();
+
+  for (const truthy of ["1", "true", "yes", "TRUE", "Yes"]) {
+    assert.equal(read(truthy), "true", `${truthy} must enable managed-dispatch mode`);
+  }
+  // The default and the near-misses. An interactive session must never be mistaken for a managed one:
+  // "0"/"false"/"" are the documented off values, and anything unrecognised stays OFF rather than
+  // guessing — the safe direction, since managed mode changes how delivery is handled.
+  for (const falsy of ["", "0", "false", "no", "maybe", "TRUE ", "1 "]) {
+    assert.equal(read(falsy), "false", `${JSON.stringify(falsy)} must NOT enable managed-dispatch mode`);
+  }
+});
