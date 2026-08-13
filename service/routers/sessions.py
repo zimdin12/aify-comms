@@ -78,7 +78,6 @@ from service.api_core.workspace import (
     _workspace_for_environment,
     _workspace_root_for,
 )
-from service.api_core.spawn_request_state import _has_claimable_spawn_request
 from service.api_core.dispatch_start import _coldstart_spawn_request_for_dispatch
 
 logger = logging.getLogger("aify_comms.routers.sessions")

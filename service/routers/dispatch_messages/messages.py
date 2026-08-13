@@ -109,7 +109,6 @@ from service.api_core.dispatch_start import (
     _ensure_managed_pty_for_dispatch,
     _launch_recipients_for_dispatch,
 )
-from service.api_core.spawn_request_state import _has_claimable_spawn_request
 from service.api_core.active_run_discard import _fail_pending_controls_for_run
 from service.api_core.execution_mode import _agent_execution_mode, _auto_return_resident_to_managed_if_possible
 from service.api_core.reply_contract import (

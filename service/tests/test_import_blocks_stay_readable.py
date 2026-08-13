@@ -78,6 +78,47 @@ class ImportBlocksStayReadableTests(unittest.TestCase):
             "the sample must be single-line, which is the shape being detected",
         )
 
+    def test_no_module_imports_the_same_name_from_the_same_module_twice(self):
+        """A duplicate identical import is behaviour-neutral and is the residue of a bad edit.
+
+        Found by the reviewer in `messages.py` and `sessions.py` after v0.5.4 repointing: each had the SAME
+        `from service.api_core.spawn_request_state import _has_claimable_spawn_request` line twice. Nothing
+        breaks — the second binding is the same object — so no sweep, no `create_app()` and no suite has any
+        reason to complain. It only shows up as noise in the next diff over that file, which is exactly when
+        it is most expensive to notice.
+
+        The class gets the gate rather than the two instances getting a fix, which is this repo's rule for
+        a finding a generator can reproduce.
+        """
+        offenders = []
+        for path in sorted(SERVICE.rglob("*.py")):
+            # `tests/data/` holds pristine pre-split fixtures — captured function bodies, not modules.
+            if "__pycache__" in path.parts or path.parent.name == "data":
+                continue
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+            except SyntaxError:
+                continue
+            # MODULE SCOPE ONLY — `tree.body`, not `ast.walk`. My first version walked the whole tree and
+            # flagged 8 legitimate cases: every borrow shim in this repo does
+            # `from service.control_plane import X as _impl` inside its OWN function body, so a walk sees
+            # the same (module, alias) pair once per shim and calls it a duplicate. Those are separate
+            # scopes and not the defect. The defect is two identical module-level imports in one file.
+            seen: dict[tuple[str, str], int] = {}
+            for node in tree.body:
+                if not isinstance(node, ast.ImportFrom) or not node.module:
+                    continue
+                for alias in node.names:
+                    key = (node.module, alias.asname or alias.name)
+                    if key in seen:
+                        offenders.append(
+                            f"{path.relative_to(REPO).as_posix()}:{node.lineno} imports {key[1]} from "
+                            f"{key[0]} again (first at line {seen[key]})"
+                        )
+                    else:
+                        seen[key] = node.lineno
+        self.assertEqual(offenders, [], "\n  ".join([""] + offenders))
+
     def test_a_long_single_name_import_is_deliberately_allowed(self):
         """Guards the exemption itself: a 1-name import cannot be wrapped, so it must not be flagged."""
         # Length is COMPUTED, not hand-tuned: a fixture whose whole point is "longer than the limit"
