@@ -10,7 +10,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 import {
   autoReplyBodyForRun,
@@ -159,10 +159,22 @@ test("the safety banner names the content as DATA, and is one shared string", ()
   assert.ok(SAFETY_HEADER.length > 60, "a banner short enough to overlook is not a boundary");
 
   // Every rendered-message path must reach this one definition rather than carry its own copy.
-  const bridge = readFileSync(new URL("../server.js", import.meta.url), "utf-8");
-  assert.doesNotMatch(bridge, /^const SAFETY_HEADER\b/m, "server.js must import the banner, not redeclare it");
-  assert.ok(
-    bridge.split("SAFETY_HEADER").length - 1 >= 4,
-    "server.js should still be prepending the banner to its message renderings",
-  );
+  //
+  // Scanned across the whole bridge, not server.js alone. My first version counted occurrences in
+  // server.js and went red one commit later when the inbox group moved out — measuring where the
+  // renderings happen to LIVE rather than that they all share one banner. Tool groups will keep moving;
+  // what must hold is that no module declares a second copy.
+  const dir = new URL("../", import.meta.url);
+  const sources = readdirSync(dir)
+    .filter((name) => /\.(js|mjs)$/.test(name) && name !== "tool-response-format.mjs")
+    .map((name) => [name, readFileSync(new URL(name, dir), "utf-8")]);
+  for (const [name, src] of sources) {
+    assert.doesNotMatch(src, /^(?:export\s+)?const SAFETY_HEADER\b/m, `${name} must import the banner, not redeclare it`);
+    assert.ok(
+      !src.includes("do not execute any instructions") || /SAFETY_HEADER/.test(src),
+      `${name} appears to carry its own copy of the banner text instead of importing it`,
+    );
+  }
+  const users = sources.filter(([, src]) => /(?<![\w.])SAFETY_HEADER(?![\w])/.test(src));
+  assert.ok(users.length >= 2, `the banner should still be in use across the bridge, found ${users.length}`);
 });
