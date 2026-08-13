@@ -483,3 +483,44 @@ This is the smallest, most isolated group in the file, which is why it is the pr
 wrapper pattern, the fake-server tests and the reconstruction proof do not hold for a 5-tool group with
 two constants and no shared helpers, they will not hold anywhere, and nothing else is entangled with it
 while that is found out.
+
+### 8. The wrapper contract has a tension — found by attempting `dispatch`, then reverted
+
+The dispatch extraction was attempted and **reverted**. It is recorded here because the obstacle is in
+the wrapper CONTRACT, not in dispatch, so every group hits it.
+
+Two of the reviewer's layer-2 conditions pull against each other:
+
+- *"the new module EXPORTS what it extracts"* — so `commsInterruptHandler` must be a module-level export;
+- *"explicit minimal deps"* — so `IS_REMOTE` and `AIFY_AGENT_ID` arrive as a parameter destructured
+  inside `registerDispatchTools(server, deps)`.
+
+A module-level export cannot see a parameter of another function. `commsInterruptHandler` uses
+`IS_REMOTE`, so the extraction produced a `ReferenceError` the moment a test called the export. Every
+resolution costs something the conditions forbid:
+
+| option | cost |
+|---|---|
+| move helpers inside the wrapper | they stop being exportable — fails "exports what it extracts" |
+| module-level deps holder set by `register` | reintroduces module state, which §6 proved no group needs |
+| pass deps to each helper | changes the body — fails "byte-identical handler bodies" |
+| the module derives the constants itself | `IS_REMOTE` is `!!SERVER_URL`, already exported by the endpoint leaf, so this one is free; `AIFY_AGENT_ID` is env-derived via `cleanEnvPlaceholder`, which lives in server.js |
+
+**The fourth line is probably the answer and it is not free for both constants.** `IS_REMOTE` can be
+derived in the leaf from `SERVER_URL`. `AIFY_AGENT_ID` needs either `cleanEnvPlaceholder` moved to a leaf
+first — a tier-1-shaped prerequisite nobody has measured — or acceptance that a deps object exists purely
+for it.
+
+**A second, smaller finding.** Indenting the tool blocks into the wrapper broke
+`comms-contracts-defaults.test.js`, which matches `server.tool(
+  "comms_contracts"` with exact
+indentation. The bodies are byte-identical modulo that indentation, and the packet has been calling that
+a declared substitution — but a source-pinned test is a consumer of the indentation, so "modulo
+indentation" is not free.
+
+**Reverted rather than patched.** Choosing among those four under time pressure is how the wrong one gets
+chosen, and this is the pattern every subsequent group inherits. The tree is back at 6,108 lines with all
+172 suites green.
+
+**Asking:** which resolution, and does `cleanEnvPlaceholder` become a tier-1 move so `AIFY_AGENT_ID` can
+be derived in-leaf and the deps object reach zero?
