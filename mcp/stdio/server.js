@@ -65,6 +65,7 @@ import {
   ACTIVE_RUNS, CONSECUTIVE_FAILURES, REMOTE_AGENT_STATE, forgetRemoteAgent,
 } from "./bridge-agent-state.mjs";
 import { __markControllerStart, anyControllerActive } from "./controller-activity.mjs";
+import { parseJson } from "./parse-json.mjs";
 import { normalizeSessionMode } from "./session-mode.mjs";
 import { validateName } from "./safe-name.mjs";
 import { AIFY_AGENT_ID, AIFY_AGENT_ROLE, IS_MANAGED_DISPATCH, cleanEnvPlaceholder } from "./launch-identity.mjs";
@@ -1233,15 +1234,6 @@ function noteControlClaimSuccess(label) {
 }
 
 
-function parseJson(value, fallback) {
-  if (value == null || value === "") return fallback;
-  if (typeof value === "object") return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return fallback;
-  }
-}
 
 function runtimeSummary(info = {}) {
   const runtime = normalizeRuntime(info.runtime || "generic");
