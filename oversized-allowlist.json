@@ -1,0 +1,45 @@
+{
+  "_comment": [
+    "Product source files permitted to exceed the 1000-line limit. POLICY-OWNED: the contents are set by",
+    "the reviewer, not inferred from whatever happens to be oversized today. Adding a path here is a",
+    "decision; removing one is just bookkeeping after a file is cleared.",
+    "",
+    "Approved by comms-senior-dev on 2026-08-13, verbatim: 'Allowlist should be explicit and policy-owned,",
+    "not inferred from whatever is currently oversized. The currently justified product allowlist is the",
+    "five decision/ceiling files.'",
+    "",
+    "ONE SOURCE OF TRUTH, read by both gates -- service/tests/test_no_new_oversized_source_file.py and",
+    "mcp/stdio/tests/no-new-oversized-source-file.test.js. Two copies of a list like this is the forked-",
+    "constant class the whole v0.5.x series has been removing; a duplicated allowlist would drift silently",
+    "and each gate would then enforce a different policy.",
+    "",
+    "PATHS, NOT BASENAMES. The first version of these gates matched on basename, which would have exempted",
+    "any file called app.js or server.js anywhere in the tree. Repo-relative, forward slashes.",
+    "",
+    "Both gates fail if a listed path no longer exists or has dropped below the limit, so this list shrinks",
+    "honestly and cannot rot into names nobody re-checked."
+  ],
+  "limit": 1000,
+  "allowed": [
+    {
+      "path": "service/control_plane.py",
+      "reason": "status-cache component decision packet (docs/STATUS_CACHE_COMPONENT_PACKET.md); operator scope"
+    },
+    {
+      "path": "mcp/stdio/server.js",
+      "reason": "packet accepted as measurement (docs/JS_SERVER_JS_PROOF_PACKET.md); awaiting operator scope"
+    },
+    {
+      "path": "service/new_dashboard/app.js",
+      "reason": "reviewer-ruled relocation ceiling; remaining reduction needs factory conversion"
+    },
+    {
+      "path": "mcp/stdio/hermes-managed-host.js",
+      "reason": "reviewer-ruled relocation ceiling; delivery-loop seams capture mutable state"
+    },
+    {
+      "path": "mcp/stdio/pi-session.js",
+      "reason": "relocation provably cannot clear it: moving all 19 top-level functions leaves 1,030 lines"
+    }
+  ]
+}
