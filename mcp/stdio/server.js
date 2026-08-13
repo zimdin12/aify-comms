@@ -54,7 +54,10 @@ import {
 } from "./aify-service-endpoint.mjs";
 import { registerArtifactTools } from "./artifact-tools.mjs";
 import { registerDispatchTools } from "./dispatch-tools.mjs";
-import { AGENTS_FILE, INBOX_DIR, MESSAGES_DIR, SHARED_DIR } from "./local-store.mjs";
+import {
+  INBOX_DIR, MESSAGES_DIR, SHARED_DIR,
+  deliverMessage, markAsRead, readAgents, readInbox, writeAgents,
+} from "./local-store.mjs";
 import { validateName } from "./safe-name.mjs";
 import { AIFY_AGENT_ID, AIFY_AGENT_ROLE, cleanEnvPlaceholder } from "./launch-identity.mjs";
 import { residentIdentityWarning } from "./register-identity.js";
@@ -1646,55 +1649,10 @@ async function ensureRequiredReplyHandoff(agentId, run = {}, terminalStatus = "c
 
 // ── Local filesystem helpers ─────────────────────────────────────────────────
 
-function readAgents() {
-  try {
-    return JSON.parse(fs.readFileSync(AGENTS_FILE, "utf-8"));
-  } catch {
-    return { agents: {} };
-  }
-}
 
-function writeAgents(data) {
-  fs.writeFileSync(AGENTS_FILE, JSON.stringify(data, null, 2));
-}
 
-function readInbox(agentId, filter = "unread") {
-  const dir = path.join(INBOX_DIR, agentId);
-  fs.mkdirSync(dir, { recursive: true });
-  try {
-    let files = fs.readdirSync(dir).filter((f) => f.endsWith(".json")).sort().reverse();
-    if (filter === "unread") files = files.filter((f) => !f.endsWith(".read.json"));
-    else if (filter === "read") files = files.filter((f) => f.endsWith(".read.json"));
-    return files.map((f) => {
-      const msg = JSON.parse(fs.readFileSync(path.join(dir, f), "utf-8"));
-      msg._file = f;
-      msg._read = f.endsWith(".read.json");
-      return msg;
-    });
-  } catch {
-    return [];
-  }
-}
 
-function markAsRead(agentId, messages) {
-  const dir = path.join(INBOX_DIR, agentId);
-  for (const m of messages) {
-    if (m._read) continue;
-    const oldPath = path.join(dir, m._file);
-    const newPath = path.join(dir, m._file.replace(/\.json$/, ".read.json"));
-    try { fs.renameSync(oldPath, newPath); } catch { /* race or already renamed */ }
-  }
-}
 
-function deliverMessage(toAgentId, message) {
-  const dir = path.join(INBOX_DIR, toAgentId);
-  fs.mkdirSync(dir, { recursive: true });
-  const filename = `${Date.now()}-${randomUUID().slice(0, 8)}.json`;
-  fs.writeFileSync(
-    path.join(dir, filename),
-    JSON.stringify({ ...message, timestamp: Date.now() })
-  );
-}
 
 // ── Message safety ───────────────────────────────────────────────────────────
 // Messages from other agents are UNTRUSTED DATA. Wrap in code fences so

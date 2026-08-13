@@ -7,7 +7,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -102,13 +103,97 @@ test("server.js declares none of the four — exactly one owner", () => {
   assert.match(src, /mkdirSync/, "the directory bootstrap belongs to startup, not to this leaf");
 });
 
-test("the leaf performs no I/O at import — it only computes paths", () => {
-  // Asserted as CALLS, not as the bare words — the first version matched the header comment explaining
-  // why the `mkdirSync` bootstrap stayed behind. Second time this session that a negative proof punished
-  // the documentation of the invariant it protects.
-  const src = readFileSync(LEAF, "utf-8");
-  for (const fn of ["mkdirSync", "writeFileSync", "readFileSync", "readdirSync", "appendFileSync"]) {
-    assert.doesNotMatch(src, new RegExp(`\\b${fn}\\s*\\(`), `${fn}() must not run when this module loads`);
-  }
-  assert.doesNotMatch(src, /^let\s/m, "no module-level mutable state");
+test("importing this module touches the filesystem NOT AT ALL", () => {
+  // Asserted empirically, and it had to be. The first two versions were regexes over the source: one
+  // forbade the words and matched the header comment explaining why the bootstrap stayed behind; the
+  // second forbade the CALLS, which was correct until the five accessors moved in and made `fs` calls
+  // legitimately present. A source regex cannot tell "calls fs when invoked" from "calls fs on import",
+  // and that distinction is the entire property.
+  //
+  // So: point the module at a directory that does not exist, import it in a child process, and check
+  // the directory still does not exist. Nothing else proves an import is inert.
+  const ghost = path.join(os.tmpdir(), `aify-store-must-not-exist-${process.pid}`);
+  rmSync(ghost, { recursive: true, force: true });
+  assert.equal(existsSync(ghost), false, "the probe directory must be absent before the import");
+
+  execFileSync(
+    process.execPath,
+    ["--input-type=module", "-e",
+      "const m = await import(" + JSON.stringify(pathToFileURL(LEAF).href) + ");"
+      + " if (typeof m.readAgents !== 'function') { throw new Error('module did not load'); }"],
+    { env: { ...process.env, CLAUDE_MCP_MESSAGES_DIR: ghost }, encoding: "utf-8" },
+  );
+
+  assert.equal(
+    existsSync(ghost), false,
+    "importing the store module created its directory — a module that writes on import cannot be imported by a test",
+  );
+});
+
+test("no module-level mutable state", () => {
+  assert.doesNotMatch(readFileSync(LEAF, "utf-8"), /^let\s/m);
+});
+
+// ── The five accessors ───────────────────────────────────────────────────────
+//
+// These ARE the local-mode backing store. Every one of them was unreachable from a test until v0.5.4.
+
+test("the agents registry round-trips, and a missing or corrupt file reads as empty", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "aify-agents-"));
+  const run = (script) => execFileSync(
+    process.execPath,
+    ["--input-type=module", "-e",
+      "const { readAgents, writeAgents, AGENTS_FILE } = await import("
+      + JSON.stringify(pathToFileURL(LEAF).href) + ");"
+      + "const fs = await import('node:fs');" + script],
+    { env: { ...process.env, CLAUDE_MCP_MESSAGES_DIR: dir }, encoding: "utf-8" },
+  );
+  try {
+    // Absent file: the normal first-run case, not a fault.
+    assert.equal(run("process.stdout.write(JSON.stringify(readAgents()));"), '{"agents":{}}');
+    // Round-trip.
+    assert.equal(
+      run("writeAgents({ agents: { a: { role: 'coder' } } });"
+        + "process.stdout.write(JSON.stringify(readAgents().agents.a));"),
+      '{"role":"coder"}',
+    );
+    // Corrupt file reads as empty too — deliberate, and the reason a caller cannot distinguish a
+    // damaged registry from a fresh one. Pinned so the choice stays visible.
+    assert.equal(
+      run("fs.writeFileSync(AGENTS_FILE, '{not json');"
+        + "process.stdout.write(JSON.stringify(readAgents()));"),
+      '{"agents":{}}',
+    );
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("a delivered message lands unread, reads back, and marking it read is not a delete", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "aify-inbox-"));
+  const out = execFileSync(
+    process.execPath,
+    ["--input-type=module", "-e",
+      "const { deliverMessage, readInbox, markAsRead } = await import("
+      + JSON.stringify(pathToFileURL(LEAF).href) + ");"
+      + "deliverMessage('agent-b', { from: 'agent-a', subject: 's', body: 'hello' });"
+      + "const unread = readInbox('agent-b');"
+      + "markAsRead('agent-b', unread);"
+      + "process.stdout.write(JSON.stringify({"
+      + "  unread: unread.length, body: unread[0]?.body, stamped: !!unread[0]?.timestamp,"
+      + "  afterUnread: readInbox('agent-b').length,"
+      + "  afterRead: readInbox('agent-b', 'read').length,"
+      + "  afterAll: readInbox('agent-b', 'all').length,"
+      + "  emptyForStranger: readInbox('nobody').length,"
+      + "}));"],
+    { env: { ...process.env, CLAUDE_MCP_MESSAGES_DIR: dir }, encoding: "utf-8" },
+  );
+  try {
+    const r = JSON.parse(out);
+    assert.equal(r.unread, 1, "a delivered message must arrive unread");
+    assert.equal(r.body, "hello", "…with its body intact");
+    assert.equal(r.stamped, true, "the store stamps a delivery time");
+    assert.equal(r.afterUnread, 0, "once read it must leave the unread view");
+    assert.equal(r.afterRead, 1, "…and appear in the read view");
+    assert.equal(r.afterAll, 1, "marking read must RENAME, not delete — the message still exists");
+    assert.equal(r.emptyForStranger, 0, "an agent with no inbox reads empty rather than throwing");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
