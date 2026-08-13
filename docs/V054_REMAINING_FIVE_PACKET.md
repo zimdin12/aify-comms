@@ -22,11 +22,17 @@ The class alone is 960.
 
 ## What is genuinely still extractable, and why I stopped
 
-- **`app.js`: 39 functions, ~361 lines.** No browser global, no `byId`, no `state`. Worth doing and it does
-  not reach the goal. The proven harness exists (`extraction-proof.mjs` — put the spans back, delete the
-  added import, require byte-identity with the pristine fixture) and five slices have now used it.
+- **`app.js`: 13 functions, 63 lines** — and even that is generous. This is the TRANSITIVE figure: no
+  `state`, no browser global, no `byId`/`api`, AND every app.js function it calls also clean. Spot-checking
+  those thirteen finds some reading OTHER module-scope objects (`evaluateFlowGates` reads `flowGates`), so
+  the honest number is under sixty lines. The proven harness exists (`extraction-proof.mjs` — put the spans
+  back, delete the added import, require byte-identity with the pristine fixture) and six slices have used
+  it; there is essentially nothing left for it to move.
 
-  **THESE NUMBERS ARE A CORRECTION.** The first version of this table said 370 references / 94 of 175
+  **THIS FIGURE HAS BEEN CORRECTED TWICE, AND BOTH ERRORS RAN THE SAME WAY — overstating what is
+  extractable.** The 39/361 count included functions that do not touch `state` DIRECTLY but call `api`,
+  `uiConfirm` or `openRunInspector`; "not directly stateful" is not "movable", and movability is the
+  question this packet exists to answer. The first version said 370 references / 94 of 175
   functions / 57 pure / ~551 lines. Those came from a scanner carrying the SPREAD BUG this series had
   already found and fixed once: `(?<![\w.])state` misses `...state.x`, because the final `.` of the
   spread satisfies the lookbehind. Every function that spreads state was counted as pure. The corrected
@@ -58,9 +64,10 @@ needing its own review standard, and touching the paths that reap workers and cl
 
 1. **A, B or C — per file, or one ruling for all five?**
 2. If **C** anywhere: v0.5.x or v0.6?
-3. Should the ~700 lines of genuinely clean remainder (app.js 551 + server.js 105 + pi 30) land regardless?
-   They are unblocked and use the proven method; I held them because shaving lines is not the same as
-   structuring code, and I would rather be told which.
+3. Should the genuinely clean remainder land regardless? Measured transitively it is **app.js <60 +
+   server.js ~105 + pi ~30 = under 200 lines**, not the ~700 this packet first claimed. At that size the
+   argument for doing it is test coverage — each becomes callable by a test that cannot reach it today —
+   and the argument against is five more single-purpose modules. Your call.
 
 ## What I have NOT established
 
