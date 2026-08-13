@@ -2,7 +2,10 @@ import assert from "assert";
 
 process.env.AIFY_PI_COMMAND = process.execPath;
 
-const { PiSession, formatPiEventAsTerminalFrame } = await import("../pi-session.js");
+// The renderer moved to its OWNER in v0.5.4 — a pure function that no longer needs the 960-line session
+// class loaded to be called. `PiSession` still comes from the session module.
+const { PiSession } = await import("../pi-session.js");
+const { formatPiEventAsTerminalFrame } = await import("../pi-terminal-frame.mjs");
 
 // ── Pure formatter ─────────────────────────────────────────────────────────
 
