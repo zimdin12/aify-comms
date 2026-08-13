@@ -116,6 +116,8 @@ from service.api_core.liveness import (  # v0.5.4: moved out; the control plane 
     _resident_bridge_is_fresh,
     ACTIVE_RUN_BRIDGE_STALE_SECONDS,
     CONSOLE_WORKING_LEASE_SECONDS,
+    _agent_awaiting_input,
+    _agent_config_defect,
     _console_working_lease_fresh,
     _has_live_terminal_session,
 )
@@ -797,46 +799,6 @@ def _status_refresh_after(agent_last_seen: str, env_last_seen: str, *, liveness_
 # it: a "…I need a decision… Say the word" prompt has no menu cursor and no "Enter to confirm".
 
 
-async def _agent_awaiting_input(db, agent_id: str) -> bool:
-    """WS-5 (2026-06-17): True when the agent's live console tail looks like it is
-    awaiting operator input/a decision (the `_terminal_awaiting_input_hint` signal).
-
-    This is the engine input that makes `blocked` reachable under status_engine=new:
-    derive() returns `blocked` for `in_turn AND live AND awaiting_input`. Callers gate
-    the call on in_turn (a turn must be in flight for `blocked` to apply), so the
-    terminal read happens only for the few agents currently mid-turn. Both StatusInputs
-    build sites (_gather_status_inputs and the _compute_live_status_cache byproduct)
-    call THIS helper so they derive the same value (the byproduct-parity promise)."""
-    if db is None:
-        return False
-    try:
-        row = await (await db.execute(
-            """
-            SELECT output, cols, runtime FROM terminal_sessions
-            WHERE agent_id = ?
-              AND status IN ('starting','attached','running','active','idle','recovering')
-              AND id NOT LIKE 'vterm_%'
-            ORDER BY updated_at DESC LIMIT 1
-            """,
-            (agent_id,),
-        )).fetchone()
-    except Exception:
-        return False
-    if not row:
-        return False
-    # The screen patterns below model Claude Code's interactive permission,
-    # resume, and compaction prompts. Hermes/Codex/Pi terminal output includes
-    # the model's own prose; phrases such as "which option" or "say the word"
-    # there are ordinary output, not proof that the harness is waiting for an
-    # operator. Their controllers report turn state through native events.
-    if _normalize_runtime(str(row["runtime"] or "")) != "claude-code":
-        return False
-    keys = row.keys()
-    return bool(_terminal_prompt_hint_from_raw(
-        f"agent:{agent_id}",
-        row["output"] if "output" in keys else "",
-        row["cols"] if "cols" in keys else 0,
-    ))
 
 
 # _terminal_idle_prompt_hint moved to service/reconcilers/terminal_runs.py in v0.5.3.
@@ -971,32 +933,6 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
                         config_defect=await _agent_config_defect(db, agent_row, mode, missing_handle=missing_handle))
 
 
-async def _agent_config_defect(db, agent_row, mode: str, *, missing_handle: bool = False) -> str:
-    """Why this identity can NEVER be started, or "" if it can.
-
-    Operator-requested 2026-08-03. Both fallthroughs this feeds used to report a state that
-    quietly promises recovery: a managed identity with nothing to spawn from reported
-    `available`, which tells the operator "just send to it and it will cold-start", and a
-    resident with no wake handle reported `offline`, which reads as "not here right now".
-    Both are false, in the direction that costs the most — the operator hunts a delivery bug
-    that does not exist. This returns the DEFECT so status can say so instead.
-
-    Deliberately narrow: only conditions under which starting is structurally impossible.
-    A status that cried misconfigured on a recoverable agent would be worse than the promise it
-    replaces — and the first cut of this DID. It also flagged a managed agent with no spawn spec,
-    which is wrong: the cold-start path synthesises a spawn request from the environment, so a
-    spec-less agent starts fine. An existing parity test caught it. What remains are the two
-    conditions that no start path can route around: an unlaunchable runtime, and a resident with
-    no wake handle.
-    """
-    if mode != "managed":
-        if missing_handle:
-            return f"no usable wake handle (wakeMode={_agent_wake_mode(agent_row) or 'unknown'})"
-        return ""
-    runtime = _normalize_runtime(agent_row["runtime"] or "") if "_normalize_runtime" in globals() else str(agent_row["runtime"] or "").strip().lower()
-    if runtime not in _LAUNCHABLE_RUNTIMES:
-        return f"runtime {runtime or '(unset)'!r} cannot be launched — no adapter can start it"
-    return ""
 
 
 async def engine_status(db, agent_row, *, settings=None) -> str:
