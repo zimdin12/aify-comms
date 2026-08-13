@@ -22,6 +22,7 @@ import {
 } from "./aify-service-endpoint.mjs";
 import { registerArtifactTools } from "./artifact-tools.mjs";
 import { makeAutoRegister } from "./auto-registration.mjs";
+import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
 import { processRunControls } from "./run-controls.mjs";
 import { registerRegistrationTool } from "./registration-tool.mjs";
 import { registerChannelTools } from "./channel-tools.mjs";
@@ -164,49 +165,6 @@ const MACHINE_ID = defaultMachineId();
 // the bridge's version to the control plane too, not just to MCP clients.
 const BRIDGE_VERSION = AIFY_VERSION;
 
-// Compute a build tag the user can paste from an error message to prove
-// which code is actually running. Reads .git/HEAD next to this script so
-// it works whether the bridge was started from a clone or a release tarball.
-function computeBridgeBuildTag() {
-  try {
-    const here = path.dirname(fileURLToPath(import.meta.url));
-    // Native-copy install (the normal case): install.sh stamps .aify-version at the
-    // install root (two levels up, ~/.aify-comms/.aify-version) with the repo SHA at
-    // copy time — the native copy has no .git, so without this every installed bridge
-    // printed "no-git" and the banner couldn't prove which code runs (2026-06-10).
-    const stampPath = path.resolve(here, "..", "..", ".aify-version");
-    if (fs.existsSync(stampPath)) {
-      const m = fs.readFileSync(stampPath, "utf-8").match(/^short=(\S+)/m)
-        || fs.readFileSync(stampPath, "utf-8").match(/^sha=(\S+)/m);
-      if (m && m[1] && m[1] !== "unknown") return m[1].slice(0, 12);
-    }
-    // Repo-checkout fallback: read .git/HEAD two levels up.
-    const gitDir = path.resolve(here, "..", "..", ".git");
-    const headPath = path.join(gitDir, "HEAD");
-    if (!fs.existsSync(headPath)) return "no-git";
-    const head = fs.readFileSync(headPath, "utf-8").trim();
-    if (head.startsWith("ref:")) {
-      const refPath = path.join(gitDir, head.slice(4).trim());
-      if (fs.existsSync(refPath)) {
-        return fs.readFileSync(refPath, "utf-8").trim().slice(0, 12);
-      }
-      // packed-refs fallback
-      const packed = path.join(gitDir, "packed-refs");
-      if (fs.existsSync(packed)) {
-        const lines = fs.readFileSync(packed, "utf-8").split(/\r?\n/);
-        const refName = head.slice(4).trim();
-        for (const line of lines) {
-          if (line.endsWith(refName)) return line.split(/\s+/)[0].slice(0, 12);
-        }
-      }
-      return "unknown-ref";
-    }
-    return head.slice(0, 12);
-  } catch {
-    return "unknown";
-  }
-}
-const BRIDGE_BUILD_TAG = computeBridgeBuildTag();
 // Log to stderr on startup so users can see which code is running.
 console.error(`[aify-comms bridge] version=${BRIDGE_VERSION} build=${BRIDGE_BUILD_TAG} instance=${BRIDGE_INSTANCE_ID} pid=${process.pid} cwd=${process.cwd()} script=${fileURLToPath(import.meta.url)}`);
 

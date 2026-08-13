@@ -3,6 +3,7 @@
 // verbatim from runtimes.js (task #123). runtimes.js re-exports the public
 // surface.
 import { spawnSync } from "child_process";
+import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -309,31 +310,6 @@ function pathSummary() {
 // Read the build tag the same way server.js does, so error messages stamp
 // the running bridge's git SHA. This lets users prove which code emitted
 // the error without grep'ing the source.
-function readBuildTag() {
-  try {
-    const here = path.dirname(fileURLToPath(import.meta.url));
-    const gitDir = path.resolve(here, "..", "..", ".git");
-    const headPath = path.join(gitDir, "HEAD");
-    if (!fs.existsSync(headPath)) return "no-git";
-    const head = fs.readFileSync(headPath, "utf-8").trim();
-    if (head.startsWith("ref:")) {
-      const refPath = path.join(gitDir, head.slice(4).trim());
-      if (fs.existsSync(refPath)) return fs.readFileSync(refPath, "utf-8").trim().slice(0, 12);
-      const packed = path.join(gitDir, "packed-refs");
-      if (fs.existsSync(packed)) {
-        const refName = head.slice(4).trim();
-        for (const line of fs.readFileSync(packed, "utf-8").split(/\r?\n/)) {
-          if (line.endsWith(refName)) return line.split(/\s+/)[0].slice(0, 12);
-        }
-      }
-      return "unknown-ref";
-    }
-    return head.slice(0, 12);
-  } catch {
-    return "unknown";
-  }
-}
-const BRIDGE_BUILD_TAG = readBuildTag();
 
 export function diagnosticsFor(name) {
   const info = describeExecutableResolution(name);
