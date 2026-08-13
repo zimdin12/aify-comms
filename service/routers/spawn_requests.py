@@ -161,10 +161,10 @@ async def _create_dispatch_runs(*a, **k):
 
 
 
-def _wake_agent(*a, **k):
-    from service.control_plane import _wake_agent as _impl
-
-    return _impl(*a, **k)
+# Was a borrow shim: the owner lived in the control plane, which a router cannot import at
+# module level without a cycle. It moved to service/longpoll.py in v0.5.4 — the module that
+# already owned the other waiter registry — so a plain import works.
+from service.longpoll import _wake_agent  # noqa: E402
 
 
 

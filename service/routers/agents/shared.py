@@ -239,8 +239,15 @@ def _borrowed_shell_placeholder_handle_re():
 
 
 def _borrowed_listen_events():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import _listen_events
+    """One owner, never a copy (finding N7) — and the owner is now a LEAF, not the control plane.
+
+    v0.5.4 moved `_listen_events` to `service/longpoll.py`, which already owned the other waiter
+    registry. The accessor stays because its six callers are unchanged and it still reads exactly one
+    owner; only the owner moved. Returning the dict itself is the point — `routers/agents/config.py`
+    INSERTS into it, so a copy would put the waiter in one dict and the wake in another and
+    `comms_listen` would hang to its timeout with nothing logged.
+    """
+    from service.longpoll import _listen_events
 
     return _listen_events
 

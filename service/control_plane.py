@@ -29,7 +29,6 @@ bindings of which 180 were reached by nothing at all — one orphaned per extrac
 the whole series, plus every request model from `service.models` for routes that left in v0.5.2. They
 cost 148 lines and made the file look coupled to two dozen modules it does not use.
 """
-import asyncio
 import json
 import sqlite3
 import re
@@ -39,8 +38,8 @@ from typing import Any, Optional
 
 from fastapi import Request
 
-# Per-agent wake-up events for comms_listen
-_listen_events: dict[str, asyncio.Event] = {}
+# _listen_events moved to service/longpoll.py in v0.5.4 with `_wake_agent` — that module already
+# owned the other waiter registry, and the identity gate names it as the sole owner.
 
 from service.api_core.status_decision import StatusFacts, _decide_effective_status
 from service.config import get_config
@@ -1746,11 +1745,6 @@ _CONSOLE_TAIL_MAX_BYTES = 16 * 1024
 
 
 
-def _wake_agent(agent_id: str):
-    """Signal a listening agent that they have new messages."""
-    ev = _listen_events.get(agent_id)
-    if ev:
-        ev.set()
 
 
 # ─── Dispatch Runs ────────────────────────────────────────────────────────────

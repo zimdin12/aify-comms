@@ -58,6 +58,12 @@ GLOBALS = {
     # screen reconstruction running on every poll instead of once per 5s per agent. Slower, never
     # wrong, and therefore invisible.
     "_PROMPT_HINT_CACHE": "service/api_core/terminal_text.py",
+    # Moved in v0.5.4 to the module that already owned the OTHER waiter registry. Six agent-surface
+    # modules reach it through one borrow accessor and `routers/agents/config.py` inserts into it, so
+    # two copies would register a waiter in one dict and fire the wake into the other: `comms_listen`
+    # would hang to its timeout, return empty, and log nothing. A hang is the hardest of these to
+    # trace back to a duplicated global, which is why it is worth a line here.
+    "_listen_events": "service/longpoll.py",
 }
 
 # AST, NOT REGEX — and that distinction is the whole gate.
