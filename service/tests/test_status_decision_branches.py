@@ -29,7 +29,10 @@ import unittest
 from unittest import mock
 
 from service.api_core import status_decision
-from service.api_core.status_decision import _decide_effective_status
+from service.api_core.status_decision import StatusFacts, _decide_effective_status
+
+#: The facts the decision consumes, as opposed to the accumulator values it reads AND replaces.
+FACT_FIELDS = ['active_run', 'active_run_terminal_missing', 'agent_row', 'agent_session_mode', 'channel_managed_no_console', 'channel_managed_no_sidecar', 'channel_pending_reply_run', 'env_bridge_id', 'env_status', 'environment_id', 'has_live_worker', 'live_session', 'managed_env_bridge_offline', 'resident_bridge_stale', 'session_bridge_id', 'session_status', 'terminal_input_hint', 'terminal_status', 'turn_busy', 'turn_runtime']
 
 
 def _row(**kw):
@@ -73,8 +76,14 @@ def _call(**over):
     )
     kw.update(over)
 
+    # ONLY THIS ADAPTER CHANGED IN THE FACTS-OBJECT RESHAPE. Every assertion in this file is
+    # byte-identical to the version written against the 24-parameter signature — which is the point:
+    # a net rewritten alongside the change it protects is not a net. Tests still express their inputs
+    # as flat kwargs; the packing happens here.
+    facts = StatusFacts(**{k: kw.pop(k) for k in FACT_FIELDS})
+
     async def run():
-        return await _decide_effective_status(**kw)
+        return await _decide_effective_status(kw.pop("db"), facts, **kw)
 
     import asyncio
 

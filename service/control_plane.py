@@ -43,7 +43,7 @@ _listen_events: dict[str, asyncio.Event] = {}
 
 from pydantic import BaseModel
 from service.pi_resident_flip import _drain_and_flip_pi_resident_agents
-from service.api_core.status_decision import _decide_effective_status
+from service.api_core.status_decision import StatusFacts, _decide_effective_status
 from service.api_core.message_store import _delete_messages_by_ids, _get_unread_count_map
 from service.config import get_config
 # v0.5.1g: single owner, moved verbatim, same call timing.
@@ -1533,27 +1533,29 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         and (not terminal_id or terminal_status not in _TERMINAL_ACTIVE_STATUSES)
     )
     effective_status, reason, awaiting_reply = await _decide_effective_status(
-        active_run,
-        active_run_terminal_missing,
-        agent_row,
-        agent_session_mode,
-        channel_managed_no_console,
-        channel_managed_no_sidecar,
-        channel_pending_reply_run,
         db,
-        env_bridge_id,
-        env_status,
-        environment_id,
-        has_live_worker,
-        live_session,
-        managed_env_bridge_offline,
-        resident_bridge_stale,
-        session_bridge_id,
-        session_status,
-        terminal_input_hint,
-        terminal_status,
-        turn_busy,
-        turn_runtime,
+        StatusFacts(
+            active_run=active_run,
+            active_run_terminal_missing=active_run_terminal_missing,
+            agent_row=agent_row,
+            agent_session_mode=agent_session_mode,
+            channel_managed_no_console=channel_managed_no_console,
+            channel_managed_no_sidecar=channel_managed_no_sidecar,
+            channel_pending_reply_run=channel_pending_reply_run,
+            env_bridge_id=env_bridge_id,
+            env_status=env_status,
+            environment_id=environment_id,
+            has_live_worker=has_live_worker,
+            live_session=live_session,
+            managed_env_bridge_offline=managed_env_bridge_offline,
+            resident_bridge_stale=resident_bridge_stale,
+            session_bridge_id=session_bridge_id,
+            session_status=session_status,
+            terminal_input_hint=terminal_input_hint,
+            terminal_status=terminal_status,
+            turn_busy=turn_busy,
+            turn_runtime=turn_runtime,
+        ),
         effective_status,
         reason,
         awaiting_reply,

@@ -1,22 +1,30 @@
-"""The status-derivation split, re-proved against the real code on every run.
+"""Structural invariants for the status-decision split. THE INLINE-BACK PROOF HAS BEEN RETIRED.
 
-`_decide_effective_status` is the 147-line decision lifted out of the 551-line
-`_compute_live_status_cache`. This is the highest-stakes extraction in the v0.5.4 series: it is what
-decides whether an agent reads as offline, blocked, working or online, and a silent change here does
-not raise — it misreports the fleet.
+WHAT THIS FILE USED TO DO. Between 87e953fa and 537a4bb7 it proved, on every run, that
+`_decide_effective_status` was a byte-identical lift out of `_compute_live_status_cache`: inline the
+helper back over its call and the result reproduced the pristine 551-line original exactly.
 
-FIRST USE OF THE MULTI-OUTPUT DIALECT (`service/tests/test_extract_method_multi_output.py`). The
-decision has three live-outs, so the single-value VALUE form could not express it. The dialect landed
-as its own probed slice before this extraction relied on it, and the transposition probe there is what
-makes the ordering of these three returns trustworthy rather than assumed.
+WHY IT NO LONGER CAN. The facts-object reshape replaced twenty positional parameters with a frozen
+`StatusFacts`, so the body now reads `facts.turn_busy` where it read `turn_busy`. That is not a
+byte-identical move and inline-back CANNOT prove it — the extract-method gate refuses it outright, with
+the correct reason: the call passes a constructed object rather than a same-name variable, and
+inline-back splices bodies without substituting arguments, so it cannot see a value swap. The gate is
+right to refuse; the proof was never applicable to a reshape.
 
-DECLARED SUBSTITUTION: the helper deliberately lives in `service/api_core/status_decision.py`, so the
-caller and the helper are CONCATENATED for the proof — the same declared substitution used by the four
-earlier split proofs.
+THE PROOF IS NOT REPLACED BY NOTHING. What guards the reshape is
+`service/tests/test_status_decision_branches.py` — 36 direct branch tests over twelve assignment sites,
+including precedence ordering and the hot-path query boundary, every one of them mutation-verified —
+plus the seven status-matrix suites. That net was written FIRST, before the reshape, precisely so this
+retirement would not leave a gap. The reviewer's sequence required it in that order for this reason.
 
-WHAT THIS DOES NOT DO: it proves the extraction is mechanically inert. It does not test the branches.
-Branch characterization comes next and is the reason the extraction happened at all — the decision was
-previously reachable only through a database and a route.
+WHAT REMAINS HERE are the structural invariants, which survive the reshape and are still worth
+enforcing: the helper is not back in the carrier, exactly one module declares it, the leaf imports
+nothing upward, and the caller unpacks in the order the helper returns. The pristine fixture is kept as
+the record of what the function looked like before any of this, and is still asserted to be tracked and
+un-mangled.
+
+IF A FUTURE CHANGE MAKES THE DECISION BYTE-IDENTICALLY EXTRACTABLE AGAIN, restoring the round trip is a
+one-line change and the fixture is still here to compare against.
 """
 
 from __future__ import annotations
@@ -25,7 +33,6 @@ import ast
 import unittest
 from pathlib import Path
 
-from service.tests.extract_method import assert_extractions_preserve_behaviour
 
 REPO = Path(__file__).resolve().parent.parent.parent
 CARRIER = REPO / "service" / "control_plane.py"
@@ -41,14 +48,28 @@ def _combined_split_source() -> str:
 
 
 class StatusDecisionSplitIsInertTests(unittest.TestCase):
-    def test_the_extraction_inlines_back_to_the_original(self):
-        fixture_src = FIXTURE.read_text(encoding="utf-8")
-        original = next(
-            n for n in ast.parse(fixture_src).body
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
-        )
-        assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+    def test_the_inline_back_proof_is_retired_and_says_so(self):
+        """A retired proof must be visibly retired, not silently deleted.
+
+        This asserts the CAUSE rather than leaving a gap where a test used to be: the decision now
+        takes a constructed `StatusFacts`, which is exactly the shape inline-back cannot verify. If
+        someone later restores a same-name parameter passing style, this test starts failing and the
+        round trip above it should be reinstated.
+        """
+        decision_src = DECISION.read_text(encoding="utf-8")
+        self.assertIn("facts: StatusFacts", decision_src,
+                      "the reshape is what retired the round trip; if it is gone, restore the proof")
+        carrier_src = CARRIER.read_text(encoding="utf-8")
+        self.assertIn("StatusFacts(", carrier_src, "the caller must construct the facts object")
+
+    def test_the_characterization_net_that_replaced_the_proof_exists(self):
+        """The retirement is only defensible while its successor is present and non-trivial."""
+        net = REPO / "service" / "tests" / "test_status_decision_branches.py"
+        self.assertTrue(net.exists(), "the branch characterization net is missing")
+        text = net.read_text(encoding="utf-8")
+        self.assertGreaterEqual(text.count("def test_"), 30,
+                                "the net that justifies retiring the round trip has shrunk")
+        self.assertIn("_managed_console_is_booting", text, "the hot-path query boundary must stay covered")
 
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         names = {
@@ -94,8 +115,9 @@ class StatusDecisionSplitIsInertTests(unittest.TestCase):
         """The multi-output dialect's one real risk, asserted here as well as in the verifier probes.
 
         A transposed return has the same names, arity and types and silently swaps values. The
-        inline-back round trip above catches it, but this states the invariant where a reader of THIS
-        file will see it, rather than only in the gate's synthetic fixtures.
+        inline-back round trip used to catch it; that proof is retired (see the module docstring), so
+        this assertion is now the ONLY structural guard on the return/unpack ordering and matters more
+        than it did when it was written as a convenience restatement.
         """
         decision = next(
             n for n in ast.parse(DECISION.read_text(encoding="utf-8")).body
@@ -118,6 +140,29 @@ class StatusDecisionSplitIsInertTests(unittest.TestCase):
             ["effective_status", "reason", "awaiting_reply"],
             "the caller must unpack in the same order the helper returns",
         )
+
+    def test_every_facts_field_is_wired_to_the_identically_named_local(self):
+        """THE reshape's own risk, and the reason it needed its own assertion.
+
+        Packing twenty values into `StatusFacts(...)` at the call site introduces a failure the old
+        positional call could not have: a field wired to the WRONG local. `session_status=terminal_status`
+        is valid Python, same type, no error — and it silently changes what the fleet reports.
+
+        The construction is keyword-form and every value must be a bare Name equal to its keyword. That
+        is checkable, so it is checked rather than trusted to review.
+        """
+        call = next(
+            n for n in ast.walk(ast.parse(CARRIER.read_text(encoding="utf-8")))
+            if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "StatusFacts"
+        )
+        self.assertEqual([], call.args, "facts must be passed by KEYWORD, never positionally")
+        mismatched = [
+            f"{kw.arg}={ast.unparse(kw.value)}"
+            for kw in call.keywords
+            if not (isinstance(kw.value, ast.Name) and kw.value.id == kw.arg)
+        ]
+        self.assertEqual(mismatched, [], "a facts field is wired to a differently-named local")
+        self.assertEqual(20, len(call.keywords), "every fact must be supplied explicitly")
 
     def test_the_fixture_is_tracked(self):
         self.assertTrue(FIXTURE.exists())

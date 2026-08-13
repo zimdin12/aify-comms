@@ -13,34 +13,56 @@ plane is now a caller.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from service.api_core.managed_env import _managed_console_is_booting
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
 
 
+@dataclass(frozen=True)
+class StatusFacts:
+    """Everything the decision needs to know, gathered before it runs.
+
+    v0.5.4. The decision took TWENTY positional facts before this — a signature nobody could read and
+    which silently tolerated a transposed pair of same-typed arguments at the call site. Packaging them
+    makes the data flow visible and makes a mis-wired call a TypeError or an AttributeError instead of a
+    wrong status.
+
+    FROZEN on purpose. These are facts about a moment, already read from the database by the caller. The
+    decision must not be able to edit its own inputs; if it could, "what did we decide from" would stop
+    being answerable after the fact.
+
+    The three IN/OUT values (`effective_status`, `reason`, `awaiting_reply`) are deliberately NOT here.
+    They are accumulator state that the decision both reads and replaces, which is the opposite of a
+    fact, and folding them in would make a frozen container a lie.
+    """
+
+    active_run: Any
+    active_run_terminal_missing: Any
+    agent_row: Any
+    agent_session_mode: Any
+    channel_managed_no_console: Any
+    channel_managed_no_sidecar: Any
+    channel_pending_reply_run: Any
+    env_bridge_id: Any
+    env_status: Any
+    environment_id: Any
+    has_live_worker: Any
+    live_session: Any
+    managed_env_bridge_offline: Any
+    resident_bridge_stale: Any
+    session_bridge_id: Any
+    session_status: Any
+    terminal_input_hint: Any
+    terminal_status: Any
+    turn_busy: Any
+    turn_runtime: Any
+
+
 async def _decide_effective_status(
-    active_run,
-    active_run_terminal_missing,
-    agent_row,
-    agent_session_mode,
-    channel_managed_no_console,
-    channel_managed_no_sidecar,
-    channel_pending_reply_run,
     db,
-    env_bridge_id,
-    env_status,
-    environment_id,
-    has_live_worker,
-    live_session,
-    managed_env_bridge_offline,
-    resident_bridge_stale,
-    session_bridge_id,
-    session_status,
-    terminal_input_hint,
-    terminal_status,
-    turn_busy,
-    turn_runtime,
+    facts: StatusFacts,
     effective_status,
     reason,
     awaiting_reply,
@@ -68,33 +90,33 @@ async def _decide_effective_status(
 
     DB ACCESS: `db` is passed in and used for one read. No connection opened, no commit, no rollback.
     """
-    if managed_env_bridge_offline:
+    if facts.managed_env_bridge_offline:
         # FIX B: owning env bridge is down — hard offline takes precedence over the
         # active-run/terminal derivations below (only the env bridge can host the
         # worker, so any surviving run is moot).
         effective_status = "offline"
         reason = (
-            f'Owning environment "{environment_id}" is {env_status or "offline"}; '
+            f'Owning environment "{facts.environment_id}" is {facts.env_status or "offline"}; '
             "only its bridge can host this managed worker."
         )
-    elif active_run_terminal_missing:
+    elif facts.active_run_terminal_missing:
         effective_status = "blocked"
-        reason = f'Managed terminal-backed active run has no live terminal backing. Active run: {active_run["subject"] or active_run["id"]}.'
+        reason = f'Managed terminal-backed active run has no live terminal backing. Active run: {facts.active_run["subject"] or facts.active_run["id"]}.'
     elif (
-        environment_id
-        and env_status
-        and env_status not in {"online", "degraded"}
-        and not (agent_session_mode == "resident" and not resident_bridge_stale)
+        facts.environment_id
+        and facts.env_status
+        and facts.env_status not in {"online", "degraded"}
+        and not (facts.agent_session_mode == "resident" and not facts.resident_bridge_stale)
     ):
         effective_status = "offline"
-        reason = f'Environment "{environment_id}" is {env_status}.'
+        reason = f'Environment "{facts.environment_id}" is {facts.env_status}.'
     elif (
-        agent_session_mode != "managed"
-        and session_bridge_id
-        and env_bridge_id
-        and session_bridge_id != env_bridge_id
-        and not live_session
-        and not active_run
+        facts.agent_session_mode != "managed"
+        and facts.session_bridge_id
+        and facts.env_bridge_id
+        and facts.session_bridge_id != facts.env_bridge_id
+        and not facts.live_session
+        and not facts.active_run
     ):
         # STATUS POLICY (2026-06-04): a MANAGED agent is `offline` ONLY when it is
         # disabled/stopped OR its owning environment is unreachable (both handled
@@ -106,7 +128,7 @@ async def _decide_effective_status(
         # branch for resident-style sessions, whose liveness is their own bridge.
         effective_status = "offline"
         reason = "Current environment bridge no longer owns the active session."
-    elif resident_bridge_stale and not active_run:
+    elif facts.resident_bridge_stale and not facts.active_run:
         # An expired resident bridge means a DEAD worker → `offline` (the proof-based
         # rewrite dropped the resident-only `stale` label; a lapsed bridge lease IS
         # offline), even when the agent owes a channel reply. (Previously `and not
@@ -129,24 +151,24 @@ async def _decide_effective_status(
     # runtime contract reverts owner_mode to managed on stop/fail). So it is a
     # fallback-to-managed candidate, not final unavailability: fall through to
     # active-run / heartbeat-freshness, which is the real source of truth.
-    elif active_run and terminal_input_hint:
+    elif facts.active_run and facts.terminal_input_hint:
         effective_status = "blocked"
-        reason = f'{terminal_input_hint} Active run: {active_run["subject"] or active_run["id"]}.'
+        reason = f'{facts.terminal_input_hint} Active run: {facts.active_run["subject"] or facts.active_run["id"]}.'
     elif (
-        agent_session_mode == "managed"
-        and has_live_worker
-        and terminal_input_hint
-        and terminal_status in _TERMINAL_ACTIVE_STATUSES
+        facts.agent_session_mode == "managed"
+        and facts.has_live_worker
+        and facts.terminal_input_hint
+        and facts.terminal_status in _TERMINAL_ACTIVE_STATUSES
     ):
         effective_status = "blocked"
-        reason = terminal_input_hint
-    elif active_run:
+        reason = facts.terminal_input_hint
+    elif facts.active_run:
         effective_status = "working"
-        reason = f'Active run: {active_run["subject"] or active_run["id"]}.'
-    elif turn_busy:
+        reason = f'Active run: {facts.active_run["subject"] or facts.active_run["id"]}.'
+    elif facts.turn_busy:
         effective_status = "working"
-        reason = f"Executing turn ({turn_runtime})." if turn_runtime else "Executing turn."
-    elif channel_pending_reply_run:
+        reason = f"Executing turn ({facts.turn_runtime})." if facts.turn_runtime else "Executing turn."
+    elif facts.channel_pending_reply_run:
         # Status-split (2026-05-31): reaching this branch means NOT active_run
         # and NOT turn_busy — the turn ENDED, the agent is IDLE but owes a reply.
         # That is NOT "working" (actively computing) — showing orange working for
@@ -166,8 +188,8 @@ async def _decide_effective_status(
         # tracked terminal row (resident_bridge_stale=False, has_live_worker may be
         # False) is NOT dead and keeps the online-awaiting-reply state.
         worker_is_dead = (
-            (agent_session_mode == "managed" and not has_live_worker)
-            or resident_bridge_stale
+            (facts.agent_session_mode == "managed" and not facts.has_live_worker)
+            or facts.resident_bridge_stale
         )
         if not worker_is_dead:
             awaiting_reply = True
@@ -175,11 +197,11 @@ async def _decide_effective_status(
                 effective_status = "online"
             reason = (
                 f'Idle — awaiting reply: '
-                f'{channel_pending_reply_run["subject"] or channel_pending_reply_run["id"]}.'
+                f'{facts.channel_pending_reply_run["subject"] or facts.channel_pending_reply_run["id"]}.'
             )
-    elif session_status in {"recovering", "restarting"} or terminal_status == "stopping":
+    elif facts.session_status in {"recovering", "restarting"} or facts.terminal_status == "stopping":
         effective_status = "working"
-        reason = session_status or terminal_status or "Session is transitioning."
+        reason = facts.session_status or facts.terminal_status or "Session is transitioning."
     # NOTE: "working" deliberately requires a tracked active run/turn (or a
     # genuine recover/restart transition) — NOT console attachment or console
     # byte activity. Long-lived managed consoles emit ambient output (prompt
@@ -199,9 +221,9 @@ async def _decide_effective_status(
         # `available` rather than deliverable — the channel sidecar
         # (hermes-channel.js) is not heartbeating. Only annotate when we
         # haven't already attached a more specific reason (e.g. offline).
-        if effective_status == "available" and channel_managed_no_console and not reason:
+        if effective_status == "available" and facts.channel_managed_no_console and not reason:
             reason = "Worker has no visible console (headless orphan being reaped)."
-        elif effective_status == "available" and channel_managed_no_sidecar:
+        elif effective_status == "available" and facts.channel_managed_no_sidecar:
             # BOOT vs DEAF (2026-06-05, operator-chosen): a live console whose sidecar hasn't
             # registered SINCE THE CONSOLE STARTED is BOOTING → DISPLAY `online` so the operator
             # doesn't miss the terminal. A console whose sidecar registered then died stays
@@ -209,7 +231,7 @@ async def _decide_effective_status(
             # so a send during boot still QUEUES until the sidecar claims (routing untouched).
             # (Legacy-path display; live engine is `old`. A `status_engine=new` flip would need
             # the same signal in StatusInputs for parity.)
-            if await _managed_console_is_booting(db, agent_row["id"]):
+            if await _managed_console_is_booting(db, facts.agent_row["id"]):
                 effective_status = "online"
                 if not reason:
                     reason = "Console booting (worker starting; deliverable once it claims)."
