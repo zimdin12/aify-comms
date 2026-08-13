@@ -1,8 +1,37 @@
 # Known Issues & Concerns — aify-comms
 
-Living list of known limitations, deferred work, and things to watch. Complements [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Last reviewed 2026-08-07.
+Living list of known limitations, deferred work, and things to watch. Complements [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Last reviewed 2026-08-13.
 
 > **v0.2 backlog moved out of this file.** Non-urgent findings from the v0.1 release review now live in **[docs/V0.2_PLAN.md](docs/V0.2_PLAN.md)** with their traces attached — including two behaviour changes awaiting an operator decision (the compaction dialog now spends usage limits by design; managed codex auto-approves all command/file approvals). This file stays the list of *known limitations*; that file is the *work queue*. What actually shipped in v0.2, and the findings that were **disproven or dropped**, are in **[docs/V0.2_SPEC.md](docs/V0.2_SPEC.md)**.
+
+## The managed-hermes gateway session buffers terminal frames differently from the other three (2026-08-13)
+
+**Measured, not ruled on.** Four session classes carry a `_terminalSink` / `_terminalFlushChain` pair.
+Three of them — `pi-session.js`, `codex-session.js`, `hermes-session.js` — share one design:
+a `_terminalBuffer` array capped at `MAX_TERMINAL_FRAME_BUFFER_CHARS = 65536`, drained single-flight.
+`hermes-managed-gateway-session.js` has **neither the buffer nor the constant** (2 of the 5 fields), and
+appends each frame straight onto a promise chain.
+
+Two behavioural consequences follow, and neither is written down anywhere:
+
+1. **No backpressure cap.** The other three drop the oldest frames past 64KB. The gateway's chain has
+   no bound, so a worker producing faster than the sink drains accumulates pending closures, each
+   holding its frame text.
+2. **Frames before the sink attaches are lost.** The gateway's `_pushTerminalFrame` opens with
+   `if (!this._terminalSink) return;`. The other three buffer while detached and replay on
+   `attachTerminalSink`, so opening the console shows what already happened; the gateway shows nothing
+   before the moment of attach.
+
+**Not filed as a bug, because it may be the intended trade.** Dropping frames is data loss, and a
+lossless chain is a defensible choice for a gateway whose real TUI may arrive by another path. What is
+*not* defensible is that the difference is invisible: the four classes look alike, share field names,
+and disagree on both bounding and replay. Needs a ruling on which behaviour is correct for the gateway,
+then an agreement test pinning it.
+
+Related: the same "a fix landed on some copies of a duplicated helper and missed one" shape as the
+`createDeferred` unhandled-rejection guard (v0.5.4) and the build-tag divergence before it. The
+pi-side comments date the buffer design to bug-hunt audit **B-C1**; whether the gateway was in scope
+for that audit is unresolved.
 
 ## `bridge_instances` accumulation is BY DESIGN — a retraction (2026-08-07)
 
