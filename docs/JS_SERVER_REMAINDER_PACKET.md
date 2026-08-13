@@ -28,12 +28,21 @@ five unrelated subjects.** Extracting them lands `server.js` near 2,900 and cost
 modules. I have NOT done them: grouping by line count rather than by subject is the thing this series has
 been careful not to do, and the reviewer's standard has been subject coherence.
 
-**The bulk is one interlocked family.** `runTerminalControlLoop`, `runSpawnLoop`,
-`syncManagedEnvironmentAgents` and `runEnvironmentControlLoop` close over **44 functions / 1,725 lines / 27
-mutable module names** — every poll timer, every `*Busy` re-entrancy flag, the claim-failure counters, the
-teardown-confirmation set, the virtual-terminal map. They are not four functions that sit near each other;
-they are one scheduler over one pile of shared mutable state. `runDispatchLoop` (449L) is the same shape and
-you parked it for that reason.
+**THE BULK IS FOUR SEPARABLE LOOPS — correcting what this packet first said.** I wrote that
+`runTerminalControlLoop`, `runSpawnLoop`, `syncManagedEnvironmentAgents` and `runEnvironmentControlLoop`
+are "one scheduler over one pile of shared mutable state", because their closure touches 44 functions /
+1,725 lines / 27 mutable module names. The count is right; the conclusion drawn from it was not.
+
+Measured per name — who WRITES it and who READS it — **every `*Busy` re-entrancy flag is written and read by
+exactly one function**: `dispatchLoopBusy` only by `runDispatchLoop`, `spawnLoopBusy` only by
+`runSpawnLoop`, `terminalControlBusy` only by `runTerminalControlLoop`, `managedEnvironmentSyncBusy` only by
+`syncManagedEnvironmentAgents`, `environmentControlBusy` only by `runEnvironmentControlLoop`. They are
+private guards. Every `*Timer` is written by its own `ensure*` starter and by `cleanupOnExit`, which clears
+them on shutdown — the one genuine cross-cutting concern, with the ordinary remedy of a `stop()` per module.
+Across the whole file only FIVE names are written by one function and read by another, each a tight pair.
+
+The loops share a namespace, not a state. `runDispatchLoop` (449L) stays parked on its own merits — its size
+and its position on the live claim path — not on this.
 
 ## 3. Three options, and what each costs
 
@@ -66,8 +75,10 @@ fleet down when it misbehaved.
 
 ## 5. What I have NOT established
 
-- Whether the four loops can be separated **without** a shared scheduler object. I measured the closure and
-  the mutable set, not the ordering constraints: several read `*Busy` flags another loop sets, and I have not
-  traced whether that is real coordination or incidental.
-- Whether any of the 27 mutable names is read from outside the family. If some are, they want owners first —
-  the same sequencing that unblocked `comms_register`.
+- ~~Whether the four loops can be separated without a shared scheduler object.~~ **ANSWERED above: yes.**
+  Note what went wrong here — the body of this packet asserted "one pile of shared mutable state" as fact
+  while this section simultaneously admitted "several read `*Busy` flags another loop sets, and I have not
+  traced whether that is real coordination". The measurement says NONE do. A claim I had explicitly flagged
+  as untraced was stated as a finding twenty lines earlier in the same document.
+- What ordering `cleanupOnExit` requires when stopping the loops. It clears every timer today; whether the
+  order matters is not established, and it is the one thing a per-loop `stop()` could get wrong.

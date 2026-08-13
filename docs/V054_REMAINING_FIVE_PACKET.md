@@ -13,7 +13,7 @@ an owner it could belong to and no state it had to carry. What is left has state
 |---|---|---|---|
 | `app.js` | 4,935 | one module-scope `state` object, **509 references**, touched by 97 of 169 functions | ~4,570 |
 | `control_plane.py` | 3,088 | `_compute_live_status_cache`, a 432-line hub nearly every closure reaches | ~3,030 |
-| `server.js` | 3,005 | four poll loops over 27 mutable module names; `runDispatchLoop` 449L | ~2,900 |
+| `server.js` | 3,005 | `runDispatchLoop` 449L — but the loops' 27 mutable names are PRIVATE, see below | tractable |
 | `hermes-managed-host.js` | 1,845 | `runDeliveryLoop` 619L; **754 lines outside any declaration** | — |
 | `pi-session.js` | 1,110 | the `PiSession` class, 960L | ~1,017 |
 
@@ -53,6 +53,26 @@ The class alone is 960.
   lines, the hub) to produce closures of 578-1,161 lines. Outside it sat a 90-line serializer group, which
   this round extracted into `api_core/records.py` — taking the file 3,181 -> 3,088 and retiring a documented
   borrow shim. What is left outside the hub is 55 lines.
+
+## The server.js loops are NOT interlocked — correcting this packet's own claim
+
+I described those four loops as "one scheduler over one pile of shared state", from their closure touching
+27 mutable module names. Measured per name — who WRITES it, who READS it — that is wrong, and unlike the
+other corrections in this document, this one runs in the file's FAVOUR:
+
+- **Every `*Busy` re-entrancy flag is written and read by exactly one function.** `dispatchLoopBusy` only by
+  `runDispatchLoop`, `spawnLoopBusy` only by `runSpawnLoop`, `terminalControlBusy` only by
+  `runTerminalControlLoop`, `managedEnvironmentSyncBusy` only by `syncManagedEnvironmentAgents`,
+  `environmentControlBusy` only by `runEnvironmentControlLoop`. Private guards, not coordination.
+- **Every `*Timer` is written by its own `ensure*` starter and by `cleanupOnExit`**, which clears them on
+  shutdown. That is the single cross-cutting concern, and its shape is ordinary: each loop exports `stop()`,
+  shutdown calls each.
+- **Only five names in the entire file are written by one function and read by another**, each a tight pair:
+  teardown to teardown-sync, bootstrap to heartbeat, heartbeat to payload, shutdown to main, and the two
+  spawn-claim counters.
+
+So option C is materially cheaper for `server.js` than stated above. `runDispatchLoop` stays parked on its
+own merits — 449 lines on the live claim path — not on a coupling that does not exist.
 
 ## What is inside the status-cache hub, since option C turns on it
 
