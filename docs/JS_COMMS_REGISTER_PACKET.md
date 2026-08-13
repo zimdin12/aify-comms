@@ -29,6 +29,26 @@ Measured per seed, the mass is not distributed:
 the other five seeds close over **8 functions / 190 lines / 6 mutable names** — a normal-sized problem
 rather than the whole bridge.
 
+> **RE-MEASURED at `00ef645a`, after three owner moves and after fixing a hole in the measurement tool.**
+> The headline is unchanged: `ensureDispatchLoop` is still 34 of the closure's functions and 1,239 of its
+> lines. What changed is the residual and the reason it changed is worth recording.
+>
+> | | at `afb24dd7` | at `00ef645a` |
+> |---|---|---|
+> | direct helper seeds | 6 | **5** — `armClaudeTurnEndDetector` now has an owner |
+> | closure without `ensureDispatchLoop` | 8 fns / 190 lines / **6 mutable** | 8 fns / 146 lines / **0 mutable** |
+>
+> **The mutable state is gone entirely**, because the gateway-config and detector-state owners took it. That
+> was the point of the sequence and it worked.
+>
+> THE TOOL HOLE, recorded because it affected every closure number in this series: my identifier regex used a
+> `(?<![\w$.])` lookbehind, and the final `.` of a spread `...name` matched it — so **any name reached only
+> through a spread was invisible**. `reportTurnBusy` calls `...baseAgentHeartbeatFields(state)`, which is why
+> its closure first measured as 1 function instead of 2. Fixed by blanking `...` before scanning. Re-checked
+> afterwards: all 27 extracted modules resolve every spread reference, both unexecuted plans (pi-session,
+> channel read/write) re-verify unchanged, and the only number that moved anywhere was this residual, 7 to 8
+> functions. Small, but I had been quoting these numbers as measurements.
+
 It is ten lines:
 
 ```js
