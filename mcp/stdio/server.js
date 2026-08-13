@@ -51,6 +51,7 @@ import { parseJson } from "./parse-json.mjs";
 import {
   AIFY_HERMES_GATEWAY_TOKEN_ENV_FROM_MARKER, AIFY_HERMES_GATEWAY_URL,
 } from "./hermes-gateway-config.mjs";
+import { __runtimeAdapter } from "./runtime-adapter.mjs";
 import { normalizeSessionMode } from "./session-mode.mjs";
 import { validateName } from "./safe-name.mjs";
 import { AIFY_AGENT_ID, AIFY_AGENT_ROLE, IS_MANAGED_DISPATCH, cleanEnvPlaceholder } from "./launch-identity.mjs";
@@ -106,7 +107,6 @@ import {
   reconcileManagedStateWithSnapshot,
   resolveFreshManagedTeardownTargets,
 } from "./managed-teardown-ownership.js";
-import { adapterFor } from "./adapters/index.js";
 import { fillSessionHandleFromAdapter } from "./register-helpers.js";
 import { startSessionHandleHeartbeat, makeDefaultHandlePoster } from "./session-handle-heartbeat.js";
 import { startTurnBusyHeartbeat, makeDefaultTurnBusyPoster } from "./turn-busy-heartbeat.js";
@@ -258,11 +258,6 @@ if (AIFY_CODEX_APP_SERVER_URL) {
 // PID rationale: the wrapper's bash PID isn't a real Windows PID under
 // Git Bash, so the marker MUST be written from this Node process.
 
-let __runtimeAdapter = null;
-try {
-  const __rt = String(process.env.AIFY_RUNTIME || "").trim();
-  if (__rt) __runtimeAdapter = adapterFor(__rt);
-} catch { /* unknown runtime — bridge continues without adapter */ }
 
 const __HEARTBEAT_MS = Number(process.env.AIFY_SESSION_HEARTBEAT_MS || "60000") || 60000;
 const __serverUrl = String(process.env.AIFY_SERVER_URL || process.env.CLAUDE_MCP_SERVER_URL || "http://127.0.0.1:8800").trim();
