@@ -11,7 +11,7 @@ an owner it could belong to and no state it had to carry. What is left has state
 
 | file | lines | what the bulk is | ceiling by relocation |
 |---|---|---|---|
-| `app.js` | 5,007 | one module-scope `state` object, **370 references**, touched by 94 of 175 functions | ~4,450 |
+| `app.js` | 4,935 | one module-scope `state` object, **509 references**, touched by 97 of 169 functions | ~4,570 |
 | `control_plane.py` | 3,180 | the status-cache component (operator-scope, previously ruled) | — |
 | `server.js` | 3,005 | four poll loops over 27 mutable module names; `runDispatchLoop` 449L | ~2,900 |
 | `hermes-managed-host.js` | 1,845 | `runDeliveryLoop` 619L; **754 lines outside any declaration** | — |
@@ -22,9 +22,16 @@ The class alone is 960.
 
 ## What is genuinely still extractable, and why I stopped
 
-- **`app.js`: 57 pure functions, ~551 lines.** No browser global, no `state`. Worth doing and it does not
-  reach the goal. The proven harness exists (`extraction-proof.mjs` — put the spans back, delete the added
-  import, require byte-identity with the pristine fixture) and this round used it for three field readers.
+- **`app.js`: 39 functions, ~361 lines.** No browser global, no `byId`, no `state`. Worth doing and it does
+  not reach the goal. The proven harness exists (`extraction-proof.mjs` — put the spans back, delete the
+  added import, require byte-identity with the pristine fixture) and five slices have now used it.
+
+  **THESE NUMBERS ARE A CORRECTION.** The first version of this table said 370 references / 94 of 175
+  functions / 57 pure / ~551 lines. Those came from a scanner carrying the SPREAD BUG this series had
+  already found and fixed once: `(?<![\w.])state` misses `...state.x`, because the final `.` of the
+  spread satisfies the lookbehind. Every function that spreads state was counted as pure. The corrected
+  figures make `app.js` MORE state-coupled than reported, not less — the conclusion below is unchanged and
+  the evidence for it is stronger.
 - **`server.js`: 8 zero-mutable functions, ~105 lines** across five unrelated subjects. Five single-purpose
   modules to shave 105 lines is grouping by line count, not by subject.
 - **`pi-session.js`: ~30 lines** of timeout helpers. The session pool below them is blocked by a real
@@ -57,7 +64,7 @@ needing its own review standard, and touching the paths that reap workers and cl
 
 ## What I have NOT established
 
-- Whether `app.js`'s `state` can be split by page/domain rather than owned whole. 370 references is a count,
+- Whether `app.js`'s `state` can be split by page/domain rather than owned whole. 509 references is a count,
   not a shape; I have not measured how many are confined to one screen's functions.
 - Whether `server.js`'s four loops can be separated without a shared scheduler object — several read `*Busy`
   flags another loop sets, and I have not traced whether that is coordination or coincidence.
