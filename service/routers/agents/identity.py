@@ -37,6 +37,7 @@ from service.models import (
 )
 
 from service.api_core.agent_sessions import (
+    _adopt_console_terminal_on_register,
     _record_registered_session_handle,
     _stage_manual_resident_takeover,
     _supersede_stale_resident_terminals,
@@ -317,69 +318,9 @@ async def register_agent(req: AgentRegister, request: Request):
                 "sessionHandle": session_handle,
                 "at": now,
             }
-            await db.execute(
-                """
-                UPDATE agents
-                SET role = ?,
-                    name = ?,
-                    cwd = ?,
-                    runtime = ?,
-                    machine_id = ?,
-                    session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
-                    capabilities = ?,
-                    runtime_config = ?,
-                    runtime_state = ?,
-                    status = CASE WHEN status = 'stopped' THEN status ELSE 'active' END,
-                    status_note = ?,
-                    last_seen = ?
-                WHERE id = ?
-                """,
-                (
-                    req.role,
-                    req.name or req.agentId,
-                    resolved_cwd,
-                    normalized_runtime,
-                    req.machineId or "",
-                    session_handle,
-                    session_handle,
-                    existing_capabilities,
-                    existing_runtime_config,
-                    json.dumps(next_state),
-                    "Dashboard Console PTY attached.",
-                    now,
-                    req.agentId,
-                ),
-            )
-            await db.execute(
-                """
-                UPDATE agent_sessions
-                SET owner_mode = 'console',
-                    owner_bridge_id = ?,
-                    terminal_id = ?,
-                    terminal_status = ?,
-                    session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
-                    -- A live console PTY attaching IS the authoritative "backing (re)started"
-                    -- event: promote a dead-state denorm back to running, else the session row
-                    -- stays 'stopped' from the PREVIOUS backing's death and the Console label
-                    -- reads "Console stopped" for a live attached terminal forever (cms-manager,
-                    -- 2026-06-10 — the display deriver deliberately never promotes, so the bind
-                    -- moment must). Operator disable is enforced on agents.status, not here.
-                    status = CASE WHEN status IN ('cli-takeover','stopped','ended','failed','lost','cancelled','completed')
-                                  THEN 'running' ELSE status END,
-                    ended_at = CASE WHEN status IN ('cli-takeover','stopped','ended','failed','lost','cancelled','completed')
-                                    THEN NULL ELSE ended_at END,
-                    last_seen = ?
-                WHERE id = ?
-                """,
-                (
-                    console_terminal["bridge_id"] or "",
-                    terminal_id,
-                    console_terminal["status"] or "attached",
-                    session_handle,
-                    session_handle,
-                    now,
-                    console_terminal["session_id"],
-                ),
+            await _adopt_console_terminal_on_register(
+                db, req, console_terminal, terminal_id, normalized_runtime, session_handle,
+                resolved_cwd, next_state, existing_capabilities, existing_runtime_config, now,
             )
             if bridge_id:
                 await _record_bridge_registration(

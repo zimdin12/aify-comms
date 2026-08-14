@@ -679,3 +679,90 @@ async def _upsert_resident_agent_session(
         (now, agent_id, session_id),
     )
     return session_id
+
+
+async def _adopt_console_terminal_on_register(db, req, console_terminal, terminal_id: str,
+                                              normalized_runtime: str, session_handle: str,
+                                              resolved_cwd: str, next_state, existing_capabilities,
+                                              existing_runtime_config, now: str) -> None:
+            """Write a live console PTY into the agent and its session rows, as one act.
+
+            Extracted from `register_agent` in v0.5.4;
+            `test_register_agent_split_is_inert.py` inlines it back and AST-compares against the
+            pre-split fixture. Body left at its original 12-space column so the two multi-line SQL
+            literals inside are preserved byte-for-byte — the gate compares ASTs and refuses a
+            re-indent that rewrites a query string.
+
+            TWO UPDATES, ONE MEANING, which is why they are extracted together rather than separately:
+            a console PTY attaching IS the authoritative "backing (re)started" event, so the agent row
+            learns about the terminal and the session row is promoted out of a dead denorm state in the
+            same breath. Splitting them would invite a later change to one without the other, and a
+            session left in a dead state with a live PTY reads to the dashboard as a console that
+            cannot be typed into.
+
+            Everything it needs is passed in; it calls nothing.
+            """
+            await db.execute(
+                """
+                UPDATE agents
+                SET role = ?,
+                    name = ?,
+                    cwd = ?,
+                    runtime = ?,
+                    machine_id = ?,
+                    session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
+                    capabilities = ?,
+                    runtime_config = ?,
+                    runtime_state = ?,
+                    status = CASE WHEN status = 'stopped' THEN status ELSE 'active' END,
+                    status_note = ?,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (
+                    req.role,
+                    req.name or req.agentId,
+                    resolved_cwd,
+                    normalized_runtime,
+                    req.machineId or "",
+                    session_handle,
+                    session_handle,
+                    existing_capabilities,
+                    existing_runtime_config,
+                    json.dumps(next_state),
+                    "Dashboard Console PTY attached.",
+                    now,
+                    req.agentId,
+                ),
+            )
+            await db.execute(
+                """
+                UPDATE agent_sessions
+                SET owner_mode = 'console',
+                    owner_bridge_id = ?,
+                    terminal_id = ?,
+                    terminal_status = ?,
+                    session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
+                    -- A live console PTY attaching IS the authoritative "backing (re)started"
+                    -- event: promote a dead-state denorm back to running, else the session row
+                    -- stays 'stopped' from the PREVIOUS backing's death and the Console label
+                    -- reads "Console stopped" for a live attached terminal forever (cms-manager,
+                    -- 2026-06-10 — the display deriver deliberately never promotes, so the bind
+                    -- moment must). Operator disable is enforced on agents.status, not here.
+                    status = CASE WHEN status IN ('cli-takeover','stopped','ended','failed','lost','cancelled','completed')
+                                  THEN 'running' ELSE status END,
+                    ended_at = CASE WHEN status IN ('cli-takeover','stopped','ended','failed','lost','cancelled','completed')
+                                    THEN NULL ELSE ended_at END,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (
+                    console_terminal["bridge_id"] or "",
+                    terminal_id,
+                    console_terminal["status"] or "attached",
+                    session_handle,
+                    session_handle,
+                    now,
+                    console_terminal["session_id"],
+                ),
+            )
