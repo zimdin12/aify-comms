@@ -8,7 +8,7 @@
 // "terminal controls"). A single shared counter would let one loop's outage inflate the other's count and
 // warn about a loop that is perfectly healthy -- and a recovery on either would clear both.
 
-import { SERVER_URL, activeServerUrl } from "./aify-service-endpoint.mjs";
+import { SERVER_URL, SERVER_URLS, activeServerUrl } from "./aify-service-endpoint.mjs";
 import { claimFailureDecision, claimRecoveryDecision } from "./claim-failure-policy.js";
 
 // Exported for tests: the tracker's whole state, so a test can prove an entry is CLEARED on recovery
@@ -41,4 +41,51 @@ export function noteControlClaimSuccess(label) {
     console.error(`[aify] ${label} recovered after ${state.count} failure(s)`);
   }
   CONTROL_CLAIM_FAILURES.delete(label);
+}
+
+// --- the SPAWN claim -------------------------------------------------------
+//
+// Joined this module in v0.5.4. Same subject — remembering how a claim is failing so the log says it once
+// and says it usefully — and the two counters' only direct readers are the two functions below, so the
+// group owns them.
+//
+// THE SHAPE DIFFERS ON PURPOSE and the difference is not an inconsistency to tidy away. The control
+// tracker is keyed by LABEL because two loops share it; there is exactly one spawn loop, so this is a
+// plain counter. This one also lists the configured fallback URLs when there is more than one, because a
+// failing spawn claim is the moment an operator needs to know which hosts were even candidates.
+
+export let spawnClaimFailureCount = 0;
+export let spawnClaimLastLogAt = 0;
+
+export function noteSpawnClaimFailure(error) {
+  spawnClaimFailureCount += 1;
+  const now = Date.now();
+  const decision = claimFailureDecision({
+    count: spawnClaimFailureCount,
+    lastLogAt: spawnClaimLastLogAt,
+    now,
+  });
+  spawnClaimLastLogAt = decision.nextLastLogAt;
+  const detail = error?.message || String(error || "unknown error");
+  const target = error?.serverUrl || activeServerUrl() || SERVER_URL;
+  if (decision.debug && String(process.env.AIFY_DEBUG || "").trim() === "1") {
+    console.debug(`[aify] spawn claim transient failure against ${target}: ${detail}; retrying`);
+  }
+  if (decision.warn) {
+    const fallbacks = SERVER_URLS.length > 1 ? `; configured URLs: ${SERVER_URLS.join(", ")}` : "";
+    console.error(
+      `[aify] spawn claim failed (${spawnClaimFailureCount} consecutive) against ${target}: ${detail}${fallbacks}. ` +
+      "The bridge will keep retrying; check that the service is running and reachable from this shell.",
+    );
+  }
+}
+
+export function noteSpawnClaimSuccess() {
+  if (spawnClaimFailureCount > 0) {
+    if (claimRecoveryDecision(spawnClaimFailureCount).log) {
+      console.error(`[aify] spawn claim recovered after ${spawnClaimFailureCount} failure(s)`);
+    }
+    spawnClaimFailureCount = 0;
+    spawnClaimLastLogAt = 0;
+  }
 }

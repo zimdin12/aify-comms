@@ -15,8 +15,6 @@ import {
   HTTP_TIMEOUT_MS,
   IS_REMOTE,
   SERVER_URL,
-  SERVER_URLS,
-  activeServerUrl,
   httpCall,
   logTransientOrError,
 } from "./aify-service-endpoint.mjs";
@@ -95,7 +93,6 @@ import { bridgeTerminalSupported } from "./terminal-runtime.js";
 import { terminalControlFailurePatch, orphanPidToKill, orphanPidReapAllowed } from "./terminal-control.js";
 import { terminalChildEnv } from "./terminal-env.js";
 import { managedViaWrapperRuntimesFromSettingsResponse } from "./managed-wrapper-settings.js";
-import { claimFailureDecision, claimRecoveryDecision } from "./claim-failure-policy.js";
 import {
   bootstrapManagedEnvironmentBridge,
   localAgentNeedsDispatchHosting,
@@ -124,7 +121,9 @@ import { collectOnce as collectUsageOnce, collectConsumptionOnce } from "./usage
 import { AIFY_VERSION } from "./version.js";
 import { createManagedOwnershipReader } from "./managed-ownership.mjs";
 import { runSingleAgentManagedTeardown } from "./single-agent-teardown.mjs";
-import { noteControlClaimFailure, noteControlClaimSuccess } from "./claim-failure-tracker.mjs";
+import {
+  noteControlClaimFailure, noteControlClaimSuccess, noteSpawnClaimFailure, noteSpawnClaimSuccess,
+} from "./claim-failure-tracker.mjs";
 import { VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT, createVirtualTerminalSink, ensureVirtualTerminal, handleVirtualTerminalControl, updateTerminalControl } from './virtual-terminals.mjs';
 import { ensureRequiredReplyHandoff } from './required-reply-handoff.mjs';
 import { TERMINAL_MANAGER, reportDeadOwnedTerminals } from './terminal-manager.mjs';
@@ -608,8 +607,7 @@ let spawnLoopBusy = false;
 let terminalControlTimer = null;
 let terminalControlBusy = false;
 let managedEnvironmentSyncBusy = false;
-let spawnClaimFailureCount = 0;
-let spawnClaimLastLogAt = 0;
+// spawnClaimFailureCount / spawnClaimLastLogAt moved to ./claim-failure-tracker.mjs in v0.5.4.
 let remoteEffectiveCwdRoots = null;
 const AUTO_REREGISTER_AFTER_FAILURES = 4;
 // RESIDENT_BINDING_FAILURES moved to ./resident-binding-health.mjs in v0.5.4.
@@ -1371,38 +1369,9 @@ async function runTerminalControlLoop() {
   }
 }
 
-function noteSpawnClaimFailure(error) {
-  spawnClaimFailureCount += 1;
-  const now = Date.now();
-  const decision = claimFailureDecision({
-    count: spawnClaimFailureCount,
-    lastLogAt: spawnClaimLastLogAt,
-    now,
-  });
-  spawnClaimLastLogAt = decision.nextLastLogAt;
-  const detail = error?.message || String(error || "unknown error");
-  const target = error?.serverUrl || activeServerUrl() || SERVER_URL;
-  if (decision.debug && String(process.env.AIFY_DEBUG || "").trim() === "1") {
-    console.debug(`[aify] spawn claim transient failure against ${target}: ${detail}; retrying`);
-  }
-  if (decision.warn) {
-    const fallbacks = SERVER_URLS.length > 1 ? `; configured URLs: ${SERVER_URLS.join(", ")}` : "";
-    console.error(
-      `[aify] spawn claim failed (${spawnClaimFailureCount} consecutive) against ${target}: ${detail}${fallbacks}. ` +
-      "The bridge will keep retrying; check that the service is running and reachable from this shell.",
-    );
-  }
-}
+// noteSpawnClaimFailure moved to ./claim-failure-tracker.mjs in v0.5.4.
 
-function noteSpawnClaimSuccess() {
-  if (spawnClaimFailureCount > 0) {
-    if (claimRecoveryDecision(spawnClaimFailureCount).log) {
-      console.error(`[aify] spawn claim recovered after ${spawnClaimFailureCount} failure(s)`);
-    }
-    spawnClaimFailureCount = 0;
-    spawnClaimLastLogAt = 0;
-  }
-}
+// noteSpawnClaimSuccess moved to ./claim-failure-tracker.mjs in v0.5.4.
 
 function isActiveManagedSessionStatus(status) {
   return ["starting", "running", "recovering", "restarting"].includes(String(status || "").toLowerCase());

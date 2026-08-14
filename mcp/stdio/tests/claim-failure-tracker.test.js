@@ -18,6 +18,7 @@ import test from "node:test";
 
 import {
   CONTROL_CLAIM_FAILURES, noteControlClaimFailure, noteControlClaimSuccess,
+  noteSpawnClaimFailure, noteSpawnClaimSuccess,
 } from "../claim-failure-tracker.mjs";
 
 const ENV = "AIFY_DEBUG";
@@ -190,4 +191,116 @@ test("an error with no message at all still produces a usable line", () => {
     for (let i = 0; i < 3; i += 1) noteControlClaimFailure("x", {});
   });
   assert.match(errors[0], /x unavailable \(3 consecutive\)/, "the count and loop survive an empty error");
+});
+
+// --- the SPAWN claim ------------------------------------------------------
+//
+// Same subject, deliberately different shape: one spawn loop, so a plain counter rather than a keyed Map.
+//
+// Its counter is module-scope and NOT exported (unlike the control Map, which is exported so a test can
+// prove an entry is cleared). So these tests reset it the only way a consumer can — by recording a
+// success — and the first test proves that reset actually works, which is what makes the rest trustworthy.
+
+function resetSpawn() {
+  const realError = console.error;
+  console.error = () => {};
+  try {
+    noteSpawnClaimSuccess();
+  } finally {
+    console.error = realError;
+  }
+}
+
+test("a recorded success resets the counter, so the next failure counts from one", () => {
+  // The fixture the tests below depend on, proven rather than assumed: after three failures and a
+  // success, three MORE failures must warn again — which can only happen from a zeroed counter.
+  const first = capture({}, () => {
+    for (let i = 0; i < 3; i += 1) noteSpawnClaimFailure(new Error("boom"));
+  });
+  assert.equal(first.errors.length, 1);
+  resetSpawn();
+
+  const second = capture({}, () => {
+    for (let i = 0; i < 3; i += 1) noteSpawnClaimFailure(new Error("boom"));
+  });
+  assert.equal(second.errors.length, 1, "the third failure after a reset warns again");
+  resetSpawn();
+});
+
+test("the spawn claim is silent for two failures and warns on the third", () => {
+  const { errors } = capture({}, () => {
+    noteSpawnClaimFailure(new Error("ECONNREFUSED"));
+    noteSpawnClaimFailure(new Error("ECONNREFUSED"));
+  });
+  assert.deepEqual(errors, [], "two failures is a blip");
+
+  const third = capture({}, () => noteSpawnClaimFailure(new Error("ECONNREFUSED")));
+  assert.equal(third.errors.length, 1);
+  assert.match(third.errors[0], /spawn claim failed \(3 consecutive\)/);
+  assert.match(third.errors[0], /keep retrying/, "it must say the bridge is not giving up");
+  resetSpawn();
+});
+
+test("the spawn counter is INDEPENDENT of the control loops' counters", () => {
+  // They are different subjects sharing a module. If they shared a counter, two control failures plus one
+  // spawn failure would warn about a spawn claim that had failed once.
+  // TWO control failures then ONE spawn failure. One-and-one was too weak: a mutant that added the
+  // control count to the spawn count reached only 2 and stayed under the threshold, so the test passed
+  // while the counters were fused. At two-and-one the fused count is exactly 3 and warns.
+  CONTROL_CLAIM_FAILURES.clear();
+  const { errors } = capture({}, () => {
+    noteControlClaimFailure("environment controls", new Error("boom"));
+    noteControlClaimFailure("environment controls", new Error("boom"));
+    noteSpawnClaimFailure(new Error("boom"));
+  });
+  assert.deepEqual(errors, []);
+  resetSpawn();
+  CONTROL_CLAIM_FAILURES.clear();
+});
+
+test("recovery is announced only after a sustained outage, and not for a blip", () => {
+  const quiet = capture({}, () => {
+    noteSpawnClaimFailure(new Error("boom"));
+    noteSpawnClaimSuccess();
+  });
+  assert.deepEqual(quiet.errors, []);
+
+  const loud = capture({}, () => {
+    for (let i = 0; i < 3; i += 1) noteSpawnClaimFailure(new Error("boom"));
+    noteSpawnClaimSuccess();
+  });
+  assert.equal(loud.errors.length, 2);
+  assert.match(loud.errors[1], /spawn claim recovered after 3 failure\(s\)/);
+});
+
+test("a success when nothing has failed logs nothing — it runs on every poll", () => {
+  const { errors } = capture({}, () => { noteSpawnClaimSuccess(); noteSpawnClaimSuccess(); });
+  assert.deepEqual(errors, []);
+});
+
+test("a non-Error rejection still yields a readable reason", () => {
+  // `error?.message || String(error || "unknown error")`. Rejections here are not always Errors, and
+  // "[object Object]" in this line would waste an operator's time.
+  const { errors } = capture({}, () => {
+    for (let i = 0; i < 3; i += 1) noteSpawnClaimFailure("plain string failure");
+  });
+  assert.match(errors[0], /plain string failure/);
+  resetSpawn();
+
+  const nothing = capture({}, () => {
+    for (let i = 0; i < 3; i += 1) noteSpawnClaimFailure(undefined);
+  });
+  assert.match(nothing.errors[0], /unknown error/, "even a bare rejection must say something");
+  resetSpawn();
+});
+
+test("the debug line obeys the same two gates as the control one", () => {
+  const off = capture({}, () => noteSpawnClaimFailure(new Error("boom")));
+  assert.deepEqual(off.debugs, []);
+  resetSpawn();
+
+  const on = capture({ debug: "1" }, () => noteSpawnClaimFailure(new Error("boom")));
+  assert.equal(on.debugs.length, 1);
+  assert.match(on.debugs[0], /spawn claim transient failure/);
+  resetSpawn();
 });
