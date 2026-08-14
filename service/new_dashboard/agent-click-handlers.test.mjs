@@ -9,7 +9,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { startColdAgent, switchModeFromChip } from "./agent-click-handlers.mjs";
+import {
+  runAgentControl,
+  startColdAgent,
+  switchAgentModeFromRow,
+  switchModeFromChip,
+  toggleFavouriteRow,
+} from "./agent-click-handlers.mjs";
 
 /** A button double recording what the handler did to it. */
 function button(id = "coder-1") {
@@ -156,4 +162,68 @@ test("switchModeFromChip passes through whatever the chip declares, including an
     (id, mode) => calls.push([id, mode]),
   );
   assert.deepEqual(calls, [["coder-1", undefined]]);
+});
+
+// --- the three row-level controls --------------------------------------------------------------
+//
+// Two of these hand a PROMISE back into a click handler. The `.catch` on each is the only thing between
+// a failed control action and an unhandled rejection: the operator would see no error message, and in
+// some browsers the delegated listener stops working for the rest of the page's life.
+
+test("toggleFavouriteRow STOPS PROPAGATION so the star does not also select the row", () => {
+  // The star sits inside a selectable row. Without stopPropagation the same click both favourites the
+  // agent and navigates — the operator ends up somewhere they did not ask to be.
+  let stopped = 0;
+  const calls = [];
+  toggleFavouriteRow(
+    { dataset: { favToggle: "coder-1" } },
+    { stopPropagation: () => { stopped += 1; } },
+    (id) => calls.push(id),
+  );
+  assert.equal(stopped, 1);
+  assert.deepEqual(calls, ["coder-1"]);
+});
+
+test("runAgentControl passes SESSION and ACTION in that order", () => {
+  // Two dataset fields on one element, and the callee's signature is (session, action). Swapped, a
+  // "stop" would be sent as a session id and silently address nothing.
+  const calls = [];
+  return Promise.resolve(runAgentControl(
+    { dataset: { session: "s-1", agentControl: "stop" } },
+    (...a) => { calls.push(a); return Promise.resolve(); },
+  )).then(() => {
+    assert.deepEqual(calls, [["s-1", "stop"]]);
+  });
+});
+
+test("A REJECTED agent control never escapes the handler", () => {
+  // `.catch((err) => toast(...))`. This is the failure path an operator actually meets — a worker that
+  // has already died — so it has to produce a message rather than an unhandled rejection.
+  return withFetch({}, async () => {
+    assert.doesNotThrow(() => runAgentControl(
+      { dataset: { session: "s-1", agentControl: "stop" } },
+      () => Promise.reject(new Error("worker gone")),
+    ));
+    await new Promise((r) => setTimeout(r, 0));
+  });
+});
+
+test("switchAgentModeFromRow passes AGENT and MODE, and swallows a rejection", () => {
+  // Same shape, different dataset keys — `agent` and `agentMode`, not the chip's `modeSwitch` and
+  // `targetMode`. Two controls do the same job from different rows and neither may borrow the other's
+  // attribute names.
+  const calls = [];
+  return withFetch({}, async () => {
+    switchAgentModeFromRow(
+      { dataset: { agent: "coder-1", agentMode: "managed" } },
+      (...a) => { calls.push(a); return Promise.resolve(); },
+    );
+    assert.deepEqual(calls, [["coder-1", "managed"]]);
+
+    assert.doesNotThrow(() => switchAgentModeFromRow(
+      { dataset: { agent: "coder-1", agentMode: "resident" } },
+      () => Promise.reject(new Error("refused")),
+    ));
+    await new Promise((r) => setTimeout(r, 0));
+  });
 });

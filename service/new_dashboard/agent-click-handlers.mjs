@@ -34,3 +34,21 @@ export function switchModeFromChip(modeSwitchButton, event, switchAgentSessionMo
   const targetMode = modeSwitchButton.dataset.targetMode;
   switchAgentSessionMode(agentId, targetMode);
 }
+
+// Three more row-level agent controls. Two of them return PROMISES into a click handler and attach
+// their own `.catch` — without it an unhandled rejection surfaces as an unrelated console error and the
+// operator sees nothing where a failure message belongs.
+export function toggleFavouriteRow(favToggle, event, toggleFavorite) {
+  event.stopPropagation();
+  toggleFavorite(favToggle.dataset.favToggle);
+}
+
+export function runAgentControl(agentControl, requestSessionControl) {
+  requestSessionControl(agentControl.dataset.session, agentControl.dataset.agentControl)
+    .catch((err) => toast(`Action failed: ${err?.message || err}`, 'error'));
+}
+
+export function switchAgentModeFromRow(agentMode, switchAgentSessionMode) {
+  switchAgentSessionMode(agentMode.dataset.agent, agentMode.dataset.agentMode)
+    .catch((err) => toast(`Mode switch failed: ${err?.message || err}`, 'error'));
+}

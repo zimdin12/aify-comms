@@ -49,7 +49,7 @@ import { copyActiveConsole, copyText } from './clipboard.mjs';
 import { openAgentEditForm, openCompactionHistory, openContinueForm, openMessageDetail } from './inspector-forms.mjs';
 import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } from './run-inspector-controls.mjs';
 import { persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';
-import { startColdAgent, switchModeFromChip } from './agent-click-handlers.mjs';
+import { runAgentControl, startColdAgent, switchAgentModeFromRow, switchModeFromChip, toggleFavouriteRow } from './agent-click-handlers.mjs';
 import { runConsoleAction } from './console-click-handlers.mjs';
 import { navigateToPage, openEnvironmentSpawn, selectAnalyticsRange } from './nav-click-handlers.mjs';
 import { openChatConversation, openChatReply, setChatView, setPulseWindow } from './chat-click-handlers.mjs';
@@ -2827,8 +2827,7 @@ document.addEventListener('click', (event) => {
   }
   const favToggle = event.target.closest('[data-fav-toggle]');
   if (favToggle) {
-    event.stopPropagation();
-    toggleFavorite(favToggle.dataset.favToggle);
+    toggleFavouriteRow(favToggle, event, toggleFavorite);
     return;
   }
   const msgRead = event.target.closest('[data-msg-read]');
@@ -2899,14 +2898,12 @@ document.addEventListener('click', (event) => {
   }
   const agentControl = event.target.closest('[data-agent-control]');
   if (agentControl) {
-    requestSessionControl(agentControl.dataset.session, agentControl.dataset.agentControl)
-      .catch((err) => toast(`Action failed: ${err?.message || err}`, 'error'));
+    runAgentControl(agentControl, requestSessionControl);
     return;
   }
   const agentMode = event.target.closest('[data-agent-mode]');
   if (agentMode) {
-    switchAgentSessionMode(agentMode.dataset.agent, agentMode.dataset.agentMode)
-      .catch((err) => toast(`Mode switch failed: ${err?.message || err}`, 'error'));
+    switchAgentModeFromRow(agentMode, switchAgentSessionMode);
     return;
   }
   const agentOpenSessions = event.target.closest('[data-agent-open-sessions]');

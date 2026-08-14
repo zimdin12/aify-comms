@@ -6,6 +6,13 @@ harness, so we verify the JS source contains the gated chip renderer, the
 fetch call against PATCH /agents/{id}/session-mode, the settings load in
 `refresh()`, and the click-handler selector.
 
+STRING MATCHES ASSERT WHERE CODE LIVES, NOT WHAT IT DOES, and two of these have
+now fired on pure relocations in v0.5.4 while the behaviour was unchanged — one
+of them ("event.stopPropagation()" appearing anywhere in app.js) could never
+have failed on the bug it was named for. As each body moves to a module, prefer
+retiring the match in favour of a test that CALLS the code, and name the
+replacement where the match used to be.
+
 For dynamic behavior coverage, see test_agent_session_mode_switch.py
 (server side) — together they assert the full operator flow.
 """
@@ -178,16 +185,18 @@ class NewDashboardSessionModeSwitchTests(unittest.TestCase):
         self.assertIn("method: 'PUT'", self.script, "saveSettings must PUT /api/v1/settings")
         self.assertIn("data-setting-key", self.script, "saveSettings must collect values from the schema-rendered inputs")
 
-    def test_click_handler_stops_propagation_so_chip_does_not_select_session(self):
-        # The session-rail row carries data-session-select. Without
-        # stopPropagation, a chip click would ALSO change the active
-        # session — confusing UX. Verify the handler short-circuits.
-        self.assertIn(
-            "event.stopPropagation()",
-            self.script,
-            "Plan 6 C5: chip click handler must stopPropagation so it doesn't "
-            "also trigger the session-rail row's data-session-select handler",
-        )
+    # RETIRED: test_click_handler_stops_propagation_so_chip_does_not_select_session.
+    #
+    # It asserted the string "event.stopPropagation()" appeared ANYWHERE in app.js — a 3,500-line file
+    # with several handlers that legitimately call it. It could not tell which handler stopped
+    # propagation, so it would have passed with the chip's call deleted as long as any other branch
+    # still had one. It went red in v0.5.4 when the two bodies that did call it moved out.
+    #
+    # Now proven by tests that CALL the handlers and count the calls on the event they were given:
+    #   agent-click-handlers.test.mjs :: "switchModeFromChip SUPPRESSES the default and STOPS
+    #                                     propagation before switching"
+    #   agent-click-handlers.test.mjs :: "toggleFavouriteRow STOPS PROPAGATION so the star does not
+    #                                     also select the row"
 
 
 if __name__ == "__main__":

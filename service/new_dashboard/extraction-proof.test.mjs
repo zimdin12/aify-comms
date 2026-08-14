@@ -605,7 +605,7 @@ const EXTRACTIONS = [
 
   {
     module: "agent-click-handlers.mjs",
-    importLine: "import { startColdAgent, switchModeFromChip } from './agent-click-handlers.mjs';",
+    importLine: "import { runAgentControl, startColdAgent, switchAgentModeFromRow, switchModeFromChip, toggleFavouriteRow } from './agent-click-handlers.mjs';",
     items: [
       {
         name: "startColdAgent",
@@ -622,6 +622,34 @@ const EXTRACTIONS = [
         marker: "    switchModeFromChip(modeSwitchButton, event, switchAgentSessionMode);",
         wrapper: {
           header: ["export function switchModeFromChip(modeSwitchButton, event, switchAgentSessionMode) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+
+      {
+        name: "toggleFavouriteRow",
+        at: 4263,
+        marker: "    toggleFavouriteRow(favToggle, event, toggleFavorite);",
+        wrapper: {
+          header: ["export function toggleFavouriteRow(favToggle, event, toggleFavorite) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+      {
+        name: "runAgentControl",
+        at: 4371,
+        marker: "    runAgentControl(agentControl, requestSessionControl);",
+        wrapper: {
+          header: ["export function runAgentControl(agentControl, requestSessionControl) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+      {
+        name: "switchAgentModeFromRow",
+        at: 4377,
+        marker: "    switchAgentModeFromRow(agentMode, switchAgentSessionMode);",
+        wrapper: {
+          header: ["export function switchAgentModeFromRow(agentMode, switchAgentSessionMode) {"],
           footer: ["}"], dedent: "  ",
         },
       },
