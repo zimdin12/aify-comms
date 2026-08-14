@@ -16,7 +16,10 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
 
-from service.api_core.session_mode_gates import _enforce_switch_not_blocked_by_active_run
+from service.api_core.session_mode_gates import (
+    _enforce_switch_not_blocked_by_active_run,
+    _start_managed_backing_after_switch,
+)
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.runtime_state import _runtime_state_replacing_handle, _runtime_state_with_handle
 from service.api_core.routing import domain_router
@@ -696,74 +699,9 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
         # `sideEffects.error` field.
         settings = await _load_settings(db)
         side_effects: dict[str, Any] = {}
-        try:
-            if new_mode == "managed":
-                # FIX SET B1 (2026-06-03): wrapper-backed managed runtimes
-                # (codex/hermes) must NOT eager-start via
-                # _ensure_managed_pty_for_dispatch — that re-attaches a PTY to the
-                # leftover RESIDENT agent_sessions row (a resident `*-aify --resume`,
-                # NOT a managed-warm worker), so no `managed-wrapper-child` bridge
-                # registers and the next 'channel' run is rejected
-                # `managed_wrapper_child_required` → queued forever (the lc-coder
-                # resident→managed strand). Instead: RETIRE the leftover non-terminal
-                # resident agent_sessions row(s) and cold-start a managed-warm
-                # spawn_request so a bridge spawns a real managed worker whose
-                # in-session MCP registers the wrapper-child claimer.
-                if _managed_via_wrapper_for_runtime(settings, runtime):
-                    await db.execute(
-                        """
-                        UPDATE agent_sessions
-                        SET status = 'retired', last_seen = ?
-                        WHERE agent_id = ?
-                          AND COALESCE(status, '') NOT IN ('retired', 'stopped', 'terminated', 'failed')
-                        """,
-                        (now, agent_id),
-                    )
-                    _switch_coldstart_warnings: list[str] = []
-                    coldstarted = await _coldstart_spawn_request_for_dispatch(
-                        db, agent_id, runtime=runtime, settings=settings, requested_by=requested_by,
-                        warnings=_switch_coldstart_warnings,
-                    )
-                    if _switch_coldstart_warnings:
-                        side_effects["handleCollisionWarnings"] = _switch_coldstart_warnings
-                    if coldstarted:
-                        side_effects["managedSpawnRequested"] = True
-                    else:
-                        side_effects["error"] = _coldstart_refusal_message(
-                            _switch_coldstart_warnings, runtime)
-                else:
-                    terminal = await _ensure_managed_pty_for_dispatch(
-                        db, agent_id, runtime=runtime, settings=settings, requested_by=requested_by
-                    )
-                    if terminal is not None:
-                        # `_ensure_managed_pty_for_dispatch` returns either a sqlite
-                        # Row (existing active terminal) or a dict (newly spawned).
-                        try:
-                            side_effects["managedTerminalId"] = terminal["id"] if "id" in terminal.keys() else terminal.get("id")
-                        except Exception:
-                            side_effects["managedTerminalId"] = None
-                    else:
-                        side_effects["error"] = "No managed session/backing was available for eager PTY start."
-            else:
-                # managed -> resident: best-effort stop of any active managed PTY.
-                active = await _active_terminal_for_agent(db, agent_id, settings=settings)
-                if active is not None:
-                    terminal_id = active["terminal_id"] if "terminal_id" in active.keys() else None
-                    session_id = active["session_id"] if "session_id" in active.keys() else ""
-                    if terminal_id:
-                        await db.execute(
-                            "UPDATE terminal_sessions SET status = 'stopping', updated_at = ? WHERE id = ?",
-                            (now, terminal_id),
-                        )
-                        if session_id:
-                            await db.execute(
-                                "UPDATE agent_sessions SET terminal_status = 'stopping', last_seen = ? WHERE id = ?",
-                                (now, session_id),
-                            )
-                        side_effects["stoppedTerminalId"] = terminal_id
-        except Exception as exc:  # pragma: no cover — surface, do not abort
-            logger.warning("session-mode side-effect failed for %s: %s", agent_id, exc)
-            side_effects["error"] = str(exc)
+        await _start_managed_backing_after_switch(
+            db, agent_id, new_mode, runtime, settings, requested_by, now, logger, side_effects,
+        )
 
         await db.commit()
         # Takeover/resume command for the operator. On a managed -> resident

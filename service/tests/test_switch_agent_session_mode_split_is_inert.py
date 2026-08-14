@@ -37,11 +37,14 @@ SOURCE_FUNCTION = "switch_agent_session_mode"
 #: EVERY extraction, inlined back TOGETHER against the ONE true original — not a chain of per-slice
 #: fixtures. A fixture per extraction is a second copy of a function that is still being edited, and a
 #: stale one proves the wrong thing while staying green.
-EXTRACTIONS = ["_enforce_switch_not_blocked_by_active_run"]
+EXTRACTIONS = ["_enforce_switch_not_blocked_by_active_run", "_start_managed_backing_after_switch"]
 
 #: Where each helper is expected to be declared. Asserted PER HELPER and over every module below, so a
 #: helper that moves to a third file cannot pass by being invisible to the check.
-OWNERS = {"_enforce_switch_not_blocked_by_active_run": GATES}
+OWNERS = {
+    "_enforce_switch_not_blocked_by_active_run": GATES,
+    "_start_managed_backing_after_switch": GATES,
+}
 
 MODULES = (SESSION_MODE, GATES)
 
