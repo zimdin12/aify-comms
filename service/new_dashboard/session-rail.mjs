@@ -172,3 +172,11 @@ export function ensureSelectedSession() {
   }
   return session;
 }
+
+// The superseded-session visibility toggle, moved out of app.js's delegated click handler in v0.5.4.
+// It flips the flag this module's own `renderSessionRail` reads, so both halves now live together —
+// a flip without the re-render leaves the rail showing the previous set until something else redraws it.
+export function toggleSupersededSessions() {
+  state.showSupersededSessions = !state.showSupersededSessions;
+  renderSessionRail();
+}

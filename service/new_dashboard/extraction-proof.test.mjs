@@ -489,6 +489,20 @@ const EXTRACTIONS = [
       },
     ],
   },
+
+  {
+    module: "session-rail.mjs",
+    importLine: "import { SESSION_FILTER_KINDS, agentForSession, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';",
+    importWas: "import { SESSION_FILTER_KINDS, agentForSession, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds } from './session-rail.mjs';",
+    items: [
+      {
+        name: "toggleSupersededSessions",
+        at: 4391,
+        marker: "    toggleSupersededSessions();",
+        wrapper: { header: ["export function toggleSupersededSessions() {"], footer: ["}"], dedent: "  " },
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({

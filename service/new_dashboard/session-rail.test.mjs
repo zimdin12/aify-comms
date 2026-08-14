@@ -20,6 +20,7 @@ import {
   groupedSessionsByEnvironment,
   selectedSessionIds,
   sessionGroupCollapsed,
+  toggleSupersededSessions,
 } from "./session-rail.mjs";
 
 function seed({ sessions = [], agents = [], environments = [], filter = "", statusFilter = null,
@@ -183,4 +184,46 @@ test("selectedSession returns null rather than undefined when nothing matches", 
   // Callers branch on it and then read fields off the result.
   seedSelection({ sessions: [session("s1", "coder")], selectedId: "other" });
   assert.equal(selectedSession(), null);
+});
+
+// --- toggleSupersededSessions ------------------------------------------------------------------
+//
+// A branch body from app.js's delegated click handler, unreachable by any test while it lived there.
+// Two lines, and both matter: the flip decides which sessions the rail may show, and the re-render is
+// what makes the change visible. A flip without the re-render leaves the rail displaying the previous
+// set until something else happens to redraw it — which reads as an intermittently working button.
+
+test("toggleSupersededSessions FLIPS the flag and RE-RENDERS in the same call", () => {
+  const saved = state.showSupersededSessions;
+  const hadDoc = "document" in globalThis;
+  const prevDoc = globalThis.document;
+  let renders = 0;
+  // The rail render is observed through the DOM lookup it must perform; a call that skipped the render
+  // would leave this at zero.
+  const el = () => ({
+    hidden: false, innerHTML: "", textContent: "", value: "", dataset: {},
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    setAttribute() {}, removeAttribute() {}, appendChild() {}, addEventListener() {},
+    querySelector: () => null, querySelectorAll: () => [], closest: () => null,
+  });
+  globalThis.document = {
+    getElementById: (id) => { if (id === "session-rail") renders += 1; return el(); },
+    querySelector: () => el(),
+    querySelectorAll: () => [],
+    createElement: () => el(),
+  };
+  try {
+    // `renderSessionRail` reads the same state the rail is built from; seeding it with this file's own
+    // helper keeps the render REAL rather than stubbing out the half that proves the toggle took effect.
+    seed({ showSuperseded: false, statusFilter: new Set() });
+    toggleSupersededSessions();
+    assert.equal(state.showSupersededSessions, true, "the flag flips");
+    assert.ok(renders >= 1, "…and the rail is re-rendered, not left stale");
+
+    toggleSupersededSessions();
+    assert.equal(state.showSupersededSessions, false, "it is a toggle, not a set");
+  } finally {
+    state.showSupersededSessions = saved;
+    if (hadDoc) globalThis.document = prevDoc; else delete globalThis.document;
+  }
 });
