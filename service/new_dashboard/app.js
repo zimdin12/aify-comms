@@ -48,7 +48,7 @@ import { metric, renderDiagnosticsSummary, renderMetrics, renderUsageConsumption
 import { copyActiveConsole, copyText } from './clipboard.mjs';
 import { openAgentEditForm, openCompactionHistory, openContinueForm, openMessageDetail } from './inspector-forms.mjs';
 import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } from './run-inspector-controls.mjs';
-import { persistChatDrafts, persistChatPrefs, syncChatChips } from './chat-prefs.mjs';
+import { persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';
 import { resolveApiOrigin } from './api-origin.mjs';
 import { setApiBase, api } from './api-client.mjs';
 import { attachChatFile, deleteSharedFile, loadFiles, renderFiles, uploadPastedImage, uploadSharedFile } from './shared-files.mjs';
@@ -3392,16 +3392,12 @@ byId('page-chat')?.addEventListener('click', (event) => {
   }
   const compactBtn = event.target.closest('[data-chat-compact-toggle]');
   if (compactBtn) {
-    state.chat.compact = !state.chat.compact;
-    persistChatPrefs(); syncChatChips(); // syncChatChips toggles the .chat-shell.compact class
+    toggleChatCompact();
     return;
   }
   const peekBtn = event.target.closest('[data-chat-peek-toggle]');
   if (peekBtn) {
-    // Peek mode: watch conversations without auto-marking their messages read on open.
-    state.chat.peek = !state.chat.peek;
-    persistChatPrefs(); syncChatChips();
-    toast(state.chat.peek ? 'Peek mode on — opening a chat won’t mark it read' : 'Peek mode off', 'ok');
+    toggleChatPeek();
     return;
   }
   const statusBtn = event.target.closest('[data-chat-status]');

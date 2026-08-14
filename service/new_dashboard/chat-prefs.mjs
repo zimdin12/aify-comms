@@ -18,6 +18,7 @@
 
 
 import { state } from './state.mjs';
+import { toast } from './ui.js';
 
 export function persistChatPrefs() {
   try {
@@ -53,4 +54,19 @@ export function persistChatDrafts() {
     for (const k of Object.keys(d)) { if (String(d[k] || '').trim()) pruned[k] = d[k]; }
     localStorage.setItem('aifyChatDrafts', JSON.stringify(pruned));
   } catch { /* ignore quota/serialization */ }
+}
+
+// The two chat-shell toggles, moved out of app.js's delegated click handler in v0.5.4. They belong here
+// because every line of them already did: both flip a flag on `state.chat` and then call this module's own
+// persist + chip-sync pair. app.js keeps each `closest()` guard and its `return;`.
+export function toggleChatCompact() {
+  state.chat.compact = !state.chat.compact;
+  persistChatPrefs(); syncChatChips(); // syncChatChips toggles the .chat-shell.compact class
+}
+
+export function toggleChatPeek() {
+  // Peek mode: watch conversations without auto-marking their messages read on open.
+  state.chat.peek = !state.chat.peek;
+  persistChatPrefs(); syncChatChips();
+  toast(state.chat.peek ? 'Peek mode on — opening a chat won’t mark it read' : 'Peek mode off', 'ok');
 }

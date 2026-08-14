@@ -12,7 +12,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { state } from "./state.mjs";
-import { persistChatDrafts, persistChatPrefs, syncChatChips } from "./chat-prefs.mjs";
+import {
+  persistChatDrafts,
+  persistChatPrefs,
+  syncChatChips,
+  toggleChatCompact,
+  toggleChatPeek,
+} from "./chat-prefs.mjs";
 
 function withStorage(run) {
   const had = "localStorage" in globalThis;
@@ -219,4 +225,80 @@ test("drafts and preferences use SEPARATE storage keys", () => {
     return [...store.keys()].sort();
   });
   assert.deepEqual(keys, ["aify.next.chatPrefs", "aifyChatDrafts"]);
+});
+
+// --- the two chat-shell toggles ----------------------------------------------------------------
+//
+// Both were branch bodies inside app.js's 631-line delegated click handler, which no test can reach.
+// They are two lines each and still worth asserting, because both do THREE things — flip the flag,
+// persist it, and re-sync the chips — and dropping any one of them is invisible until a reload. A
+// toggle that flips without persisting looks like it works for the whole session.
+
+/** Run with storage, DOM and a clean `state.chat`, restoring `state.chat` afterwards. */
+function withChatToggles(run) {
+  const saved = JSON.parse(JSON.stringify(state.chat ?? {}));
+  const hadDoc = "document" in globalThis;
+  const prevDoc = globalThis.document;
+  globalThis.document = {
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    getElementById: () => null,
+    // `toggleChatPeek` ends in a real `toast()`, which builds DOM nodes. Stubbed rather than mocked
+    // away, so the test still proves the toggle reaches it without throwing.
+    createElement: () => ({
+      className: "", textContent: "", style: {}, dataset: {},
+      setAttribute() {}, appendChild() {}, remove() {}, addEventListener() {},
+      querySelectorAll: () => [], firstChild: null, children: [],
+      classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    }),
+    body: { appendChild() {}, contains: () => true },
+  };
+  // `toast` schedules its entrance on rAF, which Node has no notion of; run it synchronously.
+  const hadRaf = "requestAnimationFrame" in globalThis;
+  globalThis.requestAnimationFrame = (fn) => { fn(); return 0; };
+  try {
+    return withStorage((store) => run(store));
+  } finally {
+    state.chat = saved;
+    if (hadDoc) globalThis.document = prevDoc; else delete globalThis.document;
+    if (!hadRaf) delete globalThis.requestAnimationFrame;
+  }
+}
+
+test("toggleChatCompact FLIPS the flag and PERSISTS it in the same call", () => {
+  withChatToggles((store) => {
+    state.chat.compact = false;
+    toggleChatCompact();
+    assert.equal(state.chat.compact, true, "the flag flips");
+    assert.match(store.get('aify.next.chatPrefs') ?? "", /"compact":true/, "…and reaches storage");
+
+    toggleChatCompact();
+    assert.equal(state.chat.compact, false, "it is a toggle, not a set");
+    assert.match(store.get('aify.next.chatPrefs') ?? "", /"compact":false/);
+  });
+});
+
+test("toggleChatPeek flips, persists, and reaches the toast without throwing", () => {
+  // Peek mode changes whether opening a conversation marks it read, and the toast is its ONLY visible
+  // indication — there is no chip for it. So the toast is not decoration to mock away: if it threw, the
+  // flag would still flip and every branch AFTER this one in the click handler would never run. The DOM
+  // stub is wide enough for `toast` to execute for real.
+  withChatToggles((store) => {
+    state.chat.peek = false;
+    toggleChatPeek();
+    assert.equal(state.chat.peek, true);
+    assert.match(store.get('aify.next.chatPrefs') ?? "", /"peek":true/, "the flip is persisted");
+
+    toggleChatPeek();
+    assert.equal(state.chat.peek, false, "second press turns it back off");
+    assert.match(store.get('aify.next.chatPrefs') ?? "", /"peek":false/);
+  });
+});
+
+test("both toggles survive a page with no chat chips rendered", () => {
+  // The handler fires from anywhere in the dashboard. `syncChatChips` over an empty DOM must not throw,
+  // or pressing a toggle outside the chat page would break every branch after it in the handler.
+  withChatToggles(() => {
+    assert.doesNotThrow(() => { toggleChatCompact(); toggleChatPeek(); });
+  });
 });

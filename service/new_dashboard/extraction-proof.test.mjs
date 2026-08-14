@@ -432,6 +432,30 @@ const EXTRACTIONS = [
       },
     ],
   },
+
+  // The two chat-shell toggles. Their bodies take NO parameter — neither uses the element `closest()`
+  // matched, only `state.chat` — so the extracted functions are nullary and the guard left in app.js still
+  // owns the element. Appended AFTER the older chat-prefs entry on purpose: this edits the import line that
+  // one wrote, and unwinding is newest-first.
+  {
+    module: "chat-prefs.mjs",
+    importLine: "import { persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';",
+    importWas: "import { persistChatDrafts, persistChatPrefs, syncChatChips } from './chat-prefs.mjs';",
+    items: [
+      {
+        name: "toggleChatCompact",
+        at: 4849,
+        marker: "    toggleChatCompact();",
+        wrapper: { header: ["export function toggleChatCompact() {"], footer: ["}"], dedent: "  " },
+      },
+      {
+        name: "toggleChatPeek",
+        at: 4855,
+        marker: "    toggleChatPeek();",
+        wrapper: { header: ["export function toggleChatPeek() {"], footer: ["}"], dedent: "  " },
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
