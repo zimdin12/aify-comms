@@ -111,6 +111,7 @@ import {
 } from "./claim-failure-tracker.mjs";
 import { createManagedTeardownSweeps } from "./managed-teardown-sweeps.mjs";
 import { shouldSkipLoop } from "./loop-gate.mjs";
+import { runEnvironmentControlPass } from "./environment-control-loop.mjs";
 import {
   DISPATCH_POLL_MS,
   TERMINAL_CONTROL_POLL_MS,
@@ -972,46 +973,12 @@ async function runEnvironmentControlLoop() {
   if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: environmentControlBusy, shuttingDown: shutdownStarted })) return;
   environmentControlBusy = true;
   try {
-    const environment = effectiveEnvironmentPayload();
-    const claim = await httpCall("POST", "/environments/controls/claim", {
-      environmentId: environment.id,
-      bridgeId: BRIDGE_INSTANCE_ID,
-      machineId: MACHINE_ID,
-      waitMs: CLAIM_WAIT_MS,
-    }, CLAIM_OPTS);
-    noteControlClaimSuccess("environment controls");
-    const control = claim?.control;
-    if (!control) return;
-    if (control.action === "stop") {
-      const current = control.currentEnvironment || {};
-      const currentMeta = current.metadata || {};
-      if (control.requestedBy === "server:superseded-bridge" && current.bridgeId && current.bridgeId !== BRIDGE_INSTANCE_ID) {
-        const replacementBits = [
-          `replacement bridge ${current.bridgeId}`,
-          currentMeta.pid ? `pid ${currentMeta.pid}` : "",
-          currentMeta.cwd ? `cwd ${currentMeta.cwd}` : "",
-        ].filter(Boolean).join(", ");
-        console.error(`[aify] environment ${environment.id} was superseded by ${replacementBits}; this older bridge (${BRIDGE_INSTANCE_ID}) is exiting`);
-      } else {
-        console.error(`[aify] environment stop requested for ${environment.id}; bridge exiting`);
-      }
-      try {
-        await httpCall("PATCH", `/environments/controls/${encodeURIComponent(control.id)}`, {
-          status: "completed",
-        });
-      } catch {
-        // The process is going down anyway; best effort.
-      }
-      // Supersede / env-stop path: route through shutdownWithStatus so the WS2
-      // managed-triad teardown (runManagedTeardownForBridge) reaps this older
-      // bridge's detached survivors before it exits — same clean-slate guarantee
-      // as a SIGINT/SIGTERM restart.
-      setTimeout(() => { shutdownWithStatus(0); }, 50);
-      return;
-    }
-    await httpCall("PATCH", `/environments/controls/${encodeURIComponent(control.id)}`, {
-      status: "failed",
-      error: `Unsupported environment control action: ${control.action}`,
+    await runEnvironmentControlPass({
+      CLAIM_OPTS,
+      CLAIM_WAIT_MS,
+      MACHINE_ID,
+      effectiveEnvironmentPayload,
+      shutdownWithStatus,
     });
   } catch (error) {
     if (error?.status !== 404) {
