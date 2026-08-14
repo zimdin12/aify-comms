@@ -160,13 +160,29 @@ The three open server.js rulings have never been costed. They are, and the total
 where extracting the entire render component still leaves ~2,026 lines (see
 docs/APP_JS_STATE_MODULE_PACKET.md). If all 1,541 lines left, server.js lands near **980**.
 
-**That margin is ~20 lines and should not be trusted as a pass.** Two things push it back up: this series
-leaves a moved declaration's LEADING COMMENTS in the carrier (a `declarationSpan` deliberately excludes
-them, so the counts above under-report what stays), and every move leaves a one-line marker. Realistically
-the file lands somewhere just under or just over 1,000, and if it lands over, the residue is precisely the
-**boot wiring** — which is option A's own argument ("a bin entry point that wires a process together is a
-different kind of file from a library module"). In other words: choose C and the file probably clears;
-choose C and it doesn't, and A is what closes the gap.
+### The margin, computed instead of estimated
+
+"Near 980" was a subtraction, not a prediction, and I first wrote that the file "probably clears". Both
+halves of that were unearned. The full arithmetic:
+
+| | lines |
+|---|---|
+| server.js today | 2,521 |
+| − inside the blocked declarations (moves out) | −1,541 |
+| + one marker comment per moved unit (22 units) | +22 |
+| **subtotal** | **1,002 — still OVER** |
+| − import lines that go dead (31 whole blocks; 62 of 135 names are used ONLY inside the moved code) | −58 |
+| **server.js lands at** | **944 — under, with ~56 lines of margin** |
+
+So the answer is yes with room, but note the shape: **the raw move LEAVES IT OVER at 1,002, and it is the
+dead-import cleanup that carries it under.** That is not a rounding detail — it means the slice is not
+finished when the code moves, and a reviewer checking the line count mid-slice will see a failure. Every
+extraction in this series has ended with a dead-import pass for exactly this reason, and the gate that
+finds them (`tests/no-dead-imports.test.js`) has caught names my own reference counting missed twice.
+
+The residue is the boot wiring, which is option A's own argument ("a bin entry point that wires a process
+together is a different kind of file from a library module"). At 944 that argument is no longer needed to
+reach the limit — but it is still the honest description of what is left.
 
 Nothing above is a recommendation on A-vs-C — the reviewer's caution stands, and option C is still a
 redesign touching the code path that took the managed fleet down. It is here so the choice is made against
