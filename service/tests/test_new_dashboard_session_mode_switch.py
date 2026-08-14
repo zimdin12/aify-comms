@@ -108,32 +108,26 @@ class NewDashboardSessionModeSwitchTests(unittest.TestCase):
             "Plan 6 C4: the delegated listener must hand the click to the extracted handler",
         )
 
-    def test_switch_agent_session_mode_fetches_patch_endpoint(self):
-        self.assertIn(
-            "async function switchAgentSessionMode(agentId, targetMode",
-            self.script,
-            "Plan 6 C4: switchAgentSessionMode helper must be defined",
-        )
-        self.assertIn(
-            "/agents/${encodeURIComponent(agentId)}/session-mode",
-            self.script,
-            "Plan 6 C4: helper must hit PATCH /api/v1/agents/{id}/session-mode",
-        )
-        self.assertIn(
-            "method: 'PATCH'",
-            self.script,
-            "Plan 6 C4: PATCH method required",
-        )
-        self.assertIn(
-            "Object.assign(existingAgent, body.agent)",
-            self.script,
-            "A successful switch must apply the returned mode/status immediately instead of waiting for polling",
-        )
-        self.assertIn(
-            "renderSessionWorkspace()",
-            self.script,
-            "A successful switch must repaint the selected session immediately",
-        )
+    def test_the_mode_switch_is_covered_by_a_test_that_PERFORMS_it(self):
+        """RETIRED as a grep — `switchAgentSessionMode` left app.js in v0.5.4.
+
+        This asserted five strings appeared somewhere in app.js: the function's signature, the
+        endpoint template, `method: 'PATCH'`, `Object.assign(existingAgent, body.agent)` and
+        `renderSessionWorkspace()`. Every one of them is satisfied by the same text inside a comment,
+        and none can fail on the behaviour it names — `Object.assign` present but assigning the wrong
+        object still passes.
+
+        `agent-session-actions.test.mjs` replaces them by CALLING the function against a stubbed
+        fetch: the PATCH reaches `/agents/{id}/session-mode` with the requested mode; a success
+        applies the returned agent to the roster and to every session of that agent and repaints
+        WITHOUT waiting for the ~15s poll; and the server's answer wins over the requested mode, which
+        no string match could express at all.
+        """
+        js = ROOT / "service" / "new_dashboard" / "agent-session-actions.test.mjs"
+        self.assertTrue(js.exists(), "the mode switch's behavioural test must exist")
+        source = js.read_text(encoding="utf-8")
+        self.assertIn("switchAgentSessionMode", source)
+        self.assertIn("session-mode", source, "…and must still cover the endpoint this pinned")
 
     def test_chip_is_rendered_on_BOTH_surfaces_wherever_those_now_live(self):
         """Two call sites, and they no longer live in the same file.

@@ -326,6 +326,35 @@ export function reconstruct({ after, modules, extractions }) {
             + "keyword, so the declaration and the module disagree",
         );
       }
+      // PROSE THAT MOVED WITH THE DECLARATION IT EXPLAINS.
+      //
+      // `declarationSpan` covers a declaration, not the comment above it, so a slice that takes both —
+      // which is the right thing to do, a comment explaining a function is worthless without it — leaves
+      // the reconstruction short by those lines. The first time this came up they were declared as an
+      // `editedSince` restoring text the plan carried, which reconstructs correctly but verifies nothing:
+      // reword the comment in the module and the proof still passes, because it never read it.
+      //
+      // `leading: n` instead takes the n lines immediately ABOVE the span FROM THE MODULE. They are
+      // therefore checked like every other moved line — byte-identity does the work — and `at` points at
+      // the first of them rather than at the declaration.
+      const moduleLines = source.split(NL);
+      const leadingCount = item.leading ?? 0;
+      if (leadingCount < 0 || !Number.isInteger(leadingCount)) {
+        throw new Error(`${item.name} in ${step.module}: leading must be a non-negative integer`);
+      }
+      if (leadingCount > span.start) {
+        throw new Error(
+          `${item.name} in ${step.module}: leading ${leadingCount} reaches above the top of the module`,
+        );
+      }
+      const leading = moduleLines.slice(span.start - leadingCount, span.start);
+      if (leading.some((line) => line.trim() && !line.trim().startsWith("//"))) {
+        throw new Error(
+          `${item.name} in ${step.module}: leading must be comment or blank lines, so it cannot silently `
+            + `absorb a declaration: ${JSON.stringify(leading.find((l) => l.trim() && !l.trim().startsWith("//")))}`,
+        );
+      }
+
       items.push({
         name: item.name,
         at: item.at,
@@ -333,14 +362,17 @@ export function reconstruct({ after, modules, extractions }) {
         // plan that removes only its first line leaves the rest behind — which showed up as a
         // reconstruction one line too long.
         marker: item.marker == null ? [] : [].concat(item.marker),
-        body: undoEdits(
-          item.wrapper
-            ? unwrapBody(span.text.split(NL), item.wrapper, item.name, step.module)
-            : (pristineExported ? span.text : span.text.replace(/^export\s+/, "")).split(NL),
-          item.editedSince,
-          item.name,
-          step.module,
-        ),
+        body: [
+          ...leading,
+          ...undoEdits(
+            item.wrapper
+              ? unwrapBody(span.text.split(NL), item.wrapper, item.name, step.module)
+              : (pristineExported ? span.text : span.text.replace(/^export\s+/, "")).split(NL),
+            item.editedSince,
+            item.name,
+            step.module,
+          ),
+        ],
       });
     }
   }

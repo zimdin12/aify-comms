@@ -361,19 +361,21 @@ test("nothing in app.js still reaches for the socket that left it", () => {
 // locally while green in CI, because the working tree was CRLF and git normalises to LF. Rendering the
 // output has no whitespace to be wrong about.
 
-test("the agent-level stop is routed and confirmed by app.js", () => {
-  const source = read("app.js");
-  // The BUTTON moved to agent-drawer.mjs with the drawer, and agent-drawer.test.mjs now renders it and
-  // asserts the status gate directly — which the regex here could not: it matched the gate's source text,
-  // so a gate listing the wrong statuses would have satisfied it exactly as well.
+test("the agent-level stop is ROUTED by app.js — the half that could not move", () => {
+  // The rest of this test moved to agent-session-actions.test.mjs when `stopAgentWorker` did, and it is
+  // strictly stronger there. The confirmation is now checked in BOTH directions (answering No sends
+  // nothing) where the regex only proved the string `uiConfirm(` appeared somewhere in the function.
+  // The await-before-render ordering — which shipped as a real bug: the drawer painted from PRE-stop
+  // state and offered a live "Stop worker" button for a worker already gone — is now observed by
+  // recording the actual sequence of effects, where the regex compared two string indices and would
+  // have been satisfied by the words appearing in a comment in that order.
   //
-  // What only app.js can prove is the other half: that the click actually goes somewhere, and that a
-  // destructive action asks first.
+  // What stays is the wiring only app.js holds: the delegated click handler must route the button to
+  // something. Without it the control is inert and every assertion over there is about code no button
+  // reaches.
+  const source = read("app.js");
   assert.match(source, /data-agent-stop-worker\]/, "the click handler must route the button");
-  assert.match(source, /\/stop-worker`, \{\s*method: 'POST'/,
-    "must call the authoritative agent-level teardown endpoint");
-  const stopFn = source.match(/async function stopAgentWorker\([\s\S]*?\n\}/)?.[0] || "";
-  assert.match(stopFn, /uiConfirm\(/, "killing a live worker must be confirmed");
+  assert.match(source, /stopAgentWorker\(/, "…to the action that performs the teardown");
 });
 
 test("the chat controller is wired to the drawer's selection sync", () => {
@@ -394,21 +396,6 @@ test("chat controller notifies on every selection change", () => {
   const calls = source.match(/onSelectionChange\(\);/g) || [];
   assert.ok(calls.length >= 3,
     `all selection-changing paths must notify (open, analytics switch, close); found ${calls.length}`);
-});
-
-test("stop-worker waits for refreshed state before re-rendering the drawer", () => {
-  const source = read("app.js");
-  const fn = source.match(/async function stopAgentWorker\([\s\S]*?\n\}/)?.[0] || "";
-  assert.ok(fn, "stopAgentWorker must exist");
-  // Rendering before the refresh painted the drawer from PRE-stop state: old status plus a live
-  // "Stop worker" button for a worker that was already gone.
-  assert.match(fn, /await refresh\(\)/, "must pull fresh state before re-rendering");
-  const awaitIdx = fn.indexOf("await refresh()");
-  const renderIdx = fn.indexOf("openAgentDrawer(agentId)");
-  assert.ok(awaitIdx > -1 && renderIdx > awaitIdx,
-    "the re-render must come AFTER the awaited refresh, not before it");
-  assert.ok(!/refreshSoon\(\);\s*\}/.test(fn),
-    "a fire-and-forget refreshSoon leaves the drawer stale — it must not be the only refresh");
 });
 
 // REMOVED (2026-07-26): "doctor rejects a FUTURE lastSeen instead of greening a dead bridge".

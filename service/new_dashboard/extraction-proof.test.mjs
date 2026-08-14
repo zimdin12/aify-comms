@@ -1185,6 +1185,72 @@ const EXTRACTIONS = [
       },
     ],
   },
+  {
+    module: "agent-session-actions.mjs",
+    importLine: "import { deleteSessionById, initAgentSessionActions, openAgentChat, removeAgent, requestBulkSessionControl, requestSessionControl, resolveAgentSession, stopAgentWorker, submitAgentEdit, submitContinue, switchAgentSessionMode } from './agent-session-actions.mjs';",
+    seeding: "initAgentSessionActions({ chatController, closeInspector, inspect, markConversationRead, refresh, refreshSoon, renderSessionWorkspace, setPage });",
+    items: [
+      {
+        name: "switchAgentSessionMode",
+        at: 2594,
+        marker: "// switchAgentSessionMode moved to ./agent-session-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "submitAgentEdit",
+        at: 3641,
+        marker: "// submitAgentEdit moved to ./agent-session-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "resolveAgentSession",
+        at: 3675,
+        // `at` points at the first COMMENT line, not the declaration: 3 lines of prose
+        // moved with it, and `leading` restores them FROM THE MODULE so they are byte-checked too.
+        leading: 3,
+        marker: "// resolveAgentSession moved to ./agent-session-actions.mjs in v0.5.4, with its sticky-identity note.",
+      },
+      {
+        name: "submitContinue",
+        at: 3755,
+        marker: "// submitContinue moved to ./agent-session-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "removeAgent",
+        at: 3781,
+        marker: "// removeAgent moved to ./agent-session-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "stopAgentWorker",
+        at: 3792,
+        // `at` points at the first COMMENT line, not the declaration: 6 lines of prose
+        // moved with it, and `leading` restores them FROM THE MODULE so they are byte-checked too.
+        leading: 6,
+        marker: "// stopAgentWorker moved to ./agent-session-actions.mjs in v0.5.4, with the six lines explaining why it is confirmed.",
+      },
+      {
+        name: "deleteSessionById",
+        at: 3820,
+        marker: "// deleteSessionById moved to ./agent-session-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "requestSessionControl",
+        at: 3882,
+        marker: "// requestSessionControl moved to ./agent-session-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "requestBulkSessionControl",
+        at: 3903,
+        marker: "// requestBulkSessionControl moved to ./agent-session-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "openAgentChat",
+        at: 4033,
+        // `at` points at the first COMMENT line, not the declaration: 1 lines of prose
+        // moved with it, and `leading` restores them FROM THE MODULE so they are byte-checked too.
+        leading: 1,
+        marker: "// openAgentChat moved to ./agent-session-actions.mjs in v0.5.4.",
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -1224,6 +1290,7 @@ const MODULES = () => ({
   "refresh-cycle.mjs": read("refresh-cycle.mjs"),
   "realtime-socket.mjs": read("realtime-socket.mjs"),
   "run-inspector.mjs": read("run-inspector.mjs"),
+  "agent-session-actions.mjs": read("agent-session-actions.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),
@@ -1902,4 +1969,74 @@ test("EVERY seeding line declared in the real plan is actually present in app.js
   for (const line of declared) {
     assert.ok(app.includes(line), `declared seeding line is missing from app.js: ${line}`);
   }
+});
+
+// --- leading prose ------------------------------------------------------------------------------
+//
+// A comment explaining a function is worthless without the function, so a slice takes both. But
+// `declarationSpan` covers the declaration only, leaving the reconstruction short by those lines. The
+// first slice that hit this declared them as an `editedSince` restoring text the PLAN carried, which
+// reconstructs correctly and verifies nothing — reword the comment in the module and the proof still
+// passes, because it never reads it. `leading: n` takes the lines from the module instead.
+
+const LEAD = {
+  pristine: ["// why f exists", "// second line", "function f() {", "  a();", "}"].join(LF),
+  after: ['import { f } from "./f.mjs";', "// f moved."].join(LF),
+  module: ["// why f exists", "// second line", "export function f() {", "  a();", "}"].join(LF),
+};
+
+const leadPlan = (over = {}) => [{
+  module: "f.mjs",
+  importLine: 'import { f } from "./f.mjs";',
+  items: [{ name: "f", at: 0, marker: "// f moved.", leading: 2, ...over }],
+}];
+
+test("LEADING PROSE IS RESTORED FROM THE MODULE, not from the plan", () => {
+  assert.equal(reconstruct({ after: LEAD.after, modules: { "f.mjs": LEAD.module }, extractions: leadPlan() }),
+    LEAD.pristine);
+});
+
+test("a REWORDED leading comment fails the reconstruction — the property editedSince could not give", () => {
+  // This is the whole reason the field exists. The plan says "two lines above the declaration", not
+  // WHICH two, so the module's actual text is what lands in the rebuild and byte-identity judges it.
+  const reworded = LEAD.module.replace("// why f exists", "// why f exists (edited)");
+  assert.notEqual(
+    reconstruct({ after: LEAD.after, modules: { "f.mjs": reworded }, extractions: leadPlan() }),
+    LEAD.pristine,
+  );
+});
+
+test("leading REFUSES to swallow a declaration", () => {
+  // Counting too far up would silently drag a neighbouring function into this item's body, and the
+  // rebuild might still land byte-identical if that function was ALSO extracted — hiding a double
+  // restore. Only comments and blank lines may be absorbed.
+  const withNeighbour = ["const helper = 1;", "// why f exists", "export function f() {", "  a();", "}"].join(LF);
+  assert.throws(
+    () => reconstruct({ after: LEAD.after, modules: { "f.mjs": withNeighbour }, extractions: leadPlan() }),
+    /leading must be comment or blank lines/,
+  );
+});
+
+test("leading that reaches above the top of the module throws", () => {
+  assert.throws(
+    () => reconstruct({ after: LEAD.after, modules: { "f.mjs": LEAD.module }, extractions: leadPlan({ leading: 99 }) }),
+    /reaches above the top of the module/,
+  );
+});
+
+test("leading must be a non-negative integer", () => {
+  for (const bad of [-1, 1.5, "2"]) {
+    assert.throws(
+      () => reconstruct({ after: LEAD.after, modules: { "f.mjs": LEAD.module }, extractions: leadPlan({ leading: bad }) }),
+      /leading must be a non-negative integer/,
+      JSON.stringify(bad),
+    );
+  }
+});
+
+test("an item with NO leading is unaffected — the field is opt-in", () => {
+  const plan = wrappedPlan();
+  assert.equal(plan[0].items[0].leading, undefined);
+  assert.equal(reconstruct({ after: WRAPPED.after, modules: { "hit.mjs": WRAPPED.module }, extractions: plan }),
+    WRAPPED.pristine);
 });

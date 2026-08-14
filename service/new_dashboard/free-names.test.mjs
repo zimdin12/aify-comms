@@ -99,6 +99,30 @@ test("missingImports ignores free names NOTHING exports — the heuristic's nois
   assert.deepEqual(missingImports(noisy, index), [], "…and the sharpened one does not");
 });
 
+test("A PLAIN VALUE REFERENCE IS FOUND — the case call-position filtering hid", () => {
+  // `${apiBase}/agents/...` is neither a call nor a member access, so the readable default output
+  // skips it. `apiBase` shipped missing from a module for exactly that reason. `missingImports` asks
+  // for the unfiltered set instead; the sibling-export intersection is the stronger filter anyway.
+  const src = "export function f(id) { return `${apiBase}/agents/${id}`; }";
+  const index = exportedNames({ "api-client.mjs": "export let apiBase = '';" });
+  assert.deepEqual(freeNames(src), [], "the default view genuinely does not report it");
+  assert.deepEqual(missingImports(src, index), [{ name: "apiBase", from: ["api-client.mjs"] }]);
+});
+
+test("a template with a BACKSLASH LINE CONTINUATION is still blanked", () => {
+  // `\.` does not match a newline, so the template regex failed to match this at all and its text
+  // leaked into the scan — reporting `api` from the `/api/v1` inside a URL.
+  const src = [
+    "import { apiOrigin } from './api-client.mjs';",
+    "export function f() {",
+    "  return `bash install.sh --client claude \\",
+    "  ${apiOrigin}/api/v1 --with-hook`;",
+    "}",
+  ].join("\n");
+  const index = exportedNames({ "api-client.mjs": ["export let api = 1;", "export let apiOrigin = '';"].join("\n") });
+  assert.deepEqual(missingImports(src, index), []);
+});
+
 test("exportedNames picks up both declaration exports and export-lists", () => {
   const index = exportedNames({
     "a.mjs": ["export const x = 1;", "export async function y() {}", "export class Z {}"].join("\n"),

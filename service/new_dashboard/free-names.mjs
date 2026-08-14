@@ -18,19 +18,35 @@
 
 /**
  * Names `source` uses but neither declares nor imports, excluding standard globals.
+ *
+ * `confirmed` (the default) keeps only names used in call or member position, which is what makes the
+ * raw output readable on its own. It also HIDES a real defect class: a plain value reference like
+ * `${apiBase}/agents/...` is neither, and `apiBase` shipped missing from a module because of it. So
+ * `missingImports` asks for the unfiltered set — the sibling-export intersection is a stronger filter
+ * than call position, and does not have that blind spot.
+ *
+ * @param {string} src
+ * @param {{confirmed?: boolean}} [options]
  * @returns {string[]} sorted, empty when the module is self-contained
  */
-export function freeNames(src) {
+export function freeNames(src, { confirmed: onlyConfirmed = true } = {}) {
   // Blank comments and string bodies, but KEEP template interpolations — a name that only appears
   // inside `${...}` is still a real reference, and blanking whole templates is how one was missed.
   let s = src
     .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+    // The `[^:]` guard keeps `http://…` inside a URL from being read as a comment. It needs the `m`
+    // flag: without it `^` only matches the start of the FILE, so a comment at column 0 whose previous
+    // line happened to end in `:` was left in place — which is how `// api-client.mjs where it already
+    // has an owner.` was scanned as code and reported `api` as a missing import.
+    .replace(/(^|[^:])\/\/[^\n]*/gm, "$1");
   // TEMPLATES BEFORE QUOTES, and this order is not cosmetic. Template TEXT contains apostrophes —
   // "the peer's messages", "don't" — and blanking single quotes first pairs one of those with the next
   // apostrophe anywhere later in the file and deletes everything between. On chat.js that swallowed the
   // line destructuring nine dependencies, so every one of them was reported as a missing import.
-  s = s.replace(/`(?:\\.|[^`\\])*`/g, (lit) => {
+  // `\\[\s\S]`, not `\\.`: `.` does not match a newline, so a template containing a BACKSLASH LINE
+  // CONTINUATION — static-links.mjs has one in the install snippet — failed to match at all, and the
+  // template's text leaked into the scan, reporting `api` from the `/api/v1` path inside it.
+  s = s.replace(/`(?:\\[\s\S]|[^`\\])*`/g, (lit) => {
     const parts = [...lit.matchAll(/\$\{([\s\S]*?)\}/g)].map((m) => m[1]);
     return parts.length ? `(${parts.join(",")})` : "''";
   });
@@ -82,6 +98,7 @@ export function freeNames(src) {
   const confirmed = [...free.keys()].filter((n) => {
     if (new RegExp(`(?<![.\\w$])${n}\\s*\\([^)]*\\)\\s*\\{`).test(s)) return false;
     if (new RegExp(`[{,]\\s*${n}\\s*[,}:]`).test(s)) return false;
+    if (!onlyConfirmed) return true;
     return new RegExp(`(?<![.\\w$])${n}\\s*\\(`).test(s) || new RegExp(`(?<![.\\w$])${n}\\.`).test(s);
   });
 
@@ -128,7 +145,7 @@ export function exportedNames(sources) {
  * @returns {Array<{name: string, from: string[]}>}
  */
 export function missingImports(src, exportIndex) {
-  return freeNames(src)
+  return freeNames(src, { confirmed: false })
     .filter((name) => exportIndex.has(name))
     .map((name) => ({ name, from: exportIndex.get(name) }));
 }
