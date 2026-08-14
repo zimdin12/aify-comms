@@ -124,6 +124,7 @@ import { collectOnce as collectUsageOnce, collectConsumptionOnce } from "./usage
 import { AIFY_VERSION } from "./version.js";
 import { createManagedOwnershipReader } from "./managed-ownership.mjs";
 import { runSingleAgentManagedTeardown } from "./single-agent-teardown.mjs";
+import { noteControlClaimFailure, noteControlClaimSuccess } from "./claim-failure-tracker.mjs";
 import { VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT, createVirtualTerminalSink, ensureVirtualTerminal, handleVirtualTerminalControl, updateTerminalControl } from './virtual-terminals.mjs';
 import { ensureRequiredReplyHandoff } from './required-reply-handoff.mjs';
 import { TERMINAL_MANAGER, reportDeadOwnedTerminals } from './terminal-manager.mjs';
@@ -681,35 +682,12 @@ const CLAIM_OPTS = CLAIM_WAIT_MS > 0 ? { timeoutMs: CLAIM_HTTP_TIMEOUT_MS } : {}
 // be retried without creating duplicate side effects, add it here explicitly.
 
 
-const CONTROL_CLAIM_FAILURES = new Map();
+// CONTROL_CLAIM_FAILURES moved to ./claim-failure-tracker.mjs in v0.5.4 — its only direct readers
+// are the two functions above, so they own it.
 
-function noteControlClaimFailure(label, error) {
-  const previous = CONTROL_CLAIM_FAILURES.get(label) || { count: 0, lastLogAt: 0 };
-  const state = { count: previous.count + 1, lastLogAt: previous.lastLogAt };
-  const decision = claimFailureDecision(state);
-  state.lastLogAt = decision.nextLastLogAt;
-  CONTROL_CLAIM_FAILURES.set(label, state);
-  const target = error?.serverUrl || activeServerUrl() || SERVER_URL;
-  const detail = [...new Set([error?.message, error?.cause?.code, error?.cause?.message].filter(Boolean))].join(": ");
-  if (decision.debug && String(process.env.AIFY_DEBUG || "").trim() === "1") {
-    console.debug(`[aify] ${label} transient failure against ${target}: ${detail}; retrying`);
-  }
-  if (decision.warn) {
-    console.error(
-      `[aify] ${label} unavailable (${state.count} consecutive) against ${target}: ${detail}. ` +
-      "Retrying quietly; check that the service is running and reachable from this shell.",
-    );
-  }
-}
+// noteControlClaimFailure moved to ./claim-failure-tracker.mjs in v0.5.4.
 
-function noteControlClaimSuccess(label) {
-  const state = CONTROL_CLAIM_FAILURES.get(label);
-  if (!state) return;
-  if (claimRecoveryDecision(state.count).log) {
-    console.error(`[aify] ${label} recovered after ${state.count} failure(s)`);
-  }
-  CONTROL_CLAIM_FAILURES.delete(label);
-}
+// noteControlClaimSuccess moved to ./claim-failure-tracker.mjs in v0.5.4.
 
 
 
