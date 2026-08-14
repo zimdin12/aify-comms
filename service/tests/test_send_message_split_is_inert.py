@@ -29,14 +29,18 @@ from service.tests.extract_method import assert_extractions_preserve_behaviour
 REPO = Path(__file__).resolve().parent.parent.parent
 MESSAGES = REPO / "service" / "routers" / "dispatch_messages" / "messages.py"
 DISPATCH_START = REPO / "service" / "api_core" / "dispatch_start.py"
+#: The second extraction landed in the dispatch-messages sibling rather than a lower layer: four of the
+#: seven names its body calls are already declared there, so moving it down would have been an upward
+#: import back.
+DM_SHARED = REPO / "service" / "routers" / "dispatch_messages" / "shared.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "send_message_before_split.py"
 
 SOURCE_FUNCTION = "send_message"
-EXTRACTIONS = ["_launch_recipients_for_dispatch"]
+EXTRACTIONS = ["_launch_recipients_for_dispatch", "_queue_console_dispatch_inputs"]
 
 
 def _combined_split_source() -> str:
-    return "\n\n".join(p.read_text(encoding="utf-8") for p in (MESSAGES, DISPATCH_START))
+    return "\n\n".join(p.read_text(encoding="utf-8") for p in (MESSAGES, DISPATCH_START, DM_SHARED))
 
 
 class SendMessageSplitIsInertTests(unittest.TestCase):
