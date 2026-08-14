@@ -51,6 +51,7 @@ import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } f
 import { persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';
 import { runAgentControl, startColdAgent, switchAgentModeFromRow, switchModeFromChip, toggleFavouriteRow } from './agent-click-handlers.mjs';
 import { runConsoleAction } from './console-click-handlers.mjs';
+import { handleGlobalKeydown } from './keyboard-shortcuts.mjs';
 import { navigateToPage, openEnvironmentSpawn, openHermesTabFromRow, selectAnalyticsRange } from './nav-click-handlers.mjs';
 import { openChatConversation, openChatReply, runChannelAction, setChatView, setPulseWindow } from './chat-click-handlers.mjs';
 import { applySessionStatusPreset, openAgentSessions, selectSessionRow, selectSessionTab, toggleSessionCheckbox, toggleSessionStatusFilter } from './session-click-handlers.mjs';
@@ -3126,26 +3127,7 @@ document.addEventListener('click', (event) => {
 });
 
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') {
-    closeStatusWhy();
-    // Escape also dismisses the inspector/agent drawer when it's open and focus isn't in a field.
-    if (byId('inspector')?.classList.contains('open') && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')) closeInspector();
-  }
-  if ((event.key === 'Enter' || event.key === ' ') && event.target?.matches?.('[data-status-why]')) {
-    event.preventDefault();
-    openStatusWhy(event.target);
-  }
-  // Keyboard-operable favorite star (role=button span) — WS-L a11y.
-  if ((event.key === 'Enter' || event.key === ' ') && event.target?.matches?.('[data-fav-toggle]')) {
-    event.preventDefault();
-    toggleFavorite(event.target.dataset.favToggle);
-  }
-  // Ctrl+Shift+C copies the console when it has a selection (xterm swallows plain Ctrl+C as
-  // SIGINT into the PTY, so the copy shortcut is shifted — parity with the old dashboard).
-  if (event.ctrlKey && event.shiftKey && (event.key === 'C' || event.key === 'c') && state.activeXterm?.term) {
-    event.preventDefault();
-    copyActiveConsole();
-  }
+  handleGlobalKeydown(event, closeInspector, toggleFavorite);
 });
 
 byId('refresh').addEventListener('click', refresh);

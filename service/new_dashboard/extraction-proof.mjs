@@ -200,6 +200,41 @@ function unwrapBody(spanLines, wrapper, name, module) {
   });
 }
 
+/**
+ * Undo DECLARED edits made to a module AFTER its extraction, so the reconstruction still sees the body
+ * that left app.js.
+ *
+ * WITHOUT THIS EVERY EXTRACTED MODULE IS FROZEN FOREVER. The proof rebuilds the pre-extraction app.js
+ * from the current modules, so any later change to extracted code — a bug fix, a new guard — makes the
+ * reconstruction differ and the gate red. That is a far worse problem than the one the proof solves:
+ * six modules and counting would become unmaintainable, and the obvious way out is to delete the gate.
+ *
+ * It stays honest because the edit is DECLARED, not tolerated. `was` and `now` are both matched
+ * VERBATIM against the module's current text, exactly like `marker` and `importLine`, so the gate still
+ * fails on any change that was not written down — and the plan entry is a permanent, reviewable record
+ * of every intentional divergence from what was extracted.
+ *
+ * @param {string[]} body   the body recovered from the module
+ * @param {Array<{was: string|string[], now: string|string[]}>} [edits]
+ */
+function undoEdits(body, edits, name, module) {
+  if (!edits || !edits.length) return body;
+  let lines = body;
+  for (const edit of edits) {
+    const now = [].concat(edit.now);
+    const was = [].concat(edit.was);
+    const at = lines.findIndex((_, i) => now.every((l, k) => lines[i + k] === l));
+    if (at === -1) {
+      throw new Error(
+        `${name} in ${module}: declared edit not found verbatim, so the plan and the module disagree: `
+          + JSON.stringify(now[0]),
+      );
+    }
+    lines = [...lines.slice(0, at), ...was, ...lines.slice(at + now.length)];
+  }
+  return lines;
+}
+
 export function reconstruct({ after, modules, extractions }) {
   let lines = after.split("\n");
 
@@ -276,9 +311,14 @@ export function reconstruct({ after, modules, extractions }) {
         // plan that removes only its first line leaves the rest behind — which showed up as a
         // reconstruction one line too long.
         marker: item.marker == null ? [] : [].concat(item.marker),
-        body: item.wrapper
-          ? unwrapBody(span.text.split(NL), item.wrapper, item.name, step.module)
-          : (pristineExported ? span.text : span.text.replace(/^export\s+/, "")).split(NL),
+        body: undoEdits(
+          item.wrapper
+            ? unwrapBody(span.text.split(NL), item.wrapper, item.name, step.module)
+            : (pristineExported ? span.text : span.text.replace(/^export\s+/, "")).split(NL),
+          item.editedSince,
+          item.name,
+          step.module,
+        ),
       });
     }
   }

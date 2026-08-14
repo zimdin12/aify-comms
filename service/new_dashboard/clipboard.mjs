@@ -46,5 +46,11 @@ export function copyActiveConsole() {
   } catch {}
   // Don't leave the whole buffer visually selected when we auto-selected to copy-all.
   if (autoSelected) { try { entry.term.clearSelection(); } catch {} }
-  copyText(text).then((ok) => toast(ok ? 'Console copied' : 'Copy failed', ok ? 'ok' : 'error'));
+  // `.catch` as well as `.then`: `copyText` RESOLVES false on a refused clipboard, but it can also
+  // REJECT — the execCommand fallback throws on a detached document. Without this the rejection is
+  // unhandled inside a keydown listener, and the operator gets no message at all for a failed copy,
+  // which is the same outcome the false branch exists to prevent.
+  copyText(text)
+    .then((ok) => toast(ok ? 'Console copied' : 'Copy failed', ok ? 'ok' : 'error'))
+    .catch(() => toast('Copy failed', 'error'));
 }

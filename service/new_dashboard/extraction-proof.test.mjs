@@ -378,7 +378,28 @@ const EXTRACTIONS = [
     importLine: "import { copyActiveConsole, copyText } from './clipboard.mjs';",
     items: [
       { name: "copyText", at: 2366, marker: "// copyText moved to ./clipboard.mjs in v0.5.4." },
-      { name: "copyActiveConsole", at: 2381, marker: "// copyActiveConsole moved to ./clipboard.mjs in v0.5.4." },
+      {
+        name: "copyActiveConsole",
+        at: 2381,
+        marker: "// copyActiveConsole moved to ./clipboard.mjs in v0.5.4.",
+        // FIRST DECLARED POST-EXTRACTION EDIT. `copyText(...).then(...)` had no `.catch`, so a rejected
+        // clipboard write was an unhandled rejection inside a keydown listener and the operator got no
+        // message at all — the same outcome the `false` branch of that toast exists to prevent. Fixing
+        // it changes a body the proof reconstructs, so the change is written down here rather than
+        // silently tolerated.
+        editedSince: [{
+          was: "  copyText(text).then((ok) => toast(ok ? 'Console copied' : 'Copy failed', ok ? 'ok' : 'error'));",
+          now: [
+            "  // `.catch` as well as `.then`: `copyText` RESOLVES false on a refused clipboard, but it can also",
+            "  // REJECT — the execCommand fallback throws on a detached document. Without this the rejection is",
+            "  // unhandled inside a keydown listener, and the operator gets no message at all for a failed copy,",
+            "  // which is the same outcome the false branch exists to prevent.",
+            "  copyText(text)",
+            "    .then((ok) => toast(ok ? 'Console copied' : 'Copy failed', ok ? 'ok' : 'error'))",
+            "    .catch(() => toast('Copy failed', 'error'));",
+          ],
+        }],
+      },
     ],
   },
   {
@@ -778,6 +799,24 @@ const EXTRACTIONS = [
       },
     ],
   },
+  // NOT a click-handler branch: a whole top-level `document.addEventListener('keydown', …)`. The body
+  // sits at the same indentation inside the extracted function as it did inside the arrow, so there is
+  // no dedent to declare — the only substitution is the header and footer.
+  {
+    module: "keyboard-shortcuts.mjs",
+    importLine: "import { handleGlobalKeydown } from './keyboard-shortcuts.mjs';",
+    items: [
+      {
+        name: "handleGlobalKeydown",
+        at: 4651,
+        marker: "  handleGlobalKeydown(event, closeInspector, toggleFavorite);",
+        wrapper: {
+          header: ["export function handleGlobalKeydown(event, closeInspector, toggleFavorite) {"],
+          footer: ["}"],
+        },
+      },
+    ],
+  },
   // The shared-file row's delete button. app.js's shared-files import SWAPPED a name rather than gaining
   // one: `deleteSharedFile` had no other caller left in app.js once this body moved.
   {
@@ -837,6 +876,7 @@ const MODULES = () => ({
   "agent-click-handlers.mjs": read("agent-click-handlers.mjs"),
   "nav-click-handlers.mjs": read("nav-click-handlers.mjs"),
   "console-click-handlers.mjs": read("console-click-handlers.mjs"),
+  "keyboard-shortcuts.mjs": read("keyboard-shortcuts.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),
@@ -1352,4 +1392,86 @@ test("A CHAINED IMPORT EDIT UNWINDS NEWEST-FIRST — two slices touching one imp
     ],
   });
   assert.equal(rebuilt, pristine, "both edits must unwind, leaving no import behind");
+});
+
+// --- declared post-extraction edits --------------------------------------------------------------
+//
+// Without `editedSince` every extracted module is FROZEN: the proof rebuilds app.js from the current
+// modules, so any later bug fix in extracted code turns the gate red. Six modules and counting would be
+// unmaintainable, and the obvious escape is to delete the gate — which is the outcome worth preventing.
+
+const EDITED = {
+  pristine: ["before();", "function f() {", "  work();", "}"].join(LF),
+  module: ["export function f() {", "  guard();", "  work();", "}"].join(LF),
+  after: ['import { f } from "./f.mjs";', "before();", "// f moved to ./f.mjs."].join(LF),
+};
+
+const editedPlan = (editedSince) => [{
+  module: "f.mjs",
+  importLine: 'import { f } from "./f.mjs";',
+  items: [{ name: "f", at: 1, marker: "// f moved to ./f.mjs.", editedSince }],
+}];
+
+test("A DECLARED EDIT reconstructs to the body that originally left app.js", () => {
+  const rebuilt = reconstruct({
+    after: EDITED.after,
+    modules: { "f.mjs": EDITED.module },
+    extractions: editedPlan([{ was: [], now: "  guard();" }]),
+  });
+  assert.equal(rebuilt, EDITED.pristine, "the added line is undone, the rest is untouched");
+});
+
+test("an UNDECLARED edit still fails — the exemption is per-change, not blanket", () => {
+  // The whole point. `editedSince` must not become a switch that stops the gate checking this module.
+  const rebuilt = reconstruct({
+    after: EDITED.after,
+    modules: { "f.mjs": EDITED.module },
+    extractions: editedPlan(undefined),
+  });
+  assert.notEqual(rebuilt, EDITED.pristine);
+});
+
+test("a declared edit whose `now` is NOT in the module throws, naming the mismatch", () => {
+  // The plan and the module must agree. A stale declaration left behind after the code moved on would
+  // otherwise silently mask whatever is there instead.
+  assert.throws(
+    () => reconstruct({
+      after: EDITED.after,
+      modules: { "f.mjs": EDITED.module },
+      extractions: editedPlan([{ was: [], now: "  somethingElse();" }]),
+    }),
+    /declared edit not found verbatim/,
+  );
+});
+
+test("a MULTI-LINE edit is matched as a block, not line by line", () => {
+  const pristine = ["function f() {", "  a();", "}"].join(LF);
+  const mod = ["export function f() {", "  // note", "  a()", "    .b();", "}"].join(LF);
+  const rebuilt = reconstruct({
+    after: ['import { f } from "./f.mjs";', "// f moved."].join(LF),
+    modules: { "f.mjs": mod },
+    extractions: [{
+      module: "f.mjs",
+      importLine: 'import { f } from "./f.mjs";',
+      items: [{
+        name: "f",
+        at: 0,
+        marker: "// f moved.",
+        editedSince: [{ was: "  a();", now: ["  // note", "  a()", "    .b();"] }],
+      }],
+    }],
+  });
+  assert.equal(rebuilt, pristine);
+});
+
+test("an item with NO editedSince is unaffected", () => {
+  // Every entry in the real plan but one omits it; this pins that the new field is opt-in.
+  const plan = wrappedPlan();
+  assert.equal(plan[0].items[0].editedSince, undefined);
+  const rebuilt = reconstruct({
+    after: WRAPPED.after,
+    modules: { "hit.mjs": WRAPPED.module },
+    extractions: plan,
+  });
+  assert.equal(rebuilt, WRAPPED.pristine);
 });
