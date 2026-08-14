@@ -27,6 +27,7 @@ from service import longpoll
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.managed_env import _managed_environment_unavailable_reason
 from service.api_core.events import _append_dispatch_event, _append_terminal_event
+from service.api_core.dispatch_run_settlement import _settle_terminated_dispatch_run
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _NATIVE_MANAGED_RUNTIMES, _normalize_runtime, _normalize_session_mode
 from service.api_core.liveness import ACTIVE_RUN_BRIDGE_STALE_SECONDS
@@ -36,7 +37,6 @@ from service.api_core.serialization import (
     _iso_from_ms,
     _json_loads_or,
     _quote_untrusted_subject,
-    _row_require_reply,
     _timestamp_sort_key,
 )
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings, _managed_terminal_backing_enabled
@@ -79,9 +79,7 @@ from service.routers.dispatch_messages.shared import (
     _append_terminal_control,
     _auto_handoff_subject_for_run,
     _borrowed_unthreaded_handoff_window_ms,
-    _clear_turn_busy_if_no_open_reply_owing_run,
     _close_reconcilable_delivered_runs,
-    _close_steered_contracts_for_parent_run,
     _coldstart_refusal_message,
     _console_dispatch_input_body,
     _create_dispatch_runs,
@@ -100,7 +98,6 @@ from service.routers.dispatch_messages.shared import (
     _record_terminal_delivery_contract,
     _resolve_recipient_ids,
     _resolve_reply_parent_message_id,
-    _run_contract_reminders_once,
     _touch_agent,
     _wake_agent,
 )
@@ -115,7 +112,6 @@ from service.api_core.dispatch_start import (
     _coldstart_spawn_request_for_dispatch,
     _ensure_managed_pty_for_dispatch,
 )
-from service.api_core.active_run_discard import _fail_pending_controls_for_run
 from service.api_core.execution_mode import _agent_execution_mode, _auto_return_resident_to_managed_if_possible
 from service.api_core.reply_contract import (
     _dispatch_reply_pending,
@@ -128,7 +124,6 @@ from service.api_core.dispatch_state import _DISPATCH_TERMINAL_STATUSES
 from service.api_core.records import _serialize_dispatch_run_row
 from service.api_core.dashboard_run_report import (
     _maybe_report_async_manager_result_to_dashboard,
-    _mirror_dashboard_run_summary_to_chat,
 )
 from service.api_core.claim_gating import (
     _bridge_claim_block_reason,
@@ -148,12 +143,8 @@ logger = logging.getLogger("aify_comms.routers.dispatch_messages.dispatch")
 router = domain_router()
 
 
-async def _apply_pending_resident_takeover_if_ready(db, agent_id: str) -> bool:
-    # Manual ownership model: a resident CLI registration must not take over a
-    # managed identity at a turn boundary. Operators use /session-mode.
-    return False
-
-
+# _apply_pending_resident_takeover_if_ready moved to service/api_core/dispatch_run_settlement.py in
+# v0.5.4 — it travelled with the terminal-status settlement block, which was its only caller.
 
 
 # _claim_dispatch_once moved to service/dispatch_claim.py in v0.5.4 — it OWNS its
@@ -745,50 +736,7 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
             params.append(run_id)
             await db.execute(f"UPDATE dispatch_runs SET {', '.join(updates)} WHERE id = ?", params)
             await _invalidate_agent_live_state(db, row["target_agent"])
-            if effective_status in ("completed", "failed", "cancelled"):
-                await _fail_pending_controls_for_run(
-                    db,
-                    run_id,
-                    handled_at=now,
-                    response_text=f'Run ended with status "{effective_status}" before the control could be handled.',
-                )
-                refreshed_cursor = await db.execute("SELECT * FROM dispatch_runs WHERE id = ?", (run_id,))
-                refreshed_row = await refreshed_cursor.fetchone()
-                mirrored_message_id = await _mirror_missing_dispatch_handoff(db, refreshed_row)
-                dashboard_message_id = await _mirror_dashboard_run_summary_to_chat(db, refreshed_row)
-                result_message_id = str((refreshed_row["result_message_id"] if refreshed_row else "") or mirrored_message_id or dashboard_message_id or "").strip()
-                await _close_steered_contracts_for_parent_run(
-                    db,
-                    refreshed_row,
-                    result_message_id=result_message_id,
-                )
-                await _maybe_report_async_manager_result_to_dashboard(db, refreshed_row)
-                if refreshed_row:
-                    # Send-deadlock fix (2026-06-02): an rr=0 channel/resident
-                    # delivery that the bridge just marked completed is NOT
-                    # sustained work — clear the recipient's turn_busy (which the
-                    # delivery re-pulse left stamped) so a queued send isn't held
-                    # behind a phantom turn for up to 120s. rr=1 runs keep their
-                    # turn_busy and clear via _mark_dispatch_run_answered when the
-                    # reply lands; the guard ensures we never clear while another
-                    # rr=1 turn is still open (anti-feedback-loop invariant).
-                    if (
-                        effective_status == "completed"
-                        and not _row_require_reply(refreshed_row)
-                        and str((refreshed_row["execution_mode"] or "")).strip().lower() in {"channel", "resident"}
-                    ):
-                        await _clear_turn_busy_if_no_open_reply_owing_run(
-                            db, refreshed_row["target_agent"], run_id
-                        )
-                    await _apply_pending_resident_takeover_if_ready(db, refreshed_row["target_agent"])
-                    if effective_status == "completed":
-                        await _run_contract_reminders_once(
-                            db,
-                            request=request,
-                            target_agent_id=refreshed_row["target_agent"],
-                            limit=25,
-                            recent_only=True,
-                        )
+            await _settle_terminated_dispatch_run(db, run_id, effective_status, now, request)
 
         # MC1 (2026-06-06): only persist a status that is in the 8-status vocabulary.
         # Delivery PATCHes historically sent a non-vocab agentStatus:"active", which got
