@@ -66,6 +66,10 @@ from service.reconcilers.status_cache import invalidate_agent_live_state as _inv
 from service.api_core.terminal_output import _append_terminal_output
 from service.terminal_write_queue import TERMINAL_OUTPUT_WRITES
 from service.api_core.terminal_status import _TERMINAL_END_STATUSES
+from service.api_core.terminal_output_settlement import (
+    _close_out_terminal_on_end_status,
+    _settle_bridge_takeover_for_output,
+)
 from service.api_core.terminal_controls_io import (
     _claim_terminal_controls_once,
     _clear_console_terminal_binding,
@@ -252,57 +256,9 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
         existing_bridge_id = str(terminal["bridge_id"] or "").strip()
         terminal_command = str(terminal["command"] or "")
         is_virtual_rpc = terminal_command in VIRTUAL_RPC_COMMAND_SET
-        if new_bridge_id and existing_bridge_id and new_bridge_id != existing_bridge_id:
-            if is_virtual_rpc:
-                # Transfer ownership of the synth terminal to the new bridge.
-                # Audit so operators see the takeover in the event log.
-                #
-                # Revive if previously stopped — the bridge-supersession
-                # cleanup (`_stop_virtual_terminals_for_superseded_bridges`)
-                # can race against an in-flight dispatch on the new bridge:
-                # supersession stops the row, then the new bridge's
-                # /output POST arrives. Operator-reported 2026-05-22:
-                # codex synth terminal showed "started then stopped" yet
-                # the agent still replied — frames were accumulating
-                # in terminal_events while the row was stale-stopped,
-                # leaving the dashboard rendering "terminal is not
-                # running" despite a healthy stream of frames. The
-                # arriving POST is hard proof the new bridge is
-                # actively writing, so undo the stale stop.
-                current_status = str(terminal["status"] or "").strip().lower()
-                if current_status == "stopped":
-                    await db.execute(
-                        """
-                        UPDATE terminal_sessions
-                        SET bridge_id = ?, status = 'running', stopped_at = NULL, error = ''
-                        WHERE id = ?
-                        """,
-                        (new_bridge_id, terminal_id),
-                    )
-                else:
-                    await db.execute(
-                        "UPDATE terminal_sessions SET bridge_id = ? WHERE id = ?",
-                        (new_bridge_id, terminal_id),
-                    )
-                await _append_terminal_event(
-                    db,
-                    terminal_id,
-                    "virtual_rpc_bridge_takeover",
-                    json.dumps({
-                        "from": existing_bridge_id,
-                        "to": new_bridge_id,
-                        "revived": current_status == "stopped",
-                    }),
-                )
-                # Commit immediately — the endpoint's only other commit
-                # is inside the _TERMINAL_END_STATUSES branch, which
-                # doesn't fire for normal "running" output POSTs. Without
-                # this, the bridge_id transfer + revive would silently
-                # be lost on the next connection (failing the takeover
-                # contract for any subsequent reader).
-                await db.commit()
-            else:
-                raise HTTPException(409, "Terminal is owned by a different bridge")
+        await _settle_bridge_takeover_for_output(
+            db, terminal, terminal_id, new_bridge_id, existing_bridge_id, is_virtual_rpc,
+        )
         status = str(req.status or "").strip()
         next_seq = await TERMINAL_OUTPUT_WRITES.enqueue(
             terminal_id,
@@ -311,32 +267,9 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
             base_seq=int(terminal["output_seq"] or 0),
             autoschedule=not bool(getattr(request.app.state, "testing", False)),
         )
-        if status in _TERMINAL_END_STATUSES:
-            now = _now()
-            summary = f"Terminal {status} before an explicit reply was recorded."
-            await _close_active_terminal_runs_for_terminal(db, terminal, status, now=now, reason=summary)
-            await db.execute(
-                """
-                UPDATE terminal_sessions
-                SET status = ?,
-                    updated_at = ?,
-                    stopped_at = COALESCE(stopped_at, ?)
-                WHERE id = ?
-                """,
-                (status, now, now, terminal_id),
-            )
-            await db.execute(
-                """
-                UPDATE agent_sessions
-                SET terminal_status = ?,
-                    owner_mode = 'managed',
-                    last_seen = ?
-                WHERE id = ?
-                """,
-                (status, now, terminal["session_id"]),
-            )
-            await _clear_console_terminal_binding(db, terminal["agent_id"], terminal_id, now=now)
-            await db.commit()
+        await _close_out_terminal_on_end_status(
+            db, terminal, terminal_id, status, _TERMINAL_END_STATUSES,
+        )
         # Do NOT broadcast per-POST here: concurrent POSTs reorder vs seq and
         # the dashboard's seq-dedupe then drops frames (scrambled console).
         # Hand the ws manager to the write queue, which emits one ordered,

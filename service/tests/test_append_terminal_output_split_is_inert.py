@@ -1,0 +1,151 @@
+"""The `append_terminal_output` split, re-proved against the real code on every run.
+
+Same shape as the other split proofs here: proving a split once at refactor time proves the commit,
+running the round trip in the suite proves it STAYS true.
+
+WHY THIS ROUTE IS WORTH THE PROOF. It is the hottest write path in the service — a live PTY posts
+every 1-4 seconds — and a silent change to it does not raise. It shows up as a console that stops
+updating, or output from two processes interleaved into one screen, which reads to an operator as the
+agent misbehaving rather than as a bug here.
+
+THE SUBSTITUTION, declared rather than left to be noticed: both helpers live in
+`service/api_core/terminal_output_settlement.py`, because leaving them in the router would not have
+reduced it — that was the point. The extract-method gate needs the caller and the helpers in one tree,
+so the sources are CONCATENATED for the proof. Concatenation changes no body and the gate re-parses
+the result, but it is not the single-file comparison the analytics precedent makes.
+
+ONE `MODULES` TUPLE, READ BY EVERY CHECK — written that way from the start. The alternative has gone
+blind five times in this directory, twice in the same file.
+"""
+
+from __future__ import annotations
+
+import ast
+import unittest
+from pathlib import Path
+
+from service.tests.extract_method import assert_extractions_preserve_behaviour
+
+REPO = Path(__file__).resolve().parent.parent.parent
+TERMINALS = REPO / "service" / "routers" / "terminals.py"
+SETTLEMENT = REPO / "service" / "api_core" / "terminal_output_settlement.py"
+FIXTURE = Path(__file__).resolve().parent / "data" / "append_terminal_output_before_split.py"
+
+SOURCE_FUNCTION = "append_terminal_output"
+EXTRACTIONS = ["_settle_bridge_takeover_for_output", "_close_out_terminal_on_end_status"]
+
+#: Where each helper is expected to be declared. PER HELPER, over every module below.
+OWNERS = {
+    "_settle_bridge_takeover_for_output": SETTLEMENT,
+    "_close_out_terminal_on_end_status": SETTLEMENT,
+}
+
+MODULES = (TERMINALS, SETTLEMENT)
+
+
+def _combined_split_source() -> str:
+    """The caller and every extracted helper in one tree, for the inline-back comparison."""
+    return "\n\n".join(p.read_text(encoding="utf-8") for p in MODULES)
+
+
+class AppendTerminalOutputSplitIsInertTests(unittest.TestCase):
+    def test_the_extraction_inlines_back_to_the_original(self):
+        fixture_src = FIXTURE.read_text(encoding="utf-8")
+        original = next(
+            n for n in ast.parse(fixture_src).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
+        )
+        assert_extractions_preserve_behaviour(
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+
+    def test_the_fixture_is_the_function_it_claims_to_be(self):
+        """A fixture that stopped containing the function would make the test above vacuous."""
+        names = {
+            n.name for n in ast.parse(FIXTURE.read_text(encoding="utf-8")).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertIn(SOURCE_FUNCTION, names)
+
+    def test_the_fixture_was_not_captured_with_a_mangled_decode(self):
+        """`subprocess.run(text=True)` decodes with the Windows locale and mangles every dash.
+
+        Asked of the LIVE source rather than hardcoded: a sibling proof used a fixed threshold copied
+        from a neighbour and failed on capture because its function simply had fewer em dashes.
+        """
+        text = FIXTURE.read_text(encoding="utf-8")
+        self.assertNotIn("�", text, "fixture contains U+FFFD replacement characters")
+        live = TERMINALS.read_text(encoding="utf-8")
+        expected = ast.get_source_segment(live, next(
+            n for n in ast.parse(live).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
+        )) or ""
+        if expected.count("—"):
+            self.assertGreater(text.count("—"), 0, "fixture looks locale-mangled, not utf-8")
+
+    def test_the_helpers_are_not_still_inline(self):
+        """If the split were reverted, the round trip would pass by having nothing to inline."""
+        declared = {
+            n.name for n in ast.parse(TERMINALS.read_text(encoding="utf-8")).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        for helper in EXTRACTIONS:
+            self.assertNotIn(
+                helper, declared, f"{helper} is back in terminals.py; this proof is vacuous")
+
+    def test_exactly_one_module_declares_EACH_helper(self):
+        self.assertEqual(sorted(OWNERS), sorted(EXTRACTIONS), "every extraction needs a declared owner")
+        for helper, owner in OWNERS.items():
+            owners = [
+                path for path in MODULES
+                if any(
+                    isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == helper
+                    for n in ast.parse(path.read_text(encoding="utf-8")).body
+                )
+            ]
+            self.assertEqual([owner], owners, f"{helper} must be declared exactly once, in {owner.name}")
+
+    def test_the_leaf_does_not_import_upward(self):
+        """An api_core leaf reaching into a router — or the control plane — is the cycle to prevent."""
+        for node in ast.walk(ast.parse(SETTLEMENT.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                self.assertFalse(
+                    node.module.startswith("service.routers")
+                    or node.module == "service.control_plane",
+                    f"terminal_output_settlement.py imports upward from {node.module}",
+                )
+
+    def test_the_END_STATUSES_SET_IS_NOT_FORKED(self):
+        """The set is PASSED IN, not re-declared in the leaf.
+
+        A second copy of which statuses end a terminal is the forked-constant class this whole series
+        has been removing, and it is the kind that fails quietly: the two copies agree until someone
+        adds a status to one of them, and then a terminal ends without its runs being closed.
+        """
+        leaf = ast.parse(SETTLEMENT.read_text(encoding="utf-8"))
+        declared = {
+            t.id for n in leaf.body if isinstance(n, ast.Assign)
+            for t in n.targets if isinstance(t, ast.Name)
+        }
+        self.assertNotIn(
+            "_TERMINAL_END_STATUSES", declared,
+            "the leaf declares its own end-status set; it must receive the router's",
+        )
+        params = {
+            a.arg
+            for n in ast.walk(leaf) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+            for a in n.args.args
+        }
+        self.assertIn(
+            "_TERMINAL_END_STATUSES", params,
+            "the set must arrive as a parameter. It is named in screaming-case deliberately: the "
+            "extract-method gate splices a helper body over its call without substituting arguments, "
+            "so it refuses any call whose argument name differs from the parameter it fills",
+        )
+
+    def test_the_fixture_is_tracked(self):
+        self.assertTrue(FIXTURE.exists())
+        self.assertGreater(len(FIXTURE.read_text(encoding="utf-8")), 1000)
+
+
+if __name__ == "__main__":
+    unittest.main()
