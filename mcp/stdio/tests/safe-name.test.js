@@ -12,6 +12,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { SAFE_NAME_RE, validateName } from "../safe-name.mjs";
+import { declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -95,5 +96,10 @@ test("server.js no longer declares either — exactly one owner", () => {
   const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
   assert.doesNotMatch(src, /^(?:const|let|var)\s+SAFE_NAME_RE\b/m, "SAFE_NAME_RE must not be redeclared");
   assert.doesNotMatch(src, /^(?:export\s+)?function\s+validateName\b/m, "validateName must be imported");
-  assert.match(src, /(?<![\w.])validateName\(/, "server.js is still expected to CALL it");
+  // CONVERTED: this line pinned a CALLER in server.js as anti-vacuity, and went red when validateName's
+  // last server.js caller left with the send tools — a slice that broke nothing. Scanned across the
+  // bridge instead, so it survives the name moving between callers.
+  assert.ok(isUsedInBridge("validateName"), "a guard nothing calls is dead code");
+  assert.deepEqual(declaringModules("validateName").map((o) => o.file), ["safe-name.mjs"],
+    "exactly one owner, wherever it lives");
 });

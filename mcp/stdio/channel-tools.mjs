@@ -7,8 +7,14 @@
 // `comms_channel_send` is the fifth channel tool and it is NOT here: it is the only one that DELIVERS, and
 // delivery drags `spawnTriggeredAgent` — it must decide whether each member is reachable, cold-start one
 // that is not, and render what happened. It joins this module once that has an owner
-// (`docs/JS_SPAWN_TRIGGERED_AGENT_PACKET.md`). Until then a reader who wonders where sending went should
-// find this paragraph, not a gap.
+// (`docs/JS_SPAWN_TRIGGERED_AGENT_PACKET.md`). A reader who wonders where sending went should find this
+// paragraph, not a gap.
+//
+// v0.5.4 UPDATE — IT DID NOT JOIN THIS MODULE, and the prediction above is left standing so the reversal
+// is visible. Once `spawnTriggeredAgent` had an owner the question was measured rather than assumed:
+// `comms_channel_send` shares TEN of its twelve imported names with `comms_send`, so the two went to
+// `send-tools.mjs` together. Bringing it here would have doubled this module's import surface and split
+// the delivery cluster across two files. Subject beat category.
 //
 // WHY THE SPLIT FALLS HERE AND NOT ON SIZE. These four are about a channel's EXISTENCE and CONTENTS, and
 // none of them wakes an agent. Measured, the four together reach zero local functions, zero mutable module

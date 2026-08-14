@@ -9,14 +9,16 @@ process.env.AIFY_SERVER_URL = process.env.AIFY_SERVER_URL || "http://127.0.0.1:8
 process.env.AIFY_AGENT_ID = "manager-bot";
 
 // The console surface moved to `console-tools.mjs` in v0.5.4; these three follow their owner.
-// `COMMS_SEND_TOOL_DESCRIPTION` stays in server.js — comms_send has not been extracted, and its
-// description is asserted here because this file is where the console-vs-message distinction is tested.
+// `COMMS_SEND_TOOL_DESCRIPTION` now comes from `send-tools.mjs` — comms_send WAS extracted in v0.5.4,
+// and the description travelled with the tool it describes. It is asserted here because this file is
+// where the console-vs-message distinction is tested. This also removed the last test import of
+// server.js: the bin entry point is now imported by nothing, which its packet already claimed.
 const {
   commsConsoleTailHandler,
   commsConsoleInputHandler,
   CONSOLE_INPUT_TOOL_DESCRIPTION,
 } = await import("../console-tools.mjs");
-const { COMMS_SEND_TOOL_DESCRIPTION } = await import("../server.js");
+const { COMMS_SEND_TOOL_DESCRIPTION } = await import("../send-tools.mjs");
 
 // `comms_interrupt` moved to the dispatch group in v0.5.4. It is exercised here rather than in
 // `dispatch-tools.test.js` because what it asserts is console behaviour — the Ctrl+C byte and the

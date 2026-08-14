@@ -18,7 +18,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // live in a leaf that imports cleanly, so these assertions could become real behavioural tests that
 // call the functions (see tests/aify-service-endpoint.test.js, which already does for the predicates).
 // Left as source-pinning here to keep this slice a relocation rather than a test rewrite.
-const server = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
+// v0.5.4b: `comms_send` moved to `send-tools.mjs`, so the nonce assertions read THAT file now.
+// AND THE UPGRADE THIS FILE ASKS FOR IS NOW UNBLOCKED: the note above says these are source-text
+// assertions only because server.js runs-on-import, and that they could become real behavioural tests
+// once the tool lives in a leaf that imports cleanly. It does — `tests/send-tools.test.js` imports
+// send-tools.mjs and CALLS both handlers. Turning these into a real POST-body assertion needs a
+// loopback service and IS_REMOTE true at load, which is a separate slice, so the precondition is
+// recorded here rather than the work being half-done.
+const server = fs.readFileSync(path.join(__dirname, "..", "send-tools.mjs"), "utf8");
 const endpoint = fs.readFileSync(path.join(__dirname, "..", "aify-service-endpoint.mjs"), "utf8");
 
 // 1. The retry predicate takes the body and gates /messages/send on a NON-EMPTY nonce.
