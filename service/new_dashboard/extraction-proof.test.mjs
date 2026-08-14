@@ -437,7 +437,7 @@ const EXTRACTIONS = [
     importLine: "import { persistChatDrafts, persistChatPrefs, syncChatChips } from './chat-prefs.mjs';",
     items: [
       { name: "persistChatPrefs", at: 4803, marker: "// persistChatPrefs moved to ./chat-prefs.mjs in v0.5.4." },
-      { name: "syncChatChips", at: 4815, marker: "// syncChatChips moved to ./chat-prefs.mjs in v0.5.4." },
+      { name: "syncChatChips", at: 4815, marker: "// syncChatChips moved to ./chat-prefs.mjs in v0.5.4." },
       { name: "persistChatDrafts", at: 4907, marker: "// persistChatDrafts moved to ./chat-prefs.mjs in v0.5.4." },
     ],
   },
@@ -899,8 +899,42 @@ const EXTRACTIONS = [
     module: "layout-prefs.mjs",
     importLine: "import { preferredNavCollapsed, setNavCollapsed, toggleSessionGroupCollapsed } from './layout-prefs.mjs';",
     items: [
-      { name: "setNavCollapsed", at: 3856, marker: "// setNavCollapsed moved to ./layout-prefs.mjs in v0.5.4." },
-      { name: "preferredNavCollapsed", at: 3864, marker: "// preferredNavCollapsed moved to ./layout-prefs.mjs in v0.5.4." },
+      {
+        // Both EDITED since the move, in the same commit as the two work-loop guards and for the same
+        // reason: `boot-wiring.test.mjs` ran the boot against a THROWING localStorage — which is what a
+        // private window gives you, not a null — and found these were the only two readers in the whole
+        // boot path without a guard. `preferredNavCollapsed` is called near the END of the restore, so
+        // the page painted and the boot then stopped, silently.
+        name: "setNavCollapsed",
+        at: 3856,
+        marker: "// setNavCollapsed moved to ./layout-prefs.mjs in v0.5.4.",
+        editedSince: [{
+          was: ["  localStorage.setItem('aify.next.navCollapsed', collapsed ? '1' : '0');"],
+          now: [
+            "  // The DOM update above is deliberately NOT inside the try: the sidebar must collapse even when the",
+            "  // choice cannot be remembered.",
+            "  try { localStorage.setItem('aify.next.navCollapsed', collapsed ? '1' : '0'); } catch { /* unavailable */ }",
+          ],
+        }],
+      },
+      {
+        name: "preferredNavCollapsed",
+        at: 3864,
+        marker: "// preferredNavCollapsed moved to ./layout-prefs.mjs in v0.5.4.",
+        editedSince: [{
+          was: ["  const stored = localStorage.getItem('aify.next.navCollapsed');"],
+          now: [
+            "  let stored = null;",
+            "  try { stored = localStorage.getItem('aify.next.navCollapsed'); } catch { /* unavailable */ }",
+          ],
+        }, {
+          was: [],
+          now: [
+            "  // No readable preference falls through to the viewport, which is the same answer an operator who has",
+            "  // never touched the toggle already gets.",
+          ],
+        }],
+      },
       { name: "toggleSessionGroupCollapsed", at: 1808, marker: "// toggleSessionGroupCollapsed moved to ./layout-prefs.mjs in v0.5.4." },
     ],
   },
@@ -1309,9 +1343,27 @@ const EXTRACTIONS = [
         marker: "// renderDiagnosticsBulkToolbar moved to ./work-loop-actions.mjs in v0.5.4.",
       },
       {
+        // EDITED SINCE THE MOVE, deliberately and in its own commit. The finding — that this was the
+        // one renderer here without a missing-host guard, in a function the orchestrator runs on every
+        // poll — surfaced during the relocation, where fixing it would have been a behaviour change
+        // smuggled into a byte-identical move. Declaring the edit is what keeps the REST of the body
+        // proved, instead of the whole function quietly becoming unverified.
         name: "renderContracts",
         at: 2957,
         marker: "// renderContracts moved to ./work-loop-actions.mjs in v0.5.4.",
+        editedSince: [{
+          was: [],
+          now: [
+            "  // The missing-host guard every neighbouring renderer has — `renderUsagePools`,",
+            "  // `renderDiagnosticsBulkToolbar`, `renderSessionConsole`. This one dereferenced `host` directly, and",
+            "  // it is called from the render orchestrator on EVERY poll, so the day `#contract-list` is renamed or",
+            "  // dropped from a page the whole dashboard stops re-rendering rather than just this panel.",
+            "  //",
+            "  // The bulk toolbar is still rendered on the way out: it lives in its own container and its selection",
+            "  // is pruned there, so skipping it would leave a stale count beside a panel that never drew.",
+            "  if (!host) { renderDiagnosticsBulkToolbar(); return; }",
+          ],
+        }],
       },
       {
         name: "closeWorkContract",
@@ -1319,9 +1371,22 @@ const EXTRACTIONS = [
         marker: "// closeWorkContract moved to ./work-loop-actions.mjs in v0.5.4.",
       },
       {
+        // Edited since the move, same reason and same commit as `renderContracts` above: the falsy-id
+        // guard every neighbouring action already had.
         name: "remindWorkContract",
         at: 3939,
         marker: "// remindWorkContract moved to ./work-loop-actions.mjs in v0.5.4.",
+        editedSince: [{
+          was: [],
+          now: [
+            "  // The falsy-id guard every neighbour has — `closeWorkContract`, `stopAgentWorker`, `removeAgent`,",
+            "  // `deleteSessionById`, `requestSessionControl`. This one did not, and posted `?runId=` for the",
+            "  // server to reject. Both callers happen to supply an id today (the bulk path filters to contracts",
+            "  // that have one; the click handler reads an attribute that is always written), so it was latent —",
+            "  // but \"reachable only through the paths we happen to have\" is the state a guard exists to remove.",
+            "  if (!runId) return;",
+          ],
+        }],
       },
       {
         name: "requestBulkDiagnosticAction",

@@ -157,3 +157,82 @@ test("a refusing storage is swallowed", () => {
     assert.doesNotThrow(() => toggleSessionGroupCollapsed("env-1", true));
   });
 });
+
+// --- storage that is unavailable rather than empty ----------------------------------------------
+//
+// localStorage THROWS in a private window and wherever site data is blocked by policy; it does not
+// return null. `toggleSessionGroupCollapsed` has always guarded for that. The nav pair did not, and
+// `boot-wiring.test.mjs` caught it by running the whole boot against a throwing storage — the page
+// painted and then the boot stopped, because `preferredNavCollapsed` is called near the end of it.
+//
+// Both directions are asserted for each: the guard must not have been achieved by dropping the read.
+
+function withStorage({ throwing = false, stored = {}, narrow = false } = {}) {
+  const saved = {
+    localStorage: globalThis.localStorage,
+    window: globalThis.window,
+    document: globalThis.document,
+  };
+  const reads = [];
+  const writes = [];
+  const store = new Map(Object.entries(stored));
+  globalThis.localStorage = {
+    getItem: (k) => { reads.push(k); if (throwing) throw new DOMException("private mode"); return store.has(k) ? store.get(k) : null; },
+    setItem: (k, v) => { writes.push([k, v]); if (throwing) throw new DOMException("private mode"); store.set(k, v); },
+    removeItem: (k) => store.delete(k),
+  };
+  globalThis.window = { matchMedia: () => ({ matches: narrow }) };
+  const toggled = [];
+  const el = {
+    classList: { toggle: (c, on) => toggled.push([c, on]) },
+    setAttribute() {},
+  };
+  globalThis.document = { getElementById: () => el, querySelector: () => null, querySelectorAll: () => [] };
+  return { reads, writes, toggled, restore: () => Object.assign(globalThis, saved) };
+}
+
+test("preferredNavCollapsed FALLS BACK TO THE VIEWPORT when storage throws", () => {
+  for (const narrow of [true, false]) {
+    const h = withStorage({ throwing: true, narrow });
+    try {
+      assert.equal(preferredNavCollapsed(), narrow,
+        "an unreadable preference must answer the same way as no preference at all");
+      assert.ok(h.reads.includes("aify.next.navCollapsed"),
+        "…and it must still have TRIED, or the guard was achieved by deleting the read");
+    } finally { h.restore(); }
+  }
+});
+
+test("a STORED preference still wins over the viewport", () => {
+  // The other direction. A guard written as an unconditional fallback would pass the test above and
+  // silently ignore every operator who has ever clicked the toggle.
+  const h = withStorage({ stored: { "aify.next.navCollapsed": "1" }, narrow: false });
+  try {
+    assert.equal(preferredNavCollapsed(), true, "an explicit '1' must collapse on a wide viewport");
+  } finally { h.restore(); }
+
+  const open = withStorage({ stored: { "aify.next.navCollapsed": "0" }, narrow: true });
+  try {
+    assert.equal(preferredNavCollapsed(), false, "an explicit '0' must stay open on a narrow one");
+  } finally { open.restore(); }
+});
+
+test("setNavCollapsed STILL COLLAPSES THE SIDEBAR when the write throws", () => {
+  // The DOM update is deliberately outside the try. A guard that wrapped the whole function would make
+  // the sidebar toggle do nothing at all in a private window — a visible, immediate break, traded for
+  // the invisible one.
+  const h = withStorage({ throwing: true });
+  try {
+    assert.doesNotThrow(() => setNavCollapsed(true));
+    assert.deepEqual(h.toggled, [["nav-collapsed", true]], "the class must still have been applied");
+    assert.deepEqual(h.writes, [["aify.next.navCollapsed", "1"]], "…and the persist must still be attempted");
+  } finally { h.restore(); }
+});
+
+test("setNavCollapsed persists normally when storage works", () => {
+  const h = withStorage();
+  try {
+    setNavCollapsed(false);
+    assert.deepEqual(h.writes, [["aify.next.navCollapsed", "0"]]);
+  } finally { h.restore(); }
+});

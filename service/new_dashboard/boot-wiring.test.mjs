@@ -146,39 +146,37 @@ test("the swipe closes the inspector only when it is a SHEET and the swipe went 
   } finally { h.restore(); }
 });
 
-test("A THROWING localStorage BREAKS THE BOOT — found by this extraction, pinned not fixed", () => {
-  // localStorage THROWS in private mode rather than returning null, and every reader in this boot
-  // block guards for it — `applyCachedTheme` via `readLocal`, the settings-tab read, the chat-prefs
-  // read, the attention-strip read. One does not: `preferredNavCollapsed` in layout-prefs.mjs calls
-  // `localStorage.getItem` bare.
+test("A THROWING localStorage NO LONGER BREAKS THE BOOT", () => {
+  // localStorage THROWS in private mode rather than returning null, and this test found the one
+  // reader in the whole boot path without a guard: `preferredNavCollapsed` in layout-prefs.mjs called
+  // `getItem` bare. It runs near the END of the restore — after `setPage('chat')` and
+  // `updateStaticLinks()` — so a private window painted the page and then stopped, with the Work-view
+  // restore and everything after it silently never running.
   //
-  // It is called near the END of the restore, AFTER `setPage('chat')` and `updateStaticLinks()`, so in
-  // private mode the operator gets a page that painted and then stopped — no error visible, the
-  // Work-view restore and everything after it simply never runs.
-  //
-  // PINNED AS-IS. The fix belongs in layout-prefs.mjs, which is not part of this relocation, and this
-  // commit's bodies are proved byte-identical against the pre-move file. Recorded here so the fix is
-  // a visible change to an assertion rather than a silent improvement.
+  // It was pinned as a throw for one commit, because the finding surfaced inside a relocation whose
+  // bodies were proved byte-identical and a guard there would have smuggled a behaviour change into a
+  // refactor. This is the assertion flipped, which is what made the fix visible rather than silent.
   const h = recordingDom({ throwing: true });
   try {
-    assert.throws(() => restorePersistedPreferences({ setPage() {} }), /private mode/,
-      "current behaviour: an unguarded read takes the rest of the boot with it");
+    assert.doesNotThrow(() => restorePersistedPreferences({ setPage() {} }));
     assert.ok(h.reads.includes("aify.next.navCollapsed"),
-      "…and the unguarded read is the nav-collapsed one");
+      "…and it still ATTEMPTS the read — the guard must not have been achieved by deleting it");
   } finally { h.restore(); }
 });
 
-test("the guarded readers before it DO survive a throwing storage", () => {
-  // The other half, which is what makes the finding above specific rather than "storage breaks boot".
-  // Everything up to the nav read completes: the page is set, the attention strip is collapsed by its
-  // catch, and the chat prefs are left at their defaults.
+test("THE WHOLE restore completes on a throwing storage, not just its first half", () => {
+  // The specific regression this replaced: the boot used to get as far as the landing page and stop.
+  // Reaching the LAST statement is what says the guard is in the right place, so the observable is the
+  // final one — the Work-view restore, which runs after the nav preference.
   const h = recordingDom({ throwing: true });
   const pages = [];
   try {
-    try { restorePersistedPreferences({ setPage: (p) => pages.push(p) }); } catch { /* the pinned throw */ }
-    assert.deepEqual(pages, ["chat"], "the landing page is set before the unguarded read");
+    restorePersistedPreferences({ setPage: (p) => pages.push(p) });
+    assert.deepEqual(pages, ["chat"], "the landing page is set");
     assert.ok(h.els.get("attention-strip").classList.added.includes("collapsed"),
       "an unreadable attention preference falls back to collapsed, which its catch does explicitly");
+    assert.ok(h.reads.includes("aifyWorkView"),
+      "the LAST read in the block must be reached — that is the half that used to be skipped");
   } finally { h.restore(); }
 });
 

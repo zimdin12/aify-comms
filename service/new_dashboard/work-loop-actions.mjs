@@ -80,6 +80,14 @@ export function renderContracts() {
       : contract.state === selected)
     .filter((contract) => !category || contractCategory(contract) === category);
   const host = byId('contract-list');
+  // The missing-host guard every neighbouring renderer has — `renderUsagePools`,
+  // `renderDiagnosticsBulkToolbar`, `renderSessionConsole`. This one dereferenced `host` directly, and
+  // it is called from the render orchestrator on EVERY poll, so the day `#contract-list` is renamed or
+  // dropped from a page the whole dashboard stops re-rendering rather than just this panel.
+  //
+  // The bulk toolbar is still rendered on the way out: it lives in its own container and its selection
+  // is pruned there, so skipping it would leave a stale count beside a panel that never drew.
+  if (!host) { renderDiagnosticsBulkToolbar(); return; }
   host.classList.toggle('is-board', state.contractView === 'board');
   if (!contracts.length) {
     host.innerHTML = '<div class="empty-state"><span class="empty-icon">✓</span><strong>No contracts match</strong><p>No reply obligations in this filter.</p></div>';
@@ -110,6 +118,12 @@ export async function closeWorkContract(runId, confirmAction = true, refreshAfte
 }
 
 export async function remindWorkContract(runId, refreshAfter = true) {
+  // The falsy-id guard every neighbour has — `closeWorkContract`, `stopAgentWorker`, `removeAgent`,
+  // `deleteSessionById`, `requestSessionControl`. This one did not, and posted `?runId=` for the
+  // server to reject. Both callers happen to supply an id today (the bulk path filters to contracts
+  // that have one; the click handler reads an attribute that is always written), so it was latent —
+  // but "reachable only through the paths we happen to have" is the state a guard exists to remove.
+  if (!runId) return;
   await api(`/contracts/reminders/run?runId=${encodeURIComponent(runId)}`, { method: 'POST' });
   if (refreshAfter) await refresh();
 }

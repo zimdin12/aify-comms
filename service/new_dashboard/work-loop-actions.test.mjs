@@ -248,46 +248,80 @@ test("closing a work contract can SKIP its confirmation — the flag bulk relies
   } finally { h.restore(); }
 });
 
-test("remindWorkContract has NO id guard, unlike every one of its neighbours", async () => {
-  // PINNED AS-IS, NOT FIXED. `closeWorkContract`, `stopAgentWorker`, `removeAgent`,
-  // `deleteSessionById` and `requestSessionControl` all open with a falsy-id return; this one posts
-  // `?runId=` and lets the server decide. Both callers happen to supply an id — the bulk path filters
-  // to contracts that have one, and the click handler reads a data attribute that is always written —
-  // so this is a latent inconsistency rather than a live bug.
-  //
-  // It is recorded rather than corrected because this commit is a relocation: the bodies are asserted
-  // byte-identical against the pre-move file, so a guard added here would fail the extraction proof and
-  // would smuggle a behaviour change into a refactor. It belongs in its own change.
+test("remindWorkContract REFUSES a falsy id, like every one of its neighbours", async () => {
+  // It used to post `?runId=` and let the server decide, alone among `closeWorkContract`,
+  // `stopAgentWorker`, `removeAgent`, `deleteSessionById` and `requestSessionControl`. Pinned as the
+  // unguarded behaviour for one commit — the finding surfaced inside a relocation whose bodies were
+  // proved byte-identical, so a guard there would have smuggled a behaviour change into a refactor —
+  // and this is that assertion flipped.
+  for (const id of ["", null, undefined, 0]) {
+    const h = withWorkLoop({ confirm: true });
+    try {
+      await remindWorkContract(id, false);
+      assert.deepEqual(mutating(h), [], `${JSON.stringify(id)} must not reach the server`);
+    } finally { h.restore(); }
+  }
+});
+
+test("…and a real id still sends", async () => {
+  // The other direction, without which the guard above passes against a function that does nothing.
   const h = withWorkLoop({ confirm: true });
   try {
-    await remindWorkContract("", false);
-    assert.equal(h.sent.length, 1, "current behaviour: an empty id still reaches the server");
-    assert.match(h.sent[0].url, /runId=$/, "…as an empty query parameter");
+    await remindWorkContract("c1", false);
+    assert.equal(h.sent.length, 1);
+    assert.match(h.sent[0].url, /runId=c1/);
   } finally { h.restore(); }
 });
 
-test("loadContractsForState scopes the fetch and keeps contractsBase for the metrics", async () => {
-  // The base fetch is open-scope. Overwriting `contractsBase` with a filtered set would make every
-  // Work Loop count reflect the filter instead of the whole board.
-  const h = withWorkLoop();
+test("the BULK remind is unaffected by the guard", async () => {
+  // Bulk calls it per contract with `refreshAfter=false`. A guard placed after the api call, or one
+  // that returned a rejected promise, would have broken the batch instead of the empty case.
+  const h = withWorkLoop({ confirm: true });
   try {
-    state.contractsBase = [{ id: "base" }];
-    await loadContractsForState("failed", false);
-    assert.match(h.els.size ? "ok" : "ok", /ok/);
-    assert.deepEqual(state.contractsBase, [{ id: "base" }], "the open-scope base must survive a filter");
+    select([{ kind: "contract", id: "c1" }, { kind: "contract", id: "c2" }]);
+    await requestBulkDiagnosticAction("remind");
+    assert.equal(h.sent.length, 2, "both contracts must still be reminded");
   } finally { h.restore(); }
 });
 
-test("renderContracts THROWS without its host element, where its neighbours no-op", async () => {
-  // The same shape of finding, pinned the same way and for the same reason. `renderUsagePools`,
-  // `renderDiagnosticsBulkToolbar` and `renderSessionConsole` all return early when their container is
-  // missing; this one reads `host.classList` off a null. `#contract-list` is in index.html, so nothing
-  // reaches it today — but `renderContracts` runs from the render orchestrator on EVERY poll, which
-  // means the day that element is renamed the whole page stops re-rendering, not just this panel.
+test("renderContracts NO-OPS without its host element, like its neighbouring renderers", async () => {
+  // It used to dereference `host` directly, alone among `renderUsagePools`,
+  // `renderDiagnosticsBulkToolbar` and `renderSessionConsole`. That matters more than it looks: it
+  // runs from the render orchestrator on EVERY poll, so a renamed `#contract-list` would have stopped
+  // the whole dashboard re-rendering rather than just this panel. Pinned as a throw for one commit,
+  // for the same reason as the other two findings; this is the assertion flipped.
   const saved = globalThis.document;
   globalThis.document = { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [] };
   try {
-    assert.throws(() => renderContracts(), TypeError, "current behaviour, recorded so a fix is visible");
+    assert.doesNotThrow(() => renderContracts());
+  } finally { globalThis.document = saved; }
+});
+
+test("…and it still renders when the host IS there", async () => {
+  // Without this the guard above passes against a renderer that returns unconditionally.
+  const h = withWorkLoop();
+  try {
+    state.contracts = [];
+    renderContracts();
+    assert.match(h.els.get("contract-list").innerHTML, /No contracts match/,
+      "an empty filter must still paint its empty state");
+  } finally { h.restore(); }
+});
+
+test("the bulk toolbar is still rendered when the contract host is missing", async () => {
+  // The toolbar lives in its own container and prunes the selection as it draws. Returning early
+  // without it would leave a stale "N selected" beside a panel that never rendered.
+  const saved = globalThis.document;
+  const touched = [];
+  globalThis.document = {
+    getElementById: (id) => { touched.push(id); return null; },
+    querySelector: () => null,
+    querySelectorAll: () => [],
+  };
+  try {
+    renderContracts();
+    assert.ok(touched.includes("diagnostics-bulk-toolbar"),
+      "the toolbar renderer must still have been reached");
   } finally { globalThis.document = saved; }
 });
 
