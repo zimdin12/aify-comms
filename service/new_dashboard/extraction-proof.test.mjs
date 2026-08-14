@@ -669,6 +669,40 @@ const EXTRACTIONS = [
       },
     ],
   },
+
+  {
+    module: "nav-click-handlers.mjs",
+    importLine: "import { navigateToPage, openEnvironmentSpawn, selectAnalyticsRange } from './nav-click-handlers.mjs';",
+    items: [
+      {
+        name: "selectAnalyticsRange",
+        at: 4515,
+        marker: "    selectAnalyticsRange(analyticsRange, loadAnalytics);",
+        wrapper: {
+          header: ["export function selectAnalyticsRange(analyticsRange, loadAnalytics) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+      {
+        name: "navigateToPage",
+        at: 4521,
+        marker: "    navigateToPage(page, setPage, loadAnalytics);",
+        wrapper: {
+          header: ["export function navigateToPage(page, setPage, loadAnalytics) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+      {
+        name: "openEnvironmentSpawn",
+        at: 4546,
+        marker: "    openEnvironmentSpawn(envSpawn, setPage, renderEnvironmentSpawnOptions);",
+        wrapper: {
+          header: ["export function openEnvironmentSpawn(envSpawn, setPage, renderEnvironmentSpawnOptions) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -693,6 +727,7 @@ const MODULES = () => ({
   "chat-click-handlers.mjs": read("chat-click-handlers.mjs"),
   "session-click-handlers.mjs": read("session-click-handlers.mjs"),
   "agent-click-handlers.mjs": read("agent-click-handlers.mjs"),
+  "nav-click-handlers.mjs": read("nav-click-handlers.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),

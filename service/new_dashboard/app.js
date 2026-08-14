@@ -50,6 +50,7 @@ import { openAgentEditForm, openCompactionHistory, openContinueForm, openMessage
 import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } from './run-inspector-controls.mjs';
 import { persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';
 import { startColdAgent, switchModeFromChip } from './agent-click-handlers.mjs';
+import { navigateToPage, openEnvironmentSpawn, selectAnalyticsRange } from './nav-click-handlers.mjs';
 import { openChatConversation, openChatReply, setChatView, setPulseWindow } from './chat-click-handlers.mjs';
 import { applySessionStatusPreset, openAgentSessions, selectSessionRow, toggleSessionCheckbox, toggleSessionStatusFilter } from './session-click-handlers.mjs';
 import { resolveApiOrigin } from './api-origin.mjs';
@@ -3021,15 +3022,12 @@ document.addEventListener('click', (event) => {
   }
   const analyticsRange = event.target.closest('[data-analytics-range]');
   if (analyticsRange) {
-    state.analytics.range = rangeDef(analyticsRange.dataset.analyticsRange).key;
-    loadAnalytics(true);
+    selectAnalyticsRange(analyticsRange, loadAnalytics);
     return;
   }
   const page = event.target.closest('[data-page], [data-page-jump]')?.dataset.page || event.target.closest('[data-page-jump]')?.dataset.pageJump;
   if (page) {
-    setPage(page);
-    // Lazy-load the analytics page the first time it's opened (and refresh on re-open).
-    if (page === 'analytics') loadAnalytics(true);
+    navigateToPage(page, setPage, loadAnalytics);
     return;
   }
   const diagnosticSelect = event.target.closest('[data-diagnostic-select]');
@@ -3049,9 +3047,7 @@ document.addEventListener('click', (event) => {
   }
   const envSpawn = event.target.closest('[data-env-spawn]');
   if (envSpawn) {
-    setPage('environments');
-    renderEnvironmentSpawnOptions(envSpawn.dataset.envSpawn);
-    byId('env-spawn-agent-id')?.focus();
+    openEnvironmentSpawn(envSpawn, setPage, renderEnvironmentSpawnOptions);
     return;
   }
   const envRoots = event.target.closest('[data-env-roots]');
