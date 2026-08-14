@@ -17,7 +17,9 @@ have. Both now import from a leaf.
 That is the measurement needing judgement rather than obedience: "no users outside this domain" is a
 necessary condition for locality, not a sufficient one, because shims are invisible to it.
 
-`start_session_console` (315L) and `control_session` (282L) both move WHOLE. Neither is split here.
+`start_session_console` and `control_session` both moved WHOLE into this module. `control_session`
+still is whole; `start_session_console` is not — v0.5.4 lifted its terminal-capability refusal into
+`service/api_core/console_capability_gate.py`, proved by `test_start_session_console_split_is_inert.py`.
 
 BORROW TABLE with retirement map:
 
@@ -28,7 +30,6 @@ BORROW TABLE with retirement map:
     _terminal_session_to_dict                retires with: agents, terminals
     _append_dispatch_control                 retires with: agents, dispatch
     _workspace_for_environment               retires with: agents
-    _environment_supports_terminal           retires with: agents
 
 Nearly all of it retires with `agents`, which is the last domain.
 
@@ -58,7 +59,8 @@ from service.api_core.records import (
 )
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 from service.api_core.serialization import _iso_from_ms, _json_loads_or
-from service.api_core.capabilities import _default_console_command, _environment_supports_terminal
+from service.api_core.capabilities import _default_console_command
+from service.api_core.console_capability_gate import _refuse_console_without_terminal_capability
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
@@ -567,30 +569,7 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
         environment = _environment_record_to_dict(env_row, offline_seconds=settings.get("environment_offline_seconds", 90))
         if str(environment.get("status") or "").lower() != "online":
             raise HTTPException(409, f'Environment "{environment.get("id")}" is {environment.get("status") or "unknown"}')
-        if not _environment_supports_terminal(environment, session["runtime"]):
-            env_id = environment.get("id")
-            if not bool(environment.get("terminal")) or not bool(environment.get("pty")):
-                # Whole-environment PTY capability is off — not a per-runtime
-                # issue. The bridge on that host reports no terminal/pty
-                # (usually node-pty is not installed/built there).
-                detail = (
-                    f'Environment "{env_id}" has no PTY/terminal capability — its bridge reports '
-                    f'terminal={bool(environment.get("terminal"))}, pty={bool(environment.get("pty"))}. '
-                    f'This blocks the Console for ALL runtimes there (not just "{session["runtime"]}"). '
-                    f'Fix: install/build node-pty for the aify-comms bridge on that host '
-                    f'(reinstall via install.sh and restart the bridge), then retry. '
-                    f'Use an environment that advertises terminal support in the meantime.'
-                )
-            else:
-                advertised = ", ".join(
-                    str(r) for r in (environment.get("terminalRuntimes") or [])
-                ) or "none"
-                detail = (
-                    f'Environment "{env_id}" supports the Console but not for runtime '
-                    f'"{session["runtime"]}". It advertises terminal runtimes: {advertised}. '
-                    f'Spawn/select a supported runtime, or update that bridge.'
-                )
-            raise HTTPException(409, detail)
+        _refuse_console_without_terminal_capability(environment, session)
         if runtime == "pi" and not str(session["session_handle"] or "").strip() and not bool(req.freshContext):
             raise HTTPException(409, 'Pi Console needs a session handle to preserve context. Set a handle or request freshContext=true.')
 
