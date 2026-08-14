@@ -1,417 +1,14 @@
-"""Session MODE and HANDLE: which mode an agent runs in, and which native session it owns.
+"""The pre-split `switch_agent_session_mode`, frozen.
 
-v0.5.2m, one surface of the agents package. Built with `domain_router()`;
-declares NO tags — the parent applies `tags=["api"]` once when api_v2 includes the package.
+Not imported by anything. It is the ONE true original that
+`test_switch_agent_session_mode_split_is_inert.py` inlines every extraction back against — see the
+analytics precedent for why one fixture beats a chain of per-slice copies.
+
+Captured from `git show HEAD:service/routers/agents/session_mode.py` at the commit before the first
+extraction, decoded as utf-8 rather than through the locale codec.
 """
 
-from __future__ import annotations
 
-import asyncio
-import json
-import logging
-import time
-import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
-
-from fastapi import HTTPException, Query, Request
-
-from service.api_core.session_mode_gates import _enforce_switch_not_blocked_by_active_run
-from service.api_core.active_run_lookup import _get_blocking_active_run
-from service.api_core.runtime_state import _runtime_state_replacing_handle, _runtime_state_with_handle
-from service.api_core.routing import domain_router
-
-logger = logging.getLogger("aify_comms.routers.agents.session_mode")
-
-# Imported for the ANNOTATIONS. Under postponed evaluation these are strings, so a
-# missing one does not fail import -- FastAPI demotes the body to a query parameter and
-# the endpoint 422s at request time. The route annotation gate caught 17 of these here.
-from service.models import AgentSessionHandleUpdate, AgentSessionModeSwitchRequest
-
-from service.api_core.resume_command import _resume_command_for
-from service.api_core.dispatch_run_state import _append_dispatch_control
-from service.api_core.message_store import _get_unread_count_map
-from service.db_errors import _is_lock_error
-from service.api_core.agent_sessions import _upsert_resident_agent_session
-from service.api_core.bridge_registration import _record_bridge_registration
-from service.api_core.outbound_activity import _get_outbound_activity_map
-from service.routers.agents.shared import (
-    DEFAULT_SETTINGS,
-    LIVE_SESSION_STATUSES,
-    _SESSION_MODES,
-    _agent_record_to_dict,
-    _agent_session_to_dict,
-    _agent_tombstone,
-    _append_dispatch_event,
-    _append_terminal_control,
-    _append_terminal_event,
-    _apply_status_event,
-    _borrowed_console_tail_max_bytes,
-    _borrowed_console_tail_max_lines,
-    _borrowed_list_agents_refresh_limit,
-    _borrowed_listen_events,
-    _borrowed_live_session_statuses,
-    _borrowed_manual_statuses,
-    _borrowed_runtime_config_live_keys,
-    _borrowed_shell_placeholder_handle_re,
-    _broadcast_agent_status,
-    _broadcast_engine_status,
-    _clear_status_state_in_turn,
-    _coldstart_refusal_message,
-    _compute_agent_status,
-    _compute_live_status_cache,
-    _default_capabilities_for,
-    _environment_effective_status,
-    _environment_record_to_dict,
-    _fail_active_runs_for_superseded_bridges,
-    _get_dispatch_state_for_agent,
-    _get_dispatch_state_map,
-    _get_ws,
-    _has_codex_live_app_server,
-    _has_live_terminal_session,
-    _has_pending_or_booting_spawn_request,
-    _invalidate_agent_live_state,
-    _iso_to_epoch,
-    _json_loads_or,
-    _live_state_get,
-    _load_settings,
-    _managed_owning_environment_row,
-    _managed_via_wrapper_for_runtime,
-    _merge_runtime_policy_for_wrapper_reregister,
-    _normalize_machine_id,
-    _normalize_runtime,
-    _normalize_session_mode,
-    _now,
-    _record_channel_sidecar_heartbeat,
-    _record_claimer_lease,
-    _refresh_expired_agent_live_states,
-    _render_live_terminal_screen,
-    _render_terminal_snapshot,
-    _repair_unusable_active_runs,
-    _row_status_note,
-    _runtime_capability_for_environment,
-    _sanitize_session_handle,
-    _session_capabilities_replacing_handle,
-    _session_handle_live_owner,
-    _stop_virtual_terminals_for_superseded_bridges,
-    _synth_terminal_should_be_created,
-    _terminal_failure_line,
-    _terminal_failure_tail,
-    _terminal_session_to_dict,
-    _timestamp_sort_key,
-    _touch_current_agent_session,
-    apply_event,
-    derive,
-    engine_status,
-    get_db,
-    logger,
-    re,
-    sqlite3,
-    validate_name,
-)
-from service.api_core.workspace import _workspace_for_environment
-from service.api_core.terminal_ownership import _active_terminal_for_agent
-from service.api_core.dispatch_start import (
-    _coldstart_spawn_request_for_dispatch,
-    _ensure_managed_pty_for_dispatch,
-)
-from service.api_core.registration_gates import (
-    _enforce_env_reachable_gate,
-    _enforce_live_worker_gate,
-    _fresh_same_mode_bridge_conflict,
-    _machine_family,
-    _validate_registration_cwd,
-)
-from service.api_core.agent_terminal_ops import (
-    _request_stop_agent_terminals,
-    _resolve_live_console_terminal,
-)
-from service.api_core.agent_sessions import _adopt_live_resident_driver
-from service.api_core.agent_removal import _remove_agent_record
-
-router = domain_router()
-
-
-@router.patch("/agents/{agent_id}/session-handle")
-async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpdate, request: Request):
-    validate_name(agent_id, "agent ID")
-    # Drop unexpanded shell placeholders ("$HERMES_SESSION_ID", "${VAR}") so a
-    # literal is never stored as the resume handle — see _sanitize_session_handle.
-    session_handle = _sanitize_session_handle(req.sessionHandle)
-    if len(session_handle) > 512:
-        raise HTTPException(400, "sessionHandle must be 512 characters or fewer")
-    db = await get_db()
-    try:
-        now = _now()
-        row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-        if not row:
-            tombstone = await _agent_tombstone(db, agent_id)
-            if tombstone:
-                raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
-            raise HTTPException(404, f"Agent '{agent_id}' not found")
-
-        # ── Sticky session identity + new-id guard (governance, 2026-05-30) ──
-        # The bridge heartbeat (session-handle-heartbeat.js, requestedBy=
-        # "bridge-heartbeat") continuously reports the runtime's *discovered*
-        # session id. We must NOT silently overwrite the persisted handle when
-        # that discovered id DRIFTS from what we already pinned — a drift is the
-        # observable symptom of a split (agent landed on a fresh id) or a merge
-        # (two agents converging on one id). Instead we park the proposed id in
-        # `pending_session_id`, flag the agent `session-changed`, and KEEP
-        # delivery pointed at the old handle until the operator resolves it.
-        #
-        # Scope is deliberately narrow so we never break the existing flows:
-        #   • First-id auto-accept — no persisted handle yet → accept (current).
-        #   • Same id re-reported → no-op (no pending, no churn).
-        #   • Clearing (empty handle) → allowed (heal paths clear poisoned ids).
-        #   • Deliberate operator re-pin (any other requestedBy, e.g. dashboard
-        #     manual set, console attach) → unguarded, as before.
-        #   • Re-register (POST /agents) is a separate write site and remains a
-        #     full state refresh — it is NOT routed through here.
-        requested_by = str(req.requestedBy or "").strip()
-        persisted_handle = str(row["session_handle"] or "").strip()
-
-        # ── Cross-agent collision guard (root-cause fix, 2026-05-31) ──
-        # A runtime session id must be owned by at most ONE live agent. Never let
-        # agent X ADOPT a session id that a DIFFERENT LIVE agent already owns —
-        # the resident<->managed invariant. (Incident: graph-tech-lead adopted
-        # comms-tech-lead's live resident id 651b895f at 06:07; the kill-prior
-        # reaper then turned that collision fatal.) This fires for ANY source
-        # (capture, heartbeat, manual set) and covers the first-id case too. Park
-        # the colliding id as `pending_session_id` and KEEP this agent's own
-        # handle (empty stays empty → the agent launches fresh and captures its
-        # OWN id, which won't collide). A stale/dead owner is NOT a collision
-        # (the id is free to reassign) — _session_handle_live_owner gates on
-        # heartbeat freshness.
-        if session_handle and session_handle != persisted_handle:
-            _settings_g = await _load_settings(db)
-            _owner = await _session_handle_live_owner(
-                db, session_handle, exclude_agent_id=agent_id,
-                lease_seconds=_settings_g.get("resident_lease_seconds", 150),
-            )
-            if _owner:
-                _note = (
-                    f"session-collision: reported id '{session_handle}' is already owned by live "
-                    f"agent '{_owner['agentId']}' ({_owner['sessionMode']}); kept own handle. "
-                    "Two live agents must not share one session id."
-                )
-                await db.execute(
-                    "UPDATE agents SET pending_session_id = ?, status_note = ?, last_seen = ? WHERE id = ?",
-                    (session_handle, _note, now, agent_id),
-                )
-                await db.commit()
-                updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-                settings = await _load_settings(db)
-                status = await _compute_agent_status(updated, db)
-                dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
-                ws = await _get_ws(request)
-                if ws:
-                    await ws.broadcast("agent_session_changed", {
-                        "agentId": agent_id,
-                        "sessionHandle": persisted_handle,
-                        "pendingSessionId": session_handle,
-                        "collisionWith": _owner["agentId"],
-                    })
-                return {
-                    "ok": True,
-                    "agentId": agent_id,
-                    "state": "session-collision",
-                    "collisionWith": _owner["agentId"],
-                    # Delivery keeps targeting THIS agent's own handle; the
-                    # colliding id is NOT adopted.
-                    "sessionHandle": persisted_handle,
-                    "pendingSessionId": session_handle,
-                    "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
-                }
-
-        # Auto-confirm (2026-06-04): when ON (default), a SAFE self-change — the
-        # cross-agent collision guard above already returned for a live-owned id —
-        # is adopted immediately (fall through to the bind path below) instead of
-        # parked. This breaks the managed-claude session-changed → stale-console-
-        # owner → recycle loop. When OFF, park as `pending_session_id` and wait for
-        # a manual Confirm (the original sticky-identity governance behavior).
-        _auto_confirm_sid = bool(
-            (await _load_settings(db)).get(
-                "auto_confirm_session_id", DEFAULT_SETTINGS["auto_confirm_session_id"]
-            )
-        )
-        # FRESH-START GUARD (2026-06-12, the ci-manager lost-context incident): auto-adopt
-        # exists for SAFE self-changes (a compaction/resume issues a new id that CARRIES the
-        # context). But when the live terminal started FRESH (its command has no --resume —
-        # e.g. the wrapper dropped an unresumable handle after days offline), the reported id
-        # is an EMPTY session: adopting it overwrites the pinned handle of the real
-        # context-bearing session, and every later Restart then "correctly" resumes the empty
-        # one. Park such ids for manual Confirm instead, even when auto-confirm is ON.
-        _fresh_start_terminal = False
-        if (
-            _auto_confirm_sid
-            and requested_by == "bridge-heartbeat"
-            and session_handle
-            and persisted_handle
-            and session_handle != persisted_handle
-        ):
-            try:
-                _lt = await (await db.execute(
-                    "SELECT command FROM terminal_sessions WHERE agent_id = ? "
-                    "AND status IN ('starting','attached','running','active','idle') "
-                    "AND id NOT LIKE 'vterm_%' ORDER BY datetime(COALESCE(updated_at, created_at)) DESC LIMIT 1",
-                    (agent_id,),
-                )).fetchone()
-                if _lt is not None:
-                    _fresh_start_terminal = "--resume" not in str(_lt["command"] or "")
-            except Exception:
-                _fresh_start_terminal = False
-        if (
-            requested_by == "bridge-heartbeat"
-            and session_handle
-            and persisted_handle
-            and session_handle != persisted_handle
-            and (not _auto_confirm_sid or _fresh_start_terminal)
-        ):
-            await db.execute(
-                """
-                UPDATE agents
-                SET pending_session_id = ?,
-                    status_note = ?,
-                    last_seen = ?
-                WHERE id = ?
-                """,
-                (
-                    session_handle,
-                    (
-                        f"session-changed: reported id '{session_handle}' differs from "
-                        f"pinned '{persisted_handle}'. Confirm new or keep current."
-                    ),
-                    now,
-                    agent_id,
-                ),
-            )
-            await db.commit()
-            updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-            settings = await _load_settings(db)
-            status = await _compute_agent_status(updated, db)
-            dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
-            ws = await _get_ws(request)
-            if ws:
-                await ws.broadcast("agent_session_changed", {
-                    "agentId": agent_id,
-                    "sessionHandle": persisted_handle,
-                    "pendingSessionId": session_handle,
-                })
-            return {
-                "ok": True,
-                "agentId": agent_id,
-                "state": "session-changed",
-                # Delivery still targets the OLD (persisted) handle — unchanged.
-                "sessionHandle": persisted_handle,
-                "pendingSessionId": session_handle,
-                "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
-            }
-
-        runtime = _normalize_runtime(row["runtime"] or "generic")
-        session_mode = _normalize_session_mode(row["session_mode"] or "resident")
-        runtime_config = _json_loads_or(row["runtime_config"], {})
-        runtime_state = _runtime_state_replacing_handle(runtime, row["runtime_state"], session_handle)
-        capabilities = _default_capabilities_for(runtime, session_mode, session_handle, runtime_config)
-        registered_handle = _runtime_state_with_handle(runtime, {}, session_handle)
-
-        # G3 (2026-06-03): advisory (non-blocking) warning when the handle being
-        # bound is already owned by a DIFFERENT live agent. The strict cross-agent
-        # collision guard above already HARD-BLOCKS the `handle != persisted` live
-        # case; this warning covers the remaining binds (e.g. re-pinning the same
-        # handle another live agent already shares) so the operator sees that two
-        # live agents are pointing at one native session id.
-        handle_share_warning = ""
-        if session_handle:
-            _settings_g3 = await _load_settings(db)
-            _owner_g3 = await _session_handle_live_owner(
-                db, session_handle, exclude_agent_id=agent_id,
-                lease_seconds=_settings_g3.get("resident_lease_seconds", 150),
-            )
-            if _owner_g3:
-                handle_share_warning = (
-                    f"session id '{session_handle}' is also owned by live agent "
-                    f"'{_owner_g3['agentId']}' ({_owner_g3['sessionMode']}); two live agents "
-                    "should not share one native session."
-                )
-        await db.execute(
-            """
-            UPDATE agents
-            SET session_handle = ?,
-                pending_session_id = '',
-                runtime_state = ?,
-                capabilities = ?,
-                status_note = ?,
-                last_seen = ?
-            WHERE id = ?
-            """,
-            (
-                session_handle,
-                json.dumps(runtime_state),
-                json.dumps(capabilities),
-                f"Session handle set by {req.requestedBy or 'operator'}." if session_handle else f"Session handle cleared by {req.requestedBy or 'operator'}.",
-                now,
-                agent_id,
-            ),
-        )
-        latest_session = await (await db.execute(
-            """
-            SELECT id, capabilities, telemetry
-            FROM agent_sessions
-            WHERE agent_id = ?
-              AND runtime = ?
-            ORDER BY last_seen DESC
-            LIMIT 1
-            """,
-            (agent_id, runtime),
-        )).fetchone()
-        if latest_session:
-            session_telemetry = _json_loads_or(latest_session["telemetry"], {})
-            if registered_handle:
-                session_telemetry["registeredHandle"] = registered_handle
-            else:
-                session_telemetry.pop("registeredHandle", None)
-            session_capabilities = _session_capabilities_replacing_handle(latest_session["capabilities"], session_handle)
-            await db.execute(
-                """
-                UPDATE agent_sessions
-                SET session_handle = ?,
-                    capabilities = ?,
-                    telemetry = ?,
-                    last_seen = ?
-                WHERE id = ?
-                """,
-                (
-                    session_handle,
-                    json.dumps(session_capabilities),
-                    json.dumps(session_telemetry),
-                    now,
-                    latest_session["id"],
-                ),
-            )
-        await db.commit()
-
-        updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-        settings = await _load_settings(db)
-        status = await _compute_agent_status(updated, db)
-        dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
-        ws = await _get_ws(request)
-        if ws:
-            await ws.broadcast("agent_session_handle_updated", {"agentId": agent_id, "sessionHandle": session_handle})
-        handle_response = {
-            "ok": True,
-            "agentId": agent_id,
-            "sessionHandle": session_handle,
-            "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
-        }
-        if handle_share_warning:
-            handle_response["warning"] = handle_share_warning
-        return handle_response
-    finally:
-        await db.close()
-
-
-@router.patch("/agents/{agent_id}/session-mode")
 async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRequest, request: Request):
     """Plan 6 C1 (2026-05-26): operator-driven resident/managed mode flip.
 
@@ -531,9 +128,38 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                     "rejected until it is switched back to managed."
                 )
 
-        await _enforce_switch_not_blocked_by_active_run(
-            db, req, agent_id, new_mode, runtime, switch_warnings,
-        )
+        if not req.force:
+            blocking = await _get_blocking_active_run(db, agent_id)
+            if blocking:
+                raise HTTPException(
+                    409,
+                    f"Agent has an active dispatch run (runId={blocking.get('runId')}); wait for it to finish or pass force=true",
+                )
+            # api_server model: resident hermes resumes its pinned session via --resume; no gatewayUrl needed (was a tui_gateway-era guard)
+            if new_mode == "managed":
+                managed_session = await (await db.execute(
+                    """
+                    SELECT id
+                    FROM agent_sessions
+                    WHERE agent_id = ?
+                      AND runtime = ?
+                      AND status NOT IN ('failed','lost','stopped','ended','completed','cancelled')
+                    ORDER BY last_seen DESC
+                    LIMIT 1
+                    """,
+                    (agent_id, runtime),
+                )).fetchone()
+                if not managed_session:
+                    # RELAXED (2026-06-11): this used to 409, but since lazy auto-start a
+                    # managed agent with no live backing is simply `available` — it cold-starts
+                    # on the next send and resolves its environment at claim time. Blocking the
+                    # flip stranded resident agents on offline machines (operator-reported: an
+                    # old resident session on another PC could not be switched). Allow the
+                    # switch and surface a warning instead.
+                    switch_warnings.append(
+                        "No live managed backing yet — the agent reads `available` and a managed "
+                        "worker will cold-start on the next send once its environment is online."
+                    )
 
         now = _now()
         requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
