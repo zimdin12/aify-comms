@@ -5,7 +5,7 @@ import { esc, fileSizeLabel, relTime, tsMs, usageFmtTokens, usageResetLabel } fr
 import { createTerminalInputPoster, createTerminalInputHandler, forceTerminalRepaint, waitForTerminalSize, wheelInputSequence } from './terminal-input.mjs';
 import { continueCliCommand, continueCliDetails, continueCliInfo, resumeMachineNote } from './cli-resume.mjs';
 import { collapseSupersededSessions, countSupersededSessions } from './sessions-list.mjs';
-import { AGENT_STATUSES, LIVE_AGENT_STATUSES, STATUS_KINDS, renderStatusChip, resolveStatus, runStatusContext, statusWhyContext } from './status.js';
+import { AGENT_STATUSES, STATUS_KINDS, renderStatusChip, resolveStatus, runStatusContext, statusWhyContext } from './status.js';
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
 import { byId, toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
 import { createChatController } from './chat.js';
@@ -50,6 +50,7 @@ import { openAgentEditForm, openCompactionHistory, openContinueForm, openMessage
 import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } from './run-inspector-controls.mjs';
 import { persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';
 import { openChatConversation, openChatReply, setChatView, setPulseWindow } from './chat-click-handlers.mjs';
+import { applySessionStatusPreset, toggleSessionCheckbox, toggleSessionStatusFilter } from './session-click-handlers.mjs';
 import { resolveApiOrigin } from './api-origin.mjs';
 import { setApiBase, api } from './api-client.mjs';
 import { attachChatFile, deleteSharedFile, loadFiles, renderFiles, uploadPastedImage, uploadSharedFile } from './shared-files.mjs';
@@ -1121,12 +1122,10 @@ function runSourceMessage(run) {
 // H1: these were hand-copies of status_engine.VALID_STATUSES. They now alias the single JS
 // owner in status.js, which is bound to the Python source by a test.
 // SESSION_FILTER_KINDS moved to ./session-rail.mjs in v0.5.4.
-const SESSION_LIVE_KINDS = LIVE_AGENT_STATUSES;
+// SESSION_LIVE_KINDS moved to ./session-click-handlers.mjs in v0.5.4.
 // renderSessionStatusFilter moved to ./session-rail.mjs in v0.5.4.
 
-function persistSessionStatusFilter() {
-  try { localStorage.setItem('aifySessionStatusFilter', JSON.stringify([...state.sessionStatusFilter])); } catch { /* ignore */ }
-}
+// persistSessionStatusFilter moved to ./session-click-handlers.mjs in v0.5.4.
 
 // renderSessionRail moved to ./session-rail.mjs in v0.5.4.
 
@@ -2925,19 +2924,12 @@ document.addEventListener('click', (event) => {
   }
   const sessionStatusPreset = event.target.closest('[data-session-status-preset]');
   if (sessionStatusPreset) {
-    const which = sessionStatusPreset.dataset.sessionStatusPreset;
-    state.sessionStatusFilter = new Set(which === 'all' ? SESSION_FILTER_KINDS : which === 'live' ? SESSION_LIVE_KINDS : []);
-    persistSessionStatusFilter();
-    renderSessionWorkspace();
+    applySessionStatusPreset(sessionStatusPreset, renderSessionWorkspace);
     return;
   }
   const sessionStatusFilter = event.target.closest('[data-session-status-filter]');
   if (sessionStatusFilter) {
-    const k = sessionStatusFilter.dataset.sessionStatusFilter;
-    if (state.sessionStatusFilter.has(k)) state.sessionStatusFilter.delete(k);
-    else state.sessionStatusFilter.add(k);
-    persistSessionStatusFilter();
-    renderSessionWorkspace();
+    toggleSessionStatusFilter(sessionStatusFilter, renderSessionWorkspace);
     return;
   }
   const agentCompact = event.target.closest('[data-agent-compact]');
@@ -3093,10 +3085,7 @@ document.addEventListener('click', (event) => {
   if (openChat) { openAgentChat(openChat.dataset.openChat); return; }
   const sessionCheckbox = event.target.closest('[data-session-checkbox]');
   if (sessionCheckbox) {
-    const id = sessionCheckbox.dataset.sessionCheckbox;
-    if (sessionCheckbox.checked) state.selectedSessionIds.add(id);
-    else state.selectedSessionIds.delete(id);
-    renderSessionWorkspace();
+    toggleSessionCheckbox(sessionCheckbox, renderSessionWorkspace);
     return;
   }
   // Mode-switch chips can live inside selectable session rows. Handle them

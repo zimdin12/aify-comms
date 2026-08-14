@@ -549,6 +549,59 @@ const EXTRACTIONS = [
       },
     ],
   },
+
+  // The status.js import shed LIVE_AGENT_STATUSES: its only reader in app.js was SESSION_LIVE_KINDS,
+  // which moved. Declared as its own entry with no items, so the edit is unwound rather than left as a
+  // dead import the reconstruction would have to tolerate.
+  {
+    module: "session-click-handlers.mjs",
+    importLine: "import { AGENT_STATUSES, STATUS_KINDS, renderStatusChip, resolveStatus, runStatusContext, statusWhyContext } from './status.js';",
+    importWas: "import { AGENT_STATUSES, LIVE_AGENT_STATUSES, STATUS_KINDS, renderStatusChip, resolveStatus, runStatusContext, statusWhyContext } from './status.js';",
+    items: [],
+  },
+  {
+    module: "session-click-handlers.mjs",
+    importLine: "import { applySessionStatusPreset, toggleSessionCheckbox, toggleSessionStatusFilter } from './session-click-handlers.mjs';",
+    items: [
+      {
+        name: "SESSION_LIVE_KINDS",
+        at: 1741,
+        marker: "// SESSION_LIVE_KINDS moved to ./session-click-handlers.mjs in v0.5.4.",
+      },
+      {
+        name: "persistSessionStatusFilter",
+        at: 1771,
+        marker: "// persistSessionStatusFilter moved to ./session-click-handlers.mjs in v0.5.4.",
+      },
+      {
+        name: "applySessionStatusPreset",
+        at: 4397,
+        marker: "    applySessionStatusPreset(sessionStatusPreset, renderSessionWorkspace);",
+        wrapper: {
+          header: ["export function applySessionStatusPreset(sessionStatusPreset, renderSessionWorkspace) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+      {
+        name: "toggleSessionStatusFilter",
+        at: 4405,
+        marker: "    toggleSessionStatusFilter(sessionStatusFilter, renderSessionWorkspace);",
+        wrapper: {
+          header: ["export function toggleSessionStatusFilter(sessionStatusFilter, renderSessionWorkspace) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+      {
+        name: "toggleSessionCheckbox",
+        at: 4565,
+        marker: "    toggleSessionCheckbox(sessionCheckbox, renderSessionWorkspace);",
+        wrapper: {
+          header: ["export function toggleSessionCheckbox(sessionCheckbox, renderSessionWorkspace) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -571,6 +624,7 @@ const MODULES = () => ({
   "session-rail.mjs": read("session-rail.mjs"),
   "settings-panel.mjs": read("settings-panel.mjs"),
   "chat-click-handlers.mjs": read("chat-click-handlers.mjs"),
+  "session-click-handlers.mjs": read("session-click-handlers.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),
