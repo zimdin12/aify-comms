@@ -34,6 +34,11 @@ from service.tests.extract_method import assert_extractions_preserve_behaviour
 REPO = Path(__file__).resolve().parent.parent.parent
 DISPATCH = REPO / "service" / "routers" / "dispatch_messages" / "dispatch.py"
 DISPATCH_START = REPO / "service" / "api_core" / "dispatch_start.py"
+#: The helper was RELOCATED out of dispatch_start.py in v0.5.4 (that module was 943 lines and this was
+#: its largest piece with a single importer). Byte-identical move, so the round trip below still closes
+#: — but only if the proof reads the file it actually lives in now.
+DELIVERY_RESOLVE = REPO / "service" / "api_core" / "dispatch_delivery_resolve.py"
+MODULES = (DISPATCH, DISPATCH_START, DELIVERY_RESOLVE)
 FIXTURE = Path(__file__).resolve().parent / "data" / "create_dispatch_before_split.py"
 
 SOURCE_FUNCTION = "create_dispatch"
@@ -41,7 +46,7 @@ EXTRACTIONS = ["_resolve_dispatch_recipient_delivery"]
 
 
 def _combined_split_source() -> str:
-    return "\n\n".join(p.read_text(encoding="utf-8") for p in (DISPATCH, DISPATCH_START))
+    return "\n\n".join(p.read_text(encoding="utf-8") for p in MODULES)
 
 
 class CreateDispatchSplitIsInertTests(unittest.TestCase):
@@ -84,13 +89,13 @@ class CreateDispatchSplitIsInertTests(unittest.TestCase):
 
     def test_exactly_one_module_declares_the_helper(self):
         owners = [
-            path for path in (DISPATCH, DISPATCH_START)
+            path for path in MODULES
             if any(
                 isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in EXTRACTIONS
                 for n in ast.parse(path.read_text(encoding="utf-8")).body
             )
         ]
-        self.assertEqual([DISPATCH_START], owners)
+        self.assertEqual([DELIVERY_RESOLVE], owners)
 
     def test_the_leaf_does_not_import_upward(self):
         """An api_core leaf reaching into a router — or the control plane — is the cycle to prevent.
@@ -99,13 +104,14 @@ class CreateDispatchSplitIsInertTests(unittest.TestCase):
         through `dispatch_messages/shared.py`, so importing them from there would have been the convenient
         move and an upward one from an api_core leaf.
         """
-        for node in ast.walk(ast.parse(DISPATCH_START.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                self.assertFalse(
-                    node.module.startswith("service.routers")
-                    or node.module == "service.control_plane",
-                    f"dispatch_start.py imports upward from {node.module}",
-                )
+        for leaf in (DISPATCH_START, DELIVERY_RESOLVE):
+            for node in ast.walk(ast.parse(leaf.read_text(encoding="utf-8"))):
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    self.assertFalse(
+                        node.module.startswith("service.routers")
+                        or node.module == "service.control_plane",
+                        f"{leaf.name} imports upward from {node.module}",
+                    )
 
     def test_the_fixture_is_tracked(self):
         self.assertTrue(FIXTURE.exists())

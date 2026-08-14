@@ -109,8 +109,8 @@ from service.api_core.channel_delivery import (
     _insert_messages_via_console,
 )
 from service.api_core.terminal_ownership import _active_terminal_for_agent
+from service.api_core.dispatch_delivery_resolve import _resolve_dispatch_recipient_delivery
 from service.api_core.dispatch_start import (
-    _resolve_dispatch_recipient_delivery,
     _coldstart_spawn_request_for_dispatch,
     _ensure_managed_pty_for_dispatch,
 )
