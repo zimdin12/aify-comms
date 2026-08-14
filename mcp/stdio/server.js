@@ -16,7 +16,6 @@ import {
   SERVER_URL,
   httpCall,
 } from "./aify-service-endpoint.mjs";
-import { makeAutoRegister } from "./auto-registration.mjs";
 import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
 import { reportResidentLost } from "./resident-lost.mjs";
 import {
@@ -74,6 +73,7 @@ import { AIFY_VERSION } from "./version.js";
 import { createManagedOwnershipReader } from "./managed-ownership.mjs";
 import { createManagedTeardownSweeps } from "./managed-teardown-sweeps.mjs";
 import { shouldSkipLoop } from "./loop-gate.mjs";
+import { main } from "./bridge-main.mjs";
 import { runDispatchLoop } from "./dispatch-loop.mjs";
 import { runEnvironmentControlLoop } from "./environment-control-loop.mjs";
 import { syncManagedEnvironmentAgents } from "./managed-environment-sync.mjs";
@@ -1003,41 +1003,7 @@ const server = new McpServer({
 
 registerAllTools(server, z, { ensureDispatchLoop });
 
-async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error(`aify-comms-mcp v${AIFY_VERSION} running on stdio`);
-  console.error(`Mode: ${IS_REMOTE ? "REMOTE (" + SERVER_URL + ")" : "LOCAL (" + MESSAGES_DIR + ")"}`);
-  console.error(`Working dir: ${DEFAULT_CWD}`);
-  // "Never leave a bridge child behind." For an MCP-CHILD bridge (loaded by a
-  // claude/codex/hermes harness), poll the controlling harness — the parent pid
-  // captured at startup. When it dies, shut down gracefully (same teardown as
-  // SIGTERM) instead of lingering as an orphan the server has to reap. (Found 6
-  // of these server.js children reparented to the WSL init relay for ~10h.) We
-  // poll the ORIGINAL parent pid, so reparenting (ppid -> init/Relay after the
-  // harness dies) doesn't hide the death. stdin-EOF would be cleaner, but the MCP
-  // SDK transport reads stdin via 'data' only and never propagates EOF (verified).
-  // EXCLUDED for the environment bridge: top-level process, its own lifecycle.
-  if (!IS_ENVIRONMENT_BRIDGE && ORIGINAL_PARENT_PID > 1) {
-    let parentMisses = 0;
-    const harnessGuard = setInterval(() => {
-      let alive = true;
-      try { process.kill(ORIGINAL_PARENT_PID, 0); } catch (e) { alive = (e && e.code === "EPERM"); }
-      if (alive) { parentMisses = 0; return; }
-      if (++parentMisses < 2) return; // tolerate one transient miss (~3s)
-      clearInterval(harnessGuard);
-      try { console.error(`[aify] controlling harness pid=${ORIGINAL_PARENT_PID} gone; MCP-child bridge shutting down`); } catch { /* best effort */ }
-      shutdownWithStatus(0); // idempotent via shutdownStarted; same teardown as SIGTERM
-    }, 3000);
-    if (typeof harnessGuard.unref === "function") harnessGuard.unref();
-  }
-  // Codex app-server waits for its MCP servers to finish initializing while
-  // registration discovers the live thread through that same app-server.
-  // Do not deadlock MCP startup on the discovery round-trip.
-  makeAutoRegister({ ensureDispatchLoop })().catch((err) => {
-    console.error(`[aify] auto-registration failed: ${err?.message || err}`);
-  });
-}
+// main() moved to ./bridge-main.mjs in v0.5.4; the five names it needs are server.js's own.
 
 // Plan 6 A2 (2026-05-26): only auto-run main() when this file is the
 // process entrypoint. Tests that import named helpers (e.g.
@@ -1050,7 +1016,13 @@ const __isEntrypoint = (() => {
     return process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
   } catch { return true; }
 })();
-if (__isEntrypoint) main().catch((err) => {
+if (__isEntrypoint) main({
+  ORIGINAL_PARENT_PID,
+  StdioServerTransport,
+  ensureDispatchLoop,
+  server,
+  shutdownWithStatus,
+}).catch((err) => {
   console.error("Fatal:", err);
   process.exit(1);
 });

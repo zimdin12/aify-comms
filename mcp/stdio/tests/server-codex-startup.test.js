@@ -5,10 +5,15 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const source = fs.readFileSync(path.join(root, "server.js"), "utf8");
-const main = source.match(/async function main\(\) \{([\s\S]*?)\n\}/)?.[1] || "";
+// `main()` moved to `bridge-main.mjs` in v0.5.4 and its signature gained injected dependencies, so
+// the old slice (`async function main() {`) matched NOTHING — which would have made every
+// assertion below vacuous. The slice is asserted non-empty for exactly that reason; this file has
+// already been bitten once by a regex that quietly stopped matching, as its comment below records.
+const source = fs.readFileSync(path.join(root, "bridge-main.mjs"), "utf8");
+const main = source.match(/export async function main\(\{[\s\S]*?\n\}\) \{([\s\S]*?)\n\}/)?.[1] || "";
 
 test("Codex live discovery cannot block MCP startup", () => {
+  assert.ok(main.trim(), "main()'s body must be findable — an empty slice asserts nothing");
   // Auto-registration reaches codex live discovery, which talks to an app-server that may not answer. If
   // `main()` awaited it, MCP startup would block behind that — the client would sit with no tools while a
   // discovery call timed out.
