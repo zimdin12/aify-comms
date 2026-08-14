@@ -212,6 +212,13 @@ const EXTRACTIONS = [
     ],
   },
   {
+    module: "xterm-lifecycle.mjs",
+    importLine: "import { disposeActiveXterm } from './xterm-lifecycle.mjs';",
+    items: [
+      { name: "disposeActiveXterm", at: 1859, marker: "// disposeActiveXterm moved to ./xterm-lifecycle.mjs in v0.5.4." },
+    ],
+  },
+  {
     module: "version-badge.mjs",
     importLine: "import { loadVersionBadge } from './version-badge.mjs';",
     items: [
@@ -420,6 +427,7 @@ const MODULES = () => ({
   "shared-files.mjs": read("shared-files.mjs"),
   "message-transport.mjs": read("message-transport.mjs"),
   "version-badge.mjs": read("version-badge.mjs"),
+  "xterm-lifecycle.mjs": read("xterm-lifecycle.mjs"),
   "api-origin.mjs": read("api-origin.mjs"),
   "session-rail.mjs": read("session-rail.mjs"),
   "settings-panel.mjs": read("settings-panel.mjs"),

@@ -54,6 +54,7 @@ import { setApiBase, api } from './api-client.mjs';
 import { attachChatFile, deleteSharedFile, loadFiles, renderFiles, uploadPastedImage, uploadSharedFile } from './shared-files.mjs';
 import { chatLoadChannels, chatLoadConversation, chatSendMessage, sendRunFollowup } from './message-transport.mjs';
 import { loadVersionBadge } from './version-badge.mjs';
+import { disposeActiveXterm } from './xterm-lifecycle.mjs';
 
 // resolveApiOrigin moved to ./api-origin.mjs in v0.5.4.
 
@@ -1155,14 +1156,7 @@ function toggleSessionGroupCollapsed(envId, collapsed) {
 // operator sees the REAL Ink TUI in their browser, not a synth
 // translation or an iframe of upstream's web UI.
 
-function disposeActiveXterm() {
-  const entry = state.activeXterm;
-  if (!entry) return;
-  try { entry.resizeObserver?.disconnect(); } catch {}
-  try { if (entry.wheelHandler && entry.container) entry.container.removeEventListener('wheel', entry.wheelHandler); } catch {}
-  try { entry.term.dispose(); } catch {}
-  state.activeXterm = null;
-}
+// disposeActiveXterm moved to ./xterm-lifecycle.mjs in v0.5.4.
 
 let consoleInputBlockedToastAt = 0;
 
