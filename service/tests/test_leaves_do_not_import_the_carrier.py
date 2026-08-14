@@ -93,6 +93,56 @@ class LeavesDoNotImportTheCarrierTests(unittest.TestCase):
             "rather than the implementation — move the real body out of the carrier instead.",
         )
 
+    def test_nothing_the_carrier_imports_imports_it_back(self):
+        """The invariant stated GENERALLY, discovered rather than listed.
+
+        `LEAF_DIRS` names one directory. That is the silent-shrink shape the repo has a rule about — the
+        docstring above says "a leaf", the code says `api_core` — and it was missing the five leaf modules
+        at `service/` root (`clock`, `env_status`, `terminal_snapshot`, `terminal_diagnostics`,
+        `status_engine`), every one of which CLAUDE.md calls a leaf. They are clean today; nothing would
+        have said so tomorrow.
+
+        Asking the question of whatever the carrier ACTUALLY imports needs no list and grows on its own:
+        the control plane is a CALLER, so nothing it calls may call back. That covers the root leaves, the
+        api_core leaves and the reconcilers it imports, and it will cover the next one automatically.
+
+        MODULE-LEVEL ONLY here, deliberately. Function-scope borrows are the recorded, ratcheting debt
+        measured by `test_reconciler_carrier_borrows_only_shrink`; banning them in this test would fail the
+        suite for debt that is already tracked and being paid down.
+        """
+        carrier = SERVICE / "control_plane.py"
+        tree = ast.parse(carrier.read_text(encoding="utf-8"))
+
+        imported: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("service."):
+                imported.add(node.module)
+            elif isinstance(node, ast.Import):
+                imported.update(a.name for a in node.names if a.name.startswith("service."))
+
+        # Anti-vacuity: if the carrier were ever parsed wrong, an empty set would pass forever.
+        self.assertGreater(
+            len(imported), 10,
+            f"expected the control plane to import many service modules, found {len(imported)} — "
+            "the scan is probably broken rather than the architecture suddenly clean",
+        )
+
+        offenders = []
+        for module in sorted(imported):
+            path = REPO / (module.replace(".", "/") + ".py")
+            if not path.exists():
+                continue
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if line.startswith((f"from {CARRIER}", f"import {CARRIER}")):
+                    offenders.append(f"{path.relative_to(REPO).as_posix()}  {line.strip()}")
+
+        self.assertEqual(
+            offenders,
+            [],
+            "the control plane imports these modules, and they import it back at module level — a cycle, "
+            "and the exact inversion the decomposition exists to remove:\n  " + "\n  ".join(offenders),
+        )
+
     def test_the_scan_sees_function_scope_imports(self):
         """The shape that hid the defect. A module-body-only walk would have missed all three cases."""
         source = (
