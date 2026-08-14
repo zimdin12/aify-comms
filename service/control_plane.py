@@ -647,7 +647,10 @@ LIST_AGENTS_REFRESH_LIMIT = 8
 # _terminal_session_to_dict moved to service/api_core/records.py in v0.5.4.
 
 
-# _terminal_control_to_dict moved to service/routers/terminals.py in v0.5.3.
+# _terminal_control_to_dict moved to service/api_core/terminal_controls_io.py in v0.5.4.
+# (It went to service/routers/terminals.py first, in v0.5.3, and on to the leaf when that router
+# gave up its three non-route declarations. Two hops, one pointer — the gate that names the CURRENT
+# owner is what caught the stale one.)
 
 
 # _trim_terminal_output moved to service/routers/terminals.py in v0.5.3, then on to

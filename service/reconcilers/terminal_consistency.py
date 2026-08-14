@@ -3,13 +3,16 @@
 v0.5 slice 4, extracted from `service/routers/api_v2.py`. One function, 230 lines — the reviewer's
 bound says a body this size anchors its own slice, and this one does.
 
-THREE NAMES ARE BORROWED FROM THE ROUTER rather than moved, and the reason is caller count, measured
-before deciding: `_append_terminal_event` has 36 call sites in the router and
-`_clear_console_terminal_binding` has 9. Dragging those across is a migration of its own, not part of
-moving one reconciler — the same judgement that deferred `_agent_liveness` in slice 3a. Function-scope
-imports are safe in this direction: the router is fully loaded by the time any reconciler runs.
+NAMES WERE BORROWED FROM THE ROUTER rather than moved, and the reason was caller count, measured
+before deciding: `_append_terminal_event` had 36 call sites in the router and
+`_clear_console_terminal_binding` had 9. Dragging those across was a migration of its own, not part of
+moving one reconciler — the same judgement that deferred `_agent_liveness` in slice 3a.
 
-If a later slice consolidates the terminal-event helpers, these three borrows are what it deletes.
+`_clear_console_terminal_binding` IS NO LONGER ONE OF THEM. v0.5.4 moved it, with the two helpers it
+sits beside, to `service/api_core/terminal_controls_io.py` — this module imports it from there now,
+so that upward edge is gone rather than merely tolerated. This was the "later slice" the paragraph
+above anticipated; what remains is `_append_terminal_event`, which the api_core events leaf already
+owns.
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ import logging
 from typing import Any, Optional
 
 from service.api_core.events import _append_terminal_event  # v0.5.1i: the leaf owner
-from service.routers.terminals import _clear_console_terminal_binding
+from service.api_core.terminal_controls_io import _clear_console_terminal_binding
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 from service.clock import now as _now
 
