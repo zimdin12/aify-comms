@@ -41,3 +41,16 @@ export function syncChatChips() {
   const sf = state.chat.statusFilter instanceof Set ? state.chat.statusFilter : new Set();
   document.querySelectorAll('[data-chat-status]').forEach((el) => press(el, sf.has(el.dataset.chatStatus)));
 }
+
+// Chat DRAFTS — the same subject as the preferences above: per-conversation state the rail restores on
+// reload. Extracted from app.js in v0.5.4, joining the existing owner rather than starting a third
+// chat-state module.
+
+export function persistChatDrafts() {
+  try {
+    const d = state.chat.drafts || {};
+    const pruned = {};
+    for (const k of Object.keys(d)) { if (String(d[k] || '').trim()) pruned[k] = d[k]; }
+    localStorage.setItem('aifyChatDrafts', JSON.stringify(pruned));
+  } catch { /* ignore quota/serialization */ }
+}

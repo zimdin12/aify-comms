@@ -48,7 +48,7 @@ import { metric, renderDiagnosticsSummary, renderMetrics, renderUsageConsumption
 import { copyActiveConsole, copyText } from './clipboard.mjs';
 import { openAgentEditForm, openContinueForm, openMessageDetail } from './inspector-forms.mjs';
 import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } from './run-inspector-controls.mjs';
-import { persistChatPrefs, syncChatChips } from './chat-prefs.mjs';
+import { persistChatDrafts, persistChatPrefs, syncChatChips } from './chat-prefs.mjs';
 import { resolveApiOrigin } from './api-origin.mjs';
 import { setApiBase, api } from './api-client.mjs';
 
@@ -3648,14 +3648,7 @@ byId('chat-composer')?.querySelector('.composer-advanced')?.addEventListener('to
 });
 // Draft persistence (2026-06-29 parity with old dashboard): mirror per-conversation drafts to
 // localStorage so a half-written message + its rail "draft" badge survive a page reload.
-function persistChatDrafts() {
-  try {
-    const d = state.chat.drafts || {};
-    const pruned = {};
-    for (const k of Object.keys(d)) { if (String(d[k] || '').trim()) pruned[k] = d[k]; }
-    localStorage.setItem('aifyChatDrafts', JSON.stringify(pruned));
-  } catch { /* ignore quota/serialization */ }
-}
+// persistChatDrafts moved to ./chat-prefs.mjs in v0.5.4.
 try { const _d = JSON.parse(localStorage.getItem('aifyChatDrafts') || '{}'); if (_d && typeof _d === 'object') state.chat.drafts = _d; } catch { /* keep {} */ }
 // Draft preservation (WS-F): persist the composer body per conversation as the operator types.
 byId('chat-composer-body')?.addEventListener('input', (event) => {

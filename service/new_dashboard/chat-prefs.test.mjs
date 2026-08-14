@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { state } from "./state.mjs";
-import { persistChatPrefs, syncChatChips } from "./chat-prefs.mjs";
+import { persistChatDrafts, persistChatPrefs, syncChatChips } from "./chat-prefs.mjs";
 
 function withStorage(run) {
   const had = "localStorage" in globalThis;
@@ -154,4 +154,69 @@ test("syncing survives a page with none of the chips present", () => {
   // It runs from the shared render path, not only on the chat page.
   state.chat = { scope: "all" };
   withChips({}, syncChatChips);
+});
+
+// --- drafts ---------------------------------------------------------------
+//
+// Joined this module in v0.5.4: the same subject as the preferences above — per-conversation state the
+// rail restores on reload. A half-written message and its "draft" badge are supposed to survive a
+// refresh, and nothing tested that they do.
+
+test("only NON-EMPTY drafts are persisted, so the badge cannot outlive the text", () => {
+  // The rail shows a "draft" marker for any key present in storage. Persisting an emptied box would
+  // leave that badge on a conversation with nothing in it, which is worse than losing the draft.
+  state.chat = {
+    drafts: { a1: "half a message", a2: "", a3: "   ", a4: "\t\n", a5: "real" },
+  };
+  const saved = withStorage((store) => {
+    persistChatDrafts();
+    return JSON.parse(store.get("aifyChatDrafts"));
+  });
+  assert.deepEqual(Object.keys(saved).sort(), ["a1", "a5"]);
+  assert.equal(saved.a1, "half a message");
+});
+
+test("a draft's own whitespace is preserved — only the emptiness test is trimmed", () => {
+  // `String(d[k] || '').trim()` decides WHETHER to keep it; the stored value is `d[k]` itself. Storing
+  // the trimmed copy would move the caret and eat a deliberate trailing space mid-sentence.
+  state.chat = { drafts: { a1: "  leading and trailing  " } };
+  const saved = withStorage((store) => {
+    persistChatDrafts();
+    return JSON.parse(store.get("aifyChatDrafts"));
+  });
+  assert.equal(saved.a1, "  leading and trailing  ");
+});
+
+test("no drafts at all persists an empty object rather than throwing", () => {
+  state.chat = {};
+  const saved = withStorage((store) => {
+    persistChatDrafts();
+    return JSON.parse(store.get("aifyChatDrafts"));
+  });
+  assert.deepEqual(saved, {});
+});
+
+test("persisting drafts never throws when storage refuses", () => {
+  // Same contract as the preferences: this runs from an input handler, so a quota error must not
+  // propagate into the keystroke that caused it.
+  const had = "localStorage" in globalThis;
+  globalThis.localStorage = { setItem: () => { throw new Error("QuotaExceeded"); } };
+  try {
+    state.chat = { drafts: { a1: "text" } };
+    persistChatDrafts();
+  } finally {
+    if (!had) delete globalThis.localStorage;
+  }
+});
+
+test("drafts and preferences use SEPARATE storage keys", () => {
+  // They are persisted by different functions on different triggers; sharing a key would make each
+  // overwrite the other's copy.
+  state.chat = { drafts: { a1: "text" }, scope: "all" };
+  const keys = withStorage((store) => {
+    persistChatDrafts();
+    persistChatPrefs();
+    return [...store.keys()].sort();
+  });
+  assert.deepEqual(keys, ["aify.next.chatPrefs", "aifyChatDrafts"]);
 });
