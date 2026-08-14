@@ -53,7 +53,6 @@ import {
   ACTIVE_RUNS, CONSECUTIVE_FAILURES, REMOTE_AGENT_STATE, forgetRemoteAgent, interruptActiveRuns,
 } from "./bridge-agent-state.mjs";
 import { __markControllerStart, anyControllerActive } from "./controller-activity.mjs";
-import { parseJson } from "./parse-json.mjs";
 import { DEFAULT_CWD } from "./registration-inputs.mjs";
 import { AIFY_HERMES_GATEWAY_URL } from "./hermes-gateway-config.mjs";
 import { reportAgentHeartbeat, reportTurnBusy } from "./agent-heartbeat.mjs";
@@ -116,6 +115,7 @@ import {
   noteControlClaimFailure, noteControlClaimSuccess, noteSpawnClaimFailure, noteSpawnClaimSuccess,
 } from "./claim-failure-tracker.mjs";
 import { createManagedTeardownSweeps } from "./managed-teardown-sweeps.mjs";
+import { spawnTriggeredAgent } from "./spawn-triggered-agent.mjs";
 import { VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT, createVirtualTerminalSink, ensureVirtualTerminal, handleVirtualTerminalControl, updateTerminalControl } from './virtual-terminals.mjs';
 import { ensureRequiredReplyHandoff } from './required-reply-handoff.mjs';
 import { TERMINAL_MANAGER, reportDeadOwnedTerminals } from './terminal-manager.mjs';
@@ -550,7 +550,8 @@ async function shutdownWithStatus(code) {
 process.on("exit", cleanupOnExit);
 process.on("SIGINT", () => { shutdownWithStatus(130); });
 process.on("SIGTERM", () => { shutdownWithStatus(143); });
-const LOCAL_RUNTIME_STATE = new Map();
+// LOCAL_RUNTIME_STATE moved to ./spawn-triggered-agent.mjs in v0.5.4 — all three of its uses
+// are inside that function, so it owns the Map.
 // agentId → { terminalId, runtime } for the bridge's synthesized RPC
 // terminal. Cached so subsequent dispatches reuse the same virtual
 // terminal_session row. Covers both managed pi (persistent omp --mode rpc
@@ -2098,90 +2099,7 @@ registerConsoleTools(server, z);
  * Spawn a local runtime instance to handle a triggered message.
  * Fire-and-forget: the result is delivered back to the sender's inbox.
  */
-function spawnTriggeredAgent({ targetId, targetInfo, from, type, subject, body }) {
-  const sessionMode = normalizeSessionMode(targetInfo.sessionMode);
-  const runtime = normalizeRuntime(targetInfo.runtime || "generic");
-  const capabilities = Array.isArray(targetInfo.capabilities) ? targetInfo.capabilities : [];
-  const residentRunnable =
-    sessionMode === "resident" &&
-    runtime === "codex" &&
-    capabilities.includes("resident-run") &&
-    targetInfo.sessionHandle;
-  const managedRunnable = sessionMode === "managed" && capabilities.includes("managed-run");
-  if (!residentRunnable && !managedRunnable) {
-    const reason =
-      sessionMode === "resident"
-        ? `Agent "${targetId}" is a resident session without a triggerable session handle. Re-register that live session first.`
-        : `Agent "${targetId}" is not configured as a launchable managed session.`;
-    deliverMessage(from, {
-      id: `${Date.now()}-${randomUUID().slice(0, 8)}`,
-      from: targetId,
-      type: "error",
-      subject: `[FAILED] ${subject}`,
-      body: reason,
-    });
-    return;
-  }
-  if (!canLaunchRuntime(runtime)) {
-    deliverMessage(from, {
-      id: `${Date.now()}-${randomUUID().slice(0, 8)}`,
-      from: targetId,
-      type: "error",
-      subject: `[FAILED] ${subject}`,
-      body: `Runtime "${runtime}" does not support active dispatch`,
-    });
-    return;
-  }
-
-  const run = {
-    id: `local-${Date.now()}-${randomUUID().slice(0, 8)}`,
-    from,
-    targetAgentId: targetId,
-    type,
-    subject,
-    body,
-    mode: "require_start",
-    executionMode: residentRunnable ? "resident" : "managed",
-  };
-  const baseState = parseJson(targetInfo.runtimeState, {});
-  const runtimeState = { ...baseState, ...(LOCAL_RUNTIME_STATE.get(targetId) || {}) };
-
-  const controller = launchRuntimeRun({
-    agentId: targetId,
-    agentInfo: { ...targetInfo, runtime },
-    run,
-    runtimeState,
-    callbacks: {
-      // Plan 4 Task 13: same ready surface as the main dispatch loop.
-      onReady: () => {
-        httpCall("PATCH", `/agents/${encodeURIComponent(targetId)}/ready`, {
-          ready: true,
-          requestedBy: "controller-handshake",
-        }).catch(() => { /* best-effort */ });
-      },
-      onRuntimeState: (nextState) => {
-        const merged = { ...(LOCAL_RUNTIME_STATE.get(targetId) || {}), ...nextState };
-        LOCAL_RUNTIME_STATE.set(targetId, merged);
-        const registry = readAgents();
-        if (registry.agents[targetId]) {
-          registry.agents[targetId].runtimeState = merged;
-          writeAgents(registry);
-        }
-      },
-      onEvent: () => {},
-      onRefs: () => {},
-    },
-  });
-  // Plan 4 Task 13: track this controller's work promise so the turn-busy
-  // heartbeat fires while it's unresolved.
-  __markControllerStart(controller.promise);
-
-  controller.promise
-    .then(() => {})
-    .catch((err) => {
-      console.error("[aify] local triggered run failed:", err);
-    });
-}
+// spawnTriggeredAgent moved to ./spawn-triggered-agent.mjs in v0.5.4.
 
 registerInboxTools(server, z);
 

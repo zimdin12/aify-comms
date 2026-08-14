@@ -19,6 +19,7 @@ import {
   forgetRemoteAgent,
   interruptActiveRuns,
 } from "../bridge-agent-state.mjs";
+import { declaringModules } from "./bridge-sources.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OWNED = [
@@ -120,8 +121,16 @@ test("LOCAL_RUNTIME_STATE stayed in server.js, and is not part of this invariant
   const owner = readFileSync(path.join(STDIO, "bridge-agent-state.mjs"), "utf-8");
   assert.doesNotMatch(owner, /^(?:export\s+)?const LOCAL_RUNTIME_STATE\b/m, "this owner must not declare it");
   assert.doesNotMatch(owner, /LOCAL_RUNTIME_STATE\.(get|set|delete|clear|has)\s*\(/, "…nor touch it");
-  const server = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  assert.match(server, /^const LOCAL_RUNTIME_STATE = new Map\(\);$/m, "it must still be declared in server.js");
+
+  // The last line here used to be `assert.match(server, /^const LOCAL_RUNTIME_STATE = new Map\(\);$/m)` —
+  // "it must still be declared in server.js". That was a pin on a REVIEWER RULING, not on this module's
+  // invariant, and it went red the day the ruling's premise changed: the Map moved out with
+  // `spawnTriggeredAgent` once all three of its uses turned out to be inside that function. The invariant
+  // this test guards is unaffected either way — LOCAL_RUNTIME_STATE is not one of the Maps this module
+  // resets. So the surviving assertion is the one that belongs here: exactly one owner, wherever it is.
+  const owners = declaringModules("LOCAL_RUNTIME_STATE");
+  assert.equal(owners.length, 1, `LOCAL_RUNTIME_STATE must have exactly one owner, found ${owners.length}`);
+  assert.notEqual(owners[0].file, "bridge-agent-state.mjs", "and that owner is not this module");
 });
 
 test("server.js declares none of the four names — exactly one owner", () => {
