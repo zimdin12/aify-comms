@@ -37,7 +37,6 @@ const TEST_DIRS = ["mcp/stdio/tests", "mcp/stdio", "service/new_dashboard"];
 const UNTESTED_BACKLOG = [
   "mcp/stdio/hermes-daemon-cli.js",
   "mcp/stdio/load-env.js",
-  "mcp/stdio/runtimes-helpers.js",
   "mcp/stdio/runtimes-hermes.js",
   "mcp/stdio/usage-preflight.js",
 ];
