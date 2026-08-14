@@ -960,7 +960,7 @@ const EXTRACTIONS = [
   },
   {
     module: "render-memo.mjs",
-    importLine: "import { _agentSig, _chatChanSig, _contractSig, _envSig, _msgSig, _runSig, _spawnReqSig } from './render-memo.mjs';",
+    importLine: "import { _agentSig, _chatChanSig, _chatConvSig, _contractSig, _envSig, _msgSig, _runSig, _spawnReqSig } from './render-memo.mjs';",
     items: [
       { name: "_agentSig", at: 938, marker: "// _agentSig moved to ./render-memo.mjs in v0.5.4." },
       { name: "_contractSig", at: 939, marker: "// _contractSig moved to ./render-memo.mjs in v0.5.4." },
@@ -969,6 +969,7 @@ const EXTRACTIONS = [
       { name: "_spawnReqSig", at: 942, marker: "// _spawnReqSig moved to ./render-memo.mjs in v0.5.4." },
       { name: "_msgSig", at: 943, marker: "// _msgSig moved to ./render-memo.mjs in v0.5.4." },
       { name: "_chatChanSig", at: 944, marker: "// _chatChanSig moved to ./render-memo.mjs in v0.5.4." },
+      { name: "_chatConvSig", at: 945, marker: "// _chatConvSig moved to ./render-memo.mjs in v0.5.4." },
     ],
   },
   {

@@ -12,6 +12,7 @@ import { state } from "./state.mjs";
 import {
   _agentSig,
   _chatChanSig,
+  _chatConvSig,
   _contractSig,
   _envSig,
   _msgSig,
@@ -209,4 +210,23 @@ test("an EMPTY collection yields an empty signature, not a throw", () => {
       assert.deepEqual(fn(), []);
     }
   });
+});
+
+test("_chatConvSig moves when a conversation gains a message, and survives no channelMessages", () => {
+  // The seventh builder, and the only one keyed on a MAP rather than a list. It reports each
+  // conversation's message COUNT, which is what makes a new message repaint the chat pane — without it
+  // the pane holds its last render until something else in the signature happens to change.
+  const saved = state.chat;
+  try {
+    state.chat = { channelMessages: { general: [{ id: "m1" }] } };
+    const before = JSON.stringify(_chatConvSig());
+    state.chat = { channelMessages: { general: [{ id: "m1" }, { id: "m2" }] } };
+    assert.notEqual(JSON.stringify(_chatConvSig()), before, "a new message must move the signature");
+
+    state.chat = {};
+    assert.doesNotThrow(() => _chatConvSig());
+    assert.deepEqual(_chatConvSig(), [], "absent channelMessages is empty, not a throw");
+  } finally {
+    state.chat = saved;
+  }
 });

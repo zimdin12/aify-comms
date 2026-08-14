@@ -56,7 +56,7 @@ import { handleGlobalKeydown } from './keyboard-shortcuts.mjs';
 import { renderInstallSnippet, updateStaticLinks } from './static-links.mjs';
 import { lookup } from './record-lookup.mjs';
 import { pages } from './page-titles.mjs';
-import { _agentSig, _chatChanSig, _contractSig, _envSig, _msgSig, _runSig, _spawnReqSig } from './render-memo.mjs';
+import { _agentSig, _chatChanSig, _chatConvSig, _contractSig, _envSig, _msgSig, _runSig, _spawnReqSig } from './render-memo.mjs';
 import { renderSection } from './render-memo.mjs';
 import { preferredNavCollapsed, setNavCollapsed, toggleSessionGroupCollapsed } from './layout-prefs.mjs';
 import { RUN_INSPECTOR_EVENT_LIMIT, loadRunDetails, loadRunEvents, patchRun, runQueryPath, runSourceMessage, syncRunFilterOptions } from './run-helpers.mjs';
@@ -746,7 +746,7 @@ async function _refreshImpl() {
 // _spawnReqSig moved to ./render-memo.mjs in v0.5.4.
 // _msgSig moved to ./render-memo.mjs in v0.5.4.
 // _chatChanSig moved to ./render-memo.mjs in v0.5.4.
-const _chatConvSig = () => Object.entries(state.chat.channelMessages || {}).map(([k, v]) => [k, (v || []).length]);
+// _chatConvSig moved to ./render-memo.mjs in v0.5.4.
 
 // Coalesce render bursts (e.g. many agent_status events during fleet turn-churn) into one
 // render per animation frame. renderSection is signature-gated so the DOM writes already

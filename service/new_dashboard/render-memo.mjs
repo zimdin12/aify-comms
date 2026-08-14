@@ -27,3 +27,4 @@ export const _envSig = () => state.environments.map((e) => [e.id, e.status, e.la
 export const _spawnReqSig = () => state.spawnRequests.map((r) => [r.id, r.status, r.agentId, r.error, r.updatedAt]);
 export const _msgSig = () => state.messages.map((m) => [m.id, m.from, m.subject, m.read]);
 export const _chatChanSig = () => (state.chat.channels || []).map((c) => [c.name, c.unreadCount, c.memberCount]);
+export const _chatConvSig = () => Object.entries(state.chat.channelMessages || {}).map(([k, v]) => [k, (v || []).length]);
