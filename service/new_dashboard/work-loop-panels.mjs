@@ -194,3 +194,13 @@ export function toggleDiagnosticSelection(diagnosticSelect, renderDiagnosticsBul
   else state.selectedDiagnosticIds.delete(key);
   renderDiagnosticsBulkToolbar();
 }
+
+// The Work Loop list/board layout toggle, moved out of app.js's delegated click handler in v0.5.4.
+// It sits beside `applyWorkView` — the same shape for the other grid — and `renderContracts` is
+// injected because it stays in app.js.
+export function applyContractView(contractView, renderContracts) {
+  const v = contractView.dataset.contractView === 'board' ? 'board' : 'list';
+  state.contractView = v;
+  try { localStorage.setItem('aifyContractView', v); } catch { /* private mode */ }
+  renderContracts();
+}

@@ -16,6 +16,7 @@ import { state } from "./state.mjs";
 import {
   CONTRACT_BOARD_COLUMNS,
   activityItems,
+  applyContractView,
   applyWorkView,
   diagnosticKey,
   filtered,
@@ -330,4 +331,46 @@ test("it mirrors the checkbox rather than flipping, and refreshes the bulk toolb
     assert.equal(state.selectedDiagnosticIds.size, 0);
     assert.equal(toolbars, 3, "every change redraws the toolbar");
   });
+});
+
+// --- applyContractView -------------------------------------------------------------------------
+
+test("applyContractView normalises to exactly two states and never a third", () => {
+  // `=== 'board' ? 'board' : 'list'`. The value drives which panel renders; a stray attribute passed
+  // through verbatim would render neither, leaving the Work Loop page blank.
+  const saved = state.contractView;
+  const hadLs = "localStorage" in globalThis;
+  const prev = globalThis.localStorage;
+  const store = new Map();
+  globalThis.localStorage = { setItem: (k, v) => store.set(k, v), getItem: (k) => store.get(k) ?? null };
+  try {
+    for (const [raw, expected] of [["board", "board"], ["list", "list"], ["Board", "list"], [undefined, "list"], ["wat", "list"]]) {
+      let renders = 0;
+      applyContractView({ dataset: { contractView: raw } }, () => { renders += 1; });
+      assert.equal(state.contractView, expected, `${JSON.stringify(raw)} → ${expected}`);
+      assert.equal(store.get("aifyContractView"), expected, "…and the same value is persisted");
+      assert.equal(renders, 1, "every click re-renders");
+    }
+  } finally {
+    state.contractView = saved;
+    if (hadLs) globalThis.localStorage = prev; else delete globalThis.localStorage;
+  }
+});
+
+test("applyContractView still switches the view when storage REFUSES", () => {
+  // `try { … } catch { /* private mode */ }`. The state assignment precedes the write and the render
+  // follows it, so an unguarded throw would leave the layout changed and never drawn.
+  const saved = state.contractView;
+  const hadLs = "localStorage" in globalThis;
+  const prev = globalThis.localStorage;
+  globalThis.localStorage = { setItem() { throw new Error("private mode"); } };
+  try {
+    let renders = 0;
+    assert.doesNotThrow(() => applyContractView({ dataset: { contractView: "board" } }, () => { renders += 1; }));
+    assert.equal(state.contractView, "board");
+    assert.equal(renders, 1, "the render must still happen");
+  } finally {
+    state.contractView = saved;
+    if (hadLs) globalThis.localStorage = prev; else delete globalThis.localStorage;
+  }
 });

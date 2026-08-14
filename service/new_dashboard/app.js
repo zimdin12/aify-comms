@@ -38,7 +38,7 @@ import { state } from './state.mjs';
 import { SESSION_FILTER_KINDS, agentForSession, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';
 import { applyThemeChoice, previewAppearance, refreshActiveTerminalTheme, renderSettings, selectSettingsTab, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
 import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './agent-drawer.mjs';
-import { applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';
+import { applyContractView, applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';
 import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexConsoleConnections, codexConsoleSendTurn } from './codex-console.mjs';
 import { openIdentityDirectory } from './identity-directory.mjs';
 import { closeStatusWhy, openStatusWhy } from './status-why-popover.mjs';
@@ -50,6 +50,7 @@ import { openAgentEditForm, openCompactionHistory, openContinueForm, openMessage
 import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } from './run-inspector-controls.mjs';
 import { persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';
 import { startColdAgent, switchModeFromChip } from './agent-click-handlers.mjs';
+import { runConsoleAction } from './console-click-handlers.mjs';
 import { navigateToPage, openEnvironmentSpawn, selectAnalyticsRange } from './nav-click-handlers.mjs';
 import { openChatConversation, openChatReply, setChatView, setPulseWindow } from './chat-click-handlers.mjs';
 import { applySessionStatusPreset, openAgentSessions, selectSessionRow, toggleSessionCheckbox, toggleSessionStatusFilter } from './session-click-handlers.mjs';
@@ -2878,10 +2879,7 @@ document.addEventListener('click', (event) => {
   // the same reason as work-view above (avoid swallowing card actions).
   const contractView = event.target.closest('button[data-contract-view]');
   if (contractView) {
-    const v = contractView.dataset.contractView === 'board' ? 'board' : 'list';
-    state.contractView = v;
-    try { localStorage.setItem('aifyContractView', v); } catch { /* private mode */ }
-    renderContracts();
+    applyContractView(contractView, renderContracts);
     return;
   }
   const diagJump = event.target.closest('[data-diag-jump]');
@@ -3004,12 +3002,7 @@ document.addEventListener('click', (event) => {
   }
   const consoleAction = event.target.closest('[data-console-action]');
   if (consoleAction) {
-    const action = consoleAction.dataset.consoleAction;
-    if (action === 'copy') copyActiveConsole();
-    else if (action === 'refresh') resyncActiveConsole({ forceRepaint: true }).then(() => toast('Console refreshed', 'ok')).catch(() => {});
-    else if (action === 'stop') stopConsoleTerminal(consoleAction.dataset.terminalId);
-    else if (action === 'start') startConsoleForSession(consoleAction.dataset.sessionId, false);
-    else if (action === 'start-fresh') startConsoleForSession(consoleAction.dataset.sessionId, true);
+    runConsoleAction(consoleAction, resyncActiveConsole, stopConsoleTerminal, startConsoleForSession);
     return;
   }
   // Start a managed agent that has NO session at all (the cold-agent case — there was no way to

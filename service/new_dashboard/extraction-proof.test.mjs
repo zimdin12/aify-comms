@@ -703,6 +703,38 @@ const EXTRACTIONS = [
       },
     ],
   },
+
+  {
+    module: "work-loop-panels.mjs",
+    importLine: "import { applyContractView, applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';",
+    importWas: "import { applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';",
+    items: [
+      {
+        name: "applyContractView",
+        at: 4343,
+        marker: "    applyContractView(contractView, renderContracts);",
+        wrapper: {
+          header: ["export function applyContractView(contractView, renderContracts) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+    ],
+  },
+  {
+    module: "console-click-handlers.mjs",
+    importLine: "import { runConsoleAction } from './console-click-handlers.mjs';",
+    items: [
+      {
+        name: "runConsoleAction",
+        at: 4485,
+        marker: "    runConsoleAction(consoleAction, resyncActiveConsole, stopConsoleTerminal, startConsoleForSession);",
+        wrapper: {
+          header: ["export function runConsoleAction(consoleAction, resyncActiveConsole, stopConsoleTerminal, startConsoleForSession) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -728,6 +760,7 @@ const MODULES = () => ({
   "session-click-handlers.mjs": read("session-click-handlers.mjs"),
   "agent-click-handlers.mjs": read("agent-click-handlers.mjs"),
   "nav-click-handlers.mjs": read("nav-click-handlers.mjs"),
+  "console-click-handlers.mjs": read("console-click-handlers.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),

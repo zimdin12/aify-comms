@@ -92,8 +92,11 @@ test("Work Loop board view: toggle, renderer, and card reuse are wired", () => {
   // The click handler is scoped to the button (must not swallow card actions — same lesson as work-view).
   assert.match(source, /event\.target\.closest\('button\[data-contract-view\]'\)/,
     "contract-view handler must be scoped to button[data-contract-view]");
-  // The layout is persisted; list stays the default.
-  assert.match(source, /localStorage\.setItem\('aifyContractView'/, "board view must persist");
+  // The persistence MOVED to work-loop-panels.mjs with `applyContractView` in v0.5.4, and
+  // work-loop-panels.test.mjs now asserts it by behaviour: every input is normalised to exactly `board`
+  // or `list`, the SAME value is what reaches storage, and a refusing storage still switches the view.
+  // The regex here matched the setItem call as TEXT — it would have passed just as happily on a handler
+  // that persisted the raw attribute, which is the bug it looked like it was guarding.
   // CSS for the board columns is present.
   assert.match(styles, /\.contract-list\.is-board/, "is-board container style must exist");
   assert.match(styles, /\.contract-board-col/, "board column style must exist");
@@ -140,8 +143,11 @@ test("automatic console resync never self-excites a PTY resize loop", () => {
     "resync must distinguish passive recovery from an explicit operator repaint");
   assert.match(source, /if \(forceRepaint && entry\.ownsPty\)/,
     "only the explicit Refresh action may nudge the PTY width");
-  assert.match(source, /resyncActiveConsole\(\{ forceRepaint: true \}\)/,
-    "the visible Refresh action must retain the one-shot full repaint escape hatch");
+  // The Refresh ACTION moved to console-click-handlers.mjs in v0.5.4. Its test calls the dispatcher and
+  // asserts the refresh branch passes `{ forceRepaint: true }` — and, in the same file, that each action
+  // fires exactly one callback and that a failed resync is swallowed rather than escaping the delegated
+  // listener. What stays here is the half app.js still owns: the resync function's own signature and the
+  // guard that keeps passive recovery from nudging the PTY.
   assert.match(source, /entry\.lastSeq = Math\.max\(/,
     "a snapshot fetched during live output must not roll the sequence watermark backwards");
 });
