@@ -1006,7 +1006,7 @@ registerAllTools(server, z, { ensureDispatchLoop });
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("aify-comms-mcp v4.0.0 running on stdio");
+  console.error(`aify-comms-mcp v${AIFY_VERSION} running on stdio`);
   console.error(`Mode: ${IS_REMOTE ? "REMOTE (" + SERVER_URL + ")" : "LOCAL (" + MESSAGES_DIR + ")"}`);
   console.error(`Working dir: ${DEFAULT_CWD}`);
   // "Never leave a bridge child behind." For an MCP-CHILD bridge (loaded by a

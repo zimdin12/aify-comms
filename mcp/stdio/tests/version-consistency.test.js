@@ -60,12 +60,23 @@ test("no bridge source file re-declares a version literal", () => {
     "runtimes.js",
     "controllers/codex-legacy-controller.js",
   ];
-  const literal = /["']?version["']?\s*:\s*["']\d+\.\d+\.\d+["']/;
+  // TWO SHAPES, because only one was covered and the other survived the whole single-source migration.
+  //
+  // The key/value form (`version: "1.2.3"`) is what a new handshake looks like. But server.js also
+  // announced `"aify-comms-mcp v4.0.0 running on stdio"` on EVERY startup — free text, no `version:`
+  // key, so this gate never saw it. That is the ninth hand-copied copy of the very literal
+  // `version.js` was created to eliminate, and it was still claiming 4.0.0 at v0.5.4.
+  //
+  // The bare `vN.N.N` form is deliberately narrow: it wants a `v` prefix, so ordinary decimals and
+  // paths do not trip it. Comment lines are skipped — this repo dates its comments `v0.5.4` constantly,
+  // and flagging those would make the gate unusable.
+  const literal = /["']?version["']?\s*:\s*["']\d+\.\d+\.\d+["']|\bv\d+\.\d+\.\d+\b/;
   for (const rel of files) {
     const source = readFileSync(join(stdioDir, rel), "utf8");
     const offender = source
       .split("\n")
       .map((line, i) => [i + 1, line])
+      .filter(([, line]) => !line.trim().startsWith("//") && !line.trim().startsWith("*"))
       .find(([, line]) => literal.test(line));
     assert.equal(
       offender,
