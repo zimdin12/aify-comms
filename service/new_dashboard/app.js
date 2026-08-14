@@ -38,7 +38,7 @@ import { state } from './state.mjs';
 import { SESSION_FILTER_KINDS, agentForSession, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';
 import { applyThemeChoice, previewAppearance, refreshActiveTerminalTheme, renderSettings, selectSettingsTab, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
 import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './agent-drawer.mjs';
-import { applyContractView, applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';
+import { applyContractView, applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, pruneDiagnosticSelection, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';
 import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexConsoleConnections, codexConsoleSendTurn } from './codex-console.mjs';
 import { openIdentityDirectory } from './identity-directory.mjs';
 import { closeStatusWhy, openStatusWhy } from './status-why-popover.mjs';
@@ -52,6 +52,7 @@ import { persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, 
 import { runAgentControl, startColdAgent, switchAgentModeFromRow, switchModeFromChip, toggleFavouriteRow } from './agent-click-handlers.mjs';
 import { runConsoleAction } from './console-click-handlers.mjs';
 import { handleGlobalKeydown } from './keyboard-shortcuts.mjs';
+import { patchRun, runQueryPath, runSourceMessage, syncRunFilterOptions } from './run-helpers.mjs';
 import { navigateToPage, openEnvironmentSpawn, openHermesTabFromRow, selectAnalyticsRange } from './nav-click-handlers.mjs';
 import { openChatConversation, openChatReply, runChannelAction, setChatView, setPulseWindow } from './chat-click-handlers.mjs';
 import { applySessionStatusPreset, openAgentSessions, selectSessionRow, selectSessionTab, toggleSessionCheckbox, toggleSessionStatusFilter } from './session-click-handlers.mjs';
@@ -541,11 +542,7 @@ function applyRealtimeEvent(event, data = {}) {
   }
 }
 
-function runQueryPath(status = state.runStatusFilter) {
-  const params = new URLSearchParams({ limit: '80' });
-  if (status) params.set('status', status);
-  return `/dispatch/runs?${params.toString()}`;
-}
+// runQueryPath moved to ./run-helpers.mjs in v0.5.4.
 
 // The base refresh fetches only OPEN contracts, so the State dropdown's terminal options
 // (Answered/Failed/Missing reply/Seen/Sent/Closed) had nothing to match. Reload from the server
@@ -1018,15 +1015,7 @@ function renderAnalyticsPage() {
 
 // selectedDiagnostics moved to ./summary-tiles.mjs in v0.5.4.
 
-function pruneDiagnosticSelection() {
-  const live = new Set([
-    ...state.contracts.map((contract) => diagnosticKey('contract', contract.id)),
-    ...state.runs.map((run) => diagnosticKey('run', run.id)),
-  ]);
-  for (const key of [...state.selectedDiagnosticIds]) {
-    if (!live.has(key)) state.selectedDiagnosticIds.delete(key);
-  }
-}
+// pruneDiagnosticSelection moved to ./work-loop-panels.mjs in v0.5.4.
 
 // renderDiagnosticsSummary moved to ./summary-tiles.mjs in v0.5.4.
 
@@ -1112,11 +1101,7 @@ function renderDiagnosticsBulkToolbar() {
 
 // sessionForRun moved to ./run-inspector-controls.mjs in v0.5.4.
 
-function runSourceMessage(run) {
-  const id = String(run?.messageId || run?.message_id || state.inspector.sourceMessageId || '').trim();
-  if (!id) return null;
-  return state.messages.find((message) => messageId(message) === id) || null;
-}
+// runSourceMessage moved to ./run-helpers.mjs in v0.5.4.
 
 // renderSessionBulkToolbar moved to ./session-rail.mjs in v0.5.4.
 
@@ -2114,15 +2099,7 @@ const runTo = (r) => String(r.targetAgentId || r.target_agent || r.to || '');
 const runRuntime = (r) => String(r.runtime || r.requestedRuntime || r.requested_runtime || '');
 
 // Populate a filter <select> with distinct values, preserving the current selection.
-function syncRunFilterOptions(id, values, current) {
-  const sel = byId(id);
-  if (!sel) return;
-  const opts = ['', ...[...new Set(values.filter(Boolean))].sort()];
-  const sig = opts.join('|');
-  if (sel.dataset.optsSig === sig) { sel.value = current || ''; return; }
-  sel.dataset.optsSig = sig;
-  sel.innerHTML = opts.map((v) => `<option value="${esc(v)}"${v === (current || '') ? ' selected' : ''}>${v ? esc(v) : 'Any'}</option>`).join('');
-}
+// syncRunFilterOptions moved to ./run-helpers.mjs in v0.5.4.
 
 function renderRuns() {
   // Populate from/to/runtime dropdowns from the loaded set (WS-H).
@@ -2547,12 +2524,7 @@ async function requestBulkSessionControl(action) {
   await refresh();
 }
 
-async function patchRun(runId, payload) {
-  return api(`/dispatch/runs/${encodeURIComponent(runId)}`, {
-    method: 'PATCH',
-    body: JSON.stringify(payload),
-  });
-}
+// patchRun moved to ./run-helpers.mjs in v0.5.4.
 
 async function closeWorkContract(runId, confirmAction = true, refreshAfter = true) {
   if (confirmAction && !await uiConfirm('Close this Work Loop contract as operator-reviewed?')) return;

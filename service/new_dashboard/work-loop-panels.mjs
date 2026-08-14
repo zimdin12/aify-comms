@@ -204,3 +204,16 @@ export function applyContractView(contractView, renderContracts) {
   try { localStorage.setItem('aifyContractView', v); } catch { /* private mode */ }
   renderContracts();
 }
+
+// Drops selections for records that no longer exist, moved out of app.js in v0.5.4. It keys on this
+// module's own `diagnosticKey`, and without it a bulk action can address a run the operator can no
+// longer see.
+export function pruneDiagnosticSelection() {
+  const live = new Set([
+    ...state.contracts.map((contract) => diagnosticKey('contract', contract.id)),
+    ...state.runs.map((run) => diagnosticKey('run', run.id)),
+  ]);
+  for (const key of [...state.selectedDiagnosticIds]) {
+    if (!live.has(key)) state.selectedDiagnosticIds.delete(key);
+  }
+}

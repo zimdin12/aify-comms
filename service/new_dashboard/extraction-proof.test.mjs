@@ -799,6 +799,25 @@ const EXTRACTIONS = [
       },
     ],
   },
+  // Plain declaration relocations — no wrapper, the whole `function` span moves as it always did.
+  {
+    module: "run-helpers.mjs",
+    importLine: "import { patchRun, runQueryPath, runSourceMessage, syncRunFilterOptions } from './run-helpers.mjs';",
+    items: [
+      { name: "runQueryPath", at: 705, marker: "// runQueryPath moved to ./run-helpers.mjs in v0.5.4." },
+      { name: "runSourceMessage", at: 1716, marker: "// runSourceMessage moved to ./run-helpers.mjs in v0.5.4." },
+      { name: "syncRunFilterOptions", at: 3180, marker: "// syncRunFilterOptions moved to ./run-helpers.mjs in v0.5.4." },
+      { name: "patchRun", at: 3920, marker: "// patchRun moved to ./run-helpers.mjs in v0.5.4." },
+    ],
+  },
+  {
+    module: "work-loop-panels.mjs",
+    importLine: "import { applyContractView, applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, pruneDiagnosticSelection, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';",
+    importWas: "import { applyContractView, applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';",
+    items: [
+      { name: "pruneDiagnosticSelection", at: 1446, marker: "// pruneDiagnosticSelection moved to ./work-loop-panels.mjs in v0.5.4." },
+    ],
+  },
   // NOT a click-handler branch: a whole top-level `document.addEventListener('keydown', …)`. The body
   // sits at the same indentation inside the extracted function as it did inside the arrow, so there is
   // no dedent to declare — the only substitution is the header and footer.
@@ -877,6 +896,7 @@ const MODULES = () => ({
   "nav-click-handlers.mjs": read("nav-click-handlers.mjs"),
   "console-click-handlers.mjs": read("console-click-handlers.mjs"),
   "keyboard-shortcuts.mjs": read("keyboard-shortcuts.mjs"),
+  "run-helpers.mjs": read("run-helpers.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),
