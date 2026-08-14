@@ -39,6 +39,7 @@ import { SESSION_FILTER_KINDS, agentForSession, renderSessionRail, selectedSessi
 import { previewAppearance, refreshActiveTerminalTheme, renderSettings, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
 import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './agent-drawer.mjs';
 import { contractCard, diagnosticKey, filtered, renderActivityFeed, renderAttention, renderContractBoard } from './work-loop-panels.mjs';
+import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexConsoleConnections } from './codex-console.mjs';
 
 function resolveApiOrigin() {
   const params = new URLSearchParams(location.search);
@@ -1952,117 +1953,17 @@ function updateAwaitPill() {
 // codex has no upstream web UI to embed — we render the JSON-RPC event stream
 // ourselves. Send a turn/start when the operator types in the input box.
 
-const codexConsoleConnections = new Map(); // agentId → { ws, threadId, container }
+// codexConsoleConnections moved to ./codex-console.mjs in v0.5.4.
 
 // Don't leak codex console sockets across an unload/navigation.
 window.addEventListener('beforeunload', () => { codexConsoleConnections.forEach((e) => { try { e.ws?.close(); } catch {} }); });
-function codexConsoleClose(agentId) {
-  const entry = codexConsoleConnections.get(agentId);
-  if (!entry) return;
-  try { entry.ws?.close(); } catch {}
-  codexConsoleConnections.delete(agentId);
-}
+// codexConsoleClose moved to ./codex-console.mjs in v0.5.4.
 
-function codexConsoleAppendLine(container, line, cls = '') {
-  if (!container) return;
-  const div = document.createElement('div');
-  div.className = `codex-line ${cls}`.trim();
-  div.textContent = line;
-  container.appendChild(div);
-  // Cap scrollback (the xterm path caps at 5000; this DOM stream had no bound → grew forever).
-  while (container.childElementCount > 2000) container.removeChild(container.firstChild);
-  container.scrollTop = container.scrollHeight;
-}
+// codexConsoleAppendLine moved to ./codex-console.mjs in v0.5.4.
 
-function codexConsoleAppendText(container, text) {
-  if (!container) return;
-  const lastLine = container.querySelector('.codex-line.delta:last-child');
-  if (lastLine) {
-    lastLine.textContent += text;
-  } else {
-    const div = document.createElement('div');
-    div.className = 'codex-line delta';
-    div.textContent = text;
-    container.appendChild(div);
-  }
-  container.scrollTop = container.scrollHeight;
-}
+// codexConsoleAppendText moved to ./codex-console.mjs in v0.5.4.
 
-function codexConsoleConnect(agentId, appServerUrl, threadId) {
-  const wsUrl = String(appServerUrl || '').trim();
-  if (!/^wss?:\/\//i.test(wsUrl)) return;
-  codexConsoleClose(agentId);
-
-  const sel = String(agentId).replace(/[\\"]/g, '\\$&'); // safe inside a quoted attribute selector
-  const container = document.querySelector(`[data-codex-console="${sel}"] .codex-console-stream`);
-  if (!container) return;
-  container.innerHTML = '';
-  codexConsoleAppendLine(container, `[connecting to ${wsUrl}…]`, 'sys');
-
-  let ws;
-  try { ws = new WebSocket(wsUrl); } catch (err) {
-    codexConsoleAppendLine(container, `[connect error: ${err?.message || err}]`, 'err');
-    return;
-  }
-  let nextId = 1;
-  let activeTurn = null;
-  const entry = { ws, threadId, container };
-  codexConsoleConnections.set(agentId, entry);
-
-  ws.addEventListener('open', () => {
-    codexConsoleAppendLine(container, '[connected]', 'sys');
-    ws.send(JSON.stringify({
-      jsonrpc: '2.0',
-      id: nextId++,
-      method: 'initialize',
-      params: { clientInfo: { name: 'aify-dashboard', title: 'aify dashboard console', version: '1.0' } },
-    }));
-    ws.send(JSON.stringify({ jsonrpc: '2.0', method: 'initialized', params: {} }));
-    if (threadId) {
-      ws.send(JSON.stringify({
-        jsonrpc: '2.0',
-        id: nextId++,
-        method: 'thread/resume',
-        params: { threadId, personality: 'friendly' },
-      }));
-      codexConsoleAppendLine(container, `[subscribed to thread ${threadId}]`, 'sys');
-    } else {
-      codexConsoleAppendLine(container, '[no threadId — will only see broadcast events]', 'sys');
-    }
-  });
-  ws.addEventListener('message', (ev) => {
-    let msg;
-    try { msg = JSON.parse(String(ev.data)); } catch { return; }
-    const method = String(msg.method || '');
-    const params = msg.params || {};
-    if (method === 'turn/started' && params.turn?.id) {
-      activeTurn = params.turn.id;
-      codexConsoleAppendLine(container, `▶ turn started (${params.turn.id})`, 'turn');
-    } else if (method === 'turn/completed') {
-      const usage = params.turn?.usage || params.usage || {};
-      const usageStr = usage.input_tokens || usage.output_tokens
-        ? ` (in=${usage.input_tokens || 0} out=${usage.output_tokens || 0})`
-        : '';
-      codexConsoleAppendLine(container, `■ turn ended [${params.turn?.status || 'completed'}]${usageStr}`, 'turn');
-      activeTurn = null;
-    } else if (method === 'item/agentMessage/delta') {
-      codexConsoleAppendText(container, String(params.delta || ''));
-    } else if (method === 'item/started' && params.item?.id) {
-      codexConsoleAppendLine(container, `→ ${params.item?.type || 'item'}`, 'tool');
-    } else if (method === 'item/completed' && params.item?.id) {
-      codexConsoleAppendLine(container, `✓ ${params.item?.type || 'item'}`, 'tool ok');
-    } else if (method === 'error' && params.error?.message) {
-      codexConsoleAppendLine(container, `✗ ${params.error.message}`, 'err');
-    }
-  });
-  ws.addEventListener('close', (ev) => {
-    codexConsoleAppendLine(container, `[disconnected: code=${ev.code}]`, 'sys');
-    codexConsoleConnections.delete(agentId);
-  });
-  ws.addEventListener('error', () => {
-    codexConsoleAppendLine(container, '[websocket error]', 'err');
-  });
-}
+// codexConsoleConnect moved to ./codex-console.mjs in v0.5.4.
 
 function codexConsoleSendTurn(agentId, text) {
   const entry = codexConsoleConnections.get(agentId);

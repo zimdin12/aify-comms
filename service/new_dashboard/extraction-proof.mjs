@@ -29,6 +29,28 @@ const NL = String.fromCharCode(10);
  * prove a constant relocation at all. `functionSpan` is kept as the name every existing caller uses and now
  * delegates, so the three app.js slices keep their exact behaviour.
  */
+/** The code part of a line: everything before an UNQUOTED `//`.
+ *
+ * Needed because a declaration may end `...; // note`, which does not end in a semicolon and so never
+ * satisfied the terminator test below -- `declarationSpan` then ran past the declaration and, for a
+ * const at the end of a module, returned null. Quote state is tracked rather than splitting on the
+ * first `//`, because `const u = 'http://x';` would otherwise lose its terminator too.
+ */
+function codeBeforeComment(line) {
+  let quote = null;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === "\\") i += 1;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === "`") { quote = ch; continue; }
+    if (ch === "/" && line[i + 1] === "/") return line.slice(0, i);
+  }
+  return line;
+}
+
 export function declarationSpan(source, name) {
   const lines = source.split(NL);
   const fnHead = new RegExp(`^(?:export\\s+)?(?:async\\s+)?function\\s+${name}\\s*\\(`);
@@ -53,7 +75,7 @@ export function declarationSpan(source, name) {
           if (ch === "(" || ch === "{" || ch === "[") depth += 1;
           else if (ch === ")" || ch === "}" || ch === "]") depth -= 1;
         }
-        if (depth <= 0 && lines[j].trimEnd().endsWith(";")) {
+        if (depth <= 0 && codeBeforeComment(lines[j]).trimEnd().endsWith(";")) {
           return { start: i, end: j, text: lines.slice(i, j + 1).join(NL) };
         }
       }

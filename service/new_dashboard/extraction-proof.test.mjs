@@ -22,7 +22,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-import { functionSpan, moduleScopeBrowserRefs, reconstruct } from "./extraction-proof.mjs";
+import { declarationSpan, functionSpan, moduleScopeBrowserRefs, reconstruct } from "./extraction-proof.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = (p) => fs.readFileSync(path.join(HERE, p), "utf-8");
@@ -249,6 +249,17 @@ const EXTRACTIONS = [
       { name: "renderContractBoard", at: 2927, marker: "// renderContractBoard moved to ./work-loop-panels.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "codex-console.mjs",
+    importLine: "import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexConsoleConnections } from './codex-console.mjs';",
+    items: [
+      { name: "codexConsoleConnections", at: 2446, marker: "// codexConsoleConnections moved to ./codex-console.mjs in v0.5.4." },
+      { name: "codexConsoleClose", at: 2450, marker: "// codexConsoleClose moved to ./codex-console.mjs in v0.5.4." },
+      { name: "codexConsoleAppendLine", at: 2457, marker: "// codexConsoleAppendLine moved to ./codex-console.mjs in v0.5.4." },
+      { name: "codexConsoleAppendText", at: 2468, marker: "// codexConsoleAppendText moved to ./codex-console.mjs in v0.5.4." },
+      { name: "codexConsoleConnect", at: 2482, marker: "// codexConsoleConnect moved to ./codex-console.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -266,6 +277,7 @@ const MODULES = () => ({
   "settings-panel.mjs": read("settings-panel.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
+  "codex-console.mjs": read("codex-console.mjs"),
 });
 
 function rebuild(overrides = {}) {
@@ -320,6 +332,23 @@ function isGitIgnored(rel) {
     return false;
   }
 }
+
+test("declarationSpan ends a declaration that carries a TRAILING COMMENT", () => {
+  // The terminator test was `line.endsWith(";")`, so `const x = new Map(); // note` never ended and the
+  // span ran past the declaration — off the end of the module, for a const declared last, returning null.
+  // Found when codex-console.mjs failed to reconstruct with "codexConsoleConnections not found".
+  assert.equal(declarationSpan("const a = new Map(); // note", "a").text, "const a = new Map(); // note");
+
+  // The obvious fix — split on the first `//` — is wrong, and this is the case that proves it: the code
+  // part of a URL string would end at `'http:` and the span would run on again, one silent failure traded
+  // for another. Quote state is tracked instead.
+  const url = `const u = "http://example.test/x"; // note`;
+  assert.equal(declarationSpan(url, "u").text, url);
+
+  // The balance rule still governs: an IIFE's inner `;` must not terminate the declaration early.
+  const iife = ["const w = (() => {", "  const raw = 1;", "  return raw;", "})();"].join(LF);
+  assert.equal(declarationSpan(iife, "w").text, iife);
+});
 
 test("the browser-globals check separates LOAD-TIME access from a deferred function body", () => {
   // Added when `byId` moved to ui.js in v0.5.4. The check flagged
