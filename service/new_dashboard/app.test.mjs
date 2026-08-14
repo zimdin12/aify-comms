@@ -88,7 +88,12 @@ test("Work Loop board view: toggle, renderer, and card reuse are wired", () => {
   // well — and they broke when the code moved though nothing about the board changed.
   //
   // What stays is the wiring only app.js and its siblings can prove.
-  assert.ok(source.includes("state.contractView === 'board'"), "renderContracts must branch on the persisted view");
+  // `renderContracts` moved to work-loop-actions.mjs in v0.5.4, so the branch is asserted where it now
+  // lives. It stays a source check rather than becoming a behavioural one because what it claims is a
+  // WIRING fact — the renderer reads the PERSISTED view rather than a local default — and the panel it
+  // renders into is asserted by work-loop-panels.test.mjs.
+  assert.ok(read("work-loop-actions.mjs").includes("state.contractView === 'board'"),
+    "renderContracts must branch on the persisted view");
   // The click handler is scoped to the button (must not swallow card actions — same lesson as work-view).
   assert.match(source, /event\.target\.closest\('button\[data-contract-view\]'\)/,
     "contract-view handler must be scoped to button[data-contract-view]");

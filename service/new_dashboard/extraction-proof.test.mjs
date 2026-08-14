@@ -1277,6 +1277,49 @@ const EXTRACTIONS = [
       },
     ],
   },
+  {
+    module: "work-loop-actions.mjs",
+    importLine: "import { closeWorkContract, initWorkLoopActions, loadContractsForState, remindWorkContract, renderContracts, renderDiagnosticsBulkToolbar, requestBulkDiagnosticAction, runMaintenance } from './work-loop-actions.mjs';",
+    seeding: "initWorkLoopActions({ refresh });",
+    items: [
+      {
+        name: "loadContractsForState",
+        at: 711,
+        leading: 3,
+        marker: "// loadContractsForState moved to ./work-loop-actions.mjs in v0.5.4, with the note on why it reloads.",
+      },
+      {
+        name: "runMaintenance",
+        at: 1486,
+        marker: "// runMaintenance moved to ./work-loop-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "renderDiagnosticsBulkToolbar",
+        at: 1500,
+        marker: "// renderDiagnosticsBulkToolbar moved to ./work-loop-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "renderContracts",
+        at: 2957,
+        marker: "// renderContracts moved to ./work-loop-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "closeWorkContract",
+        at: 3927,
+        marker: "// closeWorkContract moved to ./work-loop-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "remindWorkContract",
+        at: 3939,
+        marker: "// remindWorkContract moved to ./work-loop-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "requestBulkDiagnosticAction",
+        at: 3944,
+        marker: "// requestBulkDiagnosticAction moved to ./work-loop-actions.mjs in v0.5.4.",
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -1318,6 +1361,7 @@ const MODULES = () => ({
   "run-inspector.mjs": read("run-inspector.mjs"),
   "agent-session-actions.mjs": read("agent-session-actions.mjs"),
   "analytics-page.mjs": read("analytics-page.mjs"),
+  "work-loop-actions.mjs": read("work-loop-actions.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),

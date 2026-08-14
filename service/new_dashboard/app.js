@@ -74,6 +74,7 @@ import { connectRealtimeSocket, initRealtimeSocket, wireRealtimeResumeReconnect 
 import { handleRunInspectorControl, initRunInspector, loadMoreRunEvents, loadRunsForStatus, openRunInspector, renderRunInspector, renderRuns, requestRunControl, toggleRunEventOrder } from './run-inspector.mjs';
 import { deleteSessionById, initAgentSessionActions, openAgentChat, removeAgent, requestBulkSessionControl, requestSessionControl, resolveAgentSession, stopAgentWorker, submitAgentEdit, submitContinue, switchAgentSessionMode } from './agent-session-actions.mjs';
 import { loadAnalytics, renderAnalyticsPage, renderUsagePools } from './analytics-page.mjs';
+import { closeWorkContract, initWorkLoopActions, loadContractsForState, remindWorkContract, renderContracts, renderDiagnosticsBulkToolbar, requestBulkDiagnosticAction, runMaintenance } from './work-loop-actions.mjs';
 import { loadVersionBadge } from './version-badge.mjs';
 import { awaitTerminalSize, disposeActiveXterm } from './xterm-lifecycle.mjs';
 
@@ -385,17 +386,7 @@ async function toggleNotifications(on) {
 
 // runQueryPath moved to ./run-helpers.mjs in v0.5.4.
 
-// The base refresh fetches only OPEN contracts, so the State dropdown's terminal options
-// (Answered/Failed/Missing reply/Seen/Sent/Closed) had nothing to match. Reload from the server
-// with the matching scope on change so every option works. (2026-06-29 fix.)
-async function loadContractsForState(stateVal, render = true) {
-  const v = String(stateVal || '').trim();
-  let qs = '/contracts?limit=120';
-  if (v === 'all') qs = '/contracts?includeClosed=true&limit=300';
-  else if (v && v !== 'open') qs = `/contracts?state=${encodeURIComponent(v)}&limit=200`;
-  try { const res = await api(qs); state.contracts = res.contracts || []; } catch (err) { toast(`Load contracts failed: ${err?.message || err}`, 'error'); }
-  if (render) renderContracts();
-}
+// loadContractsForState moved to ./work-loop-actions.mjs in v0.5.4, with the note on why it reloads.
 
 // loadRunsForStatus moved to ./run-inspector.mjs in v0.5.4.
 
@@ -635,39 +626,9 @@ async function saveSettings() {
 // terminal runs that never recorded a handoff / never marked their source read.
 // MAINTENANCE_ACTIONS moved to ./work-loop-panels.mjs in v0.5.4.
 
-async function runMaintenance(action) {
-  const def = MAINTENANCE_ACTIONS[action];
-  if (!def) return;
-  if (!(await uiConfirm(`${def.label}? This is safe to run while agents are working.`, { confirmLabel: def.label }))) return;
-  try {
-    const res = await api(def.path, { method: 'POST' });
-    const n = (res && (res.repaired ?? res.mirrored ?? res.count ?? res.updated ?? res.fixed));
-    toast(`${def.label}: ${n != null ? `${n} fixed` : 'done'}`, 'ok');
-    refresh();
-  } catch (err) {
-    toast(`${def.label} failed: ${err && err.message ? err.message : err}`, 'error');
-  }
-}
+// runMaintenance moved to ./work-loop-actions.mjs in v0.5.4.
 
-function renderDiagnosticsBulkToolbar() {
-  const toolbar = byId('diagnostics-bulk-toolbar');
-  if (!toolbar) return;
-  pruneDiagnosticSelection();
-  const selected = selectedDiagnostics();
-  toolbar.hidden = selected.length === 0;
-  if (!selected.length) {
-    toolbar.innerHTML = '';
-    return;
-  }
-  const contracts = selected.filter((item) => item.kind === 'contract').length;
-  const runs = selected.filter((item) => item.kind === 'run').length;
-  toolbar.innerHTML = `
-    <span>${selected.length} selected · ${contracts} work · ${runs} runs</span>
-    <button class="ghost" data-diagnostic-action="remind">Remind work</button>
-    <button class="ghost danger" data-diagnostic-action="close">Close selected</button>
-    <button class="ghost" data-diagnostic-action="inspect">Inspect first</button>
-    <button class="ghost" data-diagnostic-action="clear">Clear</button>`;
-}
+// renderDiagnosticsBulkToolbar moved to ./work-loop-actions.mjs in v0.5.4.
 
 // activityItems moved to ./work-loop-panels.mjs in v0.5.4.
 
@@ -959,31 +920,7 @@ function renderSessionWorkspace() {
 
 // renderContractBoard moved to ./work-loop-panels.mjs in v0.5.4.
 
-function renderContracts() {
-  const selected = byId('contract-state')?.value || 'open';
-  const category = byId('contract-category')?.value || '';
-  const contracts = filtered(state.contracts, ['subject', 'preview', 'from', 'targetAgentId'])
-    .filter((contract) => selected === 'all' ? true
-      : selected === 'open' ? ['overdue', 'working', 'queued', 'sent', 'seen'].includes(contract.state)
-      : contract.state === selected)
-    .filter((contract) => !category || contractCategory(contract) === category);
-  const host = byId('contract-list');
-  host.classList.toggle('is-board', state.contractView === 'board');
-  if (!contracts.length) {
-    host.innerHTML = '<div class="empty-state"><span class="empty-icon">✓</span><strong>No contracts match</strong><p>No reply obligations in this filter.</p></div>';
-  } else if (state.contractView === 'board') {
-    host.innerHTML = renderContractBoard(contracts);
-  } else {
-    host.innerHTML = contracts.map(contractCard).join('');
-  }
-  // Keep the toggle buttons in sync (also on first paint / cross-tab restore).
-  document.querySelectorAll('button[data-contract-view]').forEach((b) => {
-    const on = b.dataset.contractView === state.contractView;
-    b.classList.toggle('active', on);
-    b.setAttribute('aria-pressed', String(on));
-  });
-  renderDiagnosticsBulkToolbar();
-}
+// renderContracts moved to ./work-loop-actions.mjs in v0.5.4.
 
 // environmentRuntimes moved to ./record-fields.mjs in v0.5.4.
 
@@ -1185,72 +1122,11 @@ function closeInspector() {
 
 // patchRun moved to ./run-helpers.mjs in v0.5.4.
 
-async function closeWorkContract(runId, confirmAction = true, refreshAfter = true) {
-  if (confirmAction && !await uiConfirm('Close this Work Loop contract as operator-reviewed?')) return;
-  await patchRun(runId, {
-    status: 'completed',
-    requireReply: false,
-    summary: 'Closed from Work Loop by dashboard operator.',
-    appendEvent: 'Closed from Work Loop by dashboard operator.',
-    eventType: 'operator_closed',
-  });
-  if (refreshAfter) await refresh();
-}
+// closeWorkContract moved to ./work-loop-actions.mjs in v0.5.4.
 
-async function remindWorkContract(runId, refreshAfter = true) {
-  await api(`/contracts/reminders/run?runId=${encodeURIComponent(runId)}`, { method: 'POST' });
-  if (refreshAfter) await refresh();
-}
+// remindWorkContract moved to ./work-loop-actions.mjs in v0.5.4.
 
-async function requestBulkDiagnosticAction(action) {
-  const selected = selectedDiagnostics();
-  if (!selected.length || !action) return;
-  if (action === 'clear') {
-    state.selectedDiagnosticIds.clear();
-    renderContracts();
-    renderRuns();
-    return;
-  }
-  if (action === 'inspect') {
-    const first = selected[0];
-    if (first.kind === 'run') await openRunInspector({ runId: first.id, source: 'diagnostics-bulk' });
-    else if (first.kind === 'contract') await openRunInspector({ runId: first.id, source: 'work' });
-    return;
-  }
-  if (action === 'remind') {
-    const contracts = selected.filter((entry) => entry.kind === 'contract');
-    if (!contracts.length) {
-      // Only reply-contracts can be reminded; don't silently drop a runs-only selection.
-      toast('No reply-contract items in the selection to remind.', 'warn');
-      return;
-    }
-    for (const item of contracts) {
-      await remindWorkContract(item.id, false);
-    }
-    toast(`Reminder sent for ${contracts.length} contract${contracts.length === 1 ? '' : 's'}.`, 'ok');
-    state.selectedDiagnosticIds.clear();
-    await refresh();
-    return;
-  }
-  if (action === 'close') {
-    if (!await uiConfirm(`Close ${selected.length} selected diagnostics item${selected.length === 1 ? '' : 's'} as operator-reviewed?`)) return;
-    for (const item of selected) {
-      if (item.kind === 'contract') {
-        await closeWorkContract(item.id, false, false);
-      } else if (item.kind === 'run') {
-        await patchRun(item.id, {
-          status: 'completed',
-          requireReply: false,
-          summary: 'Closed from Diagnostics by dashboard operator.',
-          appendEvent: 'Closed from Diagnostics by dashboard operator.',
-          eventType: 'operator_closed',
-        });
-      }
-    }
-    state.selectedDiagnosticIds.clear();
-    await refresh();
-  }
-}
+// requestBulkDiagnosticAction moved to ./work-loop-actions.mjs in v0.5.4.
 
 async function createSpawnRequest() {
   const environmentId = byId('env-spawn-environment')?.value || '';
@@ -1981,6 +1857,7 @@ try {
 } catch { /* private mode */ }
 
 initAgentSessionActions({ chatController, closeInspector, inspect, markConversationRead, refresh, refreshSoon, renderSessionWorkspace, setPage });
+initWorkLoopActions({ refresh });
 initRunInspector({ closeInspector, evaluateFlowGates, openInspector, openRunConsole, refresh, renderDiagnosticsBulkToolbar });
 initRealtimeSocket({ dashboardNotifier, evaluateFlowGates, refreshSoon, resyncActiveConsole, scheduleRenderAll });
 connectRealtimeSocket();
