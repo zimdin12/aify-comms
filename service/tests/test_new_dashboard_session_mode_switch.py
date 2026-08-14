@@ -94,18 +94,29 @@ class NewDashboardSessionModeSwitchTests(unittest.TestCase):
 
         RETIRED BY `agent-click-handlers.test.mjs::switchModeFromChip SUPPRESSES the default and STOPS
         propagation before switching`, which CALLS the handler and asserts the agent id and target mode
-        arrive in that order — the thing this could never check. What is left here is the half app.js
-        genuinely still owns: the delegated listener must catch the chip's clicks and hand them on.
+        arrive in that order — the thing this could never check.
+
+        The delegation half then moved TOO: the whole delegated listener became
+        `service/new_dashboard/click-dispatch.mjs` in v0.5.4, so this reads that file rather than
+        app.js. `click-dispatch.test.mjs` covers the part that a substring cannot — that a target
+        matching BOTH the chip and the selectable row it sits inside is claimed by the chip, which is
+        the ordering this delegation exists to get right.
         """
+        dispatcher = (ROOT / "service" / "new_dashboard" / "click-dispatch.mjs").read_text(encoding="utf-8")
         self.assertIn(
             "const modeSwitchButton = event.target.closest('[data-mode-switch]')",
-            self.script,
+            dispatcher,
             "Plan 6 C4: global click delegation must catch [data-mode-switch] clicks",
         )
         self.assertIn(
             "switchModeFromChip(modeSwitchButton, event, switchAgentSessionMode)",
-            self.script,
+            dispatcher,
             "Plan 6 C4: the delegated listener must hand the click to the extracted handler",
+        )
+        self.assertIn(
+            "document.addEventListener('click', dispatchClick);",
+            self.script,
+            "…and app.js must still REGISTER the dispatcher, or none of it is reachable",
         )
 
     def test_the_mode_switch_is_covered_by_a_test_that_PERFORMS_it(self):

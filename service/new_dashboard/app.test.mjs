@@ -64,14 +64,14 @@ test("chat composer has NO sticky queue control — queueing is per-message only
     "Send stays the form's submit action, so Enter is an ordinary send");
 });
 
-test("click handling processes mode switch before session row selection", () => {
-  const source = read("app.js");
-  const modeSwitchIndex = source.indexOf("const modeSwitchButton = event.target.closest('[data-mode-switch]')");
-  const sessionSelectIndex = source.indexOf("const sessionSelect = event.target.closest('[data-session-select]')");
-  assert.ok(modeSwitchIndex >= 0 && sessionSelectIndex >= 0, "both click handlers must exist");
-  assert.ok(modeSwitchIndex < sessionSelectIndex,
-    "mode switch must be handled before session row selection so nested rail chips are clickable");
-});
+// RETIRED: "click handling processes mode switch before session row selection".
+//
+// It compared two `indexOf` results in app.js. The claim is real — the chip is nested inside a
+// selectable row, so whichever branch is checked first claims the click — but the delegated listener
+// moved to click-dispatch.mjs in v0.5.4, and `click-dispatch.test.mjs` now DISPATCHES a click at a
+// target matching BOTH selectors and checks which branch claimed it, which is the only way to test an
+// ordered chain. It also asserts the other direction (a plain row still selects), without which the
+// first assertion passes against a dispatcher that dropped row selection entirely.
 
 test("Work Loop board view: toggle, renderer, and card reuse are wired", () => {
   const html = read("index.html");
@@ -95,7 +95,10 @@ test("Work Loop board view: toggle, renderer, and card reuse are wired", () => {
   assert.ok(read("work-loop-actions.mjs").includes("state.contractView === 'board'"),
     "renderContracts must branch on the persisted view");
   // The click handler is scoped to the button (must not swallow card actions — same lesson as work-view).
-  assert.match(source, /event\.target\.closest\('button\[data-contract-view\]'\)/,
+  // The delegated listener moved to click-dispatch.mjs in v0.5.4. The scoping claim is asserted there
+  // both ways — a bare-attribute target must NOT switch the view, and the button form must — so this is
+  // now just the wiring check that the branch exists at all.
+  assert.match(read("click-dispatch.mjs"), /event\.target\.closest\('button\[data-contract-view\]'\)/,
     "contract-view handler must be scoped to button[data-contract-view]");
   // The persistence MOVED to work-loop-panels.mjs with `applyContractView` in v0.5.4, and
   // work-loop-panels.test.mjs now asserts it by behaviour: every input is normalised to exactly `board`
@@ -377,7 +380,8 @@ test("the agent-level stop is ROUTED by app.js — the half that could not move"
   // What stays is the wiring only app.js holds: the delegated click handler must route the button to
   // something. Without it the control is inert and every assertion over there is about code no button
   // reaches.
-  const source = read("app.js");
+  // The delegated listener moved to click-dispatch.mjs in v0.5.4; the routing claim moved with it.
+  const source = read("click-dispatch.mjs");
   assert.match(source, /data-agent-stop-worker\]/, "the click handler must route the button");
   assert.match(source, /stopAgentWorker\(/, "…to the action that performs the teardown");
 });

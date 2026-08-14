@@ -1415,6 +1415,52 @@ const EXTRACTIONS = [
       },
     ],
   },
+  {
+    module: "click-dispatch.mjs",
+    importLine: "import { dispatchClick, initClickDispatch } from './click-dispatch.mjs';",
+    seeding: [
+      "initClickDispatch({ chatController, closeInspector, refreshSoon, renderSessionWorkspace, setPage });",
+      "document.addEventListener('click', dispatchClick);",
+    ],
+    items: [
+      {
+        // NOT A DECLARATION IN THE PRISTINE FILE — it was an anonymous listener callback. The 308 body
+        // lines are byte-identical; the wrapper around them is the whole of the edit, so it is declared
+        // as one, with the pristine `document.addEventListener('click', (event) => {` restored in place
+        // of the module's function head and `});` in place of its closing brace.
+        //
+        // The footer anchor is three lines, not one: `}` alone matches the FIRST closing brace inside
+        // the body, which would have spliced the tail of the dispatcher into the middle of itself.
+        name: "dispatchClick",
+        at: 4236,
+        marker: [
+          "// The delegated click dispatcher moved to ./click-dispatch.mjs in v0.5.4. Registering it stays here,",
+          "// so the boot sequence remains visible in one place.",
+        ],
+        editedSince: [
+          {
+            // The JSDoc above the declaration is NOT part of the span — `declarationSpan` starts at
+            // the `function` line — and it is new prose this slice wrote rather than anything moved,
+            // so it is neither restored nor declared.
+            now: ["function dispatchClick(event) {"],
+            was: ["document.addEventListener('click', (event) => {"],
+          },
+          {
+            now: [
+              "  // (Removed the catch-all [data-kind] → JSON-inspector fallback: it hijacked clicks on the",
+              "  // empty area of any row/message and popped raw JSON. Explicit inspect buttons still work.)",
+              "}",
+            ],
+            was: [
+              "  // (Removed the catch-all [data-kind] → JSON-inspector fallback: it hijacked clicks on the",
+              "  // empty area of any row/message and popped raw JSON. Explicit inspect buttons still work.)",
+              "});",
+            ],
+          },
+        ],
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -1459,6 +1505,7 @@ const MODULES = () => ({
   "work-loop-actions.mjs": read("work-loop-actions.mjs"),
   "message-actions.mjs": read("message-actions.mjs"),
   "console-actions.mjs": read("console-actions.mjs"),
+  "click-dispatch.mjs": read("click-dispatch.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),
@@ -1490,16 +1537,28 @@ test("app.js reconstructs byte-identically from every extraction to date", () =>
   );
 });
 
-test("the second slice's marker comment is missing from app.js for one of its items", () => {
-  // A guard on the plan itself: the marker text is asserted verbatim by reconstruct(), so if a slice's
-  // marker were mistyped here the proof would throw rather than silently skip that body.
-  const source = read("app.js");
+test("every declared marker still exists verbatim SOMEWHERE the reconstruction will find it", () => {
+  // A guard on the plan itself: reconstruct() asserts marker text verbatim, so a mistyped marker would
+  // throw rather than silently skip that body.
+  //
+  // IT USED TO LOOK ONLY IN app.js, and a later slice broke that assumption without breaking anything
+  // real. Some markers are not comments at all but the CALL SITE a slice left behind — `applyThemeChoice`
+  // left `    applyThemeChoice(themeChoice);` inside the delegated click handler — and when the click
+  // handler itself moved to click-dispatch.mjs, the line went with it. The reconstruction still passes,
+  // because by the time that marker is looked for, the click body has been restored into the file; only
+  // this narrower guard failed.
+  //
+  // So the marker must exist in app.js OR in a module the plan names, which is exactly the set of places
+  // reconstruct() can end up reading it from.
+  const modules = MODULES();
+  const haystacks = [read("app.js"), ...Object.values(modules)];
   for (const step of EXTRACTIONS) {
     for (const item of step.items) {
       if (item.marker == null) continue;
+      const first = [].concat(item.marker)[0];
       assert.ok(
-        source.includes([].concat(item.marker)[0]),
-        `${item.name}'s marker is not in app.js verbatim, so the plan and the file disagree`,
+        haystacks.some((source) => source.includes(first)),
+        `${item.name}'s marker is in neither app.js nor any extracted module, so the plan and the files disagree`,
       );
     }
   }
