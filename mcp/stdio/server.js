@@ -110,7 +110,6 @@ import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
 import {
   runManagedTeardown,
   reapOrphanedManagedSurvivors,
-  bridgeOwnerIsLive,
   enumerateManagedSurvivors,
   defaultListProcesses as listManagedProcesses,
   defaultReadMarkers as readManagedMarkers,
@@ -124,6 +123,7 @@ import { startHermesGatewayTurnDetector } from "./hermes-gateway-turn-detector.j
 import { startClaudeTurnEndDetector } from "./claude-turn-end-detector.js";
 import { collectOnce as collectUsageOnce, collectConsumptionOnce } from "./usage-collector.js";
 import { AIFY_VERSION } from "./version.js";
+import { createManagedOwnershipReader } from "./managed-ownership.mjs";
 import { VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT, createVirtualTerminalSink, ensureVirtualTerminal, handleVirtualTerminalControl, updateTerminalControl } from './virtual-terminals.mjs';
 import { ensureRequiredReplyHandoff } from './required-reply-handoff.mjs';
 import { TERMINAL_MANAGER, reportDeadOwnedTerminals } from './terminal-manager.mjs';
@@ -989,40 +989,10 @@ function runManagedTeardownSync(reason = "bridge exit") {
 // runtimeState.bridgeInstanceId vs the CURRENT bridgeId of an ONLINE environment
 // (GET /environments — the host-side mirror of the server's
 // _resident_bridge_is_fresh check). See bridgeOwnerIsLive.
-async function fetchManagedOwnershipForEnv() {
-  const environment = effectiveEnvironmentPayload();
-  const [agentsRes, sessionsRes, environmentsRes] = await Promise.all([
-    httpCall("GET", "/agents"),
-    httpCall("GET", `/sessions?environmentId=${encodeURIComponent(environment.id)}&limit=500`),
-    httpCall("GET", "/environments"),
-  ]);
-  const sessionByAgent = new Map();
-  for (const session of sessionsRes?.sessions || []) {
-    if (session?.agentId && !sessionByAgent.has(session.agentId)) sessionByAgent.set(session.agentId, session);
-  }
-  const environments = Array.isArray(environmentsRes?.environments) ? environmentsRes.environments : [];
-  const records = [];
-  for (const [agentId, info] of Object.entries(agentsRes?.agents || {})) {
-    if (normalizeSessionMode(info.sessionMode) !== "managed") continue;
-    const runtimeState = info.runtimeState || {};
-    const session = sessionByAgent.get(agentId);
-    const belongsToEnvironment =
-      session || String(runtimeState.environmentId || "") === environment.id;
-    if (!belongsToEnvironment) continue;
-    const workspace = session?.workspace || info.cwd || DEFAULT_CWD;
-    if (!workspaceWithinRoots(workspace, environment.cwdRoots)) continue;
-    const owningBridgeId = String(runtimeState.bridgeInstanceId || "").trim();
-    records.push({
-      agentId,
-      owningBridgeId,
-      ownerLive: bridgeOwnerIsLive(owningBridgeId, {
-        environments,
-        selfBridgeId: BRIDGE_INSTANCE_ID,
-      }),
-    });
-  }
-  return records;
-}
+// fetchManagedOwnershipForEnv moved to ./managed-ownership.mjs in v0.5.4.
+// `effectiveEnvironmentPayload` is injected: it reads `remoteEffectiveCwdRoots`, whose only writer
+// is `heartbeatEnvironment` below, so the state stays here with its writer.
+const fetchManagedOwnershipForEnv = createManagedOwnershipReader({ effectiveEnvironmentPayload });
 
 // Env-bridge BOOT survivor sweep (before ensureSpawnLoop). Reaps managed-triad
 // survivors of dead/crashed predecessors so "restart = zero survivors" holds
