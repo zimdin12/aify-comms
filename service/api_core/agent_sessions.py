@@ -25,6 +25,7 @@ import time
 from typing import Any, Optional
 
 from service.api_core.active_run_lookup import _get_blocking_active_run
+from service.api_core.runtime import _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
 from service.api_core.events import _append_terminal_control, _append_terminal_event
 from service.api_core.runtime_state import _runtime_state_with_handle
@@ -457,3 +458,101 @@ async def _stage_manual_resident_takeover(db, req, row, bridge_id: str, normaliz
                     ),
                 )
             return active_run
+
+
+async def _settle_agent_for_session_control(db, session_id: str, agent_id: str, action: str, now: str,
+                                            cancelled_spawns: int) -> int:
+        """Bring the AGENT row into line with a session control, and cancel spawns it invalidates.
+
+        Extracted from `control_session` in v0.5.4 and re-proved on every run by
+        `test_control_session_split_is_inert.py`, which inlines it back and AST-compares against the
+        pre-split fixture. Body left at its original 8-space column so the multi-line SQL literals
+        inside are preserved byte-for-byte — the extract-method gate compares ASTs and refuses a
+        re-indent that rewrites a query string.
+
+        THE PENDING-SPAWN CANCELLATION is the part that is easy to miss and expensive to get wrong. A
+        stop or a CLI takeover invalidates any spawn already queued/claimed/starting for this agent:
+        without cancelling them, the spawn completes moments later and hands the operator back the
+        worker they just stopped. The cancellation carries a reason naming which of the two happened,
+        because "cancelled" with no cause is indistinguishable from a failure.
+
+        THE THREE-WAY AGENT OUTCOME is deliberate, not an accident of nesting:
+          * cli_takeover  -> `stopped`, launch_mode cleared, and a note telling the operator how to get
+            control back, since nothing else will tell them;
+          * stop of a RESIDENT session -> `stopped`, because the live bridge is expected to terminate
+            the CLI host;
+          * stop of anything else -> `offline`, and only if it was not ALREADY `stopped` — a stop must
+            never promote a stopped agent back to offline.
+
+        Returns the running cancellation count so the caller can report it.
+        """
+        if action in {"stop", "cli_takeover"}:
+            pending_spawn_cursor = await db.execute(
+                """
+                SELECT id
+                FROM spawn_requests
+                WHERE agent_id = ?
+                  AND status IN ('queued', 'claimed', 'starting')
+                """,
+                (agent_id,),
+            )
+            for pending_spawn in await pending_spawn_cursor.fetchall():
+                await db.execute(
+                    """
+                    UPDATE spawn_requests
+                    SET status = 'cancelled',
+                        error = ?,
+                        finished_at = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                      AND status IN ('queued', 'claimed', 'starting')
+                    """,
+                    (
+                        f'Session "{session_id}" was {"paused for CLI takeover" if action == "cli_takeover" else "stopped from the dashboard"} before spawn completed.',
+                        now,
+                        now,
+                        pending_spawn["id"],
+                    ),
+                )
+                cancelled_spawns += 1
+            if action == "cli_takeover":
+                await db.execute(
+                    """
+                    UPDATE agents
+                    SET status = 'stopped',
+                        status_note = ?,
+                        launch_mode = 'none',
+                        last_seen = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        "Paused for direct CLI takeover. Close the CLI session and use Sessions -> Restart to return control to the dashboard.",
+                        now,
+                        agent_id,
+                    ),
+                )
+            else:
+                agent_current = await (await db.execute("SELECT session_mode FROM agents WHERE id = ?", (agent_id,))).fetchone()
+                if agent_current and _normalize_session_mode(agent_current["session_mode"] or "resident") == "resident":
+                    await db.execute(
+                        """
+                        UPDATE agents
+                        SET status = 'stopped',
+                            status_note = ?,
+                            launch_mode = 'none',
+                            last_seen = ?
+                        WHERE id = ?
+                        """,
+                        ("Resident session stop requested from dashboard; live bridge should terminate the CLI host.", now, agent_id),
+                    )
+                else:
+                    await db.execute(
+                        "UPDATE agents SET status = CASE WHEN status = 'stopped' THEN status ELSE 'offline' END, last_seen = ? WHERE id = ?",
+                        (now, agent_id),
+                    )
+        else:
+            await db.execute(
+                "UPDATE agents SET status = CASE WHEN status = 'stopped' THEN status ELSE 'idle' END, last_seen = ? WHERE id = ?",
+                (now, agent_id),
+            )
+        return cancelled_spawns

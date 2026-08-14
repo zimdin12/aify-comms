@@ -58,7 +58,10 @@ from service.api_core.capabilities import _default_console_command, _environment
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
-from service.api_core.agent_sessions import _touch_current_agent_session
+from service.api_core.agent_sessions import (
+    _settle_agent_for_session_control,
+    _touch_current_agent_session,
+)
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMANDS_BY_RUNTIME
 from service.clock import now as _now
 import sqlite3
@@ -830,75 +833,9 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
             """,
             (next_status, now, next_status, now, session_id),
         )
-        if action in {"stop", "cli_takeover"}:
-            pending_spawn_cursor = await db.execute(
-                """
-                SELECT id
-                FROM spawn_requests
-                WHERE agent_id = ?
-                  AND status IN ('queued', 'claimed', 'starting')
-                """,
-                (agent_id,),
-            )
-            for pending_spawn in await pending_spawn_cursor.fetchall():
-                await db.execute(
-                    """
-                    UPDATE spawn_requests
-                    SET status = 'cancelled',
-                        error = ?,
-                        finished_at = ?,
-                        updated_at = ?
-                    WHERE id = ?
-                      AND status IN ('queued', 'claimed', 'starting')
-                    """,
-                    (
-                        f'Session "{session_id}" was {"paused for CLI takeover" if action == "cli_takeover" else "stopped from the dashboard"} before spawn completed.',
-                        now,
-                        now,
-                        pending_spawn["id"],
-                    ),
-                )
-                cancelled_spawns += 1
-            if action == "cli_takeover":
-                await db.execute(
-                    """
-                    UPDATE agents
-                    SET status = 'stopped',
-                        status_note = ?,
-                        launch_mode = 'none',
-                        last_seen = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        "Paused for direct CLI takeover. Close the CLI session and use Sessions -> Restart to return control to the dashboard.",
-                        now,
-                        agent_id,
-                    ),
-                )
-            else:
-                agent_current = await (await db.execute("SELECT session_mode FROM agents WHERE id = ?", (agent_id,))).fetchone()
-                if agent_current and _normalize_session_mode(agent_current["session_mode"] or "resident") == "resident":
-                    await db.execute(
-                        """
-                        UPDATE agents
-                        SET status = 'stopped',
-                            status_note = ?,
-                            launch_mode = 'none',
-                            last_seen = ?
-                        WHERE id = ?
-                        """,
-                        ("Resident session stop requested from dashboard; live bridge should terminate the CLI host.", now, agent_id),
-                    )
-                else:
-                    await db.execute(
-                        "UPDATE agents SET status = CASE WHEN status = 'stopped' THEN status ELSE 'offline' END, last_seen = ? WHERE id = ?",
-                        (now, agent_id),
-                    )
-        else:
-            await db.execute(
-                "UPDATE agents SET status = CASE WHEN status = 'stopped' THEN status ELSE 'idle' END, last_seen = ? WHERE id = ?",
-                (now, agent_id),
-            )
+        cancelled_spawns = await _settle_agent_for_session_control(
+            db, session_id, agent_id, action, now, cancelled_spawns,
+        )
 
         # Halt the running backing (2026-06-07): Stop/Restart/Reset/CLI-takeover must PROMPTLY
         # kill the live managed PTY, not just flip DB status. Previously only the agent-control

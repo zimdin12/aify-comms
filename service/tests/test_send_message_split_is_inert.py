@@ -81,15 +81,28 @@ class SendMessageSplitIsInertTests(unittest.TestCase):
         for helper in EXTRACTIONS:
             self.assertNotIn(helper, declared, f"{helper} is back in messages.py; this proof is vacuous")
 
-    def test_exactly_one_module_declares_the_helper(self):
-        owners = [
-            path for path in (MESSAGES, DISPATCH_START)
-            if any(
-                isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in EXTRACTIONS
-                for n in ast.parse(path.read_text(encoding="utf-8")).body
-            )
-        ]
-        self.assertEqual([DISPATCH_START], owners)
+    def test_exactly_one_module_declares_EACH_helper(self):
+        """Per helper, not per plan — and over every module the plan reads.
+
+        The first version listed only MESSAGES and DISPATCH_START and asserted the owner set was
+        exactly [DISPATCH_START]. When the second extraction landed in `dispatch_messages/shared.py`
+        the assertion still passed, because the module it landed in was not one of the two being
+        looked at. It was checking a claim it could no longer see.
+        """
+        expected = {
+            "_launch_recipients_for_dispatch": DISPATCH_START,
+            "_queue_console_dispatch_inputs": DM_SHARED,
+        }
+        self.assertEqual(sorted(expected), sorted(EXTRACTIONS), "every extraction needs a declared owner")
+        for helper, owner in expected.items():
+            owners = [
+                path for path in (MESSAGES, DISPATCH_START, DM_SHARED)
+                if any(
+                    isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == helper
+                    for n in ast.parse(path.read_text(encoding="utf-8")).body
+                )
+            ]
+            self.assertEqual([owner], owners, f"{helper} must be declared exactly once, in {owner.name}")
 
     def test_the_leaf_does_not_import_upward(self):
         """An api_core leaf reaching into a router — or the control plane — is the cycle to prevent.
