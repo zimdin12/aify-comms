@@ -41,6 +41,7 @@ import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './ag
 import { contractCard, diagnosticKey, filtered, renderActivityFeed, renderAttention, renderContractBoard } from './work-loop-panels.mjs';
 import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexConsoleConnections } from './codex-console.mjs';
 import { openIdentityDirectory } from './identity-directory.mjs';
+import { closeStatusWhy, openStatusWhy } from './status-why-popover.mjs';
 
 function resolveApiOrigin() {
   const params = new URLSearchParams(location.search);
@@ -1249,37 +1250,10 @@ function renderDiagnosticsBulkToolbar() {
 
 // renderActivityFeed moved to ./work-loop-panels.mjs in v0.5.4.
 
-let _statusWhyReturnFocus = null;
-function openStatusWhy(trigger) {
-  const popover = byId('status-why-popover');
-  if (!popover || !trigger) return;
-  _statusWhyReturnFocus = trigger;
-  const reason = trigger.dataset.statusWhy || trigger.title || 'No status reason loaded.';
-  const kind = trigger.dataset.statusKind || 'unknown';
-  popover.hidden = false;
-  popover.setAttribute('role', 'dialog');
-  popover.innerHTML = `
-    <div class="item-title">
-      <strong>Status: ${esc(kind)}</strong>
-      <button class="ghost" data-close-status-why>Close</button>
-    </div>
-    <p>${esc(reason)}</p>`;
-  setTimeout(() => popover.querySelector('[data-close-status-why]')?.focus(), 20);
-  const rect = trigger.getBoundingClientRect();
-  const top = Math.min(window.innerHeight - 160, Math.max(12, rect.bottom + 8));
-  const left = Math.min(window.innerWidth - 320, Math.max(12, rect.left));
-  popover.style.top = `${top}px`;
-  popover.style.left = `${left}px`;
-}
+// _statusWhyReturnFocus moved to ./status-why-popover.mjs in v0.5.4.
+// openStatusWhy moved to ./status-why-popover.mjs in v0.5.4.
 
-function closeStatusWhy() {
-  const popover = byId('status-why-popover');
-  if (!popover) return;
-  popover.hidden = true;
-  popover.innerHTML = '';
-  try { if (_statusWhyReturnFocus && _statusWhyReturnFocus.focus) _statusWhyReturnFocus.focus(); } catch {}
-  _statusWhyReturnFocus = null;
-}
+// closeStatusWhy moved to ./status-why-popover.mjs in v0.5.4.
 
 // sessionId moved to ./record-fields.mjs in v0.5.4.
 

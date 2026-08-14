@@ -267,6 +267,15 @@ const EXTRACTIONS = [
       { name: "openIdentityDirectory", at: 3402, marker: "// openIdentityDirectory moved to ./identity-directory.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "status-why-popover.mjs",
+    importLine: "import { closeStatusWhy, openStatusWhy } from './status-why-popover.mjs';",
+    items: [
+      { name: "_statusWhyReturnFocus", at: 1577, marker: "// _statusWhyReturnFocus moved to ./status-why-popover.mjs in v0.5.4." },
+      { name: "openStatusWhy", at: 1578, marker: "// openStatusWhy moved to ./status-why-popover.mjs in v0.5.4." },
+      { name: "closeStatusWhy", at: 1600, marker: "// closeStatusWhy moved to ./status-why-popover.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -286,6 +295,7 @@ const MODULES = () => ({
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),
   "identity-directory.mjs": read("identity-directory.mjs"),
+  "status-why-popover.mjs": read("status-why-popover.mjs"),
 });
 
 function rebuild(overrides = {}) {
