@@ -410,6 +410,28 @@ const EXTRACTIONS = [
       { name: "persistChatDrafts", at: 4907, marker: "// persistChatDrafts moved to ./chat-prefs.mjs in v0.5.4." },
     ],
   },
+  // THE FIRST EXTRACT-METHOD, and the first entry whose item is not a whole declaration in the pristine
+  // file. app.js's delegated click handler holds 82 branch bodies and not one of them is a declaration, so
+  // until `wrapper` existed this plan could not describe a single line of it. The guard and the `return;`
+  // stay in app.js: only the body moved, dedented by two, into the module that already owned everything it
+  // touches.
+  {
+    module: "settings-panel.mjs",
+    importLine: "import { applyThemeChoice, previewAppearance, refreshActiveTerminalTheme, renderSettings, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';",
+    importWas: "import { previewAppearance, refreshActiveTerminalTheme, renderSettings, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';",
+    items: [
+      {
+        name: "applyThemeChoice",
+        at: 4246,
+        marker: "    applyThemeChoice(themeChoice);",
+        wrapper: {
+          header: ["export function applyThemeChoice(themeChoice) {"],
+          footer: ["}"],
+          dedent: "  ",
+        },
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -912,4 +934,38 @@ test("a changed line under DEDENT still fails byte-identity, since no verbatim c
     }],
   });
   assert.notEqual(rebuilt, pristine);
+});
+
+test("A CHAINED IMPORT EDIT UNWINDS NEWEST-FIRST — two slices touching one import line", () => {
+  // The case that broke the plan the moment a second slice added a name to an import line an earlier slice
+  // had written. Undoing them in plan order makes the OLDER entry look for text the NEWER one replaced, and
+  // it throws "import line not found verbatim". The full-history test above already covers this, but only
+  // as one of many reasons it could fail; this names the property so a regression says what broke.
+  const pristine = ["a();", "b();"].join(LF);
+  const after = [
+    'import { one, two } from "./m.mjs";',
+    "a();",
+    "b();",
+  ].join(LF);
+  const mod = ["export function one() {", "  x();", "}", "export function two() {", "  y();", "}"].join(LF);
+  const rebuilt = reconstruct({
+    after,
+    modules: { "m.mjs": mod },
+    extractions: [
+      // older slice: created the import with just `one`
+      {
+        module: "m.mjs",
+        importLine: 'import { one } from "./m.mjs";',
+        items: [],
+      },
+      // newer slice: added `two` to that same line
+      {
+        module: "m.mjs",
+        importLine: 'import { one, two } from "./m.mjs";',
+        importWas: 'import { one } from "./m.mjs";',
+        items: [],
+      },
+    ],
+  });
+  assert.equal(rebuilt, pristine, "both edits must unwind, leaving no import behind");
 });

@@ -36,7 +36,7 @@ import { applyRenderedWidth } from './terminal-width.mjs';
 import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
 import { state } from './state.mjs';
 import { SESSION_FILTER_KINDS, agentForSession, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds } from './session-rail.mjs';
-import { previewAppearance, refreshActiveTerminalTheme, renderSettings, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
+import { applyThemeChoice, previewAppearance, refreshActiveTerminalTheme, renderSettings, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
 import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './agent-drawer.mjs';
 import { contractCard, diagnosticKey, filtered, renderActivityFeed, renderAttention, renderContractBoard } from './work-loop-panels.mjs';
 import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexConsoleConnections, codexConsoleSendTurn } from './codex-console.mjs';
@@ -2821,19 +2821,7 @@ document.addEventListener('click', (event) => {
   }
   const themeChoice = event.target.closest('[data-theme-choice]');
   if (themeChoice) {
-    const key = themeChoice.dataset.themeChoice;
-    const sel = byId('set-dashboard_theme');
-    if (sel) sel.value = key;
-    // Selecting a preset resets the custom color pickers to that preset's palette.
-    const preset = THEMES[key] || THEMES.default;
-    const setColor = (k, v) => { const el = byId(`set-${k}`); if (el) el.value = v; };
-    setColor('dashboard_primary_color', preset.accent);
-    setColor('dashboard_secondary_color', preset.secondary);
-    setColor('dashboard_tertiary_color', preset.tertiary);
-    document.querySelectorAll('#theme-preview-grid .theme-preview').forEach((tile) => {
-      tile.classList.toggle('active', tile.dataset.themeChoice === key);
-    });
-    previewAppearance();
+    applyThemeChoice(themeChoice);
     return;
   }
   const favToggle = event.target.closest('[data-fav-toggle]');

@@ -208,7 +208,13 @@ export function reconstruct({ after, modules, extractions }) {
   // `importBlock` handles a multi-line parenthesised import, because a nine-name import does not fit one
   // readable line — the import-readability gate on the Python side exists for exactly that reason. Each
   // line is verified verbatim so a loosened mask cannot swallow an unrelated edit.
-  for (const step of extractions) {
+  // REVERSE CHRONOLOGICAL, and it has to be. The plan is append-only, so `extractions` is in the order the
+  // slices happened; undoing them is the opposite order. It made no difference while every slice added its
+  // OWN import line — independent edits unwind in any order. The first slice to edit an import line a
+  // PREVIOUS slice had already written broke it: the older entry looked for the line as it wrote it, found
+  // the newer slice's version instead, and threw "import line not found verbatim". Going backwards, the
+  // newest edit is undone first and each earlier entry then finds exactly the text it left.
+  for (const step of [...extractions].reverse()) {
     const block = step.importBlock ?? (step.importLine == null ? null : [step.importLine]);
     if (block == null) continue;
     const at = lines.indexOf(block[0]);

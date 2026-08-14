@@ -14,7 +14,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { state } from "./state.mjs";
+import { THEMES } from "./theme.js";
 import {
+  applyThemeChoice,
   refreshActiveTerminalTheme,
   terminalAccentColor,
   terminalThemeFromDashboard,
@@ -194,4 +196,98 @@ test("renderSettings is a no-op when the settings host is absent", () => {
   } finally {
     if (!hadDoc) delete globalThis.document;
   }
+});
+
+// --- applyThemeChoice --------------------------------------------------------------------------
+//
+// The theme-preset tile click. It was 13 lines inside app.js's 631-line delegated click handler, which no
+// test can reach — app.js is imported by nothing. Moving it here is what makes the behaviour assertable,
+// and the behaviour is worth asserting: it writes the operator's palette. If the preset lookup silently
+// fell back, every tile would apply the SAME colours and the fallback would look like a working feature.
+
+/** Build a DOM stub recording every value written, with `n` preset tiles. */
+function themeDom(tileKeys = []) {
+  const values = {};
+  const els = {};
+  const mk = (id) => (els[id] ??= { id, value: "", get _v() { return values[id]; } });
+  const tiles = tileKeys.map((k) => ({
+    dataset: { themeChoice: k },
+    active: null,
+    classList: { toggle(_cls, on) { this._owner.active = on; } },
+  }));
+  for (const t of tiles) t.classList._owner = t;
+
+  return {
+    values,
+    tiles,
+    doc: {
+      title: "",
+      // `previewAppearance` runs for real at the end of the body, and it reaches through `previewTheme`
+      // into `applyTheme`, which writes CSS custom properties on body and documentElement. Stubbing those
+      // rather than mocking `previewAppearance` keeps this an assertion about what a click ACTUALLY does.
+      body: { dataset: {}, style: { setProperty() {}, removeProperty() {} } },
+      documentElement: { dataset: {}, style: { setProperty() {}, removeProperty() {} } },
+      getElementById: (id) => {
+        const el = mk(id);
+        return { ...el, set value(v) { values[id] = v; }, get value() { return values[id] ?? ""; } };
+      },
+      querySelector: () => null,
+      querySelectorAll: (sel) => (sel.includes("theme-preview") ? tiles : []),
+    },
+  };
+}
+
+function withThemeDom(dom, run) {
+  const had = "document" in globalThis;
+  const hadGcs = "getComputedStyle" in globalThis;
+  const prevDoc = globalThis.document;
+  const prevGcs = globalThis.getComputedStyle;
+  globalThis.document = dom.doc;
+  globalThis.getComputedStyle = () => ({ getPropertyValue: () => "" });
+  try {
+    return run();
+  } finally {
+    if (had) globalThis.document = prevDoc; else delete globalThis.document;
+    if (hadGcs) globalThis.getComputedStyle = prevGcs; else delete globalThis.getComputedStyle;
+  }
+}
+
+test("applyThemeChoice writes the chosen preset's palette into the three colour inputs", () => {
+  const key = Object.keys(THEMES).find((k) => k !== "default") ?? "default";
+  const preset = THEMES[key];
+  const dom = themeDom([key]);
+  withThemeDom(dom, () => applyThemeChoice({ dataset: { themeChoice: key } }));
+
+  assert.equal(dom.values["set-dashboard_theme"], key, "the select follows the tile");
+  assert.equal(dom.values["set-dashboard_primary_color"], preset.accent);
+  assert.equal(dom.values["set-dashboard_secondary_color"], preset.secondary);
+  assert.equal(dom.values["set-dashboard_tertiary_color"], preset.tertiary);
+});
+
+test("AN UNKNOWN PRESET FALLS BACK TO `default` rather than writing undefined", () => {
+  // `THEMES[key] || THEMES.default`. Without the fallback the three setColor calls would write undefined
+  // into the colour inputs — which reads as "no colour chosen" rather than as an error, so a stale or
+  // renamed preset key would degrade silently.
+  const dom = themeDom(["no-such-theme"]);
+  withThemeDom(dom, () => applyThemeChoice({ dataset: { themeChoice: "no-such-theme" } }));
+  assert.equal(dom.values["set-dashboard_primary_color"], THEMES.default.accent);
+  assert.notEqual(dom.values["set-dashboard_primary_color"], undefined);
+});
+
+test("exactly the matching tile is marked active, and the others are cleared", () => {
+  // `toggle('active', tile.dataset.themeChoice === key)` — the toggle is passed an explicit boolean, so
+  // non-matching tiles are actively CLEARED. A one-argument toggle would flip them instead, leaving two
+  // tiles lit after a second click.
+  const keys = Object.keys(THEMES).slice(0, 3);
+  const chosen = keys[keys.length - 1];
+  const dom = themeDom(keys);
+  withThemeDom(dom, () => applyThemeChoice({ dataset: { themeChoice: chosen } }));
+  assert.deepEqual(dom.tiles.map((t) => t.active), keys.map((k) => k === chosen));
+});
+
+test("it works with no tiles rendered at all", () => {
+  // The settings panel may not be open. `querySelectorAll(...).forEach` over an empty list must not throw,
+  // or clicking a preset from a non-settings page would break the handler for every branch after it.
+  const dom = themeDom([]);
+  assert.doesNotThrow(() => withThemeDom(dom, () => applyThemeChoice({ dataset: { themeChoice: "default" } })));
 });

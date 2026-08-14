@@ -172,3 +172,25 @@ export function refreshActiveTerminalTheme() {
   try { entry.term.options.theme = terminalThemeFromDashboard(); } catch {}
   try { entry.webgl?.clearTextureAtlas?.(); } catch {}
 }
+
+// The theme-preset tile click, moved out of app.js's delegated click handler in v0.5.4 — the FIRST
+// extract-method this repo's reconstruction proof could express. It lives here because everything it
+// touches already did: THEMES, byId and previewAppearance are this module's own.
+//
+// The body is byte-identical to the branch it left, dedented by two. app.js keeps the guard and the
+// `return;`, so the handler's control flow is untouched — this is a relocation, not a redesign.
+export function applyThemeChoice(themeChoice) {
+  const key = themeChoice.dataset.themeChoice;
+  const sel = byId('set-dashboard_theme');
+  if (sel) sel.value = key;
+  // Selecting a preset resets the custom color pickers to that preset's palette.
+  const preset = THEMES[key] || THEMES.default;
+  const setColor = (k, v) => { const el = byId(`set-${k}`); if (el) el.value = v; };
+  setColor('dashboard_primary_color', preset.accent);
+  setColor('dashboard_secondary_color', preset.secondary);
+  setColor('dashboard_tertiary_color', preset.tertiary);
+  document.querySelectorAll('#theme-preview-grid .theme-preview').forEach((tile) => {
+    tile.classList.toggle('active', tile.dataset.themeChoice === key);
+  });
+  previewAppearance();
+}
