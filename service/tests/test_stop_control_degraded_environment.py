@@ -9,7 +9,7 @@ feature disagreed about the same question:
         bridge_can_claim = ... and env_status in {"online", "degraded"}
         -> a degraded env's bridge CAN claim, so the control is left PENDING for it
 
-    db._reconcile_terminal_controls — the SWEEP
+    reconcilers/terminal_controls._reconcile_terminal_controls — the SWEEP
         AND environments.status = 'online'
         -> fails that very control, because 'degraded' != 'online'
 
@@ -95,12 +95,12 @@ class StopControlInDegradedEnvironmentTests(FastApiTestCase):
         asyncio.run(_run())
 
     def _sweep(self, control_id):
-        from service import db as db_module
+        from service.reconcilers import terminal_controls as sweep
 
         async def _run():
             db = await get_db()
             try:
-                await db_module._reconcile_terminal_controls(db)
+                await sweep._reconcile_terminal_controls(db)
                 await db.commit()
                 row = await (await db.execute(
                     "SELECT status, bridge_id, error FROM terminal_controls WHERE id = ?",

@@ -113,13 +113,17 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
 
     # --- the SECOND copy of the same rule -------------------------------------------------
 
-    def test_the_db_py_sweep_also_spares_a_stop(self):
+    def test_the_OTHER_sweep_also_spares_a_stop(self):
         """SELF-REVIEW FIND. The rule is implemented TWICE: _reconcile_ended_terminal_controls
-        and db._reconcile_terminal_controls, with the same predicate and the same
+        and reconcilers/terminal_controls._reconcile_terminal_controls, with the same predicate and the same
         'terminal is not active' error text. Exempting the stop in only one of them fixes nothing —
-        the other sweep still cancels it. This test drives the db.py path specifically, so the two
-        implementations cannot drift apart again without a failure."""
-        from service import db as db_module
+        the other sweep still cancels it. This test drives THAT sweep specifically, so the two
+        implementations cannot drift apart again without a failure.
+
+        It lived in `service/db.py` until v0.5.4 and the name said so; the sweep moved to the
+        reconcilers package, which is where a reconciler belongs, and a test named after a file is a
+        location pin waiting to go red."""
+        from service.reconcilers import terminal_controls as sweep
 
         self._seed("term_dbpy", terminal_status="stopping", action="stop")
 
@@ -133,7 +137,7 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
                     "VALUES (?,?,?,?,?)",
                     ("env-1", "online", "bridge-1", _now(), _now()),
                 )
-                await db_module._reconcile_terminal_controls(db)
+                await sweep._reconcile_terminal_controls(db)
                 await db.commit()
                 row = await (await db.execute(
                     "SELECT status, error FROM terminal_controls WHERE id = ?",
@@ -146,12 +150,15 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
         row = asyncio.run(_run())
         self.assertEqual(
             row["status"], "pending",
-            f"db.py's sweep must spare a stop exactly as api_v2's does; got {row}",
+            f"the terminal-controls sweep must spare a stop exactly as api_v2's does; got {row}",
         )
 
-    def test_the_db_py_sweep_still_fails_a_doomed_input(self):
-        """The db.py copy must keep its fail-fast behaviour too — the exemption is stop-only."""
-        from service import db as db_module
+    def test_the_OTHER_sweep_still_fails_a_doomed_input(self):
+        """That copy must keep its fail-fast behaviour too — the exemption is stop-only.
+
+        Named for the sweep rather than the file it used to live in; it moved to
+        `service/reconcilers/terminal_controls.py` in v0.5.4."""
+        from service.reconcilers import terminal_controls as sweep
 
         self._seed("term_dbpy_input", terminal_status="stopped", action="input")
 
@@ -163,7 +170,7 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
                     "VALUES (?,?,?,?,?)",
                     ("env-1", "online", "bridge-1", _now(), _now()),
                 )
-                await db_module._reconcile_terminal_controls(db)
+                await sweep._reconcile_terminal_controls(db)
                 await db.commit()
                 row = await (await db.execute(
                     "SELECT status FROM terminal_controls WHERE id = ?",
@@ -193,12 +200,12 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
         asyncio.run(_run())
 
     def _run_db_reconcile_and_read(self, control_id):
-        from service import db as db_module
+        from service.reconcilers import terminal_controls as sweep
 
         async def _run():
             db = await get_db()
             try:
-                await db_module._reconcile_terminal_controls(db)
+                await sweep._reconcile_terminal_controls(db)
                 await db.commit()
                 row = await (await db.execute(
                     "SELECT status, bridge_id, error FROM terminal_controls WHERE id = ?",
@@ -262,12 +269,12 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
         asyncio.run(_stamp_claimed_at())
         self._seed_env("env-1", "bridge-NEW", status="online")
 
-        from service import db as db_module
+        from service.reconcilers import terminal_controls as sweep
 
         async def _run():
             db = await get_db()
             try:
-                await db_module._reconcile_terminal_controls(db)
+                await sweep._reconcile_terminal_controls(db)
                 await db.commit()
                 row = await (await db.execute(
                     "SELECT status, bridge_id, claimed_at FROM terminal_controls WHERE id = ?",
@@ -296,12 +303,12 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
                    control_status="claimed")
         self._seed_env("env-1", "bridge-NEW", status="online")
 
-        from service import db as db_module
+        from service.reconcilers import terminal_controls as sweep
 
         async def _run():
             db = await get_db()
             try:
-                await db_module._reconcile_terminal_controls(db)
+                await sweep._reconcile_terminal_controls(db)
                 await db.commit()
                 row = await (await db.execute(
                     "SELECT status FROM terminal_controls WHERE id = ?",
