@@ -145,20 +145,19 @@ test("the Continue-in-CLI command block is actually styled", () => {
   assert.match(styles, /\.cli-cmd\s*\{[^}]*padding:/s, "the command box needs padding — that was the complaint");
 });
 
-test("automatic console resync never self-excites a PTY resize loop", () => {
-  const source = read("app.js");
-  assert.match(source, /async function resyncActiveConsole\(\{ forceRepaint = false \} = \{\}\)/,
-    "resync must distinguish passive recovery from an explicit operator repaint");
-  assert.match(source, /if \(forceRepaint && entry\.ownsPty\)/,
-    "only the explicit Refresh action may nudge the PTY width");
-  // The Refresh ACTION moved to console-click-handlers.mjs in v0.5.4. Its test calls the dispatcher and
-  // asserts the refresh branch passes `{ forceRepaint: true }` — and, in the same file, that each action
-  // fires exactly one callback and that a failed resync is swallowed rather than escaping the delegated
-  // listener. What stays here is the half app.js still owns: the resync function's own signature and the
-  // guard that keeps passive recovery from nudging the PTY.
-  assert.match(source, /entry\.lastSeq = Math\.max\(/,
-    "a snapshot fetched during live output must not roll the sequence watermark backwards");
-});
+// RETIRED: "automatic console resync never self-excites a PTY resize loop".
+//
+// It matched three lines of `resyncActiveConsole` as text — the signature, `if (forceRepaint &&
+// entry.ownsPty)`, and `entry.lastSeq = Math.max(`. All three are real claims and none could fail on
+// the behaviour it named: `Math.max` present with its arguments swapped passes, and so does an
+// `ownsPty` guard that has been inverted.
+//
+// `console-actions.test.mjs` asserts them by driving the function. The re-entrancy guard is exercised
+// by starting two resyncs and counting fetches — the 153↔154-cols flicker loop this test is named
+// after — and also checked for CLEARING afterwards and on the failure path, since a leaked guard makes
+// the console permanently unrecoverable, which is worse than the flicker. The sequence floor is
+// checked in both directions plus a non-numeric snapshot seq. The `ownsPty` guard is checked by
+// confirming no resize is sent for a PTY the pane does not own.
 
 test("managed PTY keeps raw terminal semantics and ordered input", () => {
   // The xterm mount moved to `xterm-mount.mjs` in v0.5.4 — 356 lines, the largest function

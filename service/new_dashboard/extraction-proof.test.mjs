@@ -1377,6 +1377,34 @@ const EXTRACTIONS = [
       },
     ],
   },
+  {
+    module: "console-actions.mjs",
+    importLine: "import { initConsoleActions, openRunConsole, resyncActiveConsole, startConsoleForSession, stopConsoleTerminal } from './console-actions.mjs';",
+    seeding: "initConsoleActions({ closeInspector, refresh, refreshSoon, setPage });",
+    items: [
+      {
+        name: "resyncActiveConsole",
+        at: 2317,
+        leading: 2,
+        marker: "// resyncActiveConsole moved to ./console-actions.mjs in v0.5.4, with the note on what it mirrors.",
+      },
+      {
+        name: "stopConsoleTerminal",
+        at: 2395,
+        marker: "// stopConsoleTerminal moved to ./console-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "startConsoleForSession",
+        at: 2406,
+        marker: "// startConsoleForSession moved to ./console-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "openRunConsole",
+        at: 4044,
+        marker: "// openRunConsole moved to ./console-actions.mjs in v0.5.4.",
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -1420,6 +1448,7 @@ const MODULES = () => ({
   "analytics-page.mjs": read("analytics-page.mjs"),
   "work-loop-actions.mjs": read("work-loop-actions.mjs"),
   "message-actions.mjs": read("message-actions.mjs"),
+  "console-actions.mjs": read("console-actions.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),

@@ -76,6 +76,7 @@ import { deleteSessionById, initAgentSessionActions, openAgentChat, removeAgent,
 import { loadAnalytics, renderAnalyticsPage, renderUsagePools } from './analytics-page.mjs';
 import { closeWorkContract, initWorkLoopActions, loadContractsForState, remindWorkContract, renderContracts, renderDiagnosticsBulkToolbar, requestBulkDiagnosticAction, runMaintenance } from './work-loop-actions.mjs';
 import { addChannelMember, chatChannelAction, initMessageActions, markConversationRead, markMessageRead, mountChatConsole, openMessageThread, removeChannelMember, toggleFavorite, unsendMessage } from './message-actions.mjs';
+import { initConsoleActions, openRunConsole, resyncActiveConsole, startConsoleForSession, stopConsoleTerminal } from './console-actions.mjs';
 import { loadVersionBadge } from './version-badge.mjs';
 import { awaitTerminalSize, disposeActiveXterm } from './xterm-lifecycle.mjs';
 
@@ -626,52 +627,7 @@ const mountXtermForTerminal = (terminalId, agentId, container, opts) =>
 // a RESIDENT console, where the terminal belongs to the operator and we must not resize it.
 // applyRenderedWidth moved to ./terminal-width.mjs in v0.5.4.
 
-// Re-fetch the authoritative buffer and repaint (used by the Refresh button and on a
-// detected seq gap, mirroring the old dashboard's resync path).
-async function resyncActiveConsole({ forceRepaint = false } = {}) {
-  const entry = state.activeXterm;
-  if (!entry || !entry.term) return;
-  // A PTY resize produces a burst of repaint frames. Those frames can themselves
-  // expose a transient seq gap, which used to start another resync and another
-  // -1/+1 resize pair. Coalesce recovery so one gap cannot fan out into the
-  // observed 153↔154-cols resize/flicker loop.
-  if (entry.resyncing) return;
-  entry.resyncing = true;
-  try {
-    // Fetch at the pane's FITTED width (not the possibly-widened current width) so the server
-    // can re-infer the source width and hand back the correct renderedCols.
-    const fetchCols = Math.max(20, entry.fitCols || entry.term.cols);
-    // REFRESH MUST ACTUALLY FIX IT. The operator's complaint was "refresh does not actually fix
-    // it" — and they were right: it re-rendered the SAME poisoned screen. These TUIs repaint only
-    // what changed, so a screen with wrong rows keeps them forever; the ONLY thing that forces a
-    // full repaint is a genuine PTY resize (verified live). So Refresh now nudges the size (-1
-    // col, then back), which makes the app redraw everything, and THEN pulls the clean snapshot.
-    if (forceRepaint && entry.ownsPty) {
-      try {
-        await forceTerminalRepaint({
-          cols: fetchCols,
-          rows: entry.term.rows,
-          resize: (nextCols, nextRows) => api(`/terminals/${encodeURIComponent(entry.terminalId)}/resize`, {
-            method: 'POST',
-            body: JSON.stringify({ cols: nextCols, rows: nextRows, requestedBy: 'dashboard-refresh' }),
-          }),
-          waitForSize: (nextCols, nextRows) => awaitTerminalSize(entry.terminalId, nextCols, nextRows),
-        });
-        await new Promise((res) => setTimeout(res, 700));
-      } catch { /* best-effort */ }
-    }
-    const data = await api(`/terminals/${encodeURIComponent(entry.terminalId)}?cols=${fetchCols}&rows=${entry.term.rows}`);
-    // reset() (not clear()) wipes any scrambled scrollback/alt-screen state before we
-    // repaint the clean server-rendered snapshot — so Refresh actually un-scrambles.
-    entry.term.reset();
-    applyRenderedWidth(entry, entry.term, entry.container, data, Boolean(entry.ownsPty));
-    const snapshot = data?.terminal?.snapshot;
-    entry.term.write(String(snapshot || data?.terminal?.output || ''));
-    const snapshotSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? entry.lastSeq);
-    entry.lastSeq = Math.max(Number(entry.lastSeq) || -1, Number.isFinite(snapshotSeq) ? snapshotSeq : -1);
-  } catch { /* keep current buffer */ }
-  finally { entry.resyncing = false; }
-}
+// resyncActiveConsole moved to ./console-actions.mjs in v0.5.4, with the note on what it mirrors.
 
 // Clipboard copy that works on the http loopback origin (navigator.clipboard is undefined
 // there) — falls back to a hidden textarea + execCommand, ported from the old dashboard.
@@ -679,25 +635,9 @@ async function resyncActiveConsole({ forceRepaint = false } = {}) {
 
 // copyActiveConsole moved to ./clipboard.mjs in v0.5.4.
 
-async function stopConsoleTerminal(terminalId) {
-  if (!terminalId) return;
-  if (!await uiConfirm('Stop this terminal? The agent returns to messenger ownership.')) return;
-  try {
-    await api(`/terminals/${encodeURIComponent(terminalId)}/stop`, { method: 'POST', body: JSON.stringify({ requestedBy: 'dashboard', body: '' }) });
-    disposeActiveXterm();
-    toast('Console stopped', 'ok');
-    refreshSoon();
-  } catch (err) { toast(`Stop failed: ${err?.message || err}`, 'error'); }
-}
+// stopConsoleTerminal moved to ./console-actions.mjs in v0.5.4.
 
-async function startConsoleForSession(sessionId, freshContext = false) {
-  if (!sessionId) return;
-  try {
-    await api(`/sessions/${encodeURIComponent(sessionId)}/console/start`, { method: 'POST', body: JSON.stringify({ requestedBy: 'dashboard', freshContext }) });
-    toast(freshContext ? 'Starting fresh console…' : 'Starting console…', 'ok');
-    refreshSoon();
-  } catch (err) { toast(`Start console failed: ${err?.message || err}`, 'error'); }
-}
+// startConsoleForSession moved to ./console-actions.mjs in v0.5.4.
 
 // Best-effort "waiting for input" detector on the console tail (ported pure helper). Drives
 // the ⌛ await-input pill so the operator notices a console blocked on a prompt.
@@ -1034,16 +974,7 @@ async function createSpawnRequest() {
 
 // openAgentChat moved to ./agent-session-actions.mjs in v0.5.4.
 
-function openRunConsole(run) {
-  const session = sessionForRun(run);
-  if (!session) return;
-  state.selectedSessionId = sessionId(session);
-  state.selectedConversation = sessionAgentId(session) || 'dashboard';
-  state.selectedSessionTab = 'console';
-  setPage('sessions');
-  renderSessionWorkspace();
-  closeInspector();
-}
+// openRunConsole moved to ./console-actions.mjs in v0.5.4.
 
 // sendRunFollowup moved to ./message-transport.mjs in v0.5.4.
 
@@ -1723,6 +1654,7 @@ try {
 
 initAgentSessionActions({ chatController, closeInspector, inspect, markConversationRead, refresh, refreshSoon, renderSessionWorkspace, setPage });
 initMessageActions({ chatController, refreshSoon, renderSessionConsole });
+initConsoleActions({ closeInspector, refresh, refreshSoon, setPage });
 initWorkLoopActions({ refresh });
 initRunInspector({ closeInspector, evaluateFlowGates, openInspector, openRunConsole, refresh, renderDiagnosticsBulkToolbar });
 initRealtimeSocket({ dashboardNotifier, evaluateFlowGates, refreshSoon, resyncActiveConsole, scheduleRenderAll });
