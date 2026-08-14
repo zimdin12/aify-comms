@@ -151,3 +151,53 @@ test("ensureVirtualTerminal throws when the service returns no terminal id", asy
   scenario((_n, res) => { res.writeHead(200); res.end(JSON.stringify({ terminal: {} })); });
   await assert.rejects(() => m.ensureVirtualTerminal("nobody", {}, "pi"), /no terminal id/);
 });
+
+// --- findAgentIdForVirtualTerminal ---------------------------------------------------------------
+//
+// Moved out of server.js in v0.5.4, to sit beside the map it searches. It answers who owns a virtual
+// terminal, and the RUNTIME CHECK is the part with history: the original had a hardcoded
+// `runtime === "pi"`, so when hermes/codex/opencode synth terminals were added the bridge routed their
+// controls down the node-pty path and marked them stopped on every Console open (operator-reported
+// 2026-05-22). The allowlist replaced that check; these assert it actually gates.
+//
+// Reached through the same cache-busted namespace as everything above — the module is imported once per
+// process and its map is module state.
+
+test("it finds the agent whose entry matches BOTH the terminal id and an RPC runtime", () => {
+  m.VIRTUAL_TERMINALS_BY_AGENT.clear();
+  m.VIRTUAL_TERMINALS_BY_AGENT.set("coder-1", { terminalId: "t1", runtime: "hermes" });
+  assert.equal(m.findAgentIdForVirtualTerminal("t1"), "coder-1");
+  m.VIRTUAL_TERMINALS_BY_AGENT.clear();
+});
+
+test("EVERY RPC RUNTIME RESOLVES — the 2026-05-22 regression was one hardcoded runtime", () => {
+  // The bug this function's history is made of. A check admitting only `pi` sent hermes, codex and
+  // opencode consoles down the PTY path, where they were marked stopped on every open.
+  for (const runtime of m.VIRTUAL_RPC_RUNTIMES) {
+    m.VIRTUAL_TERMINALS_BY_AGENT.clear();
+    m.VIRTUAL_TERMINALS_BY_AGENT.set("a", { terminalId: "t1", runtime });
+    assert.equal(m.findAgentIdForVirtualTerminal("t1"), "a", runtime);
+  }
+  m.VIRTUAL_TERMINALS_BY_AGENT.clear();
+});
+
+test("a NON-RPC runtime is not claimed, even with a matching terminal id", () => {
+  // The complement: a real PTY terminal must NOT resolve here, or its input would be routed to the
+  // virtual path and never reach the pty.
+  m.VIRTUAL_TERMINALS_BY_AGENT.clear();
+  m.VIRTUAL_TERMINALS_BY_AGENT.set("a", { terminalId: "t1", runtime: "claude" });
+  assert.equal(m.findAgentIdForVirtualTerminal("t1"), "");
+  m.VIRTUAL_TERMINALS_BY_AGENT.clear();
+});
+
+test("an unknown, blank or absent terminal id yields an empty string", () => {
+  // `""` rather than null: callers compare it as a string, and the early return on a blank id is what
+  // stops an empty attribute matching an entry that also has no terminal id.
+  m.VIRTUAL_TERMINALS_BY_AGENT.clear();
+  m.VIRTUAL_TERMINALS_BY_AGENT.set("a", { runtime: "pi" });
+  assert.equal(m.findAgentIdForVirtualTerminal(""), "");
+  assert.equal(m.findAgentIdForVirtualTerminal("   "), "");
+  assert.equal(m.findAgentIdForVirtualTerminal(undefined), "");
+  assert.equal(m.findAgentIdForVirtualTerminal("nope"), "");
+  m.VIRTUAL_TERMINALS_BY_AGENT.clear();
+});

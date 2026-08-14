@@ -111,8 +111,9 @@ import {
 } from "./claim-failure-tracker.mjs";
 import { createManagedTeardownSweeps } from "./managed-teardown-sweeps.mjs";
 import { shouldSkipLoop } from "./loop-gate.mjs";
+import { isActiveManagedSessionStatus } from "./session-predicates.mjs";
 import { registerSendTools } from "./send-tools.mjs";
-import { VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT, createVirtualTerminalSink, ensureVirtualTerminal, handleVirtualTerminalControl, updateTerminalControl } from './virtual-terminals.mjs';
+import { VIRTUAL_RPC_RUNTIMES, VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT, createVirtualTerminalSink, ensureVirtualTerminal, findAgentIdForVirtualTerminal, handleVirtualTerminalControl, updateTerminalControl } from './virtual-terminals.mjs';
 import { ensureRequiredReplyHandoff } from './required-reply-handoff.mjs';
 import { TERMINAL_MANAGER, reportDeadOwnedTerminals } from './terminal-manager.mjs';
 import { runBootTombstonedMarkerSweep } from './boot-marker-sweep.mjs';
@@ -565,16 +566,9 @@ process.on("SIGTERM", () => { shutdownWithStatus(143); });
 // router routes synth-terminal controls (input/resize/stop) through
 // handleVirtualTerminalControl instead of the legacy node-pty path
 // (which marks the row stopped because no real PTY exists).
-const VIRTUAL_RPC_RUNTIMES = new Set(["pi", "hermes", "codex", "opencode"]);
+// VIRTUAL_RPC_RUNTIMES moved to ./virtual-terminals.mjs in v0.5.4.
 
-function findAgentIdForVirtualTerminal(terminalId) {
-  const id = String(terminalId || "").trim();
-  if (!id) return "";
-  for (const [agentId, entry] of VIRTUAL_TERMINALS_BY_AGENT.entries()) {
-    if (entry?.terminalId === id && VIRTUAL_RPC_RUNTIMES.has(entry?.runtime)) return agentId;
-  }
-  return "";
-}
+// findAgentIdForVirtualTerminal moved to ./virtual-terminals.mjs in v0.5.4.
 const DISPATCH_POLL_MS = Number(process.env.AIFY_DISPATCH_POLL_MS || 3000);
 // Terminal-control loop polls separately and much tighter: console input is
 // latency-sensitive (operator typing), and the terminal_controls query is
@@ -1226,9 +1220,7 @@ async function runTerminalControlLoop() {
 
 // noteSpawnClaimSuccess moved to ./claim-failure-tracker.mjs in v0.5.4.
 
-function isActiveManagedSessionStatus(status) {
-  return ["starting", "running", "recovering", "restarting"].includes(String(status || "").toLowerCase());
-}
+// isActiveManagedSessionStatus moved to ./session-predicates.mjs in v0.5.4.
 
 async function syncManagedEnvironmentAgents() {
   if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: managedEnvironmentSyncBusy, shuttingDown: shutdownStarted })) return;

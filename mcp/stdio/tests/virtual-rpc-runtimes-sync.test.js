@@ -13,20 +13,20 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { VIRTUAL_RPC_RUNTIMES } from "../virtual-terminals.mjs";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..", "..");
 
-// 1. Parse bridge-side VIRTUAL_RPC_RUNTIMES from server.js
-const serverPath = path.join(__dirname, "..", "server.js");
-const serverText = fs.readFileSync(serverPath, "utf-8");
-const bridgeMatch = serverText.match(/^const VIRTUAL_RPC_RUNTIMES\s*=\s*new Set\(\[([^\]]+)\]\)/m);
-assert.ok(bridgeMatch, "could not locate VIRTUAL_RPC_RUNTIMES in mcp/stdio/server.js");
-const bridgeSet = new Set(
-  bridgeMatch[1]
-    .split(",")
-    .map((s) => s.trim().replace(/^["']|["']$/g, ""))
-    .filter(Boolean),
-);
+// 1. Bridge-side VIRTUAL_RPC_RUNTIMES — IMPORTED, not parsed.
+//
+// This used to regex `server.js` for `const VIRTUAL_RPC_RUNTIMES = new Set([...])`, which is the same
+// location pin the service side above already learned to avoid: it broke in v0.5.4 when the constant
+// moved to `virtual-terminals.mjs` beside the map it guards, with the value unchanged. Importing is
+// also STRICTER than the regex ever was — it compares the set the bridge actually builds, so a value
+// assembled at runtime, or a member added conditionally, is caught rather than missed.
+const bridgeSet = VIRTUAL_RPC_RUNTIMES;
+assert.ok(bridgeSet instanceof Set, "VIRTUAL_RPC_RUNTIMES must be a Set");
 assert.ok(bridgeSet.size > 0, "bridge VIRTUAL_RPC_RUNTIMES must be non-empty");
 
 // 2. Parse service-side VIRTUAL_RPC_COMMANDS_BY_RUNTIME — by FINDING it, not by naming a file.

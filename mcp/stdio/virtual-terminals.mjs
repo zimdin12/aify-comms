@@ -174,3 +174,18 @@ export async function handleVirtualTerminalControl(agentId, terminalId, control)
   }
   throw new Error(`Unsupported virtual-terminal control action: ${action}`);
 }
+
+// Which agent owns a virtual terminal, moved out of server.js in v0.5.4. It belongs here because the
+// map it searches is this module's own, and the runtime allowlist travels with it: the pair is what
+// distinguishes an RPC-backed virtual terminal from a real PTY, and a lookup that ignored the runtime
+// would hand a PTY terminal's input to an agent that never had one.
+export const VIRTUAL_RPC_RUNTIMES = new Set(["pi", "hermes", "codex", "opencode"]);
+
+export function findAgentIdForVirtualTerminal(terminalId) {
+  const id = String(terminalId || "").trim();
+  if (!id) return "";
+  for (const [agentId, entry] of VIRTUAL_TERMINALS_BY_AGENT.entries()) {
+    if (entry?.terminalId === id && VIRTUAL_RPC_RUNTIMES.has(entry?.runtime)) return agentId;
+  }
+  return "";
+}
