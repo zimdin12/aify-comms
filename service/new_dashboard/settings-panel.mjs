@@ -194,3 +194,11 @@ export function applyThemeChoice(themeChoice) {
   });
   previewAppearance();
 }
+
+// The settings tab selector, moved out of app.js's delegated click handler in v0.5.4. It belongs here
+// because `renderSettings` — the thing it exists to trigger — is this module's own.
+export function selectSettingsTab(settingsTab) {
+  state.settingsTab = settingsTab.dataset.settingsTab;
+  try { localStorage.setItem('aifySettingsTab', state.settingsTab); } catch { /* ignore */ }
+  renderSettings();
+}

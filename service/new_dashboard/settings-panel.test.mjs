@@ -18,6 +18,7 @@ import { THEMES } from "./theme.js";
 import {
   applyThemeChoice,
   refreshActiveTerminalTheme,
+  selectSettingsTab,
   terminalAccentColor,
   terminalThemeFromDashboard,
 } from "./settings-panel.mjs";
@@ -290,4 +291,50 @@ test("it works with no tiles rendered at all", () => {
   // or clicking a preset from a non-settings page would break the handler for every branch after it.
   const dom = themeDom([]);
   assert.doesNotThrow(() => withThemeDom(dom, () => applyThemeChoice({ dataset: { themeChoice: "default" } })));
+});
+
+// --- selectSettingsTab -------------------------------------------------------------------------
+
+/** Run with a storage stub that can be made to refuse, restoring `state.settingsTab`. */
+function withSettingsTab({ refuse = false } = {}, run) {
+  const saved = state.settingsTab;
+  const hadLs = "localStorage" in globalThis;
+  const prev = globalThis.localStorage;
+  const store = new Map();
+  globalThis.localStorage = {
+    setItem: (k, v) => { if (refuse) throw new Error("private mode"); store.set(k, v); },
+    getItem: (k) => store.get(k) ?? null,
+  };
+  const savedSettings = state.settings;
+  state.settings = state.settings ?? {};
+  try {
+    // `selectSettingsTab` ends in a real `renderSettings()`, which needs a form to write into. Running it
+    // for real is the point: the state assignment and the storage write both happen BEFORE it, so a test
+    // that stubbed it out could not tell a working click from one that never re-renders.
+    return withSettingsDom({}, () => run(store));
+  } finally {
+    state.settingsTab = saved;
+    state.settings = savedSettings;
+    if (hadLs) globalThis.localStorage = prev; else delete globalThis.localStorage;
+  }
+}
+
+test("selectSettingsTab records the tab in state AND persists it", () => {
+  // Persisting is what makes the settings page reopen where the operator left it. Dropping it is
+  // invisible for the whole session.
+  withSettingsTab({}, (store) => {
+    selectSettingsTab({ dataset: { settingsTab: "appearance" } });
+    assert.equal(state.settingsTab, "appearance");
+    assert.equal(store.get("aifySettingsTab"), "appearance");
+  });
+});
+
+test("A REFUSING STORAGE STILL SWITCHES THE TAB", () => {
+  // `try { localStorage.setItem(...) } catch { /* ignore */ }` — in private mode the write throws. The
+  // state assignment happens BEFORE it, and `renderSettings()` after, so an unguarded write would leave
+  // the tab recorded but never rendered: a click that does nothing visible.
+  withSettingsTab({ refuse: true }, () => {
+    assert.doesNotThrow(() => selectSettingsTab({ dataset: { settingsTab: "general" } }));
+    assert.equal(state.settingsTab, "general", "the switch survives the storage failure");
+  });
 });

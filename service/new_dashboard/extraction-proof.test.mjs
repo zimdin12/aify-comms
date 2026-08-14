@@ -456,6 +456,39 @@ const EXTRACTIONS = [
       },
     ],
   },
+
+  {
+    module: "settings-panel.mjs",
+    importLine: "import { applyThemeChoice, previewAppearance, refreshActiveTerminalTheme, renderSettings, selectSettingsTab, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';",
+    importWas: "import { applyThemeChoice, previewAppearance, refreshActiveTerminalTheme, renderSettings, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';",
+    items: [
+      {
+        name: "selectSettingsTab",
+        at: 4239,
+        marker: "    selectSettingsTab(settingsTab);",
+        wrapper: { header: ["export function selectSettingsTab(settingsTab) {"], footer: ["}"], dedent: "  " },
+      },
+    ],
+  },
+  {
+    module: "work-loop-panels.mjs",
+    importLine: "import { applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, renderActivityFeed, renderAttention, renderContractBoard } from './work-loop-panels.mjs';",
+    importWas: "import { contractCard, diagnosticKey, filtered, renderActivityFeed, renderAttention, renderContractBoard } from './work-loop-panels.mjs';",
+    items: [
+      {
+        name: "applyWorkView",
+        at: 4332,
+        marker: "    applyWorkView(workView);",
+        wrapper: { header: ["export function applyWorkView(workView) {"], footer: ["}"], dedent: "  " },
+      },
+      {
+        name: "jumpFromDiagnostic",
+        at: 4351,
+        marker: "    jumpFromDiagnostic(diagJump);",
+        wrapper: { header: ["export function jumpFromDiagnostic(diagJump) {"], footer: ["}"], dedent: "  " },
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({

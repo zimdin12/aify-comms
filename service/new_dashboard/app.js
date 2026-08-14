@@ -36,9 +36,9 @@ import { applyRenderedWidth } from './terminal-width.mjs';
 import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
 import { state } from './state.mjs';
 import { SESSION_FILTER_KINDS, agentForSession, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds } from './session-rail.mjs';
-import { applyThemeChoice, previewAppearance, refreshActiveTerminalTheme, renderSettings, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
+import { applyThemeChoice, previewAppearance, refreshActiveTerminalTheme, renderSettings, selectSettingsTab, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
 import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './agent-drawer.mjs';
-import { contractCard, diagnosticKey, filtered, renderActivityFeed, renderAttention, renderContractBoard } from './work-loop-panels.mjs';
+import { applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, renderActivityFeed, renderAttention, renderContractBoard } from './work-loop-panels.mjs';
 import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexConsoleConnections, codexConsoleSendTurn } from './codex-console.mjs';
 import { openIdentityDirectory } from './identity-directory.mjs';
 import { closeStatusWhy, openStatusWhy } from './status-why-popover.mjs';
@@ -2814,9 +2814,7 @@ function updateStaticLinks() {
 document.addEventListener('click', (event) => {
   const settingsTab = event.target.closest('[data-settings-tab]');
   if (settingsTab) {
-    state.settingsTab = settingsTab.dataset.settingsTab;
-    try { localStorage.setItem('aifySettingsTab', state.settingsTab); } catch { /* ignore */ }
-    renderSettings();
+    selectSettingsTab(settingsTab);
     return;
   }
   const themeChoice = event.target.closest('[data-theme-choice]');
@@ -2895,11 +2893,7 @@ document.addEventListener('click', (event) => {
   // Work and swallows Inspect/Remind/Close (live regression 2026-07-02).
   const workView = event.target.closest('button[data-work-view]');
   if (workView) {
-    const v = workView.dataset.workView;
-    const grid = document.querySelector('.diagnostics-grid');
-    if (grid) grid.setAttribute('data-work-view', v);
-    document.querySelectorAll('button[data-work-view]').forEach((b) => { const on = b.dataset.workView === v; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
-    try { localStorage.setItem('aifyWorkView', v); } catch { /* private mode */ }
+    applyWorkView(workView);
     return;
   }
   // Work Loop List ⇄ Board layout toggle. Scoped to button[data-contract-view] for
@@ -2914,12 +2908,7 @@ document.addEventListener('click', (event) => {
   }
   const diagJump = event.target.closest('[data-diag-jump]');
   if (diagJump) {
-    const v = diagJump.dataset.diagJump || '';
-    if (v.startsWith('run:')) {
-      const sel = byId('run-status-filter'); if (sel) { sel.value = v.slice(4); sel.dispatchEvent(new Event('change', { bubbles: true })); }
-    } else {
-      const sel = byId('contract-state'); if (sel) { sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); }
-    }
+    jumpFromDiagnostic(diagJump);
     return;
   }
   const chatAnalytics = event.target.closest('[data-chat-analytics]');

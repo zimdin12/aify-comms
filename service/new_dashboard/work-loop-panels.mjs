@@ -164,3 +164,23 @@ export function renderContractBoard(contracts) {
   }
   return `<div class="contract-board">${columns.join('')}</div>`;
 }
+
+// The two diagnostics-panel view controls, moved out of app.js's delegated click handler in v0.5.4.
+// Both act on the panels this module renders: one switches the work grid's layout, the other jumps a
+// filter select to the bucket a diagnostic card names. `byId` was already imported for the same reason.
+export function applyWorkView(workView) {
+  const v = workView.dataset.workView;
+  const grid = document.querySelector('.diagnostics-grid');
+  if (grid) grid.setAttribute('data-work-view', v);
+  document.querySelectorAll('button[data-work-view]').forEach((b) => { const on = b.dataset.workView === v; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
+  try { localStorage.setItem('aifyWorkView', v); } catch { /* private mode */ }
+}
+
+export function jumpFromDiagnostic(diagJump) {
+  const v = diagJump.dataset.diagJump || '';
+  if (v.startsWith('run:')) {
+    const sel = byId('run-status-filter'); if (sel) { sel.value = v.slice(4); sel.dispatchEvent(new Event('change', { bubbles: true })); }
+  } else {
+    const sel = byId('contract-state'); if (sel) { sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); }
+  }
+}

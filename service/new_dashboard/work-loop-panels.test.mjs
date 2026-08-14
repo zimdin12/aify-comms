@@ -16,8 +16,10 @@ import { state } from "./state.mjs";
 import {
   CONTRACT_BOARD_COLUMNS,
   activityItems,
+  applyWorkView,
   diagnosticKey,
   filtered,
+  jumpFromDiagnostic,
   renderContractBoard,
 } from "./work-loop-panels.mjs";
 
@@ -152,4 +154,128 @@ test("a contract with an unrecognised state lands in Other rather than vanishing
   const html = renderContractBoard([{ id: "c9", subject: "from the future", state: "quantum" }]);
   assert.ok(html.includes("Other"), "an unknown state must still be surfaced");
   assert.ok(html.includes("from the future"));
+});
+
+// --- the two diagnostics view controls ----------------------------------------------------------
+//
+// Both were branch bodies inside app.js's delegated click handler, so neither was reachable from a test.
+
+/** A DOM stub recording attribute writes, with `n` work-view buttons and named selects. */
+function viewDom({ views = [], selects = {}, grid = true } = {}) {
+  const buttons = views.map((v) => ({
+    dataset: { workView: v },
+    active: null,
+    pressed: null,
+    classList: { toggle(_c, on) { this._o.active = on; } },
+    setAttribute(_k, val) { this.pressed = val; },
+  }));
+  for (const b of buttons) b.classList._o = b;
+
+  const gridEl = grid ? { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } } : null;
+  const selEls = {};
+  for (const [id, ok] of Object.entries(selects)) {
+    if (ok) selEls[id] = { value: "", events: [], dispatchEvent(e) { this.events.push(e?.type ?? "?"); } };
+  }
+  return {
+    buttons,
+    gridEl,
+    selEls,
+    doc: {
+      querySelector: (sel) => (sel === ".diagnostics-grid" ? gridEl : null),
+      querySelectorAll: (sel) => (sel.includes("data-work-view") ? buttons : []),
+      getElementById: (id) => selEls[id] ?? null,
+    },
+  };
+}
+
+function withViewDom(dom, run) {
+  const hadDoc = "document" in globalThis;
+  const hadEvt = "Event" in globalThis;
+  const hadLs = "localStorage" in globalThis;
+  const prevDoc = globalThis.document;
+  const store = new Map();
+  globalThis.document = dom.doc;
+  globalThis.localStorage = { setItem: (k, v) => store.set(k, v), getItem: (k) => store.get(k) ?? null };
+  if (!hadEvt) globalThis.Event = class { constructor(type, opts) { this.type = type; Object.assign(this, opts); } };
+  try {
+    run(store);
+  } finally {
+    if (hadDoc) globalThis.document = prevDoc; else delete globalThis.document;
+    if (!hadLs) delete globalThis.localStorage;
+    if (!hadEvt) delete globalThis.Event;
+  }
+}
+
+test("applyWorkView sets the grid layout, presses exactly one button, and persists the choice", () => {
+  // Three effects, and each is separately droppable. Persisting without pressing leaves the UI showing
+  // the old view; pressing without persisting looks correct until a reload.
+  const dom = viewDom({ views: ["list", "board"] });
+  withViewDom(dom, (store) => {
+    applyWorkView({ dataset: { workView: "board" } });
+    assert.equal(dom.gridEl.attrs["data-work-view"], "board", "the grid follows the button");
+    assert.deepEqual(dom.buttons.map((b) => b.active), [false, true], "exactly one is active");
+    assert.deepEqual(dom.buttons.map((b) => b.pressed), ["false", "true"], "aria-pressed mirrors it");
+    assert.equal(store.get("aifyWorkView"), "board");
+  });
+});
+
+test("applyWorkView survives a missing grid — the panel may not be rendered", () => {
+  // `if (grid)`. The handler fires from anywhere in the dashboard; throwing here would kill every
+  // branch after it.
+  const dom = viewDom({ views: ["list"], grid: false });
+  withViewDom(dom, (store) => {
+    assert.doesNotThrow(() => applyWorkView({ dataset: { workView: "list" } }));
+    assert.equal(store.get("aifyWorkView"), "list", "the choice is still persisted");
+  });
+});
+
+test("applyWorkView still presses buttons when storage REFUSES", () => {
+  // `try { … } catch { /* private mode */ }`. In private mode the write throws, and the visible part of
+  // the toggle must still happen — otherwise the button appears dead.
+  const dom = viewDom({ views: ["list", "board"] });
+  const hadLs = "localStorage" in globalThis;
+  withViewDom(dom, () => {
+    globalThis.localStorage = { setItem() { throw new Error("private mode"); } };
+    assert.doesNotThrow(() => applyWorkView({ dataset: { workView: "board" } }));
+    assert.deepEqual(dom.buttons.map((b) => b.active), [false, true]);
+  });
+  if (!hadLs) delete globalThis.localStorage;
+});
+
+test("jumpFromDiagnostic routes a `run:` key to the RUN filter and anything else to the contract state", () => {
+  // The prefix IS the routing. Sending both to one select would silently filter the wrong panel — and
+  // `slice(4)` must strip exactly `run:`, or the filter is set to a value no option has.
+  const dom = viewDom({ selects: { "run-status-filter": true, "contract-state": true } });
+  withViewDom(dom, () => {
+    jumpFromDiagnostic({ dataset: { diagJump: "run:failed" } });
+    assert.equal(dom.selEls["run-status-filter"].value, "failed", "the `run:` prefix is stripped");
+    assert.deepEqual(dom.selEls["run-status-filter"].events, ["change"], "and change is dispatched");
+    assert.equal(dom.selEls["contract-state"].value, "", "the other select is untouched");
+
+    jumpFromDiagnostic({ dataset: { diagJump: "open" } });
+    assert.equal(dom.selEls["contract-state"].value, "open");
+    assert.deepEqual(dom.selEls["contract-state"].events, ["change"]);
+  });
+});
+
+test("jumpFromDiagnostic dispatches a BUBBLING change — the listener is delegated", () => {
+  // `new Event('change', { bubbles: true })`. Setting `.value` fires nothing on its own, and a
+  // non-bubbling event never reaches a delegated listener, so the jump would set the control and
+  // change nothing on screen.
+  const dom = viewDom({ selects: { "contract-state": true } });
+  withViewDom(dom, () => {
+    let seen = null;
+    dom.selEls["contract-state"].dispatchEvent = (e) => { seen = e; };
+    jumpFromDiagnostic({ dataset: { diagJump: "closed" } });
+    assert.equal(seen?.type, "change");
+    assert.equal(seen?.bubbles, true);
+  });
+});
+
+test("jumpFromDiagnostic is a no-op when the target select is absent, and handles an empty key", () => {
+  const dom = viewDom({ selects: {} });
+  withViewDom(dom, () => {
+    assert.doesNotThrow(() => jumpFromDiagnostic({ dataset: { diagJump: "run:failed" } }));
+    assert.doesNotThrow(() => jumpFromDiagnostic({ dataset: {} }), "an absent key must not throw");
+  });
 });
