@@ -129,6 +129,62 @@ export function functionSpan(source, name) {
  *               leaving nothing), `pristineExported` true when the SOURCE file already exported the
  *               function so its `export ` keyword must be preserved rather than stripped
  */
+/**
+ * Recover the PRISTINE BODY from a declaration that wraps it — the extract-method case.
+ *
+ * WHY THIS EXISTS. Until now the prover could only demonstrate a RELOCATION: a whole declaration leaves
+ * app.js and reappears in a module, so the span in the module is byte-identical to the span that left and
+ * reconstruction just puts it back. That covers nothing where the pristine file held a bare BODY — the
+ * 631-line delegated click handler at the centre of app.js is one top-level statement containing ~82
+ * branch bodies, none of them a declaration, so no relocation can reach any of it. Reading that as
+ * "app.js needs a redesign" confuses a limit of the TOOL with a property of the code.
+ *
+ * An extract-method adds exactly three things around a body: a header, a footer, and one level of
+ * indentation. Each is declared and verified VERBATIM here, on the same principle as `marker` and
+ * `importLine` — both of which are also executable text that a loose mask could hide an edit behind. What
+ * is left after removing all three must equal the pristine body byte for byte, or the reconstruction
+ * diff fails and names the slice.
+ *
+ * INDENTATION IS THE PART THAT IS EASY TO GET WRONG, so it is strict: every non-blank body line must
+ * literally start with the declared prefix. A line that does not is a line the slice CHANGED while
+ * claiming only to have moved it, and it throws rather than being silently left alone — which would
+ * reconstruct to something that differs from the pristine file in a way the diff would blame on its
+ * neighbour.
+ */
+function unwrapBody(spanLines, wrapper, name, module) {
+  const header = [].concat(wrapper.header ?? []);
+  const footer = [].concat(wrapper.footer ?? []);
+  const indent = wrapper.indent ?? "";
+
+  if (spanLines.length < header.length + footer.length) {
+    throw new Error(`${name} in ${module} is shorter than its declared wrapper`);
+  }
+  header.forEach((line, k) => {
+    if (spanLines[k] !== line) {
+      throw new Error(`wrapper header line ${k} does not match for ${name}; the mask would hide an edit`);
+    }
+  });
+  footer.forEach((line, k) => {
+    const at = spanLines.length - footer.length + k;
+    if (spanLines[at] !== line) {
+      throw new Error(`wrapper footer line ${k} does not match for ${name}; the mask would hide an edit`);
+    }
+  });
+
+  const body = spanLines.slice(header.length, spanLines.length - footer.length);
+  if (!indent) return body;
+  return body.map((line, k) => {
+    if (line.trim() === "") return line.startsWith(indent) ? line.slice(indent.length) : line;
+    if (!line.startsWith(indent)) {
+      throw new Error(
+        `${name} in ${module}: body line ${k} does not carry the declared indent, so it was EDITED, not `
+          + `re-indented: ${JSON.stringify(line)}`,
+      );
+    }
+    return line.slice(indent.length);
+  });
+}
+
 export function reconstruct({ after, modules, extractions }) {
   let lines = after.split("\n");
 
@@ -199,7 +255,9 @@ export function reconstruct({ after, modules, extractions }) {
         // plan that removes only its first line leaves the rest behind — which showed up as a
         // reconstruction one line too long.
         marker: item.marker == null ? [] : [].concat(item.marker),
-        body: (pristineExported ? span.text : span.text.replace(/^export\s+/, "")).split(NL),
+        body: item.wrapper
+          ? unwrapBody(span.text.split(NL), item.wrapper, item.name, step.module)
+          : (pristineExported ? span.text : span.text.replace(/^export\s+/, "")).split(NL),
       });
     }
   }

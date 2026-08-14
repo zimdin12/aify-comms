@@ -693,3 +693,146 @@ test("functionSpan finds a whole brace-matched body, not the first closing brace
   assert.match(span.text, /return 2;/, "the span must run to the function's own closing brace");
   assert.doesNotMatch(span.text, /function after/);
 });
+
+// --- extract-method support -------------------------------------------------------------------
+//
+// The prover could only demonstrate a RELOCATION until now, and that limit was being read as a fact about
+// app.js: its 631-line delegated click handler is one top-level statement holding ~82 branch bodies, none
+// of them a declaration, so "no relocation reaches it" was true and "it needs a redesign" did not follow.
+// These prove the wrapper path restores a body exactly, and — the half that matters — that it REFUSES
+// every way a slice could change a line while claiming to have only moved it.
+
+/** A pristine file holding a bare body inside a guard, plus the module an extract-method would produce. */
+const WRAPPED = {
+  pristine: [
+    "before();",
+    "if (hit) {",
+    "  doThing(hit);",
+    "  render();",
+    "}",
+    "after();",
+  ].join(LF),
+  module: [
+    "export function handleHit(hit) {",
+    "    doThing(hit);",
+    "    render();",
+    "}",
+  ].join(LF),
+  // app.js after the slice: the body replaced by a call, and an import added.
+  after: [
+    'import { handleHit } from "./hit.mjs";',
+    "before();",
+    "if (hit) {",
+    "  handleHit(hit);",
+    "}",
+    "after();",
+  ].join(LF),
+};
+
+const wrappedPlan = (overrides = {}) => [{
+  module: "hit.mjs",
+  importLine: 'import { handleHit } from "./hit.mjs";',
+  items: [{
+    name: "handleHit",
+    at: 2,
+    marker: "  handleHit(hit);",
+    wrapper: { header: ["export function handleHit(hit) {"], footer: ["}"], indent: "  " },
+    ...overrides,
+  }],
+}];
+
+test("EXTRACT-METHOD reconstructs byte-identically — a wrapped body is restored as it was", () => {
+  const rebuilt = reconstruct({
+    after: WRAPPED.after,
+    modules: { "hit.mjs": WRAPPED.module },
+    extractions: wrappedPlan(),
+  });
+  assert.equal(rebuilt, WRAPPED.pristine);
+});
+
+test("the wrapper path REFUSES a header that does not match verbatim", () => {
+  // The header is executable text. A mask broad enough to accept "some function signature" would hide a
+  // changed parameter list, which is a behaviour change wearing a relocation's clothes.
+  const plan = wrappedPlan({
+    wrapper: { header: ["export function handleHit(other) {"], footer: ["}"], indent: "  " },
+  });
+  assert.throws(
+    () => reconstruct({ after: WRAPPED.after, modules: { "hit.mjs": WRAPPED.module }, extractions: plan }),
+    /wrapper header line 0 does not match/,
+  );
+});
+
+test("the wrapper path REFUSES a footer that does not match verbatim", () => {
+  const plan = wrappedPlan({
+    wrapper: { header: ["export function handleHit(hit) {"], footer: ["} // done"], indent: "  " },
+  });
+  assert.throws(
+    () => reconstruct({ after: WRAPPED.after, modules: { "hit.mjs": WRAPPED.module }, extractions: plan }),
+    /wrapper footer line 0 does not match/,
+  );
+});
+
+test("A BODY LINE THAT WAS EDITED RATHER THAN RE-INDENTED THROWS, naming the line", () => {
+  // The failure this is really guarding. Re-indentation is the one substitution an extract-method needs,
+  // so it is the one an edit can hide inside: change a line AND re-indent it and the diff looks like the
+  // move. Requiring every non-blank line to literally carry the declared prefix means a line that lost it
+  // is reported here instead of reconstructing to something whose diff blames its neighbour.
+  const edited = WRAPPED.module.replace("    render();", "render();");
+  assert.throws(
+    () => reconstruct({ after: WRAPPED.after, modules: { "hit.mjs": edited }, extractions: wrappedPlan() }),
+    /does not carry the declared indent, so it was EDITED/,
+  );
+});
+
+test("a CHANGED body line still fails the byte-identity comparison", () => {
+  // Belt and braces: the indent check above catches a line that lost its prefix; this catches one that
+  // kept it and changed anyway. Two assertions on the same property, because two of this series' gate
+  // bugs were found only by two checks disagreeing.
+  const changed = WRAPPED.module.replace("    doThing(hit);", "    doThing(hit, true);");
+  const rebuilt = reconstruct({
+    after: WRAPPED.after,
+    modules: { "hit.mjs": changed },
+    extractions: wrappedPlan(),
+  });
+  assert.notEqual(rebuilt, WRAPPED.pristine);
+});
+
+test("blank lines inside a wrapped body survive, indented or not", () => {
+  // A blank line is whitespace-only and carries no indent to strip. Treating it as a violation would make
+  // the wrapper unusable on any body with a paragraph break in it.
+  const pristine = ["if (hit) {", "  a();", "", "  b();", "}"].join(LF);
+  const mod = ["export function h() {", "    a();", "", "    b();", "}"].join(LF);
+  const after = ["import { h } from \"./h.mjs\";", "if (hit) {", "  h();", "}"].join(LF);
+  const rebuilt = reconstruct({
+    after,
+    modules: { "h.mjs": mod },
+    extractions: [{
+      module: "h.mjs",
+      importLine: 'import { h } from "./h.mjs";',
+      items: [{
+        name: "h",
+        at: 1,
+        marker: "  h();",
+        wrapper: { header: ["export function h() {"], footer: ["}"], indent: "  " },
+      }],
+    }],
+  });
+  assert.equal(rebuilt, pristine);
+});
+
+test("an item with NO wrapper is unaffected — the relocation path is unchanged", () => {
+  // Every extraction to date uses the unwrapped path. The byte-identity test at the top of this file
+  // already covers them all, but asserting it here pins the reason: `wrapper` is opt-in per item.
+  const plan = wrappedPlan();
+  delete plan[0].items[0].wrapper;
+  plan[0].items[0].at = 1;
+  // Without a wrapper the whole declaration is restored, which is NOT the pristine body — the point being
+  // that the two paths are different and the choice is the slice's to declare.
+  const rebuilt = reconstruct({
+    after: WRAPPED.after,
+    modules: { "hit.mjs": WRAPPED.module },
+    extractions: plan,
+  });
+  assert.match(rebuilt, /function handleHit/);
+  assert.notEqual(rebuilt, WRAPPED.pristine);
+});
