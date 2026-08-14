@@ -8,7 +8,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { renderSection } from "./render-memo.mjs";
+import { state } from "./state.mjs";
+import {
+  _agentSig,
+  _chatChanSig,
+  _contractSig,
+  _envSig,
+  _msgSig,
+  _runSig,
+  _spawnReqSig,
+  renderSection,
+} from "./render-memo.mjs";
 
 /** Distinct keys per test — the signature store is module-global and shared across this file. */
 let n = 0;
@@ -98,4 +108,105 @@ test("the signature is recorded BEFORE the render runs", () => {
   };
   assert.doesNotThrow(() => renderSection(k, ["same"], render));
   assert.equal(renders, 1, "the re-entrant call must be memoised out");
+});
+
+// --- the signature builders ---------------------------------------------------------------------
+//
+// These ARE the memo's correctness. Each names the fields whose change should repaint a section, and the
+// two failure directions are invisible to `renderSection` itself: a field left out makes that section go
+// BLIND to a real update — an agent goes offline and the rail keeps showing it live — while an unstable
+// value makes it repaint on every poll, which is the DOM-churn the memo exists to prevent.
+
+const COLLECTIONS = ["agents", "contracts", "runs", "environments", "spawnRequests", "messages", "chat"];
+
+function withData(fields, run) {
+  const saved = {};
+  for (const k of COLLECTIONS) saved[k] = state[k];
+  Object.assign(state, fields);
+  try { return run(); } finally { Object.assign(state, saved); }
+}
+
+test("EVERY builder is STABLE across calls on unchanged data", () => {
+  // The property the memo depends on. Anything non-deterministic here — a timestamp, an object
+  // identity, an unsorted Set — makes the signature differ every poll and the memo never holds.
+  withData({
+    agents: [{ id: "a", status: "online" }],
+    contracts: [{ id: "c", state: "open", status: "x", overdue: false, subject: "s" }],
+    runs: [{ id: "r", status: "queued", subject: "s", summary: "y", targetAgentId: "a" }],
+    environments: [{ id: "e", status: "online", label: "L" }],
+    spawnRequests: [{ id: "sr", status: "queued", agentId: "a", error: "", updatedAt: 1 }],
+    messages: [{ id: "m", from: "a", subject: "s", read: false }],
+    chat: { channels: [{ name: "general", unreadCount: 0, memberCount: 3 }] },
+  }, () => {
+    for (const [name, fn] of Object.entries({
+      _agentSig, _contractSig, _runSig, _envSig, _spawnReqSig, _msgSig, _chatChanSig,
+    })) {
+      assert.deepEqual(fn(), fn(), `${name} must be stable`);
+      assert.equal(JSON.stringify(fn()), JSON.stringify(fn()), `${name} must stringify identically`);
+    }
+  });
+});
+
+test("a STATUS change moves the agent signature — the rail must not go blind to it", () => {
+  // The single most important field in the set: an agent going offline while the rail still shows it
+  // live is the failure an operator acts on wrongly.
+  withData({ agents: [{ id: "a", status: "online" }] }, () => {
+    const before = JSON.stringify(_agentSig());
+    state.agents = [{ id: "a", status: "offline" }];
+    assert.notEqual(JSON.stringify(_agentSig()), before);
+  });
+});
+
+test("each builder responds to every field it names", () => {
+  // Systematic rather than spot-checked: flip one field at a time and require the signature to move.
+  // A field listed but not actually read would otherwise sit there looking like coverage.
+  const cases = [
+    [_contractSig, "contracts", { id: "c", state: "open", status: "x", overdue: false, subject: "s" },
+      ["state", "status", "overdue", "subject"]],
+    [_runSig, "runs", { id: "r", status: "queued", subject: "s", summary: "y", targetAgentId: "a" },
+      ["status", "subject", "summary", "targetAgentId"]],
+    [_envSig, "environments", { id: "e", status: "online", label: "L" }, ["status", "label"]],
+    [_spawnReqSig, "spawnRequests", { id: "sr", status: "queued", agentId: "a", error: "", updatedAt: 1 },
+      ["status", "agentId", "error", "updatedAt"]],
+    [_msgSig, "messages", { id: "m", from: "a", subject: "s", read: false }, ["from", "subject", "read"]],
+  ];
+  for (const [fn, key, record, fields] of cases) {
+    withData({ [key]: [record] }, () => {
+      const before = JSON.stringify(fn());
+      for (const field of fields) {
+        state[key] = [{ ...record, [field]: "CHANGED" }];
+        assert.notEqual(JSON.stringify(fn()), before, `${key}.${field} must move the signature`);
+      }
+    });
+  }
+});
+
+test("_runSig reads EITHER spelling of the target agent", () => {
+  // `r.targetAgentId || r.target_agent`. The API has returned both; reading one means a reassignment
+  // arriving in the other spelling never repaints the run list.
+  withData({ runs: [{ id: "r", target_agent: "a1" }] }, () => {
+    const before = JSON.stringify(_runSig());
+    state.runs = [{ id: "r", target_agent: "a2" }];
+    assert.notEqual(JSON.stringify(_runSig()), before, "snake_case must be read too");
+  });
+});
+
+test("_chatChanSig survives channels being absent", () => {
+  // `(state.chat.channels || [])`. Channels are undefined until the first chat load, and this runs on
+  // every render pass from boot.
+  withData({ chat: {} }, () => {
+    assert.doesNotThrow(() => _chatChanSig());
+    assert.deepEqual(_chatChanSig(), []);
+  });
+});
+
+test("an EMPTY collection yields an empty signature, not a throw", () => {
+  withData({
+    agents: [], contracts: [], runs: [], environments: [], spawnRequests: [], messages: [],
+    chat: { channels: [] },
+  }, () => {
+    for (const fn of [_agentSig, _contractSig, _runSig, _envSig, _spawnReqSig, _msgSig, _chatChanSig]) {
+      assert.deepEqual(fn(), []);
+    }
+  });
 });

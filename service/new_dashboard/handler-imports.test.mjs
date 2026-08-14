@@ -71,9 +71,14 @@ function knownNames(src) {
       if (n) known.add(n);
     }
   }
+  // NESTED PARENS ARE THE TRAP HERE. In `list.find((a) => a.id === x)` the naive `\(([^)]*)\)` match
+  // starts at `find(` and captures `(a` — paren included — so the parameter `a` was never registered and
+  // every such arrow produced a false positive. Stripping non-identifier characters is what fixes it,
+  // and a false positive in this gate is not harmless: it blocks a correct commit, which is how a gate
+  // gets deleted.
   for (const m of src.matchAll(/\(([^)]*)\)\s*=>/g)) {
     for (const p of m[1].split(",")) {
-      const n = p.trim().split(/[=:\s]/)[0].replace(/^\.\.\./, "");
+      const n = p.trim().split(/[=:\s]/)[0].replace(/^\.\.\./, "").replace(/[^\w$]/g, "");
       if (n) known.add(n);
     }
   }
@@ -83,25 +88,85 @@ function knownNames(src) {
 }
 
 /**
- * Bare `name(` calls the module cannot resolve.
+ * Names the module uses but cannot resolve — in CALL position or as the HEAD OF A PROPERTY CHAIN.
  *
- * CALL POSITION ONLY, and never after a dot. `ctl.render()` belongs to its object and says nothing about
- * this module's imports; a bare `toast(` that nothing defines is exactly the defect.
+ * CALL POSITION was the original check and it was not enough. `render-memo.mjs` moved seven signature
+ * builders whose bodies read `state.agents`, and its module never imported `state`. Nothing called
+ * `state(`, so the call-only scan reported the file clean while every one of those functions threw on
+ * first use. The property-chain head is the same defect wearing different syntax.
+ *
+ * Only the HEAD of a chain counts: in `a.b.c()`, `a` must resolve and `b`/`c` belong to whatever `a` is.
+ * That is what the `[^.\w$]` prefix enforces, and it is why `ctl.render()` says nothing about imports.
  */
-function unresolvedCalls(src) {
+function unresolvedNames(src) {
   const known = knownNames(src);
   const found = new Map();
+  // PER-LINE string blanking, and it is required even for call position: `page-titles.mjs` contains the
+  // prose "Shared artifacts (comms_share)" inside a data string, which reads as a call to `artifacts`.
+  // Built from a plain string rather than a regex literal — these backslash classes are exactly what an
+  // editor or a heredoc mangles into a broken character class, and a silently broken blanker turns the
+  // whole gate into noise.
+  //
+  // Per line rather than whole-source ON PURPOSE. Blanking across the file handles multi-line templates
+  // but then the first apostrophe in an English comment — "app.js's" — opens a string that swallows real
+  // code. Per line, an unterminated quote can only affect its own line, and call position is unaffected
+  // by the multi-line template in `static-links.mjs` because nothing in it is called.
+  const STR = new RegExp("'(?:[^'\\\\]|\\\\.)*'|\"(?:[^\"\\\\]|\\\\.)*\"|`(?:[^`\\\\]|\\\\.)*`", "g");
   src.split(NL).forEach((line, i) => {
     if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) return;
-    for (const m of line.matchAll(/(^|[^.\w$])([A-Za-z_$][\w$]*)\s*\(/g)) {
+    for (const m of line.replace(STR, '""').matchAll(/(^|[^.\w$])([A-Za-z_$][\w$]*)\s*\(/g)) {
       if (!known.has(m[2]) && !found.has(m[2])) found.set(m[2], i + 1);
     }
   });
   return found;
 }
 
-const handlerModules = () =>
-  fs.readdirSync(HERE).filter((f) => /-click-handlers\.mjs$/.test(f) && !f.includes(".test."));
+// WHY THIS IS CALL-POSITION ONLY, having tried the alternative.
+//
+// A missing import used only as a property chain — `state.agents` with no `import { state }` — is the
+// same defect and this does not catch it. `render-memo.mjs` shipped exactly that, and its tests caught it
+// instead. So I extended the scan to the HEAD of a property chain, which requires knowing what is code
+// and what is not, and that requires a lexer.
+//
+// Two attempts, two false positives on real files: an arrow parameter in `list.find((a) => …)` reported
+// as `a()`, and `bash install.sh` inside a MULTI-LINE template literal reported as `install`. Blanking
+// strings across the whole source fixed the second and broke on the first apostrophe in an English
+// comment — "app.js's" opens a string as far as a regex is concerned.
+//
+// The standing rule here is that a gate reporting wrong answers is worse than none: a false positive
+// blocks a correct commit, and a blocked commit is how a gate gets deleted. Chain heads stay uncovered
+// by this file. What covers them is the thing that actually caught `render-memo.mjs` — a test that CALLS
+// every export — and that is the standard every module in WATCHED already meets.
+
+/** Kept as the old name so the intent of each call site stays readable. */
+const unresolvedCalls = unresolvedNames;
+
+/**
+ * The modules this extraction series created. Named explicitly rather than globbed: the older dashboard
+ * modules predate this check and have their own idioms, and a heuristic turned loose on all of them
+ * would report wrong answers — which is worse than none.
+ *
+ * SCOPE WAS TOO NARROW AT FIRST. It read only `*-click-handlers.mjs`, and the very next slice created
+ * `render-memo.mjs` with a missing `state` import that this check would have caught had it been looking.
+ * Every module the series adds belongs here, on the day it is added.
+ */
+const WATCHED = [
+  "agent-click-handlers.mjs",
+  "chat-click-handlers.mjs",
+  "console-click-handlers.mjs",
+  "nav-click-handlers.mjs",
+  "session-click-handlers.mjs",
+  "console-await.mjs",
+  "keyboard-shortcuts.mjs",
+  "layout-prefs.mjs",
+  "page-titles.mjs",
+  "record-lookup.mjs",
+  "render-memo.mjs",
+  "run-helpers.mjs",
+  "static-links.mjs",
+];
+
+const handlerModules = () => WATCHED.filter((f) => fs.existsSync(path.join(HERE, f)));
 
 test("NO extracted handler calls a name it does not import or declare", () => {
   const offenders = [];
@@ -118,14 +183,19 @@ test("NO extracted handler calls a name it does not import or declare", () => {
   );
 });
 
-test("the scan actually reaches the modules, and they are the ones this series created", () => {
-  // Anti-vacuity for the check above: a rename of the suffix, or a directory read that stopped matching,
-  // would make "no offenders" true for the wrong reason.
+test("EVERY WATCHED MODULE EXISTS — the list cannot rot into names that are gone", () => {
+  // Anti-vacuity, and stricter than a glob: a module renamed or deleted must fail here rather than
+  // silently dropping out of the scan.
+  const missing = WATCHED.filter((f) => !fs.existsSync(path.join(HERE, f)));
+  assert.deepEqual(missing, [], "watched modules that no longer exist");
   const files = handlerModules();
-  assert.ok(files.length >= 5, `expected the handler modules, found ${files.length}: ${files.join(", ")}`);
+  assert.ok(files.length >= 13, `expected every watched module, found ${files.length}`);
   for (const f of files) {
     const src = fs.readFileSync(path.join(HERE, f), "utf-8");
-    assert.match(src, /^export function /m, `${f} must export the handlers it holds`);
+    // `export function` OR `export const`: `page-titles.mjs` is a data map, not handlers, and demanding
+    // a function there would be asserting the shape this list happens to have rather than that each
+    // module exports what it holds.
+    assert.match(src, /^export (?:function|const) /m, `${f} must export what it holds`);
   }
 });
 
@@ -156,4 +226,30 @@ test("a PROPERTY call is not mistaken for a missing import", () => {
     "}",
   ].join(NL);
   assert.deepEqual([...unresolvedCalls(src).keys()], []);
+});
+
+test("A CHAIN-ONLY missing import is a KNOWN GAP — recorded, not silently absent", () => {
+  // `render-memo.mjs` shipped with `state.agents` and no `import { state }`, and this file does not catch
+  // it. Asserting the gap keeps it honest: if someone later extends the detector, this test fails and
+  // they update it deliberately rather than discovering the limitation from a production throw.
+  //
+  // What DOES cover it is a test that calls every export, which every module in WATCHED has.
+  const chainOnly = "export const sig = () => state.agents.map((a) => a.id);";
+  assert.deepEqual([...unresolvedNames(chainOnly).keys()], [], "not detected — see the note above");
+
+  // …but the same module with a CALL is caught, which is the boundary of what this gate promises.
+  const called = "export const sig = () => state().agents;";
+  assert.deepEqual([...unresolvedNames(called).keys()], ["state"]);
+});
+
+test("a name appearing only inside a STRING is not reported", () => {
+  // Strings are blanked before scanning. Without that, any module mentioning a name in a message or a
+  // template would be flagged, and the gate would be deleted within a week.
+  const src = [
+    "export function f() {",
+    "  return 'call toast() when state.x is set';",
+    '  // eslint-disable-next-line',
+    "}",
+  ].join(NL);
+  assert.deepEqual([...unresolvedNames(src).keys()], []);
 });

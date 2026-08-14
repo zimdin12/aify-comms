@@ -55,6 +55,8 @@ import { consoleAwaitingInputHint, updateAwaitPill } from './console-await.mjs';
 import { handleGlobalKeydown } from './keyboard-shortcuts.mjs';
 import { renderInstallSnippet, updateStaticLinks } from './static-links.mjs';
 import { lookup } from './record-lookup.mjs';
+import { pages } from './page-titles.mjs';
+import { _agentSig, _chatChanSig, _contractSig, _envSig, _msgSig, _runSig, _spawnReqSig } from './render-memo.mjs';
 import { renderSection } from './render-memo.mjs';
 import { preferredNavCollapsed, setNavCollapsed, toggleSessionGroupCollapsed } from './layout-prefs.mjs';
 import { RUN_INSPECTOR_EVENT_LIMIT, loadRunDetails, loadRunEvents, patchRun, runQueryPath, runSourceMessage, syncRunFilterOptions } from './run-helpers.mjs';
@@ -110,15 +112,7 @@ const flowGates = {
   environments: { enabled: false, assertion: flowAssertions.environments },
 };
 
-const pages = {
-  chat: ['Chat', 'Direct messages and channels across the fleet — the operator landing surface.'],
-  sessions: ['Sessions', 'Live terminal and lifecycle controls per session — messaging lives in Chat.'],
-  environments: ['Environments', 'Connected bridges, runtimes, roots, and capacity.'],
-  diagnostics: ['Work', 'Work-loop contracts and run/dispatch evidence.'],
-  analytics: ['Analytics', 'Fleet-wide message traffic, run outcomes, and live capacity.'],
-  files: ['Files', 'Shared artifacts (comms_share). Upload, download, and remove files.'],
-  settings: ['Settings', 'Curated service and dashboard configuration. Saves apply to the live service.'],
-};
+// pages moved to ./page-titles.mjs in v0.5.4.
 
 // byId moved to ./ui.js in v0.5.4 — it is a DOM lookup, and ui.js already owns the DOM helpers.
 let refreshTimer = null;
@@ -751,13 +745,13 @@ async function _refreshImpl() {
 // _sectionSig moved to ./render-memo.mjs in v0.5.4.
 // renderSection moved to ./render-memo.mjs in v0.5.4.
 // Compact, stable fingerprints of just the fields a section renders from.
-const _agentSig = () => state.agents.map((a) => [a.id, a.status]);
-const _contractSig = () => state.contracts.map((c) => [c.id, c.state, c.status, c.overdue, c.subject]);
-const _runSig = () => state.runs.map((r) => [r.id, r.status, r.subject, r.summary, r.targetAgentId || r.target_agent]);
-const _envSig = () => state.environments.map((e) => [e.id, e.status, e.label]);
-const _spawnReqSig = () => state.spawnRequests.map((r) => [r.id, r.status, r.agentId, r.error, r.updatedAt]);
-const _msgSig = () => state.messages.map((m) => [m.id, m.from, m.subject, m.read]);
-const _chatChanSig = () => (state.chat.channels || []).map((c) => [c.name, c.unreadCount, c.memberCount]);
+// _agentSig moved to ./render-memo.mjs in v0.5.4.
+// _contractSig moved to ./render-memo.mjs in v0.5.4.
+// _runSig moved to ./render-memo.mjs in v0.5.4.
+// _envSig moved to ./render-memo.mjs in v0.5.4.
+// _spawnReqSig moved to ./render-memo.mjs in v0.5.4.
+// _msgSig moved to ./render-memo.mjs in v0.5.4.
+// _chatChanSig moved to ./render-memo.mjs in v0.5.4.
 const _chatConvSig = () => Object.entries(state.chat.channelMessages || {}).map(([k, v]) => [k, (v || []).length]);
 
 // Coalesce render bursts (e.g. many agent_status events during fleet turn-churn) into one

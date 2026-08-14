@@ -951,6 +951,26 @@ const EXTRACTIONS = [
       { name: "renderModeSwitchChip", at: 2578, marker: "// renderModeSwitchChip moved to ./session-rail.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "page-titles.mjs",
+    importLine: "import { pages } from './page-titles.mjs';",
+    items: [
+      { name: "pages", at: 116, marker: "// pages moved to ./page-titles.mjs in v0.5.4." },
+    ],
+  },
+  {
+    module: "render-memo.mjs",
+    importLine: "import { _agentSig, _chatChanSig, _contractSig, _envSig, _msgSig, _runSig, _spawnReqSig } from './render-memo.mjs';",
+    items: [
+      { name: "_agentSig", at: 938, marker: "// _agentSig moved to ./render-memo.mjs in v0.5.4." },
+      { name: "_contractSig", at: 939, marker: "// _contractSig moved to ./render-memo.mjs in v0.5.4." },
+      { name: "_runSig", at: 940, marker: "// _runSig moved to ./render-memo.mjs in v0.5.4." },
+      { name: "_envSig", at: 941, marker: "// _envSig moved to ./render-memo.mjs in v0.5.4." },
+      { name: "_spawnReqSig", at: 942, marker: "// _spawnReqSig moved to ./render-memo.mjs in v0.5.4." },
+      { name: "_msgSig", at: 943, marker: "// _msgSig moved to ./render-memo.mjs in v0.5.4." },
+      { name: "_chatChanSig", at: 944, marker: "// _chatChanSig moved to ./render-memo.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -984,6 +1004,7 @@ const MODULES = () => ({
   "render-memo.mjs": read("render-memo.mjs"),
   "record-lookup.mjs": read("record-lookup.mjs"),
   "static-links.mjs": read("static-links.mjs"),
+  "page-titles.mjs": read("page-titles.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),
