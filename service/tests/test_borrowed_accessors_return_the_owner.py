@@ -31,6 +31,10 @@ series has been avoiding.
 
 from __future__ import annotations
 
+#: Written as a named constant because a bare newline literal inside a heredoc-authored edit keeps
+#: getting expanded into a real line break; naming it removes the hazard entirely.
+LF = chr(10)
+
 import ast
 import unittest
 from pathlib import Path
@@ -64,8 +68,41 @@ def _accessor_in(tree: ast.AST) -> list[tuple[str, str]]:
             if isinstance(sub, ast.ImportFrom) and sub.module and sub.module.startswith("service."):
                 imported = sub.names[0].asname or sub.names[0].name
                 owner = sub.module
+        if imported is None:
+            # AND THE IMPORT NEED NOT BE INSIDE THE ACCESSOR ANY MORE. The function-scope import was
+            # never the point — it was a workaround for a circular import with the carrier. v0.5.4
+            # moved the constants to leaves, which have no cycle to dodge, so the imports hoisted to
+            # module level and the accessors became one-line `return CONSTANT`.
+            #
+            # The property under test is unchanged and is asserted downstream: the accessor returns
+            # THAT owner's object, by identity, never a copy. Only the place the owner is named moved.
+            # Without this the gate reported "imports no constant from any owner" for seven accessors
+            # that had just been made strictly better.
+            imported, owner = _module_level_owner(tree, node)
         found.append((node.name, imported, owner))
     return found
+
+
+def _module_level_owner(tree: ast.Module, node) -> "tuple[str | None, str | None]":
+    """Resolve the name an accessor RETURNS to the module-level import that binds it.
+
+    Deliberately narrow: only a bare `return NAME`, and only when a top-level
+    `from service.… import NAME` binds it. Anything else returns (None, None) and is reported, which
+    keeps a genuinely broken accessor visible rather than explained away.
+    """
+    returned = None
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Return) and isinstance(sub.value, ast.Name):
+            returned = sub.value.id
+    if returned is None:
+        return None, None
+    for top in tree.body:
+        if not isinstance(top, ast.ImportFrom) or not top.module or not top.module.startswith("service."):
+            continue
+        for alias in top.names:
+            if (alias.asname or alias.name) == returned:
+                return returned, top.module
+    return None, None
 
 
 def _accessors() -> list[tuple[str, str, str]]:
@@ -113,6 +150,43 @@ class BorrowedAccessorsTests(unittest.TestCase):
             "A borrowed-constant accessor calls ITSELF instead of returning the constant. Every "
             "call raises RecursionError, and only at runtime on whichever route uses it:\n  "
             + "\n  ".join(offenders),
+        )
+
+    def test_the_scan_resolves_a_MODULE_LEVEL_owner_too(self):
+        """The v0.5.4 shape, probed so the new branch cannot silently stop working.
+
+        The function-scope import was a workaround for a circular import with the carrier, never the
+        property under test. Once the constants moved to leaves there was no cycle to dodge, the
+        imports hoisted, and the accessors became a one-line `return CONSTANT`. The detector has to
+        recognise that or it reports "imports no constant from any owner" for the accessors that were
+        just improved.
+
+        The negative half matters as much: an accessor that returns something NO module-level import
+        binds must still come back unresolved, or the fallback would explain away a genuinely broken
+        one.
+        """
+        hoisted = LF.join([
+            "from service.api_core.tuning import _SYNTHETIC_PROBE_CONSTANT",
+            "",
+            "",
+            "def _borrowed_synthetic_probe():",
+            "    return _SYNTHETIC_PROBE_CONSTANT",
+            "",
+        ])
+        self.assertEqual(
+            _accessor_in(ast.parse(hoisted)),
+            [("_borrowed_synthetic_probe", "_SYNTHETIC_PROBE_CONSTANT", "service.api_core.tuning")],
+        )
+
+        unbound = LF.join([
+            "def _borrowed_synthetic_probe():",
+            "    return _SOMETHING_NOBODY_IMPORTS",
+            "",
+        ])
+        self.assertEqual(
+            _accessor_in(ast.parse(unbound)),
+            [("_borrowed_synthetic_probe", None, None)],
+            "an unresolvable accessor must stay unresolved, or the fallback hides real breakage",
         )
 
     def test_every_accessor_returns_the_routers_own_object(self):

@@ -28,6 +28,7 @@ from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
+from service.api_core.tuning import STUCK_STOPPING_GRACE_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -102,10 +103,6 @@ def _terminal_end_statuses():
 
 
 
-
-def _stuck_stopping_grace_seconds():
-    from service.control_plane import STUCK_STOPPING_GRACE_SECONDS
-    return STUCK_STOPPING_GRACE_SECONDS
 
 
 async def _close_active_terminal_runs_for_terminal(db, terminal, terminal_status: str, *, now: Optional[str] = None, reason: str = "") -> int:
@@ -437,7 +434,7 @@ async def _reconcile_stuck_terminal_and_session_rows(db) -> dict[str, int]:
     cur = await db.execute(
         "UPDATE terminal_sessions SET status = 'stopped', stopped_at = COALESCE(stopped_at, ?) "
         "WHERE status = 'stopping' AND datetime(updated_at) < datetime('now', ? || ' seconds')",
-        (now, f"-{_stuck_stopping_grace_seconds()}"),
+        (now, f"-{STUCK_STOPPING_GRACE_SECONDS}"),
     )
     result["stuck_stopping_terminals_closed"] = cur.rowcount or 0
     cur = await db.execute(

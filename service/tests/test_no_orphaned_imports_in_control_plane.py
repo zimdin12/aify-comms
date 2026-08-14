@@ -161,14 +161,48 @@ class NoOrphanedImportsTests(unittest.TestCase):
         self.assertNotIn(invented, keep, "the reachability set must not accept an invented name")
 
     def test_a_genuinely_used_import_is_not_reported(self):
-        """The other direction: something the module plainly uses must never be flagged."""
-        tree = _tree()
+        """The other direction: something a module plainly uses must never be flagged.
+
+        THIS USED TO DRIVE THE PREDICATE FROM THE LIVE FILE, and asserted the control plane still
+        imported at least one name its own body loads. That premise held for the whole series and then
+        stopped: v0.5.4 finished emptying the module. `service/control_plane.py` now parses to a
+        docstring, twenty-three imports and three assignments — no functions, no classes, nothing that
+        loads anything. It is a pure re-export surface, which is the END STATE the decomposition was
+        aiming at, so the control failed because the work succeeded.
+
+        A property of `_loaded` does not need the live file, so it is exercised against a synthetic
+        module instead. `test_the_control_plane_is_now_a_pure_re_export_surface` records the fact
+        separately, where it is an observation rather than a precondition.
+        """
+        tree = ast.parse(
+            "\n".join([
+                "import json",
+                "from service.db import get_db",
+                "VALUE = json.dumps({})",
+            ])
+        )
         loaded = _loaded(tree)
         bound = {name for name, _ in _bindings(tree)}
-        live = bound & loaded
-        self.assertTrue(live, "the control plane must still import something it actually uses")
-        flagged = {name for name, _ in orphaned_bindings()}
-        self.assertEqual(flagged & live, set(), "a name the module loads must never be called orphaned")
+        self.assertIn("json", loaded, "_loaded must see a name the module body uses")
+        self.assertNotIn("get_db", loaded, "...and must not invent one it does not")
+        self.assertEqual(bound & loaded, {"json"})
+
+    def test_the_control_plane_is_now_a_pure_re_export_surface(self):
+        """Recorded because it is the end state of the series, and because it is easy to undo.
+
+        The module has no executable body left. Anything added back — a helper, a constant, a branch —
+        is a NEW declaration in a file whose entire remaining purpose is to name where things went, and
+        should go to a leaf instead. This is not a rule the gate can enforce, so it is written down as
+        the thing a reader should notice before adding to it.
+        """
+        body = [n for n in _tree().body
+                if not isinstance(n, (ast.Import, ast.ImportFrom, ast.Expr))]
+        offenders = [type(n).__name__ for n in body if not isinstance(n, ast.Assign)]
+        self.assertEqual(
+            offenders, [],
+            "the control plane declares executable code again; it is meant to be imports and "
+            "re-export assignments only",
+        )
 
 
 if __name__ == "__main__":

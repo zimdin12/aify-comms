@@ -51,6 +51,7 @@ from service.reconcilers.terminal_runs import (
 )
 from service.api_core.channel_delivery import _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
 from service.api_core.active_run_discard import _discard_unusable_active_run
+from service.api_core.tuning import MANAGED_ORPHAN_GRACE_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -122,12 +123,6 @@ async def _link_unthreaded_completion_message_for_run(db, row) -> bool:
     return False
 
 
-def _managed_orphan_grace_seconds():
-    from service.control_plane import MANAGED_ORPHAN_GRACE_SECONDS
-    return MANAGED_ORPHAN_GRACE_SECONDS
-
-
-
 
 async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
     """Periodic managed-worker hygiene sweep (Workstream B).
@@ -153,7 +148,7 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
     agent to `available`), append an observability event, and count it. The
     actual process kill is host-side (B3: tree-kill on PTY close). We do NOT emit
     a dispatch_control — an orphan has no run, so there is no run_id to attach
-    one to. A _managed_orphan_grace_seconds() guard prevents reaping a console that
+    one to. A MANAGED_ORPHAN_GRACE_SECONDS guard prevents reaping a console that
     is merely restarting between liveness beats.
 
     DB-only: the reconcile loop has no `ws` in scope; the dashboard reflects
@@ -207,7 +202,7 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
         term_updated = _iso_to_epoch(str(row["updated_at"] or "")) if "updated_at" in row.keys() else 0
         if term_updated and (
             datetime.now(timezone.utc).timestamp() - term_updated
-        ) <= _managed_orphan_grace_seconds():
+        ) <= MANAGED_ORPHAN_GRACE_SECONDS:
             # The bridge is still streaming this PTY (e.g. booting through a long
             # SessionStart hook) → alive, not a ghost. Leave it.
             continue
@@ -331,7 +326,7 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
         ended_epoch = _iso_to_epoch(ended_at)
         if ended_epoch <= 0:
             continue
-        if (_iso_to_epoch(now) - ended_epoch) < _managed_orphan_grace_seconds():
+        if (_iso_to_epoch(now) - ended_epoch) < MANAGED_ORPHAN_GRACE_SECONDS:
             # Within grace — a transiently-restarting console PTY, not an orphan.
             continue
         terminal_id = str(last_term["id"] or "")

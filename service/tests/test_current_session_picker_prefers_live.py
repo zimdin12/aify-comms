@@ -33,6 +33,8 @@ import time
 from service.db import get_db
 from service.api_core.agent_sessions import _current_agent_session_row
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
+# v0.5.4: the constant moved on to a leaf — the control plane declared it and never read it.
+from service.api_core.tuning import _SESSION_DELETE_ALLOWED_STATUSES
 
 from service.tests._base import FastApiTestCase
 from service.reconcilers.sessions import LIVE_SESSION_STATUSES
@@ -108,7 +110,7 @@ class CurrentSessionPickerPrefersLiveTests(FastApiTestCase):
         """The contract is the complement of LIVE_SESSION_STATUSES. `stopped`/`failed`/`lost`
         used to pass the WHERE, so an agent whose only rows were dead got a dead "current"
         session instead of an honest None."""
-        for i, dead_status in enumerate(sorted(api_v2._SESSION_DELETE_ALLOWED_STATUSES)):
+        for i, dead_status in enumerate(sorted(_SESSION_DELETE_ALLOWED_STATUSES)):
             agent_id = f"dead-only-{i}"
             self._seed(f"s-{i}", agent_id, dead_status, last_seen_ago=5)
             self.assertIsNone(

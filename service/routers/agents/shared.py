@@ -153,11 +153,17 @@ from service.api_core.records import _row_status_note  # noqa: E402
 # at module level is a cycle. It moved to service/api_core/status_inputs.py in v0.5.4, so this is a
 # plain import now. NOT `derive` — that is the pure state machine this wrapper feeds.
 from service.api_core.status_inputs import engine_status  # noqa: E402
+from service.api_core.tuning import (
+    LIST_AGENTS_REFRESH_LIMIT,
+    _CONSOLE_TAIL_MAX_BYTES,
+    _CONSOLE_TAIL_MAX_LINES,
+    _RUNTIME_CONFIG_LIVE_KEYS,
+    _SHELL_PLACEHOLDER_HANDLE_RE,
+)
 
 
 def _borrowed_list_agents_refresh_limit():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import LIST_AGENTS_REFRESH_LIMIT
 
     return LIST_AGENTS_REFRESH_LIMIT
 
@@ -176,14 +182,12 @@ def _borrowed_list_agents_refresh_limit():
 
 def _borrowed_console_tail_max_bytes():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import _CONSOLE_TAIL_MAX_BYTES
 
     return _CONSOLE_TAIL_MAX_BYTES
 
 
 def _borrowed_console_tail_max_lines():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import _CONSOLE_TAIL_MAX_LINES
 
     return _CONSOLE_TAIL_MAX_LINES
 
@@ -215,14 +219,12 @@ def _borrowed_manual_statuses():
 
 def _borrowed_runtime_config_live_keys():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import _RUNTIME_CONFIG_LIVE_KEYS
 
     return _RUNTIME_CONFIG_LIVE_KEYS
 
 
 def _borrowed_shell_placeholder_handle_re():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import _SHELL_PLACEHOLDER_HANDLE_RE
 
     return _SHELL_PLACEHOLDER_HANDLE_RE
 

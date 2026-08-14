@@ -33,6 +33,7 @@ from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
+from service.api_core.tuning import MANAGED_ORPHAN_GRACE_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +42,6 @@ logger = logging.getLogger(__name__)
 
 
 
-
-
-
-def _managed_orphan_grace_seconds():
-    from service.control_plane import MANAGED_ORPHAN_GRACE_SECONDS
-    return MANAGED_ORPHAN_GRACE_SECONDS
 
 
 
@@ -185,7 +180,7 @@ async def _reconcile_resurrected_managed_consoles(db) -> int:
       - only rows stopped with the ghost-reap error (an explicit Stop / real PTY exit / any other
         reason is NEVER touched — those are authoritative);
       - only when the worker is UNAMBIGUOUSLY alive RIGHT NOW: a live channel-sidecar AND fresh
-        terminal output (updated_at within _managed_orphan_grace_seconds()) — a trailing frame from a
+        terminal output (updated_at within MANAGED_ORPHAN_GRACE_SECONDS) — a trailing frame from a
         dying process or a stale ghost that never came back is left dead;
       - only when the agent has NO OTHER live terminal (`_has_live_terminal_session`): if a new
         console was already attached the agent has already recovered, so re-activating the old row
@@ -217,7 +212,7 @@ async def _reconcile_resurrected_managed_consoles(db) -> int:
             continue
         # Output must be FRESH — the worker is streaming right now, not a trailing/stale frame.
         updated = _iso_to_epoch(str(row["updated_at"] or ""))
-        if not updated or (datetime.now(timezone.utc).timestamp() - updated) > _managed_orphan_grace_seconds():
+        if not updated or (datetime.now(timezone.utc).timestamp() - updated) > MANAGED_ORPHAN_GRACE_SECONDS:
             continue
         # And it must be REAL output SINCE the reap: the reap itself wrote updated_at = stopped_at
         # = now, so for ~90s after a reap the freshness gate above is satisfied by the reap's own

@@ -16,6 +16,8 @@ import time
 
 from service.db import get_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
+# v0.5.4: the constant moved on to a leaf — the control plane declared it and never read it.
+from service.api_core.tuning import _SESSION_DELETE_ALLOWED_STATUSES
 # v0.5.2i: the clean-history set moved with the sessions domain. The delete-allowed set it is
 # compared against is still router-owned, so this test deliberately reads each from ITS OWNER
 # -- the assertion is about the RELATIONSHIP between the two sets, not about one file.
@@ -99,7 +101,7 @@ class SessionsListIsCurrentNotHistoryTests(FastApiTestCase):
     def test_hidden_set_is_narrower_than_the_delete_set(self):
         """Pin the distinction so the two sets cannot be collapsed again."""
         self.assertTrue(
-            sessions_router.SESSION_CLEAN_HISTORY_STATUSES < api_v2._SESSION_DELETE_ALLOWED_STATUSES,
+            sessions_router.SESSION_CLEAN_HISTORY_STATUSES < _SESSION_DELETE_ALLOWED_STATUSES,
             "the hidden set must be a strict subset of the deletable set",
         )
         for actionable in ("stopped", "failed", "lost"):

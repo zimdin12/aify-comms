@@ -31,7 +31,6 @@ cost 148 lines and made the file look coupled to two dozen modules it does not u
 """
 import json
 import sqlite3
-import re
 import time
 
 
@@ -134,13 +133,6 @@ from service.terminal_write_queue import (  # v0.5.4: moved out; the control pla
 # service/routers/terminals.py with its only reader and recorded that _TERMINAL_ACTIVE_STATUSES
 # had to STAY because the carrier read it; v0.5.4 moved both to a neutral leaf, because "the
 # carrier reads it" was never a reason to own a constant — it is a reason to import one.
-_RUNTIME_CONFIG_LIVE_KEYS = {
-    "appServerUrl",
-    "remoteAuthTokenEnv",
-    "gatewayUrl",
-    "gatewayTokenEnv",
-    "channelEnabled",
-}
 
 # v0.5.1d: the vocabulary contract is the single owner of these words. Declared once in
 # service/contracts/vocabulary.json, loaded by service/api_core/vocabulary.py, and cross-checked
@@ -157,7 +149,6 @@ from service.api_core.vocabulary import (
 # service/api_core/terminal_status.py in v0.5.4, together — the ordered form is DERIVED from
 # the set and a test guards their agreement, so the derivation must not span a module boundary.
 _DISPATCH_ACTIVE_STATUSES = {"queued", "claimed", "running"}
-_SESSION_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
 # A session whose spawn/run is in flight or live. "starting" is included so a
 # spawn-in-progress is not marked offline merely because the environment bridge
 # instance id rotated (same rationale as a running session surviving a bridge
@@ -345,11 +336,6 @@ _TERMINAL_DEAD_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "c
 # stale window so the lease is never the FIRST signal to expire on a live loop.
 # CLAIMER_LEASE_STALE_SECONDS moved to service/api_core/liveness.py in v0.5.4 with its only reader.
 
-# Workstream B2 (2026-06-01): grace before a managed claude with a LIVE sidecar
-# but a DEAD console PTY is treated as a headless orphan worker. Must exceed the
-# 30s liveness beat + console startup so a transiently-restarting console (PTY
-# respawn between beats) is never falsely reaped.
-MANAGED_ORPHAN_GRACE_SECONDS = 90
 
 
 # _has_live_channel_sidecar moved to service/api_core/liveness.py in v0.5.4.
@@ -382,7 +368,6 @@ MANAGED_ORPHAN_GRACE_SECONDS = 90
 # _touch_agent moved to service/api_core/agent_sessions.py in v0.5.4.
 
 
-_SHELL_PLACEHOLDER_HANDLE_RE = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$")
 
 
 # _machine_family moved to service/routers/agents/shared.py in v0.5.3, then on to service/api_core/registration_gates.py in v0.5.4 — the agents package was its
@@ -494,7 +479,6 @@ _SHELL_PLACEHOLDER_HANDLE_RE = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$")
 # to service/api_core/claim_gating.py in v0.5.4.
 
 
-STUCK_STOPPING_GRACE_SECONDS = 900  # a 'stopping' PTY that never reached 'stopped' is wedged
 
 
 # _record_channel_sidecar_heartbeat moved to service/api_core/recovery_writes.py in v0.5.4.
@@ -610,7 +594,6 @@ STUCK_STOPPING_GRACE_SECONDS = 900  # a 'stopping' PTY that never reached 'stopp
 # _terminal_pi_idle_prompt_hint moved to service/reconcilers/terminal_runs.py in v0.5.3.
 
 
-LIST_AGENTS_REFRESH_LIMIT = 8
 
 
 # _managed_environment_status moved to service/api_core/managed_env.py in v0.5.4.
@@ -772,7 +755,6 @@ LIST_AGENTS_REFRESH_LIMIT = 8
 # _clear_turn_busy_if_no_open_reply_owing_run moved to service/api_core/turn_state.py in v0.5.4.
 
 
-_UNTHREADED_HANDOFF_WINDOW_MS = 24 * 60 * 60 * 1000
 
 
 # _link_unthreaded_completion_message_for_run moved to service/reconcilers/managed_workers.py in v0.5.3.
@@ -808,8 +790,6 @@ _UNTHREADED_HANDOFF_WINDOW_MS = 24 * 60 * 60 * 1000
 # ─── Agents ──────────────────────────────────────────────────────────────────
 
 
-_CONSOLE_TAIL_MAX_LINES = 200
-_CONSOLE_TAIL_MAX_BYTES = 16 * 1024
 
 
 # Body sentinel prefix on a `stop` terminal control that must ALSO reap the

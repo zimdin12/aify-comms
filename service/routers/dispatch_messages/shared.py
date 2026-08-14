@@ -161,7 +161,6 @@ def _is_replaceable_auto_handoff_message(existing_message, replied_run) -> bool:
 
 def _borrowed_unthreaded_handoff_window_ms():
     """BORROWED constant: one owner, never a copy (finding N7)."""
-    from service.control_plane import _UNTHREADED_HANDOFF_WINDOW_MS
 
     return _UNTHREADED_HANDOFF_WINDOW_MS
 
@@ -199,6 +198,7 @@ from service.api_core.status_refresh import _get_recipient_info  # noqa: E402
 # Was a borrow shim: the owner lived in the control plane, which this module cannot import at
 # module level without a cycle. It moved to service/api_core/dispatch_sweeps.py in v0.5.4.
 from service.api_core.dispatch_sweeps import _mirror_missing_dispatch_handoff  # noqa: E402
+from service.api_core.tuning import _UNTHREADED_HANDOFF_WINDOW_MS
 
 
 # Was a borrow shim: the owner lived in the control plane, which this module cannot import at

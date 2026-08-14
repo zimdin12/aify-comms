@@ -89,6 +89,7 @@ from service.api_core.workspace import (
     _workspace_root_for,
 )
 from service.api_core.dispatch_start import _coldstart_spawn_request_for_dispatch
+from service.api_core.tuning import _SESSION_DELETE_ALLOWED_STATUSES
 
 logger = logging.getLogger("aify_comms.routers.sessions")
 
@@ -114,7 +115,6 @@ _TERMINAL_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "comp
 
 def _borrowed_session_delete_allowed_statuses():
     """BORROWED constant: one owner, never a copy — a forked status set is finding N7."""
-    from service.control_plane import _SESSION_DELETE_ALLOWED_STATUSES
 
     return _SESSION_DELETE_ALLOWED_STATUSES
 
