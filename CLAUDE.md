@@ -39,10 +39,11 @@ The MCP stdio bridges under `mcp/stdio/` run on the **host**, not in the contain
 |------|------|
 | `service/` | FastAPI backend, SQLite persistence, dashboard HTML, dispatch logic. Rebuild container after changes. |
 | `service/terminal_snapshot.py`, `service/terminal_diagnostics.py`, `service/status_engine.py` | PURE, unit-tested service modules extracted out of what is now `service/control_plane.py` for the same reason as the bridge predicates below: logic that lives in a 20k-line module is only reachable through the app, so it can only fail in production. `terminal_diagnostics.py` (which line of a dead terminal's output explains the death) is the pattern to follow for anything new — put behaviour here and import it, don't grow `service/control_plane.py`. |
-| `service/control_plane.py` | **v0.5.3.** The live control plane: ~140 helpers, constants and the two queue classes shared across status, dispatch, terminals, spawn and console. This was `service/routers/api_v2.py` — 20,545 lines at its peak — until the route domains moved out and it was left declaring ZERO routes. It is NOT a router: `service/routers/api_v2.py` is now nothing but the 15 `include_router` calls, and there is deliberately no compatibility re-export, so a stale `from service.routers.api_v2 import <helper>` fails loudly instead of resolving. Still far too big; splitting it is a v0.6 question, not a rename. |
+| `service/control_plane.py` | **v0.5.3.** The live control plane: ~140 helpers, constants and the two queue classes shared across status, dispatch, terminals, spawn and console. This was `service/routers/api_v2.py` — 20,545 lines at its peak — until the route domains moved out and it was left declaring ZERO routes. It is NOT a router: `service/routers/api_v2.py` is now nothing but the 15 `include_router` calls, and there is deliberately no compatibility re-export, so a stale `from service.routers.api_v2 import <helper>` fails loudly instead of resolving. **v0.5.4 took it to 877 lines and it is OFF `oversized-allowlist.json`** — the "still far too big, a v0.6 question" note that stood here is retired as done. It is now an ordinary file under the 1000-line gate, so the risk it carries is REGROWTH: it is still the shared home for status, dispatch, terminal, spawn and console helpers, and the gate will not warn until it has already crossed back over. |
 | `service/reconcilers/` | **v0.5.** The reconcilers extracted out of what is now `service/control_plane.py` — one module per responsibility (`status_cache`, `spawn_lifecycle`, `sessions`, `terminals`, `terminal_runs`, `terminal_consistency`, `dispatch_queue`, `dispatch_lifecycle`, `managed_workers`, `console_binding`). Leaf modules: they may import `service/clock.py`, `service/env_status.py` and each other, but must NOT import the control plane at module level. Where one still needs a control-plane helper it BORROWS it through a function-scope shim reading exactly one owner — never a copy. Those borrows are the release's documented debt; see docs/ROADMAP.md. |
 | `service/clock.py`, `service/env_status.py` | Leaf helpers with no service dependencies, created so the reconcilers could stop importing the router for a timestamp or an environment status. |
-| `service/new_dashboard/*.mjs` | Pure dashboard modules with their own `*.test.mjs` (`terminal-input`, `cli-resume`, `sessions-list`, …). `app.js` is ~5.1k lines and only reachable by source-regex tests, which cannot fail on wrong logic — put new behaviour in a module here instead. |
+| `service/new_dashboard/*.mjs` | Dashboard modules with their own `*.test.mjs` — 32 modules, 41 test files, 541 tests as of v0.5.4 (`api-client`, `shared-files`, `message-transport`, `state`, `session-rail`, `terminal-input`, …). **`app.js` is 3,612 lines (was 5,081) and the "only reachable by source-regex tests" note is retired** — the extracted modules import and run in Node, so they are tested by CALLING them. Still put new behaviour in a module here rather than in `app.js`: what remains there is the render orchestrator plus ~720 lines of top-level init/event-handler code, which is not relocatable and has no unit tests. |
+| `service/new_dashboard/extraction-proof.mjs` + `.test.mjs` | **The gate that makes app.js safe to slice.** It RECONSTRUCTS the pre-extraction app.js from the current file plus every extracted module and requires byte-identity with a tracked pristine fixture — so a slice cannot quietly change anything outside the spans it declared. Moving a declaration out of `app.js` means appending an entry to its `EXTRACTIONS` plan **in the same change**: `importLine` (and `importWas` only if the slice EDITED an existing import — a module created by an earlier extraction has none in the fixture, so its line is deleted instead), plus one item per declaration with `at` = the 0-indexed line in the FIXTURE, not the live file. `marker` may be several lines and each is verified verbatim, which is what lets a slice leave a seeding call behind. |
 | `mcp/stdio/` | Host-side MCP bridges (`server.js`, `claude-channel.js`, `runtimes.js`, `runtime-markers.js`, `notify-check.js`). Restart client wrapper after changes. |
 | `mcp/stdio/*-predicates.js`, `register-identity.js` | PURE, unit-tested helpers extracted out of the bridges so their logic can fail a test instead of only failing in production. `doctor-predicates.js` (env liveness) and `register-identity.js` (resident launch-identity warning) are the pattern to follow — `doctor.js` was untestable until its predicates moved out, and the first thing the new test caught was a real bug. |
 | `mcp/sse_server.py` | SSE MCP transport (runs inside the container). Rebuild container after changes. |
@@ -119,6 +120,20 @@ node --check mcp/stdio/runtimes.js
 # reconcilers out), so parse the leaf modules too, not just the control plane.
 python -m py_compile service/control_plane.py service/reconcilers/*.py service/clock.py service/env_status.py
 ```
+
+**The three suites, all of which must be green before a commit.** `node --check` only PARSES — it passed
+on a module that referenced an undefined name and threw on its first real call, so it is a smoke test, not
+a test.
+
+```bash
+python -m pytest service/tests -q                      # 1576 tests
+cd mcp/stdio && node tests/run-all.mjs                 # 219 suites
+cd service/new_dashboard && node --test *.test.mjs     # 541 tests
+```
+
+Editing `service/new_dashboard/app.js` also means updating `extraction-proof.test.mjs` in the SAME change
+(see the layout table) — it fails loudly rather than silently if a declaration moves without being
+declared.
 
 Full end-to-end test is a two-session live round-trip. Register two agents, use `comms_send` from one to the other, verify the target wakes or receives a steer/queued turn according to capability, and verify the response is threaded back in chat.
 
