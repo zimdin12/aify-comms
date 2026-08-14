@@ -32,6 +32,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 // to exist would be worse.
 const REPO = path.resolve(HERE, "..", "..", "..");
 
+const MARKER_LINE = /^\/\/\s*[A-Za-z_$][\w$]*(?:\s*\/\s*[A-Za-z_$][\w$]*)?\s+moved to /m;
+
 /** Names the source says it moved away, which it still references and neither imports nor re-declares. */
 export function unresolvedMovedNames(source) {
   const lines = source.split("\n");
@@ -48,7 +50,13 @@ export function unresolvedMovedNames(source) {
 
   const imported = new Set();
   for (const m of source.matchAll(/import\s*\{([^}]*)\}\s*from/g)) {
-    for (const raw of m[1].split(",")) {
+    // STRIP LINE COMMENTS INSIDE THE BLOCK FIRST. `hermes-managed-host.js` writes them on the OPENER —
+    // `import {  // v0.5.4: neutral owner` — and with no comma between the comment and the first name,
+    // splitting on commas glues them together and the name is never seen. That hid three real imports and
+    // made this gate report them as dangling. The identical trap cost four rounds of debugging on this
+    // same file earlier in the series with a different parser; it is a house style here, not an oddity.
+    const body = m[1].replace(/\/\/[^\n]*/g, "");
+    for (const raw of body.split(",")) {
       // `a as b` binds b — the local name is what the body uses.
       const name = raw.trim().split(/\s+as\s+/).pop().trim();
       if (name) imported.add(name);
@@ -99,6 +107,21 @@ test("importing it back clears the report, including under an alias", () => {
   assert.deepEqual(unresolvedMovedNames(aliased), []);
 });
 
+test("a comment ON THE IMPORT OPENER does not hide the first name", () => {
+  // The house style in hermes-managed-host.js. With no comma between the comment and the first name, a
+  // naive comma split glues them into one token and the import is never registered — which made this gate
+  // report three perfectly good imports as dangling references the first time it ran wide.
+  const src = [
+    "import {  // v0.5.4: neutral owner",
+    "  doThing,",
+    "  other,",
+    "} from './thing.mjs';",
+    "// doThing moved to ./thing.mjs in v0.5.4.",
+    "function caller() { return doThing(1) + other(); }",
+  ].join("\n");
+  assert.deepEqual(unresolvedMovedNames(src), []);
+});
+
 test("a moved name the carrier no longer uses is fine — that is the goal state", () => {
   const src = [
     "// doThing moved to ./thing.mjs in v0.5.4.",
@@ -145,10 +168,27 @@ test("both names on a two-name marker are checked", () => {
 
 // --- the production scan ---------------------------------------------------
 
-const CARRIERS = [
-  "mcp/stdio/server.js",
-  "service/new_dashboard/app.js",
-];
+// CARRIERS ARE DISCOVERED, NOT LISTED.
+//
+// The first version of this gate named `server.js` and `app.js`. That is the silent-shrink class the repo
+// already has a rule about — a gate whose PURPOSE says "any carrier" but whose CODE names two files. It
+// was missing `hermes-managed-host.js`, which carries 57 markers of its own. A hardcoded list also cannot
+// notice the next carrier, which is exactly when a gate is most needed.
+const SOURCE_DIRS = ["mcp/stdio", "service/new_dashboard"];
+
+function sourceFiles() {
+  const out = [];
+  for (const dir of SOURCE_DIRS) {
+    for (const name of fs.readdirSync(path.join(REPO, dir))) {
+      if (!/\.(js|mjs)$/.test(name)) continue;
+      if (/\.test\.(js|mjs)$/.test(name)) continue;
+      out.push(`${dir}/${name}`);
+    }
+  }
+  return out;
+}
+
+const CARRIERS = sourceFiles().filter((rel) => MARKER_LINE.test(fs.readFileSync(path.join(REPO, rel), "utf-8")));
 
 test("every name the carriers gave away still resolves", () => {
   // Reading both trees from one test on purpose: one gate, one rule. Two copies would be the forked-policy
@@ -163,13 +203,18 @@ test("every name the carriers gave away still resolves", () => {
   }
 });
 
-test("the scan is actually looking at something — the carriers do declare moved names", () => {
-  // Anti-vacuity. If a rename ever broke the marker format, the scan above would pass on an empty set and
-  // report nothing forever.
+test("the scan is actually looking at something — and at EVERY carrier, not a hardcoded pair", () => {
+  // Anti-vacuity, and the fix for this gate's own first version. If a rename broke the marker format the
+  // scan above would pass on an empty set forever; if discovery broke, it would silently cover fewer files.
+  assert.ok(CARRIERS.length >= 3,
+    `expected at least three carriers to be DISCOVERED, found ${CARRIERS.length}: ${CARRIERS.join(", ")}`);
+  for (const expected of ["mcp/stdio/server.js", "mcp/stdio/hermes-managed-host.js", "service/new_dashboard/app.js"]) {
+    assert.ok(CARRIERS.includes(expected), `${expected} carries markers and must be discovered`);
+  }
   let total = 0;
   for (const rel of CARRIERS) {
-    const source = fs.readFileSync(path.join(REPO, rel), "utf-8");
-    total += [...source.matchAll(/^\/\/\s*[A-Za-z_$][\w$]*(?:\s*\/\s*[A-Za-z_$][\w$]*)?\s+moved to /gm)].length;
+    total += [...fs.readFileSync(path.join(REPO, rel), "utf-8")
+      .matchAll(new RegExp(MARKER_LINE.source, "gm"))].length;
   }
-  assert.ok(total > 50, `expected the carriers to declare many moved names, found ${total}`);
+  assert.ok(total > 150, `expected the carriers to declare many moved names, found ${total}`);
 });
