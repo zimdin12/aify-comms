@@ -39,7 +39,6 @@ const UNTESTED_BACKLOG = [
   "mcp/stdio/load-env.js",
   "mcp/stdio/runtimes-helpers.js",
   "mcp/stdio/runtimes-hermes.js",
-  "mcp/stdio/runtimes-opencode.js",
   "mcp/stdio/usage-preflight.js",
 ];
 
