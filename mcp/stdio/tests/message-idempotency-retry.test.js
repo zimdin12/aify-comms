@@ -57,11 +57,11 @@ assert.match(
   /const clientNonce = randomUUID\(\);[\s\S]*?"\/messages\/send"[\s\S]*?clientNonce,/,
   "comms_send must mint a per-call clientNonce and include it in the send body",
 );
-//    b) the owed-reply handoff: a deterministic run-keyed nonce (dedups + retry-safe).
-assert.match(
-  server,
-  /clientNonce: `handoff-\$\{run\.id\}-\$\{terminalStatus\}`/,
-  "the auto-reply handoff must use a deterministic run-keyed nonce",
-);
+//    b) the owed-reply handoff's nonce was asserted here as source text until v0.5.4, when
+//       `ensureRequiredReplyHandoff` moved to `required-reply-handoff.mjs`. It is now asserted BEHAVIOURALLY
+//       in `required-reply-handoff.test.js`: the POST body's clientNonce is read back from a real request,
+//       and a second test proves the same run+status mints the SAME nonce (so a retry dedups) while a
+//       different status mints a different one. That is strictly more than a regex could show — this one
+//       matched the template literal and would have passed on a nonce built from the wrong fields.
 
 console.log("message-idempotency-retry.test.js: all assertions passed");

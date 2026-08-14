@@ -103,3 +103,41 @@ per-loop `stop()` makes all six uniform at no cost.
 - ~~What ordering `cleanupOnExit` requires when stopping the loops.~~ **ANSWERED: none between the loops.**
   See below. What is still open is narrower: whether `runManagedTeardownForBridge` is guaranteed to have run
   before the synchronous exit path on every shutdown route, or only on the graceful one.
+
+---
+
+## CORRECTION, 2026-08-14 — the remainder census above was PER FUNCTION
+
+**Section 2's "~105 lines across five unrelated subjects" is withdrawn.** It counted, per function, what
+was extractable — which treats a call between two functions that would move together in the same slice as
+a blocker. That is the identical criterion that shelved `hermes-managed-host.js` as needing a
+`runDeliveryLoop` redesign (it went 1,846 → 728 with no redesign) and declared `app.js` irreducible
+(4,904 → 4,049 and still going). Third time, same shape.
+
+Measured as GROUPS, with the closure expanded over every module-scope declaration:
+
+| seed | declarations | lines | status |
+|---|---|---|---|
+| virtual terminals | 7 | 144 | **DONE** — `virtual-terminals.mjs`, server.js 3,006 → 2,867 |
+| `runManagedTeardownForBridge` | 5 | 102 | closed; touches the managed-reaping path |
+| `reportDeadOwnedTerminals` | 11 | 117 | closed |
+| `TERMINAL_MANAGER` | 9 | 93 | closed |
+| `runBootSurvivorSweep` | 4 | 92 | closed |
+| `spawnTriggeredAgent` | 2 | 85 | closed |
+| `ensureRequiredReplyHandoff` | 3 | 71 | closed |
+| `fetchManagedOwnershipForEnv` | 3 | 42 | closed (overlaps the teardown group) |
+
+That is roughly **500–600 further lines** in coherent subjects, not 105 in a grab-bag — enough to take
+server.js to around **2,300**, still short of 1,000 but far from "cannot reach the goal by continuing what
+has been working".
+
+**Section 3's question is unchanged and still yours.** The four scheduler loops plus `runDispatchLoop` are
+the bulk, none of the above touches them, and A-vs-C is still the decision. What changes is the premise:
+option A was argued partly on there being nothing left worth extracting, and there is.
+
+**One caveat worth stating plainly.** `runManagedTeardownForBridge` and `reportDeadOwnedTerminals` sit on
+the path that reaps managed workers — the one this packet notes "took the managed fleet down when it
+misbehaved". They are byte-identically movable and their shared state (`confirmedManagedTeardownAgentIds`)
+survives an ES module import unchanged, but they deserve a deliberate go-ahead rather than being swept up
+in a routine slice. The lower-risk ones (`spawnTriggeredAgent`, `ensureRequiredReplyHandoff`,
+`runBootSurvivorSweep`, `TERMINAL_MANAGER`) do not.

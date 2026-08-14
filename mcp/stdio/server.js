@@ -8,7 +8,7 @@
 //
 
 import { spawn } from "child_process";
-import { autoReplyBodyForRun, autoReplySubjectForRun, formatQueuedRun } from "./tool-response-format.mjs";
+import { formatQueuedRun } from "./tool-response-format.mjs";
 
 import {
   API_KEY,
@@ -129,6 +129,7 @@ import { startClaudeTurnEndDetector } from "./claude-turn-end-detector.js";
 import { collectOnce as collectUsageOnce, collectConsumptionOnce } from "./usage-collector.js";
 import { AIFY_VERSION } from "./version.js";
 import { VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT, createVirtualTerminalSink, ensureVirtualTerminal, handleVirtualTerminalControl, updateTerminalControl } from './virtual-terminals.mjs';
+import { ensureRequiredReplyHandoff } from './required-reply-handoff.mjs';
 
 // Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
 // `omp --mode rpc --resume <session>`), that child inherits the aify
@@ -843,61 +844,7 @@ function noteControlClaimSuccess(label) {
 //     key absent   -> pre-v0.3.1 service; we genuinely cannot answer
 //     key present, empty -> the service answered: nothing produced yet
 
-async function ensureRequiredReplyHandoff(agentId, run = {}, terminalStatus = "completed", detailText = "") {
-  if (!run?.id || !run?.from) return;
-  try {
-    const latest = await httpCall("GET", `/dispatch/runs/${encodeURIComponent(run.id)}`);
-    const current = latest?.run || {};
-    if (!current.requireReply || current.resultMessageId) return;
-
-    // Strict reply mode (managed_reply_capture_fallback=false): do NOT mirror
-    // final output as the reply. The agent is expected to answer via
-    // comms_send(inReplyTo); leave the run reply-owed and visible so a missing
-    // reply is surfaced, not fabricated from working/telemetry text.
-    if (!(await readReplyCaptureFallback())) {
-      await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(run.id)}`, {
-        appendEvent: `Run ended without an explicit comms_send reply; strict reply mode does not auto-mirror. Reply still owed to ${run.from}.`,
-        eventType: "handoff",
-      });
-      return;
-    }
-
-    const body = {
-      from_agent: agentId,
-      to: run.from,
-      type: terminalStatus === "failed" ? "error" : "response",
-      subject: autoReplySubjectForRun(run, terminalStatus),
-      body: autoReplyBodyForRun(run, terminalStatus, detailText),
-      priority: run.priority || "normal",
-      trigger: false,
-      // Deterministic idempotency key (#240): this owed-reply handoff is the highest-value
-      // victim of a dropped send — a transient socket error here strands the require_reply
-      // run. Keying the nonce on the run id lets httpCall retry the POST safely, and also
-      // dedups if the handoff fires more than once for the same run.
-      clientNonce: `handoff-${run.id}-${terminalStatus}`,
-    };
-    const replyParent = current.messageId || current.inReplyTo || "";
-    if (replyParent) body.inReplyTo = replyParent;
-
-    const sent = await httpCall("POST", "/messages/send", body);
-    await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(run.id)}`, {
-      resultMessageId: sent?.messageId || "",
-      appendEvent: `Auto-mirrored result to ${run.from} because no explicit reply message was sent during the run.`,
-      eventType: "handoff",
-    });
-  } catch (error) {
-    try {
-      const latest = await httpCall("GET", `/dispatch/runs/${encodeURIComponent(run.id)}`);
-      if (latest?.run?.resultMessageId) return;
-      await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(run.id)}`, {
-        appendEvent: `Run ended without an explicit reply. Auto-mirror to ${run.from} failed: ${error?.message || error}`,
-        eventType: "handoff",
-      });
-    } catch {
-      // best effort
-    }
-  }
-}
+// ensureRequiredReplyHandoff moved to ./required-reply-handoff.mjs in v0.5.4.
 
 // ── Local filesystem helpers ─────────────────────────────────────────────────
 
@@ -1312,22 +1259,8 @@ async function readManagedViaWrapperRuntimes() {
 // safety-net: auto-mirror the run summary when a delivered run ends without an
 // explicit comms_send reply. False = strict: never fabricate a reply from final
 // text; leave the run reply-owed. 5s cache to avoid hammering /settings.
-let _replyCaptureFallbackCache = { fetchedAt: 0, value: true };
-async function readReplyCaptureFallback() {
-  if (Date.now() - _replyCaptureFallbackCache.fetchedAt < 5000) {
-    return _replyCaptureFallbackCache.value;
-  }
-  try {
-    const resp = await httpCall("GET", "/settings");
-    const s = (resp && resp.settings) ? resp.settings : (resp || {});
-    const v = s.managed_reply_capture_fallback;
-    const value = v === undefined || v === null ? true : !!v;
-    _replyCaptureFallbackCache = { fetchedAt: Date.now(), value };
-    return value;
-  } catch (_) {
-    return _replyCaptureFallbackCache.value; // best-effort: stale cache
-  }
-}
+// _replyCaptureFallbackCache moved to ./required-reply-handoff.mjs in v0.5.4.
+// readReplyCaptureFallback moved to ./required-reply-handoff.mjs in v0.5.4.
 
 
 
