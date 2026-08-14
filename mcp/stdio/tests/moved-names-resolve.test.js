@@ -66,7 +66,19 @@ export function unresolvedMovedNames(source) {
   const declared = new Set();
   for (const line of lines) {
     const m = /^(?:export\s+)?(?:async\s+)?(?:function|const|let|var)\s+([\w$]+)\b/.exec(line);
-    if (m) declared.add(m[1]);
+    if (m) { declared.add(m[1]); continue; }
+    // DESTRUCTURED declarations count too. A factory that returns several functions is re-bound as
+    // `const { a, b, c } =`, and the pattern above captures nothing for it — so all three names read as
+    // dangling. That is a false positive the gate produced the first time a multi-function factory landed
+    // (managed-teardown-sweeps.mjs), and a false positive here is worse than a miss: it fails the suite on
+    // correct code and teaches the next person to weaken the check.
+    const d = /^(?:export\s+)?(?:const|let|var)\s*\{([^}]*)\}/.exec(line);
+    if (d) {
+      for (const raw of d[1].replace(/\/\/[^\n]*/g, "").split(",")) {
+        const name = raw.trim().split(":").pop().trim();
+        if (/^[\w$]+$/.test(name)) declared.add(name);
+      }
+    }
   }
 
   const code = source.replace(/^\s*\/\/[^\n]*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
@@ -118,6 +130,31 @@ test("a comment ON THE IMPORT OPENER does not hide the first name", () => {
     "} from './thing.mjs';",
     "// doThing moved to ./thing.mjs in v0.5.4.",
     "function caller() { return doThing(1) + other(); }",
+  ].join("\n");
+  assert.deepEqual(unresolvedMovedNames(src), []);
+});
+
+test("a DESTRUCTURED re-binding from a factory is recognised as declared", () => {
+  // The shape a multi-function factory leaves behind. `const { a, b } = createBoth(...)` declares both
+  // names, but a regex looking for `const NAME` captures nothing — so the gate reported all of them as
+  // dangling the first time this landed. A false positive fails the suite on correct code, which is how
+  // gates get weakened, so it is pinned in both directions here and below.
+  const src = [
+    "import { createBoth } from './both.mjs';",
+    "// alpha moved to ./both.mjs in v0.5.4.",
+    "// beta moved to ./both.mjs in v0.5.4.",
+    "const { alpha, beta } = createBoth({ dep });",
+    "function caller() { return alpha() + beta(); }",
+  ].join("\n");
+  assert.deepEqual(unresolvedMovedNames(src), []);
+});
+
+test("a renamed destructure binds the LOCAL name, not the source key", () => {
+  const src = [
+    "import { createBoth } from './both.mjs';",
+    "// localAlpha moved to ./both.mjs in v0.5.4.",
+    "const { alpha: localAlpha } = createBoth({ dep });",
+    "function caller() { return localAlpha(); }",
   ].join("\n");
   assert.deepEqual(unresolvedMovedNames(src), []);
 });

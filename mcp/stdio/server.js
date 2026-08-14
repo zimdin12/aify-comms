@@ -28,7 +28,6 @@ import {
   shouldArmResidentHermesTurnDetector,
 } from "./resident-gateway-status.mjs";
 import {
-  cwdRootsForEnvironment,
   environmentHeartbeatPayload,
   workspaceWithinRoots,
 } from "./environment-identity.mjs";
@@ -67,7 +66,6 @@ import { validateName } from "./safe-name.mjs";
 import { AIFY_AGENT_ID, IS_ENVIRONMENT_BRIDGE, cleanEnvPlaceholder } from "./launch-identity.mjs";
 import { randomUUID } from "crypto";
 import fs from "fs";
-import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import { loadSettingsEnv } from "./load-env.js";
@@ -98,22 +96,15 @@ import {
   localAgentNeedsDispatchHosting,
   managedAgentNeedsDispatchHosting,
   reconcileManagedStateWithSnapshot,
-  resolveFreshManagedTeardownTargets,
 } from "./managed-teardown-ownership.js";
 import { startSessionHandleHeartbeat, makeDefaultHandlePoster } from "./session-handle-heartbeat.js";
 import { startTurnBusyHeartbeat, makeDefaultTurnBusyPoster } from "./turn-busy-heartbeat.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
 import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
 import {
-  runManagedTeardown,
-  reapOrphanedManagedSurvivors,
-  enumerateManagedSurvivors,
-  defaultListProcesses as listManagedProcesses,
-  defaultReadMarkers as readManagedMarkers,
-  defaultKillTree as killManagedTree,
   stopControlTriadAgentId,
 } from "./reap-managed-survivors.js";
-import { defaultKillByPort, stopDaemon, defaultGetCmdline as hermesGetCmdline, looksLikeHermesProcess, clearDaemonPid } from "./hermes-daemon.js";
+import { defaultGetCmdline as hermesGetCmdline } from "./hermes-daemon.js";
 import { gatewayIndexUrlFromWs, makeGatewayReachabilityProbe, reportGatewayDead } from "./hermes-gateway.mjs";
 import { startHermesGatewayTurnDetector } from "./hermes-gateway-turn-detector.js";
 import { startClaudeTurnEndDetector } from "./claude-turn-end-detector.js";
@@ -124,6 +115,7 @@ import { runSingleAgentManagedTeardown } from "./single-agent-teardown.mjs";
 import {
   noteControlClaimFailure, noteControlClaimSuccess, noteSpawnClaimFailure, noteSpawnClaimSuccess,
 } from "./claim-failure-tracker.mjs";
+import { createManagedTeardownSweeps } from "./managed-teardown-sweeps.mjs";
 import { VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT, createVirtualTerminalSink, ensureVirtualTerminal, handleVirtualTerminalControl, updateTerminalControl } from './virtual-terminals.mjs';
 import { ensureRequiredReplyHandoff } from './required-reply-handoff.mjs';
 import { TERMINAL_MANAGER, reportDeadOwnedTerminals } from './terminal-manager.mjs';
@@ -460,7 +452,8 @@ let reportEnvironmentOffline = async () => {};
 // can be stale after managed→resident takeover; using it can kill the resident
 // delivery loop and its gateway host while leaving the visible TUI attached to a
 // dead websocket. Unexpected exits leave this null and rely on the boot sweep.
-let confirmedManagedTeardownAgentIds = null;
+// confirmedManagedTeardownAgentIds moved to ./managed-teardown-sweeps.mjs in v0.5.4 — the two
+// sweeps that write and read it are its only users, so they own it.
 
 // interruptActiveRuns moved to ./bridge-agent-state.mjs in v0.5.4.
 
@@ -798,65 +791,7 @@ function terminateResidentHost(reason = "Resident session stopped from dashboard
 // async: awaits the port-kill/stopDaemon promises so the kills land before
 // process.exit. If the service is unavailable, fail safe and reap nothing; the
 // next boot sweep handles genuine managed survivors after ownership is readable.
-async function runManagedTeardownForBridge(reason = "bridge teardown") {
-  if (!IS_ENVIRONMENT_BRIDGE) return;
-  const resolved = await resolveFreshManagedTeardownTargets({
-    selfBridgeId: BRIDGE_INSTANCE_ID,
-    fetchOwnership: fetchManagedOwnershipForEnv,
-    // What we PROVED we owned earlier in this process's life. Used only when the live read
-    // fails, which on a full shutdown is the normal case because the service goes down first.
-    lastKnownOwnedAgentIds: confirmedManagedTeardownAgentIds,
-  });
-  const ownedAgentIds = resolved.agentIds;
-  // Only remember ownership we actually verified — never overwrite a proven list with a
-  // degraded fallback, or one failed read would erode the evidence the next one relies on.
-  if (resolved.source === "fresh-ownership") confirmedManagedTeardownAgentIds = ownedAgentIds;
-  if (resolved.degraded) {
-    console.error(
-      `[aify] managed teardown (${reason}): live ownership unavailable (${resolved.error?.message || resolved.error}) — `
-      + `falling back to ${ownedAgentIds.length} agent(s) this bridge previously proved it owned: ${ownedAgentIds.join(", ")}`,
-    );
-  }
-  if (resolved.skipped === "ownership-unavailable") {
-    console.error(
-      `[aify] managed teardown (${reason}): fresh ownership unavailable — reaping nothing (fail-safe):`,
-      resolved.error?.message || resolved.error,
-    );
-    return;
-  }
-  if (!ownedAgentIds.length) return;
-  try {
-    const result = runManagedTeardown({
-      ownedAgentIds,
-      cwdRoots: cwdRootsForEnvironment(),
-      listProcesses: listManagedProcesses,
-      readMarkers: () => readManagedMarkers(os.tmpdir()),
-      // Owned console PTYs are already killed by TERMINAL_MANAGER.stopAll on the
-      // graceful path; the detached triad (gateway/loop/daemon) is the survivor
-      // concern here, enumerated from markers + the process scan.
-      consolePtyPids: [],
-      killByPort: defaultKillByPort,
-      stopDaemon,
-      killTree: killManagedTree,
-    });
-    if (Array.isArray(result?.pending) && result.pending.length) {
-      await Promise.allSettled(result.pending);
-    }
-    const n =
-      (result?.killed?.gatewayHosts?.length || 0) +
-      (result?.killed?.deliveryLoops?.length || 0) +
-      (result?.killed?.daemons?.length || 0) +
-      (result?.killed?.consolePtys?.length || 0);
-    if (n) {
-      console.error(`[aify] managed teardown (${reason}): reaped ${n} survivor(s) for agents ${ownedAgentIds.join(", ")}`);
-    }
-    if (result?.errors?.length) {
-      console.error(`[aify] managed teardown (${reason}) had ${result.errors.length} error(s):`, JSON.stringify(result.errors));
-    }
-  } catch (error) {
-    console.error(`[aify] managed teardown (${reason}) failed:`, error?.message || error);
-  }
-}
+// runManagedTeardownForBridge moved to ./managed-teardown-sweeps.mjs in v0.5.4.
 
 // Tear down ONE managed-hermes agent's triad (gateway host, delivery loop,
 // daemon, console PTY) — the agent-scoped reaper for a Dashboard STOP/REMOVE of
@@ -879,41 +814,7 @@ async function runManagedTeardownForBridge(reason = "bridge teardown") {
 // (runBootSurvivorSweep) is their backstop — and now that the sweep correctly
 // keys ownerLive on owning-bridge freshness (not agent status), it reaps those
 // gateway survivors on the next bridge start, so this gap is self-healing.
-function runManagedTeardownSync(reason = "bridge exit") {
-  if (!IS_ENVIRONMENT_BRIDGE) return;
-  const ownedAgentIds = Array.isArray(confirmedManagedTeardownAgentIds)
-    ? confirmedManagedTeardownAgentIds
-    : [];
-  if (!ownedAgentIds.length) return;
-  try {
-    const found = enumerateManagedSurvivors({
-      ownedAgentIds,
-      cwdRoots: cwdRootsForEnvironment(),
-      listProcesses: listManagedProcesses,
-      readMarkers: () => readManagedMarkers(os.tmpdir()),
-      consolePtyPids: [],
-    });
-    for (const l of found.deliveryLoops) {
-      try { killManagedTree(l.pid); } catch { /* best effort */ }
-    }
-    for (const d of found.daemons) {
-      // ANTI-OVERKILL: a stale daemon-pid marker can name a pid the OS reused for
-      // an UNRELATED operator process. Verify the pid's cmdline is hermes before
-      // taskkill /t /f; SKIP + log + clear the stale marker otherwise. Mirrors
-      // stopDaemon's tracked-pid cross-check (sync path can't await stopDaemon).
-      try {
-        if (looksLikeHermesProcess(hermesGetCmdline(d.pid))) {
-          killManagedTree(d.pid);
-        } else {
-          console.error(`[aify] managed teardown sync: tracked daemon pid ${d.pid} for agent ${d.agentId} is not hermes — SKIP (stale daemon-pid marker, pid reused)`);
-          try { clearDaemonPid(d.agentId, os.tmpdir()); } catch { /* best effort */ }
-        }
-      } catch { /* best effort */ }
-    }
-  } catch (error) {
-    console.error(`[aify] managed teardown sync (${reason}) failed:`, error?.message || error);
-  }
-}
+// runManagedTeardownSync moved to ./managed-teardown-sweeps.mjs in v0.5.4.
 
 // Build per-agent ownership records for the boot sweep: managed agents in THIS
 // environment (within cwdRoots) with their owning bridge id + whether that
@@ -938,56 +839,11 @@ const fetchManagedOwnershipForEnv = createManagedOwnershipReader({ effectiveEnvi
 // survivors of dead/crashed predecessors so "restart = zero survivors" holds
 // even after SIGKILL — while NEVER touching an agent owned by a currently-live
 // different bridge. Fail-safe: if ownership can't be fetched, reaps nothing.
-async function runBootSurvivorSweep() {
-  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE) return true;
-  let records = null;
-  try {
-    records = await fetchManagedOwnershipForEnv();
-  } catch (error) {
-    if (error?.status !== 404) {
-      console.error("[aify] boot survivor sweep: ownership query failed — reaping nothing (fail-safe):", error?.message || error);
-    }
-    return false;
-  }
-  try {
-    const result = reapOrphanedManagedSurvivors({
-      selfBridgeId: BRIDGE_INSTANCE_ID,
-      cwdRoots: cwdRootsForEnvironment(),
-      fetchOwnership: () => records,
-      listProcesses: listManagedProcesses,
-      readMarkers: () => readManagedMarkers(os.tmpdir()),
-      killByPort: defaultKillByPort,
-      stopDaemon,
-      killTree: killManagedTree,
-      // Fresh boot: a survivor whose agent record now reads THIS bridge id is a
-      // predecessor's orphan (the heartbeat re-sync can rebind it to self before
-      // this sweep reads ownership; a SIGKILL can leave the env row briefly
-      // online under the old id). This bridge has spawned no managed children
-      // yet, so any running survivor predates the boot and is reapable. A live
-      // DIFFERENT bridge's agents are still skipped (owner !== self && ownerLive).
-      treatSelfAsOrphan: true,
-    });
-    if (result?.skipped === "ownership-unavailable") return false;
-    if (Array.isArray(result?.pending) && result.pending.length) {
-      await Promise.allSettled(result.pending);
-    }
-    const n =
-      (result?.killed?.gatewayHosts?.length || 0) +
-      (result?.killed?.deliveryLoops?.length || 0) +
-      (result?.killed?.daemons?.length || 0) +
-      (result?.killed?.consolePtys?.length || 0);
-    if (n) {
-      console.error(`[aify] boot survivor sweep: reaped ${n} orphaned managed survivor(s) (owning bridge not live)`);
-    }
-    if (result?.errors?.length) {
-      console.error(`[aify] boot survivor sweep had ${result.errors.length} error(s):`, JSON.stringify(result.errors));
-    }
-    return true;
-  } catch (error) {
-    console.error("[aify] boot survivor sweep failed:", error?.message || error);
-    return false;
-  }
-}
+// runBootSurvivorSweep moved to ./managed-teardown-sweeps.mjs in v0.5.4.
+// The factory call sits HERE, after the fetchManagedOwnershipForEnv binding it consumes: a const
+// cannot be read before its initialiser, and the two markers above are earlier in the file.
+const { runManagedTeardownForBridge, runManagedTeardownSync, runBootSurvivorSweep } =
+  createManagedTeardownSweeps({ fetchManagedOwnershipForEnv });
 
 // Env-bridge BOOT tombstoned-marker sweep (fix/hermes-leak P4). The survivor
 // sweep above kills orphaned PROCESSES; this deletes the stale marker FILES
