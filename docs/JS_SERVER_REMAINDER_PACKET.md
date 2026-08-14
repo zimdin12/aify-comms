@@ -321,3 +321,65 @@ constants, imports, comments and boot wiring — option A's description of the f
 **One decision: A-vs-C on the loops** (1,067 lines, including the shutdown chain, which is coupled to them
 through `environmentHeartbeatTimer` / `spawnLoopTimer` / `terminalControlTimer` — each written by its own
 `ensure*` starter and by `cleanupOnExit`). Everything else in this packet is closed.
+
+---
+
+## UPDATE 2026-08-14d — the state census, and a defect found while taking it
+
+Re-measured with the repo's own parser (`extraction-proof.mjs`'s `declarationSpan`), because the
+number this packet has been reasoning from — "45 of 70 declarations touch mutable module state" —
+is a **closure** statistic and answers a different question than the one option C turns on.
+
+**server.js has no shared hub state.** All 24 mutable module-scope names, counted by DIRECT readers:
+
+| direct declaration readers | names |
+|---|---|
+| 1 | 18 |
+| 2 | 6 |
+| 3+ | **none** |
+
+Not one mutable name is read by three or more declarations. The "45 declarations touch mutable
+state" figure is 45 declarations transitively reaching one of 24 names that each have one or two
+owners. Under the standing rule — *module-scope state can have an owner, closure-captured state
+cannot; count DIRECT readers per mutable name* — **every one of these names is movable with its
+readers.** The six two-reader names are all `<timer> + cleanupOnExit` or `<flag> + shutdownWithStatus`,
+which is the coupling section 3 already describes, and section "cleanupOnExit ordering" already
+establishes there is no ordering constraint between the loops.
+
+That does not decide A-vs-C. It removes one argument against C: C is not blocked by entangled state,
+because there is none. What remains true is that C cannot be byte-identical and touches the path
+that took the managed fleet down.
+
+### A defect, found while taking the census — and it is evidence about the prize
+
+Fixed in `ef89bd6c`. Every loop gate was missing `shutdownStarted`, so a bridge mid-`shutdownWithStatus`
+kept claiming spawn requests, dispatch runs, terminal controls and environment controls for the
+seconds its async teardown takes — *after* `reportEnvironmentOffline()`. Claimed-but-orphaned until
+the aging backstop requeues them; the operator-visible symptom is a restart that produces no worker.
+
+This packet already argued C's real prize is that **none of these loops has a unit test today, and
+they are what reap workers and claim runs.** That was an argument. This is an instance: a term
+declared in the file, read by one function, and absent from all twelve gates, in code nothing can
+call from a test. The fix put the decision in a tested leaf (`loop-gate.mjs`) rather than adding an
+unverifiable term twelve times — but that is a workaround for the loops' untestability, not a
+substitute for it.
+
+### app.js, measured the same way — it is NOT a smaller version of this problem
+
+| | app.js | server.js |
+|---|---|---|
+| lines | 3,613 | 2,042 |
+| top-level declarations | 124 | 70 |
+| lines inside declarations | 2,244 (62%) | 1,222 (60%) |
+| **code lines OUTSIDE any declaration** | **721** | 212 |
+| union of all mutable-state-free closures | **167 lines** | 81 lines |
+
+Landing every clean closure in app.js reaches **~3,446**. The gap is not a long tail of near-misses:
+**631 of app.js's 721 top-level code lines are a single statement** — the delegated
+`document.addEventListener('click', …)` at L2813–3514, a flat run of ~70
+`const x = event.target.closest('[data-…]'); if (x) { …; return; }` guards. It is a dispatch table
+written as a straight line. No relocation reaches it, because it is not a declaration.
+
+So the two remaining files are blocked on the same KIND of ruling but not the same one:
+server.js's is A-vs-C on a loop family whose state is provably unentangled; app.js's is whether
+turning one 631-line handler into a table of named handlers is in v0.5.x at all.
