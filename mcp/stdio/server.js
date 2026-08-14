@@ -110,6 +110,7 @@ import {
   noteControlClaimFailure, noteControlClaimSuccess, noteSpawnClaimFailure, noteSpawnClaimSuccess,
 } from "./claim-failure-tracker.mjs";
 import { createManagedTeardownSweeps } from "./managed-teardown-sweeps.mjs";
+import { shouldSkipLoop } from "./loop-gate.mjs";
 import { registerSendTools } from "./send-tools.mjs";
 import { VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT, createVirtualTerminalSink, ensureVirtualTerminal, handleVirtualTerminalControl, updateTerminalControl } from './virtual-terminals.mjs';
 import { ensureRequiredReplyHandoff } from './required-reply-handoff.mjs';
@@ -894,7 +895,7 @@ function effectiveEnvironmentPayload() {
 
 
 async function heartbeatEnvironment({ syncManaged = true } = {}) {
-  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE) return false;
+  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: false, shuttingDown: shutdownStarted })) return false;
   try {
     const response = await httpCall("POST", "/environments/heartbeat", environmentHeartbeatPayload());
     const roots = response?.environment?.cwdRoots;
@@ -954,7 +955,7 @@ reportEnvironmentOffline = async () => {
 };
 
 function ensureEnvironmentHeartbeat() {
-  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || environmentHeartbeatTimer) return;
+  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: Boolean(environmentHeartbeatTimer), shuttingDown: shutdownStarted })) return;
   bootstrapEnvironmentBridge().catch((error) => console.error("[aify] environment bridge bootstrap error:", error));
   const intervalMs = Math.max(5000, Number(process.env.AIFY_ENVIRONMENT_HEARTBEAT_MS || 30000));
   environmentHeartbeatTimer = setInterval(() => {
@@ -970,7 +971,7 @@ function ensureEnvironmentHeartbeat() {
 // this host (~3 min) and POST to /usage. Env-bridge only — it has the host creds and
 // reads the rollouts. Best-effort; a failed poll never disturbs the bridge.
 function ensureUsageCollector() {
-  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || usageCollectorTimer) return;
+  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: Boolean(usageCollectorTimer), shuttingDown: shutdownStarted })) return;
   const tick = () => {
     collectUsageOnce({ post: (p) => httpCall("POST", "/usage", p) }).catch(() => {});
     collectConsumptionOnce({
@@ -984,7 +985,7 @@ function ensureUsageCollector() {
 }
 
 function ensureEnvironmentControlLoop() {
-  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || environmentControlTimer) return;
+  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: Boolean(environmentControlTimer), shuttingDown: shutdownStarted })) return;
   runEnvironmentControlLoop().catch((error) => console.error("[aify] environment control loop error:", error));
   environmentControlTimer = setInterval(() => {
     runEnvironmentControlLoop().catch((error) => console.error("[aify] environment control loop error:", error));
@@ -992,7 +993,7 @@ function ensureEnvironmentControlLoop() {
 }
 
 async function runEnvironmentControlLoop() {
-  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || environmentControlBusy) return;
+  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: environmentControlBusy, shuttingDown: shutdownStarted })) return;
   environmentControlBusy = true;
   try {
     const environment = effectiveEnvironmentPayload();
@@ -1046,7 +1047,7 @@ async function runEnvironmentControlLoop() {
 }
 
 function ensureSpawnLoop() {
-  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || spawnLoopTimer) return;
+  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: Boolean(spawnLoopTimer), shuttingDown: shutdownStarted })) return;
   runSpawnLoop().catch((error) => console.error("[aify] spawn loop error:", error));
   spawnLoopTimer = setInterval(() => {
     runSpawnLoop().catch((error) => console.error("[aify] spawn loop error:", error));
@@ -1054,7 +1055,7 @@ function ensureSpawnLoop() {
 }
 
 function ensureTerminalControlLoop() {
-  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || terminalControlTimer || !bridgeTerminalSupported()) return;
+  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE && bridgeTerminalSupported(), alreadyActive: Boolean(terminalControlTimer), shuttingDown: shutdownStarted })) return;
   runTerminalControlLoop().catch((error) => console.error("[aify] terminal control loop error:", error));
   terminalControlTimer = setInterval(() => {
     runTerminalControlLoop().catch((error) => console.error("[aify] terminal control loop error:", error));
@@ -1083,7 +1084,7 @@ function extractTerminalSessionHandle(runtime = "", command = "") {
 // reportDeadOwnedTerminals moved to ./terminal-manager.mjs in v0.5.4.
 
 async function runTerminalControlLoop() {
-  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || terminalControlBusy || !bridgeTerminalSupported()) return;
+  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE && bridgeTerminalSupported(), alreadyActive: terminalControlBusy, shuttingDown: shutdownStarted })) return;
   terminalControlBusy = true;
   try {
     // Reconcile any console PTY this bridge owns whose local pid has died but
@@ -1230,7 +1231,7 @@ function isActiveManagedSessionStatus(status) {
 }
 
 async function syncManagedEnvironmentAgents() {
-  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || managedEnvironmentSyncBusy) return;
+  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: managedEnvironmentSyncBusy, shuttingDown: shutdownStarted })) return;
   managedEnvironmentSyncBusy = true;
   try {
     const environment = effectiveEnvironmentPayload();
@@ -1323,7 +1324,7 @@ async function syncManagedEnvironmentAgents() {
 }
 
 async function runSpawnLoop() {
-  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || spawnLoopBusy) return;
+  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: spawnLoopBusy, shuttingDown: shutdownStarted })) return;
   spawnLoopBusy = true;
   try {
     const environment = effectiveEnvironmentPayload();
@@ -1428,7 +1429,7 @@ async function runSpawnLoop() {
 }
 
 function ensureDispatchLoop() {
-  if (!IS_REMOTE || dispatchLoopTimer) return;
+  if (shouldSkipLoop({ eligible: IS_REMOTE, alreadyActive: Boolean(dispatchLoopTimer), shuttingDown: shutdownStarted })) return;
   if (!localAgentNeedsDispatchHosting({
     agentId: AIFY_AGENT_ID,
     channelsEnabled: String(process.env.AIFY_CHANNELS_ENABLED || "").trim() === "1",
@@ -1450,7 +1451,7 @@ ensureTerminalControlLoop();
 
 
 async function runDispatchLoop() {
-  if (!IS_REMOTE || dispatchLoopBusy) return;
+  if (shouldSkipLoop({ eligible: IS_REMOTE, alreadyActive: dispatchLoopBusy, shuttingDown: shutdownStarted })) return;
   dispatchLoopBusy = true;
   try {
     // Long-poll the dispatch claim ONLY when this bridge hosts a single agent (every
