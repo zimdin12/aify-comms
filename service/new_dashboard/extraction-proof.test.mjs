@@ -1074,6 +1074,66 @@ const EXTRACTIONS = [
       },
     ],
   },
+  {
+    module: "realtime-socket.mjs",
+    importLine: "import { connectRealtimeSocket, initRealtimeSocket, wireRealtimeResumeReconnect } from './realtime-socket.mjs';",
+    items: [
+      {
+        name: "dashboardSocket",
+        at: 135,
+        marker: "// dashboardSocket moved to ./realtime-socket.mjs in v0.5.4 — its only readers went with it.",
+      },
+      {
+        name: "_wsReconnectAttempts",
+        at: 510,
+        marker: [
+          "// The realtime socket cluster — connect, resume-nudge, resume wiring and the four mutable names",
+          "// they own — moved to ./realtime-socket.mjs in v0.5.4. Its dependencies are supplied by the",
+          "// initRealtimeSocket call in this file's init block, which MUST run before the first connect.",
+        ],
+      },
+      { name: "WS_CONNECTING_TIMEOUT_MS", at: 511, marker: null },
+      {
+        // The seeding call the slice left behind, in app.js's init block rather than where the
+        // declaration was. A marker is matched by content, not position, so it is declared on the item
+        // whose move made it necessary.
+        name: "connectRealtimeSocket",
+        at: 512,
+        marker: "initRealtimeSocket({ dashboardNotifier, evaluateFlowGates, refreshSoon, resyncActiveConsole, scheduleRenderAll });",
+      },
+      {
+        // THE BLANK LINE AND THE SIX COMMENT LINES ABOVE THIS DECLARATION are declared here because
+        // `declarationSpan` covers a declaration, not the prose above it — so a cluster whose members
+        // are separated by a comment block cannot be restored from spans alone. The anchor (`now`) is the
+        // declaration line and IS verified verbatim against the module; the restored lines are not, which
+        // is the one gap this mechanism opens. `realtime-socket.test.mjs` closes it by asserting the same
+        // six lines are present in the module, so the comment cannot be silently dropped or reworded.
+        name: "_wsResumeNudgeAt",
+        at: 565,
+        marker: null,
+        editedSince: [{
+          now: ["let _wsResumeNudgeAt = 0;"],
+          was: [
+            "",
+            "// Reconnect on page-resume (Hermes parity). When a backgrounded/slept tab wakes, its socket is",
+            "// often CLOSED with a long backoff timer still pending (up to 30s away) — the operator stares at a",
+            "// stale console. On any resume signal, if we're not OPEN, reconnect NOW (short-circuiting the",
+            "// backoff). A stuck-CONNECTING socket is force-closed first so the CONNECTING guard can't block the",
+            "// fresh connect. Throttled so a burst of resume events (focus+visibilitychange+online together)",
+            "// fires one reconnect.",
+            "let _wsResumeNudgeAt = 0;",
+          ],
+        }],
+      },
+      { name: "nudgeRealtimeSocketOnResume", at: 573, marker: null },
+      { name: "wireRealtimeResumeReconnect", at: 584, marker: null },
+      {
+        name: "applyRealtimeEvent",
+        at: 629,
+        marker: "// applyRealtimeEvent moved to ./realtime-socket.mjs in v0.5.4, with the socket it is wired to.",
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -1111,6 +1171,7 @@ const MODULES = () => ({
   "xterm-mount.mjs": read("xterm-mount.mjs"),
   "session-console.mjs": read("session-console.mjs"),
   "refresh-cycle.mjs": read("refresh-cycle.mjs"),
+  "realtime-socket.mjs": read("realtime-socket.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),

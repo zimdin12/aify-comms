@@ -70,6 +70,7 @@ import { setApiBase, api } from './api-client.mjs';
 import { attachChatFile, deleteSharedFileFromRow, loadFiles, renderFiles, uploadPastedImage, uploadSharedFile } from './shared-files.mjs';
 import { chatLoadChannels, chatLoadConversation, chatSendMessage, sendRunFollowup } from './message-transport.mjs';
 import { runRefreshCycle } from './refresh-cycle.mjs';
+import { connectRealtimeSocket, initRealtimeSocket, wireRealtimeResumeReconnect } from './realtime-socket.mjs';
 import { loadVersionBadge } from './version-badge.mjs';
 import { awaitTerminalSize, disposeActiveXterm } from './xterm-lifecycle.mjs';
 
@@ -126,7 +127,7 @@ let refreshTimer = null;
 // bundle in flight; if more arrive while it runs, run exactly one more afterwards.
 let _refreshInFlight = false;
 let _refreshQueued = false;
-let dashboardSocket = null;
+// dashboardSocket moved to ./realtime-socket.mjs in v0.5.4 — its only readers went with it.
 
 // Chat-first landing controller (chat.js). Adapters bridge the pure module to app state:
 // sendMessage routes DM→/messages/send (trigger+toast ladder) vs channel→/channels/{n}/send;
@@ -338,89 +339,9 @@ function refreshSoon() {
   refreshTimer = setTimeout(refresh, 250);
 }
 
-let _wsReconnectAttempts = 0;
-const WS_CONNECTING_TIMEOUT_MS = 8000;
-function connectRealtimeSocket() {
-  if (dashboardSocket && [WebSocket.OPEN, WebSocket.CONNECTING].includes(dashboardSocket.readyState)) return;
-  const wsOrigin = apiOrigin.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:');
-  try {
-    dashboardSocket = new WebSocket(`${wsOrigin}/ws`);
-  } catch {
-    state.realtimeConnected = false;
-    return;
-  }
-  const sock = dashboardSocket;
-  // Half-open-socket watchdog (Hermes parity, their NS-591). After a laptop sleep or a mobile
-  // radio handoff a socket can sit in CONNECTING forever — neither onopen nor onclose ever fires,
-  // so the CONNECTING guard above wedges reconnect permanently. If THIS socket is still CONNECTING
-  // after the timeout, force-close it so onclose → backoff reconnect can recover. The timer is
-  // scoped PER SOCKET (via `sock` + a local id): a shared global id could be cleared by a different
-  // socket's onclose during a resume-overlap and leave a half-open successor unwatched.
-  const watchdog = setTimeout(() => {
-    if (sock.readyState === WebSocket.CONNECTING) { try { sock.close(); } catch {} }
-  }, WS_CONNECTING_TIMEOUT_MS);
-  sock.onopen = () => {
-    clearTimeout(watchdog);
-    const wasReconnect = state.realtimeConnected === false && _wsReconnectAttempts > 0;
-    state.realtimeConnected = true;
-    _wsReconnectAttempts = 0; // healthy connection → reset backoff to fast retry
-    evaluateFlowGates();
-    // After a dropped-then-reconnected WS (deploy, network blip, laptop sleep), any live
-    // terminal_output frames emitted during the outage were missed — an IDLE agent emits no
-    // new frame to trip the sequence-gap resync, so the mounted console shows STALE canvas
-    // and typed keystrokes echo into a frame the tab never repaints ("can't write into the
-    // terminal"). Re-sync the mounted console on reconnect so it repaints the authoritative
-    // buffer immediately. Also pull fresh roster/session data.
-    if (wasReconnect) {
-      if (state.activeXterm && state.activeXterm.term) resyncActiveConsole().catch(() => {});
-      refreshSoon();
-    }
-  };
-  sock.onmessage = (event) => {
-    try {
-      const payload = JSON.parse(event.data || '{}');
-      applyRealtimeEvent(payload.event, payload.data || {});
-    } catch {}
-  };
-  sock.onclose = () => {
-    clearTimeout(watchdog);
-    state.realtimeConnected = false;
-    // Exponential backoff (capped) instead of hammering /ws every 2.5s. The single-worker
-    // service restarts on every deploy; a flat retry from every open tab piles load on exactly
-    // when it's weakest. Reset to fast on a successful open (see onopen below).
-    _wsReconnectAttempts = Math.min(_wsReconnectAttempts + 1, 6);
-    const delay = Math.min(30000, 1500 * 2 ** _wsReconnectAttempts);
-    setTimeout(connectRealtimeSocket, delay);
-  };
-}
-
-// Reconnect on page-resume (Hermes parity). When a backgrounded/slept tab wakes, its socket is
-// often CLOSED with a long backoff timer still pending (up to 30s away) — the operator stares at a
-// stale console. On any resume signal, if we're not OPEN, reconnect NOW (short-circuiting the
-// backoff). A stuck-CONNECTING socket is force-closed first so the CONNECTING guard can't block the
-// fresh connect. Throttled so a burst of resume events (focus+visibilitychange+online together)
-// fires one reconnect.
-let _wsResumeNudgeAt = 0;
-function nudgeRealtimeSocketOnResume() {
-  const now = Date.now();
-  if (now - _wsResumeNudgeAt < 1000) return;
-  _wsResumeNudgeAt = now;
-  const rs = dashboardSocket ? dashboardSocket.readyState : WebSocket.CLOSED;
-  // OPEN → nothing to do. CONNECTING → leave it: it's either progressing (aborting a healthy slow
-  // connect just churns) or genuinely stuck, in which case the per-socket watchdog kills it within
-  // 8s. Only a CLOSED/CLOSING socket needs an immediate reconnect (short-circuiting the backoff).
-  if (rs === WebSocket.OPEN || rs === WebSocket.CONNECTING) return;
-  connectRealtimeSocket();
-}
-function wireRealtimeResumeReconnect() {
-  const onResume = (ev) => {
-    if (ev && ev.type === 'visibilitychange' && document.visibilityState !== 'visible') return;
-    nudgeRealtimeSocketOnResume();
-  };
-  for (const [target, ev] of [[document, 'visibilitychange'], [window, 'pageshow'], [window, 'focus'], [window, 'online']]) {
-    try { target.addEventListener(ev, onResume); } catch {}
-  }
-}
+// The realtime socket cluster — connect, resume-nudge, resume wiring and the four mutable names
+// they own — moved to ./realtime-socket.mjs in v0.5.4. Its dependencies are supplied by the
+// initRealtimeSocket call in this file's init block, which MUST run before the first connect.
 
 // Desktop notifications. All decisions (is it for the operator, is the tab focused, has this
 // already fired) live in notify.mjs where they are unit-tested — this file keeps only the wiring,
@@ -457,81 +378,7 @@ async function toggleNotifications(on) {
   return notificationsEnabled;
 }
 
-function applyRealtimeEvent(event, data = {}) {
-  // Fire-and-forget, and deliberately BEFORE the routing below: a notification must never depend
-  // on which branch the event takes, and must never be able to break the dashboard's own handling
-  // of it. The notifier swallows its own errors and returns a reason string.
-  try { dashboardNotifier.handle(event, data); } catch {}
-  if (event === 'terminal_started' && data.terminalId && data.agentId) {
-    state.terminalOwners.set(String(data.terminalId), String(data.agentId));
-    refreshSoon();
-    return;
-  }
-  if (event === 'terminal_output' && data.terminalId) {
-    const owner = state.terminalOwners.get(String(data.terminalId));
-    if (owner && data.agentId && data.agentId !== owner) return;
-    if (data.agentId) state.terminalOwners.set(String(data.terminalId), String(data.agentId));
-    // Live PTY rendering: if this terminal is currently mounted in the Session Console pane,
-    // write the new bytes straight to the xterm.js instance — no DOM refresh for the stream.
-    const entry = state.activeXterm;
-    // Skip painting when the console pane is hidden (operator switched pages): the xterm stays
-    // mounted but offscreen, so writing to it just burns CPU and grows scrollback invisibly.
-    // It re-syncs from the authoritative buffer on next mount/visible render.
-    if (entry && entry.container && entry.container.offsetParent === null) return;
-    if (entry && String(entry.terminalId) === String(data.terminalId) && data.output) {
-      // Seq-based dedup + gap-resync (WS-D): the server tags frames with a monotonic seq.
-      // Drop frames we've already painted; on a gap (missed a frame, e.g. WS reconnect blip)
-      // re-fetch the authoritative buffer instead of painting out-of-order bytes.
-      const seq = Number(data.seq);
-      if (Number.isFinite(seq) && entry.lastSeq >= 0) {
-        if (seq <= entry.lastSeq) { return; }
-        if (seq > entry.lastSeq + 1) { resyncActiveConsole().catch(() => {}); return; }
-      }
-      if (Number.isFinite(seq)) entry.lastSeq = seq;
-      try {
-        if (entry.term) entry.term.write(data.output);
-        else if (entry.fallbackPre) { entry.fallbackPre.textContent += data.output; entry.fallbackPre.scrollTop = entry.fallbackPre.scrollHeight; }
-        entry.recentText = (String(entry.recentText || '') + String(data.output)).slice(-600);
-        updateAwaitPill();
-      } catch {}
-    }
-    // NOTE: do NOT refreshSoon() here. terminal_output streams every 1-4s; a full data
-    // refetch per frame made the api-status chip flap 'refreshing'↔'live' every second and
-    // wasted the 9-endpoint refetch. Live bytes are written to xterm above; agent/roster data
-    // changes arrive via the granular agent_status / other WS events below.
-    return;
-  }
-  // Granular consumption (Phase 1.2): a status change patches the agent in place and
-  // re-renders (signature-gated) WITHOUT the 9-endpoint full refetch — the dashboard's
-  // biggest poll-load reduction. Only fall back to refreshSoon for events that change data
-  // the client can't synthesize from the event payload.
-  if (event === 'agent_status' && data.agentId) {
-    const agent = state.agents.find((a) => a.id === data.agentId);
-    if (agent) {
-      if (data.status) { agent.status = data.status; agent.statusRaw = data.status; }
-      if (data.statusNote !== undefined) agent.statusNote = data.statusNote;
-      scheduleRenderAll();
-      return;
-    }
-    refreshSoon(); // unknown agent — a registration we haven't loaded yet
-    return;
-  }
-  if ([
-    'message_sent',
-    'dispatch_queued',
-    'dispatch_claimed',
-    'dispatch_updated',
-    'dispatch_control_requested',
-    'dispatch_control_updated',
-    'contract_reminders_sent',
-    'settings_updated',
-    'session_control_requested',
-    'session_deleted',
-    'agent_registered',
-  ].includes(event)) {
-    refreshSoon();
-  }
-}
+// applyRealtimeEvent moved to ./realtime-socket.mjs in v0.5.4, with the socket it is wired to.
 
 // runQueryPath moved to ./run-helpers.mjs in v0.5.4.
 
@@ -2649,6 +2496,7 @@ try {
   }
 } catch { /* private mode */ }
 
+initRealtimeSocket({ dashboardNotifier, evaluateFlowGates, refreshSoon, resyncActiveConsole, scheduleRenderAll });
 connectRealtimeSocket();
 wireRealtimeResumeReconnect();
 refresh();

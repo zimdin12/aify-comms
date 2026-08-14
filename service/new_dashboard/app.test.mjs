@@ -260,15 +260,27 @@ test("Batch 2: font warm-up runs before term.open", () => {
   assert.ok(warm > 0 && open > warm, "font warm-up must precede term.open");
 });
 
-test("Batch 2: WS half-open watchdog + resume-reconnect wired", () => {
+test("the realtime socket is INITIALISED BEFORE IT IS CONNECTED, and resume is wired at boot", () => {
+  // What used to be here: two tests that grepped app.js for `WS_CONNECTING_TIMEOUT_MS = 8000`,
+  // `readyState === WebSocket.CONNECTING`, `const sock = dashboardSocket;` and the four resume event
+  // names. All of it moved to realtime-socket.mjs in v0.5.4, and all of it is now covered by
+  // realtime-socket.test.mjs, which DRIVES a fake WebSocket through the states rather than reading the
+  // source: the watchdog force-closes a stuck CONNECTING socket and leaves a healthy one, each socket
+  // arms its own watchdog, the backoff grows and caps at 30s, a healthy open resets it, and a hidden
+  // visibilitychange does not reconnect. Not one of those could fail a source match.
+  //
+  // ONE property genuinely belongs to app.js and cannot move: the ORDER of the boot calls. The module
+  // takes its dependencies through `initRealtimeSocket`, so connecting first would run the first
+  // socket — and, until the first reconnect, every event it delivers — against no-op defaults. The
+  // page would look connected and do nothing.
   const source = read("app.js");
-  assert.match(source, /WS_CONNECTING_TIMEOUT_MS = 8000/);
-  assert.match(source, /readyState === WebSocket\.CONNECTING/, "watchdog force-closes a stuck CONNECTING socket");
-  assert.match(source, /function wireRealtimeResumeReconnect\(\)/);
-  for (const ev of ['visibilitychange', 'pageshow', 'focus', 'online']) {
-    assert.ok(source.includes(`'${ev}'`), `resume reconnect must listen to ${ev}`);
-  }
-  assert.match(source, /\nwireRealtimeResumeReconnect\(\);/, "resume reconnect must be wired at boot");
+  const init = source.indexOf("initRealtimeSocket({");
+  const connect = source.search(/^connectRealtimeSocket\(\);$/m);
+  const wire = source.search(/^wireRealtimeResumeReconnect\(\);$/m);
+  assert.ok(init !== -1, "app.js must supply the socket's dependencies");
+  assert.ok(connect !== -1, "app.js must open the socket at boot");
+  assert.ok(wire !== -1, "resume reconnect must be wired at boot");
+  assert.ok(init < connect, "initRealtimeSocket must run BEFORE the first connect");
 });
 
 test("terminal theme wiring stays in app.js — the derivation itself moved", () => {
@@ -320,14 +332,23 @@ test("mount is supersession-guarded across the font await (no leaked xterm/GL co
     "mount must bail (disposing its term) if superseded during the font await");
 });
 
-test("WS half-open watchdog is per-socket (not a shared global id)", () => {
+test("nothing in app.js still reaches for the socket that left it", () => {
+  // The per-socket watchdog claim this replaces is now asserted by CALLING the code:
+  // realtime-socket.test.mjs opens two sockets, drives the first to CLOSED, and checks the SUCCESSOR's
+  // watchdog still fires — which is the failure a shared global id produced and which
+  // `assert.match(source, /const sock = dashboardSocket;/)` could not have detected either way.
+  //
+  // What is worth checking in app.js after a move is the opposite: that no reader was left behind. A
+  // stale `dashboardSocket` reference here would be an undefined variable that only throws on the code
+  // path that touches it, which for a socket is a laptop-sleep or a deploy — never in a test run.
   const source = read("app.js");
-  assert.match(source, /const sock = dashboardSocket;/);
-  assert.match(source, /const watchdog = setTimeout\(\(\) => \{\s*if \(sock\.readyState === WebSocket\.CONNECTING\)/,
-    "watchdog must act on its own captured socket");
-  assert.ok(!/_wsConnectingWatchdog/.test(source), "the shared global watchdog id must be gone");
-  // Resume nudge leaves a CONNECTING socket to the watchdog instead of aborting it.
-  assert.match(source, /if \(rs === WebSocket\.OPEN \|\| rs === WebSocket\.CONNECTING\) return;/);
+  const live = source
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("//"))
+    .join("\n");
+  for (const name of ["dashboardSocket", "_wsReconnectAttempts", "_wsResumeNudgeAt", "WS_CONNECTING_TIMEOUT_MS"]) {
+    assert.doesNotMatch(live, new RegExp(`\\b${name}\\b`), `${name} moved to realtime-socket.mjs; app.js must not reference it`);
+  }
 });
 
 // The agent-edit runtime choices were asserted here by pulling the `runtimeOptions` expression out of
