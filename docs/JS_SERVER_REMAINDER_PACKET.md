@@ -141,3 +141,33 @@ misbehaved". They are byte-identically movable and their shared state (`confirme
 survives an ES module import unchanged, but they deserve a deliberate go-ahead rather than being swept up
 in a routine slice. The lower-risk ones (`spawnTriggeredAgent`, `ensureRequiredReplyHandoff`,
 `runBootSurvivorSweep`, `TERMINAL_MANAGER`) do not.
+
+## What each pending decision is actually worth (measured 2026-08-14, server.js at 2,520)
+
+The three open server.js rulings have never been costed. They are, and the total changes what A-vs-C means.
+
+| lines | behind which decision |
+|---|---|
+| 958 | the scheduler loops — **A-vs-C, this document** |
+| 246 | `comms_send` + `comms_channel_send` — blocked by `spawnTriggeredAgent` (packet `7ac0ba88`) |
+| 144 | the sweeps `runManagedTeardownForBridge` / `runBootSurvivorSweep` / `runManagedTeardownSync` — need go-ahead |
+| 109 | the shutdown chain `shutdownWithStatus` / `cleanupOnExit` / `reportResidentRuntimeLost` — reaches the sweeps |
+| 84 | `spawnTriggeredAgent` itself |
+| **1,541** | **61% of the file is behind a pending decision** |
+| 980 | everything else: imports, constants, comments, boot wiring |
+
+**So the three decisions are plausibly SUFFICIENT, not merely necessary** — which is the opposite of app.js,
+where extracting the entire render component still leaves ~2,026 lines (see
+docs/APP_JS_STATE_MODULE_PACKET.md). If all 1,541 lines left, server.js lands near **980**.
+
+**That margin is ~20 lines and should not be trusted as a pass.** Two things push it back up: this series
+leaves a moved declaration's LEADING COMMENTS in the carrier (a `declarationSpan` deliberately excludes
+them, so the counts above under-report what stays), and every move leaves a one-line marker. Realistically
+the file lands somewhere just under or just over 1,000, and if it lands over, the residue is precisely the
+**boot wiring** — which is option A's own argument ("a bin entry point that wires a process together is a
+different kind of file from a library module"). In other words: choose C and the file probably clears;
+choose C and it doesn't, and A is what closes the gap.
+
+Nothing above is a recommendation on A-vs-C — the reviewer's caution stands, and option C is still a
+redesign touching the code path that took the managed fleet down. It is here so the choice is made against
+numbers instead of impressions.
