@@ -172,6 +172,21 @@ function unwrapBody(spanLines, wrapper, name, module) {
   });
 
   const body = spanLines.slice(header.length, spanLines.length - footer.length);
+
+  // THE COMMON DIRECTION IS THE OTHER ONE, which the first version of this got wrong. A body extracted
+  // from a nested block — every branch of app.js's click handler sits at 4 spaces inside `if (x) {` —
+  // becomes a top-level function whose body sits at 2. The module has LESS indentation than the pristine
+  // file, not more, so `dedent` declares the prefix reconstruct must ADD back.
+  //
+  // No verbatim check is possible in this direction: there is nothing in the module line to verify the
+  // missing prefix against. That is a weaker error message, not weaker protection — a changed line still
+  // fails the byte-identity comparison, which is asserted separately rather than assumed.
+  const dedent = wrapper.dedent ?? "";
+  if (dedent && indent) {
+    throw new Error(`${name} in ${module} declares both indent and dedent, which cannot both be true`);
+  }
+  if (dedent) return body.map((line) => (line.trim() === "" ? line : dedent + line));
+
   if (!indent) return body;
   return body.map((line, k) => {
     if (line.trim() === "") return line.startsWith(indent) ? line.slice(indent.length) : line;

@@ -836,3 +836,80 @@ test("an item with NO wrapper is unaffected — the relocation path is unchanged
   assert.match(rebuilt, /function handleHit/);
   assert.notEqual(rebuilt, WRAPPED.pristine);
 });
+
+test("DEDENT is the direction a real extract-method needs — module body at 2, pristine at 4", () => {
+  // The shape every branch of app.js's click handler has: the body sits at 4 spaces inside `if (x) {`,
+  // and becomes a top-level function whose body sits at 2. My first version of the wrapper only handled
+  // the opposite direction, which no slice would ever produce.
+  const pristine = [
+    "before();",
+    "if (hit) {",
+    "    doThing(hit);",
+    "    render();",
+    "    return;",
+    "}",
+  ].join(LF);
+  const mod = [
+    "export function handleHit(hit) {",
+    "  doThing(hit);",
+    "  render();",
+    "}",
+  ].join(LF);
+  const after = [
+    'import { handleHit } from "./hit.mjs";',
+    "before();",
+    "if (hit) {",
+    "    handleHit(hit);",
+    "    return;",
+    "}",
+  ].join(LF);
+  const rebuilt = reconstruct({
+    after,
+    modules: { "hit.mjs": mod },
+    extractions: [{
+      module: "hit.mjs",
+      importLine: 'import { handleHit } from "./hit.mjs";',
+      items: [{
+        name: "handleHit",
+        at: 2,
+        marker: "    handleHit(hit);",
+        wrapper: { header: ["export function handleHit(hit) {"], footer: ["}"], dedent: "  " },
+      }],
+    }],
+  });
+  assert.equal(rebuilt, pristine, "the `return;` stays behind and the body comes back at 4 spaces");
+});
+
+test("declaring BOTH indent and dedent is refused rather than silently preferring one", () => {
+  const plan = wrappedPlan({
+    wrapper: { header: ["export function handleHit(hit) {"], footer: ["}"], indent: "  ", dedent: "  " },
+  });
+  assert.throws(
+    () => reconstruct({ after: WRAPPED.after, modules: { "hit.mjs": WRAPPED.module }, extractions: plan }),
+    /cannot both be true/,
+  );
+});
+
+test("a changed line under DEDENT still fails byte-identity, since no verbatim check is possible there", () => {
+  // Stated because the dedent path is genuinely weaker: there is no prefix in the module line to verify
+  // against, so the named error is unavailable and the diff is the only guard. Asserting it means the
+  // weakness is bounded and known rather than discovered during a review.
+  const pristine = ["if (hit) {", "    a();", "}"].join(LF);
+  const mod = ["export function h() {", "  a(1);", "}"].join(LF);
+  const after = ['import { h } from "./h.mjs";', "if (hit) {", "    h();", "}"].join(LF);
+  const rebuilt = reconstruct({
+    after,
+    modules: { "h.mjs": mod },
+    extractions: [{
+      module: "h.mjs",
+      importLine: 'import { h } from "./h.mjs";',
+      items: [{
+        name: "h",
+        at: 1,
+        marker: "    h();",
+        wrapper: { header: ["export function h() {"], footer: ["}"], dedent: "  " },
+      }],
+    }],
+  });
+  assert.notEqual(rebuilt, pristine);
+});
