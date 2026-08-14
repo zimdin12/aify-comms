@@ -63,6 +63,7 @@ from service.api_core.agent_sessions import (
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.recovery_writes import _record_channel_sidecar_heartbeat
 from service.api_core.serialization import _machine_ids_same_host
+from service.api_core.dispatch_launch import _launch_recipients_for_dispatch
 from service.api_core.dispatch_run_state import (
     _append_dispatch_control,
     _cancel_queued_dispatch_runs_for_message_ids,
@@ -113,7 +114,6 @@ from service.api_core.terminal_ownership import _active_terminal_for_agent
 from service.api_core.dispatch_start import (
     _coldstart_spawn_request_for_dispatch,
     _ensure_managed_pty_for_dispatch,
-    _launch_recipients_for_dispatch,
 )
 from service.api_core.active_run_discard import _fail_pending_controls_for_run
 from service.api_core.execution_mode import _agent_execution_mode, _auto_return_resident_to_managed_if_possible

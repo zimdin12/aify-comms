@@ -33,6 +33,10 @@ DISPATCH_START = REPO / "service" / "api_core" / "dispatch_start.py"
 #: seven names its body calls are already declared there, so moving it down would have been an upward
 #: import back.
 DM_SHARED = REPO / "service" / "routers" / "dispatch_messages" / "shared.py"
+#: `_launch_recipients_for_dispatch` was RELOCATED out of dispatch_start.py in v0.5.4 — byte-identical,
+#: so the round trip still closes, but only if the proof reads the file it lives in now.
+DISPATCH_LAUNCH = REPO / "service" / "api_core" / "dispatch_launch.py"
+MODULES = (MESSAGES, DISPATCH_START, DM_SHARED, DISPATCH_LAUNCH)
 FIXTURE = Path(__file__).resolve().parent / "data" / "send_message_before_split.py"
 
 SOURCE_FUNCTION = "send_message"
@@ -40,7 +44,7 @@ EXTRACTIONS = ["_launch_recipients_for_dispatch", "_queue_console_dispatch_input
 
 
 def _combined_split_source() -> str:
-    return "\n\n".join(p.read_text(encoding="utf-8") for p in (MESSAGES, DISPATCH_START, DM_SHARED))
+    return "\n\n".join(p.read_text(encoding="utf-8") for p in MODULES)
 
 
 class SendMessageSplitIsInertTests(unittest.TestCase):
@@ -90,13 +94,13 @@ class SendMessageSplitIsInertTests(unittest.TestCase):
         looked at. It was checking a claim it could no longer see.
         """
         expected = {
-            "_launch_recipients_for_dispatch": DISPATCH_START,
+            "_launch_recipients_for_dispatch": DISPATCH_LAUNCH,
             "_queue_console_dispatch_inputs": DM_SHARED,
         }
         self.assertEqual(sorted(expected), sorted(EXTRACTIONS), "every extraction needs a declared owner")
         for helper, owner in expected.items():
             owners = [
-                path for path in (MESSAGES, DISPATCH_START, DM_SHARED)
+                path for path in MODULES
                 if any(
                     isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == helper
                     for n in ast.parse(path.read_text(encoding="utf-8")).body
