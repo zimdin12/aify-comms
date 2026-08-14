@@ -50,6 +50,7 @@ import { openAgentEditForm, openContinueForm, openMessageDetail } from './inspec
 import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } from './run-inspector-controls.mjs';
 import { persistChatPrefs, syncChatChips } from './chat-prefs.mjs';
 import { resolveApiOrigin } from './api-origin.mjs';
+import { setApiBase, api } from './api-client.mjs';
 
 // resolveApiOrigin moved to ./api-origin.mjs in v0.5.4.
 
@@ -423,23 +424,8 @@ function evaluateFlowGates() {
   return flowGates;
 }
 
-async function api(path, options = {}) {
-  const response = await fetch(`${apiBase}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : {};
-  if (!response.ok) {
-    // FastAPI validation errors return `detail` as an array of {loc,msg,...}; the old
-    // `data.detail` coerced that to "[object Object]". Flatten to readable text.
-    let detail = data.error || data.detail || response.statusText;
-    if (Array.isArray(detail)) detail = detail.map((d) => (d && d.msg) ? d.msg : JSON.stringify(d)).join('; ');
-    else if (detail && typeof detail === 'object') detail = JSON.stringify(detail);
-    throw new Error(detail);
-  }
-  return data;
-}
+// api moved to ./api-client.mjs in v0.5.4.
+setApiBase(apiBase);
 
 function awaitTerminalSize(terminalId, cols, rows) {
   return waitForTerminalSize({

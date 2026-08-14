@@ -194,6 +194,24 @@ const EXTRACTIONS = [
     ],
   },
   {
+    // The `marker` carries the seeding call as well as the comment. reconstruct() verifies every marker
+    // line VERBATIM before splicing it out, which is the same treatment `importLine` gets — and importLine
+    // is executable code too. So this is the existing contract, not a loosening of it: the reconstruction
+    // still has to come back byte-identical to the pristine fixture.
+    module: "api-client.mjs",
+    importLine: "import { setApiBase, api } from './api-client.mjs';",
+    items: [
+      {
+        name: "api",
+        at: 479,
+        marker: [
+          "// api moved to ./api-client.mjs in v0.5.4.",
+          "setApiBase(apiBase);",
+        ],
+      },
+    ],
+  },
+  {
     module: "api-origin.mjs",
     importLine: "import { resolveApiOrigin } from './api-origin.mjs';",
     items: [
@@ -365,6 +383,7 @@ const MODULES = () => ({
   "cli-resume.mjs": read("cli-resume.mjs"),
   "state.mjs": read("state.mjs"),
   "ui.js": read("ui.js"),
+  "api-client.mjs": read("api-client.mjs"),
   "api-origin.mjs": read("api-origin.mjs"),
   "session-rail.mjs": read("session-rail.mjs"),
   "settings-panel.mjs": read("settings-panel.mjs"),
