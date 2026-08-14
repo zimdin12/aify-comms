@@ -68,7 +68,6 @@ import { supportedExecutionModes, wrapperChildExecutionModes } from "./dispatch-
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 import {
   canLaunchRuntime,
-  defaultCapabilitiesForRuntime,
   defaultMachineId,
   launchRuntimeRun,
   normalizeRuntime,
@@ -107,10 +106,11 @@ import { AIFY_VERSION } from "./version.js";
 import { createManagedOwnershipReader } from "./managed-ownership.mjs";
 import { runSingleAgentManagedTeardown } from "./single-agent-teardown.mjs";
 import {
-  noteControlClaimFailure, noteControlClaimSuccess, noteSpawnClaimFailure, noteSpawnClaimSuccess,
+  noteControlClaimFailure, noteControlClaimSuccess,
 } from "./claim-failure-tracker.mjs";
 import { createManagedTeardownSweeps } from "./managed-teardown-sweeps.mjs";
 import { shouldSkipLoop } from "./loop-gate.mjs";
+import { runSpawnPass } from "./spawn-loop.mjs";
 import { runEnvironmentControlPass } from "./environment-control-loop.mjs";
 import {
   DISPATCH_POLL_MS,
@@ -1268,102 +1268,13 @@ async function runSpawnLoop() {
   if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: spawnLoopBusy, shuttingDown: shutdownStarted })) return;
   spawnLoopBusy = true;
   try {
-    const environment = effectiveEnvironmentPayload();
-    let claim;
-    try {
-      claim = await httpCall("POST", "/spawn-requests/claim", {
-        environmentId: environment.id,
-        bridgeId: BRIDGE_INSTANCE_ID,
-        machineId: MACHINE_ID,
-        waitMs: CLAIM_WAIT_MS,
-      }, CLAIM_OPTS);
-    } catch (error) {
-      if (error?.status !== 404) {
-        noteSpawnClaimFailure(error);
-      }
-      return;
-    }
-    noteSpawnClaimSuccess();
-    const spawnRequest = claim?.spawnRequest;
-    if (!spawnRequest) return;
-
-    const workspace = spawnRequest.workspace || spawnRequest.workspaceRoot || DEFAULT_CWD;
-    if (!workspaceWithinRoots(workspace, environment.cwdRoots)) {
-      await httpCall("PATCH", `/spawn-requests/${encodeURIComponent(spawnRequest.id)}`, {
-        status: "failed",
-        bridgeId: BRIDGE_INSTANCE_ID,
-        error: `Workspace "${workspace}" is outside this bridge's advertised roots`,
-      });
-      return;
-    }
-
-    await httpCall("PATCH", `/spawn-requests/${encodeURIComponent(spawnRequest.id)}`, {
-      status: "starting",
-      bridgeId: BRIDGE_INSTANCE_ID,
+    await runSpawnPass({
+      CLAIM_OPTS,
+      CLAIM_WAIT_MS,
+      MACHINE_ID,
+      effectiveEnvironmentPayload,
+      ensureDispatchLoop,
     });
-
-    const runtime = normalizeRuntime(spawnRequest.runtime || "generic");
-    const runtimeConfig =
-      (spawnRequest.spawnSpec?.metadata && typeof spawnRequest.spawnSpec.metadata.runtimeConfig === "object")
-        ? spawnRequest.spawnSpec.metadata.runtimeConfig
-        : {};
-    const requestedSessionHandle = String(spawnRequest.sessionHandle || "").trim();
-    const capabilities = defaultCapabilitiesForRuntime(runtime, "managed", requestedSessionHandle, runtimeConfig);
-    const runtimeState = {
-      bridgeInstanceId: BRIDGE_INSTANCE_ID,
-      environmentId: environment.id,
-      spawnRequestId: spawnRequest.id,
-      mode: spawnRequest.mode || "managed-warm",
-      resumePolicy: spawnRequest.resumePolicy || "native_first",
-    };
-    if (requestedSessionHandle) {
-      if (runtime === "codex") {
-        runtimeState.threadId = requestedSessionHandle;
-      } else {
-        runtimeState.sessionId = requestedSessionHandle;
-      }
-    }
-    await httpCall("PATCH", `/spawn-requests/${encodeURIComponent(spawnRequest.id)}`, {
-      status: "running",
-      bridgeId: BRIDGE_INSTANCE_ID,
-      processId: String(process.pid),
-      sessionHandle: requestedSessionHandle,
-      runtimeState,
-      capabilities: {
-        persistent: true,
-        nativeResume: Boolean(requestedSessionHandle) || runtime === "codex" || runtime === "hermes" || runtime === "opencode" || runtime === "pi",
-        bridgeResume: true,
-        cliAttach: false,
-        interrupt: true,
-        streaming: true,
-        tokenTelemetry: false,
-        costTelemetry: false,
-        contextReset: true,
-      },
-      telemetry: {},
-    });
-
-    REMOTE_AGENT_STATE.set(spawnRequest.agentId, {
-      info: {
-        agentId: spawnRequest.agentId,
-        role: spawnRequest.role || "coder",
-        name: spawnRequest.name || spawnRequest.agentId,
-        cwd: workspace,
-        model: spawnRequest.spawnSpec?.model || "",
-        instructions: spawnRequest.spawnSpec?.instructions || "",
-        runtime,
-        machineId: MACHINE_ID,
-        launchMode: "managed",
-        sessionMode: "managed",
-        sessionHandle: requestedSessionHandle,
-        managedBy: spawnRequest.createdBy || "dashboard",
-        capabilities,
-        runtimeConfig,
-        runtimeState,
-      },
-    });
-    ensureDispatchLoop();
-    console.error(`[aify] spawned managed agent "${spawnRequest.agentId}" from request ${spawnRequest.id}`);
   } finally {
     spawnLoopBusy = false;
   }
