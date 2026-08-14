@@ -13,7 +13,7 @@
 // case that actually happens: a module extracted in a hurry with no test file, which is invisible to every
 // other gate here.
 //
-// THE TEN EXCEPTIONS ARE PRE-EXISTING DEBT, held at a list that may only shrink, on the same pattern as
+// THE REMAINING EXCEPTIONS ARE PRE-EXISTING DEBT, held at a list that may only shrink, on the same pattern
 // `RECONCILER_BORROW_CEILING` and `no-unwatched-oversized-file.test.js`. None was created by the v0.5.4
 // series; a hard ban would fail the suite for work nobody here did and teach the next person to weaken the
 // gate instead of paying it down.
@@ -42,7 +42,6 @@ const UNTESTED_BACKLOG = [
   "mcp/stdio/runtimes-hermes.js",
   "mcp/stdio/runtimes-opencode.js",
   "mcp/stdio/runtimes-pi.js",
-  "mcp/stdio/runtimes-prompts.js",
   "mcp/stdio/runtimes-rpc.js",
   "mcp/stdio/usage-preflight.js",
 ];
