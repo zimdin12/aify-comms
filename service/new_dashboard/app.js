@@ -35,10 +35,10 @@ import { renderRunEvent } from './run-event.mjs';
 import { applyRenderedWidth } from './terminal-width.mjs';
 import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
 import { state } from './state.mjs';
-import { SESSION_FILTER_KINDS, agentForSession, agentForTerminal, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';
+import { SESSION_FILTER_KINDS, agentForSession, agentForTerminal, ensureSelectedSession, renderSessionModeLabel, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';
 import { applyThemeChoice, previewAppearance, refreshActiveTerminalTheme, renderSettings, selectSettingsTab, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
 import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './agent-drawer.mjs';
-import { applyContractView, applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, pruneDiagnosticSelection, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';
+import { applyContractView, applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, matchesGlobalFilter, pruneDiagnosticSelection, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';
 import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexConsoleConnections, codexConsoleSendTurn } from './codex-console.mjs';
 import { openIdentityDirectory } from './identity-directory.mjs';
 import { closeStatusWhy, openStatusWhy } from './status-why-popover.mjs';
@@ -53,6 +53,7 @@ import { runAgentControl, startColdAgent, switchAgentModeFromRow, switchModeFrom
 import { runConsoleAction } from './console-click-handlers.mjs';
 import { consoleAwaitingInputHint, updateAwaitPill } from './console-await.mjs';
 import { handleGlobalKeydown } from './keyboard-shortcuts.mjs';
+import { preferredNavCollapsed, setNavCollapsed, toggleSessionGroupCollapsed } from './layout-prefs.mjs';
 import { patchRun, runQueryPath, runSourceMessage, syncRunFilterOptions } from './run-helpers.mjs';
 import { navigateToPage, openEnvironmentSpawn, openHermesTabFromRow, selectAnalyticsRange } from './nav-click-handlers.mjs';
 import { openChatConversation, openChatReply, runChannelAction, setChatView, setPulseWindow } from './chat-click-handlers.mjs';
@@ -740,11 +741,7 @@ async function _refreshImpl() {
 // filtered moved to ./work-loop-panels.mjs in v0.5.4.
 
 // Single-item version of the top-bar global Find (for callers that do their own filtering).
-function matchesGlobalFilter(item, fields) {
-  const needle = state.filter.trim().toLowerCase();
-  if (!needle) return true;
-  return fields.some((field) => String(item[field] || '').toLowerCase().includes(needle));
-}
+// matchesGlobalFilter moved to ./work-loop-panels.mjs in v0.5.4.
 
 // Phase 0.4 (DASHBOARD_REBUILD_PLAN §0.4): per-section render keyed on an input signature
 // computed in ONE place, so renderAll (run on every 15s poll, every WS event, and every
@@ -1121,13 +1118,7 @@ function renderDiagnosticsBulkToolbar() {
 
 // Persisted collapse state for session env-groups (WS-J collapsibles).
 // sessionGroupCollapsed moved to ./session-rail.mjs in v0.5.4.
-function toggleSessionGroupCollapsed(envId, collapsed) {
-  try {
-    const set = new Set(JSON.parse(localStorage.getItem('aifyCollapsedSessionGroups') || '[]') || []);
-    if (collapsed) set.add(envId); else set.delete(envId);
-    localStorage.setItem('aifyCollapsedSessionGroups', JSON.stringify([...set]));
-  } catch { /* ignore */ }
-}
+// toggleSessionGroupCollapsed moved to ./layout-prefs.mjs in v0.5.4.
 
 // Read-only Activity log for a session (WS-J): recent runs + messages, NO composer (messaging
 // lives in Chat). Merges the agent's dispatch runs and message thread, newest first.
@@ -1663,11 +1654,7 @@ function renderModeSwitchChip(agent) {
 
 // Optional inline label so operators can see the current sessionMode at a
 // glance in the session header subtitle. Informational only.
-function renderSessionModeLabel(agent) {
-  const mode = String(agent?.sessionMode || '').toLowerCase();
-  if (mode !== 'resident' && mode !== 'managed') return '';
-  return ` · ${esc(mode)}`;
-}
+// renderSessionModeLabel moved to ./session-rail.mjs in v0.5.4.
 
 async function switchAgentSessionMode(agentId, targetMode, { force = false } = {}) {
   if (!agentId || !targetMode) return null;
@@ -2443,19 +2430,9 @@ function closeInspector() {
   evaluateFlowGates();
 }
 
-function setNavCollapsed(collapsed) {
-  const shell = byId('app-shell');
-  shell?.classList.toggle('nav-collapsed', Boolean(collapsed));
-  byId('toggle-nav')?.setAttribute('aria-pressed', collapsed ? 'true' : 'false');
-  byId('toggle-nav')?.setAttribute('title', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
-  localStorage.setItem('aify.next.navCollapsed', collapsed ? '1' : '0');
-}
+// setNavCollapsed moved to ./layout-prefs.mjs in v0.5.4.
 
-function preferredNavCollapsed() {
-  const stored = localStorage.getItem('aify.next.navCollapsed');
-  if (stored) return stored === '1';
-  return window.matchMedia('(max-width: 760px)').matches;
-}
+// preferredNavCollapsed moved to ./layout-prefs.mjs in v0.5.4.
 
 async function requestRunControl(runId) {
   const body = await uiPrompt('Steer this active run');

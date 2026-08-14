@@ -885,6 +885,31 @@ const EXTRACTIONS = [
       },
     ],
   },
+  {
+    module: "layout-prefs.mjs",
+    importLine: "import { preferredNavCollapsed, setNavCollapsed, toggleSessionGroupCollapsed } from './layout-prefs.mjs';",
+    items: [
+      { name: "setNavCollapsed", at: 3856, marker: "// setNavCollapsed moved to ./layout-prefs.mjs in v0.5.4." },
+      { name: "preferredNavCollapsed", at: 3864, marker: "// preferredNavCollapsed moved to ./layout-prefs.mjs in v0.5.4." },
+      { name: "toggleSessionGroupCollapsed", at: 1808, marker: "// toggleSessionGroupCollapsed moved to ./layout-prefs.mjs in v0.5.4." },
+    ],
+  },
+  {
+    module: "work-loop-panels.mjs",
+    importLine: "import { applyContractView, applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, matchesGlobalFilter, pruneDiagnosticSelection, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';",
+    importWas: "import { applyContractView, applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, pruneDiagnosticSelection, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';",
+    items: [
+      { name: "matchesGlobalFilter", at: 918, marker: "// matchesGlobalFilter moved to ./work-loop-panels.mjs in v0.5.4." },
+    ],
+  },
+  {
+    module: "session-rail.mjs",
+    importLine: "import { SESSION_FILTER_KINDS, agentForSession, agentForTerminal, ensureSelectedSession, renderSessionModeLabel, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';",
+    importWas: "import { SESSION_FILTER_KINDS, agentForSession, agentForTerminal, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';",
+    items: [
+      { name: "renderSessionModeLabel", at: 2588, marker: "// renderSessionModeLabel moved to ./session-rail.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -914,6 +939,7 @@ const MODULES = () => ({
   "keyboard-shortcuts.mjs": read("keyboard-shortcuts.mjs"),
   "run-helpers.mjs": read("run-helpers.mjs"),
   "console-await.mjs": read("console-await.mjs"),
+  "layout-prefs.mjs": read("layout-prefs.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),

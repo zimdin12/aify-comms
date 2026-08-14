@@ -217,3 +217,13 @@ export function pruneDiagnosticSelection() {
     if (!live.has(key)) state.selectedDiagnosticIds.delete(key);
   }
 }
+
+// The single-item form of `filtered` above, moved out of app.js in v0.5.4. The two are now visibly the
+// SAME RULE written twice — one over a list, one over an item. Left as a pair rather than collapsed:
+// `filtered` returns items and this returns a boolean, so unifying them changes both call sites for no
+// behavioural gain. What the duplication needs is an AGREEMENT TEST, and there is one beside them.
+export function matchesGlobalFilter(item, fields) {
+  const needle = state.filter.trim().toLowerCase();
+  if (!needle) return true;
+  return fields.some((field) => String(item[field] || '').toLowerCase().includes(needle));
+}

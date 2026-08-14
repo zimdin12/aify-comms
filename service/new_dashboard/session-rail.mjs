@@ -190,3 +190,10 @@ export function agentForTerminal(terminalId) {
   if (sess) return agentForSession(sess);
   return (state.agents || []).find((a) => String(a?.runtimeState?.terminalId || a?.terminalId || '') === tid) || null;
 }
+
+// The ` · resident` / ` · managed` suffix on a session line, moved out of app.js in v0.5.4.
+export function renderSessionModeLabel(agent) {
+  const mode = String(agent?.sessionMode || '').toLowerCase();
+  if (mode !== 'resident' && mode !== 'managed') return '';
+  return ` · ${esc(mode)}`;
+}

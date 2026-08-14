@@ -20,6 +20,7 @@ import {
   applyWorkView,
   diagnosticKey,
   filtered,
+  matchesGlobalFilter,
   jumpFromDiagnostic,
   renderContractBoard,
   toggleDiagnosticSelection,
@@ -372,5 +373,67 @@ test("applyContractView still switches the view when storage REFUSES", () => {
   } finally {
     state.contractView = saved;
     if (hadLs) globalThis.localStorage = prev; else delete globalThis.localStorage;
+  }
+});
+
+// --- matchesGlobalFilter, and its AGREEMENT with `filtered` --------------------------------------
+//
+// The two are the same rule written twice: `filtered` returns the matching items, `matchesGlobalFilter`
+// answers for one item. Collapsing them would change both call sites for no behavioural gain, so they
+// stay a pair — and a pair needs a test that they cannot DRIFT, which is the point of the last case
+// here. A divergence would show up as a run visible in one panel and filtered out of another.
+
+function withFilter(needle, run) {
+  const saved = state.filter;
+  state.filter = needle;
+  try { return run(); } finally { state.filter = saved; }
+}
+
+test("an empty or blank filter matches everything", () => {
+  for (const needle of ["", "   "]) {
+    withFilter(needle, () => {
+      assert.equal(matchesGlobalFilter({ id: "anything" }, ["id"]), true, JSON.stringify(needle));
+    });
+  }
+});
+
+test("matching is case-insensitive and by SUBSTRING, across any of the named fields", () => {
+  withFilter("OD", () => {
+    assert.equal(matchesGlobalFilter({ id: "coder-1", subject: "" }, ["id"]), true, "substring, folded");
+    assert.equal(matchesGlobalFilter({ id: "x", subject: "MODEL" }, ["id", "subject"]), true, "any field");
+    assert.equal(matchesGlobalFilter({ id: "x", subject: "y" }, ["id", "subject"]), false);
+  });
+});
+
+test("a missing or non-string field is treated as empty, not skipped or thrown on", () => {
+  // `String(item[field] || '')`. Run records omit fields routinely; throwing here would break the whole
+  // list render, and skipping the field silently would make the filter match more than it should.
+  withFilter("x", () => {
+    assert.equal(matchesGlobalFilter({}, ["missing"]), false);
+    assert.equal(matchesGlobalFilter({ n: 0 }, ["n"]), false, "0 is falsy and becomes empty");
+    assert.equal(matchesGlobalFilter({ n: 5 }, ["n"]), false);
+  });
+  withFilter("5", () => assert.equal(matchesGlobalFilter({ n: 5 }, ["n"]), true, "numbers are stringified"));
+});
+
+test("THEY AGREE: filtered(items) === items.filter(matchesGlobalFilter) for every case", () => {
+  // The anti-drift test. Two copies of one rule are fine; two copies that disagree are a run that shows
+  // up in one panel and vanishes from another, with nothing failing.
+  const items = [
+    { id: "coder-1", subject: "Model swap" },
+    { id: "tester-2", subject: "" },
+    { id: "", subject: "MODEL" },
+    { id: "x", n: 5 },
+    {},
+  ];
+  const fields = ["id", "subject", "n"];
+  for (const needle of ["", "   ", "od", "OD", "coder", "5", "no-such-thing"]) {
+    withFilter(needle, () => {
+      assert.deepEqual(
+        filtered(items, fields),
+        items.filter((item) => matchesGlobalFilter(item, fields)),
+        `disagreement on ${JSON.stringify(needle)}`,
+      );
+    });
   }
 });

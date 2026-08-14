@@ -18,6 +18,7 @@ import {
   SESSION_FILTER_KINDS,
   agentForSession,
   agentForTerminal,
+  renderSessionModeLabel,
   groupedSessionsByEnvironment,
   selectedSessionIds,
   sessionGroupCollapsed,
@@ -310,4 +311,23 @@ test("it survives absent session and agent lists", () => {
   } finally {
     Object.assign(state, saved);
   }
+});
+
+// --- renderSessionModeLabel ----------------------------------------------------------------------
+
+test("only the two REAL modes produce a label; anything else is empty", () => {
+  // It renders into a session meta line. An unrecognised value passed through would put raw API text on
+  // screen beside the runtime, and an empty string is what keeps the separator from appearing alone.
+  assert.equal(renderSessionModeLabel({ sessionMode: "resident" }), " · resident");
+  assert.equal(renderSessionModeLabel({ sessionMode: "managed" }), " · managed");
+  for (const mode of ["", "hybrid", "unknown", null, undefined, 0]) {
+    assert.equal(renderSessionModeLabel({ sessionMode: mode }), "", JSON.stringify(mode));
+  }
+  assert.equal(renderSessionModeLabel(undefined), "", "a missing agent must not throw");
+});
+
+test("the mode is matched case-insensitively", () => {
+  // The API has returned both spellings; a case-sensitive test would drop the label for half the rows.
+  assert.equal(renderSessionModeLabel({ sessionMode: "Resident" }), " · resident");
+  assert.equal(renderSessionModeLabel({ sessionMode: "MANAGED" }), " · managed");
 });
