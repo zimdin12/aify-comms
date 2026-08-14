@@ -123,3 +123,64 @@ test("SESSION_FILTER_KINDS is the shared agent-status vocabulary, not a private 
   const { AGENT_STATUSES } = await import("./status.js");
   assert.equal(SESSION_FILTER_KINDS, AGENT_STATUSES);
 });
+
+// ---------------------------------------------------------------------------------------------------
+// Which session is CURRENT — the write side of the selection this module already reads.
+
+import { ensureSelectedSession, selectedSession } from "./session-rail.mjs";
+
+function seedSelection({ sessions = [], selectedId = "", selectedIds = [] } = {}) {
+  state.sessions = sessions;
+  state.selectedSessionId = selectedId;
+  state.selectedSessionIds = new Set(selectedIds);
+  state.selectedConversation = "";
+}
+
+test("with no sessions at all, the selection is cleared rather than left dangling", () => {
+  // A selection pointing at nothing sends the next action into the void.
+  seedSelection({ sessions: [], selectedId: "gone", selectedIds: ["gone", "also-gone"] });
+  assert.equal(ensureSelectedSession(), null);
+  assert.equal(state.selectedSessionId, "");
+  assert.equal(state.selectedConversation, "dashboard", "the chat falls back to the dashboard thread");
+  assert.equal(state.selectedSessionIds.size, 0, "the multi-select must be cleared too");
+});
+
+test("an existing selection is KEPT across a refresh", () => {
+  // The poll runs every ~15s. Re-picking the first session each time would yank the operator's view away.
+  seedSelection({
+    sessions: [session("s1", "coder"), session("s2", "tester")],
+    selectedId: "s2",
+  });
+  assert.equal(ensureSelectedSession().id, "s2");
+  assert.equal(state.selectedSessionId, "s2");
+  assert.equal(state.selectedConversation, "tester", "the chat follows the selected session's agent");
+});
+
+test("a selection whose session has disappeared falls back to the first", () => {
+  seedSelection({ sessions: [session("s1", "coder")], selectedId: "vanished" });
+  assert.equal(ensureSelectedSession().id, "s1");
+  assert.equal(state.selectedSessionId, "s1");
+});
+
+test("stale multi-select ids are PRUNED, and live ones survive", () => {
+  // Without this a bulk Stop/Delete fires against rows that are no longer on screen.
+  seedSelection({
+    sessions: [session("s1", "coder"), session("s2", "tester")],
+    selectedId: "s1",
+    selectedIds: ["s1", "s2", "s-vanished"],
+  });
+  ensureSelectedSession();
+  assert.deepEqual([...state.selectedSessionIds].sort(), ["s1", "s2"]);
+});
+
+test("a session with no agent still selects, and the chat falls back to dashboard", () => {
+  seedSelection({ sessions: [{ id: "s1" }], selectedId: "" });
+  assert.equal(ensureSelectedSession().id, "s1");
+  assert.equal(state.selectedConversation, "dashboard");
+});
+
+test("selectedSession returns null rather than undefined when nothing matches", () => {
+  // Callers branch on it and then read fields off the result.
+  seedSelection({ sessions: [session("s1", "coder")], selectedId: "other" });
+  assert.equal(selectedSession(), null);
+});

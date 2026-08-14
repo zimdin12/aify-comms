@@ -195,7 +195,7 @@ const EXTRACTIONS = [
   },
   {
     module: "session-rail.mjs",
-    importLine: "import { SESSION_FILTER_KINDS, agentForSession, renderSessionRail, selectedSessionIds } from './session-rail.mjs';",
+    importLine: "import { SESSION_FILTER_KINDS, agentForSession, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds } from './session-rail.mjs';",
     items: [
       { name: "agentForSession", at: 1625, marker: "// agentForSession moved to ./session-rail.mjs in v0.5.4." },
       { name: "groupedSessionsByEnvironment", at: 1630, marker: "// groupedSessionsByEnvironment moved to ./session-rail.mjs in v0.5.4." },
@@ -205,6 +205,8 @@ const EXTRACTIONS = [
       { name: "renderSessionStatusFilter", at: 1742, marker: "// renderSessionStatusFilter moved to ./session-rail.mjs in v0.5.4." },
       { name: "renderSessionRail", at: 1775, marker: "// renderSessionRail moved to ./session-rail.mjs in v0.5.4." },
       { name: "sessionGroupCollapsed", at: 1805, marker: "// sessionGroupCollapsed moved to ./session-rail.mjs in v0.5.4." },
+      { name: "selectedSession", at: 1666, marker: "// selectedSession moved to ./session-rail.mjs in v0.5.4." },
+      { name: "ensureSelectedSession", at: 1670, marker: "// ensureSelectedSession moved to ./session-rail.mjs in v0.5.4." },
     ],
   },
   {

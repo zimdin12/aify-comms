@@ -35,7 +35,7 @@ import { renderRunEvent } from './run-event.mjs';
 import { applyRenderedWidth } from './terminal-width.mjs';
 import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
 import { state } from './state.mjs';
-import { SESSION_FILTER_KINDS, agentForSession, renderSessionRail, selectedSessionIds } from './session-rail.mjs';
+import { SESSION_FILTER_KINDS, agentForSession, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds } from './session-rail.mjs';
 import { previewAppearance, refreshActiveTerminalTheme, renderSettings, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
 import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './agent-drawer.mjs';
 import { contractCard, diagnosticKey, filtered, renderActivityFeed, renderAttention, renderContractBoard } from './work-loop-panels.mjs';
@@ -1212,26 +1212,9 @@ function renderDiagnosticsBulkToolbar() {
 
 // selectedSessionIds moved to ./session-rail.mjs in v0.5.4.
 
-function selectedSession() {
-  return state.sessions.find((session) => sessionId(session) === state.selectedSessionId) || null;
-}
+// selectedSession moved to ./session-rail.mjs in v0.5.4.
 
-function ensureSelectedSession() {
-  if (!state.sessions.length) {
-    state.selectedSessionId = '';
-    state.selectedConversation = 'dashboard';
-    state.selectedSessionIds.clear();
-    return null;
-  }
-  const current = selectedSession();
-  const session = current || state.sessions[0];
-  state.selectedSessionId = sessionId(session);
-  state.selectedConversation = sessionAgentId(session) || 'dashboard';
-  for (const id of [...state.selectedSessionIds]) {
-    if (!state.sessions.some((item) => sessionId(item) === id)) state.selectedSessionIds.delete(id);
-  }
-  return session;
-}
+// ensureSelectedSession moved to ./session-rail.mjs in v0.5.4.
 
 // messagesForSession moved to ./session-activity.mjs in v0.5.4.
 

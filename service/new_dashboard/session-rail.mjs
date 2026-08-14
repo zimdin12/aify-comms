@@ -140,3 +140,35 @@ export function renderSessionRail() {
 export function sessionGroupCollapsed(envId) {
   try { return (JSON.parse(localStorage.getItem('aifyCollapsedSessionGroups') || '[]') || []).includes(envId); } catch { return false; }
 }
+
+// ---------------------------------------------------------------------------------------------------
+// Which session is CURRENT, appended in a later v0.5.4 slice.
+//
+// It joins this module rather than getting one of its own because it is the write side of what
+// `selectedSessionIds()` above already reads: both maintain `state.selectedSessionIds`, and splitting a
+// set's reader from its pruner across two modules is how they drift.
+//
+// `ensureSelectedSession` runs on every refresh and does three things that each fail quietly: it keeps a
+// selection pointing at a session that still exists, falls back to the first when the current one is gone,
+// and PRUNES multi-select ids whose sessions have disappeared — without that last step a bulk action fires
+// against rows that are no longer there.
+
+export function selectedSession() {
+  return state.sessions.find((session) => sessionId(session) === state.selectedSessionId) || null;
+}
+export function ensureSelectedSession() {
+  if (!state.sessions.length) {
+    state.selectedSessionId = '';
+    state.selectedConversation = 'dashboard';
+    state.selectedSessionIds.clear();
+    return null;
+  }
+  const current = selectedSession();
+  const session = current || state.sessions[0];
+  state.selectedSessionId = sessionId(session);
+  state.selectedConversation = sessionAgentId(session) || 'dashboard';
+  for (const id of [...state.selectedSessionIds]) {
+    if (!state.sessions.some((item) => sessionId(item) === id)) state.selectedSessionIds.delete(id);
+  }
+  return session;
+}
