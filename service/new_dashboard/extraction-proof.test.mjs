@@ -251,13 +251,14 @@ const EXTRACTIONS = [
   },
   {
     module: "codex-console.mjs",
-    importLine: "import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexConsoleConnections } from './codex-console.mjs';",
+    importLine: "import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexConsoleConnections, codexConsoleSendTurn } from './codex-console.mjs';",
     items: [
       { name: "codexConsoleConnections", at: 2446, marker: "// codexConsoleConnections moved to ./codex-console.mjs in v0.5.4." },
       { name: "codexConsoleClose", at: 2450, marker: "// codexConsoleClose moved to ./codex-console.mjs in v0.5.4." },
       { name: "codexConsoleAppendLine", at: 2457, marker: "// codexConsoleAppendLine moved to ./codex-console.mjs in v0.5.4." },
       { name: "codexConsoleAppendText", at: 2468, marker: "// codexConsoleAppendText moved to ./codex-console.mjs in v0.5.4." },
       { name: "codexConsoleConnect", at: 2482, marker: "// codexConsoleConnect moved to ./codex-console.mjs in v0.5.4." },
+      { name: "codexConsoleSendTurn", at: 2558, marker: "// codexConsoleSendTurn moved to ./codex-console.mjs in v0.5.4." },
     ],
   },
   {

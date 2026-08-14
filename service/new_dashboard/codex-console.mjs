@@ -130,3 +130,28 @@ export function codexConsoleConnect(agentId, appServerUrl, threadId) {
     codexConsoleAppendLine(container, '[websocket error]', 'err');
   });
 }
+
+// ---------------------------------------------------------------------------------------------------
+// Sending a turn into the codex console, appended in a later v0.5.4 slice.
+//
+// It joins this module rather than getting one of its own: it writes through the same socket registry and
+// echoes into the same output stream the append path above owns. Its whole dependency surface is two names
+// already declared here.
+
+export function codexConsoleSendTurn(agentId, text) {
+  const entry = codexConsoleConnections.get(agentId);
+  if (!entry || !entry.ws || entry.ws.readyState !== 1 || !entry.threadId) return;
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return;
+  const id = Math.floor(Math.random() * 1e9);
+  entry.ws.send(JSON.stringify({
+    jsonrpc: '2.0',
+    id,
+    method: 'turn/start',
+    params: {
+      threadId: entry.threadId,
+      input: [{ type: 'text', text: trimmed }],
+    },
+  }));
+  codexConsoleAppendLine(entry.container, `> ${trimmed}`, 'user');
+}

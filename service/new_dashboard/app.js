@@ -39,7 +39,7 @@ import { SESSION_FILTER_KINDS, agentForSession, renderSessionRail, selectedSessi
 import { previewAppearance, refreshActiveTerminalTheme, renderSettings, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
 import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './agent-drawer.mjs';
 import { contractCard, diagnosticKey, filtered, renderActivityFeed, renderAttention, renderContractBoard } from './work-loop-panels.mjs';
-import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexConsoleConnections } from './codex-console.mjs';
+import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexConsoleConnections, codexConsoleSendTurn } from './codex-console.mjs';
 import { openIdentityDirectory } from './identity-directory.mjs';
 import { closeStatusWhy, openStatusWhy } from './status-why-popover.mjs';
 import { renderSessionActivity, runFrom } from './session-activity.mjs';
@@ -1824,23 +1824,7 @@ window.addEventListener('beforeunload', () => { codexConsoleConnections.forEach(
 
 // codexConsoleConnect moved to ./codex-console.mjs in v0.5.4.
 
-function codexConsoleSendTurn(agentId, text) {
-  const entry = codexConsoleConnections.get(agentId);
-  if (!entry || !entry.ws || entry.ws.readyState !== 1 || !entry.threadId) return;
-  const trimmed = String(text || '').trim();
-  if (!trimmed) return;
-  const id = Math.floor(Math.random() * 1e9);
-  entry.ws.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id,
-    method: 'turn/start',
-    params: {
-      threadId: entry.threadId,
-      input: [{ type: 'text', text: trimmed }],
-    },
-  }));
-  codexConsoleAppendLine(entry.container, `> ${trimmed}`, 'user');
-}
+// codexConsoleSendTurn moved to ./codex-console.mjs in v0.5.4.
 
 // Manual resident<->managed mode-switch chip. Ownership changes are
 // operator-driven only, so the switch is always visible for valid agents.

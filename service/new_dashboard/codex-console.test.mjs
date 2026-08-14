@@ -125,3 +125,79 @@ test("both append paths ignore a missing container", () => {
     codexConsoleAppendText(undefined, "y");
   });
 });
+
+// ---------------------------------------------------------------------------------------------------
+// Sending a turn, appended to this module in a later v0.5.4 slice.
+
+import { codexConsoleSendTurn } from "./codex-console.mjs";
+
+function wired({ readyState = 1, threadId = "thr-1" } = {}) {
+  const sent = [];
+  const container = fakeContainer();
+  codexConsoleConnections.set("coder", {
+    ws: { readyState, send: (s) => sent.push(JSON.parse(s)) },
+    threadId,
+    container,
+  });
+  return { sent, container };
+}
+
+test("a turn is sent as turn/start on the agent's thread, and echoed locally", () => {
+  codexConsoleConnections.clear();
+  const { sent, container } = wired();
+  withDom(() => codexConsoleSendTurn("coder", "  do the thing  "));
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].method, "turn/start");
+  assert.equal(sent[0].params.threadId, "thr-1", "a turn must be addressed to the live thread");
+  assert.deepEqual(sent[0].params.input, [{ type: "text", text: "do the thing" }],
+    "the text is trimmed before it goes out");
+  assert.equal(sent[0].jsonrpc, "2.0");
+
+  // The echo is what makes the operator's own input visible in the console they are watching.
+  assert.equal(container.children.length, 1);
+  assert.equal(container.children[0].textContent, "> do the thing");
+  assert.equal(container.children[0].className, "codex-line user");
+});
+
+test("nothing is sent on a socket that is not OPEN", () => {
+  // readyState 0/2/3 = CONNECTING/CLOSING/CLOSED. Writing to any of them throws or silently drops, and
+  // the operator would see their input echoed as if it had been delivered.
+  for (const readyState of [0, 2, 3]) {
+    codexConsoleConnections.clear();
+    const { sent, container } = wired({ readyState });
+    withDom(() => codexConsoleSendTurn("coder", "hello"));
+    assert.deepEqual(sent, [], `readyState ${readyState} must not be written to`);
+    assert.equal(container.children.length, 0, "…and must not be echoed either");
+  }
+});
+
+test("nothing is sent without a thread, an entry, or any text", () => {
+  codexConsoleConnections.clear();
+  const { sent: noThread } = wired({ threadId: "" });
+  withDom(() => codexConsoleSendTurn("coder", "hello"));
+  assert.deepEqual(noThread, [], "a console with no thread yet has nowhere to send");
+
+  codexConsoleConnections.clear();
+  withDom(() => codexConsoleSendTurn("nobody", "hello"));   // no entry at all — must not throw
+
+  codexConsoleConnections.clear();
+  const { sent: blank, container } = wired();
+  for (const empty of ["", "   ", null, undefined]) {
+    withDom(() => codexConsoleSendTurn("coder", empty));
+  }
+  assert.deepEqual(blank, [], "whitespace is not a turn");
+  assert.equal(container.children.length, 0);
+});
+
+test("each turn carries a distinct request id", () => {
+  // The id correlates the response. Reusing one would let a late reply resolve the wrong turn.
+  codexConsoleConnections.clear();
+  const { sent } = wired();
+  withDom(() => {
+    codexConsoleSendTurn("coder", "one");
+    codexConsoleSendTurn("coder", "two");
+  });
+  assert.equal(sent.length, 2);
+  assert.notEqual(sent[0].id, sent[1].id);
+});
