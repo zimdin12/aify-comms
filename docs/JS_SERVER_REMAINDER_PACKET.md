@@ -283,3 +283,41 @@ Current state, re-measured:
 
 Two decisions now, not three. The 948 endpoint is unchanged — the same lines still leave, they were simply
 attributed to the wrong ruling.
+
+## UPDATE 2026-08-14c — server.js is at 2,040 and ONE decision remains
+
+Three more slices landed since the costing above, all without a ruling because each blocker dissolved
+under measurement rather than needing one:
+
+| slice | why it was unblocked | server.js |
+|---|---|---|
+| `managed-teardown-sweeps.mjs` | the go-ahead was one I had imposed on myself, not a reviewer requirement | 2,520 → 2,376 |
+| `spawn-triggered-agent.mjs` | the seam packet's premise — `LOCAL_RUNTIME_STATE` unowned — stopped being true | 2,376 → 2,294 |
+| `send-tools.mjs` | it was parked behind `spawnTriggeredAgent`, which now has an owner | 2,294 → **2,040** |
+
+**server.js now registers ZERO MCP tools and is imported by no test.**
+
+### The endpoint, re-simulated — and one caveat no longer applies
+
+| | lines |
+|---|---|
+| server.js today | 2,041 |
+| − the loops and the shutdown chain coupled to their timers (16 units) | −1,067 |
+| + one marker per moved unit | +16 |
+| **subtotal** | **990 — already UNDER** |
+| − import lines removed (47 names dead per the gate) | −40 |
+| **lands at** | **950** |
+
+**The earlier warning that "the raw move leaves it at 1,002, and only the dead-import pass carries it
+under" is now obsolete.** The three slices above created enough headroom that the move alone clears the
+limit at 990, with the import cleanup adding 40 lines of margin rather than deciding the outcome. A
+reviewer checking the line count mid-slice will now see a pass.
+
+The simulated survivor `node --check`s and has **zero closed groups**, so 950 is the floor: what remains is
+constants, imports, comments and boot wiring — option A's description of the file.
+
+### What is still open
+
+**One decision: A-vs-C on the loops** (1,067 lines, including the shutdown chain, which is coupled to them
+through `environmentHeartbeatTimer` / `spawnLoopTimer` / `terminalControlTimer` — each written by its own
+`ensure*` starter and by `cleanupOnExit`). Everything else in this packet is closed.
