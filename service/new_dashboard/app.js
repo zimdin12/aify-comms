@@ -47,6 +47,7 @@ import { openEnvironmentRootsEditor, renderEnvironmentSpawnOptions, renderEnviro
 import { metric, renderDiagnosticsSummary, renderMetrics, renderUsageConsumption, selectedDiagnostics } from './summary-tiles.mjs';
 import { copyActiveConsole, copyText } from './clipboard.mjs';
 import { openAgentEditForm, openContinueForm, openMessageDetail } from './inspector-forms.mjs';
+import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } from './run-inspector-controls.mjs';
 
 function resolveApiOrigin() {
   const params = new URLSearchParams(location.search);
@@ -1243,9 +1244,7 @@ function ensureSelectedSession() {
 
 // sessionForAgent moved to ./agent-drawer.mjs in v0.5.4.
 
-function sessionForRun(run) {
-  return sessionForAgent(runTargetAgent(run));
-}
+// sessionForRun moved to ./run-inspector-controls.mjs in v0.5.4.
 
 function runSourceMessage(run) {
   const id = String(run?.messageId || run?.message_id || state.inspector.sourceMessageId || '').trim();
@@ -2323,20 +2322,7 @@ async function loadRunEvents(runId, { before = '', order = state.inspector.event
 
 // runStatusContext moved to ./status.js in v0.5.4.
 
-function runInspectorCapabilities(run, session = sessionForRun(run)) {
-  const statusKind = resolveStatus(run?.status).kind;
-  const active = ['claimed', 'running'].includes(statusKind);
-  const terminal = ['completed', 'failed', 'cancelled'].includes(statusKind);
-  const target = runTargetAgent(run);
-  return {
-    steer: Boolean(active),
-    interrupt: Boolean(active),
-    queueAfter: Boolean(target),
-    retry: Boolean(target),
-    close: Boolean(run?.id && !terminal),
-    openConsole: Boolean(session),
-  };
-}
+// runInspectorCapabilities moved to ./run-inspector-controls.mjs in v0.5.4.
 
 // runPendingControlCount moved to ./record-fields.mjs in v0.5.4.
 
@@ -2344,20 +2330,7 @@ function runInspectorCapabilities(run, session = sessionForRun(run)) {
 
 // renderRunEvent moved to ./run-event.mjs in v0.5.4.
 
-function renderRunInspectorControls(run) {
-  const session = sessionForRun(run);
-  const capabilities = runInspectorCapabilities(run, session);
-  const disabled = (enabled) => enabled ? '' : ' disabled';
-  return `
-    <div id="run-inspector-controls" class="run-inspector-controls">
-      <button class="ghost" data-run-control="steer"${disabled(capabilities.steer)} title="Steer">Steer</button>
-      <button class="ghost danger" data-run-control="interrupt"${disabled(capabilities.interrupt)} title="Interrupt">Interrupt</button>
-      <button class="ghost" data-run-control="queue-after"${disabled(capabilities.queueAfter)} title="Queue-after">Queue-after</button>
-      <button class="ghost danger" data-run-control="retry"${disabled(capabilities.retry)} title="Retry">Retry</button>
-      <button class="ghost danger" data-run-control="close"${disabled(capabilities.close)} title="Close">Close</button>
-      <button class="primary" data-run-control="open-console"${disabled(capabilities.openConsole)} title="Open Console">Open Console</button>
-    </div>`;
-}
+// renderRunInspectorControls moved to ./run-inspector-controls.mjs in v0.5.4.
 
 function renderRunInspector() {
   const run = state.inspector.run;

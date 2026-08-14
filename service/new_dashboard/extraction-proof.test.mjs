@@ -326,6 +326,15 @@ const EXTRACTIONS = [
       { name: "openContinueForm", at: 3731, marker: "// openContinueForm moved to ./inspector-forms.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "run-inspector-controls.mjs",
+    importLine: "import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } from './run-inspector-controls.mjs';",
+    items: [
+      { name: "sessionForRun", at: 1712, marker: "// sessionForRun moved to ./run-inspector-controls.mjs in v0.5.4." },
+      { name: "runInspectorCapabilities", at: 3252, marker: "// runInspectorCapabilities moved to ./run-inspector-controls.mjs in v0.5.4." },
+      { name: "renderRunInspectorControls", at: 3292, marker: "// renderRunInspectorControls moved to ./run-inspector-controls.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -351,6 +360,7 @@ const MODULES = () => ({
   "summary-tiles.mjs": read("summary-tiles.mjs"),
   "clipboard.mjs": read("clipboard.mjs"),
   "inspector-forms.mjs": read("inspector-forms.mjs"),
+  "run-inspector-controls.mjs": read("run-inspector-controls.mjs"),
 });
 
 function rebuild(overrides = {}) {
