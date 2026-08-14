@@ -78,7 +78,6 @@ import { supportedExecutionModes, wrapperChildExecutionModes } from "./dispatch-
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 import {
   canLaunchRuntime,
-  codexAppServerReachable,
   defaultCapabilitiesForRuntime,
   defaultMachineId,
   launchRuntimeRun,
@@ -129,6 +128,7 @@ import { VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT, createVirtualTermin
 import { ensureRequiredReplyHandoff } from './required-reply-handoff.mjs';
 import { TERMINAL_MANAGER, reportDeadOwnedTerminals } from './terminal-manager.mjs';
 import { runBootTombstonedMarkerSweep } from './boot-marker-sweep.mjs';
+import { residentRuntimeBindingLost } from './resident-binding-health.mjs';
 
 // Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
 // `omp --mode rpc --resume <session>`), that child inherits the aify
@@ -611,8 +611,8 @@ let spawnClaimFailureCount = 0;
 let spawnClaimLastLogAt = 0;
 let remoteEffectiveCwdRoots = null;
 const AUTO_REREGISTER_AFTER_FAILURES = 4;
-const RESIDENT_BINDING_FAILURES = new Map();
-const RESIDENT_BINDING_LOST_AFTER_FAILURES = 2;
+// RESIDENT_BINDING_FAILURES moved to ./resident-binding-health.mjs in v0.5.4.
+// RESIDENT_BINDING_LOST_AFTER_FAILURES moved to ./resident-binding-health.mjs in v0.5.4.
 // Terminal-activity-driven turn-busy pulses. When a managed PTY produces
 // sustained output (claude-aify, pi-aify, etc. working autonomously
 // BETWEEN dispatch runs), the backend status engine has no authoritative
@@ -766,28 +766,7 @@ function noteControlClaimSuccess(label) {
 
 
 
-async function residentRuntimeBindingLost(agentId, info = {}) {
-  const sessionMode = normalizeSessionMode(info.sessionMode);
-  const runtime = normalizeRuntime(info.runtime || "generic");
-  if (sessionMode !== "resident" || runtime !== "codex") return false;
-  const runtimeConfig = info.runtimeConfig || {};
-  const appServerUrl = String(runtimeConfig.appServerUrl || "").trim();
-  if (!appServerUrl || !info.sessionHandle) {
-    RESIDENT_BINDING_FAILURES.delete(agentId);
-    return false;
-  }
-  const remoteAuthTokenEnv = String(runtimeConfig.remoteAuthTokenEnv || "").trim();
-  const token = remoteAuthTokenEnv ? String(process.env[remoteAuthTokenEnv] || "").trim() : "";
-  const reachable = await codexAppServerReachable(appServerUrl, { token, timeoutMs: 1200 });
-  if (reachable) {
-    RESIDENT_BINDING_FAILURES.delete(agentId);
-    return false;
-  }
-  const failures = (RESIDENT_BINDING_FAILURES.get(agentId) || 0) + 1;
-  RESIDENT_BINDING_FAILURES.set(agentId, failures);
-  console.error(`[aify] resident Codex app-server for "${agentId}" is unreachable (${failures}/${RESIDENT_BINDING_LOST_AFTER_FAILURES}): ${appServerUrl}`);
-  return failures >= RESIDENT_BINDING_LOST_AFTER_FAILURES;
-}
+// residentRuntimeBindingLost moved to ./resident-binding-health.mjs in v0.5.4.
 
 async function reportResidentRuntimeLost(agentId, info = {}, reason = "resident runtime app-server is unreachable") {
   try {
