@@ -32,11 +32,14 @@ const MODULE_DIRS = ["mcp/stdio", "service/new_dashboard"];
 // blind spot in the gate written to catch blind spots, found on its first run.
 const TEST_DIRS = ["mcp/stdio/tests", "mcp/stdio", "service/new_dashboard"];
 
-//: MEASURED 2026-08-14. Every one predates this series. Removing a name here — by writing it a test — is
-//: the goal; adding one is not, which is what the last assertion enforces.
+//: MEASURED 2026-08-14, and now down to the two that CANNOT be import-tested. Both have ZERO exports:
+//: they are scripts whose top level does the work, so importing one RUNS it — `hermes-daemon-cli.js`
+//: drives a daemon and `usage-preflight.js` performs a quota check. "Write it a unit test" is not the
+//: right answer for either; they need either an exported entry point or an end-to-end harness, which
+//: is a change to the module rather than to this list. Recorded so the remaining two do not read as
+//: the same kind of debt as the eight that were paid down.
 const UNTESTED_BACKLOG = [
   "mcp/stdio/hermes-daemon-cli.js",
-  "mcp/stdio/runtimes-hermes.js",
   "mcp/stdio/usage-preflight.js",
 ];
 
