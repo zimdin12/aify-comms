@@ -296,7 +296,7 @@ function readBoundAgentId() {
 // hermesCmd is typically an absolute path to .../venv/Scripts/hermes(.exe) or
 // .../venv/bin/hermes; the python sibling lives in the same dir. Returns the
 // python path if found on disk, else "python" (PATH fallback).
-// resolveHermesPython moved to ./hermes-active-session.mjs in v0.5.4.
+// resolveHermesPython moved to ./hermes-active-session.mjs in v0.5.4, then on to ./hermes-env.mjs.
 
 // Create-or-ignore the stable `aify-<agentId>` session row via the hermes
 // SessionDB. Idempotent (INSERT OR IGNORE) + best-effort (never throws). Returns

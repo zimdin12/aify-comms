@@ -218,3 +218,96 @@ test("the scan is actually looking at something — and at EVERY carrier, not a 
   }
   assert.ok(total > 150, `expected the carriers to declare many moved names, found ${total}`);
 });
+
+// --- and does the destination actually have it? ----------------------------
+//
+// The other half of the same claim. `unresolvedMovedNames` asks whether the CARRIER still resolves the
+// name; this asks whether the marker's promise is TRUE — that `./y.mjs` really declares X.
+//
+// The Python side has had this since v0.5.4 (service/tests/test_moved_to_comments_are_true.py) and found
+// TEN wrong markers the day it was written, every one a symbol that took a second hop while the comment
+// recorded only the first. That gate scans `*.py` only, so these 205 JS markers have never been checked.
+//
+// A marker that points somewhere specific and WRONG is worse than no marker: it sends the next reader to a
+// file that does not have the thing, and they conclude it was deleted.
+
+/** The destination path a marker promises, and the names it promises are there. */
+export function markerClaims(source) {
+  const claims = [];
+  for (const line of source.split("\n")) {
+    const m = /^\/\/\s*([A-Za-z_$][\w$]*)(?:\s*\/\s*([A-Za-z_$][\w$]*))?\s+moved to\s+(\.\/[\w-]+\.(?:mjs|js))/.exec(line.trim());
+    if (!m) continue;
+    // MULTI-HOP: `moved to ./a.mjs in v0.5.4, then on to ./b.mjs`. The LAST path is authoritative — the
+    // trail is appended to rather than rewritten so it stays readable, which is the convention the Python
+    // gate established. Checking the first path would fail every correctly-recorded second hop.
+    const hop = /then on to\s+(\.\/[\w-]+\.(?:mjs|js))/.exec(line);
+    const module = hop ? hop[1] : m[3];
+    for (const name of [m[1], m[2]].filter(Boolean)) claims.push({ name, module });
+  }
+  return claims;
+}
+
+/** Does `source` declare `name` — as a declaration, or by re-exporting it? */
+export function declaresName(source, name) {
+  // Built from a plain string, NOT a template literal with single backslashes: inside a template `\s` is
+  // the character "s", so `^\s*(?:export\s+)?…` silently compiles to `^s*(?:exports+)?…` and matches
+  // nothing. It still parses, and the gate then reports every marker as wrong — which is how this was
+  // caught, and is the reason the fixtures below assert the TRUE cases and not only the false one.
+  const decl = new RegExp("^\\s*(?:export\\s+)?(?:async\\s+)?(?:function|const|let|var|class)\\s+" + name + "\\b", "m");
+  if (decl.test(source)) return true;
+  // `export { a, b as name }` — the exported (right-hand) name is what an importer binds.
+  for (const m of source.matchAll(/export\s*\{([^}]*)\}/g)) {
+    for (const raw of m[1].replace(/\/\/[^\n]*/g, "").split(",")) {
+      if (raw.trim().split(/\s+as\s+/).pop().trim() === name) return true;
+    }
+  }
+  return false;
+}
+
+test("markerClaims reads the name and the destination, and ignores prose", () => {
+  const src = [
+    "// doThing moved to ./thing.mjs in v0.5.4.",
+    "// alpha / beta moved to ./pair.mjs in v0.5.4.",
+    "// this sentence merely mentions doThing and is not a marker",
+  ].join("\n");
+  assert.deepEqual(markerClaims(src), [
+    { name: "doThing", module: "./thing.mjs" },
+    { name: "alpha", module: "./pair.mjs" },
+    { name: "beta", module: "./pair.mjs" },
+  ]);
+});
+
+test("a MULTI-HOP marker is judged by its last destination, not its first", () => {
+  // The real case that made this check worth writing: `resolveHermesPython` went to
+  // hermes-active-session.mjs and on to hermes-env.mjs a slice later, and the carrier's marker still named
+  // only the first. Keying on the first path would also fail every honestly-recorded hop from now on.
+  const src = "// doThing moved to ./first.mjs in v0.5.4, then on to ./second.mjs.";
+  assert.deepEqual(markerClaims(src), [{ name: "doThing", module: "./second.mjs" }]);
+});
+
+test("declaresName accepts a declaration or a re-export, and refuses a mere mention", () => {
+  assert.equal(declaresName("export function doThing() {}", "doThing"), true);
+  assert.equal(declaresName("const doThing = () => {};", "doThing"), true);
+  assert.equal(declaresName("export { internal as doThing };", "doThing"), true);
+  assert.equal(declaresName("// doThing lives elsewhere\ncallSomething(doThing);", "doThing"), false,
+    "a USE is not a declaration — this is the whole distinction the gate rests on");
+});
+
+test("EVERY moved-to marker names a module that really declares the symbol", () => {
+  const wrong = [];
+  let total = 0;
+  for (const rel of CARRIERS) {
+    const dir = path.dirname(path.join(REPO, rel));
+    for (const claim of markerClaims(fs.readFileSync(path.join(REPO, rel), "utf-8"))) {
+      total += 1;
+      const dest = path.join(dir, claim.module);
+      if (!fs.existsSync(dest)) {
+        wrong.push(`${rel}: ${claim.name} -> ${claim.module} (no such file)`);
+      } else if (!declaresName(fs.readFileSync(dest, "utf-8"), claim.name)) {
+        wrong.push(`${rel}: ${claim.name} -> ${claim.module} (file exists but does not declare it)`);
+      }
+    }
+  }
+  assert.ok(total > 150, `expected many claims to check, found ${total}`);
+  assert.deepEqual(wrong, [], `markers pointing somewhere wrong:\n  ${wrong.join("\n  ")}`);
+});

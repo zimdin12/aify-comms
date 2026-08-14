@@ -148,7 +148,13 @@ const EXTRACTIONS = [
       // asked whether the members were session-identity or merely session-adjacent. The plan records where a
       // body lives NOW, not where it passed through — a plan that tracked the journey would have to be
       // rewritten every time an owner was corrected, which is the opposite of what it is for.
-      { name: "resolveHermesPython", at: 726, marker: "// resolveHermesPython moved to ./hermes-active-session.mjs in v0.5.4.", pristineExported: true },
+      //
+      // THE CARRIER'S MARKER DID NOT SAY THAT, and this comment recording the second hop is precisely why
+      // it went unnoticed: the fact was written down HERE while the marker a reader actually follows still
+      // pointed at hermes-active-session.mjs, which no longer has the symbol. Found by
+      // tests/moved-names-resolve.test.js the first time it checked destinations. The marker now carries
+      // the hop, in the `then on to` form the Python gate established, and this plan pins the new text.
+      { name: "resolveHermesPython", at: 726, marker: "// resolveHermesPython moved to ./hermes-active-session.mjs in v0.5.4, then on to ./hermes-env.mjs.", pristineExported: true },
     ],
   },
   {
