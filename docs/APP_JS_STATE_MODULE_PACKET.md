@@ -417,3 +417,36 @@ work than "break the render component", and it is not a v0.5.x-shaped task.
 
 The honest options are therefore: accept that app.js stays over the limit for 0.5.x with this measurement
 attached to its allowlist entry, or scope an entry-point split as its own project.
+
+### The path DOES exist — three phases, measured, landing at ~984
+
+"Not a v0.5.x-shaped task" was accurate but unhelpfully vague, so here it is costed. Each figure below is
+from applying the previous phase to a scratch copy and re-surveying it, not from arithmetic on this page.
+
+| phase | what | app.js after |
+|---|---|---|
+| — | today | 3,613 |
+| **1** | the `refresh` component — 74 declarations, 1,578 lines, **+74 markers** | **2,109** |
+| **2** | the action handlers the component was blocking — 23 declarations, 433 lines, +23 markers | **1,699** |
+| **3** | the 720-line top-level init/handler block becomes `init()` / `installHandlers()` calls | **~984** |
+
+**Phase 2 is the interesting one: it is ordinary relocation, and it does not exist until phase 1 lands.**
+Sixteen groups (`handleRunInspectorControl` 107 lines, `submitContinue` 69, `openRunConsole` 54,
+`requestBulkDiagnosticAction` 53, `openMessageThread` 49, …) are all blocked TODAY only because they reach
+the component. Once it leaves they need nothing but already-extracted siblings. That is why the wall looks
+absolute from here and is not: the survey can only see one layer at a time.
+
+**Phase 1 is not one module.** 1,578 lines cannot become a single file without creating a fresh violation,
+and the component is mutually recursive, so it has to be cut somewhere. THAT is the redesign — not the
+extraction itself.
+
+**Phase 3 needs a proof mechanism that does not exist yet.** The top-level block is statements, not
+declarations, so there is no span to relocate. Either the reconstruction proof learns a declared shape for
+it (a typed `rewrap` was written and reverted this round — it works, see the correction above) or the
+pristine fixture is re-baselined and the series' "pure file split" claim is explicitly closed off at that
+point. Both are reviewer calls.
+
+**The ~16-line margin is thin and should not be treated as a pass.** Dead-import relief will help — phase
+2's own import surface shows several names going unused — but it is not counted above, and phase 1's split
+may need shared helpers that add lines back. The honest claim is "reaches roughly the limit", not "clears
+it comfortably".
