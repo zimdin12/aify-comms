@@ -197,3 +197,13 @@ export function renderSessionModeLabel(agent) {
   if (mode !== 'resident' && mode !== 'managed') return '';
   return ` · ${esc(mode)}`;
 }
+
+// The resident<->managed switch chip, moved out of app.js in v0.5.4. It renders beside
+// `renderSessionModeLabel` above and carries the data attributes the delegated click handler reads.
+export function renderModeSwitchChip(agent) {
+  if (!agent || typeof agent !== 'object') return '';
+  const current = String(agent.sessionMode || '').toLowerCase();
+  if (current !== 'resident' && current !== 'managed') return '';
+  const target = current === 'resident' ? 'managed' : 'resident';
+  return `<button class="ghost mode-switch-chip" data-mode-switch="${esc(agent.id)}" data-target-mode="${target}" title="Flip ${esc(agent.id)} to ${target} mode">Switch to ${target}</button>`;
+}

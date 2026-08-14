@@ -935,6 +935,22 @@ const EXTRACTIONS = [
       { name: "lookup", at: 4193, marker: "// lookup moved to ./record-lookup.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "static-links.mjs",
+    importLine: "import { renderInstallSnippet, updateStaticLinks } from './static-links.mjs';",
+    items: [
+      { name: "renderInstallSnippet", at: 36, marker: "// renderInstallSnippet moved to ./static-links.mjs in v0.5.4." },
+      { name: "updateStaticLinks", at: 4231, marker: "// updateStaticLinks moved to ./static-links.mjs in v0.5.4." },
+    ],
+  },
+  {
+    module: "session-rail.mjs",
+    importLine: "import { SESSION_FILTER_KINDS, agentForSession, agentForTerminal, ensureSelectedSession, renderModeSwitchChip, renderSessionModeLabel, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';",
+    importWas: "import { SESSION_FILTER_KINDS, agentForSession, agentForTerminal, ensureSelectedSession, renderSessionModeLabel, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';",
+    items: [
+      { name: "renderModeSwitchChip", at: 2578, marker: "// renderModeSwitchChip moved to ./session-rail.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -967,6 +983,7 @@ const MODULES = () => ({
   "layout-prefs.mjs": read("layout-prefs.mjs"),
   "render-memo.mjs": read("render-memo.mjs"),
   "record-lookup.mjs": read("record-lookup.mjs"),
+  "static-links.mjs": read("static-links.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),

@@ -35,7 +35,7 @@ import { renderRunEvent } from './run-event.mjs';
 import { applyRenderedWidth } from './terminal-width.mjs';
 import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
 import { state } from './state.mjs';
-import { SESSION_FILTER_KINDS, agentForSession, agentForTerminal, ensureSelectedSession, renderSessionModeLabel, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';
+import { SESSION_FILTER_KINDS, agentForSession, agentForTerminal, ensureSelectedSession, renderModeSwitchChip, renderSessionModeLabel, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';
 import { applyThemeChoice, previewAppearance, refreshActiveTerminalTheme, renderSettings, selectSettingsTab, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
 import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './agent-drawer.mjs';
 import { applyContractView, applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, matchesGlobalFilter, pruneDiagnosticSelection, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';
@@ -53,6 +53,7 @@ import { runAgentControl, startColdAgent, switchAgentModeFromRow, switchModeFrom
 import { runConsoleAction } from './console-click-handlers.mjs';
 import { consoleAwaitingInputHint, updateAwaitPill } from './console-await.mjs';
 import { handleGlobalKeydown } from './keyboard-shortcuts.mjs';
+import { renderInstallSnippet, updateStaticLinks } from './static-links.mjs';
 import { lookup } from './record-lookup.mjs';
 import { renderSection } from './render-memo.mjs';
 import { preferredNavCollapsed, setNavCollapsed, toggleSessionGroupCollapsed } from './layout-prefs.mjs';
@@ -76,11 +77,7 @@ const apiBase = `${apiOrigin}/api/v1`;
 // dashboard on. It used to hard-code one machine's LAN IP, which was wrong for every other reader
 // (and published that address in a public repo). `apiOrigin` already resolves ?api= > stored
 // override > this page's host, so the snippet matches whatever they are really talking to.
-function renderInstallSnippet() {
-  const el = document.getElementById('help-install-cmd');
-  if (el) el.textContent = `bash install.sh --client claude \
-  ${apiOrigin} --with-hook`;
-}
+// renderInstallSnippet moved to ./static-links.mjs in v0.5.4.
 // RUN_INSPECTOR_EVENT_LIMIT moved to ./run-helpers.mjs in v0.5.4.
 
 // state moved to ./state.mjs in v0.5.4 — see that module for why the earlier measurement said it would not help.
@@ -1641,13 +1638,7 @@ window.addEventListener('beforeunload', () => { codexConsoleConnections.forEach(
 
 // Manual resident<->managed mode-switch chip. Ownership changes are
 // operator-driven only, so the switch is always visible for valid agents.
-function renderModeSwitchChip(agent) {
-  if (!agent || typeof agent !== 'object') return '';
-  const current = String(agent.sessionMode || '').toLowerCase();
-  if (current !== 'resident' && current !== 'managed') return '';
-  const target = current === 'resident' ? 'managed' : 'resident';
-  return `<button class="ghost mode-switch-chip" data-mode-switch="${esc(agent.id)}" data-target-mode="${target}" title="Flip ${esc(agent.id)} to ${target} mode">Switch to ${target}</button>`;
-}
+// renderModeSwitchChip moved to ./session-rail.mjs in v0.5.4.
 
 // Optional inline label so operators can see the current sessionMode at a
 // glance in the session header subtitle. Informational only.
@@ -2720,10 +2711,7 @@ function setPage(page) {
   renderSessionWorkspace();
 }
 
-function updateStaticLinks() {
-  const legacy = byId('legacy-dashboard-link');
-  if (legacy) legacy.href = `${apiOrigin}/api/v1/dashboard`;
-}
+// updateStaticLinks moved to ./static-links.mjs in v0.5.4.
 
 document.addEventListener('click', (event) => {
   const settingsTab = event.target.closest('[data-settings-tab]');

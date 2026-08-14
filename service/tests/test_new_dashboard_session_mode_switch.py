@@ -54,37 +54,27 @@ class NewDashboardSessionModeSwitchTests(unittest.TestCase):
             "refresh() must persist the settings snapshot (allSettled slot 9) into state",
         )
 
-    def test_render_mode_switch_chip_helper_exists_without_settings_gate(self):
-        self.assertIn(
-            "function renderModeSwitchChip(agent)",
-            self.script,
-            "Plan 6 C4: renderModeSwitchChip helper must be defined",
-        )
-        self.assertNotIn(
-            "state.settings.manual_session_mode !== true",
-            self.script,
-            "Manual session switching must always be visible in Sessions/chat details; "
-            "manual_session_mode must not gate the chip",
-        )
-
-    def test_chip_emits_data_attributes_for_click_handler(self):
-        self.assertIn(
-            'data-mode-switch="${esc(agent.id)}"',
-            self.script,
-            "Plan 6 C4: chip must carry data-mode-switch=<agentId> so the "
-            "click handler can identify the target agent",
-        )
-        self.assertIn(
-            'data-target-mode="${target}"',
-            self.script,
-            "Plan 6 C4: chip must carry data-target-mode=<resident|managed>",
-        )
-        # The text content swaps between "Switch to resident" / "Switch to managed".
-        self.assertIn(
-            "Switch to ${target}",
-            self.script,
-            "Plan 6 C4: chip label must describe the target mode",
-        )
+    # RETIRED: test_render_mode_switch_chip_helper_exists_without_settings_gate, and
+    # test_chip_emits_data_attributes_for_click_handler.
+    #
+    # Both grepped app.js — for the helper's `function` line, and for its `data-mode-switch` /
+    # `data-target-mode` / label strings. They went red in v0.5.4 when `renderModeSwitchChip` moved to
+    # `service/new_dashboard/session-rail.mjs`, with the chip unchanged.
+    #
+    # They also could not have caught the one mistake that matters here: a chip offering to switch an
+    # agent to the mode it is ALREADY in would have satisfied every one of those matches, because the
+    # template text is identical either way. The inversion is the feature.
+    #
+    # Now proven by tests that CALL it, in `session-rail.test.mjs`:
+    #   "THE CHIP OFFERS THE OPPOSITE MODE, never the current one"
+    #   "it carries the agent id the click handler reads"
+    #   "the agent id is ESCAPED into both the attribute and the title"
+    #   "an agent in NEITHER mode renders nothing at all"
+    #   "IT IS NOT GATED ON A SETTING — the chip renders whatever manual_session_mode says"
+    #
+    # The last of those replaces the `assertNotIn` above, and replaces it with something stronger: the
+    # function takes one parameter, so there is nowhere for a settings gate to live, and the chip is
+    # asserted to render with `manual_session_mode: false` set.
 
     def test_click_handler_delegates_mode_switch_clicks(self):
         """app.js still OWNS the delegation; what the handler then does is proven by calling it.

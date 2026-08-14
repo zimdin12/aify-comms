@@ -18,6 +18,7 @@ import {
   SESSION_FILTER_KINDS,
   agentForSession,
   agentForTerminal,
+  renderModeSwitchChip,
   renderSessionModeLabel,
   groupedSessionsByEnvironment,
   selectedSessionIds,
@@ -330,4 +331,68 @@ test("the mode is matched case-insensitively", () => {
   // The API has returned both spellings; a case-sensitive test would drop the label for half the rows.
   assert.equal(renderSessionModeLabel({ sessionMode: "Resident" }), " · resident");
   assert.equal(renderSessionModeLabel({ sessionMode: "MANAGED" }), " · managed");
+});
+
+// --- renderModeSwitchChip ------------------------------------------------------------------------
+//
+// The resident<->managed switch. Three Python string-matches in
+// `service/tests/test_new_dashboard_session_mode_switch.py` used to assert this by grepping app.js for
+// the helper's `function` line and its data attributes. Those could only prove the text had been
+// written — they would have passed on a chip that offered to switch an agent to the mode it is ALREADY
+// in, which is the one mistake that matters here.
+
+test("THE CHIP OFFERS THE OPPOSITE MODE, never the current one", () => {
+  // The inversion is the whole feature. Offering the current mode gives the operator a button that
+  // appears to do something and cannot, and no string match on the template could ever catch it.
+  const resident = renderModeSwitchChip({ id: "coder-1", sessionMode: "resident" });
+  assert.match(resident, /data-target-mode="managed"/);
+  assert.match(resident, />Switch to managed</);
+
+  const managed = renderModeSwitchChip({ id: "coder-1", sessionMode: "managed" });
+  assert.match(managed, /data-target-mode="resident"/);
+  assert.match(managed, />Switch to resident</);
+});
+
+test("it carries the agent id the click handler reads", () => {
+  // `data-mode-switch` is how the delegated listener knows which agent to flip. Without it the click
+  // resolves to undefined and the PATCH addresses nothing.
+  assert.match(renderModeSwitchChip({ id: "coder-1", sessionMode: "resident" }), /data-mode-switch="coder-1"/);
+});
+
+test("the agent id is ESCAPED into both the attribute and the title", () => {
+  // Agent ids are operator-chosen strings. Unescaped, a quote breaks out of the attribute and the
+  // surrounding markup silently truncates.
+  const html = renderModeSwitchChip({ id: 'a"><script>x</script>', sessionMode: "managed" });
+  assert.doesNotMatch(html, /<script>/, "no raw markup may reach the DOM");
+  assert.match(html, /&quot;|&#34;/, "the quote is entity-encoded");
+});
+
+test("an agent in NEITHER mode renders nothing at all", () => {
+  // An empty string, not a disabled button: the chip sits inline in a meta line, so a placeholder would
+  // leave a stray separator. Unknown modes are the normal case for agents that have never run.
+  for (const agent of [
+    { id: "a", sessionMode: "" },
+    { id: "a", sessionMode: "hybrid" },
+    { id: "a" },
+    {},
+    null,
+    undefined,
+    "not an object",
+  ]) {
+    assert.equal(renderModeSwitchChip(agent), "", JSON.stringify(agent));
+  }
+});
+
+test("the mode is matched case-insensitively", () => {
+  assert.match(renderModeSwitchChip({ id: "a", sessionMode: "Resident" }), /data-target-mode="managed"/);
+  assert.match(renderModeSwitchChip({ id: "a", sessionMode: "MANAGED" }), /data-target-mode="resident"/);
+});
+
+test("IT IS NOT GATED ON A SETTING — the chip renders whatever manual_session_mode says", () => {
+  // `manual_session_mode` used to hide it. Manual switching must stay reachable from Sessions and chat
+  // details regardless, which was a deliberate product decision; the function takes only an agent, so
+  // there is nowhere for a settings gate to hide.
+  assert.equal(renderModeSwitchChip.length, 1, "one parameter: the agent, and no settings argument");
+  state.settings = { manual_session_mode: false };
+  assert.notEqual(renderModeSwitchChip({ id: "a", sessionMode: "resident" }), "");
 });
