@@ -53,8 +53,10 @@ import { runAgentControl, startColdAgent, switchAgentModeFromRow, switchModeFrom
 import { runConsoleAction } from './console-click-handlers.mjs';
 import { consoleAwaitingInputHint, updateAwaitPill } from './console-await.mjs';
 import { handleGlobalKeydown } from './keyboard-shortcuts.mjs';
+import { lookup } from './record-lookup.mjs';
+import { renderSection } from './render-memo.mjs';
 import { preferredNavCollapsed, setNavCollapsed, toggleSessionGroupCollapsed } from './layout-prefs.mjs';
-import { patchRun, runQueryPath, runSourceMessage, syncRunFilterOptions } from './run-helpers.mjs';
+import { RUN_INSPECTOR_EVENT_LIMIT, loadRunDetails, loadRunEvents, patchRun, runQueryPath, runSourceMessage, syncRunFilterOptions } from './run-helpers.mjs';
 import { navigateToPage, openEnvironmentSpawn, openHermesTabFromRow, selectAnalyticsRange } from './nav-click-handlers.mjs';
 import { openChatConversation, openChatReply, runChannelAction, setChatView, setPulseWindow } from './chat-click-handlers.mjs';
 import { applySessionStatusPreset, openAgentSessions, selectSessionRow, selectSessionTab, toggleSessionCheckbox, toggleSessionStatusFilter } from './session-click-handlers.mjs';
@@ -79,7 +81,7 @@ function renderInstallSnippet() {
   if (el) el.textContent = `bash install.sh --client claude \
   ${apiOrigin} --with-hook`;
 }
-const RUN_INSPECTOR_EVENT_LIMIT = 50;
+// RUN_INSPECTOR_EVENT_LIMIT moved to ./run-helpers.mjs in v0.5.4.
 
 // state moved to ./state.mjs in v0.5.4 — see that module for why the earlier measurement said it would not help.
 
@@ -749,13 +751,8 @@ async function _refreshImpl() {
 // no needless re-render, no flicker. The session workspace + console are intentionally NOT
 // gated here: they keep their own proven internal guards (the xterm remount guard +
 // terminalId cache) which already preserve live PTY/scroll/focus state across refreshes.
-const _sectionSig = Object.create(null);
-function renderSection(key, signature, renderFn) {
-  const sig = JSON.stringify(signature);
-  if (_sectionSig[key] === sig) return;
-  _sectionSig[key] = sig;
-  renderFn();
-}
+// _sectionSig moved to ./render-memo.mjs in v0.5.4.
+// renderSection moved to ./render-memo.mjs in v0.5.4.
 // Compact, stable fingerprints of just the fields a section renders from.
 const _agentSig = () => state.agents.map((a) => [a.id, a.status]);
 const _contractSig = () => state.contracts.map((c) => [c.id, c.state, c.status, c.overdue, c.subject]);
@@ -2111,18 +2108,9 @@ function renderRuns() {
 // analytics-grid / run-status-mix (absent from index.html). The analytics surface returns as
 // a tab on the Control Room slice (Phase 1) consuming GET /analytics + GET /analytics/agent/{id}.
 
-async function loadRunDetails(runId) {
-  const result = await api(`/dispatch/runs/${encodeURIComponent(runId)}`);
-  return result.run || result;
-}
+// loadRunDetails moved to ./run-helpers.mjs in v0.5.4.
 
-async function loadRunEvents(runId, { before = '', order = state.inspector.eventOrder || 'desc', limit = RUN_INSPECTOR_EVENT_LIMIT } = {}) {
-  const params = new URLSearchParams();
-  params.set('limit', String(Math.min(limit, RUN_INSPECTOR_EVENT_LIMIT)));
-  params.set('order', order === 'asc' ? 'asc' : 'desc');
-  if (before) params.set('before', before);
-  return api(`/dispatch/runs/${encodeURIComponent(runId)}/events?${params.toString()}`);
-}
+// loadRunEvents moved to ./run-helpers.mjs in v0.5.4.
 
 // runStatusContext moved to ./status.js in v0.5.4.
 
@@ -2704,17 +2692,7 @@ async function toggleRunEventOrder() {
 
 // uploadPastedImage moved to ./shared-files.mjs in v0.5.4.
 
-function lookup(kind, id) {
-  const maps = {
-    agent: state.agents,
-    contract: state.contracts,
-    message: state.messages,
-    run: state.runs,
-    session: state.sessions,
-    environment: state.environments,
-  };
-  return (maps[kind] || []).find((item) => String(item.id || item.messageId) === String(id));
-}
+// lookup moved to ./record-lookup.mjs in v0.5.4.
 
 function setPage(page) {
   const [title, subtitle] = pages[page] || pages.sessions;

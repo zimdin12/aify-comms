@@ -38,3 +38,19 @@ export async function patchRun(runId, payload) {
     body: JSON.stringify(payload),
   });
 }
+
+// The run-inspector data loaders, moved out of app.js in v0.5.4. They join the query helpers above
+// because they address the same endpoints; the page-size cap travels with them, since it is enforced
+// in two places and splitting them would let the two drift.
+export const RUN_INSPECTOR_EVENT_LIMIT = 50;
+export async function loadRunDetails(runId) {
+  const result = await api(`/dispatch/runs/${encodeURIComponent(runId)}`);
+  return result.run || result;
+}
+export async function loadRunEvents(runId, { before = '', order = state.inspector.eventOrder || 'desc', limit = RUN_INSPECTOR_EVENT_LIMIT } = {}) {
+  const params = new URLSearchParams();
+  params.set('limit', String(Math.min(limit, RUN_INSPECTOR_EVENT_LIMIT)));
+  params.set('order', order === 'asc' ? 'asc' : 'desc');
+  if (before) params.set('before', before);
+  return api(`/dispatch/runs/${encodeURIComponent(runId)}/events?${params.toString()}`);
+}

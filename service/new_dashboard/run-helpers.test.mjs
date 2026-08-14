@@ -8,7 +8,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { state } from "./state.mjs";
-import { patchRun, runQueryPath, runSourceMessage, syncRunFilterOptions } from "./run-helpers.mjs";
+import {
+  RUN_INSPECTOR_EVENT_LIMIT,
+  loadRunDetails,
+  loadRunEvents,
+  patchRun,
+  runQueryPath,
+  runSourceMessage,
+  syncRunFilterOptions,
+} from "./run-helpers.mjs";
 
 /** Seal the shared `state` fields these read. */
 function withState(fields, run) {
@@ -194,4 +202,75 @@ test("patchRun PATCHes the encoded run id with a JSON body", () => {
     .finally(() => {
       if (had) globalThis.fetch = prev; else delete globalThis.fetch;
     });
+});
+
+// --- the run-inspector loaders -------------------------------------------------------------------
+
+/** Capture requests; every response is a plain JSON object. */
+function withFetch(body, run) {
+  const had = "fetch" in globalThis;
+  const prev = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), method: init?.method });
+    return {
+      ok: true, status: 200, headers: { get: () => "application/json" },
+      json: async () => body, text: async () => JSON.stringify(body),
+    };
+  };
+  return Promise.resolve(run(calls)).finally(() => {
+    if (had) globalThis.fetch = prev; else delete globalThis.fetch;
+  });
+}
+
+test("loadRunDetails unwraps `run` but tolerates a bare record", () => {
+  // `result.run || result`. The endpoint has returned both shapes; reading only the wrapper leaves the
+  // inspector empty for the other, with no error to explain it.
+  return withFetch({ run: { id: "r1" } }, async () => {
+    assert.equal((await loadRunDetails("r1")).id, "r1");
+  }).then(() => withFetch({ id: "r2" }, async () => {
+    assert.equal((await loadRunDetails("r2")).id, "r2");
+  }));
+});
+
+test("loadRunDetails ENCODES the run id into the path", () => {
+  return withFetch({}, async (calls) => {
+    await loadRunDetails("a/b c");
+    assert.match(calls[0].url, /\/dispatch\/runs\/a%2Fb(%20|\+)c$/);
+  });
+});
+
+test("THE PAGE SIZE IS CAPPED, even when a caller asks for more", () => {
+  // `Math.min(limit, RUN_INSPECTOR_EVENT_LIMIT)`. The cap is the only thing between a busy run's event
+  // history and a request that returns thousands of rows into an inspector panel.
+  return withFetch({}, async (calls) => {
+    await loadRunEvents("r1", { limit: 5000 });
+    assert.match(calls[0].url, new RegExp(`limit=${RUN_INSPECTOR_EVENT_LIMIT}(&|$)`));
+
+    await loadRunEvents("r1", { limit: 5 });
+    assert.match(calls[1].url, /limit=5(&|$)/, "a smaller request is honoured");
+  });
+});
+
+test("order is normalised to asc/desc — anything unrecognised means desc", () => {
+  // The value goes straight into a query the service parses. Newest-first is the safe default: an
+  // inspector opened on a long-running job should show what just happened, not its first event.
+  return withFetch({}, async (calls) => {
+    await loadRunEvents("r1", { order: "asc" });
+    assert.match(calls[0].url, /order=asc/);
+    for (const bad of ["ASC", "sideways", "", null]) {
+      await loadRunEvents("r1", { order: bad });
+      assert.match(calls[calls.length - 1].url, /order=desc/, JSON.stringify(bad));
+    }
+  });
+});
+
+test("`before` is sent only when there is one", () => {
+  // Paging cursor. Sending an empty `before=` would ask the service to page from nowhere.
+  return withFetch({}, async (calls) => {
+    await loadRunEvents("r1", {});
+    assert.doesNotMatch(calls[0].url, /before=/);
+    await loadRunEvents("r1", { before: "evt-9" });
+    assert.match(calls[1].url, /before=evt-9/);
+  });
 });

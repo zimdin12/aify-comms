@@ -910,6 +910,31 @@ const EXTRACTIONS = [
       { name: "renderSessionModeLabel", at: 2588, marker: "// renderSessionModeLabel moved to ./session-rail.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "run-helpers.mjs",
+    importLine: "import { RUN_INSPECTOR_EVENT_LIMIT, loadRunDetails, loadRunEvents, patchRun, runQueryPath, runSourceMessage, syncRunFilterOptions } from './run-helpers.mjs';",
+    importWas: "import { patchRun, runQueryPath, runSourceMessage, syncRunFilterOptions } from './run-helpers.mjs';",
+    items: [
+      { name: "RUN_INSPECTOR_EVENT_LIMIT", at: 41, marker: "// RUN_INSPECTOR_EVENT_LIMIT moved to ./run-helpers.mjs in v0.5.4." },
+      { name: "loadRunDetails", at: 3230, marker: "// loadRunDetails moved to ./run-helpers.mjs in v0.5.4." },
+      { name: "loadRunEvents", at: 3235, marker: "// loadRunEvents moved to ./run-helpers.mjs in v0.5.4." },
+    ],
+  },
+  {
+    module: "render-memo.mjs",
+    importLine: "import { renderSection } from './render-memo.mjs';",
+    items: [
+      { name: "_sectionSig", at: 930, marker: "// _sectionSig moved to ./render-memo.mjs in v0.5.4." },
+      { name: "renderSection", at: 931, marker: "// renderSection moved to ./render-memo.mjs in v0.5.4." },
+    ],
+  },
+  {
+    module: "record-lookup.mjs",
+    importLine: "import { lookup } from './record-lookup.mjs';",
+    items: [
+      { name: "lookup", at: 4193, marker: "// lookup moved to ./record-lookup.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -940,6 +965,8 @@ const MODULES = () => ({
   "run-helpers.mjs": read("run-helpers.mjs"),
   "console-await.mjs": read("console-await.mjs"),
   "layout-prefs.mjs": read("layout-prefs.mjs"),
+  "render-memo.mjs": read("render-memo.mjs"),
+  "record-lookup.mjs": read("record-lookup.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),
