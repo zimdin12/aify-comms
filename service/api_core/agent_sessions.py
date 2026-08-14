@@ -24,6 +24,8 @@ import json
 import time
 from typing import Any, Optional
 
+from service.api_core.active_run_lookup import _get_blocking_active_run
+from service.api_core.serialization import _json_loads_or
 from service.api_core.events import _append_terminal_control, _append_terminal_event
 from service.api_core.runtime_state import _runtime_state_with_handle
 from service.clock import iso_to_epoch as _iso_to_epoch
@@ -370,3 +372,88 @@ async def _supersede_stale_resident_terminals(db, req, terminal_id: str, now: st
                     """,
                     (req.agentId, *stopped_ids),
                 )
+
+
+async def _stage_manual_resident_takeover(db, req, row, bridge_id: str, normalized_runtime: str,
+                                          session_handle: str, runtime_config, capabilities,
+                                          resolved_cwd: str, now: str):
+            """A MANAGED agent tried to register as resident. Record the candidate; do not switch it.
+
+            Extracted from `register_agent` in v0.5.4 and re-proved on every run by
+            `test_register_agent_split_is_inert.py`, which inlines it back and AST-compares against the
+            pre-split fixture.
+
+            Body left at its original 12-space column so the multi-line SQL literal inside it is preserved
+            byte-for-byte — see `_supersede_stale_resident_terminals` for why that matters and why the gate
+            refused the tidier version.
+
+            THE ONE-DRIVER INVARIANT is what this is protecting. Two things cannot drive one agent, so a
+            managed agent does not silently become resident because a CLI session registered: the candidate
+            is stashed in `manualResidentCandidate` and the operator flips the mode deliberately. The stale
+            `pendingResidentTakeover` is popped first, or a candidate from an earlier attempt would still be
+            sitting there when this one is read.
+
+            Returns the blocking active run, which the caller reports back to the registering session so it
+            can say WHY the switch did not happen rather than just that it did not.
+            """
+            active_run = await _get_blocking_active_run(db, req.agentId)
+            existing_state_dict = _json_loads_or(row["runtime_state"], {})
+            existing_state_dict.pop("pendingResidentTakeover", None)
+            existing_state_dict["manualResidentCandidate"] = {
+                "bridgeId": bridge_id,
+                "machineId": req.machineId or "",
+                "runtime": normalized_runtime,
+                "sessionHandle": session_handle,
+                "runtimeConfig": runtime_config,
+                "capabilities": capabilities or [],
+                "cwd": resolved_cwd,
+                "launchMode": req.launchMode or "detached",
+                "registeredAt": now,
+            }
+            await db.execute(
+                """
+                UPDATE agents
+                SET runtime_state = ?,
+                    status_note = ?,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (
+                    json.dumps(existing_state_dict),
+                    (
+                        f"Resident CLI registered, but agent remains managed. Use Switch to resident when ready."
+                        + (f" Active run {active_run.get('runId') or ''} is still running." if active_run else "")
+                    ),
+                    now,
+                    req.agentId,
+                ),
+            )
+            if session_handle:
+                await db.execute(
+                    """
+                    UPDATE agent_sessions
+                    SET session_handle = ?,
+                        telemetry = CASE
+                            WHEN COALESCE(NULLIF(telemetry, ''), '{}') = '{}' THEN ?
+                            ELSE telemetry
+                        END,
+                        last_seen = ?
+                    WHERE id = (
+                        SELECT id
+                        FROM agent_sessions
+                        WHERE agent_id = ?
+                          AND runtime = ?
+                          AND status = 'cli-takeover'
+                        ORDER BY last_seen DESC
+                        LIMIT 1
+                    )
+                    """,
+                    (
+                        session_handle,
+                        json.dumps({"registeredHandle": _runtime_state_with_handle(normalized_runtime, {}, session_handle)}),
+                        now,
+                        req.agentId,
+                        normalized_runtime,
+                    ),
+                )
+            return active_run

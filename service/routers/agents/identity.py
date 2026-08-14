@@ -38,6 +38,7 @@ from service.models import (
 
 from service.api_core.agent_sessions import (
     _record_registered_session_handle,
+    _stage_manual_resident_takeover,
     _supersede_stale_resident_terminals,
 )
 from service.api_core.registration_gates import (
@@ -443,66 +444,10 @@ async def register_agent(req: AgentRegister, request: Request):
             fresh_state["pi_resident_pending_flip"] = True
         existing_state = json.dumps(fresh_state)
         if row and normalized_session_mode == "resident" and _normalize_session_mode(row["session_mode"] or "resident") == "managed":
-            active_run = await _get_blocking_active_run(db, req.agentId)
-            existing_state_dict = _json_loads_or(row["runtime_state"], {})
-            existing_state_dict.pop("pendingResidentTakeover", None)
-            existing_state_dict["manualResidentCandidate"] = {
-                "bridgeId": bridge_id,
-                "machineId": req.machineId or "",
-                "runtime": normalized_runtime,
-                "sessionHandle": session_handle,
-                "runtimeConfig": runtime_config,
-                "capabilities": capabilities or [],
-                "cwd": resolved_cwd,
-                "launchMode": req.launchMode or "detached",
-                "registeredAt": now,
-            }
-            await db.execute(
-                """
-                UPDATE agents
-                SET runtime_state = ?,
-                    status_note = ?,
-                    last_seen = ?
-                WHERE id = ?
-                """,
-                (
-                    json.dumps(existing_state_dict),
-                    (
-                        f"Resident CLI registered, but agent remains managed. Use Switch to resident when ready."
-                        + (f" Active run {active_run.get('runId') or ''} is still running." if active_run else "")
-                    ),
-                    now,
-                    req.agentId,
-                ),
+            active_run = await _stage_manual_resident_takeover(
+                db, req, row, bridge_id, normalized_runtime, session_handle,
+                runtime_config, capabilities, resolved_cwd, now,
             )
-            if session_handle:
-                await db.execute(
-                    """
-                    UPDATE agent_sessions
-                    SET session_handle = ?,
-                        telemetry = CASE
-                            WHEN COALESCE(NULLIF(telemetry, ''), '{}') = '{}' THEN ?
-                            ELSE telemetry
-                        END,
-                        last_seen = ?
-                    WHERE id = (
-                        SELECT id
-                        FROM agent_sessions
-                        WHERE agent_id = ?
-                          AND runtime = ?
-                          AND status = 'cli-takeover'
-                        ORDER BY last_seen DESC
-                        LIMIT 1
-                    )
-                    """,
-                    (
-                        session_handle,
-                        json.dumps({"registeredHandle": _runtime_state_with_handle(normalized_runtime, {}, session_handle)}),
-                        now,
-                        req.agentId,
-                        normalized_runtime,
-                    ),
-                )
             if bridge_id:
                 await _record_bridge_registration(
                     db,

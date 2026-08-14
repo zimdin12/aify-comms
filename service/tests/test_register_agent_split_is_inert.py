@@ -44,6 +44,7 @@ EXTRACTIONS = [
     "_enforce_tombstone_resurrection_gate",
     "_record_registered_session_handle",
     "_supersede_stale_resident_terminals",
+    "_stage_manual_resident_takeover",
 ]
 
 
