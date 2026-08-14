@@ -17,6 +17,7 @@ import { state } from "./state.mjs";
 import {
   SESSION_FILTER_KINDS,
   agentForSession,
+  agentForTerminal,
   groupedSessionsByEnvironment,
   selectedSessionIds,
   sessionGroupCollapsed,
@@ -225,5 +226,88 @@ test("toggleSupersededSessions FLIPS the flag and RE-RENDERS in the same call", 
   } finally {
     state.showSupersededSessions = saved;
     if (hadDoc) globalThis.document = prevDoc; else delete globalThis.document;
+  }
+});
+
+// --- agentForTerminal ---------------------------------------------------------------------------
+//
+// Which agent owns a terminal. It decides who a console's input reaches, so a wrong answer sends an
+// operator's keystrokes to a different agent — the reason the lookup order below is asserted rather
+// than assumed.
+
+test("agentForTerminal accepts all THREE shapes a session can carry a terminal id in", () => {
+  // The API has used `terminalId`, `terminal.id` and `terminal_id`. Reading only one means the lookup
+  // silently fails for whole classes of session and falls through to the agent list, which is a poll
+  // behind — so the console would attach to a stale owner rather than erroring.
+  const saved = { sessions: state.sessions, agents: state.agents };
+  try {
+    state.agents = [{ id: "coder-1" }];
+    for (const session of [
+      { id: "s1", agent_id: "coder-1", terminalId: "t1" },
+      { id: "s1", agent_id: "coder-1", terminal: { id: "t1" } },
+      { id: "s1", agent_id: "coder-1", terminal_id: "t1" },
+    ]) {
+      state.sessions = [session];
+      assert.equal(agentForTerminal("t1")?.id, "coder-1", JSON.stringify(session));
+    }
+  } finally {
+    Object.assign(state, saved);
+  }
+});
+
+test("a session whose AGENT is unknown yields `{}`, not null — pinned because it is surprising", () => {
+  // `agentForSession` ends `|| {}`, so a matched session with an agent missing from `state.agents`
+  // returns an EMPTY OBJECT. It is truthy, so `if (agentForTerminal(id))` passes and `.id` is undefined —
+  // a caller that guards on the result gets past the guard with nothing usable. Asserted as-is rather
+  // than changed, since `{}` is what every existing caller of `agentForSession` already receives.
+  const saved = { sessions: state.sessions, agents: state.agents };
+  try {
+    state.sessions = [{ id: "s1", agent_id: "ghost", terminalId: "t1" }];
+    state.agents = [];
+    const got = agentForTerminal("t1");
+    assert.deepEqual(got, {}, "an empty object, not null");
+    assert.ok(got, "…and it is truthy, which is the part worth knowing");
+  } finally {
+    Object.assign(state, saved);
+  }
+});
+
+test("THE SESSION WINS over the agent's cached runtime state", () => {
+  // A session knows its terminal now; an agent's `runtimeState` may be a poll behind. If the fallback
+  // were consulted first, a terminal that had just been reassigned would resolve to its previous owner.
+  const saved = { sessions: state.sessions, agents: state.agents };
+  try {
+    state.sessions = [{ id: "s1", agent_id: "current", terminalId: "t1" }];
+    state.agents = [{ id: "stale", runtimeState: { terminalId: "t1" } }];
+    const got = agentForTerminal("t1");
+    assert.notEqual(got?.id, "stale", "the agent list must not win");
+  } finally {
+    Object.assign(state, saved);
+  }
+});
+
+test("it falls back to the agent list, and returns NULL when nothing owns the terminal", () => {
+  const saved = { sessions: state.sessions, agents: state.agents };
+  try {
+    state.sessions = [];
+    state.agents = [{ id: "owner", terminalId: "t1" }];
+    assert.equal(agentForTerminal("t1")?.id, "owner");
+    assert.equal(agentForTerminal("nope"), null, "an unowned terminal is null, not undefined");
+    assert.equal(agentForTerminal(undefined), null, "…and so is a missing id");
+  } finally {
+    Object.assign(state, saved);
+  }
+});
+
+test("it survives absent session and agent lists", () => {
+  // `(state.sessions || [])`. Both are empty on first paint, before the first refresh lands.
+  const saved = { sessions: state.sessions, agents: state.agents };
+  try {
+    state.sessions = undefined;
+    state.agents = undefined;
+    assert.doesNotThrow(() => agentForTerminal("t1"));
+    assert.equal(agentForTerminal("t1"), null);
+  } finally {
+    Object.assign(state, saved);
   }
 });

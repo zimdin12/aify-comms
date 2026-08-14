@@ -180,3 +180,13 @@ export function toggleSupersededSessions() {
   state.showSupersededSessions = !state.showSupersededSessions;
   renderSessionRail();
 }
+
+// Which agent owns a terminal, moved out of app.js in v0.5.4. It resolves through this module's own
+// `agentForSession` first and only then falls back to the agent list, which is the order that matters:
+// a session knows its terminal, an agent's cached runtime state may be a poll behind.
+export function agentForTerminal(terminalId) {
+  const tid = String(terminalId || '');
+  const sess = (state.sessions || []).find((x) => String(x?.terminalId || x?.terminal?.id || x?.terminal_id || '') === tid);
+  if (sess) return agentForSession(sess);
+  return (state.agents || []).find((a) => String(a?.runtimeState?.terminalId || a?.terminalId || '') === tid) || null;
+}

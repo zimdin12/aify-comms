@@ -799,6 +799,22 @@ const EXTRACTIONS = [
       },
     ],
   },
+  {
+    module: "console-await.mjs",
+    importLine: "import { consoleAwaitingInputHint, updateAwaitPill } from './console-await.mjs';",
+    items: [
+      { name: "consoleAwaitingInputHint", at: 2421, marker: "// consoleAwaitingInputHint moved to ./console-await.mjs in v0.5.4." },
+      { name: "updateAwaitPill", at: 2427, marker: "// updateAwaitPill moved to ./console-await.mjs in v0.5.4." },
+    ],
+  },
+  {
+    module: "session-rail.mjs",
+    importLine: "import { SESSION_FILTER_KINDS, agentForSession, agentForTerminal, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';",
+    importWas: "import { SESSION_FILTER_KINDS, agentForSession, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';",
+    items: [
+      { name: "agentForTerminal", at: 2272, marker: "// agentForTerminal moved to ./session-rail.mjs in v0.5.4." },
+    ],
+  },
   // Plain declaration relocations — no wrapper, the whole `function` span moves as it always did.
   {
     module: "run-helpers.mjs",
@@ -897,6 +913,7 @@ const MODULES = () => ({
   "console-click-handlers.mjs": read("console-click-handlers.mjs"),
   "keyboard-shortcuts.mjs": read("keyboard-shortcuts.mjs"),
   "run-helpers.mjs": read("run-helpers.mjs"),
+  "console-await.mjs": read("console-await.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),

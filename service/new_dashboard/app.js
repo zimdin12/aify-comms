@@ -35,7 +35,7 @@ import { renderRunEvent } from './run-event.mjs';
 import { applyRenderedWidth } from './terminal-width.mjs';
 import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
 import { state } from './state.mjs';
-import { SESSION_FILTER_KINDS, agentForSession, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';
+import { SESSION_FILTER_KINDS, agentForSession, agentForTerminal, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';
 import { applyThemeChoice, previewAppearance, refreshActiveTerminalTheme, renderSettings, selectSettingsTab, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
 import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './agent-drawer.mjs';
 import { applyContractView, applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, pruneDiagnosticSelection, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';
@@ -51,6 +51,7 @@ import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } f
 import { persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';
 import { runAgentControl, startColdAgent, switchAgentModeFromRow, switchModeFromChip, toggleFavouriteRow } from './agent-click-handlers.mjs';
 import { runConsoleAction } from './console-click-handlers.mjs';
+import { consoleAwaitingInputHint, updateAwaitPill } from './console-await.mjs';
 import { handleGlobalKeydown } from './keyboard-shortcuts.mjs';
 import { patchRun, runQueryPath, runSourceMessage, syncRunFilterOptions } from './run-helpers.mjs';
 import { navigateToPage, openEnvironmentSpawn, openHermesTabFromRow, selectAnalyticsRange } from './nav-click-handlers.mjs';
@@ -1527,12 +1528,7 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
 
 
 // Which agent owns this terminal? (Used to decide whether the PTY is OURS to resize.)
-function agentForTerminal(terminalId) {
-  const tid = String(terminalId || '');
-  const sess = (state.sessions || []).find((x) => String(x?.terminalId || x?.terminal?.id || x?.terminal_id || '') === tid);
-  if (sess) return agentForSession(sess);
-  return (state.agents || []).find((a) => String(a?.runtimeState?.terminalId || a?.terminalId || '') === tid) || null;
-}
+// agentForTerminal moved to ./session-rail.mjs in v0.5.4.
 
 // Apply the server's rendered width to the xterm.
 //
@@ -1629,22 +1625,9 @@ async function startConsoleForSession(sessionId, freshContext = false) {
 // trailing `>`), which the claude TUI shows PERMANENTLY — the pill was on almost all the
 // time and meant nothing. Only real interactive QUESTIONS count now; the steady "ready for
 // input" state is not an alert.
-function consoleAwaitingInputHint(text) {
-  const tail = String(text || '').slice(-400).toLowerCase();
-  if (!tail.trim()) return false;
-  return /\((y\/n|yes\/no)\)|press enter|are you sure|continue\?|\[y\/n\]|overwrite\?|proceed\?/.test(tail);
-}
+// consoleAwaitingInputHint moved to ./console-await.mjs in v0.5.4.
 
-function updateAwaitPill() {
-  const pill = byId('console-await-pill');
-  if (!pill) return;
-  // Server-derived `blocked` (a real prompt paused the agent's spinner) is the
-  // authoritative signal; the tail regex only catches generic y/n prompts the
-  // status engine doesn't classify (e.g. plain-bash consoles).
-  const agent = state.agents.find((a) => a.id === state.activeXterm?.agentId);
-  const blocked = String(agent?.status || '').startsWith('blocked');
-  pill.hidden = !blocked && !consoleAwaitingInputHint(state.activeXterm?.recentText || '');
-}
+// updateAwaitPill moved to ./console-await.mjs in v0.5.4.
 
 // --- Codex live-console widget --------------------------------------
 // Connects directly to a codex app-server WS (browser → ws://127.0.0.1:<port>),
