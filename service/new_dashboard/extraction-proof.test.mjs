@@ -369,10 +369,11 @@ const EXTRACTIONS = [
   },
   {
     module: "inspector-forms.mjs",
-    importLine: "import { openAgentEditForm, openContinueForm, openMessageDetail } from './inspector-forms.mjs';",
+    importLine: "import { openAgentEditForm, openCompactionHistory, openContinueForm, openMessageDetail } from './inspector-forms.mjs';",
     items: [
       { name: "openAgentEditForm", at: 3609, marker: "// openAgentEditForm moved to ./inspector-forms.mjs in v0.5.4." },
       { name: "openMessageDetail", at: 3696, marker: "// openMessageDetail moved to ./inspector-forms.mjs in v0.5.4." },
+      { name: "openCompactionHistory", at: 3575, marker: "// openCompactionHistory moved to ./inspector-forms.mjs in v0.5.4." },
       { name: "buildHandoffPacket", at: 3723, marker: "// buildHandoffPacket moved to ./inspector-forms.mjs in v0.5.4." },
       { name: "openContinueForm", at: 3731, marker: "// openContinueForm moved to ./inspector-forms.mjs in v0.5.4." },
     ],

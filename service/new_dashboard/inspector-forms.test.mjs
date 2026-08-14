@@ -8,12 +8,15 @@
 // exist in Node and is installed only while rendering.
 
 import assert from "node:assert/strict";
+import http from "node:http";
 import test from "node:test";
 
+import { setApiBase } from "./api-client.mjs";
 import { state } from "./state.mjs";
 import {
   buildHandoffPacket,
   openAgentEditForm,
+  openCompactionHistory,
   openMessageDetail,
 } from "./inspector-forms.mjs";
 
@@ -146,4 +149,118 @@ test("an unknown runtime is added to the options rather than silently reset", ()
   state.environments = [];
   const html = render(() => openAgentEditForm("coder"));
   assert.ok(html.includes('value="some-future-runtime" selected'));
+});
+
+// --- the history panel ----------------------------------------------------
+//
+// Joined this module in v0.5.4. It is the only inspector panel that FETCHES, which is what makes it worth
+// its own harness: it renders a placeholder, then either a list or an error, and the error path is the one
+// an operator meets when the service is down.
+//
+// A REAL LOOPBACK SERVER, because `api` is an imported binding. And an ASYNC render helper: the sync
+// `render()` above returns the moment the promise is created, so every await would run with the globals
+// already torn down — a mistake I made once already in this series and which reads as broken code rather
+// than a broken harness.
+
+const HISTORY_SERVER = http.createServer((req, res) => {
+  req.on("data", () => {});
+  req.on("end", () => HISTORY_HANDLER(req, res));
+});
+let HISTORY_HANDLER = (_req, res) => { res.writeHead(200); res.end("{}"); };
+const HISTORY_PORT = await new Promise((r) => HISTORY_SERVER.listen(0, "127.0.0.2", () => r(HISTORY_SERVER.address().port)));
+setApiBase(`http://127.0.0.2:${HISTORY_PORT}/api/v1`);
+test.after(() => HISTORY_SERVER.close());
+
+function serveHistory(payload, status = 200) {
+  HISTORY_HANDLER = (_req, res) => {
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(JSON.stringify(payload));
+  };
+}
+
+async function renderAsync(run) {
+  const els = { "inspector-content": el(), inspector: el() };
+  const had = { d: "document" in globalThis, r: "requestAnimationFrame" in globalThis };
+  globalThis.document = {
+    getElementById: (id) => els[id] || null,
+    querySelector: () => null,
+    createElement: () => ({
+      className: "", textContent: "", children: [], firstElementChild: null,
+      setAttribute() {}, remove() {}, addEventListener() {},
+      classList: { add() {}, remove() {} },
+      appendChild: (c) => c,
+    }),
+    body: { appendChild: (c) => c },
+  };
+  globalThis.requestAnimationFrame = (fn) => fn();
+  try {
+    await run(els);
+    return { html: els["inspector-content"].innerHTML, els };
+  } finally {
+    if (!had.d) delete globalThis.document;
+    if (!had.r) delete globalThis.requestAnimationFrame;
+  }
+}
+
+test("the history panel claims the inspector and records what it is showing", async () => {
+  // `state.inspector.kind` is what the rest of the app reads to know which panel is open; leaving a stale
+  // kind there makes a later refresh redraw the previous panel over this one.
+  serveHistory({ spawnRequests: [] });
+  state.inspector = { kind: "agent", runId: "run-9", agentId: "other" };
+  const { els } = await renderAsync(() => openCompactionHistory("coder-1"));
+
+  assert.equal(state.inspector.kind, "history");
+  assert.equal(state.inspector.agentId, "coder-1");
+  assert.equal(state.inspector.runId, "", "a stale runId must be cleared, not carried over");
+  assert.equal(els.inspector.classList.contains("open"), true);
+  assert.equal(els.inspector.classList.contains("run-inspector-sheet"), false,
+    "the run-sheet layout belongs to a different panel and must be removed");
+});
+
+test("a spawn record for ANOTHER agent is not shown in this agent's history", async () => {
+  // Three id shapes are accepted because the records come from different writers. Matching too widely
+  // would attribute another agent's spawn to this one.
+  serveHistory({
+    spawnRequests: [
+      { agentId: "coder-1", createdAt: "2026-08-01T00:00:00Z", metadata: {} },
+      { agent_id: "coder-1", createdAt: "2026-08-02T00:00:00Z", metadata: {} },
+      { agentId: "someone-else", createdAt: "2026-08-03T00:00:00Z", metadata: {} },
+      { agentId: "x", createdAt: "2026-08-04T00:00:00Z", metadata: { continuedFromAgentId: "coder-1" } },
+    ],
+  });
+  state.inspector = {};
+  const { html } = await renderAsync(() => openCompactionHistory("coder-1"));
+  assert.ok(!html.includes("someone-else"), "another agent's record must not appear");
+});
+
+test("an unreachable service explains itself instead of rendering an empty history", async () => {
+  // THE PATH AN OPERATOR ACTUALLY MEETS. An empty panel here is indistinguishable from "this agent has
+  // never been compacted", which is the wrong conclusion to hand someone debugging a restart.
+  serveHistory({ detail: "database is locked" }, 500);
+  state.inspector = {};
+  const { html } = await renderAsync(() => openCompactionHistory("coder-1"));
+  assert.match(html, /Could not load spawn records/);
+  assert.match(html, /database is locked/, "the reason must reach the operator, not just the failure");
+});
+
+test("an agent id containing markup is escaped into the panel", async () => {
+  serveHistory({ spawnRequests: [] });
+  state.inspector = {};
+  const { html } = await renderAsync(() => openCompactionHistory('<img src=x onerror="alert(1)">'));
+  assert.ok(!html.includes("<img src=x"), "the raw tag must not survive");
+  assert.ok(html.includes("&lt;img"), "it must appear escaped");
+});
+
+test("the payload may be {spawnRequests}, {requests} or a bare array", async () => {
+  // `res.spawnRequests || res.requests || res || []` — all three have been returned by this endpoint.
+  for (const payload of [
+    { spawnRequests: [{ agentId: "coder-1", createdAt: "2026-08-01", metadata: {} }] },
+    { requests: [{ agentId: "coder-1", createdAt: "2026-08-01", metadata: {} }] },
+    [{ agentId: "coder-1", createdAt: "2026-08-01", metadata: {} }],
+  ]) {
+    serveHistory(payload);
+    state.inspector = {};
+    const { html } = await renderAsync(() => openCompactionHistory("coder-1"));
+    assert.ok(!html.includes("Could not load"), `shape ${JSON.stringify(payload).slice(0, 24)} must be accepted`);
+  }
 });

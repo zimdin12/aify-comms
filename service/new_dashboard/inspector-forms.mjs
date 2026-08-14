@@ -22,8 +22,9 @@
 
 
 import { messageId, messageRunId, sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
+import { api } from './api-client.mjs';
 import { state } from './state.mjs';
-import { resolveStatus } from './status.js';
+import { renderStatusChip, resolveStatus } from './status.js';
 import { byId, toast } from './ui.js';
 import { esc, relTime } from './util.js';
 
@@ -110,4 +111,41 @@ export function openContinueForm(sid, splitIdentity) {
   state.inspector = { ...state.inspector, kind: 'continue', runId: '' };
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
+}
+
+// The compaction/spawn HISTORY panel — the fourth thing the same drawer shows on request, and the only
+// one that fetches. Extracted from app.js in v0.5.4, joining the owner of the other inspector panels
+// rather than starting a parallel module for one more of them.
+
+export async function openCompactionHistory(agentId) {
+  byId('inspector-content').innerHTML = `<div class="agent-drawer"><div class="agent-drawer-head"><strong>History · ${esc(agentId)}</strong></div><p class="subtle">Loading…</p></div>`;
+  byId('inspector')?.classList.add('open');
+  byId('inspector')?.classList.remove('run-inspector-sheet');
+  state.inspector = { ...state.inspector, kind: 'history', runId: '', agentId };
+  let rows = [];
+  try {
+    const res = await api('/spawn-requests');
+    const reqs = res.spawnRequests || res.requests || res || [];
+    rows = (Array.isArray(reqs) ? reqs : []).filter((r) => {
+      const m = r.metadata || {};
+      return m.continuedFromAgentId === agentId || r.agentId === agentId || r.agent_id === agentId;
+    }).sort((a, b) => String(b.createdAt || b.created_at || '').localeCompare(String(a.createdAt || a.created_at || '')));
+  } catch (err) {
+    byId('inspector-content').innerHTML = `<div class="agent-drawer"><div class="agent-drawer-head"><strong>History · ${esc(agentId)}</strong></div><p class="subtle">Could not load spawn records: ${esc(String(err?.message || err))}</p></div>`;
+    return;
+  }
+  const body = rows.length ? rows.map((r) => {
+    const m = r.metadata || {};
+    const mode = m.splitIdentity ? 'Continue-as' : m.compactMode === 'handoff' ? 'Compact' : 'Spawn';
+    return `<div class="history-row">
+      <div class="history-head"><strong>${esc(mode)}</strong>${renderStatusChip(r.status || 'queued', { label: esc(r.status || 'queued'), why: `Spawn request ${r.status || 'queued'}.` })}</div>
+      <dl class="agent-drawer-kv">
+        <dt>When</dt><dd>${esc(relTime(r.createdAt || r.created_at))} ago</dd>
+        <dt>New agent</dt><dd>${esc(r.agentId || r.agent_id || '—')}</dd>
+        ${m.continuedFromAgentId ? `<dt>From agent</dt><dd>${esc(m.continuedFromAgentId)}</dd>` : ''}
+        ${m.continuedFromSessionId ? `<dt>From session</dt><dd class="clip">${esc(m.continuedFromSessionId)}</dd>` : ''}
+        ${r.subject ? `<dt>Subject</dt><dd class="clip">${esc(r.subject)}</dd>` : ''}
+      </dl></div>`;
+  }).join('') : '<div class="empty-state"><span class="empty-icon">🕮</span><strong>No history</strong><p>No compaction or continuation records found for this agent.</p></div>';
+  byId('inspector-content').innerHTML = `<div class="agent-drawer"><div class="agent-drawer-head"><strong>History · ${esc(agentId)}</strong></div><p class="subtle">Compact/continue lineage from spawn records.</p>${body}</div>`;
 }
