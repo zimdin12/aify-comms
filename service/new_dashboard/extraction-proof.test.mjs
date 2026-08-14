@@ -285,6 +285,15 @@ const EXTRACTIONS = [
       { name: "runFrom", at: 3175, marker: "// runFrom moved to ./session-activity.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "environments-panels.mjs",
+    importLine: "import { renderEnvironmentSpawnOptions, renderRuntime, renderSpawnRequests } from './environments-panels.mjs';",
+    items: [
+      { name: "renderEnvironmentSpawnOptions", at: 3010, marker: "// renderEnvironmentSpawnOptions moved to ./environments-panels.mjs in v0.5.4." },
+      { name: "renderRuntime", at: 3038, marker: "// renderRuntime moved to ./environments-panels.mjs in v0.5.4." },
+      { name: "renderSpawnRequests", at: 3063, marker: "// renderSpawnRequests moved to ./environments-panels.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -306,6 +315,7 @@ const MODULES = () => ({
   "identity-directory.mjs": read("identity-directory.mjs"),
   "status-why-popover.mjs": read("status-why-popover.mjs"),
   "session-activity.mjs": read("session-activity.mjs"),
+  "environments-panels.mjs": read("environments-panels.mjs"),
 });
 
 function rebuild(overrides = {}) {
