@@ -53,6 +53,7 @@ import { resolveApiOrigin } from './api-origin.mjs';
 import { setApiBase, api } from './api-client.mjs';
 import { attachChatFile, deleteSharedFile, loadFiles, renderFiles, uploadPastedImage, uploadSharedFile } from './shared-files.mjs';
 import { chatLoadChannels, chatLoadConversation, chatSendMessage, sendRunFollowup } from './message-transport.mjs';
+import { loadVersionBadge } from './version-badge.mjs';
 
 // resolveApiOrigin moved to ./api-origin.mjs in v0.5.4.
 
@@ -323,7 +324,7 @@ function evaluateFlowGates() {
 }
 
 // api moved to ./api-client.mjs in v0.5.4.
-setApiBase(apiBase);
+setApiBase(apiBase, apiOrigin);
 
 function awaitTerminalSize(terminalId, cols, rows) {
   return waitForTerminalSize({
@@ -3530,26 +3531,7 @@ byId('inspector').addEventListener('touchend', (event) => {
 
 // Version badge (Phase 1.8): show the running build SHA + a behind-count warning pill,
 // ported from the 8800 dashboard. /version lives at the API ORIGIN root (not /api/v1).
-async function loadVersionBadge() {
-  const badge = byId('version-badge');
-  if (!badge) return;
-  try {
-    const res = await fetch(`${apiOrigin}/version`);
-    if (!res.ok) throw new Error(String(res.status));
-    const v = await res.json();
-    const behind = Number(v?.update?.behind_by || 0);
-    const short = esc(v.sha_short || v.sha || '?');
-    const branch = esc(v.branch || '');
-    badge.textContent = behind > 0 ? `${short} · ${behind} behind` : short;
-    badge.classList.toggle('behind', behind > 0);
-    badge.title = behind > 0
-      ? `Running ${short} (${branch}) — ${behind} commit${behind === 1 ? '' : 's'} behind origin. git pull && rebuild to update.`
-      : `Running ${short} (${branch}) — up to date with origin.`;
-  } catch (_) {
-    badge.textContent = '';
-    badge.title = 'Build version unavailable';
-  }
-}
+// loadVersionBadge moved to ./version-badge.mjs in v0.5.4.
 
 installRejectionToast();
 applyCachedTheme(); // paint cached theme/title immediately so no default-palette flash before /settings

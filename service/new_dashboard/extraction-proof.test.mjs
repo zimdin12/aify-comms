@@ -206,9 +206,16 @@ const EXTRACTIONS = [
         at: 479,
         marker: [
           "// api moved to ./api-client.mjs in v0.5.4.",
-          "setApiBase(apiBase);",
+          "setApiBase(apiBase, apiOrigin);",
         ],
       },
+    ],
+  },
+  {
+    module: "version-badge.mjs",
+    importLine: "import { loadVersionBadge } from './version-badge.mjs';",
+    items: [
+      { name: "loadVersionBadge", at: 4977, marker: "// loadVersionBadge moved to ./version-badge.mjs in v0.5.4." },
     ],
   },
   {
@@ -412,6 +419,7 @@ const MODULES = () => ({
   "api-client.mjs": read("api-client.mjs"),
   "shared-files.mjs": read("shared-files.mjs"),
   "message-transport.mjs": read("message-transport.mjs"),
+  "version-badge.mjs": read("version-badge.mjs"),
   "api-origin.mjs": read("api-origin.mjs"),
   "session-rail.mjs": read("session-rail.mjs"),
   "settings-panel.mjs": read("settings-panel.mjs"),

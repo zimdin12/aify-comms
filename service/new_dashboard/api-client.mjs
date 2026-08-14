@@ -16,9 +16,18 @@
 // is a syntax error). One writer, many readers, read-only at every reader: the case live bindings are for.
 export let apiBase = '';
 
-/** Seed the base URL. Called once from app.js at startup; every request below is relative to it. */
-export function setApiBase(base) {
+// The service ROOT, without the `/api/v1` suffix. A live binding for the same reason as `apiBase`, and
+// separate from it because not everything the dashboard fetches is under the versioned prefix — `/version`
+// is served from the root, so a module that built it from `apiBase` would ask for `/api/v1/version`.
+export let apiOrigin = '';
+
+/**
+ * Seed both URLs. Called once from app.js at startup; every request below is relative to the base.
+ * `origin` defaults to the base so a caller that only knows the one is not left with an empty root.
+ */
+export function setApiBase(base, origin = base) {
   apiBase = base;
+  apiOrigin = origin;
 }
 
 /** The base currently in use. Exported for tests and diagnostics -- nothing in the app reads it. */
