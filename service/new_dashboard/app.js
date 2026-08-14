@@ -42,6 +42,7 @@ import { contractCard, diagnosticKey, filtered, renderActivityFeed, renderAttent
 import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexConsoleConnections } from './codex-console.mjs';
 import { openIdentityDirectory } from './identity-directory.mjs';
 import { closeStatusWhy, openStatusWhy } from './status-why-popover.mjs';
+import { renderSessionActivity, runFrom } from './session-activity.mjs';
 
 function resolveApiOrigin() {
   const params = new URLSearchParams(location.search);
@@ -1290,13 +1291,7 @@ function ensureSelectedSession() {
   return session;
 }
 
-function messagesForSession(session) {
-  const agentId = sessionAgentId(session);
-  if (!agentId) return [];
-  return state.messages
-    .filter((message) => message.from === agentId || message.to === agentId || message.targetAgentId === agentId || message.target_agent_id === agentId)
-    .slice(0, 50);
-}
+// messagesForSession moved to ./session-activity.mjs in v0.5.4.
 
 // Single source of truth lives in messageIdOf(); kept as an alias so existing call sites work.
 // messageId moved to ./record-fields.mjs in v0.5.4.
@@ -1346,33 +1341,7 @@ function toggleSessionGroupCollapsed(envId, collapsed) {
 
 // Read-only Activity log for a session (WS-J): recent runs + messages, NO composer (messaging
 // lives in Chat). Merges the agent's dispatch runs and message thread, newest first.
-function renderSessionActivity(session) {
-  const agentId = sessionAgentId(session);
-  const host = byId('session-activity');
-  if (!host) return;
-  const ts = (v) => { const n = Date.parse(String(v || '')); return Number.isFinite(n) ? n : 0; };
-  const runItems = state.runs
-    .filter((r) => runTargetAgent(r) === agentId || runFrom(r) === agentId)
-    .map((r) => ({ kind: 'run', ts: ts(r.updatedAt || r.createdAt || r.created_at), r }));
-  const msgItems = messagesForSession(session)
-    .map((m) => ({ kind: 'msg', ts: ts(m.timestamp || m.createdAt), m }));
-  const items = [...runItems, ...msgItems].sort((a, b) => b.ts - a.ts).slice(0, 60);
-  host.innerHTML = items.length ? items.map((it) => {
-    if (it.kind === 'run') {
-      const r = it.r;
-      return `<article class="activity-row" data-kind="run" data-id="${esc(r.id)}">
-        <div class="item-title"><span class="button-row">${renderStatusChip(r.status, statusWhyContext('run', r, r.status))}<strong class="clip">${esc(r.subject || r.id)}</strong></span>
-          <button class="ghost" data-run-inspector="${esc(r.id)}" data-run-source="activity">Inspect</button></div>
-        ${r.summary || r.error ? `<p class="preview">${esc(r.summary || r.error)}</p>` : ''}
-      </article>`;
-    }
-    const m = it.m; const id = messageId(m);
-    return `<article class="activity-row" data-kind="message" data-id="${esc(id)}">
-      <div class="item-title"><strong>${esc(m.from || 'unknown')}</strong>${renderStatusChip(m.read ? 'completed' : 'queued', { label: esc(m.type || (m.read ? 'read' : 'unread')), why: `Message ${m.read ? 'read' : 'unread'}.` })}</div>
-      <p class="preview">${esc(m.subject ? m.subject + ' — ' : '')}${esc(m.body || m.preview || '')}</p>
-    </article>`;
-  }).join('') : '<div class="empty-state"><span class="empty-icon">📋</span><strong>No activity yet</strong><p>Runs and messages for this session appear here. Use Chat to message the agent.</p></div>';
-}
+// renderSessionActivity moved to ./session-activity.mjs in v0.5.4.
 
 // Convert a hermes tui_gateway WS URL into its sibling HTTP root URL.
 // Input:  ws://127.0.0.1:1234/api/ws?token=abc
@@ -2498,7 +2467,7 @@ async function resetEnvironmentRoots(environmentId) {
   } catch (err) { toast(`Root reset failed: ${err?.message || err}`, 'error'); }
 }
 
-const runFrom = (r) => String(r.from || r.fromAgent || r.from_agent || '');
+// runFrom moved to ./session-activity.mjs in v0.5.4.
 const runTo = (r) => String(r.targetAgentId || r.target_agent || r.to || '');
 const runRuntime = (r) => String(r.runtime || r.requestedRuntime || r.requested_runtime || '');
 

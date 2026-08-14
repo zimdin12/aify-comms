@@ -256,7 +256,17 @@ export function moduleScopeBrowserRefs(source) {
       const arrow = line.indexOf("=>");
       const scanned = arrow !== -1 && !line.slice(arrow).includes("{") ? line.slice(0, arrow) : line;
       for (const g of BROWSER_GLOBALS) {
-        if (new RegExp(`\\b${g}\\b`).test(scanned)) hits.push({ line: i + 1, global: g, text: bare });
+        if (!new RegExp(`\\b${g}\\b`).test(scanned)) continue;
+        // `typeof X !== 'undefined' ? X : null` does NOT run browser code on import: `typeof` is the one
+        // reference that never throws on an undeclared name, and the bare use sits in a branch that only
+        // evaluates when the global exists. Flagging it reported an importable module as unimportable.
+        //
+        // The guard must name THIS global on THIS line. A line that guards one and dereferences another
+        // unguarded is still a hit -- that case is asserted in the tests, and it is what keeps the
+        // exemption from becoming a blanket pass for any line containing the word `typeof`.
+        const guarded = new RegExp(`typeof\\s+${g}\\s*[!=]==\\s*["']undefined["']`).test(scanned);
+        if (guarded) continue;
+        hits.push({ line: i + 1, global: g, text: bare });
       }
     }
     for (const ch of line) {

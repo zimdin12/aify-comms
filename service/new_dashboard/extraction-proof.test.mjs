@@ -276,6 +276,15 @@ const EXTRACTIONS = [
       { name: "closeStatusWhy", at: 1600, marker: "// closeStatusWhy moved to ./status-why-popover.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "session-activity.mjs",
+    importLine: "import { renderSessionActivity, runFrom } from './session-activity.mjs';",
+    items: [
+      { name: "messagesForSession", at: 1687, marker: "// messagesForSession moved to ./session-activity.mjs in v0.5.4." },
+      { name: "renderSessionActivity", at: 1818, marker: "// renderSessionActivity moved to ./session-activity.mjs in v0.5.4." },
+      { name: "runFrom", at: 3175, marker: "// runFrom moved to ./session-activity.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -296,6 +305,7 @@ const MODULES = () => ({
   "codex-console.mjs": read("codex-console.mjs"),
   "identity-directory.mjs": read("identity-directory.mjs"),
   "status-why-popover.mjs": read("status-why-popover.mjs"),
+  "session-activity.mjs": read("session-activity.mjs"),
 });
 
 function rebuild(overrides = {}) {
@@ -388,6 +398,27 @@ test("the browser-globals check separates LOAD-TIME access from a deferred funct
     "…and must not be excused by an arrow appearing LATER on the same line");
   assert.equal(moduleScopeBrowserRefs(["const f = () => {", "document.title = 1;", "};"].join(LF)).length, 0,
     "a braced body was already excluded by the depth counter; that behaviour is unchanged");
+});
+
+test("the browser-globals check honours a typeof guard, but only for the global it guards", () => {
+  // Added when notifications.mjs moved. It opens with
+  //   export let notificationsEnabled = readEnabled(typeof localStorage !== 'undefined' ? localStorage : null);
+  // which is NOT module-scope browser code: `typeof` is the one reference that never throws on an
+  // undeclared name, and the bare use sits in a branch that only evaluates when the global exists. The
+  // module imports cleanly in Node — verified before this check runs — so flagging it called an importable
+  // module unimportable.
+  assert.deepEqual(moduleScopeBrowserRefs("const a = g(typeof localStorage !== 'undefined' ? localStorage : null);"), []);
+  assert.deepEqual(moduleScopeBrowserRefs("const d = typeof window === 'undefined' ? null : window.x;"), [],
+    "the inverted form of the same guard counts too");
+
+  assert.equal(moduleScopeBrowserRefs("const b = localStorage.getItem(1);").length, 1,
+    "an unguarded load-time read must still be caught");
+
+  // THE CASE THAT KEEPS THIS HONEST: guarding one global must not excuse dereferencing another. Without
+  // this the exemption would degrade into "any line containing the word typeof passes".
+  const mixed = moduleScopeBrowserRefs("const c = typeof localStorage !== 'undefined' ? document.title : null;");
+  assert.equal(mixed.length, 1);
+  assert.equal(mixed[0].global, "document");
 });
 
 test("every extracted module has NO module-scope browser globals", () => {
