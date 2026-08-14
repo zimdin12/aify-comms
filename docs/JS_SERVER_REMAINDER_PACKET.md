@@ -210,3 +210,42 @@ which is what option A describes rather than something a later relocation can dr
 
 So the two files differ in shape as well as in size: server.js reaches its floor in one pass at 948, app.js
 needs three phases to reach ~984.
+
+---
+
+# THE ASK, AS IT STANDS (2026-08-14) — supersedes section 4
+
+Section 1's figures are stale (`server.js` is **2,520**, not 3,005) and section 4 asks four questions of
+which one has since been answered by shipped work. Read this instead.
+
+## Question 3 is CLOSED — I answered it by doing it
+
+Section 4 asked "should the eight small ones land, and as how many modules?" All four named ones have
+shipped, each into an owner module with real tests rather than five single-purpose files:
+
+| function | went to |
+|---|---|
+| `runSingleAgentManagedTeardown` | `single-agent-teardown.mjs` (new — told its target, unlike the sweeps) |
+| `runBootTombstonedMarkerSweep` | `boot-marker-sweep.mjs` (new) |
+| `reportDeadOwnedTerminals` | `terminal-manager.mjs` (joined the pty owner) |
+| `interruptActiveRuns` | `bridge-agent-state.mjs` (joined the per-agent state owner) |
+
+The worry that prompted the question — "five modules for 105 lines looks like shaving" — was answered by
+subject grouping: two joined existing owners, two were their own subject. No decision was needed.
+
+## The three questions that ARE live, with what each buys
+
+`server.js` is 2,520. **1,541 lines (61%) sit behind these three**, and together they take the file to
+**948** — a floor, confirmed by re-surveying the simulated survivor.
+
+| # | decision | lines | note |
+|---|---|---|---|
+| 1 | **loops: A or C** | 958 | C is the redesign described in section 3; A keeps them and the file leaves the goal |
+| 2 | **the SWEEPS** — `runManagedTeardownForBridge`, `runBootSurvivorSweep`, `runManagedTeardownSync` | 144 | unblocks a further **109** in the shutdown chain, which reaches them |
+| 3 | **`spawnTriggeredAgent`** (packet `7ac0ba88`) | 84 | unblocks the **246** in `comms_send` + `comms_channel_send` — section 4's question 4 |
+
+**Two things worth knowing before choosing.** The raw move leaves the file at 1,002 — still failing — and
+only the dead-import pass carries it to 948, so a line count checked mid-slice looks like a failed plan.
+And the sweeps cannot be meaningfully unit-tested as they stand: they hardcode the real kill functions, so
+exercising them would run a genuine teardown. `single-agent-teardown.mjs` shipped with that limitation
+stated in its test file rather than papered over, and the sweeps would have to ship the same way.
