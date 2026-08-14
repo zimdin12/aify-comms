@@ -1251,6 +1251,32 @@ const EXTRACTIONS = [
       },
     ],
   },
+  {
+    module: "analytics-page.mjs",
+    importLine: "import { loadAnalytics, renderAnalyticsPage, renderUsagePools } from './analytics-page.mjs';",
+    items: [
+      {
+        name: "loadAnalytics",
+        at: 1213,
+        leading: 4,
+        marker: "// loadAnalytics moved to ./analytics-page.mjs in v0.5.4, with its caching note.",
+      },
+      {
+        name: "renderUsagePools",
+        // `leading: 1`, not 3. Two of the three comment lines above it in app.js are EARLIER slices'
+        // markers (`usageResetLabel`/`usageFmtTokens` moved to util.js) and belong to app.js, not here.
+        // Taking them along silently stole another slice's marker and broke that entry, not this one.
+        at: 1263,
+        leading: 1,
+        marker: "// renderUsagePools moved to ./analytics-page.mjs in v0.5.4, with the note on what a pool is.",
+      },
+      {
+        name: "renderAnalyticsPage",
+        at: 1331,
+        marker: "// renderAnalyticsPage moved to ./analytics-page.mjs in v0.5.4.",
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -1291,6 +1317,7 @@ const MODULES = () => ({
   "realtime-socket.mjs": read("realtime-socket.mjs"),
   "run-inspector.mjs": read("run-inspector.mjs"),
   "agent-session-actions.mjs": read("agent-session-actions.mjs"),
+  "analytics-page.mjs": read("analytics-page.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),
