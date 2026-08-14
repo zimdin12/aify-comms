@@ -406,3 +406,66 @@ test("no carrier keeps a copy of a body it says it moved", () => {
   }
   assert.deepEqual(forked, [], `moved away but still declared here:\n  ${forked.join("\n  ")}`);
 });
+
+// --- and is the destination TESTED? ----------------------------------------
+//
+// The reviewer's standard for this series is "byte-identical bodies + the new module EXPORTS what it
+// extracts + real unit tests that call it". The first two are gated above. The third has been enforced by
+// my own discipline for forty-six modules, which is exactly the kind of thing that holds until the day it
+// does not.
+//
+// THIS IS A FLOOR, NOT PROOF. "Some test file imports it" does not mean the module is meaningfully
+// covered — a test could import it and assert nothing. It catches the case that actually happens: a module
+// extracted in a hurry with no test file at all. Said plainly so a green tick here is not read as coverage.
+
+/** Destination modules named by any carrier's markers, repo-relative. */
+export function destinationModules(readDir, readFile, dirs) {
+  const dests = new Set();
+  for (const dir of dirs) {
+    for (const name of readDir(dir)) {
+      if (!/\.(js|mjs)$/.test(name) || /\.test\.(js|mjs)$/.test(name)) continue;
+      for (const m of readFile(dir + "/" + name).matchAll(/moved to\s+(\.\/[\w-]+\.(?:mjs|js))/g)) {
+        dests.add(dir + "/" + m[1].slice(2));
+      }
+    }
+  }
+  return [...dests].sort();
+}
+
+test("destinationModules collects each marker's target once, relative to its carrier", () => {
+  const files = {
+    "d/carrier.js": [
+      "// a moved to ./one.mjs in v0.5.4.",
+      "// b moved to ./one.mjs in v0.5.4.",
+      "// c moved to ./two.js in v0.5.4.",
+    ].join("\n"),
+    "d/carrier.test.js": "// x moved to ./ignored.mjs in v0.5.4.",
+  };
+  assert.deepEqual(
+    destinationModules(() => ["carrier.js", "carrier.test.js"], (p) => files[p] || "", ["d"]),
+    ["d/one.mjs", "d/two.js"],
+  );
+});
+
+test("every module a carrier extracted INTO is imported by at least one test", () => {
+  const dirs = ["mcp/stdio", "service/new_dashboard"];
+  const dests = destinationModules(
+    (dir) => fs.readdirSync(path.join(REPO, dir)),
+    (rel) => fs.readFileSync(path.join(REPO, rel), "utf-8"),
+    dirs,
+  );
+  assert.ok(dests.length > 30, `expected many destination modules, found ${dests.length}`);
+
+  const testSources = [];
+  for (const dir of ["mcp/stdio/tests", "service/new_dashboard"]) {
+    for (const name of fs.readdirSync(path.join(REPO, dir))) {
+      if (/\.test\.(js|mjs)$/.test(name)) testSources.push(fs.readFileSync(path.join(REPO, dir, name), "utf-8"));
+    }
+  }
+
+  const untested = dests.filter((rel) => {
+    const base = rel.split("/").pop();
+    return !testSources.some((src) => src.includes("./" + base));
+  });
+  assert.deepEqual(untested, [], `extracted but no test imports them:\n  ${untested.join("\n  ")}`);
+});
