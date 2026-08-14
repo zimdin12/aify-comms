@@ -386,3 +386,34 @@ reconstruction proof for this (framing lines declared, body still from the modul
 the fixture — strictly narrower than the free-form `(before, after)` pairs the apiBase packet proposed) was
 also reverted: with nothing using it, shipping it would be speculative machinery, and the rule in this repo
 is that a mechanism names the artifact it retires.
+
+### Approving the redesign is NECESSARY BUT NOT SUFFICIENT (simulated 2026-08-14)
+
+The "~2,026 remains" figure earlier in this packet was a subtraction. Subtractions have been wrong twice
+in this series, so the extraction was applied to a scratch copy and the survivor measured, with the
+dead-import term taken from `deadImportsIn` in `mcp/stdio/tests/no-dead-imports.test.js`:
+
+| | lines |
+|---|---|
+| app.js today | 3,613 |
+| − the whole `refresh` component (74 declarations) | −1,578 |
+| + one marker per moved declaration | +74 |
+| − dead import lines | **−0** |
+| **remains** | **2,109 — 2.1× the limit** |
+
+Two things to take from it, both the opposite of server.js.
+
+**The subtraction UNDER-reported by 83 lines.** 74 markers is not a rounding error at this scale.
+
+**ZERO imports go dead, where server.js shed 54 lines across 31 whole blocks.** The reason is the 720-line
+top-level block that stays: it uses those imports. And it cannot simply move with the component — it is
+not declarations, so there is no span to relocate.
+
+So the earlier framing of the choice — "approve the render-component redesign, or accept app.js stays over
+1000" — was wrong in the same way the two-decisions framing was. **Approving the redesign does not clear
+this file.** Extracting the largest coherent unit in it still leaves twice the limit. Clearing app.js means
+splitting the dashboard entry point across several files, which is a different and much larger piece of
+work than "break the render component", and it is not a v0.5.x-shaped task.
+
+The honest options are therefore: accept that app.js stays over the limit for 0.5.x with this measurement
+attached to its allowlist entry, or scope an entry-point split as its own project.
