@@ -46,6 +46,7 @@ EXTRACTIONS = [
     "_supersede_stale_resident_terminals",
     "_stage_manual_resident_takeover",
     "_adopt_console_terminal_on_register",
+    "_upsert_registered_agent_row",
 ]
 
 

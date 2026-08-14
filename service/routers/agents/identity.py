@@ -37,6 +37,7 @@ from service.models import (
 )
 
 from service.api_core.agent_sessions import (
+    _upsert_registered_agent_row,
     _adopt_console_terminal_on_register,
     _record_registered_session_handle,
     _stage_manual_resident_takeover,
@@ -428,49 +429,10 @@ async def register_agent(req: AgentRegister, request: Request):
                 "resumeCommand": _resume_command_for(normalized_runtime, session_handle, req.agentId),
                 "blockedByRun": active_run,
             }
-        await db.execute(
-            """
-            INSERT INTO agents (
-                id, role, name, cwd, model, description, instructions, status, status_note, runtime, machine_id,
-                launch_mode, session_mode, session_handle, managed_by, capabilities,
-                runtime_config, runtime_state, driver_state, registered_at, last_seen
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            ON CONFLICT(id) DO UPDATE SET
-                role = excluded.role,
-                name = excluded.name,
-                cwd = excluded.cwd,
-                model = excluded.model,
-                description = excluded.description,
-                instructions = excluded.instructions,
-                status = excluded.status,
-                status_note = excluded.status_note,
-                runtime = excluded.runtime,
-                machine_id = excluded.machine_id,
-                launch_mode = excluded.launch_mode,
-                session_mode = excluded.session_mode,
-                session_handle = excluded.session_handle,
-                managed_by = excluded.managed_by,
-                capabilities = excluded.capabilities,
-                runtime_config = excluded.runtime_config,
-                runtime_state = excluded.runtime_state,
-                driver_state = excluded.driver_state,
-                last_seen = excluded.last_seen
-            """,
-            (
-                req.agentId, req.role, req.name or req.agentId, resolved_cwd, model_value,
-                description_value, req.instructions or "", req.status or "idle",
-                (row["status_note"] if row and "status_note" in row.keys() else "") or "",
-                normalized_runtime,
-                req.machineId or "", req.launchMode or "detached",
-                normalized_session_mode, session_handle, req.managedBy or "",
-                json.dumps(capabilities or []), json.dumps(runtime_config),
-                existing_state,
-                # One-driver FSM: an attaching process carrying a bridge_id is a
-                # live driver for this session -> mark driving. A metadata-only
-                # (re)register without a bridge keeps the prior driver_state.
-                ("driving" if bridge_id else (str((row["driver_state"] if row and "driver_state" in row.keys() else "") or "idle"))),
-                row["registered_at"] if row and row["registered_at"] else now, now
-            )
+        await _upsert_registered_agent_row(
+            db, req, row, normalized_runtime, normalized_session_mode, session_handle,
+            resolved_cwd, description_value, model_value, capabilities, runtime_config,
+            existing_state, bridge_id, now,
         )
         await _record_registered_session_handle(db, req, normalized_runtime, runtime_config, session_handle, now)
         if bridge_id:

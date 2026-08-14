@@ -766,3 +766,67 @@ async def _adopt_console_terminal_on_register(db, req, console_terminal, termina
                     console_terminal["session_id"],
                 ),
             )
+
+
+async def _upsert_registered_agent_row(db, req, row, normalized_runtime: str, normalized_session_mode: str,
+                                       session_handle: str, resolved_cwd: str, description_value,
+                                       model_value, capabilities, runtime_config, existing_state,
+                                       bridge_id: str, now: str) -> None:
+        """Write the agent row a registration produces — INSERT, or UPDATE if it already exists.
+
+        Extracted from `register_agent` in v0.5.4; `test_register_agent_split_is_inert.py` inlines it
+        back and AST-compares against the pre-split fixture. Body left at its original 8-space column so
+        the one large SQL literal inside is preserved byte-for-byte.
+
+        THE `ON CONFLICT` HALF IS THE WHOLE POINT. Registration is idempotent by design — an agent
+        re-registers on every boot — so this is a single statement rather than a read-then-branch, which
+        would race two boots of the same agent against each other. Which columns the conflict path
+        updates is therefore a behavioural decision per column, not a formality: anything listed here is
+        reset by a re-registration, and anything omitted survives one.
+
+        It calls nothing; every value is a parameter.
+        """
+        await db.execute(
+            """
+            INSERT INTO agents (
+                id, role, name, cwd, model, description, instructions, status, status_note, runtime, machine_id,
+                launch_mode, session_mode, session_handle, managed_by, capabilities,
+                runtime_config, runtime_state, driver_state, registered_at, last_seen
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(id) DO UPDATE SET
+                role = excluded.role,
+                name = excluded.name,
+                cwd = excluded.cwd,
+                model = excluded.model,
+                description = excluded.description,
+                instructions = excluded.instructions,
+                status = excluded.status,
+                status_note = excluded.status_note,
+                runtime = excluded.runtime,
+                machine_id = excluded.machine_id,
+                launch_mode = excluded.launch_mode,
+                session_mode = excluded.session_mode,
+                session_handle = excluded.session_handle,
+                managed_by = excluded.managed_by,
+                capabilities = excluded.capabilities,
+                runtime_config = excluded.runtime_config,
+                runtime_state = excluded.runtime_state,
+                driver_state = excluded.driver_state,
+                last_seen = excluded.last_seen
+            """,
+            (
+                req.agentId, req.role, req.name or req.agentId, resolved_cwd, model_value,
+                description_value, req.instructions or "", req.status or "idle",
+                (row["status_note"] if row and "status_note" in row.keys() else "") or "",
+                normalized_runtime,
+                req.machineId or "", req.launchMode or "detached",
+                normalized_session_mode, session_handle, req.managedBy or "",
+                json.dumps(capabilities or []), json.dumps(runtime_config),
+                existing_state,
+                # One-driver FSM: an attaching process carrying a bridge_id is a
+                # live driver for this session -> mark driving. A metadata-only
+                # (re)register without a bridge keeps the prior driver_state.
+                ("driving" if bridge_id else (str((row["driver_state"] if row and "driver_state" in row.keys() else "") or "idle"))),
+                row["registered_at"] if row and row["registered_at"] else now, now
+            )
+        )
