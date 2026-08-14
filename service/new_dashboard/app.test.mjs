@@ -292,9 +292,23 @@ test("terminal theme wiring stays in app.js — the derivation itself moved", ()
     "the hardcoded fixed terminal theme must be gone");
   assert.match(source, /webgl: webglAddon/);
 
+  // A COUNT WAS THE WRONG ASSERTION and this slice proved it. It required >= 3 occurrences in app.js;
+  // the poll cycle moved to refresh-cycle.mjs in v0.5.4 taking one of the three with it, and the count
+  // went red on a relocation that changed no behaviour. Worse, it could never have failed on the defect
+  // it names: three calls all wired into the SAME path would satisfy it, and the path that actually
+  // matters — an operator saving an accent while a console is open — would still be unwired.
+  //
+  // So each path is asserted where it now lives, by what it is next to.
   const app = read("app.js");
-  assert.ok((app.match(/refreshActiveTerminalTheme\(\);/g) || []).length >= 3,
-    "re-theme must be wired into save/preview/undo appearance paths — those stayed in app.js");
+  const paths = [
+    [app, /state\.settings = res && typeof res === 'object'[\s\S]{0,200}?refreshActiveTerminalTheme\(\);/,
+      "SAVE: persisting new settings must re-theme a live console"],
+    [app, /\/\/ undo any live appearance preview\s*\n\s*refreshActiveTerminalTheme\(\);/,
+      "UNDO: reverting an unsaved preview must re-theme back"],
+    [read("refresh-cycle.mjs"), /applyTheme\(state\.settings\);[\s\S]{0,120}?refreshActiveTerminalTheme\(\);/,
+      "POLL: server-stored appearance arriving on a tick must re-theme (moved out of app.js in v0.5.4)"],
+  ];
+  for (const [source, pattern, why] of paths) assert.match(source, pattern, why);
 });
 
 test("mount is supersession-guarded across the font await (no leaked xterm/GL context)", () => {

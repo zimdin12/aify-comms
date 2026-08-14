@@ -1035,6 +1035,45 @@ const EXTRACTIONS = [
       },
     ],
   },
+  {
+    module: "refresh-cycle.mjs",
+    importLine: "import { runRefreshCycle } from './refresh-cycle.mjs';",
+    items: [
+      {
+        // The poll cycle. Renamed on the way out (`_refreshImpl` is an app.js-private name; the module
+        // exports what it does), so BOTH the name and the six-line signature are declared edits — the
+        // 106 body lines are byte-identical and the reconstruction proves it.
+        name: "runRefreshCycle",
+        at: 802,
+        marker: [
+          "// The IMPLEMENTATION of the poll cycle lives in ./refresh-cycle.mjs. The bag is built at CALL time,",
+          "// not here, so every name resolves however app.js has it at the moment the poll fires.",
+          "const _refreshImpl = () => runRefreshCycle({",
+          "  armRefreshTimer,",
+          "  chatController,",
+          "  evaluateFlowGates,",
+          "  loadContractsForState,",
+          "  refreshOpenInspector,",
+          "  renderAll,",
+          "});",
+        ],
+        editedSince: [{
+          was: "async function _refreshImpl() {",
+          now: [
+            // `export ` is stripped before the declared edits are undone, so it is absent here.
+            "async function runRefreshCycle({",
+            "  armRefreshTimer,",
+            "  chatController,",
+            "  evaluateFlowGates,",
+            "  loadContractsForState,",
+            "  refreshOpenInspector,",
+            "  renderAll,",
+            "}) {",
+          ],
+        }],
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -1071,6 +1110,7 @@ const MODULES = () => ({
   "page-titles.mjs": read("page-titles.mjs"),
   "xterm-mount.mjs": read("xterm-mount.mjs"),
   "session-console.mjs": read("session-console.mjs"),
+  "refresh-cycle.mjs": read("refresh-cycle.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),

@@ -40,19 +40,26 @@ class NewDashboardSessionModeSwitchTests(unittest.TestCase):
     # fail on wrong VALUES, which this could not: `settings: {}` appearing inside a comment would have
     # satisfied it.
 
-    def test_refresh_loads_settings_via_api(self):
-        # 2026-06-18 resilient-poll refactor (267b88f): refresh() now batches all GETs through
-        # Promise.allSettled (tolerant of a single failed endpoint) instead of per-call .catch.
-        self.assertIn(
-            "api('/settings')",
-            self.script,
-            "refresh() must GET /api/v1/settings (in the allSettled batch — tolerant of failure)",
-        )
-        self.assertIn(
-            "state.settings = val(9)",
-            self.script,
-            "refresh() must persist the settings snapshot (allSettled slot 9) into state",
-        )
+    def test_the_settings_slice_of_the_poll_is_covered_by_a_test_that_RUNS_it(self):
+        """RETIRED as a grep, kept as a pointer — the poll cycle left app.js in v0.5.4.
+
+        This used to assert `api('/settings')` and `state.settings = val(9)` appeared somewhere in
+        app.js. Both are location pins: they proved two lines had been written in a file thousands of
+        lines long, they would have been satisfied by the same text inside a comment, and they broke
+        the moment `_refreshImpl` moved to `refresh-cycle.mjs` even though every byte of the body was
+        unchanged.
+
+        `refresh-cycle.test.mjs` replaces them with assertions that CALL the cycle against a stubbed
+        fetch: that /settings is requested, that a rejected /settings does not re-arm the refresh
+        timer, and — the property neither grep could express — that one rejected slice does not stop
+        the cycle. That last one is checked by reintroducing the `Promise.all` defect, which takes the
+        file from 11 passing to 10 failing.
+        """
+        js = ROOT / "service" / "new_dashboard" / "refresh-cycle.test.mjs"
+        self.assertTrue(js.exists(), "the poll cycle's behavioural test must exist")
+        source = js.read_text(encoding="utf-8")
+        self.assertIn("/settings", source, "the replacement must still cover the settings slice")
+        self.assertIn("armRefreshTimer", source, "…and what the settings slice is read FOR")
 
     # RETIRED: test_render_mode_switch_chip_helper_exists_without_settings_gate, and
     # test_chip_emits_data_attributes_for_click_handler.
