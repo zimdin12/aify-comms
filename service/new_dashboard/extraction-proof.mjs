@@ -262,6 +262,28 @@ export function reconstruct({ after, modules, extractions }) {
     lines.splice(at, block.length, ...(step.importWas == null ? [] : [step.importWas]));
   }
 
+  // 1b. remove every SEEDING line a slice added — a statement the extraction made necessary that
+  // restores no body of its own.
+  //
+  // The init-style slices need this and nothing else covered it. A module that takes its dependencies
+  // through `initX({...})` adds one call to app.js's boot block; that line belongs to no declaration, so
+  // it cannot be an item's `marker` (a marker is removed WITH a body inserted at a pristine index, and
+  // there is no pristine index here — the line did not exist before the slice). Attaching it to an
+  // unrelated item's marker was the workaround the first init slice used, and it put a socket's seeding
+  // call under a variable declaration that has nothing to do with it.
+  //
+  // Verified verbatim like everything else, and REVERSE-ORDERED for the same reason as the imports.
+  for (const step of [...extractions].reverse()) {
+    for (const line of [].concat(step.seeding ?? []).reverse()) {
+      const at = lines.indexOf(line);
+      if (at === -1) throw new Error(`seeding line not found verbatim for ${step.module}: ${line}`);
+      if (lines.indexOf(line, at + 1) !== -1) {
+        throw new Error(`seeding line is ambiguous for ${step.module} (appears more than once): ${line}`);
+      }
+      lines.splice(at, 1);
+    }
+  }
+
   // 2. collect every item across every slice, then process them in ASCENDING pristine order.
   //
   // Marker removal and body insertion are PAIRED per item rather than done in two passes. Two passes was

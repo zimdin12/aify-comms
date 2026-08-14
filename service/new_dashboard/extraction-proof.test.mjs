@@ -1077,6 +1077,9 @@ const EXTRACTIONS = [
   {
     module: "realtime-socket.mjs",
     importLine: "import { connectRealtimeSocket, initRealtimeSocket, wireRealtimeResumeReconnect } from './realtime-socket.mjs';",
+    // The boot call this slice added. It restores no body — the module did not exist before — so it is
+    // declared here rather than smuggled in as some unrelated declaration's marker.
+    seeding: "initRealtimeSocket({ dashboardNotifier, evaluateFlowGates, refreshSoon, resyncActiveConsole, scheduleRenderAll });",
     items: [
       {
         name: "dashboardSocket",
@@ -1093,14 +1096,7 @@ const EXTRACTIONS = [
         ],
       },
       { name: "WS_CONNECTING_TIMEOUT_MS", at: 511, marker: null },
-      {
-        // The seeding call the slice left behind, in app.js's init block rather than where the
-        // declaration was. A marker is matched by content, not position, so it is declared on the item
-        // whose move made it necessary.
-        name: "connectRealtimeSocket",
-        at: 512,
-        marker: "initRealtimeSocket({ dashboardNotifier, evaluateFlowGates, refreshSoon, resyncActiveConsole, scheduleRenderAll });",
-      },
+      { name: "connectRealtimeSocket", at: 512, marker: null },
       {
         // THE BLANK LINE AND THE SIX COMMENT LINES ABOVE THIS DECLARATION are declared here because
         // `declarationSpan` covers a declaration, not the prose above it — so a cluster whose members
@@ -1131,6 +1127,61 @@ const EXTRACTIONS = [
         name: "applyRealtimeEvent",
         at: 629,
         marker: "// applyRealtimeEvent moved to ./realtime-socket.mjs in v0.5.4, with the socket it is wired to.",
+      },
+    ],
+  },
+  {
+    module: "run-inspector.mjs",
+    importLine: "import { handleRunInspectorControl, initRunInspector, loadMoreRunEvents, loadRunsForStatus, openRunInspector, renderRunInspector, renderRuns, requestRunControl, toggleRunEventOrder } from './run-inspector.mjs';",
+    seeding: "initRunInspector({ closeInspector, evaluateFlowGates, openInspector, openRunConsole, refresh, renderDiagnosticsBulkToolbar });",
+    items: [
+      {
+        name: "loadRunsForStatus",
+        at: 723,
+        marker: "// loadRunsForStatus moved to ./run-inspector.mjs in v0.5.4.",
+      },
+      {
+        // These two came along because nothing was left reading them. A one-line helper that stays
+        // behind after its only callers move is dead code the suite cannot see.
+        name: "runTo",
+        at: 3176,
+        marker: "// runTo and runRuntime moved to ./run-inspector.mjs in v0.5.4 — their only readers went with it.",
+      },
+      { name: "runRuntime", at: 3177, marker: null },
+      {
+        name: "renderRuns",
+        at: 3190,
+        marker: "// renderRuns moved to ./run-inspector.mjs in v0.5.4.",
+      },
+      {
+        name: "renderRunInspector",
+        at: 3307,
+        marker: "// renderRunInspector moved to ./run-inspector.mjs in v0.5.4.",
+      },
+      {
+        name: "openRunInspector",
+        at: 3361,
+        marker: "// openRunInspector moved to ./run-inspector.mjs in v0.5.4.",
+      },
+      {
+        name: "requestRunControl",
+        at: 3870,
+        marker: "// requestRunControl moved to ./run-inspector.mjs in v0.5.4.",
+      },
+      {
+        name: "handleRunInspectorControl",
+        at: 4073,
+        marker: "// handleRunInspectorControl moved to ./run-inspector.mjs in v0.5.4.",
+      },
+      {
+        name: "loadMoreRunEvents",
+        at: 4127,
+        marker: "// loadMoreRunEvents moved to ./run-inspector.mjs in v0.5.4.",
+      },
+      {
+        name: "toggleRunEventOrder",
+        at: 4145,
+        marker: "// toggleRunEventOrder moved to ./run-inspector.mjs in v0.5.4.",
       },
     ],
   },
@@ -1172,6 +1223,7 @@ const MODULES = () => ({
   "session-console.mjs": read("session-console.mjs"),
   "refresh-cycle.mjs": read("refresh-cycle.mjs"),
   "realtime-socket.mjs": read("realtime-socket.mjs"),
+  "run-inspector.mjs": read("run-inspector.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),
@@ -1769,4 +1821,85 @@ test("an item with NO editedSince is unaffected", () => {
     extractions: plan,
   });
   assert.equal(rebuilt, WRAPPED.pristine);
+});
+
+// --- seeding lines ------------------------------------------------------------------------------
+//
+// A slice whose module takes its dependencies through `initX({...})` adds one call to app.js's boot
+// block. That line restores no body — it did not exist before the slice — so it is not an item and
+// cannot be an item's marker. Before `seeding` existed, the only way to declare it was to hang it on
+// some unrelated declaration's marker, which put a socket's boot call under a variable declaration
+// that had nothing to do with it. These pin the field's guarantees, both directions.
+
+const SEEDED = {
+  pristine: ["function f() {", "  a();", "}", "boot();"].join(LF),
+  after: ['import { f, initF } from "./f.mjs";', "// f moved.", "initF({ dep });", "boot();"].join(LF),
+  module: ["export function f() {", "  a();", "}"].join(LF),
+};
+
+const seededPlan = (over = {}) => [{
+  module: "f.mjs",
+  importLine: 'import { f, initF } from "./f.mjs";',
+  seeding: "initF({ dep });",
+  items: [{ name: "f", at: 0, marker: "// f moved." }],
+  ...over,
+}];
+
+test("a SEEDING line is removed, and the file reconstructs around it", () => {
+  assert.equal(reconstruct({ after: SEEDED.after, modules: { "f.mjs": SEEDED.module }, extractions: seededPlan() }),
+    SEEDED.pristine);
+});
+
+test("a seeding line that is NOT in the file verbatim throws", () => {
+  // The same discipline as markers and imports: a mask that silently matches nothing would let the
+  // reconstruction pass while the real boot call had been reworded, deleted, or never added.
+  assert.throws(
+    () => reconstruct({
+      after: SEEDED.after,
+      modules: { "f.mjs": SEEDED.module },
+      extractions: seededPlan({ seeding: "initF({ somethingElse });" }),
+    }),
+    /seeding line not found verbatim/,
+  );
+});
+
+test("an AMBIGUOUS seeding line throws rather than deleting an arbitrary one", () => {
+  // Two identical boot calls cannot be told apart by content, and removing the wrong one still
+  // reconstructs — silently, because both lines are the same text. Refusing is the only honest answer.
+  const after = ['import { f, initF } from "./f.mjs";', "// f moved.", "initF({ dep });", "initF({ dep });", "boot();"].join(LF);
+  assert.throws(
+    () => reconstruct({ after, modules: { "f.mjs": SEEDED.module }, extractions: seededPlan() }),
+    /seeding line is ambiguous/,
+  );
+});
+
+test("seeding accepts several lines and removes them all", () => {
+  const after = ['import { f, initF } from "./f.mjs";', "// f moved.", "initF({ dep });", "initG();", "boot();"].join(LF);
+  assert.equal(
+    reconstruct({
+      after,
+      modules: { "f.mjs": SEEDED.module },
+      extractions: seededPlan({ seeding: ["initF({ dep });", "initG();"] }),
+    }),
+    SEEDED.pristine,
+  );
+});
+
+test("a slice with NO seeding is unaffected — the field is opt-in", () => {
+  const plan = wrappedPlan();
+  assert.equal(plan[0].seeding, undefined);
+  assert.equal(reconstruct({ after: WRAPPED.after, modules: { "hit.mjs": WRAPPED.module }, extractions: plan }),
+    WRAPPED.pristine);
+});
+
+test("EVERY seeding line declared in the real plan is actually present in app.js", () => {
+  // Anti-vacuity for the field itself. `reconstruct` throws on a missing seeding line, so this cannot
+  // fail while the reconstruction passes — which is exactly why it is worth stating separately: it
+  // documents that the plan's seeding entries name real boot calls rather than aspirational ones.
+  const app = read("app.js");
+  const declared = EXTRACTIONS.flatMap((step) => [].concat(step.seeding ?? []));
+  assert.ok(declared.length > 0, "at least one slice seeds a module; if that stops being true, delete this");
+  for (const line of declared) {
+    assert.ok(app.includes(line), `declared seeding line is missing from app.js: ${line}`);
+  }
 });
