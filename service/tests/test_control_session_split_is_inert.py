@@ -28,19 +28,25 @@ from service.tests.extract_method import assert_extractions_preserve_behaviour
 REPO = Path(__file__).resolve().parent.parent.parent
 SESSIONS = REPO / "service" / "routers" / "sessions.py"
 AGENT_SESSIONS = REPO / "service" / "api_core" / "agent_sessions.py"
+#: Its own module, and the reason is the import graph rather than taste — see its docstring: putting it
+#: beside `_has_claimable_spawn_request` would have closed a cycle through `dispatch_start.py`.
+SESSION_RESTART = REPO / "service" / "api_core" / "session_restart.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "control_session_before_split.py"
 
 SOURCE_FUNCTION = "control_session"
 #: EVERY extraction, inlined back TOGETHER against the ONE true original — not a chain of per-slice
 #: fixtures. See the analytics precedent for why: a fixture per extraction is a second copy of a
 #: function that is still being edited, and a stale one proves the wrong thing while staying green.
-EXTRACTIONS = ["_settle_agent_for_session_control"]
+EXTRACTIONS = ["_settle_agent_for_session_control", "_prepare_restart_spawn"]
 
 #: Where each helper is expected to be declared. Asserted per helper rather than as a set, and over
 #: every module below, so a helper that moves to a third file cannot pass by being invisible.
-OWNERS = {"_settle_agent_for_session_control": AGENT_SESSIONS}
+OWNERS = {
+    "_settle_agent_for_session_control": AGENT_SESSIONS,
+    "_prepare_restart_spawn": SESSION_RESTART,
+}
 
-MODULES = (SESSIONS, AGENT_SESSIONS)
+MODULES = (SESSIONS, AGENT_SESSIONS, SESSION_RESTART)
 
 
 def _combined_split_source() -> str:
@@ -112,13 +118,34 @@ class ControlSessionSplitIsInertTests(unittest.TestCase):
 
     def test_the_leaf_does_not_import_upward(self):
         """An api_core leaf reaching into a router — or the control plane — is the cycle to prevent."""
-        for node in ast.walk(ast.parse(AGENT_SESSIONS.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                self.assertFalse(
-                    node.module.startswith("service.routers")
-                    or node.module == "service.control_plane",
-                    f"agent_sessions.py imports upward from {node.module}",
-                )
+        for leaf in (AGENT_SESSIONS, SESSION_RESTART):
+            for node in ast.walk(ast.parse(leaf.read_text(encoding="utf-8"))):
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    self.assertFalse(
+                        node.module.startswith("service.routers")
+                        or node.module == "service.control_plane",
+                        f"{leaf.name} imports upward from {node.module}",
+                    )
+
+    def test_session_restart_does_not_close_a_cycle_through_dispatch_start(self):
+        """The reason this helper got its own module, asserted rather than left in a docstring.
+
+        `dispatch_start.py` imports `spawn_request_state.py`, and this helper calls into BOTH. Putting
+        it beside `_has_claimable_spawn_request` — where it reads most naturally — would have made
+        `spawn_request_state` import `dispatch_start`, closing the loop. The check is that nothing this
+        helper's home is imported BY reaches back into it.
+        """
+        dispatch_start = REPO / "service" / "api_core" / "dispatch_start.py"
+        spawn_state = REPO / "service" / "api_core" / "spawn_request_state.py"
+        for upstream in (dispatch_start, spawn_state):
+            imported = {
+                node.module for node in ast.walk(ast.parse(upstream.read_text(encoding="utf-8")))
+                if isinstance(node, ast.ImportFrom) and node.module
+            }
+            self.assertNotIn(
+                "service.api_core.session_restart", imported,
+                f"{upstream.name} imports session_restart, which is the cycle this module exists to avoid",
+            )
 
     def test_the_fixture_is_tracked(self):
         self.assertTrue(FIXTURE.exists())

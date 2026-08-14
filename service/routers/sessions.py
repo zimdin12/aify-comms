@@ -58,6 +58,7 @@ from service.api_core.capabilities import _default_console_command, _environment
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
+from service.api_core.session_restart import _prepare_restart_spawn
 from service.api_core.agent_sessions import (
     _settle_agent_for_session_control,
     _touch_current_agent_session,
@@ -717,107 +718,10 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
                     f'Agent "{agent_id}" already has pending spawn request "{pending_spawn["id"]}" ({pending_spawn["status"]}).',
                 )
 
-        if action in {"restart", "recreate"}:
-            spec_id = str(session["spawn_spec_id"] or "").strip()
-            if not spec_id:
-                # FIX 5 (2026-06-03): a resident-origin session has a NULL spawn_spec,
-                # yet the SEND path already auto-starts it via the cold-start helper.
-                # Mirror that here instead of hard-erroring: cold-start a managed worker
-                # (creates a queued spawn_request a bridge can claim), then continue to
-                # the status-update tail with that queued/claimed spawn_request row. Only
-                # raise when nothing can host it (no cold-start AND no claimable request).
-                settings = await _load_settings(db)
-                coldstarted = await _coldstart_spawn_request_for_dispatch(
-                    db,
-                    agent_id,
-                    runtime=str(session["runtime"] or ""),
-                    settings=settings,
-                    requested_by=req.from_agent or "dashboard",
-                    warnings=coldstart_warnings,
-                )
-                if not coldstarted and not await _has_claimable_spawn_request(db, agent_id):
-                    raise HTTPException(
-                        409,
-                        (
-                            f'Session "{session_id}" has no stored spawn spec and no online '
-                            f'environment can host managed {session["runtime"] or "runtime"}.'
-                        ),
-                    )
-                spawn_request_row = await (await db.execute(
-                    """
-                    SELECT *
-                    FROM spawn_requests
-                    WHERE agent_id = ?
-                      AND status IN ('queued', 'claimed')
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                    """,
-                    (agent_id,),
-                )).fetchone()
-                # Fall through to the shared status-update tail below.
-                spawn_spec_row = None
-            else:
-                spec_cursor = await db.execute("SELECT * FROM spawn_specs WHERE id = ?", (spec_id,))
-                spawn_spec_row = await spec_cursor.fetchone()
-                if not spawn_spec_row:
-                    raise HTTPException(409, f'Session "{session_id}" references missing spawn spec "{spec_id}"')
-                env_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (spawn_spec_row["environment_id"],))
-                env_row = await env_cursor.fetchone()
-                if not env_row:
-                    raise HTTPException(409, f'Environment "{spawn_spec_row["environment_id"]}" is not available')
-
-                agent_cursor = await db.execute("SELECT role, name FROM agents WHERE id = ?", (agent_id,))
-                agent_row = await agent_cursor.fetchone()
-                environment = _environment_record_to_dict(env_row)
-                if str(environment.get("status") or "").lower() != "online":
-                    raise HTTPException(409, f'Environment "{environment.get("id")}" is {environment.get("status") or "unknown"}; assign a live environment before {action}.')
-                workspace = _normalize_workspace_for_environment(environment, spawn_spec_row["workspace"] or session["workspace"] or "")
-                workspace_root = _workspace_root_for(environment, workspace)
-                request_id = f"spawn_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-                resume_policy = "fresh_context" if action == "recreate" else "native_first"
-                request_session_handle = "" if action == "recreate" else (session["session_handle"] or "")
-                await db.execute(
-                    """
-                    INSERT INTO spawn_requests (
-                        id, spawn_spec_id, created_by, environment_id, agent_id, role, name, runtime,
-                        workspace, workspace_root, initial_message, priority, subject, mode,
-                        resume_policy, status, session_handle, created_at, updated_at
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                    """,
-                    (
-                        request_id,
-                        spec_id,
-                        req.from_agent or "dashboard",
-                        spawn_spec_row["environment_id"],
-                        agent_id,
-                        (agent_row["role"] if agent_row else "") or "coder",
-                        (agent_row["name"] if agent_row else "") or agent_id,
-                        spawn_spec_row["runtime"],
-                        workspace,
-                        workspace_root,
-                        req.body or "",
-                        req.priority or "normal",
-                        req.subject or f"{action.title()} {agent_id}",
-                        spawn_spec_row["mode"] or session["mode"] or "managed-warm",
-                        resume_policy,
-                        "queued",
-                        request_session_handle,
-                        now,
-                        now,
-                    ),
-                )
-                spawn_request_row = await (await db.execute("SELECT * FROM spawn_requests WHERE id = ?", (request_id,))).fetchone()
-                if action == "recreate":
-                    await db.execute(
-                        """
-                        UPDATE agents
-                        SET session_handle = '',
-                            runtime_state = '{}',
-                            last_seen = ?
-                        WHERE id = ?
-                        """,
-                        (now, agent_id),
-                    )
+        spawn_request_row, spawn_spec_row = await _prepare_restart_spawn(
+            db, req, session, session_id, agent_id, action, now, coldstart_warnings,
+            spawn_request_row, spawn_spec_row,
+        )
 
         next_status = {
             "stop": "stopped",
