@@ -194,6 +194,13 @@ const EXTRACTIONS = [
     ],
   },
   {
+    module: "api-origin.mjs",
+    importLine: "import { resolveApiOrigin } from './api-origin.mjs';",
+    items: [
+      { name: "resolveApiOrigin", at: 16, marker: "// resolveApiOrigin moved to ./api-origin.mjs in v0.5.4." },
+    ],
+  },
+  {
     module: "session-rail.mjs",
     importLine: "import { SESSION_FILTER_KINDS, agentForSession, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds } from './session-rail.mjs';",
     items: [
@@ -358,11 +365,12 @@ const MODULES = () => ({
   "cli-resume.mjs": read("cli-resume.mjs"),
   "state.mjs": read("state.mjs"),
   "ui.js": read("ui.js"),
+  "api-origin.mjs": read("api-origin.mjs"),
   "session-rail.mjs": read("session-rail.mjs"),
   "settings-panel.mjs": read("settings-panel.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
-  "codex-console.mjs": read("codex-console.mjs"),
+  "codex-console.mjs": read("codex-console.mjs"),
   "identity-directory.mjs": read("identity-directory.mjs"),
   "status-why-popover.mjs": read("status-why-popover.mjs"),
   "session-activity.mjs": read("session-activity.mjs"),

@@ -49,19 +49,9 @@ import { copyActiveConsole, copyText } from './clipboard.mjs';
 import { openAgentEditForm, openContinueForm, openMessageDetail } from './inspector-forms.mjs';
 import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } from './run-inspector-controls.mjs';
 import { persistChatPrefs, syncChatChips } from './chat-prefs.mjs';
+import { resolveApiOrigin } from './api-origin.mjs';
 
-function resolveApiOrigin() {
-  const params = new URLSearchParams(location.search);
-  const requested = params.get('apiOrigin');
-  if (requested) {
-    localStorage.setItem('aify.next.apiOrigin', requested.replace(/\/+$/, ''));
-    return requested.replace(/\/+$/, '');
-  }
-  const stored = localStorage.getItem('aify.next.apiOrigin');
-  if (stored) return stored.replace(/\/+$/, '');
-  const port = document.documentElement.dataset.defaultApiPort || '8800';
-  return `${location.protocol}//${location.hostname}:${port}`;
-}
+// resolveApiOrigin moved to ./api-origin.mjs in v0.5.4.
 
 const apiOrigin = resolveApiOrigin();
 const apiBase = `${apiOrigin}/api/v1`;
