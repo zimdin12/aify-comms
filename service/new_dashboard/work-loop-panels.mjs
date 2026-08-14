@@ -184,3 +184,13 @@ export function jumpFromDiagnostic(diagJump) {
     const sel = byId('contract-state'); if (sel) { sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); }
   }
 }
+
+// The diagnostics bulk-selection checkbox, moved out of app.js's delegated click handler in v0.5.4. It
+// keys on `diagnosticKey`, which is this module's own — the composite key is what lets runs and
+// contracts share one selection Set without colliding on id.
+export function toggleDiagnosticSelection(diagnosticSelect, renderDiagnosticsBulkToolbar) {
+  const key = diagnosticKey(diagnosticSelect.dataset.diagnosticKind || 'run', diagnosticSelect.dataset.diagnosticSelect);
+  if (diagnosticSelect.checked) state.selectedDiagnosticIds.add(key);
+  else state.selectedDiagnosticIds.delete(key);
+  renderDiagnosticsBulkToolbar();
+}

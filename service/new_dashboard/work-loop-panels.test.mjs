@@ -21,6 +21,7 @@ import {
   filtered,
   jumpFromDiagnostic,
   renderContractBoard,
+  toggleDiagnosticSelection,
 } from "./work-loop-panels.mjs";
 
 function seed({ filter = "", runs = [], messages = [], contracts = [] } = {}) {
@@ -277,5 +278,56 @@ test("jumpFromDiagnostic is a no-op when the target select is absent, and handle
   withViewDom(dom, () => {
     assert.doesNotThrow(() => jumpFromDiagnostic({ dataset: { diagJump: "run:failed" } }));
     assert.doesNotThrow(() => jumpFromDiagnostic({ dataset: {} }), "an absent key must not throw");
+  });
+});
+
+// --- toggleDiagnosticSelection -----------------------------------------------------------------
+
+/** Seal the diagnostics selection Set. */
+function withDiagnostics(selected, run) {
+  const saved = state.selectedDiagnosticIds;
+  state.selectedDiagnosticIds = new Set(selected);
+  try {
+    return run();
+  } finally {
+    state.selectedDiagnosticIds = saved;
+  }
+}
+
+test("THE SELECTION IS KEYED BY KIND+ID, so a run and a contract sharing an id cannot collide", () => {
+  // `diagnosticKey(kind, id)`. Runs and contracts are selected into ONE Set; keying on the bare id would
+  // make selecting run "7" also select contract "7", and a bulk action would then hit a record the
+  // operator never ticked.
+  withDiagnostics([], () => {
+    toggleDiagnosticSelection({ checked: true, dataset: { diagnosticKind: "run", diagnosticSelect: "7" } }, () => {});
+    toggleDiagnosticSelection({ checked: true, dataset: { diagnosticKind: "contract", diagnosticSelect: "7" } }, () => {});
+    assert.equal(state.selectedDiagnosticIds.size, 2, "two distinct keys, not one");
+    assert.ok(state.selectedDiagnosticIds.has(diagnosticKey("run", "7")));
+    assert.ok(state.selectedDiagnosticIds.has(diagnosticKey("contract", "7")));
+  });
+});
+
+test("the kind DEFAULTS to 'run' when the element does not declare one", () => {
+  // `dataset.diagnosticKind || 'run'`. An undefined kind would key as "undefined:7" and never match the
+  // key the bulk toolbar builds, so the row would appear selected and be silently skipped.
+  withDiagnostics([], () => {
+    toggleDiagnosticSelection({ checked: true, dataset: { diagnosticSelect: "7" } }, () => {});
+    assert.ok(state.selectedDiagnosticIds.has(diagnosticKey("run", "7")));
+  });
+});
+
+test("it mirrors the checkbox rather than flipping, and refreshes the bulk toolbar each time", () => {
+  // Same reasoning as the session checkbox: the browser has already applied the check. The toolbar shows
+  // the count and the actions, so it must be redrawn on every change or it acts on a stale selection.
+  withDiagnostics([], () => {
+    let toolbars = 0;
+    const el = { checked: true, dataset: { diagnosticKind: "run", diagnosticSelect: "7" } };
+    toggleDiagnosticSelection(el, () => { toolbars += 1; });
+    toggleDiagnosticSelection(el, () => { toolbars += 1; });
+    assert.equal(state.selectedDiagnosticIds.size, 1, "re-affirming a checked box keeps exactly one");
+
+    toggleDiagnosticSelection({ ...el, checked: false }, () => { toolbars += 1; });
+    assert.equal(state.selectedDiagnosticIds.size, 0);
+    assert.equal(toolbars, 3, "every change redraws the toolbar");
   });
 });

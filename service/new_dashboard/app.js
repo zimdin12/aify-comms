@@ -38,7 +38,7 @@ import { state } from './state.mjs';
 import { SESSION_FILTER_KINDS, agentForSession, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';
 import { applyThemeChoice, previewAppearance, refreshActiveTerminalTheme, renderSettings, selectSettingsTab, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
 import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './agent-drawer.mjs';
-import { applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, renderActivityFeed, renderAttention, renderContractBoard } from './work-loop-panels.mjs';
+import { applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';
 import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexConsoleConnections, codexConsoleSendTurn } from './codex-console.mjs';
 import { openIdentityDirectory } from './identity-directory.mjs';
 import { closeStatusWhy, openStatusWhy } from './status-why-popover.mjs';
@@ -51,7 +51,7 @@ import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } f
 import { persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';
 import { startColdAgent, switchModeFromChip } from './agent-click-handlers.mjs';
 import { openChatConversation, openChatReply, setChatView, setPulseWindow } from './chat-click-handlers.mjs';
-import { applySessionStatusPreset, toggleSessionCheckbox, toggleSessionStatusFilter } from './session-click-handlers.mjs';
+import { applySessionStatusPreset, openAgentSessions, selectSessionRow, toggleSessionCheckbox, toggleSessionStatusFilter } from './session-click-handlers.mjs';
 import { resolveApiOrigin } from './api-origin.mjs';
 import { setApiBase, api } from './api-client.mjs';
 import { attachChatFile, deleteSharedFile, loadFiles, renderFiles, uploadPastedImage, uploadSharedFile } from './shared-files.mjs';
@@ -2912,10 +2912,7 @@ document.addEventListener('click', (event) => {
   }
   const agentOpenSessions = event.target.closest('[data-agent-open-sessions]');
   if (agentOpenSessions) {
-    const sid = agentOpenSessions.dataset.agentOpenSessions;
-    if (sid) { state.selectedSessionId = sid; renderSessionWorkspace(); }
-    setPage('sessions');
-    closeInspector();
+    openAgentSessions(agentOpenSessions, renderSessionWorkspace, setPage, closeInspector);
     return;
   }
   const toggleSuperseded = event.target.closest('[data-toggle-superseded]');
@@ -3037,10 +3034,7 @@ document.addEventListener('click', (event) => {
   }
   const diagnosticSelect = event.target.closest('[data-diagnostic-select]');
   if (diagnosticSelect) {
-    const key = diagnosticKey(diagnosticSelect.dataset.diagnosticKind || 'run', diagnosticSelect.dataset.diagnosticSelect);
-    if (diagnosticSelect.checked) state.selectedDiagnosticIds.add(key);
-    else state.selectedDiagnosticIds.delete(key);
-    renderDiagnosticsBulkToolbar();
+    toggleDiagnosticSelection(diagnosticSelect, renderDiagnosticsBulkToolbar);
     return;
   }
   const diagnosticAction = event.target.closest('[data-diagnostic-action]');
@@ -3086,10 +3080,7 @@ document.addEventListener('click', (event) => {
   }
   const sessionSelect = event.target.closest('[data-session-select]');
   if (sessionSelect) {
-    state.selectedSessionId = sessionSelect.dataset.sessionSelect;
-    const session = selectedSession();
-    state.selectedConversation = session ? sessionAgentId(session) || 'dashboard' : 'dashboard';
-    renderSessionWorkspace();
+    selectSessionRow(sessionSelect, renderSessionWorkspace);
     return;
   }
   const sessionTab = event.target.closest('[data-session-tab]');

@@ -627,6 +627,48 @@ const EXTRACTIONS = [
       },
     ],
   },
+
+  {
+    module: "session-click-handlers.mjs",
+    importLine: "import { applySessionStatusPreset, openAgentSessions, selectSessionRow, toggleSessionCheckbox, toggleSessionStatusFilter } from './session-click-handlers.mjs';",
+    importWas: "import { applySessionStatusPreset, toggleSessionCheckbox, toggleSessionStatusFilter } from './session-click-handlers.mjs';",
+    items: [
+      {
+        name: "openAgentSessions",
+        at: 4383,
+        marker: "    openAgentSessions(agentOpenSessions, renderSessionWorkspace, setPage, closeInspector);",
+        wrapper: {
+          header: ["export function openAgentSessions(agentOpenSessions, renderSessionWorkspace, setPage, closeInspector) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+      {
+        name: "selectSessionRow",
+        at: 4584,
+        marker: "    selectSessionRow(sessionSelect, renderSessionWorkspace);",
+        wrapper: {
+          header: ["export function selectSessionRow(sessionSelect, renderSessionWorkspace) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+    ],
+  },
+  {
+    module: "work-loop-panels.mjs",
+    importLine: "import { applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';",
+    importWas: "import { applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, renderActivityFeed, renderAttention, renderContractBoard } from './work-loop-panels.mjs';",
+    items: [
+      {
+        name: "toggleDiagnosticSelection",
+        at: 4528,
+        marker: "    toggleDiagnosticSelection(diagnosticSelect, renderDiagnosticsBulkToolbar);",
+        wrapper: {
+          header: ["export function toggleDiagnosticSelection(diagnosticSelect, renderDiagnosticsBulkToolbar) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({

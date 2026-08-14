@@ -17,6 +17,8 @@ import { state } from "./state.mjs";
 import { LIVE_AGENT_STATUSES } from "./status.js";
 import {
   applySessionStatusPreset,
+  openAgentSessions,
+  selectSessionRow,
   persistSessionStatusFilter,
   toggleSessionCheckbox,
   toggleSessionStatusFilter,
@@ -136,5 +138,93 @@ test("checkbox selection is per-id and always re-renders", () => {
     toggleSessionCheckbox({ checked: true, dataset: { sessionCheckbox: "s2" } }, h.render);
     assert.deepEqual([...state.selectedSessionIds].sort(), ["s1", "s2"]);
     assert.equal(h.renders(), 1);
+  });
+});
+
+// --- row selection and the agent → sessions jump -------------------------------------------------
+
+/** Seal the selection fields these two touch. */
+function withSelection({ sessions = [], selectedId = "" } = {}, run) {
+  const saved = {
+    sessions: state.sessions,
+    selectedSessionId: state.selectedSessionId,
+    selectedConversation: state.selectedConversation,
+  };
+  state.sessions = sessions;
+  state.selectedSessionId = selectedId;
+  state.selectedConversation = "";
+  try {
+    return run();
+  } finally {
+    Object.assign(state, saved);
+  }
+}
+
+test("selectSessionRow points the CONVERSATION at the selected session's agent", () => {
+  // Two fields move together. Selecting the row without repointing the conversation leaves the chat
+  // pane showing the previous session's agent — the operator then reads one session and messages
+  // another, which is the failure worth guarding.
+  withSelection({ sessions: [{ id: "s1", agent_id: "coder-1" }] }, () => {
+    let renders = 0;
+    selectSessionRow({ dataset: { sessionSelect: "s1" } }, () => { renders += 1; });
+    assert.equal(state.selectedSessionId, "s1");
+    assert.equal(state.selectedConversation, "coder-1");
+    assert.equal(renders, 1);
+  });
+});
+
+test("a session with NO agent falls back to 'dashboard', never to empty", () => {
+  // `sessionAgentId(session) || 'dashboard'`. An empty conversation key would address no thread at all,
+  // so the chat pane would silently render nothing rather than the dashboard's own.
+  withSelection({ sessions: [{ id: "s1" }] }, () => {
+    selectSessionRow({ dataset: { sessionSelect: "s1" } }, () => {});
+    assert.equal(state.selectedConversation, "dashboard");
+  });
+});
+
+test("selecting an UNKNOWN session id still yields a usable conversation", () => {
+  // `session ? … : 'dashboard'`. The rail can be one poll behind the click; a missing session must not
+  // leave the conversation key undefined.
+  withSelection({ sessions: [] }, () => {
+    selectSessionRow({ dataset: { sessionSelect: "gone" } }, () => {});
+    assert.equal(state.selectedSessionId, "gone");
+    assert.equal(state.selectedConversation, "dashboard");
+  });
+});
+
+test("openAgentSessions NAVIGATES and CLOSES THE INSPECTOR even with no session to select", () => {
+  // `if (sid) { … }` guards only the selection. The page change and the inspector close are
+  // unconditional on purpose: the button's job is to get the operator to the Sessions page, and an agent
+  // with no live session is exactly when they most need to look.
+  withSelection({}, () => {
+    const pages = [];
+    let closed = 0;
+    let renders = 0;
+    openAgentSessions(
+      { dataset: {} },
+      () => { renders += 1; },
+      (p) => pages.push(p),
+      () => { closed += 1; },
+    );
+    assert.deepEqual(pages, ["sessions"]);
+    assert.equal(closed, 1, "the inspector must not stay open over the new page");
+    assert.equal(renders, 0, "…but nothing is re-rendered when there is no session to select");
+    assert.equal(state.selectedSessionId, "", "and no selection is invented");
+  });
+});
+
+test("openAgentSessions selects the named session before navigating", () => {
+  withSelection({}, () => {
+    const pages = [];
+    let renders = 0;
+    openAgentSessions(
+      { dataset: { agentOpenSessions: "s9" } },
+      () => { renders += 1; },
+      (p) => pages.push(p),
+      () => {},
+    );
+    assert.equal(state.selectedSessionId, "s9");
+    assert.equal(renders, 1, "the workspace is redrawn for the new selection");
+    assert.deepEqual(pages, ["sessions"]);
   });
 });

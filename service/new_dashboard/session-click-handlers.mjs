@@ -7,7 +7,8 @@
 // `renderSessionWorkspace` is INJECTED. It stays in app.js (it reaches most of the render web), and a
 // parameter of the same name leaves each body byte-identical to the branch it left.
 
-import { SESSION_FILTER_KINDS } from './session-rail.mjs';
+import { sessionAgentId } from './record-fields.mjs';
+import { SESSION_FILTER_KINDS, selectedSession } from './session-rail.mjs';
 import { state } from './state.mjs';
 import { LIVE_AGENT_STATUSES } from './status.js';
 
@@ -38,5 +39,19 @@ export function toggleSessionCheckbox(sessionCheckbox, renderSessionWorkspace) {
   const id = sessionCheckbox.dataset.sessionCheckbox;
   if (sessionCheckbox.checked) state.selectedSessionIds.add(id);
   else state.selectedSessionIds.delete(id);
+  renderSessionWorkspace();
+}
+
+export function openAgentSessions(agentOpenSessions, renderSessionWorkspace, setPage, closeInspector) {
+  const sid = agentOpenSessions.dataset.agentOpenSessions;
+  if (sid) { state.selectedSessionId = sid; renderSessionWorkspace(); }
+  setPage('sessions');
+  closeInspector();
+}
+
+export function selectSessionRow(sessionSelect, renderSessionWorkspace) {
+  state.selectedSessionId = sessionSelect.dataset.sessionSelect;
+  const session = selectedSession();
+  state.selectedConversation = session ? sessionAgentId(session) || 'dashboard' : 'dashboard';
   renderSessionWorkspace();
 }
