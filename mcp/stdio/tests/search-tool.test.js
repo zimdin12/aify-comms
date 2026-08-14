@@ -144,7 +144,9 @@ test("the module exports only its owner surface and kept no state", () => {
 test("server.js kept none of it — exactly one owner", () => {
   const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
   assert.doesNotMatch(src, /server\.tool\(\s*\n?\s*"comms_search"/, "comms_search still registered in server.js");
-  assert.match(src, /registerSearchTool\(server, z\);/, "server.js must still CALL the wrapper");
+  // Moved with the registration list to `register-tools.mjs` in v0.5.4.
+  const reg = readFileSync(path.join(STDIO, "register-tools.mjs"), "utf-8");
+  assert.match(reg, /registerSearchTool\(server, z\);/, "the registrar must still CALL the wrapper");
 });
 
 process.on("exit", () => { try { rmSync(STORE, { recursive: true, force: true }); } catch { /* best effort */ } });

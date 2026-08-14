@@ -16,7 +16,6 @@ import {
   SERVER_URL,
   httpCall,
 } from "./aify-service-endpoint.mjs";
-import { registerArtifactTools } from "./artifact-tools.mjs";
 import { makeAutoRegister } from "./auto-registration.mjs";
 import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
 import { reportResidentLost } from "./resident-lost.mjs";
@@ -27,19 +26,6 @@ import {
 import {
   environmentHeartbeatPayload,
 } from "./environment-identity.mjs";
-import { registerRegistrationTool } from "./registration-tool.mjs";
-import { registerChannelTools } from "./channel-tools.mjs";
-import { registerCompactTool } from "./compact-tool.mjs";
-import { registerConsoleTools } from "./console-tools.mjs";
-import { registerDashboardTool } from "./dashboard-tool.mjs";
-import { registerDispatchTools } from "./dispatch-tools.mjs";
-import { registerAgentReportingTools } from "./agent-reporting-tools.mjs";
-import { registerEnvironmentTools } from "./environment-tools.mjs";
-import { registerInboxTools } from "./inbox-tools.mjs";
-import { registerLifecycleTools } from "./lifecycle-tools.mjs";
-import { registerSearchTool } from "./search-tool.mjs";
-import { registerSelfRecordTools } from "./self-record-tools.mjs";
-import { registerUsageTool } from "./usage-tool.mjs";
 import {
   INBOX_DIR, MESSAGES_DIR, SHARED_DIR,
 } from "./local-store.mjs";
@@ -93,6 +79,7 @@ import {
 } from "./claim-failure-tracker.mjs";
 import { createManagedTeardownSweeps } from "./managed-teardown-sweeps.mjs";
 import { shouldSkipLoop } from "./loop-gate.mjs";
+import { registerAllTools } from "./register-tools.mjs";
 import { syncManagedEnvironmentAgentsPass } from "./managed-environment-sync.mjs";
 import { runDispatchPass } from "./dispatch-loop.mjs";
 import { runTerminalControlPass } from "./terminal-control-loop.mjs";
@@ -105,7 +92,6 @@ import {
   __RESIDENT_GATEWAY_TURN_IDLE_DEBOUNCE,
   __RESIDENT_GATEWAY_TURN_POLL_MS,
 } from "./poll-intervals.mjs";
-import { registerSendTools } from "./send-tools.mjs";
 import { VIRTUAL_RPC_RUNTIMES, VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT, createVirtualTerminalSink, ensureVirtualTerminal, findAgentIdForVirtualTerminal, handleVirtualTerminalControl, updateTerminalControl } from './virtual-terminals.mjs';
 import { ensureRequiredReplyHandoff } from './required-reply-handoff.mjs';
 import { TERMINAL_MANAGER, reportDeadOwnedTerminals } from './terminal-manager.mjs';
@@ -1117,85 +1103,7 @@ const server = new McpServer({
   version: AIFY_VERSION,
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// 1. comms_register -- Register agent with ID, role, name, cwd, model, instructions
-// ═══════════════════════════════════════════════════════════════════════════════
-
-registerRegistrationTool(server, z, { ensureDispatchLoop });
-
-registerEnvironmentTools(server, z);
-
-
-
-
-
-
-registerUsageTool(server, z);
-
-
-registerCompactTool(server, z);
-
-registerAgentReportingTools(server, z);
-
-registerSelfRecordTools(server, z);
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// 3. comms_send -- Send message to agent by ID or role
-// ═══════════════════════════════════════════════════════════════════════════════
-
-// COMMS_SEND_TOOL_DESCRIPTION moved to ./send-tools.mjs in v0.5.4 — it describes comms_send,
-// so it belongs with the tool rather than with the file the tool used to live in.
-
-// The two SEND tools live in ./send-tools.mjs. No `moved to` marker: that form names a DECLARATION, and
-// a tool name is not one — every earlier tool extraction left only its register call, same as this.
-registerSendTools(server, z);
-
-registerDispatchTools(server, z);
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// comms_console_tail / comms_console_input -- read & unstick a managed agent's console
-// ═══════════════════════════════════════════════════════════════════════════════
-
-registerConsoleTools(server, z);
-
-// comms_run_steer removed from stdio — ordinary comms_send does not require
-// knowing the runId, creates an inbox message, and steers busy steer-capable
-// targets unless queueIfBusy=true. Busy non-steer targets queue/merge instead.
-
-/**
- * Spawn a local runtime instance to handle a triggered message.
- * Fire-and-forget: the result is delivered back to the sender's inbox.
- */
-// spawnTriggeredAgent moved to ./spawn-triggered-agent.mjs in v0.5.4.
-
-registerInboxTools(server, z);
-
-registerSearchTool(server, z);
-
-
-
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// 6. comms_share -- Share text content or file to shared space
-// ═══════════════════════════════════════════════════════════════════════════════
-
-registerArtifactTools(server, z);
-
-registerChannelTools(server, z);
-
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// 11. comms_channel_send -- Send message to channel
-// ═══════════════════════════════════════════════════════════════════════════════
-
-
-
-
-registerLifecycleTools(server, z);
-
-registerDashboardTool(server, z);
-
-// ── Entrypoint ───────────────────────────────────────────────────────────────
+registerAllTools(server, z, { ensureDispatchLoop });
 
 async function main() {
   const transport = new StdioServerTransport();

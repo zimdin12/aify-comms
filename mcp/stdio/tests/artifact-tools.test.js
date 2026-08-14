@@ -132,7 +132,11 @@ test("server.js kept none of the three — exactly one owner", () => {
   for (const name of ["comms_share", "comms_read", "comms_files"]) {
     assert.doesNotMatch(src, new RegExp(`server\\.tool\\(\\s*\\n?\\s*"${name}"`), `${name} still in server.js`);
   }
-  assert.match(src, /registerArtifactTools\(server, z\);/, "server.js must still CALL the wrapper");
+  // Moved with the registration list to `register-tools.mjs` in v0.5.4. Still a wiring check —
+  // "the wrapper is called with exactly (server, z)" is about wiring, not behaviour — but it now
+  // names the file that holds the call.
+  const reg = readFileSync(path.join(STDIO, "register-tools.mjs"), "utf-8");
+  assert.match(reg, /registerArtifactTools\(server, z\);/, "the registrar must still CALL the wrapper");
 });
 
 process.on("exit", () => { try { rmSync(STORE, { recursive: true, force: true }); } catch { /* best effort */ } });

@@ -111,7 +111,11 @@ test("server.js kept neither tool nor the helper — exactly one owner", () => {
   }
   assert.doesNotMatch(src, /^(?:export\s+)?function\s+summarizeEnvironment\b/m, "the helper must not be redeclared");
   assert.doesNotMatch(src, /(?<![\w.])summarizeEnvironment(?![\w])/, "server.js has no remaining reference to it");
-  assert.match(src, /registerEnvironmentTools\(server, z\);/, "server.js must still CALL the wrapper");
+  // Moved with the registration list to `register-tools.mjs` in v0.5.4. Still a wiring check —
+  // "the wrapper is called with exactly (server, z)" is about wiring, not behaviour — but it now
+  // names the file that holds the call.
+  const reg = readFileSync(path.join(STDIO, "register-tools.mjs"), "utf-8");
+  assert.match(reg, /registerEnvironmentTools\(server, z\);/, "the registrar must still CALL the wrapper");
 });
 
 test("the module kept no state and imports only owned leaves", () => {

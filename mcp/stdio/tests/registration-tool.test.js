@@ -214,8 +214,13 @@ test("server.js owns the loop, passes it in, and no longer registers the tool it
   const server = fs.readFileSync(path.join(STDIO, "server.js"), "utf-8");
   assert.match(server, /^function ensureDispatchLoop\(/m,
     "server.js keeps the implementation — this is the borrow, not a move");
-  assert.match(server, /registerRegistrationTool\(server, z, \{ ensureDispatchLoop \}\);/,
-    "…and hands it to the tool rather than the tool importing it");
+  // The CALL moved to `register-tools.mjs` with the rest of the registration list; the
+  // IMPLEMENTATION stays in server.js, which the assertion above pins. Together they still prove
+  // the borrow: server.js owns `ensureDispatchLoop` and hands it down, rather than the tool
+  // importing it for itself.
+  const reg = fs.readFileSync(path.join(STDIO, "register-tools.mjs"), "utf-8");
+  assert.match(reg, /registerRegistrationTool\(server, z, \{ ensureDispatchLoop \}\);/,
+    "…and it is handed the borrow rather than importing it");
   assert.doesNotMatch(server, /"comms_register"/,
     "server.js must not still declare the tool it delegated");
 });

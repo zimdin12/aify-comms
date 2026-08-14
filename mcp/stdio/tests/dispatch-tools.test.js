@@ -131,5 +131,9 @@ test("server.js kept none of it — exactly one owner", () => {
   for (const helper of ["commsInterruptHandler", "summarizeContract"]) {
     assert.doesNotMatch(src, new RegExp(`function\\s+${helper}\\b`), `${helper} must not be redeclared`);
   }
-  assert.match(src, /registerDispatchTools\(server, z\);/, "server.js must still CALL the wrapper");
+  // Moved with the registration list to `register-tools.mjs` in v0.5.4. Still a wiring check —
+  // "the wrapper is called with exactly (server, z)" is about wiring, not behaviour — but it now
+  // names the file that holds the call.
+  const reg = readFileSync(path.join(STDIO, "register-tools.mjs"), "utf-8");
+  assert.match(reg, /registerDispatchTools\(server, z\);/, "the registrar must still CALL the wrapper");
 });

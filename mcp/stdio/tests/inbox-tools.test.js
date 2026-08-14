@@ -134,7 +134,9 @@ test("server.js kept none of the three — exactly one owner", () => {
   for (const name of ["comms_inbox", "comms_listen", "comms_unsend"]) {
     assert.doesNotMatch(src, new RegExp(`server\\.tool\\(\\s*\\n?\\s*"${name}"`), `${name} still in server.js`);
   }
-  assert.match(src, /registerInboxTools\(server, z\);/, "server.js must still CALL the wrapper");
+  // Moved with the registration list to `register-tools.mjs` in v0.5.4.
+  const reg = readFileSync(path.join(STDIO, "register-tools.mjs"), "utf-8");
+  assert.match(reg, /registerInboxTools\(server, z\);/, "the registrar must still CALL the wrapper");
 });
 
 test("comms_search is NOT part of this group — the subject boundary, not a location", () => {

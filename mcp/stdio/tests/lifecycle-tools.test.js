@@ -124,5 +124,9 @@ test("server.js kept none of the four — exactly one owner", () => {
   for (const name of EXPECTED) {
     assert.doesNotMatch(src, new RegExp(`server\\.tool\\(\\s*\\n?\\s*"${name}"`), `${name} still in server.js`);
   }
-  assert.match(src, /registerLifecycleTools\(server, z\);/, "server.js must still CALL the wrapper");
+  // The registration list moved to `register-tools.mjs` in v0.5.4. This is still a location check —
+  // "the wrapper is called with exactly (server, z)" is about wiring, not behaviour — but it now names
+  // the file that actually holds the call instead of the one it used to sit in.
+  const reg = readFileSync(path.join(STDIO, "register-tools.mjs"), "utf-8");
+  assert.match(reg, /registerLifecycleTools\(server, z\);/, "the registrar must still CALL the wrapper");
 });
