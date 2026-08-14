@@ -18,7 +18,16 @@ import {
 } from "./environments-panels.mjs";
 
 function el(extra = {}) {
-  return { innerHTML: "", value: "", contains: () => false, ...extra };
+  // classList is here because the roots editor opens the inspector drawer; without it the failure reads
+  // as "Cannot read properties of undefined (reading 'add')", which says nothing about the cause.
+  const classes = new Set();
+  return {
+    innerHTML: "", value: "", contains: () => false,
+    classList: {
+      add: (c) => classes.add(c), remove: (c) => classes.delete(c), contains: (c) => classes.has(c),
+    },
+    ...extra,
+  };
 }
 
 function withDom(els, activeElement = null, run) {
@@ -26,6 +35,22 @@ function withDom(els, activeElement = null, run) {
   globalThis.document = { getElementById: (id) => els[id] || null, activeElement };
   try {
     return run(els);
+  } finally {
+    if (!had) delete globalThis.document;
+  }
+}
+
+// `openEnvironmentRootsEditor` defers a focus call by 30ms. Tearing the document down synchronously left
+// that timer to fire against nothing — Node reported "asynchronous activity after the test ended" and
+// turned it into an uncaughtException, which fails the whole FILE rather than the test. This variant
+// lets the deferred work run first.
+async function withDomAsync(els, run) {
+  const had = "document" in globalThis;
+  globalThis.document = { getElementById: (id) => els[id] || null, activeElement: null };
+  try {
+    const out = await run(els);
+    await new Promise((r) => setTimeout(r, 60));
+    return out;
   } finally {
     if (!had) delete globalThis.document;
   }
@@ -152,4 +177,85 @@ test("renderRuntime lists environments and says so when there are none", () => {
   });
   assert.ok(listed.includes("Windows box"));
   assert.ok(listed.includes('data-kind="environment"'));
+});
+
+// ---------------------------------------------------------------------------------------------------
+// The environment summary tile and the roots editor, appended to this module in a later v0.5.4 slice.
+
+import { openEnvironmentRootsEditor, renderEnvironmentSummary } from "./environments-panels.mjs";
+
+test("the summary counts online and offline bridges by RESOLVED status", () => {
+  state.environments = [
+    { id: "a", status: "online" },
+    { id: "b", status: "online" },
+    { id: "c", status: "offline" },
+  ];
+  const html = withDom({ "environment-summary": el() }, null, (els) => {
+    renderEnvironmentSummary();
+    return els["environment-summary"].innerHTML;
+  });
+  assert.ok(html.includes("<b>3</b><span>Environments</span>"));
+  assert.ok(html.includes("<b>2</b><span>Online bridges</span>"));
+  assert.ok(html.includes("<b>1</b><span>Offline</span>"));
+});
+
+test("offline is toned BAD only when there is something offline", () => {
+  // A permanently red "Offline: 0" trains the operator to ignore the tile that matters.
+  state.environments = [{ id: "a", status: "online" }];
+  const clean = withDom({ "environment-summary": el() }, null, (els) => {
+    renderEnvironmentSummary();
+    return els["environment-summary"].innerHTML;
+  });
+  assert.ok(!clean.includes('data-tone="bad"'), "nothing offline must not render an alarm");
+
+  state.environments = [{ id: "a", status: "offline" }];
+  const bad = withDom({ "environment-summary": el() }, null, (els) => {
+    renderEnvironmentSummary();
+    return els["environment-summary"].innerHTML;
+  });
+  assert.ok(bad.includes('data-tone="bad"'));
+});
+
+test("runtime types are counted DISTINCTLY across environments", () => {
+  // Two hosts both offering claude and codex is two runtime types, not four — the tile answers "what can
+  // this fleet run", not "how many runtime rows exist".
+  state.environments = [
+    { id: "a", status: "online", runtimes: [{ runtime: "claude" }, { runtime: "codex" }] },
+    { id: "b", status: "online", runtimes: [{ runtime: "claude" }] },
+  ];
+  const html = withDom({ "environment-summary": el() }, null, (els) => {
+    renderEnvironmentSummary();
+    return els["environment-summary"].innerHTML;
+  });
+  assert.ok(html.includes("<b>2</b><span>Runtime types</span>"));
+});
+
+test("the roots editor flags a dashboard override, under either metadata spelling", async () => {
+  // The distinction matters operationally: overridden roots do NOT track what the bridge advertises, so a
+  // workspace that later becomes valid on the host stays rejected until someone clears the override.
+  for (const metadata of [{ manualRoots: true }, { manual_roots: true }]) {
+    state.environments = [{ id: "e1", metadata, roots: ["/srv"] }];
+    const html = await withDomAsync({ "inspector-content": el(), inspector: el() }, (els) => {
+      openEnvironmentRootsEditor("e1");
+      return els["inspector-content"].innerHTML;
+    });
+    assert.ok(html.includes("dashboard override active"), `metadata=${JSON.stringify(metadata)}`);
+  }
+
+  state.environments = [{ id: "e1", roots: ["/srv"] }];
+  const plain = await withDomAsync({ "inspector-content": el(), inspector: el() }, (els) => {
+    openEnvironmentRootsEditor("e1");
+    return els["inspector-content"].innerHTML;
+  });
+  assert.ok(plain.includes("using bridge-advertised roots"));
+});
+
+test("the roots editor opens for an environment that is not in state", async () => {
+  // It is reachable from a row the poll has since dropped; throwing here would leave the drawer half-built.
+  state.environments = [];
+  const html = await withDomAsync({ "inspector-content": el(), inspector: el() }, (els) => {
+    openEnvironmentRootsEditor("ghost-env");
+    return els["inspector-content"].innerHTML;
+  });
+  assert.ok(html.includes("ghost-env"));
 });

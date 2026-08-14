@@ -43,7 +43,7 @@ import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexCo
 import { openIdentityDirectory } from './identity-directory.mjs';
 import { closeStatusWhy, openStatusWhy } from './status-why-popover.mjs';
 import { renderSessionActivity, runFrom } from './session-activity.mjs';
-import { renderEnvironmentSpawnOptions, renderRuntime, renderSpawnRequests } from './environments-panels.mjs';
+import { openEnvironmentRootsEditor, renderEnvironmentSpawnOptions, renderEnvironmentSummary, renderRuntime, renderSpawnRequests } from './environments-panels.mjs';
 import { metric, renderDiagnosticsSummary, renderMetrics, renderUsageConsumption, selectedDiagnostics } from './summary-tiles.mjs';
 import { copyActiveConsole, copyText } from './clipboard.mjs';
 
@@ -2216,20 +2216,7 @@ function renderContracts() {
 
 // environmentRoots moved to ./record-fields.mjs in v0.5.4.
 
-function renderEnvironmentSummary() {
-  const target = byId('environment-summary');
-  if (!target) return;
-  const online = state.environments.filter((env) => resolveStatus(env.status).kind === 'online').length;
-  const offline = state.environments.filter((env) => resolveStatus(env.status).kind === 'offline').length;
-  const runtimeKinds = new Set();
-  state.environments.forEach((env) => environmentRuntimes(env).forEach((runtime) => runtimeKinds.add(runtime.runtime)));
-  target.innerHTML = [
-    metric('Environments', state.environments.length, state.environments.length ? 'ok' : 'neutral'),
-    metric('Online bridges', online, online ? 'ok' : 'neutral'),
-    metric('Offline', offline, offline ? 'bad' : 'neutral'),
-    metric('Runtime types', runtimeKinds.size, runtimeKinds.size ? 'working' : 'neutral'),
-  ].join('');
-}
+// renderEnvironmentSummary moved to ./environments-panels.mjs in v0.5.4.
 
 // renderEnvironmentSpawnOptions moved to ./environments-panels.mjs in v0.5.4.
 
@@ -2257,36 +2244,7 @@ async function controlEnvironment(environmentId, action) {
 // environmentStartCommand) — the one-liner an operator runs to bring a dead bridge back.
 // environmentStartCommand moved to ./environment-start-command.mjs in v0.5.4.
 
-function openEnvironmentRootsEditor(environmentId) {
-  const env = state.environments.find((e) => String(e.id) === String(environmentId)) || { id: environmentId };
-  const roots = environmentRoots(env);
-  const manualRoots = !!(env.metadata && (env.metadata.manualRoots || env.metadata.manual_roots));
-  const overrideBadge = manualRoots
-    ? '<span class="mb mb-warn" title="Roots were set from the dashboard and override what the bridge advertises">dashboard override active</span>'
-    : '<span class="subtle">using bridge-advertised roots</span>';
-  const startCmd = environmentStartCommand(env);
-  byId('inspector-content').innerHTML = `
-    <div class="agent-drawer continue-form">
-      <div class="agent-drawer-head"><strong>Workspace roots — ${esc(env.label || environmentId)}</strong></div>
-      <div class="env-roots-state">${overrideBadge}</div>
-      <label class="settings-label">Roots (one per line)
-        <textarea id="env-edit-roots" rows="6" spellcheck="false" placeholder="C:/work&#10;C:/projects">${esc(roots.join('\n'))}</textarea>
-      </label>
-      <p class="subtle">Agents spawned in this environment must use a cwd under one of these roots. Leave non-empty; use “Reset to bridge roots” to restore the advertised set.</p>
-      <label class="settings-label">Start command <span class="subtle">(run on the host to bring this bridge back)</span>
-        <textarea id="env-start-cmd" rows="2" spellcheck="false" readonly>${esc(startCmd)}</textarea>
-      </label>
-      <div class="agent-drawer-actions">
-        <button class="primary" data-env-roots-submit="${esc(environmentId)}">Save roots</button>
-        <button class="ghost" data-env-roots-reset="${esc(environmentId)}">Reset to bridge roots</button>
-        <button class="ghost" data-copy-text="${esc(startCmd)}">Copy start command</button>
-      </div>
-    </div>`;
-  state.inspector = { ...state.inspector, kind: 'env-roots', runId: '' };
-  byId('inspector')?.classList.add('open');
-  byId('inspector')?.classList.remove('run-inspector-sheet');
-  setTimeout(() => byId('env-edit-roots')?.focus(), 30);
-}
+// openEnvironmentRootsEditor moved to ./environments-panels.mjs in v0.5.4.
 
 async function submitEnvironmentRoots(environmentId) {
   const text = byId('env-edit-roots')?.value || '';

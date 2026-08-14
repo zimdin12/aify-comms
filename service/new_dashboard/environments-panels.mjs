@@ -42,9 +42,11 @@ export function renderEnvironmentSpawnOptions(selectedEnvId = byId('env-spawn-en
   if (workspace && !workspace.value) workspace.value = environmentRoots(env)[0] || '';
 }
 
+import { environmentStartCommand } from './environment-start-command.mjs';
 import { environmentRoots, environmentRuntimes } from './record-fields.mjs';
 import { state } from './state.mjs';
 import { renderStatusChip, resolveStatus, statusWhyContext } from './status.js';
+import { metric } from './summary-tiles.mjs';
 import { byId } from './ui.js';
 import { esc, relTime } from './util.js';
 
@@ -95,4 +97,60 @@ export function renderSpawnRequests() {
   el.innerHTML = `<div class="table-wrap"><table class="spawn-requests-table"><thead><tr>
       <th>Requested</th><th>Agent</th><th>Environment</th><th>Runtime</th><th>Status</th><th>Workspace</th><th>Bridge / error</th>
     </tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The environment SUMMARY tile and the workspace-roots editor, added in a later v0.5.4 slice.
+//
+// They join this module rather than getting one of their own: same subject, same page, and the roots
+// editor renders into the inspector the panels above drive. Joining an existing owner over creating a new
+// module is the standing rule here, and two declarations is the case it exists for.
+//
+// They were NOT extractable when this module was first written: `renderEnvironmentSummary` reads `metric`,
+// which was still in app.js and only got an owner (`summary-tiles.mjs`) a slice later. Re-surveying after
+// every slice is what surfaced them — the blocked set shrinks as owners appear.
+
+export function renderEnvironmentSummary() {
+  const target = byId('environment-summary');
+  if (!target) return;
+  const online = state.environments.filter((env) => resolveStatus(env.status).kind === 'online').length;
+  const offline = state.environments.filter((env) => resolveStatus(env.status).kind === 'offline').length;
+  const runtimeKinds = new Set();
+  state.environments.forEach((env) => environmentRuntimes(env).forEach((runtime) => runtimeKinds.add(runtime.runtime)));
+  target.innerHTML = [
+    metric('Environments', state.environments.length, state.environments.length ? 'ok' : 'neutral'),
+    metric('Online bridges', online, online ? 'ok' : 'neutral'),
+    metric('Offline', offline, offline ? 'bad' : 'neutral'),
+    metric('Runtime types', runtimeKinds.size, runtimeKinds.size ? 'working' : 'neutral'),
+  ].join('');
+}
+export function openEnvironmentRootsEditor(environmentId) {
+  const env = state.environments.find((e) => String(e.id) === String(environmentId)) || { id: environmentId };
+  const roots = environmentRoots(env);
+  const manualRoots = !!(env.metadata && (env.metadata.manualRoots || env.metadata.manual_roots));
+  const overrideBadge = manualRoots
+    ? '<span class="mb mb-warn" title="Roots were set from the dashboard and override what the bridge advertises">dashboard override active</span>'
+    : '<span class="subtle">using bridge-advertised roots</span>';
+  const startCmd = environmentStartCommand(env);
+  byId('inspector-content').innerHTML = `
+    <div class="agent-drawer continue-form">
+      <div class="agent-drawer-head"><strong>Workspace roots — ${esc(env.label || environmentId)}</strong></div>
+      <div class="env-roots-state">${overrideBadge}</div>
+      <label class="settings-label">Roots (one per line)
+        <textarea id="env-edit-roots" rows="6" spellcheck="false" placeholder="C:/work&#10;C:/projects">${esc(roots.join('\n'))}</textarea>
+      </label>
+      <p class="subtle">Agents spawned in this environment must use a cwd under one of these roots. Leave non-empty; use “Reset to bridge roots” to restore the advertised set.</p>
+      <label class="settings-label">Start command <span class="subtle">(run on the host to bring this bridge back)</span>
+        <textarea id="env-start-cmd" rows="2" spellcheck="false" readonly>${esc(startCmd)}</textarea>
+      </label>
+      <div class="agent-drawer-actions">
+        <button class="primary" data-env-roots-submit="${esc(environmentId)}">Save roots</button>
+        <button class="ghost" data-env-roots-reset="${esc(environmentId)}">Reset to bridge roots</button>
+        <button class="ghost" data-copy-text="${esc(startCmd)}">Copy start command</button>
+      </div>
+    </div>`;
+  state.inspector = { ...state.inspector, kind: 'env-roots', runId: '' };
+  byId('inspector')?.classList.add('open');
+  byId('inspector')?.classList.remove('run-inspector-sheet');
+  setTimeout(() => byId('env-edit-roots')?.focus(), 30);
 }
