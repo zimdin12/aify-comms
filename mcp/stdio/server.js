@@ -53,7 +53,7 @@ import {
   deliverMessage, readAgents, writeAgents,
 } from "./local-store.mjs";
 import {
-  ACTIVE_RUNS, CONSECUTIVE_FAILURES, REMOTE_AGENT_STATE, forgetRemoteAgent,
+  ACTIVE_RUNS, CONSECUTIVE_FAILURES, REMOTE_AGENT_STATE, forgetRemoteAgent, interruptActiveRuns,
 } from "./bridge-agent-state.mjs";
 import { __markControllerStart, anyControllerActive } from "./controller-activity.mjs";
 import { parseJson } from "./parse-json.mjs";
@@ -462,17 +462,7 @@ let reportEnvironmentOffline = async () => {};
 // dead websocket. Unexpected exits leave this null and rely on the boot sweep.
 let confirmedManagedTeardownAgentIds = null;
 
-async function interruptActiveRuns(reason = "Bridge shutdown") {
-  const active = Array.from(ACTIVE_RUNS.values());
-  if (!active.length) return;
-  await Promise.allSettled(active.map(async (run) => {
-    try {
-      await run?.controller?.interrupt?.(reason);
-    } catch {
-      // Best effort. The process is going down.
-    }
-  }));
-}
+// interruptActiveRuns moved to ./bridge-agent-state.mjs in v0.5.4.
 
 function cleanupOnExit() {
   for (const run of ACTIVE_RUNS.values()) {

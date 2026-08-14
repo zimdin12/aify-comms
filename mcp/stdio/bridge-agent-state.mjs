@@ -45,3 +45,26 @@ export function forgetRemoteAgent(agentId, reason = "") {
     console.error(`[aify] stopped tracking "${agentId}": ${reason}`);
   }
 }
+
+// ---------------------------------------------------------------------------------------------------
+// Interrupting everything in flight, appended in a later v0.5.4 slice.
+//
+// A second operation over the same state, which is what this module is for: it iterates `ACTIVE_RUNS` and
+// nothing else, so keeping it beside the Map spares every caller from importing the Map to do it.
+//
+// BEST EFFORT BY CONSTRUCTION — `Promise.allSettled`, and each interrupt wrapped. It runs while the bridge
+// is going down, so one controller that throws or hangs must not stop the others being told. A `Promise.all`
+// here would abandon the remaining runs on the first rejection, which is the opposite of what shutdown
+// wants.
+
+export async function interruptActiveRuns(reason = "Bridge shutdown") {
+  const active = Array.from(ACTIVE_RUNS.values());
+  if (!active.length) return;
+  await Promise.allSettled(active.map(async (run) => {
+    try {
+      await run?.controller?.interrupt?.(reason);
+    } catch {
+      // Best effort. The process is going down.
+    }
+  }));
+}

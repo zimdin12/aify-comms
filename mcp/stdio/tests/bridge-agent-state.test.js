@@ -17,6 +17,7 @@ import {
   CONSECUTIVE_FAILURES,
   REMOTE_AGENT_STATE,
   forgetRemoteAgent,
+  interruptActiveRuns,
 } from "../bridge-agent-state.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -146,4 +147,47 @@ test("the owner is a state owner, not a service layer", () => {
   );
   assert.doesNotMatch(src, /httpCall|fetch\(|fs\.|readAgents/, "no I/O and no other module's state");
   assert.doesNotMatch(src, /spawnTriggeredAgent|__markControllerStart|parseJson/, "out of scope for this owner");
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Interrupting everything in flight, appended to this module in a later v0.5.4 slice.
+//
+// It runs while the bridge is going down. The property that matters is that ONE controller misbehaving
+// must not stop the others being told — `Promise.allSettled` plus a per-run try/catch, not `Promise.all`.
+
+test("every active run is interrupted, with the reason passed through", async () => {
+  ACTIVE_RUNS.clear();
+  const seen = [];
+  ACTIVE_RUNS.set("r1", { controller: { interrupt: async (why) => seen.push(["r1", why]) } });
+  ACTIVE_RUNS.set("r2", { controller: { interrupt: async (why) => seen.push(["r2", why]) } });
+
+  await interruptActiveRuns("Bridge shutdown");
+  assert.deepEqual(seen.sort(), [["r1", "Bridge shutdown"], ["r2", "Bridge shutdown"]]);
+});
+
+test("one controller that THROWS does not stop the others being interrupted", async () => {
+  // The whole reason for allSettled. With Promise.all the first rejection abandons the rest, and those
+  // runs would be left believing they are still live while the bridge exits underneath them.
+  ACTIVE_RUNS.clear();
+  const reached = [];
+  ACTIVE_RUNS.set("bad", { controller: { interrupt: async () => { throw new Error("gone"); } } });
+  ACTIVE_RUNS.set("good", { controller: { interrupt: async () => reached.push("good") } });
+
+  await interruptActiveRuns();
+  assert.deepEqual(reached, ["good"]);
+});
+
+test("runs with no controller or no interrupt are skipped, not fatal", async () => {
+  // A run claimed but not yet wired has no controller. Optional chaining is load-bearing here.
+  ACTIVE_RUNS.clear();
+  ACTIVE_RUNS.set("bare", {});
+  ACTIVE_RUNS.set("noFn", { controller: {} });
+  ACTIVE_RUNS.set("nullCtl", { controller: null });
+  await interruptActiveRuns();
+});
+
+test("no active runs is a no-op that resolves", async () => {
+  ACTIVE_RUNS.clear();
+  await interruptActiveRuns();
+  assert.equal(ACTIVE_RUNS.size, 0, "interrupting must not mutate the map — the runs clean themselves up");
 });
