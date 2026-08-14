@@ -52,7 +52,7 @@ from service.api_core.channel_delivery import _apply_channel_routing_to_claude_r
 # v0.5.2m: ONLY this one moved. The other three are still router-owned, so the import stays split
 # rather than being redirected wholesale -- pointing them all at the package would aim them at
 # borrow shims instead of the real owners.
-from service.routers.agents.shared import _record_bridge_registration  # noqa: E402
+from service.api_core.bridge_registration import _record_bridge_registration  # noqa: E402
 
 
 from service.tests._base import FastApiTestCase

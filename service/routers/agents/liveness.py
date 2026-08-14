@@ -30,6 +30,9 @@ from service.models import AgentReadyUpdate
 from service.api_core.dispatch_run_state import _append_dispatch_control
 from service.api_core.message_store import _get_unread_count_map
 from service.db_errors import _is_lock_error
+from service.api_core.agent_sessions import _upsert_resident_agent_session
+from service.api_core.bridge_registration import _record_bridge_registration
+from service.api_core.outbound_activity import _get_outbound_activity_map
 from service.routers.agents.shared import (
     DEFAULT_SETTINGS,
     LIVE_SESSION_STATUSES,
@@ -61,7 +64,6 @@ from service.routers.agents.shared import (
     _fail_active_runs_for_superseded_bridges,
     _get_dispatch_state_for_agent,
     _get_dispatch_state_map,
-    _get_outbound_activity_map,
     _get_ws,
     _has_codex_live_app_server,
     _has_live_terminal_session,
@@ -78,7 +80,6 @@ from service.routers.agents.shared import (
     _normalize_runtime,
     _normalize_session_mode,
     _now,
-    _record_bridge_registration,
     _record_channel_sidecar_heartbeat,
     _record_claimer_lease,
     _refresh_expired_agent_live_states,
@@ -97,7 +98,6 @@ from service.routers.agents.shared import (
     _terminal_session_to_dict,
     _timestamp_sort_key,
     _touch_current_agent_session,
-    _upsert_resident_agent_session,
     apply_event,
     derive,
     engine_status,

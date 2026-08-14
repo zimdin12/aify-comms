@@ -2,8 +2,9 @@
 
 NINE CONSTANTS AND NINE BORROW SHIMS, retired together in v0.5.4. Each of these was declared in
 `service/control_plane.py` and read by one or two OTHER modules through a function-scope
-`from service.control_plane import ...` — the borrow pattern the reconcilers' docstrings record as
-deferred debt. The control plane never read any of them itself: grep found exactly one occurrence of
+a function-scope import of the carrier — the borrow pattern the reconcilers' docstrings record as
+deferred debt. (Spelled out in prose rather than quoted, because the tracked shim count is a grep for
+that exact string and a docstring quoting it would inflate the number it exists to measure.) The control plane never read any of them itself: grep found exactly one occurrence of
 each in that file, its own definition. It was their declaration site and nothing more.
 
 The reasoning is already written in that file beside `_TERMINAL_*_STATUSES` when those moved — *"the
