@@ -1015,6 +1015,26 @@ const EXTRACTIONS = [
       },
     ],
   },
+  {
+    module: "session-console.mjs",
+    importLine: "import { renderSessionConsole as renderSessionConsoleImpl } from './session-console.mjs';",
+    items: [
+      {
+        name: "renderSessionConsole",
+        at: 2641,
+        marker: [
+          "// The IMPLEMENTATION lives in ./session-console.mjs. This binding supplies the three names that stay",
+          "// here because each reaches `refresh`. Not phrased as a `moved to` marker — see mountXtermForTerminal.",
+          "const renderSessionConsole = (session, targetEl, opts) =>",
+          "  renderSessionConsoleImpl(session, targetEl, opts, { mountXtermForTerminal, refresh, resyncActiveConsole });",
+        ],
+        editedSince: [{
+          was: "function renderSessionConsole(session, targetEl, opts = {}) {",
+          now: "function renderSessionConsole(session, targetEl, opts = {}, { mountXtermForTerminal, refresh, resyncActiveConsole } = {}) {",
+        }],
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -1050,6 +1070,7 @@ const MODULES = () => ({
   "static-links.mjs": read("static-links.mjs"),
   "page-titles.mjs": read("page-titles.mjs"),
   "xterm-mount.mjs": read("xterm-mount.mjs"),
+  "session-console.mjs": read("session-console.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),

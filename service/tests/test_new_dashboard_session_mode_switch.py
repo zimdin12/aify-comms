@@ -128,25 +128,33 @@ class NewDashboardSessionModeSwitchTests(unittest.TestCase):
             "A successful switch must repaint the selected session immediately",
         )
 
-    def test_chip_is_inserted_into_session_header_card_actions(self):
-        # The Details panel chip lives inside the runtime-card .contract-actions
-        # block in renderSessionConsole. Verify the renderer call site exists.
-        self.assertIn(
-            "${renderModeSwitchChip(agent)}",
-            self.script,
-            "Plan 6 C4: Details panel (session header card) must render the chip",
-        )
-        # Plan 6 C5: same renderer call also appears in the per-session row
-        # body (renderSessionRail) so operators can flip a single session's
-        # mode from the rail without opening Details first. Same data-attrs +
-        # click handler — no new code path needed.
-        # Counting renderModeSwitchChip call sites should be >= 2 (header card + session rail).
-        self.assertGreaterEqual(
-            self.script.count("renderModeSwitchChip(agent)"),
-            2,
-            "Plan 6 C5: Sessions rail must render the chip too (>= 2 call sites total — "
-            "header card + per-session row)",
-        )
+    def test_chip_is_rendered_on_BOTH_surfaces_wherever_those_now_live(self):
+        """Two call sites, and they no longer live in the same file.
+
+        The Details-panel chip sits in `renderSessionConsole`, which moved to
+        `service/new_dashboard/session-console.mjs` in v0.5.4; the per-session row chip is in
+        `renderSessionRail`, which moved to `session-rail.mjs` earlier in the same series. This test
+        counted both in app.js and went red on the second relocation while the UI was unchanged.
+
+        The INVARIANT is that an operator can flip a session's mode from either surface — the rail
+        without opening Details, and Details itself. So it is asserted per surface, by file, rather than
+        as a total count in one file: a count would go green again the moment two chips landed in the
+        same place, which is the one arrangement that does NOT satisfy the requirement.
+        """
+        dash = ROOT / "service" / "new_dashboard"
+        surfaces = {
+            "session-console.mjs": "Details panel (session header card)",
+            "session-rail.mjs": "Sessions rail (per-session row)",
+        }
+        for filename, description in surfaces.items():
+            path = dash / filename
+            self.assertTrue(path.exists(), f"{filename} must exist — it holds the {description} chip")
+            source = path.read_text(encoding="utf-8")
+            self.assertIn(
+                "renderModeSwitchChip(agent)",
+                source,
+                f"Plan 6 C4/C5: {description} must render the mode-switch chip ({filename})",
+            )
 
     # ─── C6 — Settings UI toggle ───────────────────────────────────────────
 
