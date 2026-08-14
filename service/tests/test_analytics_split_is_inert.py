@@ -25,6 +25,20 @@ from service.tests.extract_method import assert_extractions_preserve_behaviour
 
 REPO = Path(__file__).resolve().parent.parent.parent
 ANALYTICS = REPO / "service" / "routers" / "analytics.py"
+#: The eight helpers were RELOCATED out of the router in v0.5.4 — byte-identical, so the round trip
+#: still closes, but only if the proof reads the file they live in now.
+#:
+#: THE THIRD PROOF IN THIS SERIES TO NEED THIS FIX. Each of them named the one or two modules it
+#: expected to find things in, so a helper landing anywhere else made the round trip find nothing to
+#: inline while the test kept passing. One tuple, read by every check, is the shape that survives the
+#: next relocation.
+SERIES = REPO / "service" / "api_core" / "analytics_series.py"
+MODULES = (ANALYTICS, SERIES)
+
+
+def _combined_split_source() -> str:
+    """The caller and every extracted helper in one tree, for the inline-back comparison."""
+    return "\n\n".join(p.read_text(encoding="utf-8") for p in MODULES)
 FIXTURE = Path(__file__).resolve().parent / "data" / "get_analytics_before_split.py"
 
 #: The function every extraction below came out of, and the helpers extracted from it.
@@ -49,7 +63,7 @@ EXTRACTIONS = [
 
 class AnalyticsSplitIsInertTests(unittest.TestCase):
     def test_every_extraction_together_inlines_back_to_the_original(self):
-        split_src = ANALYTICS.read_text(encoding="utf-8")
+        split_src = _combined_split_source()
         fixture_src = FIXTURE.read_text(encoding="utf-8")
         original = next(
             n for n in ast.parse(fixture_src).body
@@ -67,14 +81,29 @@ class AnalyticsSplitIsInertTests(unittest.TestCase):
         self.assertIn(SOURCE_FUNCTION, names)
 
     def test_the_helper_is_not_still_inline(self):
-        """If the split were reverted, the round trip above would pass by having nothing to inline."""
-        split_src = ANALYTICS.read_text(encoding="utf-8")
-        declared = {
-            n.name for n in ast.parse(split_src).body
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        """If the split were reverted, the round trip above would pass by having nothing to inline.
+
+        Two claims, and the relocation separated them. Each helper must still EXIST somewhere the
+        proof reads — otherwise the inline-back has nothing to substitute — and it must no longer be
+        declared in the ROUTER, or the split has been undone. Checking only the first against only
+        analytics.py conflated them and went red on a move that changed no behaviour.
+        """
+        declared_by_module = {
+            path: {
+                n.name for n in ast.parse(path.read_text(encoding="utf-8")).body
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            for path in MODULES
         }
         for helper in EXTRACTIONS:
-            self.assertIn(helper, declared, f"{helper} is gone — was the split reverted?")
+            self.assertTrue(
+                any(helper in names for names in declared_by_module.values()),
+                f"{helper} is gone — was the split reverted?",
+            )
+            self.assertNotIn(
+                helper, declared_by_module[ANALYTICS],
+                f"{helper} is back in the router; it was moved to {SERIES.name} in v0.5.4",
+            )
 
 
 if __name__ == "__main__":
