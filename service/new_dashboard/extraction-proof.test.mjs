@@ -260,6 +260,13 @@ const EXTRACTIONS = [
       { name: "codexConsoleConnect", at: 2482, marker: "// codexConsoleConnect moved to ./codex-console.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "identity-directory.mjs",
+    importLine: "import { openIdentityDirectory } from './identity-directory.mjs';",
+    items: [
+      { name: "openIdentityDirectory", at: 3402, marker: "// openIdentityDirectory moved to ./identity-directory.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -277,7 +284,8 @@ const MODULES = () => ({
   "settings-panel.mjs": read("settings-panel.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
-  "codex-console.mjs": read("codex-console.mjs"),
+  "codex-console.mjs": read("codex-console.mjs"),
+  "identity-directory.mjs": read("identity-directory.mjs"),
 });
 
 function rebuild(overrides = {}) {

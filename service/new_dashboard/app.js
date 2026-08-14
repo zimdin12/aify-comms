@@ -40,6 +40,7 @@ import { previewAppearance, refreshActiveTerminalTheme, renderSettings, terminal
 import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './agent-drawer.mjs';
 import { contractCard, diagnosticKey, filtered, renderActivityFeed, renderAttention, renderContractBoard } from './work-loop-panels.mjs';
 import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexConsoleConnections } from './codex-console.mjs';
+import { openIdentityDirectory } from './identity-directory.mjs';
 
 function resolveApiOrigin() {
   const params = new URLSearchParams(location.search);
@@ -2724,55 +2725,7 @@ async function inspect(kind, payload) {
 // Renders into the shared inspector drawer (same pattern as the agent/history drawers). The
 // per-row "Details" reuses openAgentDrawer; "Remove" reuses removeAgent (DELETE /agents/{id})
 // — the only cleanup affordance the backend exposes for forgetting an offline CLI identity.
-function openIdentityDirectory() {
-  const agents = [...state.agents].sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
-  const modeOf = (agent, session) => String(agent.sessionMode || (session && (session.mode || session.session_mode)) || 'resident').toLowerCase();
-  const managed = agents.filter((a) => modeOf(a, sessionForAgent(a.id)) === 'managed').length;
-  const resident = agents.length - managed;
-  const unread = agents.reduce((sum, a) => sum + Number(a.unread || a.unreadCount || 0), 0);
-  const rows = agents.map((agent) => {
-    const id = String(agent.id || '');
-    const session = sessionForAgent(id);
-    const mode = modeOf(agent, session);
-    const env = session ? (state.environments.find((e) => String(e.id) === String(sessionEnvironmentId(session))) || null) : null;
-    const envLabel = (env && (env.label || env.id)) || (session ? sessionEnvironmentId(session) : '') || '';
-    const runtime = agent.runtime || (session && sessionRuntime(session)) || '';
-    const lastSeen = agent.lastSeen || agent.last_seen || '';
-    return `<tr>
-      <td><strong>${esc(id)}</strong></td>
-      <td>${esc(agent.role || '')}</td>
-      <td>${esc(runtime || '—')}</td>
-      <td>${esc(mode)}</td>
-      <td class="clip">${esc(envLabel === 'unassigned' ? '—' : (envLabel || '—'))}</td>
-      <td>${renderStatusChip(agent.status || 'unknown', statusWhyContext('agent', agent, agent.status))}</td>
-      <td>${Number(agent.unread || agent.unreadCount || 0) || 0}</td>
-      <td>${lastSeen ? esc(relTime(lastSeen)) + ' ago' : '—'}</td>
-      <td class="identity-row-actions">
-        <button class="ghost" data-agent-details="${esc(id)}" title="Open the agent detail drawer (lifecycle controls)">Details</button>
-        <button class="ghost danger" data-agent-remove="${esc(id)}" title="Unregister/forget this identity (tombstones it)">Remove</button>
-      </td>
-    </tr>`;
-  }).join('');
-  const table = agents.length
-    ? `<div class="table-wrap"><table class="identity-table"><thead><tr>
-        <th>ID</th><th>Role</th><th>Runtime</th><th>Mode</th><th>Environment</th><th>Status</th><th>Unread</th><th>Last seen</th><th></th>
-      </tr></thead><tbody>${rows}</tbody></table></div>`
-    : '<div class="empty-state"><span class="empty-icon">🪪</span><strong>No identities</strong><p>No agents are registered yet.</p></div>';
-  byId('inspector-content').innerHTML = `
-    <div class="agent-drawer identity-directory">
-      <div class="agent-drawer-head"><strong>Identity directory</strong></div>
-      <p class="subtle">Identities are the stable mailbox, role, and routing behind chat. Use this directory to audit roles, runtime, session mode, bound environment, and live status — or to forget an offline CLI identity. Runtime control lives on Sessions.</p>
-      <dl class="chat-kv agent-drawer-kv identity-directory-stats">
-        <dt>Managed</dt><dd>${managed}</dd>
-        <dt>Resident / manual</dt><dd>${resident}</dd>
-        <dt>Total unread</dt><dd>${unread}</dd>
-      </dl>
-      ${table}
-    </div>`;
-  state.inspector = { ...state.inspector, kind: 'identity-directory', runId: '' };
-  byId('inspector')?.classList.add('open');
-  byId('inspector')?.classList.remove('run-inspector-sheet');
-}
+// openIdentityDirectory moved to ./identity-directory.mjs in v0.5.4.
 
 // Agent-detail drawer (Phase 1.3): ONE drawer (the shared inspector) surfacing an agent's
 // session/runtime/status + the key lifecycle actions, reusing the existing control functions
