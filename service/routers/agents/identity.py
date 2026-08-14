@@ -36,12 +36,12 @@ from service.models import (
     AgentStatusUpdate,
 )
 
-from service.api_core.agent_sessions import (
-    _upsert_registered_agent_row,
+from service.api_core.agent_registration_writes import (
     _adopt_console_terminal_on_register,
     _record_registered_session_handle,
     _stage_manual_resident_takeover,
     _supersede_stale_resident_terminals,
+    _upsert_registered_agent_row,
 )
 from service.api_core.registration_gates import (
     _enforce_driving_mode_switch_gate,

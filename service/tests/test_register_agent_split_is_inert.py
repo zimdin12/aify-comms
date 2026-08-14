@@ -30,6 +30,15 @@ REPO = Path(__file__).resolve().parent.parent.parent
 IDENTITY = REPO / "service" / "routers" / "agents" / "identity.py"
 GATES = REPO / "service" / "api_core" / "registration_gates.py"
 SESSIONS = REPO / "service" / "api_core" / "agent_sessions.py"
+#: v0.5.4 split the registration-only writes out of `agent_sessions.py`, which had become the landing
+#: site for six extractions in this series and reached 832 lines. Every function in the new module has
+#: exactly one caller and it is this one.
+REG_WRITES = REPO / "service" / "api_core" / "agent_registration_writes.py"
+
+#: ONE tuple, read by every check below. The alternative — each check naming its own modules — has now
+#: gone blind five times in this directory: a helper landing somewhere an inline list does not mention
+#: makes the round trip inline NOTHING while the test keeps passing.
+MODULES = (IDENTITY, GATES, SESSIONS, REG_WRITES)
 FIXTURE = Path(__file__).resolve().parent / "data" / "register_agent_before_split.py"
 
 SOURCE_FUNCTION = "register_agent"
@@ -49,10 +58,24 @@ EXTRACTIONS = [
     "_upsert_registered_agent_row",
 ]
 
+#: Where each helper is expected to be declared. The four gates stayed; the five registration WRITES
+#: moved to their own module in v0.5.4 when `agent_sessions.py` reached 832 lines.
+OWNERS = {
+    "_enforce_same_mode_bridge_gate": GATES,
+    "_enforce_driving_mode_switch_gate": GATES,
+    "_enforce_tombstone_registration_gate": GATES,
+    "_enforce_tombstone_resurrection_gate": GATES,
+    "_record_registered_session_handle": REG_WRITES,
+    "_supersede_stale_resident_terminals": REG_WRITES,
+    "_stage_manual_resident_takeover": REG_WRITES,
+    "_adopt_console_terminal_on_register": REG_WRITES,
+    "_upsert_registered_agent_row": REG_WRITES,
+}
+
 
 def _combined_split_source() -> str:
     """The caller and every extracted helper in one tree, for the inline-back comparison."""
-    return "\n\n".join(p.read_text(encoding="utf-8") for p in (IDENTITY, GATES, SESSIONS))
+    return "\n\n".join(p.read_text(encoding="utf-8") for p in MODULES)
 
 
 class RegisterAgentSplitIsInertTests(unittest.TestCase):
@@ -85,21 +108,28 @@ class RegisterAgentSplitIsInertTests(unittest.TestCase):
                 f"{helper} is declared in identity.py again; the split was reverted and this proof is vacuous",
             )
 
-    def test_the_helper_lives_in_the_gates_leaf_and_nothing_re_declares_it(self):
-        """Exactly one owner. Two definitions would let the caller reach a different body than the proof."""
-        owners = [
-            path for path in (IDENTITY, GATES, SESSIONS)
-            if any(
-                isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in EXTRACTIONS
-                for n in ast.parse(path.read_text(encoding="utf-8")).body
-            )
-        ]
-        self.assertEqual([GATES, SESSIONS], owners,
-                         "each helper must live in exactly one module, and not back in identity.py")
+    def test_exactly_one_module_declares_EACH_helper(self):
+        """Exactly one owner, asserted PER HELPER.
+
+        This compared the owner SET to `[GATES, SESSIONS]`, which says nothing about WHICH helper is
+        where — and it went red on a split that moved five of them to a fourth module without changing
+        a byte of any body. A per-helper map is both the stronger claim and the one that survives the
+        next move.
+        """
+        self.assertEqual(sorted(OWNERS), sorted(EXTRACTIONS), "every extraction needs a declared owner")
+        for helper, owner in OWNERS.items():
+            owners = [
+                path for path in MODULES
+                if any(
+                    isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == helper
+                    for n in ast.parse(path.read_text(encoding="utf-8")).body
+                )
+            ]
+            self.assertEqual([owner], owners, f"{helper} must be declared exactly once, in {owner.name}")
 
     def test_the_gates_leaf_does_not_import_upward(self):
         """An api_core leaf reaching into a router is the cycle this whole layering exists to prevent."""
-        for path in (GATES, SESSIONS):
+        for path in (GATES, SESSIONS, REG_WRITES):
             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
                 if not (isinstance(node, ast.ImportFrom) and node.module):
                     continue
