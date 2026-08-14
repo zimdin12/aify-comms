@@ -10,7 +10,11 @@
 // links, the shared-file endpoints, the session-mode PATCH). This module does not own that constant; it
 // owns the REQUEST.
 
-let apiBase = '';
+// EXPORTED AS A LIVE BINDING. Modules extracted from app.js that build a URL directly — a download link,
+// a multipart upload — need the base itself, not a wrapped request. An ESM import of a `let` reflects
+// later assignments, so `setApiBase` below reaches them, while an importer still cannot assign to it (that
+// is a syntax error). One writer, many readers, read-only at every reader: the case live bindings are for.
+export let apiBase = '';
 
 /** Seed the base URL. Called once from app.js at startup; every request below is relative to it. */
 export function setApiBase(base) {

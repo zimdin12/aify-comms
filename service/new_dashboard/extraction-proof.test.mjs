@@ -212,6 +212,19 @@ const EXTRACTIONS = [
     ],
   },
   {
+    module: "shared-files.mjs",
+    importLine: "import { attachChatFile, deleteSharedFile, loadFiles, renderFiles, uploadPastedImage, uploadSharedFile } from './shared-files.mjs';",
+    items: [
+      { name: "loadFiles", at: 301, marker: "// loadFiles moved to ./shared-files.mjs in v0.5.4." },
+      { name: "renderFiles", at: 310, marker: "// renderFiles moved to ./shared-files.mjs in v0.5.4." },
+      { name: "uploadSharedFile", at: 327, marker: "// uploadSharedFile moved to ./shared-files.mjs in v0.5.4." },
+      { name: "attachChatFile", at: 353, marker: "// attachChatFile moved to ./shared-files.mjs in v0.5.4." },
+      { name: "deleteSharedFile", at: 376, marker: "// deleteSharedFile moved to ./shared-files.mjs in v0.5.4." },
+      { name: "pastedImageName", at: 4169, marker: "// pastedImageName moved to ./shared-files.mjs in v0.5.4." },
+      { name: "uploadPastedImage", at: 4174, marker: "// uploadPastedImage moved to ./shared-files.mjs in v0.5.4." },
+    ],
+  },
+  {
     module: "api-origin.mjs",
     importLine: "import { resolveApiOrigin } from './api-origin.mjs';",
     items: [
@@ -385,6 +398,7 @@ const MODULES = () => ({
   "state.mjs": read("state.mjs"),
   "ui.js": read("ui.js"),
   "api-client.mjs": read("api-client.mjs"),
+  "shared-files.mjs": read("shared-files.mjs"),
   "api-origin.mjs": read("api-origin.mjs"),
   "session-rail.mjs": read("session-rail.mjs"),
   "settings-panel.mjs": read("settings-panel.mjs"),

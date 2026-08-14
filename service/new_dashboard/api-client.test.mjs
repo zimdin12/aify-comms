@@ -28,6 +28,9 @@ const SERVER = http.createServer((req, res) => {
 });
 
 const PORT = await new Promise((r) => SERVER.listen(0, "127.0.0.2", () => r(SERVER.address().port)));
+// UNREF: node --test waits on an open handle, so a listening server makes the file time out
+// rather than fail — a hang reads as nothing at all.
+SERVER.unref();
 const BASE = `http://127.0.0.2:${PORT}/api/v1`;
 setApiBase(BASE);
 
