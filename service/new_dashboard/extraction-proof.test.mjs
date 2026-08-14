@@ -305,6 +305,14 @@ const EXTRACTIONS = [
       { name: "renderDiagnosticsSummary", at: 1456, marker: "// renderDiagnosticsSummary moved to ./summary-tiles.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "clipboard.mjs",
+    importLine: "import { copyActiveConsole, copyText } from './clipboard.mjs';",
+    items: [
+      { name: "copyText", at: 2366, marker: "// copyText moved to ./clipboard.mjs in v0.5.4." },
+      { name: "copyActiveConsole", at: 2381, marker: "// copyActiveConsole moved to ./clipboard.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -328,6 +336,7 @@ const MODULES = () => ({
   "session-activity.mjs": read("session-activity.mjs"),
   "environments-panels.mjs": read("environments-panels.mjs"),
   "summary-tiles.mjs": read("summary-tiles.mjs"),
+  "clipboard.mjs": read("clipboard.mjs"),
 });
 
 function rebuild(overrides = {}) {

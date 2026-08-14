@@ -45,6 +45,7 @@ import { closeStatusWhy, openStatusWhy } from './status-why-popover.mjs';
 import { renderSessionActivity, runFrom } from './session-activity.mjs';
 import { renderEnvironmentSpawnOptions, renderRuntime, renderSpawnRequests } from './environments-panels.mjs';
 import { metric, renderDiagnosticsSummary, renderMetrics, renderUsageConsumption, selectedDiagnostics } from './summary-tiles.mjs';
+import { copyActiveConsole, copyText } from './clipboard.mjs';
 
 function resolveApiOrigin() {
   const params = new URLSearchParams(location.search);
@@ -1756,34 +1757,9 @@ async function resyncActiveConsole({ forceRepaint = false } = {}) {
 
 // Clipboard copy that works on the http loopback origin (navigator.clipboard is undefined
 // there) — falls back to a hidden textarea + execCommand, ported from the old dashboard.
-async function copyText(text) {
-  if (!text) return false;
-  try {
-    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return true; }
-  } catch { /* fall through */ }
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-    document.body.appendChild(ta); ta.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(ta);
-    return ok;
-  } catch { return false; }
-}
+// copyText moved to ./clipboard.mjs in v0.5.4.
 
-function copyActiveConsole() {
-  const entry = state.activeXterm;
-  if (!entry || !entry.term) return;
-  let text = '';
-  let autoSelected = false;
-  try {
-    if (entry.term.hasSelection()) { text = entry.term.getSelection(); }
-    else { entry.term.selectAll(); autoSelected = true; text = entry.term.getSelection(); }
-  } catch {}
-  // Don't leave the whole buffer visually selected when we auto-selected to copy-all.
-  if (autoSelected) { try { entry.term.clearSelection(); } catch {} }
-  copyText(text).then((ok) => toast(ok ? 'Console copied' : 'Copy failed', ok ? 'ok' : 'error'));
-}
+// copyActiveConsole moved to ./clipboard.mjs in v0.5.4.
 
 async function stopConsoleTerminal(terminalId) {
   if (!terminalId) return;
