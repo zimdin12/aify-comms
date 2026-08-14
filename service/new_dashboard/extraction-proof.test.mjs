@@ -1461,6 +1461,23 @@ const EXTRACTIONS = [
       },
     ],
   },
+  {
+    module: "notifications.mjs",
+    importLine: "import { dashboardNotifier, notificationsEnabled, toggleNotifications } from './notifications.mjs';",
+    items: [
+      {
+        // `notificationsEnabled` is exported as a `let` and app.js reads it through a LIVE binding, so
+        // the button still sees the value `toggleNotifications` assigned. Copying it instead would give
+        // app.js a flag nobody writes — a toggle that does not stick.
+        name: "notificationsEnabled",
+        at: 594,
+        leading: 3,
+        marker: "// notificationsEnabled moved to ./notifications.mjs in v0.5.4 — the flag and the function that assigns it are one unit.",
+      },
+      { name: "dashboardNotifier", at: 598, marker: "// dashboardNotifier moved to ./notifications.mjs in v0.5.4." },
+      { name: "toggleNotifications", at: 613, marker: "// toggleNotifications moved to ./notifications.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -1506,6 +1523,7 @@ const MODULES = () => ({
   "message-actions.mjs": read("message-actions.mjs"),
   "console-actions.mjs": read("console-actions.mjs"),
   "click-dispatch.mjs": read("click-dispatch.mjs"),
+  "notifications.mjs": read("notifications.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),

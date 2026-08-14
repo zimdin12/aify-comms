@@ -78,6 +78,7 @@ import { closeWorkContract, initWorkLoopActions, loadContractsForState, remindWo
 import { addChannelMember, chatChannelAction, initMessageActions, markConversationRead, markMessageRead, mountChatConsole, openMessageThread, removeChannelMember, toggleFavorite, unsendMessage } from './message-actions.mjs';
 import { initConsoleActions, openRunConsole, resyncActiveConsole, startConsoleForSession, stopConsoleTerminal } from './console-actions.mjs';
 import { dispatchClick, initClickDispatch } from './click-dispatch.mjs';
+import { dashboardNotifier, notificationsEnabled, toggleNotifications } from './notifications.mjs';
 import { loadVersionBadge } from './version-badge.mjs';
 import { awaitTerminalSize, disposeActiveXterm } from './xterm-lifecycle.mjs';
 
@@ -220,40 +221,10 @@ function refreshSoon() {
 // they own — moved to ./realtime-socket.mjs in v0.5.4. Its dependencies are supplied by the
 // initRealtimeSocket call in this file's init block, which MUST run before the first connect.
 
-// Desktop notifications. All decisions (is it for the operator, is the tab focused, has this
-// already fired) live in notify.mjs where they are unit-tested — this file keeps only the wiring,
-// because app.js is only reachable by source-regex tests that cannot fail on wrong logic.
-let notificationsEnabled = readEnabled(typeof localStorage !== 'undefined' ? localStorage : null);
-const dashboardNotifier = createNotifier({
-  isEnabled: () => notificationsEnabled,
-  isFocused: () => typeof document !== 'undefined' && document.visibilityState === 'visible',
-  // Channel notifications are MEMBERSHIP-gated (review finding): the dashboard can see every
-  // channel, not just the ones it joined, so "any channel_message" would notify on traffic the
-  // operator never subscribed to. Reads the same `members` array the chat UI already uses for
-  // join/leave. Returns false while the channel list is still loading — notify.mjs fails closed
-  // on purpose, and this is the source of that "unknown".
-  isChannelSubscribed: (channel) => {
-    const list = (state.chat && state.chat.channels) || [];
-    const row = list.find((c) => String(c && c.name) === String(channel));
-    return !!(row && Array.isArray(row.members) && row.members.includes('dashboard'));
-  },
-});
+// notificationsEnabled moved to ./notifications.mjs in v0.5.4 — the flag and the function that assigns it are one unit.
+// dashboardNotifier moved to ./notifications.mjs in v0.5.4.
 
-async function toggleNotifications(on) {
-  if (on) {
-    // Must come from a user gesture — a page that asks on load gets denied permanently.
-    const result = await requestPermission();
-    if (result !== 'granted') {
-      toast(result === 'denied'
-        ? 'Notifications are blocked for this site — allow them in your browser settings.'
-        : 'Notification permission was not granted.');
-      return false;
-    }
-  }
-  notificationsEnabled = !!on;
-  writeEnabled(typeof localStorage !== 'undefined' ? localStorage : null, notificationsEnabled);
-  return notificationsEnabled;
-}
+// toggleNotifications moved to ./notifications.mjs in v0.5.4.
 
 // applyRealtimeEvent moved to ./realtime-socket.mjs in v0.5.4, with the socket it is wired to.
 
