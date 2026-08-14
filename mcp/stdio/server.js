@@ -84,7 +84,7 @@ import { shutdownAllHermesGatewaySessions } from "./hermes-managed-gateway-sessi
 import { bridgeTerminalSupported } from "./terminal-runtime.js";
 import { terminalControlFailurePatch, orphanPidToKill, orphanPidReapAllowed } from "./terminal-control.js";
 import { terminalChildEnv } from "./terminal-env.js";
-import { managedViaWrapperRuntimesFromSettingsResponse } from "./managed-wrapper-settings.js";
+import { readManagedViaWrapperRuntimes } from "./managed-wrapper-cache.mjs";
 import {
   bootstrapManagedEnvironmentBridge,
   localAgentNeedsDispatchHosting,
@@ -851,23 +851,7 @@ const { runManagedTeardownForBridge, runManagedTeardownSync, runBootSurvivorSwee
 
 
 
-// Unified-backing refactor 2026-05-24: read the `managed_via_wrapper` setting
-// so the dispatch loop knows which runtimes to skip claiming for (the
-// wrapper's child bridge claims those). 5s cache to avoid hammering /settings.
-let _managedViaWrapperCache = { fetchedAt: 0, runtimes: new Set() };
-async function readManagedViaWrapperRuntimes() {
-  if (Date.now() - _managedViaWrapperCache.fetchedAt < 5000) {
-    return _managedViaWrapperCache.runtimes;
-  }
-  try {
-    const resp = await httpCall("GET", "/settings");
-    const set = managedViaWrapperRuntimesFromSettingsResponse(resp);
-    _managedViaWrapperCache = { fetchedAt: Date.now(), runtimes: set };
-    return set;
-  } catch (_) {
-    return _managedViaWrapperCache.runtimes; // best-effort: return stale cache
-  }
-}
+// readManagedViaWrapperRuntimes moved to ./managed-wrapper-cache.mjs in v0.5.4.
 
 // Reply contract toggle (managed_reply_capture_fallback). True (default) =
 // safety-net: auto-mirror the run summary when a delivered run ends without an
