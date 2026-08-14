@@ -92,3 +92,23 @@ on.
 
 **B should be refused** unless someone wants to argue for it: it trades the one property that has made this
 whole decomposition verifiable for the convenience of not touching five lines.
+
+---
+
+## SUPERSEDED 2026-08-14 — no ruling needed, options A/B/C are moot
+
+**Do not act on the three options above.** Their shared premise is wrong: they assume unblocking means
+making `apiBase` lazy and therefore renaming it to `apiBase()` at its readers, which the reconstruction
+proof would forbid. Nothing needs renaming.
+
+`apiBase` stays exactly as it is in app.js for its four direct URL builders. `api-client.mjs` keeps its
+OWN binding, seeded once by app.js, and exports it as a live binding for the modules that build a URL
+directly. Two mechanisms that already existed carry it:
+
+* **`marker` accepts multiple lines and verifies each VERBATIM before splicing it out**, so the seeding
+  call `setApiBase(apiBase);` rides in the slice's marker. `importLine` is executable code the harness
+  already removes this way — the same contract, not a loosening.
+* **`export let` is a live ESM binding**: importers see the seeded value and cannot assign back.
+
+Shipped on this basis: `api-client.mjs`, `shared-files.mjs`, `api-origin.mjs`. app.js 3,838 -> 3,729,
+reconstruction byte-identical throughout.
