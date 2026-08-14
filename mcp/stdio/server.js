@@ -24,7 +24,6 @@ import { registerArtifactTools } from "./artifact-tools.mjs";
 import { makeAutoRegister, reregisterAgentFromState } from "./auto-registration.mjs";
 import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
 import { dedupePreserveOrder } from "./dedupe.mjs";
-import { decideConsolePulse } from "./console-pulse.mjs";
 import { reportResidentLost } from "./resident-lost.mjs";
 import {
   makeResidentGatewayStatusReader,
@@ -93,7 +92,7 @@ import { shutdownAllPiSessions } from "./pi-session-pool.mjs";
 import { shutdownAllCodexSessions } from "./codex-session.js";
 import { shutdownAllHermesSessions } from "./hermes-session.js";
 import { shutdownAllHermesGatewaySessions } from "./hermes-managed-gateway-session.js";
-import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
+import { bridgeTerminalSupported } from "./terminal-runtime.js";
 import { terminalControlFailurePatch, orphanPidToKill, orphanPidReapAllowed } from "./terminal-control.js";
 import { reportDeadOwnedSessions } from "./dead-pty-reporter.js";
 import { terminalChildEnv } from "./terminal-env.js";
@@ -130,6 +129,7 @@ import { collectOnce as collectUsageOnce, collectConsumptionOnce } from "./usage
 import { AIFY_VERSION } from "./version.js";
 import { VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT, createVirtualTerminalSink, ensureVirtualTerminal, handleVirtualTerminalControl, updateTerminalControl } from './virtual-terminals.mjs';
 import { ensureRequiredReplyHandoff } from './required-reply-handoff.mjs';
+import { TERMINAL_MANAGER } from './terminal-manager.mjs';
 
 // Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
 // `omp --mode rpc --resume <session>`), that child inherits the aify
@@ -634,114 +634,30 @@ const RESIDENT_BINDING_LOST_AFTER_FAILURES = 2;
 // short quiet window. Additive to authoritative signals: an active
 // dispatch_run still keeps status='working' independently via the
 // backend's status engine; this just fills the autonomous-work gap.
-const TERMINAL_TURN_BUSY_REMIT_MS = 5000;
-const TERMINAL_TURN_BUSY_QUIET_MS = 8000;
-const TERMINAL_TURN_BUSY_TIMERS = new Map();
-function pulseTerminalTurnBusy(terminalId, agentId) {
-  const aid = String(agentId || "").trim();
-  if (!aid) return;
-  let entry = TERMINAL_TURN_BUSY_TIMERS.get(terminalId);
-  if (!entry) {
-    entry = { agentId: aid, lastEmit: 0, timer: null };
-    TERMINAL_TURN_BUSY_TIMERS.set(terminalId, entry);
-  }
-  const now = Date.now();
-  if (now - entry.lastEmit > TERMINAL_TURN_BUSY_REMIT_MS) {
-    entry.lastEmit = now;
-    const state = REMOTE_AGENT_STATE.get(aid) || {};
-    reportTurnBusy(aid, state, { busy: true }).catch(() => {});
-  }
-  if (entry.timer) clearTimeout(entry.timer);
-  entry.timer = setTimeout(() => {
-    const state = REMOTE_AGENT_STATE.get(aid) || {};
-    reportTurnBusy(aid, state, { busy: false }).catch(() => {});
-    TERMINAL_TURN_BUSY_TIMERS.delete(terminalId);
-  }, TERMINAL_TURN_BUSY_QUIET_MS);
-}
+// TERMINAL_TURN_BUSY_REMIT_MS moved to ./terminal-manager.mjs in v0.5.4.
+// TERMINAL_TURN_BUSY_QUIET_MS moved to ./terminal-manager.mjs in v0.5.4.
+// TERMINAL_TURN_BUSY_TIMERS moved to ./terminal-manager.mjs in v0.5.4.
+// pulseTerminalTurnBusy moved to ./terminal-manager.mjs in v0.5.4.
 
 
-const CONSOLE_WORKING_REMIT_MS = 2000;
+// CONSOLE_WORKING_REMIT_MS moved to ./terminal-manager.mjs in v0.5.4.
 // How recently a console-working pulse must have fired for a subsequent "unknown" footer frame
 // to count as mid-turn (and thus refresh the lease). Shorter than the server console-working
 // lease so a genuinely ended turn still lets the lease lapse rather than self-extending forever.
-const CONSOLE_WORKING_TURN_WINDOW_MS = 15000;
-const CONSOLE_WORKING_TIMERS = new Map();
+// CONSOLE_WORKING_TURN_WINDOW_MS moved to ./terminal-manager.mjs in v0.5.4.
+// CONSOLE_WORKING_TIMERS moved to ./terminal-manager.mjs in v0.5.4.
 
 // Refresh the server-side console-working lease while the claude spinner footer is
 // visible. Debounced to ~once / CONSOLE_WORKING_REMIT_MS so a per-second spinner redraw
 // does not spam the endpoint. No clear timer: the lease self-expires server-side (TTL).
-function pulseConsoleWorking(terminalId, agentId, subagents = false) {
-  const aid = String(agentId || "").trim();
-  if (!aid) return;
-  const last = CONSOLE_WORKING_TIMERS.get(terminalId) || 0;
-  const now = Date.now();
-  if (now - last < CONSOLE_WORKING_REMIT_MS) return;
-  CONSOLE_WORKING_TIMERS.set(terminalId, now);
-  httpCall("POST", `/agents/${encodeURIComponent(aid)}/console-working`, { subagents: !!subagents }).catch(() => {});
-}
+// pulseConsoleWorking moved to ./terminal-manager.mjs in v0.5.4.
 // ensureVirtualTerminal moved to ./virtual-terminals.mjs in v0.5.4.
 
 // dispatchVirtualTerminalLine moved to ./virtual-terminals.mjs in v0.5.4.
 
 // createVirtualTerminalSink moved to ./virtual-terminals.mjs in v0.5.4.
 
-const TERMINAL_MANAGER = new TerminalProcessManager({
-  onOutput: async (terminalId, output) => {
-    await httpCall("POST", `/terminals/${encodeURIComponent(terminalId)}/output`, {
-      bridgeId: BRIDGE_INSTANCE_ID,
-      output,
-      status: "attached",
-    });
-    // Status-precision pulse (mismatch #4): keep status='working' while
-    // the agent's terminal is actively producing output even when no
-    // dispatch_run is in flight. Self-clears after the quiet window.
-    try {
-      const st = TERMINAL_MANAGER.stateFor?.(terminalId) || {};
-      // A turn is "known in flight" if we emitted a console-working pulse recently (claude showed
-      // its spinner within the window) — used to bridge transient "unknown" footer frames mid-turn
-      // without ever manufacturing working from a cold/idle console (see decideConsolePulse).
-      const lastWorking = CONSOLE_WORKING_TIMERS.get(terminalId) || 0;
-      const turnInFlight = lastWorking > 0 && (Date.now() - lastWorking) < CONSOLE_WORKING_TURN_WINDOW_MS;
-      const decision = decideConsolePulse({
-        runtime: st.runtime,
-        consoleClass: st.consoleClass,
-        agentId: st.agentId,
-        turnInFlight,
-      });
-      if (decision.kind === "console-working") pulseConsoleWorking(terminalId, decision.agentId, st.subagentsActive);
-      else if (decision.kind === "terminal-pulse") pulseTerminalTurnBusy(terminalId, decision.agentId);
-    } catch {}
-  },
-  onExit: async (terminalId, detail = {}) => {
-    const error = detail?.error?.message || "";
-    await httpCall("POST", `/terminals/${encodeURIComponent(terminalId)}/output`, {
-      bridgeId: BRIDGE_INSTANCE_ID,
-      output: error ? `\n[terminal failed] ${error}\n` : `\n[terminal exited]\n`,
-      status: error ? "failed" : "stopped",
-    });
-  },
-  onHeal: async (_terminalId, detail = {}) => {
-    const agentId = String(detail.agentId || "").trim();
-    if (!agentId || !detail.previousSessionHandle) return;
-    try {
-      await httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/session-handle`, {
-        sessionHandle: "",
-        requestedBy: "terminal-runtime-heal",
-      });
-    } catch (error) {
-      console.error(`[aify] failed to clear stale ${detail.runtime || "runtime"} session handle for "${agentId}":`, error?.message || error);
-    }
-  },
-  // Auto-answer managed-claude TUI prompts (resume/compaction/perms/channel) unless the
-  // operator opts out with AIFY_NO_AUTO_ANSWER=1.
-  autoAnswer: process.env.AIFY_NO_AUTO_ANSWER !== "1",
-  // Repaint keepalive for managed claude PTYs so the console-working lease stays fresh when the
-  // Console is closed (2026-06-05). Opt out with AIFY_NO_CONSOLE_KEEPALIVE=1; override cadence
-  // with AIFY_CONSOLE_KEEPALIVE_MS.
-  consoleKeepaliveMs: process.env.AIFY_NO_CONSOLE_KEEPALIVE === "1"
-    ? 0
-    : (Number(process.env.AIFY_CONSOLE_KEEPALIVE_MS) || 4000),
-});
+// TERMINAL_MANAGER moved to ./terminal-manager.mjs in v0.5.4.
 
 // ── Local filesystem paths (used only in local mode) ─────────────────────────
 
