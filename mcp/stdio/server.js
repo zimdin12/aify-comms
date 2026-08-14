@@ -116,7 +116,6 @@ import {
   defaultListProcesses as listManagedProcesses,
   defaultReadMarkers as readManagedMarkers,
   defaultKillTree as killManagedTree,
-  sweepTombstonedMarkers,
   stopControlTriadAgentId,
 } from "./reap-managed-survivors.js";
 import { defaultKillByPort, stopDaemon, defaultGetCmdline as hermesGetCmdline, looksLikeHermesProcess, clearDaemonPid } from "./hermes-daemon.js";
@@ -129,6 +128,7 @@ import { AIFY_VERSION } from "./version.js";
 import { VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT, createVirtualTerminalSink, ensureVirtualTerminal, handleVirtualTerminalControl, updateTerminalControl } from './virtual-terminals.mjs';
 import { ensureRequiredReplyHandoff } from './required-reply-handoff.mjs';
 import { TERMINAL_MANAGER, reportDeadOwnedTerminals } from './terminal-manager.mjs';
+import { runBootTombstonedMarkerSweep } from './boot-marker-sweep.mjs';
 
 // Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
 // `omp --mode rpc --resume <session>`), that child inherits the aify
@@ -1110,34 +1110,7 @@ async function runBootSurvivorSweep() {
 // exists in ANY environment, so deleting its markers is machine-safe; a still-
 // known agent (incl. a co-located other-env's live agent) is NEVER swept.
 // FAIL-SAFE: if `/agents` can't be fetched, the keyset is null → sweep nothing.
-async function runBootTombstonedMarkerSweep() {
-  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE) return;
-  let knownAgentIds = null;
-  try {
-    const agentsRes = await httpCall("GET", "/agents");
-    knownAgentIds = Object.keys(agentsRes?.agents || {});
-  } catch (error) {
-    // Unknown keyset → fail-safe (sweep nothing). 404 is just "no agents yet".
-    if (error?.status !== 404) {
-      console.error("[aify] boot tombstoned-marker sweep: /agents query failed — sweeping nothing (fail-safe):", error?.message || error);
-      return;
-    }
-    knownAgentIds = [];
-  }
-  try {
-    const result = sweepTombstonedMarkers({ knownAgentIds, tempDir: os.tmpdir() });
-    if (result?.skipped) return;
-    const n = result?.swept?.length || 0;
-    if (n) {
-      console.error(`[aify] boot tombstoned-marker sweep: cleared markers for ${n} removed agent(s)`);
-    }
-    if (result?.errors?.length) {
-      console.error(`[aify] boot tombstoned-marker sweep had ${result.errors.length} error(s):`, JSON.stringify(result.errors));
-    }
-  } catch (error) {
-    console.error("[aify] boot tombstoned-marker sweep failed:", error?.message || error);
-  }
-}
+// runBootTombstonedMarkerSweep moved to ./boot-marker-sweep.mjs in v0.5.4.
 
 
 
