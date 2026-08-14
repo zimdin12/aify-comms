@@ -31,8 +31,6 @@ import {
 } from "./local-store.mjs";
 import {
   ACTIVE_RUNS,
-  REMOTE_AGENT_STATE,
-  forgetRemoteAgent,
   interruptActiveRuns,
 } from "./bridge-agent-state.mjs";
 import { anyControllerActive } from "./controller-activity.mjs";
@@ -79,6 +77,7 @@ import {
 } from "./claim-failure-tracker.mjs";
 import { createManagedTeardownSweeps } from "./managed-teardown-sweeps.mjs";
 import { shouldSkipLoop } from "./loop-gate.mjs";
+import { reportResidentRuntimeLost as reportResidentRuntimeLostImpl } from "./resident-runtime-lost.mjs";
 import { registerAllTools } from "./register-tools.mjs";
 import { syncManagedEnvironmentAgentsPass } from "./managed-environment-sync.mjs";
 import { runDispatchPass } from "./dispatch-loop.mjs";
@@ -698,25 +697,12 @@ const CLAIM_OPTS = CLAIM_WAIT_MS > 0 ? { timeoutMs: CLAIM_HTTP_TIMEOUT_MS } : {}
 
 // residentRuntimeBindingLost moved to ./resident-binding-health.mjs in v0.5.4.
 
-async function reportResidentRuntimeLost(agentId, info = {}, reason = "resident runtime app-server is unreachable") {
-  try {
-    const result = await httpCall("POST", `/agents/${encodeURIComponent(agentId)}/resident-lost`, {
-      bridgeId: BRIDGE_INSTANCE_ID,
-      machineId: info.machineId || MACHINE_ID,
-      runtime: normalizeRuntime(info.runtime || "generic"),
-      reason,
-    });
-    const transition = result?.transition ? ` (${result.transition})` : "";
-    console.error(`[aify] resident runtime lost for "${agentId}"${transition}: ${reason}`);
-  } catch (error) {
-    console.error(`[aify] failed to report resident runtime loss for "${agentId}": ${error?.message || error}`);
-  } finally {
-    forgetRemoteAgent(agentId, reason);
-    if (!IS_ENVIRONMENT_BRIDGE && REMOTE_AGENT_STATE.size === 0) {
-      setTimeout(() => { shutdownWithStatus(0); }, 50).unref();
-    }
-  }
-}
+// The IMPLEMENTATION lives in ./resident-runtime-lost.mjs; this is the binding that supplies the two
+// names server.js owns — the shutdown chain and this machine's id. Deliberately NOT written as a
+// `moved to` marker: `moved-names-resolve` treats a marker plus a local declaration as a fork, and
+// it is right to — this is a borrow shim, and calling it a move would be a claim the file disproves.
+const reportResidentRuntimeLost = (agentId, info, reason) =>
+  reportResidentRuntimeLostImpl(agentId, info, reason, { MACHINE_ID, shutdownWithStatus });
 
 
 // Idempotency guard so the clean-exit resident-lost POST can't double-fire
