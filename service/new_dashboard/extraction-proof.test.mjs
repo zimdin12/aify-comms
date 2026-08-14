@@ -212,6 +212,17 @@ const EXTRACTIONS = [
     ],
   },
   {
+    module: "message-transport.mjs",
+    importLine: "import { chatLoadChannels, chatLoadConversation, chatSendMessage, sendRunFollowup } from './message-transport.mjs';",
+    items: [
+      { name: "chatLoadChannels", at: 141, marker: "// chatLoadChannels moved to ./message-transport.mjs in v0.5.4." },
+      { name: "chatLoadConversation", at: 149, marker: "// chatLoadConversation moved to ./message-transport.mjs in v0.5.4." },
+      { name: "chatSendMessage", at: 153, marker: "// chatSendMessage moved to ./message-transport.mjs in v0.5.4." },
+      { name: "sendRunFollowup", at: 4055, marker: "// sendRunFollowup moved to ./message-transport.mjs in v0.5.4." },
+      { name: "sendMessageWithTimeout", at: 4155, marker: "// sendMessageWithTimeout moved to ./message-transport.mjs in v0.5.4." },
+    ],
+  },
+  {
     module: "shared-files.mjs",
     importLine: "import { attachChatFile, deleteSharedFile, loadFiles, renderFiles, uploadPastedImage, uploadSharedFile } from './shared-files.mjs';",
     items: [
@@ -399,6 +410,7 @@ const MODULES = () => ({
   "ui.js": read("ui.js"),
   "api-client.mjs": read("api-client.mjs"),
   "shared-files.mjs": read("shared-files.mjs"),
+  "message-transport.mjs": read("message-transport.mjs"),
   "api-origin.mjs": read("api-origin.mjs"),
   "session-rail.mjs": read("session-rail.mjs"),
   "settings-panel.mjs": read("settings-panel.mjs"),
