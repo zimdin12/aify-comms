@@ -988,6 +988,33 @@ const EXTRACTIONS = [
       { name: "MAINTENANCE_ACTIONS", at: 1481, marker: "// MAINTENANCE_ACTIONS moved to ./work-loop-panels.mjs in v0.5.4." },
     ],
   },
+  // The largest single function in app.js. A whole-declaration move whose SIGNATURE gained an injected
+  // parameter — so it is a plain move plus one `editedSince`, not a `wrapper`: the wrapper form restores
+  // only a body, and here the pristine file held the entire declaration.
+  {
+    module: "xterm-mount.mjs",
+    importLine: "import { mountXtermForTerminal as mountXtermForTerminalImpl } from './xterm-mount.mjs';",
+    items: [
+      { name: "_consoleMountGen", at: 136 },
+      { name: "consoleInputBlockedToastAt", at: 1868 },
+      {
+        name: "mountXtermForTerminal",
+        at: 1911,
+        marker: [
+          "// The IMPLEMENTATION lives in ./xterm-mount.mjs, together with the two counters only it reads. This is",
+          "// the binding that supplies `resyncActiveConsole`, which stays here because it reaches `refresh`.",
+          "// Deliberately NOT phrased as a `moved to` marker: `moved-names-resolve` treats a marker plus a local",
+          "// declaration of the same name as a fork, and it is right to — this is a shim, not a move.",
+          "const mountXtermForTerminal = (terminalId, agentId, container, opts) =>",
+          "  mountXtermForTerminalImpl(terminalId, agentId, container, opts, { resyncActiveConsole });",
+        ],
+        editedSince: [{
+          was: "async function mountXtermForTerminal(terminalId, agentId, container, { canInput = true } = {}) {",
+          now: "async function mountXtermForTerminal(terminalId, agentId, container, { canInput = true } = {}, { resyncActiveConsole }) {",
+        }],
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -1022,6 +1049,7 @@ const MODULES = () => ({
   "record-lookup.mjs": read("record-lookup.mjs"),
   "static-links.mjs": read("static-links.mjs"),
   "page-titles.mjs": read("page-titles.mjs"),
+  "xterm-mount.mjs": read("xterm-mount.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),

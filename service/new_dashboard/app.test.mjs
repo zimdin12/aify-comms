@@ -103,7 +103,10 @@ test("Work Loop board view: toggle, renderer, and card reuse are wired", () => {
 });
 
 test("xterm remount guard checks container identity, not just terminal id", () => {
-  const source = read("app.js");
+  // The xterm mount moved to `xterm-mount.mjs` in v0.5.4 — 356 lines, the largest function
+  // in app.js. These are behaviour ASSERTIONS over source text (a guard's shape, an option's
+  // value), so they stay source checks; they now read the file that holds the code.
+  const source = read("xterm-mount.mjs");
   assert.match(source,
     /state\.activeXterm\.container === container[\s\S]*container\.isConnected !== false/,
     "mountXtermForTerminal must remount when render recreated the host container");
@@ -153,7 +156,10 @@ test("automatic console resync never self-excites a PTY resize loop", () => {
 });
 
 test("managed PTY keeps raw terminal semantics and ordered input", () => {
-  const source = read("app.js");
+  // The xterm mount moved to `xterm-mount.mjs` in v0.5.4 — 356 lines, the largest function
+  // in app.js. These are behaviour ASSERTIONS over source text (a guard's shape, an option's
+  // value), so they stay source checks; they now read the file that holds the code.
+  const source = read("xterm-mount.mjs");
   const terminalInput = read("terminal-input.mjs");
   const html = read("index.html");
   assert.match(source, /convertEol:\s*false/,
@@ -182,7 +188,10 @@ test("vendored PTY fidelity addons expose the browser globals app.js loads", () 
 });
 
 test("ownsPty is positively-managed (fails closed), not !== 'resident' (fails open)", () => {
-  const source = read("app.js");
+  // The xterm mount moved to `xterm-mount.mjs` in v0.5.4 — 356 lines, the largest function
+  // in app.js. These are behaviour ASSERTIONS over source text (a guard's shape, an option's
+  // value), so they stay source checks; they now read the file that holds the code.
+  const source = read("xterm-mount.mjs");
   // The resize decision must OWN the PTY only when the mode is POSITIVELY 'managed'. The old
   // `!== 'resident'` failed open: an unknown / missing-agent / empty mode read as owned and the
   // dashboard would SIGWINCH the operator's own resident terminal.
@@ -197,7 +206,10 @@ test("ownsPty is positively-managed (fails closed), not !== 'resident' (fails op
 });
 
 test("xterm setup imitates Hermes terminal-fidelity settings", () => {
-  const source = read("app.js");
+  // The xterm mount moved to `xterm-mount.mjs` in v0.5.4 — 356 lines, the largest function
+  // in app.js. These are behaviour ASSERTIONS over source text (a guard's shape, an option's
+  // value), so they stay source checks; they now read the file that holds the code.
+  const source = read("xterm-mount.mjs");
   // Legibility + Unicode11 correctness + selection ergonomics, studied from Hermes' dashboard.
   assert.match(source, /allowProposedApi: true/, "Unicode11 needs allowProposedApi");
   assert.match(source, /minimumContrastRatio: 4\.5/, "clamp low-contrast ANSI (Hermes 'VS Code secret sauce')");
@@ -227,7 +239,7 @@ test("terminal input forwards SGR mouse reports unchanged and in order", async (
 });
 
 test("Batch 2: terminal fit is guarded and ResizeObserver is rAF-coalesced", () => {
-  const source = read("app.js");
+  const source = read("xterm-mount.mjs");
   // safeFit refuses a detached/zero-sized host (fit() during a 0px transition crashes WebGL).
   assert.match(source, /const safeFit = \(\) =>/);
   assert.match(source, /!container\.isConnected/);
@@ -241,7 +253,7 @@ test("Batch 2: terminal fit is guarded and ResizeObserver is rAF-coalesced", () 
 });
 
 test("Batch 2: font warm-up runs before term.open", () => {
-  const source = read("app.js");
+  const source = read("xterm-mount.mjs");
   assert.match(source, /document\.fonts\.load\('13px "Cascadia Code"'\)/);
   const warm = source.indexOf("document.fonts.load('13px");
   const open = source.indexOf("term.open(container)");
@@ -260,7 +272,7 @@ test("Batch 2: WS half-open watchdog + resume-reconnect wired", () => {
 });
 
 test("terminal theme wiring stays in app.js — the derivation itself moved", () => {
-  const source = read("app.js");
+  const source = read("xterm-mount.mjs");
   // SPLIT in v0.5.4. `terminalThemeFromDashboard` and `refreshActiveTerminalTheme` moved to
   // settings-panel.mjs and are now covered by settings-panel.test.mjs, which CALLS them — including the
   // poll-safety gate (an unchanged accent must not clear the WebGL atlas, or an open console flickers
@@ -272,16 +284,21 @@ test("terminal theme wiring stays in app.js — the derivation itself moved", ()
   // cannot be imported: that the terminal is constructed with the derived theme rather than a literal,
   // that the webgl addon is kept on the entry so its atlas is reachable, and that the re-theme is
   // called from the save/preview/undo appearance paths.
+  // THIS TEST NOW SPANS TWO FILES, which is the honest shape: the mount moved to xterm-mount.mjs in
+  // v0.5.4, but the appearance paths that re-theme a live console stayed in app.js. Reading one file for
+  // both halves is what made it fail on a pure relocation.
   assert.match(source, /theme: terminalThemeFromDashboard\(\)/, "ctor must use the derived theme");
   assert.ok(!/theme: \{ background: '#0b0e13', foreground: '#cdd6f4', cursor: '#51c5b0' \}/.test(source),
     "the hardcoded fixed terminal theme must be gone");
   assert.match(source, /webgl: webglAddon/);
-  assert.ok((source.match(/refreshActiveTerminalTheme\(\);/g) || []).length >= 3,
-    "re-theme must be wired into save/preview/undo appearance paths");
+
+  const app = read("app.js");
+  assert.ok((app.match(/refreshActiveTerminalTheme\(\);/g) || []).length >= 3,
+    "re-theme must be wired into save/preview/undo appearance paths — those stayed in app.js");
 });
 
 test("mount is supersession-guarded across the font await (no leaked xterm/GL context)", () => {
-  const source = read("app.js");
+  const source = read("xterm-mount.mjs");
   // A generation token is captured before the font await and re-checked before term.open, so a
   // rapid session switch during an uncached-font load can't leave two live consoles.
   assert.match(source, /const _mountGen = \+\+_consoleMountGen;/);
