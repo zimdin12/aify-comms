@@ -503,6 +503,52 @@ const EXTRACTIONS = [
       },
     ],
   },
+
+  // FIRST SLICE TO INJECT. `chatController` cannot move — app.js builds it from app.js-local callbacks —
+  // so these bodies take it as a parameter. The body text is untouched: the name it reads is a parameter
+  // now instead of a module-scope const, which is exactly what the header declaration records.
+  {
+    module: "chat-click-handlers.mjs",
+    importLine: "import { openChatConversation, openChatReply, setChatView, setPulseWindow } from './chat-click-handlers.mjs';",
+    items: [
+      {
+        name: "openChatReply",
+        at: 4275,
+        marker: "    openChatReply(chatReply, chatController);",
+        wrapper: {
+          header: ["export function openChatReply(chatReply, chatController) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+      {
+        name: "openChatConversation",
+        at: 4295,
+        marker: "    openChatConversation(chatOpen, chatController, markConversationRead);",
+        wrapper: {
+          header: ["export function openChatConversation(chatOpen, chatController, markConversationRead) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+      {
+        name: "setPulseWindow",
+        at: 4310,
+        marker: "    setPulseWindow(pulseWindow, chatController);",
+        wrapper: {
+          header: ["export function setPulseWindow(pulseWindow, chatController) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+      {
+        name: "setChatView",
+        at: 4319,
+        marker: "    setChatView(chatView, chatController);",
+        wrapper: {
+          header: ["export function setChatView(chatView, chatController) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -524,6 +570,7 @@ const MODULES = () => ({
   "api-origin.mjs": read("api-origin.mjs"),
   "session-rail.mjs": read("session-rail.mjs"),
   "settings-panel.mjs": read("settings-panel.mjs"),
+  "chat-click-handlers.mjs": read("chat-click-handlers.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),

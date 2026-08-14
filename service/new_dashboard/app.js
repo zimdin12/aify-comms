@@ -49,6 +49,7 @@ import { copyActiveConsole, copyText } from './clipboard.mjs';
 import { openAgentEditForm, openCompactionHistory, openContinueForm, openMessageDetail } from './inspector-forms.mjs';
 import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } from './run-inspector-controls.mjs';
 import { persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';
+import { openChatConversation, openChatReply, setChatView, setPulseWindow } from './chat-click-handlers.mjs';
 import { resolveApiOrigin } from './api-origin.mjs';
 import { setApiBase, api } from './api-client.mjs';
 import { attachChatFile, deleteSharedFile, loadFiles, renderFiles, uploadPastedImage, uploadSharedFile } from './shared-files.mjs';
@@ -2836,12 +2837,7 @@ document.addEventListener('click', (event) => {
   if (markConvRead) { markConversationRead(markConvRead.dataset.markConvRead); return; }
   const chatReply = event.target.closest('[data-chat-reply]');
   if (chatReply) {
-    const msg = state.messages.find((m) => messageId(m) === chatReply.dataset.chatReply);
-    if (msg) {
-      state.chat.replyTo = { id: messageId(msg), from: msg.from || 'unknown', subject: msg.subject || '', preview: msg.body || msg.preview || '', conversationKey: state.chat.selected };
-      chatController.renderConversation();
-      byId('chat-composer-body')?.focus();
-    }
+    openChatReply(chatReply, chatController);
     return;
   }
   if (event.target.closest('[data-chat-reply-clear]')) {
@@ -2856,36 +2852,17 @@ document.addEventListener('click', (event) => {
   }
   const chatOpen = event.target.closest('[data-chat-open]');
   if (chatOpen) {
-    const key = chatOpen.dataset.chatOpen;
-    // Click-again gesture: re-clicking the already-open conversation closes it back to the
-    // chat overview (fleet stats + most-active). Per-agent analytics stays reachable via the
-    // explicit "Analytics" action button. (Operator: re-click open chat → close + show stats.)
-    if (key === state.chat.selected && !state.chat.analytics.agent) {
-      chatController.close();
-    } else {
-      chatController.open(key);
-      // Opening a DM marks its messages read — UNLESS Peek mode is on (watch without marking).
-      if (!state.chat.peek && key.startsWith('dm:')) markConversationRead(key.slice('dm:'.length), { quiet: true });
-    }
+    openChatConversation(chatOpen, chatController, markConversationRead);
     return;
   }
   const pulseWindow = event.target.closest('[data-pulse-window]');
   if (pulseWindow) {
-    const mins = Number(pulseWindow.dataset.pulseWindow) || 60;
-    if (mins !== state.chat.pulse.window) {
-      state.chat.pulse.window = mins;
-      chatController.refreshPulse(true);
-    }
+    setPulseWindow(pulseWindow, chatController);
     return;
   }
   const chatView = event.target.closest('[data-chat-view]');
   if (chatView) {
-    const next = chatView.dataset.chatView === 'console' ? 'console' : 'messenger';
-    if (next !== state.chat.view) {
-      state.chat.view = next;
-      if (next === 'messenger') disposeActiveXterm(); // free the inline terminal when leaving Console
-      chatController.renderConversation();
-    }
+    setChatView(chatView, chatController);
     return;
   }
   // MUST stay scoped to button[...]: the grid section itself carries data-work-view as a
