@@ -95,14 +95,24 @@ def _is_delegating_shim(node: ast.AST) -> bool:
     if not isinstance(returner, ast.Return) or returner.value is None:
         return False
 
+    aliases = {(a.asname or a.name) for a in importer.names}
+
     call = returner.value
     if isinstance(call, ast.Await):
         call = call.value
+
+    # A VALUE BORROW returns the imported name itself rather than calling it — the shape the
+    # reconcilers use for a carrier CONSTANT (`from … import X` / `return X`). It is the same
+    # delegation: one import of one owner, one return of exactly that. Requiring a Call missed it,
+    # which is how `_managed_orphan_grace_seconds` came to be written out twice with nothing
+    # objecting; the leaf-pair test below found it the moment it was added.
+    if isinstance(call, ast.Name):
+        return call.id in aliases
+
     if not isinstance(call, ast.Call):
         return False
 
     # It must call the alias it just imported, and nothing else.
-    aliases = {(a.asname or a.name) for a in importer.names}
     return isinstance(call.func, ast.Name) and call.func.id in aliases
 
 
@@ -133,6 +143,56 @@ class NoForkedDeclarationsTests(unittest.TestCase):
             + "\nGive it ONE owner and import it. A delegating borrow shim is fine; a second "
             "declaration is not.",
         )
+
+    def test_no_name_is_declared_independently_in_TWO_LEAVES(self):
+        """The other direction, which this gate did not check.
+
+        The test above compares every leaf against the CONTROL PLANE. Two leaves declaring the same name
+        independently is the identical defect — two bodies, nothing failing when they drift — and it was
+        invisible here: neither file is the control plane, so neither comparison ran.
+
+        Measured when this was added: exactly one name is declared in two leaves,
+        `_managed_orphan_grace_seconds` in `reconcilers/managed_workers.py` and `reconcilers/terminals.py`.
+        Both are DELEGATING BORROW SHIMS reading the same owner, so by this gate's own definition they are
+        not forks — they cannot drift in value, only in boilerplate. The shim exemption below is what keeps
+        them out, and it is the same `_is_delegating_shim` the router test uses rather than a second copy
+        of the rule.
+        """
+        by_name: dict[str, list[str]] = {}
+        for leaf in _leaf_paths():
+            rel = leaf.relative_to(REPO).as_posix()
+            for name, node in _module_level(leaf).items():
+                if name.startswith("__") or name in PER_MODULE:
+                    continue
+                if _is_delegating_shim(node):
+                    continue
+                by_name.setdefault(name, []).append(rel)
+
+        forks = [
+            f"{name} — declared in " + " AND ".join(sorted(set(where)))
+            for name, where in sorted(by_name.items())
+            if len(set(where)) > 1
+        ]
+        self.assertEqual(
+            forks,
+            [],
+            "A name has independent declarations in two LEAVES, so the two can drift apart with nothing "
+            "failing:\n  "
+            + "\n  ".join(forks)
+            + "\nGive it ONE owner and import it. A delegating borrow shim is fine; a second "
+            "declaration is not.",
+        )
+
+    def test_the_leaf_pair_scan_is_not_vacuous(self):
+        """It must actually be comparing many names across many leaves.
+
+        A glob that stopped matching, or a filter that removed everything, would make the check above pass
+        on an empty set — which is the failure mode this whole file exists to catch in production code.
+        """
+        leaves = _leaf_paths()
+        self.assertGreater(len(leaves), 20, f"expected many leaves, found {len(leaves)}")
+        total = sum(len(_module_level(leaf)) for leaf in leaves)
+        self.assertGreater(total, 200, f"expected many module-level names, found {total}")
 
     def test_the_shim_detector_recognises_a_shim_and_rejects_a_lookalike(self):
         """If the shim detection broke, the exclusion above would pass vacuously by excluding all.
@@ -184,6 +244,22 @@ class NoForkedDeclarationsTests(unittest.TestCase):
             "    return await _impl(*a, **k)\n"
         ).body[0]
         self.assertFalse(_is_delegating_shim(wrong_source), "only delegation to the carrier is a borrow")
+
+        # A VALUE BORROW: the shape the reconcilers use to read a carrier CONSTANT. Not recognised
+        # until v0.5.4, because the detector required the return to be a Call.
+        value_borrow = ast.parse(
+            "def f():\n" + f"    from {CARRIER} import SOME_CONSTANT\n" + "    return SOME_CONSTANT\n"
+        ).body[0]
+        self.assertTrue(_is_delegating_shim(value_borrow), "returning the imported constant is a borrow")
+
+        returns_something_else = ast.parse(
+            "def f():\n" + f"    from {CARRIER} import SOME_CONSTANT\n" + "    return 30 * 60\n"
+        ).body[0]
+        self.assertFalse(
+            _is_delegating_shim(returns_something_else),
+            "importing the owner and then returning a LITERAL is the fork in its purest form — the "
+            "import makes it look delegating while the value is a second, drifting declaration",
+        )
 
     def test_the_production_shim_count_only_ever_falls(self):
         """The direction of travel, not a floor.
