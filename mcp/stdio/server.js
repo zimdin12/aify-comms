@@ -117,13 +117,13 @@ import {
   stopControlTriadAgentId,
 } from "./reap-managed-survivors.js";
 import { defaultKillByPort, stopDaemon, defaultGetCmdline as hermesGetCmdline, looksLikeHermesProcess, clearDaemonPid } from "./hermes-daemon.js";
-import { clearGatewayMarkers as hermesClearGatewayMarkers } from "./hermes-endpoint.js";
 import { gatewayIndexUrlFromWs, makeGatewayReachabilityProbe, reportGatewayDead } from "./hermes-gateway.mjs";
 import { startHermesGatewayTurnDetector } from "./hermes-gateway-turn-detector.js";
 import { startClaudeTurnEndDetector } from "./claude-turn-end-detector.js";
 import { collectOnce as collectUsageOnce, collectConsumptionOnce } from "./usage-collector.js";
 import { AIFY_VERSION } from "./version.js";
 import { createManagedOwnershipReader } from "./managed-ownership.mjs";
+import { runSingleAgentManagedTeardown } from "./single-agent-teardown.mjs";
 import { VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT, createVirtualTerminalSink, ensureVirtualTerminal, handleVirtualTerminalControl, updateTerminalControl } from './virtual-terminals.mjs';
 import { ensureRequiredReplyHandoff } from './required-reply-handoff.mjs';
 import { TERMINAL_MANAGER, reportDeadOwnedTerminals } from './terminal-manager.mjs';
@@ -889,43 +889,7 @@ async function runManagedTeardownForBridge(reason = "bridge teardown") {
 // own port/daemon-pid markers, so another agent's or a resident operator's
 // processes can NEVER be enumerated. async: awaits the port-kill/stopDaemon
 // promises. Best-effort; never throws.
-async function runSingleAgentManagedTeardown(agentId, reason = "agent stop") {
-  const id = String(agentId || "").trim();
-  if (!id) return;
-  try {
-    const result = runManagedTeardown({
-      ownedAgentIds: [id],
-      cwdRoots: cwdRootsForEnvironment(),
-      listProcesses: listManagedProcesses,
-      readMarkers: () => readManagedMarkers(os.tmpdir()),
-      // The console PTY is killed by the in-memory TERMINAL_MANAGER.stop on the
-      // stop control itself; here we reap the DETACHED triad (gateway/loop/daemon)
-      // that the PTY stop leaves behind.
-      consolePtyPids: [],
-      killByPort: defaultKillByPort,
-      stopDaemon,
-      killTree: killManagedTree,
-    });
-    if (Array.isArray(result?.pending) && result.pending.length) {
-      await Promise.allSettled(result.pending);
-    }
-    const n =
-      (result?.killed?.gatewayHosts?.length || 0) +
-      (result?.killed?.deliveryLoops?.length || 0) +
-      (result?.killed?.daemons?.length || 0);
-    if (n) {
-      console.error(`[aify] single-agent managed teardown (${reason}): reaped ${n} survivor(s) for agent ${id}`);
-    }
-    // Marker hygiene (P4): a STOP/REMOVE is the lifecycle end of this managed
-    // session; clear its gateway port/key markers so they don't linger.
-    try { hermesClearGatewayMarkers(id, os.tmpdir()); } catch { /* best effort */ }
-    if (result?.errors?.length) {
-      console.error(`[aify] single-agent managed teardown (${reason}) had ${result.errors.length} error(s):`, JSON.stringify(result.errors));
-    }
-  } catch (error) {
-    console.error(`[aify] single-agent managed teardown (${reason}) failed:`, error?.message || error);
-  }
-}
+// runSingleAgentManagedTeardown moved to ./single-agent-teardown.mjs in v0.5.4.
 
 // Synchronous best-effort variant for the process.on('exit') path
 // (cleanupOnExit), where no async work can run. Fires spawnSync kills (taskkill
