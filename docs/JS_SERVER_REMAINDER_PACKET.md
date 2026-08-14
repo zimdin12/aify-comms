@@ -197,3 +197,16 @@ reach the limit — but it is still the honest description of what is left.
 Nothing above is a recommendation on A-vs-C — the reviewer's caution stands, and option C is still a
 redesign touching the code path that took the managed fleet down. It is here so the choice is made against
 numbers instead of impressions.
+
+### 948 is the FLOOR here — checked, because it was not for app.js
+
+app.js turned out to have a second layer: once its render component leaves, 23 more declarations become
+movable that are blocked today (docs/APP_JS_STATE_MODULE_PACKET.md). "Zero closed groups" means zero at the
+current layer, not zero remaining, so the same question had to be asked of server.js.
+
+Asked: the simulated 948-line survivor has **57 declarations, only 8 of them functions, and ZERO closed
+groups**. Nothing further comes free. What remains is constants, imports, comments and the boot wiring —
+which is what option A describes rather than something a later relocation can drain.
+
+So the two files differ in shape as well as in size: server.js reaches its floor in one pass at 948, app.js
+needs three phases to reach ~984.
