@@ -616,3 +616,79 @@ async def _link_unthreaded_reply_to_recent_dispatch_run(
         f"Unthreaded result reply linked from {from_agent}",
     )
     return True
+
+
+async def _queue_console_inputs_for_dispatch(db, req, message_id, console_recipients, console_deliveries,
+                                             source_message_ids, resolved_in_reply_to):
+        """Queue the terminal `input` control that delivers a DISPATCH to a console session.
+
+        Extracted from `create_dispatch` in v0.5.4; `test_create_dispatch_split_is_inert.py` inlines it
+        back and AST-compares against the pre-split fixture. Body at its original 8-space column so the
+        literals inside are preserved byte-for-byte.
+
+        IT IS A NEAR-TWIN OF `_queue_console_dispatch_inputs` ABOVE, and that is recorded rather than
+        merged. Fifty-one of the fifty-three lines are identical; the two that are not are:
+
+            source_message_ids.get(recipient_id, msg_id)   vs   (..., message_id)   — a rename
+            "source": "message_send"                       vs   "source": "dispatch" — a VALUE
+
+        The second is real: the delivery contract records which path produced it, and collapsing the two
+        would either lose that or need it threaded through as a parameter. That is a behaviour-shaped
+        change, not a byte-identical move, so it is not being smuggled into a refactor slice.
+
+        `test_console_input_queueing_twins_agree.py` pins the pair: the two bodies must stay identical
+        MODULO exactly those two substitutions, so a fix applied to one and not the other fails.
+        """
+        for recipient_id, terminal in console_recipients.items():
+            terminal_id = str(terminal["terminal_id"] or "").strip()
+            recipient_message_id = source_message_ids.get(recipient_id, message_id)
+            terminal_runtime = _normalize_runtime(terminal["runtime"] or "")
+            control_id = await _append_terminal_control(
+                db,
+                terminal_id=terminal_id,
+                environment_id=terminal["environment_id"],
+                bridge_id=terminal["bridge_id"] or "",
+                action="input",
+                requested_by=req.from_agent,
+                body=_console_dispatch_input_body(
+                    req,
+                    recipient_id=recipient_id,
+                    message_id=recipient_message_id,
+                    bracketed_paste=True,
+                ),
+            )
+            submit_control_id = ""
+            await _append_terminal_event(
+                db,
+                terminal_id,
+                "terminal_input_requested",
+                json.dumps({
+                    "requestedBy": req.from_agent,
+                    "controlId": control_id,
+                    "submitControlId": submit_control_id,
+                    "source": "dispatch",
+                    "messageId": recipient_message_id,
+                }),
+            )
+            contract_run_id = await _record_terminal_delivery_contract(
+                db,
+                source_message_id=recipient_message_id,
+                from_agent=req.from_agent,
+                recipient_id=recipient_id,
+                message_type=req.type,
+                subject=req.subject,
+                body=req.body,
+                priority=req.priority,
+                in_reply_to=resolved_in_reply_to,
+                require_reply=_dispatch_requires_reply(req.requireReply, default=_message_type_expects_reply(req.type)),
+                terminal_id=terminal_id,
+                control_id=control_id,
+                runtime=terminal["runtime"] or "",
+            )
+            console_deliveries.append({
+                "targetAgentId": recipient_id,
+                "terminalId": terminal_id,
+                "controlId": control_id,
+                "contractRunId": contract_run_id,
+                "status": "sent_to_console",
+            })

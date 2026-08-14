@@ -38,11 +38,22 @@ DISPATCH_START = REPO / "service" / "api_core" / "dispatch_start.py"
 #: its largest piece with a single importer). Byte-identical move, so the round trip below still closes
 #: — but only if the proof reads the file it actually lives in now.
 DELIVERY_RESOLVE = REPO / "service" / "api_core" / "dispatch_delivery_resolve.py"
-MODULES = (DISPATCH, DISPATCH_START, DELIVERY_RESOLVE)
+#: The console-input loop went to the dispatch_messages SIBLING, not down a layer: five of the
+#: names it calls are declared there.
+DM_SHARED = REPO / "service" / "routers" / "dispatch_messages" / "shared.py"
+MODULES = (DISPATCH, DISPATCH_START, DELIVERY_RESOLVE, DM_SHARED)
 FIXTURE = Path(__file__).resolve().parent / "data" / "create_dispatch_before_split.py"
 
 SOURCE_FUNCTION = "create_dispatch"
-EXTRACTIONS = ["_resolve_dispatch_recipient_delivery"]
+EXTRACTIONS = ["_resolve_dispatch_recipient_delivery", "_queue_console_inputs_for_dispatch"]
+
+#: Where each helper is expected to be declared. PER HELPER, not as a set — the set form asserted the
+#: owner list was exactly `[DELIVERY_RESOLVE]`, which stopped meaning anything the moment a second
+#: extraction landed in a different module. Same failure the other proofs in this directory have had.
+OWNERS = {
+    "_resolve_dispatch_recipient_delivery": DELIVERY_RESOLVE,
+    "_queue_console_inputs_for_dispatch": DM_SHARED,
+}
 
 
 def _combined_split_source() -> str:
@@ -75,8 +86,17 @@ class CreateDispatchSplitIsInertTests(unittest.TestCase):
         different — and a corrupt fixture makes the comparison above compare the wrong thing.
         """
         text = FIXTURE.read_text(encoding="utf-8")
-        self.assertGreater(text.count("—"), 5, "fixture looks locale-mangled, not utf-8")
         self.assertNotIn("�", text, "fixture contains U+FFFD replacement characters")
+        # Asked of the LIVE source rather than hardcoded. A sibling proof used `> 5` copied from here
+        # and failed on capture because its function simply had fewer em dashes; the signal is "as many
+        # as the source has", since a mangled decode turns every one into a replacement character.
+        live = DISPATCH.read_text(encoding="utf-8")
+        expected = ast.get_source_segment(live, next(
+            n for n in ast.parse(live).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
+        )) or ""
+        if expected.count("—"):
+            self.assertGreater(text.count("—"), 0, "fixture looks locale-mangled, not utf-8")
 
     def test_the_helper_is_not_still_inline(self):
         """If the split were reverted, the round trip would pass by having nothing to inline."""
@@ -87,15 +107,17 @@ class CreateDispatchSplitIsInertTests(unittest.TestCase):
         for helper in EXTRACTIONS:
             self.assertNotIn(helper, declared, f"{helper} is back in dispatch.py; this proof is vacuous")
 
-    def test_exactly_one_module_declares_the_helper(self):
-        owners = [
-            path for path in MODULES
-            if any(
-                isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in EXTRACTIONS
-                for n in ast.parse(path.read_text(encoding="utf-8")).body
-            )
-        ]
-        self.assertEqual([DELIVERY_RESOLVE], owners)
+    def test_exactly_one_module_declares_EACH_helper(self):
+        self.assertEqual(sorted(OWNERS), sorted(EXTRACTIONS), "every extraction needs a declared owner")
+        for helper, owner in OWNERS.items():
+            owners = [
+                path for path in MODULES
+                if any(
+                    isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == helper
+                    for n in ast.parse(path.read_text(encoding="utf-8")).body
+                )
+            ]
+            self.assertEqual([owner], owners, f"{helper} must be declared exactly once, in {owner.name}")
 
     def test_the_leaf_does_not_import_upward(self):
         """An api_core leaf reaching into a router — or the control plane — is the cycle to prevent.
