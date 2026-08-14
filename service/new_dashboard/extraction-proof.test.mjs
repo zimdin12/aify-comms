@@ -602,6 +602,31 @@ const EXTRACTIONS = [
       },
     ],
   },
+
+  {
+    module: "agent-click-handlers.mjs",
+    importLine: "import { startColdAgent, switchModeFromChip } from './agent-click-handlers.mjs';",
+    items: [
+      {
+        name: "startColdAgent",
+        at: 4498,
+        marker: "    startColdAgent(agentAction, refreshSoon);",
+        wrapper: {
+          header: ["export function startColdAgent(agentAction, refreshSoon) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+      {
+        name: "switchModeFromChip",
+        at: 4575,
+        marker: "    switchModeFromChip(modeSwitchButton, event, switchAgentSessionMode);",
+        wrapper: {
+          header: ["export function switchModeFromChip(modeSwitchButton, event, switchAgentSessionMode) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -625,6 +650,7 @@ const MODULES = () => ({
   "settings-panel.mjs": read("settings-panel.mjs"),
   "chat-click-handlers.mjs": read("chat-click-handlers.mjs"),
   "session-click-handlers.mjs": read("session-click-handlers.mjs"),
+  "agent-click-handlers.mjs": read("agent-click-handlers.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),

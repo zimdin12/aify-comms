@@ -49,6 +49,7 @@ import { copyActiveConsole, copyText } from './clipboard.mjs';
 import { openAgentEditForm, openCompactionHistory, openContinueForm, openMessageDetail } from './inspector-forms.mjs';
 import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } from './run-inspector-controls.mjs';
 import { persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';
+import { startColdAgent, switchModeFromChip } from './agent-click-handlers.mjs';
 import { openChatConversation, openChatReply, setChatView, setPulseWindow } from './chat-click-handlers.mjs';
 import { applySessionStatusPreset, toggleSessionCheckbox, toggleSessionStatusFilter } from './session-click-handlers.mjs';
 import { resolveApiOrigin } from './api-origin.mjs';
@@ -3018,19 +3019,7 @@ document.addEventListener('click', (event) => {
   // saved session handle is RESUMED, not discarded.
   const agentAction = event.target.closest('[data-agent-action="start"]');
   if (agentAction) {
-    const id = agentAction.dataset.agentId;
-    agentAction.disabled = true;
-    agentAction.textContent = 'Starting…';
-    api(`/agents/${encodeURIComponent(id)}/control`, { method: 'POST', body: JSON.stringify({ action: 'start', from_agent: 'dashboard' }) })
-      .then((r) => {
-        toast(r?.alreadyRunning ? `${id} is already running` : `Starting ${id} — the console appears once its worker is up`, 'ok');
-        refreshSoon();
-      })
-      .catch((err) => {
-        toast(`Start agent failed: ${err?.message || err}`, 'error');
-        agentAction.disabled = false;
-        agentAction.textContent = 'Start agent';
-      });
+    startColdAgent(agentAction, refreshSoon);
     return;
   }
   const analyticsRange = event.target.closest('[data-analytics-range]');
@@ -3092,11 +3081,7 @@ document.addEventListener('click', (event) => {
   // before row selection so the click reaches PATCH /agents/{id}/session-mode.
   const modeSwitchButton = event.target.closest('[data-mode-switch]');
   if (modeSwitchButton) {
-    event.preventDefault();
-    event.stopPropagation();
-    const agentId = modeSwitchButton.dataset.modeSwitch;
-    const targetMode = modeSwitchButton.dataset.targetMode;
-    switchAgentSessionMode(agentId, targetMode);
+    switchModeFromChip(modeSwitchButton, event, switchAgentSessionMode);
     return;
   }
   const sessionSelect = event.target.closest('[data-session-select]');

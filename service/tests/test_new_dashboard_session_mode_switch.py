@@ -79,16 +79,29 @@ class NewDashboardSessionModeSwitchTests(unittest.TestCase):
             "Plan 6 C4: chip label must describe the target mode",
         )
 
-    def test_click_handler_calls_switch_agent_session_mode(self):
+    def test_click_handler_delegates_mode_switch_clicks(self):
+        """app.js still OWNS the delegation; what the handler then does is proven by calling it.
+
+        This asserted `switchAgentSessionMode(agentId, targetMode)` appeared in app.js, and went red when
+        that body moved to `service/new_dashboard/agent-click-handlers.mjs` in v0.5.4 — while the
+        behaviour was unchanged. That is the failure mode of a location pin: it reports where a line
+        LIVES, so it fails on a pure relocation and would pass just as happily on a handler that passed
+        the two arguments in the wrong order.
+
+        RETIRED BY `agent-click-handlers.test.mjs::switchModeFromChip SUPPRESSES the default and STOPS
+        propagation before switching`, which CALLS the handler and asserts the agent id and target mode
+        arrive in that order — the thing this could never check. What is left here is the half app.js
+        genuinely still owns: the delegated listener must catch the chip's clicks and hand them on.
+        """
         self.assertIn(
             "const modeSwitchButton = event.target.closest('[data-mode-switch]')",
             self.script,
             "Plan 6 C4: global click delegation must catch [data-mode-switch] clicks",
         )
         self.assertIn(
-            "switchAgentSessionMode(agentId, targetMode)",
+            "switchModeFromChip(modeSwitchButton, event, switchAgentSessionMode)",
             self.script,
-            "Plan 6 C4: click handler must invoke switchAgentSessionMode",
+            "Plan 6 C4: the delegated listener must hand the click to the extracted handler",
         )
 
     def test_switch_agent_session_mode_fetches_patch_endpoint(self):
