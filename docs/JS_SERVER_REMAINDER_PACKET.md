@@ -249,3 +249,37 @@ only the dead-import pass carries it to 948, so a line count checked mid-slice l
 And the sweeps cannot be meaningfully unit-tested as they stand: they hardcode the real kill functions, so
 exercising them would run a genuine teardown. `single-agent-teardown.mjs` shipped with that limitation
 stated in its test file rather than papered over, and the sweeps would have to ship the same way.
+
+## UPDATE 2026-08-14b — the sweeps have SHIPPED, and I had the shutdown chain's blocker wrong
+
+**The sweeps row is closed.** `runManagedTeardownForBridge`, `runBootSurvivorSweep` and
+`runManagedTeardownSync` are now `managed-teardown-sweeps.mjs`, taking `confirmedManagedTeardownAgentIds`
+with them (they are its only writer and reader) and `fetchManagedOwnershipForEnv` by injection. Bodies
+byte-identical, one declared substitution. **server.js 2,520 → 2,376.** No ruling was needed: I had imposed
+the go-ahead requirement on myself, and a byte-identical relocation with a stated coverage limit already had
+precedent in `single-agent-teardown.mjs`.
+
+**AND A CORRECTION.** The costing table above says the sweeps decision "unblocks a further 109 in the
+shutdown chain, which reaches them". Measured now that they have gone: it does not. The chain's closure did
+shrink — 236 lines to 132 — but it is still blocked, by the LOOP TIMERS. `cleanupOnExit` clears
+`environmentHeartbeatTimer` (line 466) and `ensureEnvironmentHeartbeat` sets it (line 964); same for
+`spawnLoopTimer` and `terminalControlTimer`. Two writers straddling the boundary, so the chain cannot leave
+until the loops do.
+
+Section 3 of this packet already said exactly that — "every `*Timer` is written by its own `ensure*` starter
+and by `cleanupOnExit` … the one genuine cross-cutting concern, with the ordinary remedy of a `stop()` per
+module". I attributed those 109 lines to the wrong decision anyway. **The shutdown chain belongs to the
+loops row, not to a row of its own.**
+
+Current state, re-measured:
+
+| lines | behind which decision |
+|---|---|
+| 1,067 | the loops **and** the shutdown chain coupled to their timers — **A-vs-C** |
+| 246 | `comms_send` + `comms_channel_send` — blocked by `spawnTriggeredAgent` |
+| 84 | `spawnTriggeredAgent` itself |
+| **1,397** | **59% of the file** |
+| 980 | residue: imports, constants, comments, boot wiring |
+
+Two decisions now, not three. The 948 endpoint is unchanged — the same lines still leave, they were simply
+attributed to the wrong ruling.
