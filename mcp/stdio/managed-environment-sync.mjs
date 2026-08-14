@@ -18,6 +18,9 @@ import { DEFAULT_CWD } from "./registration-inputs.mjs";
 import { normalizeRuntime } from "./runtimes.js";
 import { normalizeSessionMode } from "./session-mode.mjs";
 import { isActiveManagedSessionStatus } from "./session-predicates.mjs";
+import { IS_ENVIRONMENT_BRIDGE } from "./launch-identity.mjs";
+import { IS_REMOTE } from "./aify-service-endpoint.mjs";
+import { shouldSkipLoop } from "./loop-gate.mjs";
 
 export async function syncManagedEnvironmentAgentsPass({
   MACHINE_ID,
@@ -104,4 +107,35 @@ export async function syncManagedEnvironmentAgentsPass({
     });
   }
   if (REMOTE_AGENT_STATE.size) ensureDispatchLoop();
+}
+
+// THE LOOP SHELL LIVES HERE NOW, with the busy flag it owns. Its gate, its try/catch/finally and
+// its body are byte-identical to what left server.js; the only change is that `shutdownStarted`
+// arrives as a parameter, because the flag it reads is set by the shutdown chain server.js owns
+// and must be read AFRESH on every tick — a value captured at import would be permanently false.
+//
+// The TIMER stays in server.js: `ensure*Loop` arms it and `cleanupOnExit` clears it, so it has two
+// readers and one of them is the shutdown chain.
+let managedEnvironmentSyncBusy = false;
+export async function syncManagedEnvironmentAgents({
+  MACHINE_ID,
+  effectiveEnvironmentPayload,
+  ensureDispatchLoop,
+  shutdownStarted,
+}) {
+  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: managedEnvironmentSyncBusy, shuttingDown: shutdownStarted })) return;
+  managedEnvironmentSyncBusy = true;
+  try {
+    await syncManagedEnvironmentAgentsPass({
+      MACHINE_ID,
+      effectiveEnvironmentPayload,
+      ensureDispatchLoop,
+    });
+  } catch (error) {
+    if (error?.status !== 404) {
+      console.error("[aify] managed environment sync failed:", error?.message || error);
+    }
+  } finally {
+    managedEnvironmentSyncBusy = false;
+  }
 }

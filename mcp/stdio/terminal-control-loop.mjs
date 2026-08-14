@@ -24,6 +24,9 @@ import { orphanPidReapAllowed, orphanPidToKill, terminalControlFailurePatch } fr
 import { terminalChildEnv } from "./terminal-env.js";
 import { TERMINAL_MANAGER, reportDeadOwnedTerminals } from "./terminal-manager.mjs";
 import { findAgentIdForVirtualTerminal, handleVirtualTerminalControl, updateTerminalControl } from "./virtual-terminals.mjs";
+import { IS_REMOTE } from "./aify-service-endpoint.mjs";
+import { shouldSkipLoop } from "./loop-gate.mjs";
+import { bridgeTerminalSupported } from "./terminal-runtime.js";
 
 export async function runTerminalControlPass({
   CLAIM_OPTS,
@@ -156,5 +159,38 @@ export async function runTerminalControlPass({
         terminalControlFailurePatch(control.action, error),
       ).catch(() => {});
     }
+  }
+}
+
+// THE LOOP SHELL LIVES HERE NOW, with the busy flag it owns. Its gate, its try/catch/finally and
+// its body are byte-identical to what left server.js; the only change is that `shutdownStarted`
+// arrives as a parameter, because the flag it reads is set by the shutdown chain server.js owns
+// and must be read AFRESH on every tick — a value captured at import would be permanently false.
+//
+// The TIMER stays in server.js: `ensure*Loop` arms it and `cleanupOnExit` clears it, so it has two
+// readers and one of them is the shutdown chain.
+let terminalControlBusy = false;
+export async function runTerminalControlLoop({
+  CLAIM_OPTS,
+  CLAIM_WAIT_MS,
+  effectiveEnvironmentPayload,
+  extractTerminalSessionHandle,
+  shutdownStarted,
+}) {
+  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE && bridgeTerminalSupported(), alreadyActive: terminalControlBusy, shuttingDown: shutdownStarted })) return;
+  terminalControlBusy = true;
+  try {
+    await runTerminalControlPass({
+      CLAIM_OPTS,
+      CLAIM_WAIT_MS,
+      effectiveEnvironmentPayload,
+      extractTerminalSessionHandle,
+    });
+  } catch (error) {
+    if (error?.status !== 404) {
+      noteControlClaimFailure("terminal controls", error);
+    }
+  } finally {
+    terminalControlBusy = false;
   }
 }

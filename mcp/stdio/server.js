@@ -72,18 +72,15 @@ import { startClaudeTurnEndDetector } from "./claude-turn-end-detector.js";
 import { collectOnce as collectUsageOnce, collectConsumptionOnce } from "./usage-collector.js";
 import { AIFY_VERSION } from "./version.js";
 import { createManagedOwnershipReader } from "./managed-ownership.mjs";
-import {
-  noteControlClaimFailure,
-} from "./claim-failure-tracker.mjs";
 import { createManagedTeardownSweeps } from "./managed-teardown-sweeps.mjs";
 import { shouldSkipLoop } from "./loop-gate.mjs";
+import { runDispatchLoop } from "./dispatch-loop.mjs";
+import { runEnvironmentControlLoop } from "./environment-control-loop.mjs";
+import { syncManagedEnvironmentAgents } from "./managed-environment-sync.mjs";
+import { runSpawnLoop } from "./spawn-loop.mjs";
+import { runTerminalControlLoop } from "./terminal-control-loop.mjs";
 import { reportResidentRuntimeLost as reportResidentRuntimeLostImpl } from "./resident-runtime-lost.mjs";
 import { registerAllTools } from "./register-tools.mjs";
-import { syncManagedEnvironmentAgentsPass } from "./managed-environment-sync.mjs";
-import { runDispatchPass } from "./dispatch-loop.mjs";
-import { runTerminalControlPass } from "./terminal-control-loop.mjs";
-import { runSpawnPass } from "./spawn-loop.mjs";
-import { runEnvironmentControlPass } from "./environment-control-loop.mjs";
 import {
   DISPATCH_POLL_MS,
   TERMINAL_CONTROL_POLL_MS,
@@ -548,18 +545,13 @@ process.on("SIGTERM", () => { shutdownWithStatus(143); });
 // polling stays at the heavier DISPATCH_POLL_MS.
 // TERMINAL_CONTROL_POLL_MS moved to ./poll-intervals.mjs in v0.5.4.
 let dispatchLoopTimer = null;
-let dispatchLoopBusy = false;
 let environmentHeartbeatTimer = null;
 let environmentBridgeBootstrapped = false;
 let environmentBridgeBootstrapPromise = null;
 let usageCollectorTimer = null;
 let environmentControlTimer = null;
-let environmentControlBusy = false;
 let spawnLoopTimer = null;
-let spawnLoopBusy = false;
 let terminalControlTimer = null;
-let terminalControlBusy = false;
-let managedEnvironmentSyncBusy = false;
 // spawnClaimFailureCount / spawnClaimLastLogAt moved to ./claim-failure-tracker.mjs in v0.5.4.
 let remoteEffectiveCwdRoots = null;
 const AUTO_REREGISTER_AFTER_FAILURES = 4;
@@ -836,7 +828,7 @@ async function heartbeatEnvironment({ syncManaged = true } = {}) {
     if (Array.isArray(roots)) {
       remoteEffectiveCwdRoots = roots.map((root) => String(root || "").trim()).filter(Boolean);
     }
-    if (syncManaged) await syncManagedEnvironmentAgents();
+    if (syncManaged) await syncManagedEnvironmentAgents({ MACHINE_ID, effectiveEnvironmentPayload, ensureDispatchLoop, shutdownStarted });
     return true;
   } catch (error) {
     // Bootstrap must fail closed: without registration there is no authoritative
@@ -920,45 +912,27 @@ function ensureUsageCollector() {
 
 function ensureEnvironmentControlLoop() {
   if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: Boolean(environmentControlTimer), shuttingDown: shutdownStarted })) return;
-  runEnvironmentControlLoop().catch((error) => console.error("[aify] environment control loop error:", error));
+  runEnvironmentControlLoop({ CLAIM_OPTS, CLAIM_WAIT_MS, MACHINE_ID, effectiveEnvironmentPayload, shutdownStarted, shutdownWithStatus }).catch((error) => console.error("[aify] environment control loop error:", error));
   environmentControlTimer = setInterval(() => {
-    runEnvironmentControlLoop().catch((error) => console.error("[aify] environment control loop error:", error));
+    runEnvironmentControlLoop({ CLAIM_OPTS, CLAIM_WAIT_MS, MACHINE_ID, effectiveEnvironmentPayload, shutdownStarted, shutdownWithStatus }).catch((error) => console.error("[aify] environment control loop error:", error));
   }, DISPATCH_POLL_MS);
 }
 
-async function runEnvironmentControlLoop() {
-  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: environmentControlBusy, shuttingDown: shutdownStarted })) return;
-  environmentControlBusy = true;
-  try {
-    await runEnvironmentControlPass({
-      CLAIM_OPTS,
-      CLAIM_WAIT_MS,
-      MACHINE_ID,
-      effectiveEnvironmentPayload,
-      shutdownWithStatus,
-    });
-  } catch (error) {
-    if (error?.status !== 404) {
-      noteControlClaimFailure("environment controls", error);
-    }
-  } finally {
-    environmentControlBusy = false;
-  }
-}
+// runEnvironmentControlLoop's shell and its busy flag moved to ./environment-control-loop.mjs in v0.5.4; the timer stays here.
 
 function ensureSpawnLoop() {
   if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: Boolean(spawnLoopTimer), shuttingDown: shutdownStarted })) return;
-  runSpawnLoop().catch((error) => console.error("[aify] spawn loop error:", error));
+  runSpawnLoop({ CLAIM_OPTS, CLAIM_WAIT_MS, MACHINE_ID, effectiveEnvironmentPayload, ensureDispatchLoop, shutdownStarted }).catch((error) => console.error("[aify] spawn loop error:", error));
   spawnLoopTimer = setInterval(() => {
-    runSpawnLoop().catch((error) => console.error("[aify] spawn loop error:", error));
+    runSpawnLoop({ CLAIM_OPTS, CLAIM_WAIT_MS, MACHINE_ID, effectiveEnvironmentPayload, ensureDispatchLoop, shutdownStarted }).catch((error) => console.error("[aify] spawn loop error:", error));
   }, DISPATCH_POLL_MS);
 }
 
 function ensureTerminalControlLoop() {
   if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE && bridgeTerminalSupported(), alreadyActive: Boolean(terminalControlTimer), shuttingDown: shutdownStarted })) return;
-  runTerminalControlLoop().catch((error) => console.error("[aify] terminal control loop error:", error));
+  runTerminalControlLoop({ CLAIM_OPTS, CLAIM_WAIT_MS, effectiveEnvironmentPayload, extractTerminalSessionHandle, shutdownStarted }).catch((error) => console.error("[aify] terminal control loop error:", error));
   terminalControlTimer = setInterval(() => {
-    runTerminalControlLoop().catch((error) => console.error("[aify] terminal control loop error:", error));
+    runTerminalControlLoop({ CLAIM_OPTS, CLAIM_WAIT_MS, effectiveEnvironmentPayload, extractTerminalSessionHandle, shutdownStarted }).catch((error) => console.error("[aify] terminal control loop error:", error));
   }, TERMINAL_CONTROL_POLL_MS);
 }
 
@@ -983,24 +957,7 @@ function extractTerminalSessionHandle(runtime = "", command = "") {
 // the in-memory exit path owns real teardown; this only reconciles stale rows.
 // reportDeadOwnedTerminals moved to ./terminal-manager.mjs in v0.5.4.
 
-async function runTerminalControlLoop() {
-  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE && bridgeTerminalSupported(), alreadyActive: terminalControlBusy, shuttingDown: shutdownStarted })) return;
-  terminalControlBusy = true;
-  try {
-    await runTerminalControlPass({
-      CLAIM_OPTS,
-      CLAIM_WAIT_MS,
-      effectiveEnvironmentPayload,
-      extractTerminalSessionHandle,
-    });
-  } catch (error) {
-    if (error?.status !== 404) {
-      noteControlClaimFailure("terminal controls", error);
-    }
-  } finally {
-    terminalControlBusy = false;
-  }
-}
+// runTerminalControlLoop's shell and its busy flag moved to ./terminal-control-loop.mjs in v0.5.4; the timer stays here.
 
 // noteSpawnClaimFailure moved to ./claim-failure-tracker.mjs in v0.5.4.
 
@@ -1008,39 +965,9 @@ async function runTerminalControlLoop() {
 
 // isActiveManagedSessionStatus moved to ./session-predicates.mjs in v0.5.4.
 
-async function syncManagedEnvironmentAgents() {
-  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: managedEnvironmentSyncBusy, shuttingDown: shutdownStarted })) return;
-  managedEnvironmentSyncBusy = true;
-  try {
-    await syncManagedEnvironmentAgentsPass({
-      MACHINE_ID,
-      effectiveEnvironmentPayload,
-      ensureDispatchLoop,
-    });
-  } catch (error) {
-    if (error?.status !== 404) {
-      console.error("[aify] managed environment sync failed:", error?.message || error);
-    }
-  } finally {
-    managedEnvironmentSyncBusy = false;
-  }
-}
+// syncManagedEnvironmentAgents's shell and its busy flag moved to ./managed-environment-sync.mjs in v0.5.4; the timer stays here.
 
-async function runSpawnLoop() {
-  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: spawnLoopBusy, shuttingDown: shutdownStarted })) return;
-  spawnLoopBusy = true;
-  try {
-    await runSpawnPass({
-      CLAIM_OPTS,
-      CLAIM_WAIT_MS,
-      MACHINE_ID,
-      effectiveEnvironmentPayload,
-      ensureDispatchLoop,
-    });
-  } finally {
-    spawnLoopBusy = false;
-  }
-}
+// runSpawnLoop's shell and its busy flag moved to ./spawn-loop.mjs in v0.5.4; the timer stays here.
 
 function ensureDispatchLoop() {
   if (shouldSkipLoop({ eligible: IS_REMOTE, alreadyActive: Boolean(dispatchLoopTimer), shuttingDown: shutdownStarted })) return;
@@ -1049,7 +976,7 @@ function ensureDispatchLoop() {
     channelsEnabled: String(process.env.AIFY_CHANNELS_ENABLED || "").trim() === "1",
   })) return;
   dispatchLoopTimer = setInterval(() => {
-    runDispatchLoop().catch((error) => console.error("[aify] dispatch loop error:", error));
+    runDispatchLoop({ AUTO_REREGISTER_AFTER_FAILURES, CLAIM_OPTS, CLAIM_WAIT_MS, MACHINE_ID, reportResidentRuntimeLost, shutdownStarted, terminateResidentHost }).catch((error) => console.error("[aify] dispatch loop error:", error));
   }, DISPATCH_POLL_MS);
 }
 
@@ -1064,22 +991,7 @@ ensureTerminalControlLoop();
 
 
 
-async function runDispatchLoop() {
-  if (shouldSkipLoop({ eligible: IS_REMOTE, alreadyActive: dispatchLoopBusy, shuttingDown: shutdownStarted })) return;
-  dispatchLoopBusy = true;
-  try {
-    await runDispatchPass({
-      AUTO_REREGISTER_AFTER_FAILURES,
-      CLAIM_OPTS,
-      CLAIM_WAIT_MS,
-      MACHINE_ID,
-      reportResidentRuntimeLost,
-      terminateResidentHost,
-    });
-  } finally {
-    dispatchLoopBusy = false;
-  }
-}
+// runDispatchLoop's shell and its busy flag moved to ./dispatch-loop.mjs in v0.5.4; the timer stays here.
 
 
 // ── MCP Server ───────────────────────────────────────────────────────────────

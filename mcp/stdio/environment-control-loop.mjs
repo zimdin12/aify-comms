@@ -11,6 +11,9 @@
 import { httpCall } from "./aify-service-endpoint.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
 import { noteControlClaimSuccess } from "./claim-failure-tracker.mjs";
+import { IS_ENVIRONMENT_BRIDGE } from "./launch-identity.mjs";
+import { IS_REMOTE } from "./aify-service-endpoint.mjs";
+import { shouldSkipLoop } from "./loop-gate.mjs";
 
 export async function runEnvironmentControlPass({
   CLAIM_OPTS,
@@ -60,4 +63,39 @@ export async function runEnvironmentControlPass({
     status: "failed",
     error: `Unsupported environment control action: ${control.action}`,
   });
+}
+
+// THE LOOP SHELL LIVES HERE NOW, with the busy flag it owns. Its gate, its try/catch/finally and
+// its body are byte-identical to what left server.js; the only change is that `shutdownStarted`
+// arrives as a parameter, because the flag it reads is set by the shutdown chain server.js owns
+// and must be read AFRESH on every tick — a value captured at import would be permanently false.
+//
+// The TIMER stays in server.js: `ensure*Loop` arms it and `cleanupOnExit` clears it, so it has two
+// readers and one of them is the shutdown chain.
+let environmentControlBusy = false;
+export async function runEnvironmentControlLoop({
+  CLAIM_OPTS,
+  CLAIM_WAIT_MS,
+  MACHINE_ID,
+  effectiveEnvironmentPayload,
+  shutdownStarted,
+  shutdownWithStatus,
+}) {
+  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: environmentControlBusy, shuttingDown: shutdownStarted })) return;
+  environmentControlBusy = true;
+  try {
+    await runEnvironmentControlPass({
+      CLAIM_OPTS,
+      CLAIM_WAIT_MS,
+      MACHINE_ID,
+      effectiveEnvironmentPayload,
+      shutdownWithStatus,
+    });
+  } catch (error) {
+    if (error?.status !== 404) {
+      noteControlClaimFailure("environment controls", error);
+    }
+  } finally {
+    environmentControlBusy = false;
+  }
 }

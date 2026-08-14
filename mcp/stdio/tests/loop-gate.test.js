@@ -99,3 +99,67 @@ test("the exported term list matches what the guard actually enforces", () => {
     assert.throws(() => shouldSkipLoop(gate), /shouldSkipLoop requires/);
   }
 });
+
+// --- the shells now own their busy flags -----------------------------------------------------
+//
+// In v0.5.4 each loop SHELL moved into the module holding its pass, taking its busy flag with it. The
+// timer stayed in server.js, because `ensure*Loop` arms it and `cleanupOnExit` clears it — two readers,
+// one of them the shutdown chain.
+//
+// That move turned `shutdownStarted` from a module variable the shell closed over into a PARAMETER. The
+// risk it introduces is specific and silent: a caller that captured the value once, at import, would
+// pass `false` forever and the shutdown gate would never fire again — which is precisely the defect
+// `ef89bd6c` was written to fix. So the shells are asserted to re-read it per call.
+
+import { runSpawnLoop } from "../spawn-loop.mjs";
+import { runEnvironmentControlLoop } from "../environment-control-loop.mjs";
+import { runTerminalControlLoop } from "../terminal-control-loop.mjs";
+import { syncManagedEnvironmentAgents } from "../managed-environment-sync.mjs";
+import { runDispatchLoop } from "../dispatch-loop.mjs";
+
+const SHELLS = [
+  ["runSpawnLoop", runSpawnLoop],
+  ["runEnvironmentControlLoop", runEnvironmentControlLoop],
+  ["runTerminalControlLoop", runTerminalControlLoop],
+  ["syncManagedEnvironmentAgents", syncManagedEnvironmentAgents],
+  ["runDispatchLoop", runDispatchLoop],
+];
+
+test("EVERY LOOP SHELL SKIPS WHEN shutdownStarted IS TRUE", async () => {
+  // No HTTP stub is installed here on purpose: if a shell did NOT skip, it would reach `httpCall` and
+  // either throw or hang. Returning cleanly is the observable proof that the gate held.
+  for (const [name, shell] of SHELLS) {
+    await assert.doesNotReject(
+      () => shell({ shutdownStarted: true }),
+      `${name} must return without doing work while shutting down`,
+    );
+  }
+});
+
+test("a shell never reaches its pass while shutting down — observed, not inferred", async () => {
+  // The observable is a dependency the pass calls and the gate short-circuits past. My first version
+  // asserted only that two `shutdownStarted: true` calls did not reject, which a shell ignoring the flag
+  // entirely would also satisfy.
+  let reached = 0;
+  await assert.doesNotReject(() => runSpawnLoop({
+    shutdownStarted: true,
+    CLAIM_OPTS: {},
+    CLAIM_WAIT_MS: 0,
+    MACHINE_ID: "m",
+    ensureDispatchLoop: () => {},
+    effectiveEnvironmentPayload: () => { reached += 1; return { id: "env-1", cwdRoots: [] }; },
+  }));
+  assert.equal(reached, 0, "a shutting-down shell must not reach its pass");
+});
+
+// THE OPPOSITE DIRECTION IS DELIBERATELY NOT ASSERTED HERE, and the reason is worth stating rather than
+// leaving as a gap someone later "fixes".
+//
+// Four of the five shells gate on `IS_REMOTE && IS_ENVIRONMENT_BRIDGE`, and `IS_ENVIRONMENT_BRIDGE` is
+// read from `--environment-bridge` or `AIFY_ENVIRONMENT_BRIDGE=1` at module load. Setting that variable
+// to make a shell proceed would make THIS TEST PROCESS an environment bridge — which is not a
+// hypothetical: a hostile-env sweep in this repo set exactly that variable, the test registered as the
+// environment bridge, superseded the live one, and reaped seven running gateway hosts.
+//
+// So the "it does proceed" direction belongs to the live round-trip, not to a unit suite. What IS
+// covered here is the gate's own truth table above, which is where the decision actually lives.

@@ -27,6 +27,8 @@ import { processRunControls } from "./run-controls.mjs";
 import { canLaunchRuntime, launchRuntimeRun, normalizeRuntime, runtimeStateWithoutSessionHandle } from "./runtimes.js";
 import { normalizeSessionMode } from "./session-mode.mjs";
 import { createVirtualTerminalSink, ensureVirtualTerminal } from "./virtual-terminals.mjs";
+import { IS_REMOTE } from "./aify-service-endpoint.mjs";
+import { shouldSkipLoop } from "./loop-gate.mjs";
 
 export async function runDispatchPass({
   AUTO_REREGISTER_AFTER_FAILURES,
@@ -476,5 +478,38 @@ export async function runDispatchPass({
         await clearTurnBusy();
         ACTIVE_RUNS.delete(agentId);
       });
+  }
+}
+
+// THE LOOP SHELL LIVES HERE NOW, with the busy flag it owns. Its gate, its try/catch/finally and
+// its body are byte-identical to what left server.js; the only change is that `shutdownStarted`
+// arrives as a parameter, because the flag it reads is set by the shutdown chain server.js owns
+// and must be read AFRESH on every tick — a value captured at import would be permanently false.
+//
+// The TIMER stays in server.js: `ensure*Loop` arms it and `cleanupOnExit` clears it, so it has two
+// readers and one of them is the shutdown chain.
+let dispatchLoopBusy = false;
+export async function runDispatchLoop({
+  AUTO_REREGISTER_AFTER_FAILURES,
+  CLAIM_OPTS,
+  CLAIM_WAIT_MS,
+  MACHINE_ID,
+  reportResidentRuntimeLost,
+  shutdownStarted,
+  terminateResidentHost,
+}) {
+  if (shouldSkipLoop({ eligible: IS_REMOTE, alreadyActive: dispatchLoopBusy, shuttingDown: shutdownStarted })) return;
+  dispatchLoopBusy = true;
+  try {
+    await runDispatchPass({
+      AUTO_REREGISTER_AFTER_FAILURES,
+      CLAIM_OPTS,
+      CLAIM_WAIT_MS,
+      MACHINE_ID,
+      reportResidentRuntimeLost,
+      terminateResidentHost,
+    });
+  } finally {
+    dispatchLoopBusy = false;
   }
 }
