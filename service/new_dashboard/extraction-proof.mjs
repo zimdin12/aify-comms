@@ -411,7 +411,12 @@ export function moduleScopeBrowserRefs(source) {
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     const bare = line.trim();
-    if (depth === 0 && bare && !bare.startsWith("//")) {
+    // BLOCK COMMENTS COUNT AS COMMENTS TOO. `//` was the only form excluded, so a JSDoc block above a
+    // module-scope declaration — the natural place to EXPLAIN why a global is guarded — was scanned as
+    // code. `boot-wiring.mjs` was reported unimportable for a line reading "…because localStorage
+    // THROWS in private mode", which is prose about the very care that makes it importable.
+    const inComment = bare.startsWith("//") || bare.startsWith("/*") || bare.startsWith("*");
+    if (depth === 0 && bare && !inComment) {
       // WHAT THIS ASKS is whether a browser global is touched WHILE THE MODULE EVALUATES -- that is
       // what makes a module unimportable outside a browser. It is not asking whether the word appears
       // on a line at depth 0.

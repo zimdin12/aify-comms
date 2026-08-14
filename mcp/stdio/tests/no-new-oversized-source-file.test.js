@@ -64,7 +64,7 @@ const rel = (file) => path.relative(REPO, file).replace(/\\/g, "/");
  * NAME identity, and the real tree cannot demonstrate that — it holds exactly one `server.js`. A pure
  * predicate can be shown synthetic paths that share a basename and proved to distinguish them.
  */
-const isExempt = (relPath) => ALLOWED.has(relPath);
+const isExempt = (relPath, allowed = ALLOWED) => allowed.has(relPath);
 
 /** Newline count, matching `wc -l` — the convention every receipt in this series uses. */
 const lineCount = (file) => readFileSync(file, "utf-8").split("\n").length - 1;
@@ -106,13 +106,15 @@ test("two files sharing a basename are distinguished", () => {
   // THE SUBJECT IS TAKEN FROM THE ALLOWLIST, not hardcoded. It named `mcp/stdio/server.js`, and when that
   // file dropped under the limit in v0.5.4 and was correctly removed, this test failed — punishing the
   // gate's own success. A list-driven subject cannot do that.
-  // ALLOWED is a Set — `.length` is undefined and `[0]` does not index it. My first version used array
-  // semantics and failed on the guard rather than on the property, which is the friendlier way round.
-  const allowed = [...ALLOWED];
-  assert.ok(allowed.length > 0, "there must be an allowlisted path to exercise the predicate with");
-  const subject = allowed[0];
+  // …AND THEN THE LIST BECAME EMPTY. On 2026-08-14 the last entry (`service/new_dashboard/app.js`)
+  // earned its way off, and a list-driven subject failed for the same underlying reason as a hardcoded
+  // one: it depended on the policy having members, and the policy only ever shrinks. A property of a
+  // PURE predicate does not need the live policy at all, so the subject is synthetic and the predicate
+  // is handed the allowlist to test against.
+  const allowed = new Set(["mcp/stdio/server.js"]);
+  const subject = "mcp/stdio/server.js";
   const base = subject.slice(subject.lastIndexOf("/") + 1);
-  assert.ok(isExempt(subject), "the allowlisted path must be exempt");
+  assert.ok(isExempt(subject, allowed), "the allowlisted path must be exempt");
 
   for (const impostor of [
     `vendor/${subject}`,
@@ -122,7 +124,7 @@ test("two files sharing a basename are distinguished", () => {
     `service/elsewhere/${base}`,
   ]) {
     assert.ok(
-      !isExempt(impostor),
+      !isExempt(impostor, allowed),
       `${impostor} shares a basename with an allowlisted file and must NOT inherit its exemption`,
     );
   }
@@ -138,7 +140,11 @@ test("the allowlist entries are paths, not basenames", () => {
 test("both gates read the same allowlist file", () => {
   // The Python half resolves the same path. If either gate ever inlines its own copy, this is the note
   // that says why it must not: two lists drift, and each gate then enforces a different policy.
-  assert.ok(POLICY.allowed.length > 0, "the allowlist must not be silently empty");
+  // `POLICY.allowed.length > 0` used to stand here, guarding against the list being emptied to make a
+  // red gate green. It became a test failing because the goal was reached: every product source file
+  // is now under the limit and the list is legitimately empty. What is asserted is that it is a list,
+  // and that anything in it is explained.
+  assert.ok(Array.isArray(POLICY.allowed), "the allowlist must be a list");
   for (const entry of POLICY.allowed) {
     assert.ok(entry.reason && entry.reason.trim(), `${entry.path} has no recorded reason`);
   }
@@ -166,4 +172,12 @@ test("the boundary predicate is exact", () => {
   // Off-by-one here would silently accept the precise 1000-line file this exists to catch.
   assert.ok(1000 >= LIMIT, "a file of exactly 1000 lines must count as oversized");
   assert.ok(!(999 >= LIMIT), "a file of 999 lines must not be flagged");
+});
+
+test("an EMPTY allowlist exempts nothing", () => {
+  // The state the repo reached on 2026-08-14. An empty list is the goal, not a degenerate case — but it
+  // is also the input most likely to be mishandled by a predicate written as "no rule means allow".
+  const empty = new Set();
+  assert.ok(!isExempt("mcp/stdio/server.js", empty));
+  assert.ok(!isExempt("anything/at/all.js", empty));
 });

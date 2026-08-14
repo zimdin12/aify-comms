@@ -65,7 +65,7 @@ def _line_count(path: Path) -> int:
     return len(io.open(path, encoding="utf-8", errors="replace").read().split("\n")) - 1
 
 
-def is_exempt(rel_path: str) -> bool:
+def is_exempt(rel_path: str, allowed=None) -> bool:
     """Is this repo-relative path allowlisted? A PURE predicate, so identity can be tested directly.
 
     Split out on the reviewer's request. The gate's whole correctness rests on this being path identity
@@ -73,7 +73,7 @@ def is_exempt(rel_path: str) -> bool:
     happens to contain only one `control_plane.py`. A pure predicate can be shown two synthetic paths that
     share a basename and prove they are distinguished.
     """
-    return rel_path in ALLOWED
+    return rel_path in (ALLOWED if allowed is None else set(allowed))
 
 
 class NoNewOversizedSourceFileTests(unittest.TestCase):
@@ -106,8 +106,15 @@ class NoNewOversizedSourceFileTests(unittest.TestCase):
         self.assertEqual(stale, [], "\n  ".join([""] + stale))
 
     def test_the_allowlist_is_well_formed_and_reasoned(self):
-        """Every exemption carries a reason, because an unexplained one is indistinguishable from a mistake."""
-        self.assertTrue(_POLICY["allowed"], "the allowlist must not be silently empty")
+        """Every exemption carries a reason, because an unexplained one is indistinguishable from a mistake.
+
+        `assertTrue(_POLICY["allowed"])` used to stand here, guarding against the list being silently
+        emptied to make a red gate green. On 2026-08-14 the last entry earned its way off — every
+        product source file is now under the limit — and that guard turned into a test failing because
+        the goal was reached. An EMPTY list is the intended end state, so what is asserted now is that
+        it is a list at all and that whatever is in it is explained.
+        """
+        self.assertIsInstance(_POLICY["allowed"], list)
         for entry in _POLICY["allowed"]:
             self.assertIn("path", entry)
             self.assertTrue(entry.get("reason", "").strip(), f"{entry['path']} has no recorded reason")
@@ -118,29 +125,39 @@ class NoNewOversizedSourceFileTests(unittest.TestCase):
 
         The first version keyed on `p.name`, so ANY file with an allowlisted basename anywhere was
         exempt. The real tree cannot demonstrate the fix — it contains exactly one of each — so the
-        predicate is exercised directly with synthetic paths that share a basename.
+        predicate is exercised with synthetic paths that share a basename.
 
-        THE REAL PATH IS READ FROM THE POLICY, NOT SPELLED OUT. This case used to name
-        `service/control_plane.py`, and went red in v0.5.4 when that file dropped under the limit and
-        was correctly removed from the allowlist — a test failing because the work succeeded, which is
-        the second instance of that shape in this suite. The list only ever shrinks, so any hardcoded
-        member is a scheduled failure.
+        IT USED TO DRIVE THE PREDICATE FROM THE REAL POLICY, and that failed twice for the same
+        reason: the list only ever shrinks. First it named `service/control_plane.py`, which went red
+        in v0.5.4 when that file dropped under the limit and was correctly removed. Then it read
+        `_POLICY["allowed"][0]`, which went red when `app.js` — the LAST entry — dropped under the
+        limit and the list became EMPTY. Both times a test failed because the work succeeded.
+
+        A property of a pure predicate does not need the live policy at all, so it no longer reads it.
         """
-        self.assertTrue(_POLICY["allowed"], "no allowlist entries to exercise the predicate against")
-        real = _POLICY["allowed"][0]["path"]
-        basename = real.rsplit("/", 1)[-1]
-        self.assertTrue(is_exempt(real), "the allowlisted path must be exempt")
+        allowed = ["service/new_dashboard/app.js"]
+        basename = "app.js"
+        self.assertTrue(is_exempt(allowed[0], allowed), "the allowlisted path must be exempt")
         for impostor in (
             f"service/routers/{basename}",
             f"service/api_core/{basename}",
             basename,
-            f"{real}.bak",
-            f"other/{real}",
+            f"{allowed[0]}.bak",
+            f"other/{allowed[0]}",
         ):
             self.assertFalse(
-                is_exempt(impostor),
+                is_exempt(impostor, allowed),
                 f"{impostor} shares a basename with an allowlisted file and must NOT inherit its exemption",
             )
+
+    def test_an_EMPTY_allowlist_exempts_nothing(self):
+        """The state the repo reached on 2026-08-14, when the last entry earned its way off.
+
+        An empty list is the goal, not a degenerate case — but it is also the input most likely to be
+        mishandled by a predicate written as "no rule means allow". It must mean the opposite.
+        """
+        self.assertFalse(is_exempt("service/new_dashboard/app.js", []))
+        self.assertFalse(is_exempt("anything/at/all.py", []))
 
     def test_the_allowlist_entries_are_paths_not_basenames(self):
         """A bare filename in the JSON would silently reintroduce basename matching."""

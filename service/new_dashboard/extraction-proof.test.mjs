@@ -1478,6 +1478,85 @@ const EXTRACTIONS = [
       { name: "toggleNotifications", at: 613, marker: "// toggleNotifications moved to ./notifications.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "boot-wiring.mjs",
+    importLine: "import { restorePersistedPreferences, wireGlobalControls, wireInspectorGestures, wireSettingsControls } from './boot-wiring.mjs';",
+    seeding: [
+      "wireGlobalControls({ chatController, closeInspector, refresh, renderAll, renderSessionWorkspace, saveSettings, chatCreateChannel, inspect });",
+      "wireInspectorGestures();",
+      "restorePersistedPreferences({ setPage });",
+      "wireSettingsControls({ saveSettings });",
+    ],
+    items: [
+      {
+        // 264 lines of TOP-LEVEL STATEMENTS, not a declaration — so the whole of the edit is the
+        // wrapper, declared with `wrapper` rather than `editedSince`. `indent: "  "` says the module
+        // added two spaces to every line, which reconstruct strips; `unwrapBody` throws if any line
+        // does not carry it, so a line EDITED rather than re-indented cannot hide behind the mask.
+        //
+        // Re-indenting is only safe because the run contains no multi-line template literal. It does
+        // not: every line in it has an even number of backticks, so no string spans a line break and
+        // the two spaces cannot end up inside one.
+        name: "wireGlobalControls",
+        at: 4650,
+        marker: [
+          "// The boot-time listener wiring moved to ./boot-wiring.mjs in v0.5.4. The CALL stays here so the",
+          "// boot sequence is still readable in one place, in order.",
+        ],
+        wrapper: {
+          header: [
+            "export function wireGlobalControls({",
+            "  chatController,",
+            "  closeInspector,",
+            "  refresh,",
+            "  renderAll,",
+            "  renderSessionWorkspace,",
+            "  saveSettings,",
+            "  chatCreateChannel,",
+            "  inspect,",
+            "}) {",
+          ],
+          footer: ["}"],
+          indent: "  ",
+        },
+      },
+      {
+        // The swipe-to-close gesture, INCLUDING the `let` it is the only reader of. Both listeners and
+        // the variable are one unit: touchstart writes it, touchend reads it.
+        name: "wireInspectorGestures",
+        at: 4964,
+        marker: [
+          "// The inspector's swipe-to-close gesture moved to ./boot-wiring.mjs in v0.5.4, with the",
+          "// touch-start position it is the only reader of.",
+        ],
+        wrapper: {
+          header: ["export function wireInspectorGestures() {"],
+          footer: ["}"],
+          indent: "  ",
+        },
+      },
+      {
+        name: "restorePersistedPreferences",
+        at: 4998,
+        marker: "// Preference restore + landing paint moved to ./boot-wiring.mjs in v0.5.4.",
+        wrapper: {
+          header: ["export function restorePersistedPreferences({ setPage }) {"],
+          footer: ["}"],
+          indent: "  ",
+        },
+      },
+      {
+        name: "wireSettingsControls",
+        at: 5054,
+        marker: "// The Settings page's controls moved to ./boot-wiring.mjs in v0.5.4.",
+        wrapper: {
+          header: ["export function wireSettingsControls({ saveSettings }) {"],
+          footer: ["}"],
+          indent: "  ",
+        },
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -1524,6 +1603,7 @@ const MODULES = () => ({
   "console-actions.mjs": read("console-actions.mjs"),
   "click-dispatch.mjs": read("click-dispatch.mjs"),
   "notifications.mjs": read("notifications.mjs"),
+  "boot-wiring.mjs": read("boot-wiring.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),
@@ -1698,9 +1778,20 @@ test("reconstruction FAILS when a body is restored at the wrong line", () => {
     ...step,
     items: step.items.map((item, i) => (i === 0 ? { ...item, at: item.at + 1 } : item)),
   }));
-  assert.notEqual(
-    rebuild({ extractions: shifted }),
-    read(PRISTINE),
+  // BREAKING can mean either answer: a different file, or a refusal. Once the plan grew entries whose
+  // `at` points at a marker rather than a declaration, shifting the index stopped producing a wrong
+  // rebuild and started producing a THROW — the marker is no longer where the plan says, which is the
+  // proof refusing rather than guessing. Asserting only `notEqual` let that exception escape as a test
+  // error, reporting a stricter proof as a broken one.
+  let rebuilt = null;
+  let refused = false;
+  try {
+    rebuilt = rebuild({ extractions: shifted });
+  } catch {
+    refused = true;
+  }
+  assert.ok(
+    refused || rebuilt !== read(PRISTINE),
     "an off-by-one in a restore index must break reconstruction, or the proof is not position-sensitive",
   );
 });

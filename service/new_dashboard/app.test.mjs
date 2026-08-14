@@ -322,8 +322,8 @@ test("terminal theme wiring stays in app.js — the derivation itself moved", ()
   const paths = [
     [app, /state\.settings = res && typeof res === 'object'[\s\S]{0,200}?refreshActiveTerminalTheme\(\);/,
       "SAVE: persisting new settings must re-theme a live console"],
-    [app, /\/\/ undo any live appearance preview\s*\n\s*refreshActiveTerminalTheme\(\);/,
-      "UNDO: reverting an unsaved preview must re-theme back"],
+    [read("boot-wiring.mjs"), /\/\/ undo any live appearance preview\s*\n\s*refreshActiveTerminalTheme\(\);/,
+      "UNDO: reverting an unsaved preview must re-theme back (moved with the boot wiring in v0.5.4)"],
     [read("refresh-cycle.mjs"), /applyTheme\(state\.settings\);[\s\S]{0,120}?refreshActiveTerminalTheme\(\);/,
       "POLL: server-stored appearance arriving on a tick must re-theme (moved out of app.js in v0.5.4)"],
   ];

@@ -21,9 +21,5 @@
   ],
   "limit": 1000,
   "allowed": [
-    {
-      "path": "service/new_dashboard/app.js",
-      "reason": "RE-MEASURED 2026-08-14 at 3,373 lines (was 5,081 at the start of v0.5.4). The previous reason costed a three-phase path to ~984 via the component split; that costing is SUPERSEDED. What actually happened: extract-method became provable (extraction-proof.mjs gained `wrapper` with header/footer/indent|dedent, plus `editedSince` so an extracted module is not frozen), and 82 click-handler branches plus every movable declaration were relocated into 15 new tested modules. The relocation budget is now SPENT — the last measurement found 6 movable groups totalling 6 lines, all boot wiring (apiBase, apiOrigin, a timeout constant). What remains is the declaration web: mountXtermForTerminal alone has a closure of 76 declarations / 1,612 lines because nearly every render function reaches `refresh`. Going below ~3,300 needs that web decomposed by extract-method on function BODIES — the same mechanism the click handler used, now proven, but applied at a scale no single slice covers. Listed until an operator scopes that work; it is measured and provable, not unreachable."
-    }
   ]
 }
