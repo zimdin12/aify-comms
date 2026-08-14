@@ -337,6 +337,14 @@ const EXTRACTIONS = [
       { name: "renderRunInspectorControls", at: 3292, marker: "// renderRunInspectorControls moved to ./run-inspector-controls.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "chat-prefs.mjs",
+    importLine: "import { persistChatPrefs, syncChatChips } from './chat-prefs.mjs';",
+    items: [
+      { name: "persistChatPrefs", at: 4803, marker: "// persistChatPrefs moved to ./chat-prefs.mjs in v0.5.4." },
+      { name: "syncChatChips", at: 4815, marker: "// syncChatChips moved to ./chat-prefs.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -363,6 +371,7 @@ const MODULES = () => ({
   "clipboard.mjs": read("clipboard.mjs"),
   "inspector-forms.mjs": read("inspector-forms.mjs"),
   "run-inspector-controls.mjs": read("run-inspector-controls.mjs"),
+  "chat-prefs.mjs": read("chat-prefs.mjs"),
 });
 
 function rebuild(overrides = {}) {

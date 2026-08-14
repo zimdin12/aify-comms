@@ -48,6 +48,7 @@ import { metric, renderDiagnosticsSummary, renderMetrics, renderUsageConsumption
 import { copyActiveConsole, copyText } from './clipboard.mjs';
 import { openAgentEditForm, openContinueForm, openMessageDetail } from './inspector-forms.mjs';
 import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } from './run-inspector-controls.mjs';
+import { persistChatPrefs, syncChatChips } from './chat-prefs.mjs';
 
 function resolveApiOrigin() {
   const params = new URLSearchParams(location.search);
@@ -3587,30 +3588,10 @@ byId('chat-identity-directory')?.addEventListener('click', () => openIdentityDir
 // Persist the rail filter prefs so "live only" (which hides offline/archived agents) and the
 // other declutter toggles STICK across reloads — the old dashboard remembered these; not
 // persisting them is why the rail re-cluttered with offline conversations on every refresh.
-function persistChatPrefs() {
-  try {
-    localStorage.setItem('aify.next.chatPrefs', JSON.stringify({
-      liveOnly: state.chat.liveOnly, openOnly: state.chat.openOnly,
-      workingUp: state.chat.workingUp, unreadOnly: state.chat.unreadOnly,
-      scope: state.chat.scope, statusFilter: [...(state.chat.statusFilter || [])],
-      sortMode: state.chat.sortMode, compact: state.chat.compact, peek: state.chat.peek,
-    }));
-  } catch { /* ignore */ }
-}
+// persistChatPrefs moved to ./chat-prefs.mjs in v0.5.4.
 // Reflect filter state into the always-visible chip bar (chips are static markup; only their
 // active class tracks state, so the rail re-render never has to rebuild them).
-function syncChatChips() {
-  // Mirror the visual .active state into aria-pressed so the toggle state isn't conveyed by
-  // colour alone (matters for the status dots, which have no text).
-  const press = (el, on) => { el.classList.toggle('active', on); el.setAttribute('aria-pressed', on ? 'true' : 'false'); };
-  document.querySelectorAll('[data-chat-scope]').forEach((el) => press(el, el.dataset.chatScope === (state.chat.scope || 'all')));
-  document.querySelectorAll('[data-chat-toggle]').forEach((el) => press(el, !!state.chat[el.dataset.chatToggle]));
-  document.querySelectorAll('[data-chat-compact-toggle]').forEach((el) => press(el, !!state.chat.compact));
-  document.querySelectorAll('[data-chat-peek-toggle]').forEach((el) => press(el, !!state.chat.peek));
-  document.querySelector('.chat-shell')?.classList.toggle('compact', !!state.chat.compact);
-  const sf = state.chat.statusFilter instanceof Set ? state.chat.statusFilter : new Set();
-  document.querySelectorAll('[data-chat-status]').forEach((el) => press(el, sf.has(el.dataset.chatStatus)));
-}
+// syncChatChips moved to ./chat-prefs.mjs in v0.5.4.
 byId('chat-sort')?.addEventListener('change', (event) => {
   state.chat.sortMode = event.target.value || 'activity';
   persistChatPrefs();
