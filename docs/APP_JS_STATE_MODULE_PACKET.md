@@ -329,3 +329,27 @@ What actually moved the number, after this packet was written:
 `renderSessionConsole`) each pull in ~75 declarations / ~1,586 lines because all of them reach `refresh`.
 That is one mutually-recursive render orchestrator, and `chatController` is its dependency-injection
 wiring site rather than movable logic. Breaking it is the render-flow redesign — out of v0.5.x scope.
+
+### The number the redesign decision actually turns on (measured 2026-08-14)
+
+Relocation cannot clear this file even in principle, and it is worth stating as arithmetic rather than as
+a judgement. `scratchpad/shape.mjs` (same `declarationSpan`, same coverage gate):
+
+| | app.js 3,612 | server.js 2,520 |
+|---|---|---|
+| inside declarations | 2,244 (62%) | 1,460 (58%) |
+| **code OUTSIDE any declaration** | **720 (20%)** | **436 (17%)** |
+| comments outside | 409 (11%) | 370 (15%) |
+| imports / blank | 240 | 255 |
+
+The 720 lines are the delegated event handler and the init sequence — top-level statements, not
+declarations, so nothing in this series' machinery can move them: there is no span to relocate and no
+name to import back. Extracting the ENTIRE `refresh` component (~1,586 lines) would leave app.js at
+roughly **2,026** — still twice the limit.
+
+So clearing app.js needs two decisions, not one: the render-flow redesign for the component, AND a shape
+for the top-level init/handler block (most likely an exported `init(...)`/`installHandlers(...)` a thin
+entry point calls). Neither is a relocation, both are out of v0.5.x as it is currently scoped. The same
+shape applies to server.js's 436 lines, which is its process wiring — and is the substance of option A in
+docs/JS_SERVER_REMAINDER_PACKET.md ("a bin entry point that wires a process together is a different kind
+of file from a library module").
