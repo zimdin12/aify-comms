@@ -21,7 +21,7 @@ import {
   reportTurnBusy,
 } from "../agent-heartbeat.mjs";
 import { BRIDGE_INSTANCE_ID } from "../bridge-instance.mjs";
-import { declaringModules } from "./bridge-sources.mjs";
+import { declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEAF = pathToFileURL(path.join(STDIO, "agent-heartbeat.mjs")).href;
@@ -164,7 +164,7 @@ test("BOTH turn-busy functions in this bridge are DIFFERENT functions with the s
   assert.match(hermesSrc, /reportTurnBusy\(httpCall, agentId/, "the hermes one takes httpCall FIRST");
 });
 
-test("exactly one module declares each of the three, and server.js still calls them", () => {
+test("exactly one module declares each of the three, and the bridge still calls them", () => {
   for (const name of ["baseAgentHeartbeatFields", "currentTurnHeartbeatFields"]) {
     assert.deepEqual(
       declaringModules(name), [{ file: "agent-heartbeat.mjs", kind: "function" }],
@@ -174,7 +174,10 @@ test("exactly one module declares each of the three, and server.js still calls t
   const server = readFileSync(path.join(STDIO, "server.js"), "utf-8");
   assert.doesNotMatch(server, /^(?:async\s+)?function\s+(baseAgentHeartbeatFields|currentTurnHeartbeatFields|reportTurnBusy)\b/m,
     "none may be redeclared in server.js");
-  assert.match(server, /(?<![\w.])reportTurnBusy\(/, "server.js still reports turn-busy");
+  // BRIDGE-WIDE: the caller moved to `dispatch-loop.mjs` with the dispatch pass in v0.5.4. The
+  // no-redeclaration check above still names server.js, which is right — that one is about server.js
+  // specifically not holding a second copy.
+  assert.equal(isUsedInBridge("reportTurnBusy"), true, "the bridge must still report turn-busy");
 });
 
 test("the owner holds no state and reaches only owned leaves", () => {
@@ -243,6 +246,7 @@ test("exactly one module declares reportAgentHeartbeat, and the bridge still bea
   assert.deepEqual(declaringModules("reportAgentHeartbeat"),
     [{ file: "agent-heartbeat.mjs", kind: "function" }]);
   const server = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  assert.match(server, /(?<![\w.])reportAgentHeartbeat\(/, "the poll loop still beats");
+  // BRIDGE-WIDE: the caller moved to `dispatch-loop.mjs` with the dispatch pass in v0.5.4.
+  assert.equal(isUsedInBridge("reportAgentHeartbeat"), true, "the bridge must still beat");
   assert.doesNotMatch(server, /^async function reportAgentHeartbeat/m, "…and must not re-declare it");
 });

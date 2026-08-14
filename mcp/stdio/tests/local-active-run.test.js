@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { declaringModules } from "./bridge-sources.mjs";
+import { declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEAF = pathToFileURL(path.join(STDIO, "local-active-run.mjs")).href;
@@ -146,7 +146,9 @@ test("exactly one module declares each, and server.js still calls them", () => {
     );
   }
   const server = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  assert.match(server, /(?<![\w.])reconcileLocalActiveRun\(/, "server.js still reconciles");
+  // BRIDGE-WIDE: the caller moved to `dispatch-loop.mjs` in v0.5.4 with the dispatch pass.
+  assert.equal(isUsedInBridge("reconcileLocalActiveRun"), true,
+    "the bridge must still reconcile a local active run");
 });
 
 test("the owner holds no state and reaches only owned leaves", () => {

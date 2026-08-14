@@ -7,6 +7,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { isUsedInBridge } from "./bridge-sources.mjs";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -99,11 +100,15 @@ test("the promise set is PRIVATE — every caller goes through the two functions
   assert.match(src, /promise\.then\(cleanup, cleanup\)/, "cleanup must be attached to BOTH settle paths");
 });
 
-test("server.js delegates and keeps no copy", () => {
+test("THE BRIDGE delegates and keeps no copy", () => {
   const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
   assert.doesNotMatch(src, /^const ACTIVE_CONTROLLER_PROMISES = new Set\(\);$/m, "no second set");
   assert.doesNotMatch(src, /^function __markControllerStart\b/m, "must be imported, not redeclared");
-  assert.match(src, /(?<![\w.])__markControllerStart\(/, "server.js still marks controller starts");
+  // BRIDGE-WIDE. The caller moved to `dispatch-loop.mjs` with the dispatch pass in v0.5.4 and this
+  // went red on a pure relocation — the intent was always about the BRIDGE, and naming the file the
+  // call happened to sit in is what made it break on a move.
+  assert.equal(isUsedInBridge("__markControllerStart"), true,
+    "the bridge must still mark controller starts somewhere");
   // The heartbeat's isActive now asks the owner instead of measuring the collection itself. That
   // substitution is the one non-byte-identical change in the slice.
   assert.match(src, /isActive: \(\) => anyControllerActive\(\)/, "the heartbeat must read through the predicate");
