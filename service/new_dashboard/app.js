@@ -38,7 +38,7 @@ import { state } from './state.mjs';
 import { SESSION_FILTER_KINDS, agentForSession, agentForTerminal, ensureSelectedSession, renderModeSwitchChip, renderSessionModeLabel, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';
 import { applyThemeChoice, previewAppearance, refreshActiveTerminalTheme, renderSettings, selectSettingsTab, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
 import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './agent-drawer.mjs';
-import { applyContractView, applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, matchesGlobalFilter, pruneDiagnosticSelection, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';
+import { MAINTENANCE_ACTIONS, applyContractView, applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, matchesGlobalFilter, pruneDiagnosticSelection, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';
 import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexConsoleConnections, codexConsoleSendTurn } from './codex-console.mjs';
 import { openIdentityDirectory } from './identity-directory.mjs';
 import { closeStatusWhy, openStatusWhy } from './status-why-popover.mjs';
@@ -68,7 +68,7 @@ import { setApiBase, api } from './api-client.mjs';
 import { attachChatFile, deleteSharedFileFromRow, loadFiles, renderFiles, uploadPastedImage, uploadSharedFile } from './shared-files.mjs';
 import { chatLoadChannels, chatLoadConversation, chatSendMessage, sendRunFollowup } from './message-transport.mjs';
 import { loadVersionBadge } from './version-badge.mjs';
-import { disposeActiveXterm } from './xterm-lifecycle.mjs';
+import { awaitTerminalSize, disposeActiveXterm } from './xterm-lifecycle.mjs';
 
 // resolveApiOrigin moved to ./api-origin.mjs in v0.5.4.
 
@@ -329,13 +329,7 @@ function evaluateFlowGates() {
 // api moved to ./api-client.mjs in v0.5.4.
 setApiBase(apiBase, apiOrigin);
 
-function awaitTerminalSize(terminalId, cols, rows) {
-  return waitForTerminalSize({
-    cols,
-    rows,
-    readSize: async () => (await api(`/terminals/${encodeURIComponent(terminalId)}`)).terminal,
-  });
-}
+// awaitTerminalSize moved to ./xterm-lifecycle.mjs in v0.5.4.
 
 function refreshSoon() {
   if (refreshTimer) clearTimeout(refreshTimer);
@@ -1008,10 +1002,7 @@ function renderAnalyticsPage() {
 // Work-loop maintenance actions (parity with old dashboard's hygiene buttons).
 // Both endpoints are safe to run idempotently; they create fallback records for
 // terminal runs that never recorded a handoff / never marked their source read.
-const MAINTENANCE_ACTIONS = {
-  'repair-reads': { path: '/contracts/hygiene/repair-read-receipts', label: 'Repair delivered reads' },
-  'repair-handoffs': { path: '/dispatch/handoffs/repair', label: 'Repair handoffs' },
-};
+// MAINTENANCE_ACTIONS moved to ./work-loop-panels.mjs in v0.5.4.
 
 async function runMaintenance(action) {
   const def = MAINTENANCE_ACTIONS[action];

@@ -227,3 +227,11 @@ export function matchesGlobalFilter(item, fields) {
   if (!needle) return true;
   return fields.some((field) => String(item[field] || '').toLowerCase().includes(needle));
 }
+
+// The maintenance actions an operator can run from the Work page, moved out of app.js in v0.5.4. Data
+// rather than markup so the PATHS are checkable: each is a real endpoint, and a wrong one fails as a
+// 404 behind a confirm dialog the operator has already agreed to.
+export const MAINTENANCE_ACTIONS = {
+  'repair-reads': { path: '/contracts/hygiene/repair-read-receipts', label: 'Repair delivered reads' },
+  'repair-handoffs': { path: '/dispatch/handoffs/repair', label: 'Repair handoffs' },
+};

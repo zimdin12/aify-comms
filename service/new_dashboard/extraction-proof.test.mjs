@@ -971,6 +971,22 @@ const EXTRACTIONS = [
       { name: "_chatChanSig", at: 944, marker: "// _chatChanSig moved to ./render-memo.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "xterm-lifecycle.mjs",
+    importLine: "import { awaitTerminalSize, disposeActiveXterm } from './xterm-lifecycle.mjs';",
+    importWas: "import { disposeActiveXterm } from './xterm-lifecycle.mjs';",
+    items: [
+      { name: "awaitTerminalSize", at: 497, marker: "// awaitTerminalSize moved to ./xterm-lifecycle.mjs in v0.5.4." },
+    ],
+  },
+  {
+    module: "work-loop-panels.mjs",
+    importLine: "import { MAINTENANCE_ACTIONS, applyContractView, applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, matchesGlobalFilter, pruneDiagnosticSelection, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';",
+    importWas: "import { applyContractView, applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, matchesGlobalFilter, pruneDiagnosticSelection, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';",
+    items: [
+      { name: "MAINTENANCE_ACTIONS", at: 1481, marker: "// MAINTENANCE_ACTIONS moved to ./work-loop-panels.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({

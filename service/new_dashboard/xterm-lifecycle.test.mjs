@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { state } from "./state.mjs";
-import { disposeActiveXterm } from "./xterm-lifecycle.mjs";
+import { awaitTerminalSize, disposeActiveXterm } from "./xterm-lifecycle.mjs";
 
 function entry({ observerThrows = false, removeThrows = false, disposeThrows = false, container = true } = {}) {
   const calls = { disconnect: 0, remove: 0, dispose: 0 };
@@ -116,4 +116,54 @@ test("a missing observer, handler or container is skipped rather than crashing",
   assert.equal(e.calls.remove, 0, "no container means no listener to remove");
   assert.equal(e.calls.dispose, 1);
   assert.equal(state.activeXterm, null);
+});
+
+// --- awaitTerminalSize ---------------------------------------------------------------------------
+//
+// It closes the loop between a local xterm resize and the server-side PTY actually adopting it. Without
+// the wait, output is repainted against dimensions the PTY has not applied yet and wraps wrongly — which
+// reads as a corrupted console rather than a timing bug.
+
+test("awaitTerminalSize polls the terminal endpoint with the id ENCODED", async () => {
+  const calls = [];
+  const had = "fetch" in globalThis;
+  const prev = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    // `api` reads response.TEXT and JSON.parses it — it never calls .json(). A stub that only implements
+    // json() returns `{}` here, and the wait then polls 30 times and throws, which is how this test
+    // first failed.
+    return {
+      ok: true, status: 200, headers: { get: () => "application/json" },
+      text: async () => JSON.stringify({ terminal: { cols: 80, rows: 24 } }),
+    };
+  };
+  try {
+    await awaitTerminalSize("term/1 2", 80, 24);
+    assert.ok(calls.length >= 1, "it must actually read the terminal back");
+    assert.match(calls[0], /\/terminals\/term%2F1(%20|\+)2$/, "the id is encoded into the path");
+  } finally {
+    if (had) globalThis.fetch = prev; else delete globalThis.fetch;
+  }
+});
+
+test("it reads the `terminal` field, not the envelope", async () => {
+  // `(await api(...)).terminal`. Handing the envelope to the size comparison would never match the
+  // requested cols/rows, so the wait would run to its timeout on every single resize.
+  const had = "fetch" in globalThis;
+  const prev = globalThis.fetch;
+  let served = 0;
+  globalThis.fetch = async () => {
+    served += 1;
+    return {
+      ok: true, status: 200, headers: { get: () => "application/json" },
+      text: async () => JSON.stringify({ terminal: { cols: 120, rows: 40 } }),
+    };
+  };
+  try {
+    await awaitTerminalSize("t1", 120, 40);
+    assert.equal(served, 1, "a matching size must settle on the first read");
+  } finally {
+    if (had) globalThis.fetch = prev; else delete globalThis.fetch;
+  }
 });

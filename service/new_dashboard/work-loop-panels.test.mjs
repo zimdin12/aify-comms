@@ -15,6 +15,7 @@ import test from "node:test";
 import { state } from "./state.mjs";
 import {
   CONTRACT_BOARD_COLUMNS,
+  MAINTENANCE_ACTIONS,
   activityItems,
   applyContractView,
   applyWorkView,
@@ -436,4 +437,29 @@ test("THEY AGREE: filtered(items) === items.filter(matchesGlobalFilter) for ever
       );
     });
   }
+});
+
+// --- MAINTENANCE_ACTIONS -------------------------------------------------------------------------
+
+test("every maintenance action has a real-looking endpoint path and a human label", () => {
+  // Data, not markup, precisely so this is checkable. A wrong path fails as a 404 AFTER the operator has
+  // agreed to a confirm dialog naming the action — so the failure arrives looking like the repair ran
+  // and did nothing, which is the worst reading of it.
+  const entries = Object.entries(MAINTENANCE_ACTIONS);
+  assert.ok(entries.length >= 2, `expected the maintenance actions, found ${entries.length}`);
+  for (const [key, def] of entries) {
+    assert.match(key, /^[a-z0-9-]+$/, `${key} is used as a data attribute value`);
+    assert.match(def.path, /^\/[\w/-]+$/, `${key} path must be a rooted API path, got ${def.path}`);
+    assert.ok(def.label && def.label.trim(), `${key} needs a label — it is what the confirm dialog says`);
+  }
+});
+
+test("no two actions share a path or a label", () => {
+  // Both are load-bearing: the path decides what runs, and the label is the ONLY thing distinguishing
+  // one confirm dialog from another. Two actions sharing either makes the pair indistinguishable to the
+  // operator being asked to approve one.
+  const paths = Object.values(MAINTENANCE_ACTIONS).map((d) => d.path);
+  const labels = Object.values(MAINTENANCE_ACTIONS).map((d) => d.label);
+  assert.equal(new Set(paths).size, paths.length, "duplicate paths");
+  assert.equal(new Set(labels).size, labels.length, "duplicate labels");
 });
