@@ -111,6 +111,13 @@ import {
 } from "./claim-failure-tracker.mjs";
 import { createManagedTeardownSweeps } from "./managed-teardown-sweeps.mjs";
 import { shouldSkipLoop } from "./loop-gate.mjs";
+import {
+  DISPATCH_POLL_MS,
+  TERMINAL_CONTROL_POLL_MS,
+  __HEARTBEAT_MS,
+  __RESIDENT_GATEWAY_TURN_IDLE_DEBOUNCE,
+  __RESIDENT_GATEWAY_TURN_POLL_MS,
+} from "./poll-intervals.mjs";
 import { isActiveManagedSessionStatus } from "./session-predicates.mjs";
 import { registerSendTools } from "./send-tools.mjs";
 import { VIRTUAL_RPC_RUNTIMES, VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT, createVirtualTerminalSink, ensureVirtualTerminal, findAgentIdForVirtualTerminal, handleVirtualTerminalControl, updateTerminalControl } from './virtual-terminals.mjs';
@@ -186,7 +193,7 @@ if (AIFY_CODEX_APP_SERVER_URL) {
 // Git Bash, so the marker MUST be written from this Node process.
 
 
-const __HEARTBEAT_MS = Number(process.env.AIFY_SESSION_HEARTBEAT_MS || "60000") || 60000;
+// __HEARTBEAT_MS moved to ./poll-intervals.mjs in v0.5.4.
 // STARTED ONLY IN REMOTE MODE. This poster is handed a base URL and fetches it directly, without going
 // through `httpCall` — so before v0.5.4 it beat against `http://127.0.0.1:8800` forever in local mode,
 // because the URL it was given carried that default and could never be empty. The `!__serverUrl` guards
@@ -358,14 +365,8 @@ if (AIFY_HERMES_GATEWAY_URL && AIFY_AGENT_ID) {
 // fails): the reader returns "" → a transient no-op → today's 1800s backstop
 // still applies. Gated by shouldArmResidentHermesTurnDetector so a non-hermes /
 // no-gateway resident is a no-op.
-const __RESIDENT_GATEWAY_TURN_POLL_MS = Math.max(
-  250,
-  Number(process.env.AIFY_HERMES_GATEWAY_TURN_POLL_MS || 3000),
-);
-const __RESIDENT_GATEWAY_TURN_IDLE_DEBOUNCE = Math.max(
-  1,
-  Number(process.env.AIFY_HERMES_GATEWAY_TURN_IDLE_DEBOUNCE || 3),
-);
+// __RESIDENT_GATEWAY_TURN_POLL_MS moved to ./poll-intervals.mjs in v0.5.4.
+// __RESIDENT_GATEWAY_TURN_IDLE_DEBOUNCE moved to ./poll-intervals.mjs in v0.5.4.
 let __stopResidentHermesTurnDetector = () => {};
 if (
   AIFY_AGENT_ID &&
@@ -569,15 +570,12 @@ process.on("SIGTERM", () => { shutdownWithStatus(143); });
 // VIRTUAL_RPC_RUNTIMES moved to ./virtual-terminals.mjs in v0.5.4.
 
 // findAgentIdForVirtualTerminal moved to ./virtual-terminals.mjs in v0.5.4.
-const DISPATCH_POLL_MS = Number(process.env.AIFY_DISPATCH_POLL_MS || 3000);
+// DISPATCH_POLL_MS moved to ./poll-intervals.mjs in v0.5.4.
 // Terminal-control loop polls separately and much tighter: console input is
 // latency-sensitive (operator typing), and the terminal_controls query is
 // small + indexed, so a sub-second cadence is perf-safe. Dispatch/spawn
 // polling stays at the heavier DISPATCH_POLL_MS.
-const TERMINAL_CONTROL_POLL_MS = Math.max(
-  200,
-  Number(process.env.AIFY_TERMINAL_CONTROL_POLL_MS || 800),
-);
+// TERMINAL_CONTROL_POLL_MS moved to ./poll-intervals.mjs in v0.5.4.
 let dispatchLoopTimer = null;
 let dispatchLoopBusy = false;
 let environmentHeartbeatTimer = null;
