@@ -15,7 +15,7 @@
 
 import { messageId } from './record-fields.mjs';
 import { state } from './state.mjs';
-import { byId } from './ui.js';
+import { byId, toast } from './ui.js';
 import { disposeActiveXterm } from './xterm-lifecycle.mjs';
 
 export function openChatReply(chatReply, chatController) {
@@ -56,4 +56,11 @@ export function setChatView(chatView, chatController) {
     if (next === 'messenger') disposeActiveXterm(); // free the inline terminal when leaving Console
     chatController.renderConversation();
   }
+}
+
+// The channel action row button. Returns a promise into a click handler, so its own `.catch` is the
+// only thing between a failed action and an unhandled rejection.
+export function runChannelAction(chanAction, chatChannelAction) {
+  chatChannelAction(chanAction.dataset.chatChannelAction, chanAction.dataset.channel)
+    .catch((err) => toast(`Channel action failed: ${err?.message || err}`, 'error'));
 }

@@ -16,6 +16,7 @@ import { state } from "./state.mjs";
 import {
   openChatConversation,
   openChatReply,
+  runChannelAction,
   setChatView,
   setPulseWindow,
 } from "./chat-click-handlers.mjs";
@@ -207,5 +208,46 @@ test("any unrecognised view value means 'messenger', never a third state", () =>
       setChatView({ dataset: { chatView: raw } }, ctl);
       assert.equal(state.chat.view, "messenger", `${JSON.stringify(raw)} must fall back`);
     });
+  }
+});
+
+test("runChannelAction passes ACTION then CHANNEL, and swallows a rejection", async () => {
+  // Two dataset fields on one element and the callee takes (action, channel). Swapped, a "leave" would
+  // be sent as a channel name and address nothing. The `.catch` matters for the same reason it does on
+  // every other row control: this returns a promise into a delegated click listener.
+  //
+  // `withChat` is NOT promise-aware — it restores `document` in a synchronous `finally` — so the
+  // rejection half installs its own stub and awaits before tearing it down. Getting that wrong made the
+  // toast fire against a restored global, which is how this test first failed.
+  const calls = [];
+  runChannelAction(
+    { dataset: { chatChannelAction: "leave", channel: "general" } },
+    (...a) => { calls.push(a); return Promise.resolve(); },
+  );
+  assert.deepEqual(calls, [["leave", "general"]]);
+
+  const had = "document" in globalThis;
+  const prev = globalThis.document;
+  const hadRaf = "requestAnimationFrame" in globalThis;
+  globalThis.requestAnimationFrame = (fn) => { fn(); return 0; };
+  const el = () => ({
+    className: "", textContent: "", style: {}, dataset: {},
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    setAttribute() {}, appendChild() {}, remove() {}, addEventListener() {},
+    querySelectorAll: () => [], firstChild: null, children: [],
+  });
+  globalThis.document = {
+    getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
+    createElement: el, body: { appendChild() {}, contains: () => true },
+  };
+  try {
+    assert.doesNotThrow(() => runChannelAction(
+      { dataset: { chatChannelAction: "leave", channel: "general" } },
+      () => Promise.reject(new Error("not a member")),
+    ));
+    await new Promise((r) => setTimeout(r, 0));
+  } finally {
+    if (had) globalThis.document = prev; else delete globalThis.document;
+    if (!hadRaf) delete globalThis.requestAnimationFrame;
   }
 });

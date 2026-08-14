@@ -509,7 +509,7 @@ const EXTRACTIONS = [
   // now instead of a module-scope const, which is exactly what the header declaration records.
   {
     module: "chat-click-handlers.mjs",
-    importLine: "import { openChatConversation, openChatReply, setChatView, setPulseWindow } from './chat-click-handlers.mjs';",
+    importLine: "import { openChatConversation, openChatReply, runChannelAction, setChatView, setPulseWindow } from './chat-click-handlers.mjs';",
     items: [
       {
         name: "openChatReply",
@@ -544,6 +544,16 @@ const EXTRACTIONS = [
         marker: "    setChatView(chatView, chatController);",
         wrapper: {
           header: ["export function setChatView(chatView, chatController) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+
+      {
+        name: "runChannelAction",
+        at: 4440,
+        marker: "    runChannelAction(chanAction, chatChannelAction);",
+        wrapper: {
+          header: ["export function runChannelAction(chanAction, chatChannelAction) {"],
           footer: ["}"], dedent: "  ",
         },
       },
@@ -658,7 +668,7 @@ const EXTRACTIONS = [
 
   {
     module: "session-click-handlers.mjs",
-    importLine: "import { applySessionStatusPreset, openAgentSessions, selectSessionRow, toggleSessionCheckbox, toggleSessionStatusFilter } from './session-click-handlers.mjs';",
+    importLine: "import { applySessionStatusPreset, openAgentSessions, selectSessionRow, selectSessionTab, toggleSessionCheckbox, toggleSessionStatusFilter } from './session-click-handlers.mjs';",
     importWas: "import { applySessionStatusPreset, toggleSessionCheckbox, toggleSessionStatusFilter } from './session-click-handlers.mjs';",
     items: [
       {
@@ -676,6 +686,16 @@ const EXTRACTIONS = [
         marker: "    selectSessionRow(sessionSelect, renderSessionWorkspace);",
         wrapper: {
           header: ["export function selectSessionRow(sessionSelect, renderSessionWorkspace) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+
+      {
+        name: "selectSessionTab",
+        at: 4592,
+        marker: "    selectSessionTab(sessionTab, renderSessionWorkspace);",
+        wrapper: {
+          header: ["export function selectSessionTab(sessionTab, renderSessionWorkspace) {"],
           footer: ["}"], dedent: "  ",
         },
       },
@@ -700,7 +720,7 @@ const EXTRACTIONS = [
 
   {
     module: "nav-click-handlers.mjs",
-    importLine: "import { navigateToPage, openEnvironmentSpawn, selectAnalyticsRange } from './nav-click-handlers.mjs';",
+    importLine: "import { navigateToPage, openEnvironmentSpawn, openHermesTabFromRow, selectAnalyticsRange } from './nav-click-handlers.mjs';",
     items: [
       {
         name: "selectAnalyticsRange",
@@ -729,6 +749,16 @@ const EXTRACTIONS = [
           footer: ["}"], dedent: "  ",
         },
       },
+
+      {
+        name: "openHermesTabFromRow",
+        at: 4456,
+        marker: "    openHermesTabFromRow(openHermesTab);",
+        wrapper: {
+          header: ["export function openHermesTabFromRow(openHermesTab) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
     ],
   },
 
@@ -743,6 +773,24 @@ const EXTRACTIONS = [
         marker: "    applyContractView(contractView, renderContracts);",
         wrapper: {
           header: ["export function applyContractView(contractView, renderContracts) {"],
+          footer: ["}"], dedent: "  ",
+        },
+      },
+    ],
+  },
+  // The shared-file row's delete button. app.js's shared-files import SWAPPED a name rather than gaining
+  // one: `deleteSharedFile` had no other caller left in app.js once this body moved.
+  {
+    module: "shared-files.mjs",
+    importLine: "import { attachChatFile, deleteSharedFileFromRow, loadFiles, renderFiles, uploadPastedImage, uploadSharedFile } from './shared-files.mjs';",
+    importWas: "import { attachChatFile, deleteSharedFile, loadFiles, renderFiles, uploadPastedImage, uploadSharedFile } from './shared-files.mjs';",
+    items: [
+      {
+        name: "deleteSharedFileFromRow",
+        at: 4450,
+        marker: "    deleteSharedFileFromRow(fileDelete);",
+        wrapper: {
+          header: ["export function deleteSharedFileFromRow(fileDelete) {"],
           footer: ["}"], dedent: "  ",
         },
       },

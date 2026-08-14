@@ -13,6 +13,7 @@ import { state } from "./state.mjs";
 import {
   navigateToPage,
   openEnvironmentSpawn,
+  openHermesTabFromRow,
   selectAnalyticsRange,
 } from "./nav-click-handlers.mjs";
 
@@ -142,4 +143,44 @@ test("openEnvironmentSpawn survives the form field being absent", () => {
   } finally {
     if (had) globalThis.document = prev; else delete globalThis.document;
   }
+});
+
+// --- openHermesTabFromRow ----------------------------------------------------------------------
+
+/** Capture window.open calls. */
+function withWindowOpen(run) {
+  const had = "window" in globalThis;
+  const prev = globalThis.window;
+  const calls = [];
+  globalThis.window = { open: (...a) => { calls.push(a); return null; } };
+  try {
+    return run(calls);
+  } finally {
+    if (had) globalThis.window = prev; else delete globalThis.window;
+  }
+}
+
+test("openHermesTabFromRow opens with noopener AND noreferrer", () => {
+  // Without `noopener` the opened page gets a live handle on this one through `window.opener` and can
+  // navigate the dashboard out from under the operator. It is one string and it is the entire security
+  // property of this two-line function.
+  withWindowOpen((calls) => {
+    openHermesTabFromRow({ dataset: { url: "http://gw.local:8080/" } });
+    assert.equal(calls.length, 1);
+    const [url, target, features] = calls[0];
+    assert.equal(url, "http://gw.local:8080/");
+    assert.equal(target, "_blank");
+    assert.match(features, /noopener/);
+    assert.match(features, /noreferrer/);
+  });
+});
+
+test("a row with NO url opens nothing rather than a blank tab", () => {
+  // `if (url)`. Opening `undefined` yields an about:blank tab that the operator has to close, and on a
+  // row whose data is still loading that would happen on every click.
+  withWindowOpen((calls) => {
+    openHermesTabFromRow({ dataset: {} });
+    openHermesTabFromRow({ dataset: { url: "" } });
+    assert.deepEqual(calls, []);
+  });
 });

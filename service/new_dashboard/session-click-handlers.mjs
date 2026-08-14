@@ -55,3 +55,9 @@ export function selectSessionRow(sessionSelect, renderSessionWorkspace) {
   state.selectedConversation = session ? sessionAgentId(session) || 'dashboard' : 'dashboard';
   renderSessionWorkspace();
 }
+
+// The session detail tab selector.
+export function selectSessionTab(sessionTab, renderSessionWorkspace) {
+  state.selectedSessionTab = sessionTab.dataset.sessionTab || 'console';
+  renderSessionWorkspace();
+}

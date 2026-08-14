@@ -19,6 +19,7 @@ import {
   applySessionStatusPreset,
   openAgentSessions,
   selectSessionRow,
+  selectSessionTab,
   persistSessionStatusFilter,
   toggleSessionCheckbox,
   toggleSessionStatusFilter,
@@ -227,4 +228,20 @@ test("openAgentSessions selects the named session before navigating", () => {
     assert.equal(renders, 1, "the workspace is redrawn for the new selection");
     assert.deepEqual(pages, ["sessions"]);
   });
+});
+
+test("selectSessionTab DEFAULTS to console when the tab is missing or empty", () => {
+  // `|| 'console'`. An undefined tab would be written into state and matched against no panel, so the
+  // detail pane would render empty — which looks like a session with no data rather than a bad click.
+  const saved = state.selectedSessionTab;
+  try {
+    for (const [raw, expected] of [["logs", "logs"], [undefined, "console"], ["", "console"]]) {
+      let renders = 0;
+      selectSessionTab({ dataset: { sessionTab: raw } }, () => { renders += 1; });
+      assert.equal(state.selectedSessionTab, expected, JSON.stringify(raw));
+      assert.equal(renders, 1, "every tab click re-renders");
+    }
+  } finally {
+    state.selectedSessionTab = saved;
+  }
 });

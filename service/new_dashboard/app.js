@@ -51,12 +51,12 @@ import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } f
 import { persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';
 import { runAgentControl, startColdAgent, switchAgentModeFromRow, switchModeFromChip, toggleFavouriteRow } from './agent-click-handlers.mjs';
 import { runConsoleAction } from './console-click-handlers.mjs';
-import { navigateToPage, openEnvironmentSpawn, selectAnalyticsRange } from './nav-click-handlers.mjs';
-import { openChatConversation, openChatReply, setChatView, setPulseWindow } from './chat-click-handlers.mjs';
-import { applySessionStatusPreset, openAgentSessions, selectSessionRow, toggleSessionCheckbox, toggleSessionStatusFilter } from './session-click-handlers.mjs';
+import { navigateToPage, openEnvironmentSpawn, openHermesTabFromRow, selectAnalyticsRange } from './nav-click-handlers.mjs';
+import { openChatConversation, openChatReply, runChannelAction, setChatView, setPulseWindow } from './chat-click-handlers.mjs';
+import { applySessionStatusPreset, openAgentSessions, selectSessionRow, selectSessionTab, toggleSessionCheckbox, toggleSessionStatusFilter } from './session-click-handlers.mjs';
 import { resolveApiOrigin } from './api-origin.mjs';
 import { setApiBase, api } from './api-client.mjs';
-import { attachChatFile, deleteSharedFile, loadFiles, renderFiles, uploadPastedImage, uploadSharedFile } from './shared-files.mjs';
+import { attachChatFile, deleteSharedFileFromRow, loadFiles, renderFiles, uploadPastedImage, uploadSharedFile } from './shared-files.mjs';
 import { chatLoadChannels, chatLoadConversation, chatSendMessage, sendRunFollowup } from './message-transport.mjs';
 import { loadVersionBadge } from './version-badge.mjs';
 import { disposeActiveXterm } from './xterm-lifecycle.mjs';
@@ -2954,8 +2954,7 @@ document.addEventListener('click', (event) => {
   if (agentDeleteSession) { deleteSessionById(agentDeleteSession.dataset.agentDeleteSession); return; }
   const chanAction = event.target.closest('[data-chat-channel-action]');
   if (chanAction) {
-    chatChannelAction(chanAction.dataset.chatChannelAction, chanAction.dataset.channel)
-      .catch((err) => toast(`Channel action failed: ${err?.message || err}`, 'error'));
+    runChannelAction(chanAction, chatChannelAction);
     return;
   }
   const chanAddMember = event.target.closest('[data-channel-add-member]');
@@ -2964,14 +2963,12 @@ document.addEventListener('click', (event) => {
   if (chanRemoveMember) { removeChannelMember(chanRemoveMember.dataset.channelRemoveMember, chanRemoveMember.dataset.member); return; }
   const fileDelete = event.target.closest('[data-file-delete]');
   if (fileDelete) {
-    deleteSharedFile(fileDelete.dataset.fileDelete)
-      .catch((err) => toast(`Delete failed: ${err?.message || err}`, 'error'));
+    deleteSharedFileFromRow(fileDelete);
     return;
   }
   const openHermesTab = event.target.closest('[data-action="open-hermes-tab"]');
   if (openHermesTab) {
-    const url = openHermesTab.dataset.url;
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    openHermesTabFromRow(openHermesTab);
     return;
   }
   const codexConnect = event.target.closest('[data-action="codex-console-connect"]');
@@ -3071,8 +3068,7 @@ document.addEventListener('click', (event) => {
   }
   const sessionTab = event.target.closest('[data-session-tab]');
   if (sessionTab) {
-    state.selectedSessionTab = sessionTab.dataset.sessionTab || 'console';
-    renderSessionWorkspace();
+    selectSessionTab(sessionTab, renderSessionWorkspace);
     return;
   }
   const bulkSessionButton = event.target.closest('[data-bulk-session-action]');

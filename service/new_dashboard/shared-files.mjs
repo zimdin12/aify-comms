@@ -113,3 +113,10 @@ export async function uploadPastedImage(blob, targetEl) {
   targetEl.dispatchEvent(new Event('input', { bubbles: true }));
   targetEl.focus();
 }
+
+// The delete button on a shared-file row, moved out of app.js's delegated click handler in v0.5.4. It
+// belongs here because `deleteSharedFile` — everything it does — is this module's own.
+export function deleteSharedFileFromRow(fileDelete) {
+  deleteSharedFile(fileDelete.dataset.fileDelete)
+    .catch((err) => toast(`Delete failed: ${err?.message || err}`, 'error'));
+}

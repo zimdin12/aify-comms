@@ -27,3 +27,10 @@ export function openEnvironmentSpawn(envSpawn, setPage, renderEnvironmentSpawnOp
   renderEnvironmentSpawnOptions(envSpawn.dataset.envSpawn);
   byId('env-spawn-agent-id')?.focus();
 }
+
+// The Hermes tab opener. `noopener,noreferrer` is the part worth keeping honest: without it the opened
+// page gets a handle on this one through `window.opener`.
+export function openHermesTabFromRow(openHermesTab) {
+  const url = openHermesTab.dataset.url;
+  if (url) window.open(url, '_blank', 'noopener,noreferrer');
+}
