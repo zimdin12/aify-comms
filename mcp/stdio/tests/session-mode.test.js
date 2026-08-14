@@ -7,6 +7,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { isUsedInBridge } from "./bridge-sources.mjs";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,10 +61,14 @@ test("the result is always one of exactly two strings", () => {
   assert.deepEqual([...outputs].sort(), ["managed", "resident"]);
 });
 
-test("server.js no longer declares it — exactly one owner", () => {
+test("server.js no longer declares it, and the BRIDGE still calls it", () => {
   const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
   assert.doesNotMatch(src, /^(?:export\s+)?function\s+normalizeSessionMode\b/m, "must be imported");
-  assert.match(src, /(?<![\w.])normalizeSessionMode\(/, "server.js is still expected to CALL it");
+  // BRIDGE-WIDE. The last caller in server.js moved to `managed-environment-sync.mjs` in v0.5.4;
+  // the intent was always "the bridge still calls it", and naming server.js is what broke it on a
+  // pure relocation. The no-redeclaration check above stays pinned to server.js on purpose.
+  assert.equal(isUsedInBridge("normalizeSessionMode"), true,
+    "the bridge must still normalise session modes somewhere");
 });
 
 test("the leaf imports nothing", () => {

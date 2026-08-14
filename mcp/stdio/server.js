@@ -26,7 +26,6 @@ import {
 } from "./resident-gateway-status.mjs";
 import {
   environmentHeartbeatPayload,
-  workspaceWithinRoots,
 } from "./environment-identity.mjs";
 import { registerRegistrationTool } from "./registration-tool.mjs";
 import { registerChannelTools } from "./channel-tools.mjs";
@@ -56,7 +55,6 @@ import { AIFY_HERMES_GATEWAY_URL } from "./hermes-gateway-config.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
 import { armClaudeTurnEndDetector, stopClaudeTurnEndDetector } from "./claude-turn-detector-state.mjs";
 import { __runtimeAdapter } from "./runtime-adapter.mjs";
-import { normalizeSessionMode } from "./session-mode.mjs";
 import { AIFY_AGENT_ID, IS_ENVIRONMENT_BRIDGE, cleanEnvPlaceholder } from "./launch-identity.mjs";
 import fs from "fs";
 import path from "path";
@@ -79,8 +77,6 @@ import { bridgeTerminalSupported } from "./terminal-runtime.js";
 import {
   bootstrapManagedEnvironmentBridge,
   localAgentNeedsDispatchHosting,
-  managedAgentNeedsDispatchHosting,
-  reconcileManagedStateWithSnapshot,
 } from "./managed-teardown-ownership.js";
 import { startSessionHandleHeartbeat, makeDefaultHandlePoster } from "./session-handle-heartbeat.js";
 import { startTurnBusyHeartbeat, makeDefaultTurnBusyPoster } from "./turn-busy-heartbeat.js";
@@ -97,6 +93,7 @@ import {
 } from "./claim-failure-tracker.mjs";
 import { createManagedTeardownSweeps } from "./managed-teardown-sweeps.mjs";
 import { shouldSkipLoop } from "./loop-gate.mjs";
+import { syncManagedEnvironmentAgentsPass } from "./managed-environment-sync.mjs";
 import { runDispatchPass } from "./dispatch-loop.mjs";
 import { runTerminalControlPass } from "./terminal-control-loop.mjs";
 import { runSpawnPass } from "./spawn-loop.mjs";
@@ -108,7 +105,6 @@ import {
   __RESIDENT_GATEWAY_TURN_IDLE_DEBOUNCE,
   __RESIDENT_GATEWAY_TURN_POLL_MS,
 } from "./poll-intervals.mjs";
-import { isActiveManagedSessionStatus } from "./session-predicates.mjs";
 import { registerSendTools } from "./send-tools.mjs";
 import { VIRTUAL_RPC_RUNTIMES, VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT, createVirtualTerminalSink, ensureVirtualTerminal, findAgentIdForVirtualTerminal, handleVirtualTerminalControl, updateTerminalControl } from './virtual-terminals.mjs';
 import { ensureRequiredReplyHandoff } from './required-reply-handoff.mjs';
@@ -1044,86 +1040,11 @@ async function syncManagedEnvironmentAgents() {
   if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: managedEnvironmentSyncBusy, shuttingDown: shutdownStarted })) return;
   managedEnvironmentSyncBusy = true;
   try {
-    const environment = effectiveEnvironmentPayload();
-    const [agentsRes, sessionsRes] = await Promise.all([
-      httpCall("GET", "/agents"),
-      httpCall("GET", `/sessions?environmentId=${encodeURIComponent(environment.id)}&limit=500`),
-    ]);
-    // A managed agent can be taken over by an operator as resident while this
-    // environment bridge remains alive. Drop that now-stale cached managed row
-    // as soon as a successful full snapshot proves the mode changed. Without
-    // this reconciliation, graceful shutdown can target the resident's
-    // identical hermes-managed-host delivery loop and kill its gateway.
-    reconcileManagedStateWithSnapshot(REMOTE_AGENT_STATE, agentsRes.agents || {});
-    const availableRuntimes = new Set((environment.runtimes || []).filter((item) => item?.available !== false).map((item) => normalizeRuntime(item.runtime)));
-    const activeSessionsByAgent = new Map();
-    for (const session of sessionsRes.sessions || []) {
-      if (!session?.agentId || !isActiveManagedSessionStatus(session.status)) continue;
-      if (!activeSessionsByAgent.has(session.agentId)) activeSessionsByAgent.set(session.agentId, session);
-    }
-
-    for (const [agentId, managedInfo] of Object.entries(agentsRes.agents || {})) {
-      if (normalizeSessionMode(managedInfo.sessionMode) !== "managed") continue;
-      if ((managedInfo.launchMode || "managed") === "none") continue;
-      const capabilities = managedInfo.capabilities || [];
-      if (capabilities.length && !capabilities.includes("managed-run")) continue;
-
-      const session = activeSessionsByAgent.get(agentId);
-      const runtimeState = managedInfo.runtimeState || {};
-      const belongsToEnvironment =
-        session ||
-        String(runtimeState.environmentId || "") === environment.id;
-      if (!belongsToEnvironment) continue;
-
-      // `available` means this environment can cold-start the agent, not that a
-      // worker exists to host. The spawn loop owns that wake path. Adopting every
-      // historical available agent here made the 3s dispatch loop GET + heartbeat
-      // each one forever. An active session remains authoritative even if its
-      // derived status is briefly stale during bridge handover; runSpawnLoop adds
-      // newly spawned workers to REMOTE_AGENT_STATE itself.
-      if (!session && !managedAgentNeedsDispatchHosting(managedInfo)) continue;
-
-      const runtime = normalizeRuntime((session?.runtime || managedInfo.runtime || "generic"));
-      if (!availableRuntimes.has(runtime)) continue;
-      const workspace = session?.workspace || managedInfo.cwd || DEFAULT_CWD;
-      if (!workspaceWithinRoots(workspace, environment.cwdRoots)) continue;
-
-      const nextRuntimeState = {
-        ...runtimeState,
-        bridgeInstanceId: BRIDGE_INSTANCE_ID,
-        environmentId: environment.id,
-        mode: session?.mode || runtimeState.mode || "managed-warm",
-      };
-      if (session?.spawnRequestId) nextRuntimeState.spawnRequestId = session.spawnRequestId;
-      try {
-        await httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/runtime-state`, {
-          runtimeState: nextRuntimeState,
-        });
-      } catch {
-        // Best effort; the claim guard also checks the current environment bridge.
-      }
-
-      REMOTE_AGENT_STATE.set(agentId, {
-        info: {
-          agentId,
-          role: managedInfo.role || "coder",
-          name: managedInfo.name || agentId,
-          cwd: workspace,
-          model: managedInfo.model || "",
-          instructions: managedInfo.instructions || "",
-          runtime,
-          machineId: managedInfo.machineId || environment.machineId || MACHINE_ID,
-          launchMode: "managed",
-          sessionMode: "managed",
-          sessionHandle: session?.sessionHandle || managedInfo.sessionHandle || "",
-          managedBy: managedInfo.managedBy || "dashboard",
-          capabilities,
-          runtimeConfig: managedInfo.runtimeConfig || {},
-          runtimeState: nextRuntimeState,
-        },
-      });
-    }
-    if (REMOTE_AGENT_STATE.size) ensureDispatchLoop();
+    await syncManagedEnvironmentAgentsPass({
+      MACHINE_ID,
+      effectiveEnvironmentPayload,
+      ensureDispatchLoop,
+    });
   } catch (error) {
     if (error?.status !== 404) {
       console.error("[aify] managed environment sync failed:", error?.message || error);
