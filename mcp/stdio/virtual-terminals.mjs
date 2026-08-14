@@ -30,7 +30,14 @@ import { __markControllerStart } from "./controller-activity.mjs";
 import { acquirePiSession, getPiSession } from "./pi-session-pool.mjs";
 import { createVirtualTerminalInputManager } from "./virtual-terminal-input.js";
 
+// agentId → { terminalId, runtime } for the bridge's synthesized RPC
+// terminal. Cached so subsequent dispatches reuse the same virtual
+// terminal_session row. Covers both managed pi (persistent omp --mode rpc
+// child) and managed hermes (per-dispatch `hermes chat -q -Q` with a
+// synthesized request/response feed).
 export const VIRTUAL_TERMINALS_BY_AGENT = new Map();
+// Dashboard input buffering for synthesized pi RPC terminals. See
+// virtual-terminal-input.js for the buffer-and-dispatch semantics.
 export const VIRTUAL_TERMINAL_INPUT = createVirtualTerminalInputManager({
   dispatch: (agentId, line) => dispatchVirtualTerminalLine(agentId, line),
   onError: (error, ctx) => {
@@ -179,6 +186,13 @@ export async function handleVirtualTerminalControl(agentId, terminalId, control)
 // map it searches is this module's own, and the runtime allowlist travels with it: the pair is what
 // distinguishes an RPC-backed virtual terminal from a real PTY, and a lookup that ignored the runtime
 // would hand a PTY terminal's input to an agent that never had one.
+// Bridge-side runtimes that own a synthesized virtual rpc
+// terminal_session. Must stay aligned with the service-side
+// VIRTUAL_RPC_COMMANDS_BY_RUNTIME in api_v2.py — when a new runtime
+// is added there, add it here too so the bridge's terminal-control
+// router routes synth-terminal controls (input/resize/stop) through
+// handleVirtualTerminalControl instead of the legacy node-pty path
+// (which marks the row stopped because no real PTY exists).
 export const VIRTUAL_RPC_RUNTIMES = new Set(["pi", "hermes", "codex", "opencode"]);
 
 export function findAgentIdForVirtualTerminal(terminalId) {

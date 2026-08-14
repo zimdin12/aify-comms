@@ -25,6 +25,16 @@ import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
 import { IS_ENVIRONMENT_BRIDGE } from "./launch-identity.mjs";
 import { sweepTombstonedMarkers } from "./reap-managed-survivors.js";
 
+// Env-bridge BOOT tombstoned-marker sweep (fix/hermes-leak P4). The survivor
+// sweep above kills orphaned PROCESSES; this deletes the stale marker FILES
+// (aify-hermes-{port,daemon-pid,key}-<agent>) a REMOVED agent leaves behind.
+// A tombstoned agent never relaunches, so its gateway port/key markers are dead
+// weight that would otherwise persist forever (the loop's agent-removed teardown
+// now clears them too, but a SIGKILLed loop never runs that, so the boot sweep is
+// the backstop). Scope: an agent absent from the live `/agents` keyset no longer
+// exists in ANY environment, so deleting its markers is machine-safe; a still-
+// known agent (incl. a co-located other-env's live agent) is NEVER swept.
+// FAIL-SAFE: if `/agents` can't be fetched, the keyset is null → sweep nothing.
 export async function runBootTombstonedMarkerSweep() {
   if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE) return;
   let knownAgentIds = null;

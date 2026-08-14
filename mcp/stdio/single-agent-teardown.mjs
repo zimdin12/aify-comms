@@ -23,6 +23,13 @@ import {
   defaultKillTree as killManagedTree,
 } from "./reap-managed-survivors.js";
 
+// Tear down ONE managed-hermes agent's triad (gateway host, delivery loop,
+// daemon, console PTY) — the agent-scoped reaper for a Dashboard STOP/REMOVE of
+// a managed hermes agent (fix/hermes-leak P2). Scoped strictly to the single
+// agentId passed in: enumeration keys on the delivery-loop cmdline + the agent's
+// own port/daemon-pid markers, so another agent's or a resident operator's
+// processes can NEVER be enumerated. async: awaits the port-kill/stopDaemon
+// promises. Best-effort; never throws.
 export async function runSingleAgentManagedTeardown(agentId, reason = "agent stop") {
   const id = String(agentId || "").trim();
   if (!id) return;

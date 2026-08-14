@@ -35,6 +35,16 @@ import { reportDeadOwnedSessions } from "./dead-pty-reporter.js";
 import { IS_ENVIRONMENT_BRIDGE } from "./launch-identity.mjs";
 import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
 
+// Terminal-activity-driven turn-busy pulses. When a managed PTY produces
+// sustained output (claude-aify, pi-aify, etc. working autonomously
+// BETWEEN dispatch runs), the backend status engine has no authoritative
+// signal that the agent is busy — dispatch_run is completed, no managed
+// worker heartbeat. So the agent shows "active" while clearly working,
+// which the operator has flagged repeatedly. This emits a debounced
+// turn_busy=true while terminal output is fresh, and clears it after a
+// short quiet window. Additive to authoritative signals: an active
+// dispatch_run still keeps status='working' independently via the
+// backend's status engine; this just fills the autonomous-work gap.
 export const TERMINAL_TURN_BUSY_REMIT_MS = 5000;
 export const TERMINAL_TURN_BUSY_QUIET_MS = 8000;
 export const TERMINAL_TURN_BUSY_TIMERS = new Map();
@@ -146,6 +156,13 @@ export const TERMINAL_MANAGER = new TerminalProcessManager({
 // exactly this, a false edge that refuses a movable group. When a closure names a surprising blocker, look
 // at the reference before believing it.
 
+// WS4 Task 4.2: host-reported dead-PTY marking. The server cannot probe a
+// remote host pid; only the OWNING env bridge can. For each console PTY this
+// bridge owns in-memory that is still `attached` but whose local pid is no
+// longer alive, POST /terminals/{id}/report-dead so the server marks the row
+// stopped + invalidates live-state (a frozen/crashed console can otherwise keep
+// manufacturing presence). Best-effort; never throws. Does NOT kill anything —
+// the in-memory exit path owns real teardown; this only reconciles stale rows.
 export async function reportDeadOwnedTerminals() {
   if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || !bridgeTerminalSupported()) return [];
   try {

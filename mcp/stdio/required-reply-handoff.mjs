@@ -81,6 +81,10 @@ export async function ensureRequiredReplyHandoff(agentId, run = {}, terminalStat
 import { httpCall } from "./aify-service-endpoint.mjs";
 import { autoReplyBodyForRun, autoReplySubjectForRun } from "./tool-response-format.mjs";
 
+// Reply contract toggle (managed_reply_capture_fallback). True (default) =
+// safety-net: auto-mirror the run summary when a delivered run ends without an
+// explicit comms_send reply. False = strict: never fabricate a reply from final
+// text; leave the run reply-owed. 5s cache to avoid hammering /settings.
 export let _replyCaptureFallbackCache = { fetchedAt: 0, value: true };
 export async function readReplyCaptureFallback() {
   if (Date.now() - _replyCaptureFallbackCache.fetchedAt < 5000) {

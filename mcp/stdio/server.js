@@ -320,19 +320,6 @@ if (AIFY_HERMES_GATEWAY_URL && AIFY_AGENT_ID) {
   });
 }
 
-// RESIDENT-HERMES turn-state detector (status-accuracy Task 1, 2026-06-07).
-// Armed alongside the gateway-liveness probe above — same precondition
-// (gateway-backed hermes) — so a RESIDENT hermes ends its turn on sustained
-// gateway idle instead of latching `working` until the 1800s backstop. Reads
-// the gateway's OWN session status (session.active_list → the agent's session)
-// and posts /turn-start on the gateway "working" edge / /turn-end on sustained
-// idle, re-stamping turn-busy every 45s while working (< the server's 120s stale
-// window) so a long autonomous turn never goes stale → `online`. ANTI-FEEDBACK:
-// gateway-truth-driven, never the server's derived status; only SETs on a
-// gateway working read, only CLEARs on sustained idle. Worst case (gateway read
-// fails): the reader returns "" → a transient no-op → today's 1800s backstop
-// still applies. Gated by shouldArmResidentHermesTurnDetector so a non-hermes /
-// no-gateway resident is a no-op.
 // __RESIDENT_GATEWAY_TURN_POLL_MS moved to ./poll-intervals.mjs in v0.5.4.
 // __RESIDENT_GATEWAY_TURN_IDLE_DEBOUNCE moved to ./poll-intervals.mjs in v0.5.4.
 let __stopResidentHermesTurnDetector = () => {};
@@ -518,31 +505,13 @@ process.on("SIGINT", () => { shutdownWithStatus(130); });
 process.on("SIGTERM", () => { shutdownWithStatus(143); });
 // LOCAL_RUNTIME_STATE moved to ./spawn-triggered-agent.mjs in v0.5.4 — all three of its uses
 // are inside that function, so it owns the Map.
-// agentId → { terminalId, runtime } for the bridge's synthesized RPC
-// terminal. Cached so subsequent dispatches reuse the same virtual
-// terminal_session row. Covers both managed pi (persistent omp --mode rpc
-// child) and managed hermes (per-dispatch `hermes chat -q -Q` with a
-// synthesized request/response feed).
 // VIRTUAL_TERMINALS_BY_AGENT moved to ./virtual-terminals.mjs in v0.5.4.
-// Dashboard input buffering for synthesized pi RPC terminals. See
-// virtual-terminal-input.js for the buffer-and-dispatch semantics.
 // VIRTUAL_TERMINAL_INPUT moved to ./virtual-terminals.mjs in v0.5.4.
 
-// Bridge-side runtimes that own a synthesized virtual rpc
-// terminal_session. Must stay aligned with the service-side
-// VIRTUAL_RPC_COMMANDS_BY_RUNTIME in api_v2.py — when a new runtime
-// is added there, add it here too so the bridge's terminal-control
-// router routes synth-terminal controls (input/resize/stop) through
-// handleVirtualTerminalControl instead of the legacy node-pty path
-// (which marks the row stopped because no real PTY exists).
 // VIRTUAL_RPC_RUNTIMES moved to ./virtual-terminals.mjs in v0.5.4.
 
 // findAgentIdForVirtualTerminal moved to ./virtual-terminals.mjs in v0.5.4.
 // DISPATCH_POLL_MS moved to ./poll-intervals.mjs in v0.5.4.
-// Terminal-control loop polls separately and much tighter: console input is
-// latency-sensitive (operator typing), and the terminal_controls query is
-// small + indexed, so a sub-second cadence is perf-safe. Dispatch/spawn
-// polling stays at the heavier DISPATCH_POLL_MS.
 // TERMINAL_CONTROL_POLL_MS moved to ./poll-intervals.mjs in v0.5.4.
 let dispatchLoopTimer = null;
 let environmentHeartbeatTimer = null;
@@ -557,16 +526,6 @@ let remoteEffectiveCwdRoots = null;
 const AUTO_REREGISTER_AFTER_FAILURES = 4;
 // RESIDENT_BINDING_FAILURES moved to ./resident-binding-health.mjs in v0.5.4.
 // RESIDENT_BINDING_LOST_AFTER_FAILURES moved to ./resident-binding-health.mjs in v0.5.4.
-// Terminal-activity-driven turn-busy pulses. When a managed PTY produces
-// sustained output (claude-aify, pi-aify, etc. working autonomously
-// BETWEEN dispatch runs), the backend status engine has no authoritative
-// signal that the agent is busy — dispatch_run is completed, no managed
-// worker heartbeat. So the agent shows "active" while clearly working,
-// which the operator has flagged repeatedly. This emits a debounced
-// turn_busy=true while terminal output is fresh, and clears it after a
-// short quiet window. Additive to authoritative signals: an active
-// dispatch_run still keeps status='working' independently via the
-// backend's status engine; this just fills the autonomous-work gap.
 // TERMINAL_TURN_BUSY_REMIT_MS moved to ./terminal-manager.mjs in v0.5.4.
 // TERMINAL_TURN_BUSY_QUIET_MS moved to ./terminal-manager.mjs in v0.5.4.
 // TERMINAL_TURN_BUSY_TIMERS moved to ./terminal-manager.mjs in v0.5.4.
@@ -732,13 +691,6 @@ function terminateResidentHost(reason = "Resident session stopped from dashboard
 // next boot sweep handles genuine managed survivors after ownership is readable.
 // runManagedTeardownForBridge moved to ./managed-teardown-sweeps.mjs in v0.5.4.
 
-// Tear down ONE managed-hermes agent's triad (gateway host, delivery loop,
-// daemon, console PTY) — the agent-scoped reaper for a Dashboard STOP/REMOVE of
-// a managed hermes agent (fix/hermes-leak P2). Scoped strictly to the single
-// agentId passed in: enumeration keys on the delivery-loop cmdline + the agent's
-// own port/daemon-pid markers, so another agent's or a resident operator's
-// processes can NEVER be enumerated. async: awaits the port-kill/stopDaemon
-// promises. Best-effort; never throws.
 // runSingleAgentManagedTeardown moved to ./single-agent-teardown.mjs in v0.5.4.
 
 // Synchronous best-effort variant for the process.on('exit') path
@@ -784,16 +736,6 @@ const fetchManagedOwnershipForEnv = createManagedOwnershipReader({ effectiveEnvi
 const { runManagedTeardownForBridge, runManagedTeardownSync, runBootSurvivorSweep } =
   createManagedTeardownSweeps({ fetchManagedOwnershipForEnv });
 
-// Env-bridge BOOT tombstoned-marker sweep (fix/hermes-leak P4). The survivor
-// sweep above kills orphaned PROCESSES; this deletes the stale marker FILES
-// (aify-hermes-{port,daemon-pid,key}-<agent>) a REMOVED agent leaves behind.
-// A tombstoned agent never relaunches, so its gateway port/key markers are dead
-// weight that would otherwise persist forever (the loop's agent-removed teardown
-// now clears them too, but a SIGKILLed loop never runs that, so the boot sweep is
-// the backstop). Scope: an agent absent from the live `/agents` keyset no longer
-// exists in ANY environment, so deleting its markers is machine-safe; a still-
-// known agent (incl. a co-located other-env's live agent) is NEVER swept.
-// FAIL-SAFE: if `/agents` can't be fetched, the keyset is null → sweep nothing.
 // runBootTombstonedMarkerSweep moved to ./boot-marker-sweep.mjs in v0.5.4.
 
 
@@ -801,10 +743,6 @@ const { runManagedTeardownForBridge, runManagedTeardownSync, runBootSurvivorSwee
 
 // readManagedViaWrapperRuntimes moved to ./managed-wrapper-cache.mjs in v0.5.4.
 
-// Reply contract toggle (managed_reply_capture_fallback). True (default) =
-// safety-net: auto-mirror the run summary when a delivered run ends without an
-// explicit comms_send reply. False = strict: never fabricate a reply from final
-// text; leave the run reply-owed. 5s cache to avoid hammering /settings.
 // _replyCaptureFallbackCache moved to ./required-reply-handoff.mjs in v0.5.4.
 // readReplyCaptureFallback moved to ./required-reply-handoff.mjs in v0.5.4.
 
@@ -948,13 +886,6 @@ function extractTerminalSessionHandle(runtime = "", command = "") {
 
 // handleVirtualTerminalControl moved to ./virtual-terminals.mjs in v0.5.4.
 
-// WS4 Task 4.2: host-reported dead-PTY marking. The server cannot probe a
-// remote host pid; only the OWNING env bridge can. For each console PTY this
-// bridge owns in-memory that is still `attached` but whose local pid is no
-// longer alive, POST /terminals/{id}/report-dead so the server marks the row
-// stopped + invalidates live-state (a frozen/crashed console can otherwise keep
-// manufacturing presence). Best-effort; never throws. Does NOT kill anything —
-// the in-memory exit path owns real teardown; this only reconciles stale rows.
 // reportDeadOwnedTerminals moved to ./terminal-manager.mjs in v0.5.4.
 
 // runTerminalControlLoop's shell and its busy flag moved to ./terminal-control-loop.mjs in v0.5.4; the timer stays here.

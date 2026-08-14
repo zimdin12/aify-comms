@@ -102,13 +102,24 @@ test("two files sharing a basename are distinguished", () => {
   // The defect this gate SHIPPED with, pinned as a property of the predicate. The first version keyed on
   // `path.basename`, so any file called `server.js` anywhere was exempt. The real tree cannot demonstrate
   // the fix — it holds exactly one of each — so the predicate is exercised with synthetic paths.
-  assert.ok(isExempt("mcp/stdio/server.js"), "the allowlisted path must be exempt");
+  //
+  // THE SUBJECT IS TAKEN FROM THE ALLOWLIST, not hardcoded. It named `mcp/stdio/server.js`, and when that
+  // file dropped under the limit in v0.5.4 and was correctly removed, this test failed — punishing the
+  // gate's own success. A list-driven subject cannot do that.
+  // ALLOWED is a Set — `.length` is undefined and `[0]` does not index it. My first version used array
+  // semantics and failed on the guard rather than on the property, which is the friendlier way round.
+  const allowed = [...ALLOWED];
+  assert.ok(allowed.length > 0, "there must be an allowlisted path to exercise the predicate with");
+  const subject = allowed[0];
+  const base = subject.slice(subject.lastIndexOf("/") + 1);
+  assert.ok(isExempt(subject), "the allowlisted path must be exempt");
+
   for (const impostor of [
-    "mcp/stdio/adapters/server.js",
-    "service/new_dashboard/server.js",
-    "server.js",
-    "mcp/stdio/server.js.bak",
-    "vendor/mcp/stdio/server.js",
+    `vendor/${subject}`,
+    `${subject}.bak`,
+    base,
+    `mcp/stdio/adapters/${base}`,
+    `service/elsewhere/${base}`,
   ]) {
     assert.ok(
       !isExempt(impostor),
