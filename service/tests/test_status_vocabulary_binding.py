@@ -92,18 +92,56 @@ class StatusVocabularyBindingTests(unittest.TestCase):
         self.assertEqual(missing, [], f"STATUS_KINDS has no entry for: {missing} — they would render as 'unknown'")
 
     def test_the_old_hand_copies_are_gone(self):
-        """Guard the consolidation itself.
+        """Guard the consolidation itself, across EVERY dashboard module.
 
         The copies were removed; this fails if one is reintroduced by a future edit that "just needs
         the list here too". That is how both copies got there the first time.
+
+        SCOPE WIDENED in v0.5.4. This scanned exactly ("app.js", "chat.js") — the two files the copies
+        historically lived in. The decomposition has since created ~25 client modules, and a literal
+        re-declared in any of them would have passed unnoticed: the guard kept passing while covering a
+        shrinking share of its own subject. Second gate in two slices with that shape, after
+        inspector-refresh.test.mjs. After moving code, check whether a gate's SCOPE was defined by where
+        that code used to live.
+
+        Discovery rather than a longer tuple, for the reason test_new_dashboard_app.py already records:
+        a hardcoded list needs editing once per extraction, forever, and passes silently the one time
+        someone forgets. FIXTURES ARE EXCLUDED deliberately — fixtures/app.before-*.js is a
+        pre-extraction snapshot that still contains these very copies, so scanning it would fail the
+        guard on a file that ships to nobody.
         """
-        for name in ("app.js", "chat.js"):
-            source = (DASHBOARD / name).read_text(encoding="utf-8")
+        sources = [
+            path
+            for path in sorted(DASHBOARD.rglob("*.js")) + sorted(DASHBOARD.rglob("*.mjs"))
+            if "fixtures" not in path.parts
+            and not path.name.endswith((".test.js", ".test.mjs"))
+            # status.js is the OWNER. Its AGENT_STATUSES literal legitimately begins with these four, so
+            # the widened scan flagged it on the first run — the guard means "no module OTHER than the
+            # owner may re-declare the list", and that exclusion was implicit while the scan named only
+            # app.js and chat.js. Made explicit now that the scan is by discovery.
+            and path.name != "status.js"
+        ]
+        self.assertGreater(len(sources), 10, "the module scan found almost nothing — has the layout moved?")
+        for path in sources:
             self.assertNotRegex(
-                source,
+                path.read_text(encoding="utf-8"),
                 r"\[\s*'working',\s*'online',\s*'available',\s*'blocked'",
-                f"{name} re-declares the live status list — import LIVE_AGENT_STATUSES from status.js instead",
+                f"{path.name} re-declares the live status list — import LIVE_AGENT_STATUSES from status.js instead",
             )
+
+    def test_the_hand_copy_detector_actually_detects(self):
+        """Anti-vacuity: a widened scan that matches nothing is worse than the narrow one it replaced.
+
+        Without this, a regex broken by a future formatting change would report every module clean.
+        """
+        import re as _re
+
+        pattern = r"\[\s*'working',\s*'online',\s*'available',\s*'blocked'"
+        self.assertRegex("const LIVE = ['working', 'online', 'available', 'blocked'];", pattern)
+        self.assertRegex("new Set(['working','online','available','blocked'])", pattern,
+                         "spacing must not let a copy through")
+        self.assertNotRegex("const X = ['working', 'offline'];", pattern,
+                            "a different list must not be mistaken for the live one")
 
 
 if __name__ == "__main__":
