@@ -353,3 +353,36 @@ entry point calls). Neither is a relocation, both are out of v0.5.x as it is cur
 shape applies to server.js's 436 lines, which is its process wiring — and is the substance of option A in
 docs/JS_SERVER_REMAINDER_PACKET.md ("a bin entry point that wires a process together is a different kind
 of file from a library module").
+
+### CORRECTION: it is ONE decision, not two (attempted and measured 2026-08-14)
+
+I previously reported that clearing app.js needs two decisions — the render-flow redesign for the
+component, AND a separate shape for the ~720 lines of top-level init/handler code. **That was wrong, and I
+found out by trying it rather than by reasoning further.**
+
+Those 720 lines are not loose init code. **413 of them are the body of ONE inline registration**,
+`document.addEventListener('click', (event) => { … })` — the delegated router every click in the dashboard
+passes through, and the single largest unit in the file. The rest are much smaller: keydown 22, toggle 4,
+and 43 short runs.
+
+I extracted it. The body needed NO substitution at all — the arrow's body sits at indent 2, and
+`export function onDocumentClick(event) {` puts it at indent 2, so not one line changed. app.js went
+3,612 → 3,202. Then I measured what the body actually references:
+
+> **44 names that app.js itself declares** — `refresh`, `refreshSoon`, `closeInspector`,
+> `openRunInspector`, `renderContracts`, `chatController`, `loadAnalytics`, `markConversationRead`, … —
+> an upward import, and a cycle.
+
+So the click router is not adjacent to the render component; it IS part of it. Every branch dispatches into
+the orchestrator. The same holds one level down: the 22-line keydown handler needs `closeInspector`, whose
+own closure reaches `refresh`.
+
+**Consequence for the decision:** there is nothing to rule on separately. Breaking the render component
+brings the handlers with it, and until that happens no part of the top-level block can leave. The earlier
+framing invited a ruling on a question that does not exist.
+
+Reverted in full — app.js byte-identical, module deleted. A typed `rewrap` mechanism I added to the
+reconstruction proof for this (framing lines declared, body still from the module, result still compared to
+the fixture — strictly narrower than the free-form `(before, after)` pairs the apiBase packet proposed) was
+also reverted: with nothing using it, shipping it would be speculative machinery, and the rule in this repo
+is that a mechanism names the artifact it retires.
