@@ -148,8 +148,9 @@ test("a PROPERTY of the same name is not a use of the moved binding", () => {
 });
 
 test("a name that moved and was then RE-DECLARED locally is not reported", () => {
-  // Not a dangling reference — it is a stale duplicate, which is a different defect with its own check.
-  // Reporting it here would mislabel it.
+  // Not a dangling reference — it is either a stale duplicate or a deliberate re-binding, and reporting
+  // it HERE would mislabel both. `forkedMovedNames` below tells those two apart; when I first wrote this
+  // comment it claimed such a check already existed, which was not true of the JS side.
   const src = [
     "// doThing moved to ./thing.mjs in v0.5.4.",
     "function doThing() { return 1; }",
@@ -310,4 +311,98 @@ test("EVERY moved-to marker names a module that really declares the symbol", () 
   }
   assert.ok(total > 150, `expected many claims to check, found ${total}`);
   assert.deepEqual(wrong, [], `markers pointing somewhere wrong:\n  ${wrong.join("\n  ")}`);
+});
+
+// --- and did the carrier keep a COPY? --------------------------------------
+//
+// The third question the markers can answer. A relocation that copies instead of moving leaves two bodies
+// that drift apart silently — the forked-declaration class Python already gates
+// (service/tests/test_no_forked_declarations.py). JS had nothing equivalent, and server.js is where it
+// matters most: app.js has a reconstruction proof that would notice a doubled body, and server.js has no
+// fixture at all, so a fork there is invisible.
+//
+// A RE-BINDING IS NOT A FORK, and this distinction is the whole reason the check needs care. When a body
+// cannot move because it closes over carrier state, this series injects it and the carrier keeps
+// `const X = createX({ ...deps })` — one line, no logic, calling a factory it imports. That is the
+// documented pattern (see managed-ownership.mjs), not a duplicate, and a gate that flagged it would be
+// suppressed on its first run.
+
+/** Names the source says it moved away but still declares a BODY for — excluding factory re-bindings. */
+export function forkedMovedNames(source) {
+  const lines = source.split("\n");
+
+  const moved = new Set();
+  for (const line of lines) {
+    const m = /^\/\/\s*([A-Za-z_$][\w$]*)(?:\s*\/\s*([A-Za-z_$][\w$]*))?\s+moved to /.exec(line.trim());
+    if (m) {
+      moved.add(m[1]);
+      if (m[2]) moved.add(m[2]);
+    }
+  }
+  if (!moved.size) return [];
+
+  const imported = new Set();
+  for (const m of source.matchAll(/import\s*\{([^}]*)\}\s*from/g)) {
+    for (const raw of m[1].replace(/\/\/[^\n]*/g, "").split(",")) {
+      const name = raw.trim().split(/\s+as\s+/).pop().trim();
+      if (name) imported.add(name);
+    }
+  }
+
+  const forked = [];
+  for (const line of lines) {
+    const d = /^(?:export\s+)?(?:async\s+)?(?:function|const|let|var|class)\s+([\w$]+)\b(.*)$/.exec(line);
+    if (!d || !moved.has(d[1])) continue;
+    // `const X = someImportedFactory(` — a re-binding, not a body.
+    const call = /^\s*=\s*([A-Za-z_$][\w$]*)\s*\(/.exec(d[2]);
+    if (call && imported.has(call[1])) continue;
+    forked.push(d[1]);
+  }
+  return [...new Set(forked)].sort();
+}
+
+test("a carrier that still declares a moved function is REPORTED as forked", () => {
+  const src = [
+    "// doThing moved to ./thing.mjs in v0.5.4.",
+    "function doThing() { return 1; }",
+  ].join("\n");
+  assert.deepEqual(forkedMovedNames(src), ["doThing"]);
+});
+
+test("an arrow body is a fork too", () => {
+  const src = [
+    "// doThing moved to ./thing.mjs in v0.5.4.",
+    "const doThing = () => 1;",
+  ].join("\n");
+  assert.deepEqual(forkedMovedNames(src), ["doThing"]);
+});
+
+test("a FACTORY RE-BINDING is not a fork — it is the documented injection pattern", () => {
+  // server.js does exactly this for fetchManagedOwnershipForEnv, because the body closes over
+  // `effectiveEnvironmentPayload`, which reads state whose only writer stays in server.js.
+  const src = [
+    "import { createThing } from './thing.mjs';",
+    "// doThing moved to ./thing.mjs in v0.5.4.",
+    "const doThing = createThing({ dep });",
+  ].join("\n");
+  assert.deepEqual(forkedMovedNames(src), []);
+});
+
+test("a call to a name that is NOT imported is still a fork", () => {
+  // Otherwise `const doThing = localHelper(...)` would launder a re-declaration past the gate.
+  const src = [
+    "// doThing moved to ./thing.mjs in v0.5.4.",
+    "const doThing = localHelper({ dep });",
+  ].join("\n");
+  assert.deepEqual(forkedMovedNames(src), ["doThing"]);
+});
+
+test("no carrier keeps a copy of a body it says it moved", () => {
+  const forked = [];
+  for (const rel of CARRIERS) {
+    for (const name of forkedMovedNames(fs.readFileSync(path.join(REPO, rel), "utf-8"))) {
+      forked.push(`${rel}: ${name}`);
+    }
+  }
+  assert.deepEqual(forked, [], `moved away but still declared here:\n  ${forked.join("\n  ")}`);
 });
