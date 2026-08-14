@@ -65,9 +65,11 @@ from service.api_core.recovery_writes import _record_channel_sidecar_heartbeat
 from service.api_core.serialization import _machine_ids_same_host
 from service.api_core.dispatch_run_state import (
     _append_dispatch_control,
+    _cancel_queued_dispatch_runs_for_message_ids,
     _finalize_dispatch_runs,
     _mark_dispatch_run_answered,
 )
+from service.api_core.message_view import _serialize_inbox_message
 from service.api_core.message_store import _delete_messages_by_ids
 from service.api_core.validation import _reject_sender_truncated_body
 from service.routers.dispatch_messages.shared import (
@@ -87,6 +89,7 @@ from service.routers.dispatch_messages.shared import (
     _has_live_managed_wrapper_child,
     _is_replaceable_auto_handoff_message,
     _link_reply_message_to_dispatch_run,
+    _link_unthreaded_reply_to_recent_dispatch_run,
     _queue_console_dispatch_inputs,
     _managed_via_wrapper_for_runtime,
     _message_satisfies_reply_contract,
@@ -136,126 +139,10 @@ logger = logging.getLogger("aify_comms.routers.dispatch_messages.messages")
 router = domain_router()
 
 
-async def _cancel_queued_dispatch_runs_for_message_ids(db, message_ids: list[str], *, chunk_size: int = 250) -> list[str]:
-    pending = _dedupe_preserve([str(message_id or "").strip() for message_id in message_ids if str(message_id or "").strip()])
-    if not pending:
-        return []
-
-    cancelled_ids = []
-    finished_at = _now()
-    summary = "Cancelled because source message was unsent."
-    for start in range(0, len(pending), chunk_size):
-        chunk = pending[start:start + chunk_size]
-        placeholders = ",".join("?" for _ in chunk)
-        cursor = await db.execute(
-            f"SELECT id FROM dispatch_runs WHERE status = 'queued' AND message_id IN ({placeholders})",
-            chunk,
-        )
-        run_ids = [str(row["id"]) for row in await cursor.fetchall()]
-        if not run_ids:
-            continue
-        run_placeholders = ",".join("?" for _ in run_ids)
-        await db.execute(
-            f"UPDATE dispatch_runs SET status = 'cancelled', summary = ?, finished_at = ? WHERE id IN ({run_placeholders})",
-            (summary, finished_at, *run_ids),
-        )
-        for run_id in run_ids:
-            await _append_dispatch_event(db, run_id, "cancelled", summary)
-        cancelled_ids.extend(run_ids)
-    return cancelled_ids
 
 
-async def _link_unthreaded_reply_to_recent_dispatch_run(
-    db,
-    *,
-    from_agent: str,
-    to_agent: str,
-    reply_message_id: str,
-    reply_type: str,
-    reply_subject: str = "",
-    reply_body: str = "",
-    reply_timestamp_ms: int,
-) -> bool:
-    if not _message_satisfies_reply_contract(reply_type, subject=reply_subject, body=reply_body):
-        return False
-    if not from_agent or not to_agent or not reply_message_id:
-        return False
-
-    latest_requested_at = _iso_from_ms(reply_timestamp_ms)
-    earliest_requested_at = _iso_from_ms(max(0, reply_timestamp_ms - _borrowed_unthreaded_handoff_window_ms()))
-    run_cursor = await db.execute(
-        """
-        SELECT * FROM dispatch_runs
-        WHERE target_agent = ?
-          AND from_agent = ?
-          AND status IN ('delivered', 'claimed', 'running', 'completed', 'failed', 'cancelled')
-          AND requested_at >= ?
-          AND requested_at <= ?
-          AND (
-            require_reply = 1
-            OR (
-              dispatch_mode = 'terminal'
-              AND runtime = 'claude-code'
-              AND status IN ('claimed', 'running')
-            )
-          )
-        ORDER BY requested_at DESC
-        LIMIT 1
-        """,
-        (from_agent, to_agent, earliest_requested_at, latest_requested_at),
-    )
-    replied_run = await run_cursor.fetchone()
-    if not replied_run:
-        return False
-    existing_result_id = str(replied_run["result_message_id"] or "").strip()
-    if existing_result_id:
-        existing_cursor = await db.execute("SELECT * FROM messages WHERE id = ?", (existing_result_id,))
-        existing_message = await existing_cursor.fetchone()
-        if not _is_replaceable_auto_handoff_message(existing_message, replied_run):
-            return False
-
-    await _mark_dispatch_run_answered(
-        db,
-        replied_run["id"],
-        reply_message_id,
-        str(replied_run["status"] or ""),
-        str(replied_run["execution_mode"] or ""),
-    )
-    await _append_dispatch_event(
-        db,
-        replied_run["id"],
-        "handoff",
-        f"Unthreaded result reply linked from {from_agent}",
-    )
-    return True
 
 
-def _serialize_inbox_message(row, *, include_body: bool) -> dict[str, Any]:
-    msg = {
-        "id": row["id"],
-        "from": row["from_agent"],
-        # `to` is implicit for an inbox (every row is addressed to the requested agent), but
-        # the dashboard's unread/mark-read logic filters on it and falls back to inbox data
-        # when /messages/recent blips — without this field that fallback silently matched
-        # nothing (review finding).
-        "to": row["to_agent"] if "to_agent" in row.keys() else None,
-        "type": row["type"],
-        "source": row["source"],
-        "channel": row["channel"],
-        "subject": row["subject"],
-        "preview": _clip_text(row["body"] or "", 240),
-        "priority": row["priority"],
-        "timestamp": row["timestamp"],
-        "inReplyTo": row["in_reply_to"],
-        "dispatchRequested": bool(row["dispatch_requested"]) if "dispatch_requested" in row.keys() else False,
-        "read": row["read_at"] is not None,
-        "readAt": row["read_at"],
-    }
-    if include_body:
-        msg["body"] = row["body"]
-    if row["in_reply_to"]:
-        msg["parentContext"] = None
-    return msg
 
 
 @router.post("/messages/cleanup/orphan-unread")

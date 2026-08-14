@@ -544,3 +544,75 @@ async def _queue_console_dispatch_inputs(db, req, msg_id, recipients, console_re
                     "contractRunId": contract_run_id,
                     "status": "sent_to_console",
                 })
+
+
+# --- threading a reply that arrived without one --------------------------------------------------
+#
+# Moved here from `messages.py` in v0.5.4, byte-identical. It lands in THIS module rather than an
+# api_core leaf because it needs three names declared here — `_borrowed_unthreaded_handoff_window_ms`,
+# `_is_replaceable_auto_handoff_message` and `_message_satisfies_reply_contract`. Pushing it down
+# would have meant importing those upward, which is the edge this series removes rather than adds.
+
+async def _link_unthreaded_reply_to_recent_dispatch_run(
+    db,
+    *,
+    from_agent: str,
+    to_agent: str,
+    reply_message_id: str,
+    reply_type: str,
+    reply_subject: str = "",
+    reply_body: str = "",
+    reply_timestamp_ms: int,
+) -> bool:
+    if not _message_satisfies_reply_contract(reply_type, subject=reply_subject, body=reply_body):
+        return False
+    if not from_agent or not to_agent or not reply_message_id:
+        return False
+
+    latest_requested_at = _iso_from_ms(reply_timestamp_ms)
+    earliest_requested_at = _iso_from_ms(max(0, reply_timestamp_ms - _borrowed_unthreaded_handoff_window_ms()))
+    run_cursor = await db.execute(
+        """
+        SELECT * FROM dispatch_runs
+        WHERE target_agent = ?
+          AND from_agent = ?
+          AND status IN ('delivered', 'claimed', 'running', 'completed', 'failed', 'cancelled')
+          AND requested_at >= ?
+          AND requested_at <= ?
+          AND (
+            require_reply = 1
+            OR (
+              dispatch_mode = 'terminal'
+              AND runtime = 'claude-code'
+              AND status IN ('claimed', 'running')
+            )
+          )
+        ORDER BY requested_at DESC
+        LIMIT 1
+        """,
+        (from_agent, to_agent, earliest_requested_at, latest_requested_at),
+    )
+    replied_run = await run_cursor.fetchone()
+    if not replied_run:
+        return False
+    existing_result_id = str(replied_run["result_message_id"] or "").strip()
+    if existing_result_id:
+        existing_cursor = await db.execute("SELECT * FROM messages WHERE id = ?", (existing_result_id,))
+        existing_message = await existing_cursor.fetchone()
+        if not _is_replaceable_auto_handoff_message(existing_message, replied_run):
+            return False
+
+    await _mark_dispatch_run_answered(
+        db,
+        replied_run["id"],
+        reply_message_id,
+        str(replied_run["status"] or ""),
+        str(replied_run["execution_mode"] or ""),
+    )
+    await _append_dispatch_event(
+        db,
+        replied_run["id"],
+        "handoff",
+        f"Unthreaded result reply linked from {from_agent}",
+    )
+    return True

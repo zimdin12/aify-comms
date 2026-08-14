@@ -24,6 +24,7 @@ from typing import Any, Optional
 
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
+from service.api_core.serialization import _dedupe_preserve
 from service.api_core.events import _append_dispatch_event
 from service.api_core.turn_state import _clear_turn_busy_if_no_open_reply_owing_run
 from service.clock import now as _now
@@ -132,3 +133,38 @@ async def _mark_dispatch_run_answered(
         (reply_message_id, run_id),
     )
     await _invalidate_agent_live_state(db, target_agent)
+
+
+# --- cancelling runs a deleted message can no longer be answered by ------------------------------
+#
+# Moved here from `service/routers/dispatch_messages/messages.py` in v0.5.4, byte-identical. A router
+# should hold routes, and this is dispatch-run STATE — the same subject `_mark_dispatch_run_answered`
+# above already owns.
+
+async def _cancel_queued_dispatch_runs_for_message_ids(db, message_ids: list[str], *, chunk_size: int = 250) -> list[str]:
+    pending = _dedupe_preserve([str(message_id or "").strip() for message_id in message_ids if str(message_id or "").strip()])
+    if not pending:
+        return []
+
+    cancelled_ids = []
+    finished_at = _now()
+    summary = "Cancelled because source message was unsent."
+    for start in range(0, len(pending), chunk_size):
+        chunk = pending[start:start + chunk_size]
+        placeholders = ",".join("?" for _ in chunk)
+        cursor = await db.execute(
+            f"SELECT id FROM dispatch_runs WHERE status = 'queued' AND message_id IN ({placeholders})",
+            chunk,
+        )
+        run_ids = [str(row["id"]) for row in await cursor.fetchall()]
+        if not run_ids:
+            continue
+        run_placeholders = ",".join("?" for _ in run_ids)
+        await db.execute(
+            f"UPDATE dispatch_runs SET status = 'cancelled', summary = ?, finished_at = ? WHERE id IN ({run_placeholders})",
+            (summary, finished_at, *run_ids),
+        )
+        for run_id in run_ids:
+            await _append_dispatch_event(db, run_id, "cancelled", summary)
+        cancelled_ids.extend(run_ids)
+    return cancelled_ids
