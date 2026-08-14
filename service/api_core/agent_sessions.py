@@ -24,6 +24,7 @@ import json
 import time
 from typing import Any, Optional
 
+from service.api_core.events import _append_terminal_control, _append_terminal_event
 from service.api_core.runtime_state import _runtime_state_with_handle
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
@@ -281,3 +282,91 @@ async def _record_registered_session_handle(db, req, normalized_runtime, runtime
                 normalized_runtime,
             ),
         )
+
+
+async def _supersede_stale_resident_terminals(db, req, terminal_id: str, now: str, bridge_id: str) -> None:
+            """A resident registration takes the agent over from whatever was running it.
+
+            Extracted from `register_agent` in v0.5.4, and `test_register_agent_split_is_inert.py` inlines it
+            back and AST-compares against the pre-split fixture to prove nothing changed.
+
+            THE BODY IS INDENTED 12 SPACES, WHICH LOOKS WRONG AND IS DELIBERATE. It contains three multi-line
+            SQL literals, and re-indenting the block would have re-indented their CONTENTS — changing the
+            string values. SQLite would not have cared, but the gate compares ASTs and refused it, correctly:
+            "the whitespace inside a query does not matter" is exactly the kind of reasoning a proof exists to
+            make unnecessary. Python only requires a function body to be consistently indented, not minimally,
+            so keeping the original column preserves every literal byte-for-byte.
+
+            THREE THINGS HAPPEN PER STALE TERMINAL and all three are needed. The row is marked stopped, so the
+            dashboard stops showing it; an event is appended, so the reason is recoverable afterwards; and a
+            `stop` control is queued, so the owning bridge tears the wrapper subprocess down. Queuing is
+            best-effort BY DESIGN — if that bridge is already dead the control is never claimed, which does not
+            matter, because the row is marked stopped either way.
+
+            The agent_sessions unbinding at the end is the part that is easy to leave out: a session row still
+            pointing at a just-stopped terminal renders as a live Console the operator can click into and type
+            at — a ghost of a process that no longer exists.
+            """
+            stale_terminals = await (
+                await db.execute(
+                    """
+                    SELECT id, environment_id, bridge_id
+                    FROM terminal_sessions
+                    WHERE agent_id = ?
+                      AND status IN ('starting','attached','running','active','idle','recovering')
+                      AND (? = '' OR id != ?)
+                    """,
+                    (req.agentId, terminal_id, terminal_id),
+                )
+            ).fetchall()
+            for term in stale_terminals:
+                await db.execute(
+                    """
+                    UPDATE terminal_sessions
+                    SET status = 'stopped',
+                        stopped_at = ?,
+                        updated_at = ?,
+                        error = COALESCE(NULLIF(error, ''), 'superseded_by_resident_takeover')
+                    WHERE id = ?
+                    """,
+                    (now, now, term["id"]),
+                )
+                await _append_terminal_event(
+                    db,
+                    term["id"],
+                    "superseded_by_resident_takeover",
+                    json.dumps({
+                        "agentId": req.agentId,
+                        "residentBridge": bridge_id,
+                        "newSessionMode": "resident",
+                    }),
+                )
+                # Best-effort kill: enqueue 'stop' so the owning bridge
+                # tears down the wrapper subprocess if still alive. If
+                # the bridge is dead, the row is already marked stopped
+                # so it doesn't matter that the control is never claimed.
+                await _append_terminal_control(
+                    db,
+                    terminal_id=term["id"],
+                    environment_id=term["environment_id"] or "",
+                    bridge_id=term["bridge_id"] or "",
+                    action="stop",
+                    requested_by="resident-takeover",
+                    body="",
+                )
+            if stale_terminals:
+                # Clear agent_sessions.terminal_id binding for sessions
+                # that pointed at any of the just-stopped terminals so
+                # the dashboard stops rendering a ghost Console.
+                stopped_ids = [t["id"] for t in stale_terminals]
+                placeholders = ",".join(["?"] * len(stopped_ids))
+                await db.execute(
+                    f"""
+                    UPDATE agent_sessions
+                    SET terminal_id = '',
+                        terminal_status = ''
+                    WHERE agent_id = ?
+                      AND terminal_id IN ({placeholders})
+                    """,
+                    (req.agentId, *stopped_ids),
+                )

@@ -43,6 +43,7 @@ EXTRACTIONS = [
     "_enforce_tombstone_registration_gate",
     "_enforce_tombstone_resurrection_gate",
     "_record_registered_session_handle",
+    "_supersede_stale_resident_terminals",
 ]
 
 

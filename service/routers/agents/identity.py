@@ -36,7 +36,10 @@ from service.models import (
     AgentStatusUpdate,
 )
 
-from service.api_core.agent_sessions import _record_registered_session_handle
+from service.api_core.agent_sessions import (
+    _record_registered_session_handle,
+    _supersede_stale_resident_terminals,
+)
 from service.api_core.registration_gates import (
     _enforce_driving_mode_switch_gate,
     _enforce_tombstone_registration_gate,
@@ -608,69 +611,7 @@ async def register_agent(req: AgentRegister, request: Request):
         # console; send a 'stop' terminal_control to the owning bridge
         # so the underlying PTY process is killed if still alive.
         if normalized_session_mode == "resident":
-            stale_terminals = await (
-                await db.execute(
-                    """
-                    SELECT id, environment_id, bridge_id
-                    FROM terminal_sessions
-                    WHERE agent_id = ?
-                      AND status IN ('starting','attached','running','active','idle','recovering')
-                      AND (? = '' OR id != ?)
-                    """,
-                    (req.agentId, terminal_id, terminal_id),
-                )
-            ).fetchall()
-            for term in stale_terminals:
-                await db.execute(
-                    """
-                    UPDATE terminal_sessions
-                    SET status = 'stopped',
-                        stopped_at = ?,
-                        updated_at = ?,
-                        error = COALESCE(NULLIF(error, ''), 'superseded_by_resident_takeover')
-                    WHERE id = ?
-                    """,
-                    (now, now, term["id"]),
-                )
-                await _append_terminal_event(
-                    db,
-                    term["id"],
-                    "superseded_by_resident_takeover",
-                    json.dumps({
-                        "agentId": req.agentId,
-                        "residentBridge": bridge_id,
-                        "newSessionMode": "resident",
-                    }),
-                )
-                # Best-effort kill: enqueue 'stop' so the owning bridge
-                # tears down the wrapper subprocess if still alive. If
-                # the bridge is dead, the row is already marked stopped
-                # so it doesn't matter that the control is never claimed.
-                await _append_terminal_control(
-                    db,
-                    terminal_id=term["id"],
-                    environment_id=term["environment_id"] or "",
-                    bridge_id=term["bridge_id"] or "",
-                    action="stop",
-                    requested_by="resident-takeover",
-                    body="",
-                )
-            if stale_terminals:
-                # Clear agent_sessions.terminal_id binding for sessions
-                # that pointed at any of the just-stopped terminals so
-                # the dashboard stops rendering a ghost Console.
-                stopped_ids = [t["id"] for t in stale_terminals]
-                placeholders = ",".join(["?"] * len(stopped_ids))
-                await db.execute(
-                    f"""
-                    UPDATE agent_sessions
-                    SET terminal_id = '',
-                        terminal_status = ''
-                    WHERE agent_id = ?
-                      AND terminal_id IN ({placeholders})
-                    """,
-                    (req.agentId, *stopped_ids),
-                )
+            await _supersede_stale_resident_terminals(db, req, terminal_id, now, bridge_id)
             await _upsert_resident_agent_session(
                 db,
                 agent_id=req.agentId,
