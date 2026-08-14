@@ -302,3 +302,30 @@ Two rules came out of it, both now in project memory:
 ### Where `apiBase` went
 
 The third and last leaf is not a script but a ruling: see **`docs/APP_JS_APIBASE_PACKET.md`**.
+
+---
+
+## SUPERSEDED 2026-08-14 — the ceiling it measures no longer exists
+
+This packet opens "app.js is 4,903 lines" and argues **"Why relocation stops at ~4,700"**. Both are
+overtaken: app.js is **3,612**, reached entirely by relocation, with no render-flow redesign and no
+ruling. Its per-file measurements are kept below as history — they were honest when taken — but do not
+plan from them.
+
+What actually moved the number, after this packet was written:
+
+* **Measure GROUPS, not functions.** A call between two declarations that travel in the same slice is not
+  a blocker. This packet's own fourth correction says so; the numbers above it predate that.
+* **`docs/APP_JS_APIBASE_PACKET.md` is superseded too.** Its options A/B/C assumed unblocking needed a
+  harness change. It did not: the reconstruction plan's `marker` already accepts multiple lines, each
+  verified verbatim before removal (exactly how `importLine` is treated, and that is executable code), and
+  `export let` is a live ESM binding, so a moved body keeps a byte-identical `apiBase` identifier.
+* **An in-degree survey finds the names worth attacking.** `scratchpad/hubs.mjs`, built on the
+  reconstruction proof's own `declarationSpan` and gated on covering every top-level function. `api` was
+  one name with 74 call sites; extracting it turned three refused groups into clean ones.
+
+**The remaining wall IS real and is now measured rather than asserted.** Zero closed groups; six hubs
+(`closeInspector`, `setPage`, `renderContracts`, `openRunInspector`, `resyncActiveConsole`,
+`renderSessionConsole`) each pull in ~75 declarations / ~1,586 lines because all of them reach `refresh`.
+That is one mutually-recursive render orchestrator, and `chatController` is its dependency-injection
+wiring site rather than movable logic. Breaking it is the render-flow redesign — out of v0.5.x scope.
