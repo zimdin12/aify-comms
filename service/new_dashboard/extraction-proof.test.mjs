@@ -294,6 +294,17 @@ const EXTRACTIONS = [
       { name: "renderSpawnRequests", at: 3063, marker: "// renderSpawnRequests moved to ./environments-panels.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "summary-tiles.mjs",
+    importLine: "import { metric, renderDiagnosticsSummary, renderMetrics, renderUsageConsumption, selectedDiagnostics } from './summary-tiles.mjs';",
+    items: [
+      { name: "renderUsageConsumption", at: 1313, marker: "// renderUsageConsumption moved to ./summary-tiles.mjs in v0.5.4." },
+      { name: "metric", at: 1366, marker: "// metric moved to ./summary-tiles.mjs in v0.5.4." },
+      { name: "renderMetrics", at: 1371, marker: "// renderMetrics moved to ./summary-tiles.mjs in v0.5.4." },
+      { name: "selectedDiagnostics", at: 1433, marker: "// selectedDiagnostics moved to ./summary-tiles.mjs in v0.5.4." },
+      { name: "renderDiagnosticsSummary", at: 1456, marker: "// renderDiagnosticsSummary moved to ./summary-tiles.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -316,6 +327,7 @@ const MODULES = () => ({
   "status-why-popover.mjs": read("status-why-popover.mjs"),
   "session-activity.mjs": read("session-activity.mjs"),
   "environments-panels.mjs": read("environments-panels.mjs"),
+  "summary-tiles.mjs": read("summary-tiles.mjs"),
 });
 
 function rebuild(overrides = {}) {

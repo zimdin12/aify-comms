@@ -44,6 +44,7 @@ import { openIdentityDirectory } from './identity-directory.mjs';
 import { closeStatusWhy, openStatusWhy } from './status-why-popover.mjs';
 import { renderSessionActivity, runFrom } from './session-activity.mjs';
 import { renderEnvironmentSpawnOptions, renderRuntime, renderSpawnRequests } from './environments-panels.mjs';
+import { metric, renderDiagnosticsSummary, renderMetrics, renderUsageConsumption, selectedDiagnostics } from './summary-tiles.mjs';
 
 function resolveApiOrigin() {
   const params = new URLSearchParams(location.search);
@@ -1080,23 +1081,7 @@ function renderUsagePools() {
       + meta + `</div>`;
   }).join('');
 }
-function renderUsageConsumption() {
-  const host = byId('usage-consumption');
-  if (!host) return;
-  const s = state.analytics.consumption;
-  const byAgent = (s && s.by_agent) || {};
-  const agents = Object.keys(byAgent);
-  if (!agents.length) { host.innerHTML = '<p class="em">No per-agent token data yet (collector warming up).</p>'; return; }
-  agents.sort((a, b) => (byAgent[b].output_tokens || 0) - (byAgent[a].output_tokens || 0));
-  const rows = agents.map((a) => {
-    const c = byAgent[a];
-    return `<tr><td>${esc(a)}</td><td>${usageFmtTokens(c.input_tokens)}</td><td>${usageFmtTokens(c.output_tokens)}</td><td>${usageFmtTokens(c.cache_tokens)}</td></tr>`;
-  }).join('');
-  const t = (s && s.totals) || {};
-  host.innerHTML = '<div class="table-wrap"><table class="usage-consumption-table"><thead><tr><th>Agent</th><th>In</th><th>Out</th><th>Cache</th></tr></thead>'
-    + `<tbody>${rows}</tbody>`
-    + `<tfoot><tr><td>Total</td><td>${usageFmtTokens(t.input_tokens)}</td><td>${usageFmtTokens(t.output_tokens)}</td><td>${usageFmtTokens(t.cache_tokens)}</td></tr></tfoot></table></div>`;
-}
+// renderUsageConsumption moved to ./summary-tiles.mjs in v0.5.4.
 
 function renderAnalyticsPage() {
   // Single KPI grid (2026-06-29): ops + stats cards render into ONE .metric-grid so the two rows
@@ -1133,25 +1118,9 @@ function renderAnalyticsPage() {
   if (failures) failures.innerHTML = failureReasonsHtml(data);
 }
 
-function metric(label, value, tone = 'neutral', attrs = '') {
-  // attrs is caller-provided raw HTML attributes (e.g. a data-* jump target), never user input.
-  return `<div class="metric${attrs ? ' metric-clickable' : ''}" data-tone="${esc(tone)}"${attrs}><b>${esc(value)}</b><span>${esc(label)}</span></div>`;
-}
+// metric moved to ./summary-tiles.mjs in v0.5.4.
 
-function renderMetrics() {
-  const working = state.agents.filter((a) => resolveStatus(a.status).kind === 'working').length;
-  const blocked = state.agents.filter((a) => resolveStatus(a.status).kind === 'blocked').length;
-  const active = state.agents.filter((a) => ['active', 'online', 'working', 'blocked'].includes(resolveStatus(a.status).kind)).length;
-  const overdue = state.contracts.filter((c) => c.overdue).length;
-  const queued = state.contracts.filter((c) => c.state === 'queued').length;
-  byId('metrics').innerHTML = [
-    metric('Active agents', active, 'ok'),
-    metric('Working now', working, working ? 'working' : 'neutral'),
-    metric('Blocked agents', blocked, blocked ? 'bad' : 'neutral'),
-    metric('Overdue work', overdue, overdue ? 'warn' : 'neutral'),
-    metric('Queued contracts', queued, queued ? 'queued' : 'neutral'),
-  ].join('');
-}
+// renderMetrics moved to ./summary-tiles.mjs in v0.5.4.
 
 // contractCard moved to ./work-loop-panels.mjs in v0.5.4.
 
@@ -1161,18 +1130,7 @@ function renderMetrics() {
 
 // diagnosticKey moved to ./work-loop-panels.mjs in v0.5.4.
 
-function selectedDiagnostics() {
-  const selected = [];
-  const contractById = new Map(state.contracts.map((contract) => [String(contract.id), contract]));
-  const runById = new Map(state.runs.map((run) => [String(run.id), run]));
-  for (const key of state.selectedDiagnosticIds) {
-    const [kind, ...rest] = String(key).split(':');
-    const id = rest.join(':');
-    if (kind === 'contract' && contractById.has(id)) selected.push({ kind, id, item: contractById.get(id) });
-    if (kind === 'run' && runById.has(id)) selected.push({ kind, id, item: runById.get(id) });
-  }
-  return selected;
-}
+// selectedDiagnostics moved to ./summary-tiles.mjs in v0.5.4.
 
 function pruneDiagnosticSelection() {
   const live = new Set([
@@ -1184,27 +1142,7 @@ function pruneDiagnosticSelection() {
   }
 }
 
-function renderDiagnosticsSummary() {
-  const target = byId('diagnostics-summary');
-  if (!target) return;
-  // Summary tiles describe the FLEET, not the current Work-Loop/Runs filter. Use the unfiltered
-  // open-contracts snapshot (contractsBase) + fleet-wide /stats so changing a filter never moves
-  // the headline numbers.
-  const baseContracts = state.contractsBase || state.contracts;
-  const runsByStatus = state.stats?.dispatch_runs_by_status || {};
-  const openWork = baseContracts.filter((contract) => ['overdue', 'working', 'queued', 'sent', 'seen'].includes(contract.state)).length;
-  const overdue = baseContracts.filter((contract) => contract.overdue).length;
-  const activeRuns = (Number(runsByStatus.claimed) || 0) + (Number(runsByStatus.running) || 0);
-  const failedRuns = Number(state.stats?.run_failures_24h) || 0;
-  // Tiles are triage shortcuts: clicking jumps to the matching Work-Loop/Runs filter.
-  const jump = (t) => ` data-diag-jump="${t}" role="button" tabindex="0" title="Filter to ${esc(t.replace('run:', ''))}"`;
-  target.innerHTML = [
-    metric('Open work', openWork, openWork ? 'warn' : 'neutral', jump('open')),
-    metric('Overdue', overdue, overdue ? 'bad' : 'neutral', jump('overdue')),
-    metric('Active runs', activeRuns, activeRuns ? 'working' : 'neutral', jump('run:running')),
-    metric('Failed recent', failedRuns, failedRuns ? 'bad' : 'neutral', jump('run:failed')),
-  ].join('');
-}
+// renderDiagnosticsSummary moved to ./summary-tiles.mjs in v0.5.4.
 
 // Work-loop maintenance actions (parity with old dashboard's hygiene buttons).
 // Both endpoints are safe to run idempotently; they create fallback records for

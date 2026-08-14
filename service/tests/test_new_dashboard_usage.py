@@ -15,7 +15,10 @@ def test_containers_present():
 def test_render_fns_and_fetch():
     # render-only (read from state.analytics.usage/consumption); fetch happens in loadAnalytics
     assert "function renderUsagePools" in APP
-    assert "function renderUsageConsumption" in APP
+    # renderUsageConsumption moved to service/new_dashboard/summary-tiles.mjs in v0.5.4 and is now
+    # asserted by summary-tiles.test.mjs, which CALLS it. This line asserted only that the text existed
+    # in app.js and broke because the extraction succeeded. What stays below is the WIRING -- the fetch
+    # endpoints, the call sites, and the in-flight guard -- which only app.js can prove.
     assert "api('/usage')" in APP
     assert "api('/usage/consumption')" in APP
     # called from the analytics page render
