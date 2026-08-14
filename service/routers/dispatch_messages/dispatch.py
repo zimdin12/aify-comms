@@ -140,6 +140,7 @@ from service.api_core.claim_gating import _mark_dispatch_source_messages_read
 from service.api_core.agent_sessions import _adopt_live_resident_driver
 from service.dispatch_claim import _claim_dispatch_once
 from service.api_core.dispatch_hint import _dispatch_fix_hint
+from service.api_core.dispatch_controls_io import _claim_dispatch_controls_once
 
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.dispatch")
 
@@ -152,64 +153,6 @@ async def _apply_pending_resident_takeover_if_ready(db, agent_id: str) -> bool:
     return False
 
 
-async def _claim_dispatch_controls_once(req: DispatchControlClaimRequest, request: Request):
-    db = await get_db(busy_timeout_ms=SQLITE_CLAIM_BUSY_TIMEOUT_MS)
-    try:
-        await db.execute("BEGIN IMMEDIATE")
-        cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (req.agentId,))
-        agent = await cursor.fetchone()
-        if not agent:
-            await db.rollback()
-            raise HTTPException(404, f"Agent '{req.agentId}' not found")
-
-        machine_id = req.machineId or ""
-        if machine_id and agent["machine_id"] and not _machine_ids_same_host(agent["machine_id"], machine_id):
-            await db.rollback()
-            return {"ok": True, "controls": []}
-
-        # Claim pending controls for this agent. No filter on run status —
-        # Claude resident runs complete immediately on delivery, so their
-        # controls would never be claimable under the old ('claimed','running')
-        # filter. The channel bridge polls for controls independently and
-        # delivers them as notifications regardless of run state.
-        controls_cursor = await db.execute(
-            """
-            SELECT dc.*, dr.target_agent, dr.status as run_status
-            FROM dispatch_controls dc
-            JOIN dispatch_runs dr ON dr.id = dc.run_id
-            WHERE dr.target_agent = ? AND dc.status = 'pending'
-              AND (? = '' OR dc.run_id = ?)
-            ORDER BY dc.requested_at ASC, dc.id ASC
-            LIMIT 20
-            """,
-            (req.agentId, req.runId or "", req.runId or "")
-        )
-        controls = await controls_cursor.fetchall()
-        if not controls:
-            await db.commit()
-            return {"ok": True, "controls": []}
-
-        claimed_at = _now()
-        results = []
-        for control in controls:
-            await db.execute(
-                "UPDATE dispatch_controls SET status = 'claimed', claim_machine_id = ?, claimed_at = ? WHERE id = ?",
-                (machine_id, claimed_at, control["id"])
-            )
-            results.append({
-                "id": control["id"],
-                "runId": control["run_id"],
-                "from": control["from_agent"],
-                "action": control["action"],
-                "body": control["body"],
-                "requestedAt": control["requested_at"],
-                "claimedAt": claimed_at,
-            })
-
-        await db.commit()
-        return {"ok": True, "controls": results}
-    finally:
-        await db.close()
 
 
 # _claim_dispatch_once moved to service/dispatch_claim.py in v0.5.4 — it OWNS its
