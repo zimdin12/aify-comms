@@ -43,7 +43,7 @@ import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexCo
 import { openIdentityDirectory } from './identity-directory.mjs';
 import { closeStatusWhy, openStatusWhy } from './status-why-popover.mjs';
 import { renderSessionActivity, runFrom } from './session-activity.mjs';
-import { openEnvironmentRootsEditor, renderEnvironmentSpawnOptions, renderEnvironmentSummary, renderRuntime, renderSpawnRequests } from './environments-panels.mjs';
+import { controlEnvironment, createSpawnRequest, initEnvironmentActions, openEnvironmentRootsEditor, renderEnvironmentSpawnOptions, renderEnvironmentSummary, renderRuntime, renderSpawnRequests, resetEnvironmentRoots, submitEnvironmentRoots } from './environments-panels.mjs';
 import { metric, renderDiagnosticsSummary, renderMetrics, renderUsageConsumption, selectedDiagnostics } from './summary-tiles.mjs';
 import { copyActiveConsole, copyText } from './clipboard.mjs';
 import { openAgentEditForm, openCompactionHistory, openContinueForm, openMessageDetail } from './inspector-forms.mjs';
@@ -749,14 +749,7 @@ function renderSessionWorkspace() {
 // `done` is the one spawn status the canonical resolver doesn't know — alias it to completed.
 // renderSpawnRequests moved to ./environments-panels.mjs in v0.5.4.
 
-async function controlEnvironment(environmentId, action) {
-  if ((action === 'stop' || action === 'forget') && !await uiConfirm(`${action === 'stop' ? 'Stop the bridge process' : 'Forget this environment'} "${environmentId}"?`)) return;
-  try {
-    await api(`/environments/${encodeURIComponent(environmentId)}/control`, { method: 'POST', body: JSON.stringify({ action, requestedBy: 'dashboard' }) });
-    toast(`Environment ${action} requested`, 'ok');
-    refreshSoon();
-  } catch (err) { toast(`Environment ${action} failed: ${err?.message || err}`, 'error'); }
-}
+// controlEnvironment moved to ./environments-panels.mjs in v0.5.4.
 
 // H4 — workspace-roots editor (parity with old dashboard's environment editor).
 // Roots gate which cwd an agent may be spawned into. A dashboard override persists
@@ -767,27 +760,9 @@ async function controlEnvironment(environmentId, action) {
 
 // openEnvironmentRootsEditor moved to ./environments-panels.mjs in v0.5.4.
 
-async function submitEnvironmentRoots(environmentId) {
-  const text = byId('env-edit-roots')?.value || '';
-  const roots = text.split(/\r?\n|,/).map((item) => item.trim()).filter(Boolean);
-  if (!roots.length) { toast('At least one root is required. Use “Reset to bridge roots” to restore advertised roots.', 'warn'); return; }
-  try {
-    await api(`/environments/${encodeURIComponent(environmentId)}/roots`, { method: 'PATCH', body: JSON.stringify({ roots, requestedBy: 'dashboard' }) });
-    toast('Workspace roots updated', 'ok');
-    closeInspector();
-    await refresh();
-  } catch (err) { toast(`Root update failed: ${err?.message || err}`, 'error'); }
-}
+// submitEnvironmentRoots moved to ./environments-panels.mjs in v0.5.4.
 
-async function resetEnvironmentRoots(environmentId) {
-  if (!await uiConfirm(`Reset "${environmentId}" to the roots advertised by its bridge process?`)) return;
-  try {
-    await api(`/environments/${encodeURIComponent(environmentId)}/roots`, { method: 'PATCH', body: JSON.stringify({ resetToBridgeAdvertised: true, requestedBy: 'dashboard' }) });
-    toast('Workspace roots reset to bridge-advertised', 'ok');
-    closeInspector();
-    await refresh();
-  } catch (err) { toast(`Root reset failed: ${err?.message || err}`, 'error'); }
-}
+// resetEnvironmentRoots moved to ./environments-panels.mjs in v0.5.4.
 
 // runFrom moved to ./session-activity.mjs in v0.5.4.
 // runTo and runRuntime moved to ./run-inspector.mjs in v0.5.4 — their only readers went with it.
@@ -939,36 +914,7 @@ function closeInspector() {
 
 // requestBulkDiagnosticAction moved to ./work-loop-actions.mjs in v0.5.4.
 
-async function createSpawnRequest() {
-  const environmentId = byId('env-spawn-environment')?.value || '';
-  const runtime = byId('env-spawn-runtime')?.value || '';
-  const agentId = byId('env-spawn-agent-id')?.value.trim() || '';
-  const role = byId('env-spawn-role')?.value || 'coder';
-  const workspace = byId('env-spawn-workspace')?.value.trim() || '';
-  const initialMessage = byId('env-spawn-prompt')?.value.trim() || '';
-  if (!environmentId || !runtime || !agentId || !workspace) {
-    toast('Need environment, runtime, agent ID, and workspace.', 'warn');
-    return;
-  }
-  const result = await api('/spawn-requests', {
-    method: 'POST',
-    body: JSON.stringify({
-      createdBy: 'dashboard',
-      environmentId,
-      agentId,
-      role,
-      runtime,
-      workspace,
-      initialMessage,
-      subject: initialMessage ? `Spawn ${agentId}` : '',
-      mode: 'managed-warm',
-    }),
-  });
-  byId('env-spawn-agent-id').value = '';
-  byId('env-spawn-prompt').value = '';
-  inspect('spawn-request', result.spawnRequest || result);
-  await refresh();
-}
+// createSpawnRequest moved to ./environments-panels.mjs in v0.5.4.
 
 // openMessageThread moved to ./message-actions.mjs in v0.5.4.
 
@@ -1655,6 +1601,7 @@ try {
 initAgentSessionActions({ chatController, closeInspector, inspect, markConversationRead, refresh, refreshSoon, renderSessionWorkspace, setPage });
 initMessageActions({ chatController, refreshSoon, renderSessionConsole });
 initConsoleActions({ closeInspector, refresh, refreshSoon, setPage });
+initEnvironmentActions({ closeInspector, inspect, refresh, refreshSoon });
 initWorkLoopActions({ refresh });
 initRunInspector({ closeInspector, evaluateFlowGates, openInspector, openRunConsole, refresh, renderDiagnosticsBulkToolbar });
 initRealtimeSocket({ dashboardNotifier, evaluateFlowGates, refreshSoon, resyncActiveConsole, scheduleRenderAll });

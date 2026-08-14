@@ -42,12 +42,13 @@ export function renderEnvironmentSpawnOptions(selectedEnvId = byId('env-spawn-en
   if (workspace && !workspace.value) workspace.value = environmentRoots(env)[0] || '';
 }
 
+import { api } from './api-client.mjs';
 import { environmentStartCommand } from './environment-start-command.mjs';
 import { environmentRoots, environmentRuntimes } from './record-fields.mjs';
 import { state } from './state.mjs';
 import { renderStatusChip, resolveStatus, statusWhyContext } from './status.js';
 import { metric } from './summary-tiles.mjs';
-import { byId } from './ui.js';
+import { byId, toast, uiConfirm } from './ui.js';
 import { esc, relTime } from './util.js';
 
 export function renderRuntime() {
@@ -153,4 +154,89 @@ export function openEnvironmentRootsEditor(environmentId) {
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
   setTimeout(() => byId('env-edit-roots')?.focus(), 30);
+}
+
+// --- ACTIONS ------------------------------------------------------------------------------------
+//
+// The four things an operator can DO to an environment, moved here in v0.5.4 to sit with the panels
+// that render them. `createSpawnRequest` is the one that matters most: it is how a new managed worker
+// comes into existence, and every field it reads is a free-text input, so what it sends is what the
+// operator typed — including the empty string.
+//
+// Three injected names, each of which reaches `refresh`.
+
+let closeInspector = () => {};
+let inspect = () => {};
+let refresh = async () => {};
+let refreshSoon = () => {};
+
+/** Supply the app.js-side dependencies for the actions above. Throws on a partial bag. */
+export function initEnvironmentActions(deps) {
+  const REQUIRED = ['closeInspector', 'inspect', 'refresh', 'refreshSoon'];
+  const missing = REQUIRED.filter((k) => typeof deps?.[k] !== 'function');
+  if (missing.length) throw new TypeError(`initEnvironmentActions requires ${missing.join(', ')}`);
+  ({ closeInspector, inspect, refresh, refreshSoon } = deps);
+}
+
+
+export async function controlEnvironment(environmentId, action) {
+  if ((action === 'stop' || action === 'forget') && !await uiConfirm(`${action === 'stop' ? 'Stop the bridge process' : 'Forget this environment'} "${environmentId}"?`)) return;
+  try {
+    await api(`/environments/${encodeURIComponent(environmentId)}/control`, { method: 'POST', body: JSON.stringify({ action, requestedBy: 'dashboard' }) });
+    toast(`Environment ${action} requested`, 'ok');
+    refreshSoon();
+  } catch (err) { toast(`Environment ${action} failed: ${err?.message || err}`, 'error'); }
+}
+
+export async function submitEnvironmentRoots(environmentId) {
+  const text = byId('env-edit-roots')?.value || '';
+  const roots = text.split(/\r?\n|,/).map((item) => item.trim()).filter(Boolean);
+  if (!roots.length) { toast('At least one root is required. Use “Reset to bridge roots” to restore advertised roots.', 'warn'); return; }
+  try {
+    await api(`/environments/${encodeURIComponent(environmentId)}/roots`, { method: 'PATCH', body: JSON.stringify({ roots, requestedBy: 'dashboard' }) });
+    toast('Workspace roots updated', 'ok');
+    closeInspector();
+    await refresh();
+  } catch (err) { toast(`Root update failed: ${err?.message || err}`, 'error'); }
+}
+
+export async function resetEnvironmentRoots(environmentId) {
+  if (!await uiConfirm(`Reset "${environmentId}" to the roots advertised by its bridge process?`)) return;
+  try {
+    await api(`/environments/${encodeURIComponent(environmentId)}/roots`, { method: 'PATCH', body: JSON.stringify({ resetToBridgeAdvertised: true, requestedBy: 'dashboard' }) });
+    toast('Workspace roots reset to bridge-advertised', 'ok');
+    closeInspector();
+    await refresh();
+  } catch (err) { toast(`Root reset failed: ${err?.message || err}`, 'error'); }
+}
+
+export async function createSpawnRequest() {
+  const environmentId = byId('env-spawn-environment')?.value || '';
+  const runtime = byId('env-spawn-runtime')?.value || '';
+  const agentId = byId('env-spawn-agent-id')?.value.trim() || '';
+  const role = byId('env-spawn-role')?.value || 'coder';
+  const workspace = byId('env-spawn-workspace')?.value.trim() || '';
+  const initialMessage = byId('env-spawn-prompt')?.value.trim() || '';
+  if (!environmentId || !runtime || !agentId || !workspace) {
+    toast('Need environment, runtime, agent ID, and workspace.', 'warn');
+    return;
+  }
+  const result = await api('/spawn-requests', {
+    method: 'POST',
+    body: JSON.stringify({
+      createdBy: 'dashboard',
+      environmentId,
+      agentId,
+      role,
+      runtime,
+      workspace,
+      initialMessage,
+      subject: initialMessage ? `Spawn ${agentId}` : '',
+      mode: 'managed-warm',
+    }),
+  });
+  byId('env-spawn-agent-id').value = '';
+  byId('env-spawn-prompt').value = '';
+  inspect('spawn-request', result.spawnRequest || result);
+  await refresh();
 }

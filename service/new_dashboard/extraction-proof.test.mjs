@@ -353,13 +353,23 @@ const EXTRACTIONS = [
   },
   {
     module: "environments-panels.mjs",
-    importLine: "import { openEnvironmentRootsEditor, renderEnvironmentSpawnOptions, renderEnvironmentSummary, renderRuntime, renderSpawnRequests } from './environments-panels.mjs';",
+    // The import line was EDITED by the later actions slice rather than a new one being added, so this
+    // entry names the line as it stands now. `importWas` stays absent: the pristine file had no such
+    // import at all, so unwinding still deletes the line rather than restoring anything.
+    importLine: "import { controlEnvironment, createSpawnRequest, initEnvironmentActions, openEnvironmentRootsEditor, renderEnvironmentSpawnOptions, renderEnvironmentSummary, renderRuntime, renderSpawnRequests, resetEnvironmentRoots, submitEnvironmentRoots } from './environments-panels.mjs';",
+    seeding: "initEnvironmentActions({ closeInspector, inspect, refresh, refreshSoon });",
     items: [
       { name: "renderEnvironmentSpawnOptions", at: 3010, marker: "// renderEnvironmentSpawnOptions moved to ./environments-panels.mjs in v0.5.4." },
       { name: "renderRuntime", at: 3038, marker: "// renderRuntime moved to ./environments-panels.mjs in v0.5.4." },
       { name: "renderSpawnRequests", at: 3063, marker: "// renderSpawnRequests moved to ./environments-panels.mjs in v0.5.4." },
       { name: "renderEnvironmentSummary", at: 2995, marker: "// renderEnvironmentSummary moved to ./environments-panels.mjs in v0.5.4." },
       { name: "openEnvironmentRootsEditor", at: 3122, marker: "// openEnvironmentRootsEditor moved to ./environments-panels.mjs in v0.5.4." },
+      // The four ACTIONS, added later in v0.5.4. They landed in this module rather than a new one
+      // because an environment's actions and the panels that render them are one subject.
+      { name: "controlEnvironment", at: 3092, marker: "// controlEnvironment moved to ./environments-panels.mjs in v0.5.4." },
+      { name: "submitEnvironmentRoots", at: 3153, marker: "// submitEnvironmentRoots moved to ./environments-panels.mjs in v0.5.4." },
+      { name: "resetEnvironmentRoots", at: 3165, marker: "// resetEnvironmentRoots moved to ./environments-panels.mjs in v0.5.4." },
+      { name: "createSpawnRequest", at: 3994, marker: "// createSpawnRequest moved to ./environments-panels.mjs in v0.5.4." },
     ],
   },
   {
