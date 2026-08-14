@@ -27,11 +27,13 @@
 
 
 import { reportTurnBusy } from "./agent-heartbeat.mjs";
-import { httpCall } from "./aify-service-endpoint.mjs";
+import { IS_REMOTE, httpCall, logTransientOrError } from "./aify-service-endpoint.mjs";
 import { REMOTE_AGENT_STATE } from "./bridge-agent-state.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
 import { decideConsolePulse } from "./console-pulse.mjs";
-import { TerminalProcessManager } from "./terminal-runtime.js";
+import { reportDeadOwnedSessions } from "./dead-pty-reporter.js";
+import { IS_ENVIRONMENT_BRIDGE } from "./launch-identity.mjs";
+import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
 
 export const TERMINAL_TURN_BUSY_REMIT_MS = 5000;
 export const TERMINAL_TURN_BUSY_QUIET_MS = 8000;
@@ -126,3 +128,41 @@ export const TERMINAL_MANAGER = new TerminalProcessManager({
     ? 0
     : (Number(process.env.AIFY_CONSOLE_KEEPALIVE_MS) || 4000),
 });
+
+// ---------------------------------------------------------------------------------------------------
+// Reporting terminals whose PTY has died, appended in a later v0.5.4 slice.
+//
+// It joins this module because it reports on the manager above: `TERMINAL_MANAGER.listOwnedSessions()` is
+// its only source, and splitting a reader from the state it reads is what this series keeps undoing.
+//
+// It REPORTS, it does not reap — the service decides what to stop. That distinction is why this is an
+// ordinary slice while `runManagedTeardownForBridge` and `runBootSurvivorSweep` are not: those kill
+// processes, and docs/JS_SERVER_REMAINDER_PACKET.md flags them as needing a deliberate go-ahead.
+//
+// IT WAS WRONGLY MARKED BLOCKED for two slices. The closure survey reported it needing `server` — the MCP
+// server instance, which cannot move — so it was set aside. The only occurrence of that word in the
+// function is inside a log string: "reported to server for stop/reconcile". The survey deliberately does
+// not strip string literals, because doing so is where three earlier parsers went wrong; the cost is
+// exactly this, a false edge that refuses a movable group. When a closure names a surprising blocker, look
+// at the reference before believing it.
+
+export async function reportDeadOwnedTerminals() {
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || !bridgeTerminalSupported()) return [];
+  try {
+    const owned = TERMINAL_MANAGER.listOwnedSessions?.() || [];
+    if (!owned.length) return [];
+    return await reportDeadOwnedSessions(owned, {
+      report: async ({ terminalId, pid }) => {
+        await httpCall("POST", `/terminals/${encodeURIComponent(terminalId)}/report-dead`, {
+          bridgeId: BRIDGE_INSTANCE_ID,
+          processId: pid != null ? String(pid) : "",
+          reason: "Console PTY process is no longer alive (host-reported).",
+        });
+        console.error(`[aify] terminal ${terminalId} (pid ${pid}) is dead locally — reported to server for stop/reconcile`);
+      },
+    });
+  } catch (error) {
+    logTransientOrError("[aify] dead-PTY report failed", error);
+    return [];
+  }
+}

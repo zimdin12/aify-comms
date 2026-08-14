@@ -94,7 +94,6 @@ import { shutdownAllHermesSessions } from "./hermes-session.js";
 import { shutdownAllHermesGatewaySessions } from "./hermes-managed-gateway-session.js";
 import { bridgeTerminalSupported } from "./terminal-runtime.js";
 import { terminalControlFailurePatch, orphanPidToKill, orphanPidReapAllowed } from "./terminal-control.js";
-import { reportDeadOwnedSessions } from "./dead-pty-reporter.js";
 import { terminalChildEnv } from "./terminal-env.js";
 import { managedViaWrapperRuntimesFromSettingsResponse } from "./managed-wrapper-settings.js";
 import { claimFailureDecision, claimRecoveryDecision } from "./claim-failure-policy.js";
@@ -129,7 +128,7 @@ import { collectOnce as collectUsageOnce, collectConsumptionOnce } from "./usage
 import { AIFY_VERSION } from "./version.js";
 import { VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT, createVirtualTerminalSink, ensureVirtualTerminal, handleVirtualTerminalControl, updateTerminalControl } from './virtual-terminals.mjs';
 import { ensureRequiredReplyHandoff } from './required-reply-handoff.mjs';
-import { TERMINAL_MANAGER } from './terminal-manager.mjs';
+import { TERMINAL_MANAGER, reportDeadOwnedTerminals } from './terminal-manager.mjs';
 
 // Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
 // `omp --mode rpc --resume <session>`), that child inherits the aify
@@ -1377,26 +1376,7 @@ function extractTerminalSessionHandle(runtime = "", command = "") {
 // stopped + invalidates live-state (a frozen/crashed console can otherwise keep
 // manufacturing presence). Best-effort; never throws. Does NOT kill anything —
 // the in-memory exit path owns real teardown; this only reconciles stale rows.
-async function reportDeadOwnedTerminals() {
-  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || !bridgeTerminalSupported()) return [];
-  try {
-    const owned = TERMINAL_MANAGER.listOwnedSessions?.() || [];
-    if (!owned.length) return [];
-    return await reportDeadOwnedSessions(owned, {
-      report: async ({ terminalId, pid }) => {
-        await httpCall("POST", `/terminals/${encodeURIComponent(terminalId)}/report-dead`, {
-          bridgeId: BRIDGE_INSTANCE_ID,
-          processId: pid != null ? String(pid) : "",
-          reason: "Console PTY process is no longer alive (host-reported).",
-        });
-        console.error(`[aify] terminal ${terminalId} (pid ${pid}) is dead locally — reported to server for stop/reconcile`);
-      },
-    });
-  } catch (error) {
-    logTransientOrError("[aify] dead-PTY report failed", error);
-    return [];
-  }
-}
+// reportDeadOwnedTerminals moved to ./terminal-manager.mjs in v0.5.4.
 
 async function runTerminalControlLoop() {
   if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || terminalControlBusy || !bridgeTerminalSupported()) return;

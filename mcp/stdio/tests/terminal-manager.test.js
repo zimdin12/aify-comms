@@ -166,3 +166,35 @@ test("the two pulse families keep separate books", async () => {
   assert.ok(m.CONSOLE_WORKING_REMIT_MS < m.TERMINAL_TURN_BUSY_QUIET_MS,
     "the console re-emit window must be shorter than the busy release, or busy would clear mid-turn");
 });
+
+// ---------------------------------------------------------------------------------------------------
+// Reporting dead PTYs, appended to this module in a later v0.5.4 slice.
+//
+// It REPORTS and does not reap: the service decides what to stop. The guards below matter because this
+// runs on the terminal-control loop, so a wrong one either spams the service every tick or silently stops
+// reporting terminals whose process has gone.
+
+test("dead-PTY reporting is gated on being a remote environment bridge", async () => {
+  // A resident bridge does not own the terminals it can see, and a local-mode bridge has no service to
+  // report to. Reporting from either would attribute another host's dead PTY to this one.
+  const { IS_REMOTE, IS_ENVIRONMENT_BRIDGE } = await import("../aify-service-endpoint.mjs")
+    .then(async (endpoint) => ({
+      IS_REMOTE: endpoint.IS_REMOTE,
+      IS_ENVIRONMENT_BRIDGE: (await import("../launch-identity.mjs")).IS_ENVIRONMENT_BRIDGE,
+    }));
+
+  // In this test process neither flag is set, so the guard must short-circuit to [] without any request.
+  assert.equal(IS_ENVIRONMENT_BRIDGE, false, "the fixture assumes a non-bridge process");
+  reset();
+  const out = await m.reportDeadOwnedTerminals();
+  assert.deepEqual(out, [], "a non-bridge process must report nothing");
+  assert.deepEqual(REQUESTS.filter((r) => r.url.includes("report-dead")), [],
+    "…and must not touch the service at all");
+});
+
+test("the reporter is exported from the module that owns the manager it reads", () => {
+  // Its only source is TERMINAL_MANAGER.listOwnedSessions(). Splitting a reader from the state it reads
+  // across two modules is what this series keeps undoing, so the pairing is asserted, not assumed.
+  assert.equal(typeof m.reportDeadOwnedTerminals, "function");
+  assert.ok(m.TERMINAL_MANAGER, "the manager it reports on must live here too");
+});
