@@ -165,14 +165,24 @@ docs/APP_JS_STATE_MODULE_PACKET.md). If all 1,541 lines left, server.js lands ne
 "Near 980" was a subtraction, not a prediction, and I first wrote that the file "probably clears". Both
 halves of that were unearned. The full arithmetic:
 
+**SIMULATED, not just added up.** The move was applied to a scratch copy of server.js and the surviving
+file measured. The dead-import term comes from `deadImportsIn` in `tests/no-dead-imports.test.js` — the
+gate's own detector, exported for exactly this purpose — rather than from a hand-written regex, because
+mine has twice been wrong in this series (it scored a comment as a use, and it missed names hidden behind
+an import-opener comment). Asking my own regex gave 62 dead names and 944; the gate says 68 and 948.
+
 | | lines |
 |---|---|
 | server.js today | 2,521 |
-| − inside the blocked declarations (moves out) | −1,541 |
-| + one marker comment per moved unit (22 units) | +22 |
+| − inside the blocked declarations and the two send tools (22 units) | −1,541 |
+| + one marker comment per moved unit | +22 |
 | **subtotal** | **1,002 — still OVER** |
-| − import lines that go dead (31 whole blocks; 62 of 135 names are used ONLY inside the moved code) | −58 |
-| **server.js lands at** | **944 — under, with ~56 lines of margin** |
+| − import lines removed (68 names dead per the gate) | −54 |
+| **server.js lands at** | **948 — under, with ~52 lines of margin** |
+
+The simulated file `node --check`s, which confirms all 22 spans were balanced and the cut mechanics are
+sound. It proves nothing about the result RUNNING — option C is a redesign, the loops need per-loop state
+owners first, and the remaining code still calls what was cut. Nothing was written back to the repo.
 
 So the answer is yes with room, but note the shape: **the raw move LEAVES IT OVER at 1,002, and it is the
 dead-import cleanup that carries it under.** That is not a rounding detail — it means the slice is not
@@ -181,7 +191,7 @@ extraction in this series has ended with a dead-import pass for exactly this rea
 finds them (`tests/no-dead-imports.test.js`) has caught names my own reference counting missed twice.
 
 The residue is the boot wiring, which is option A's own argument ("a bin entry point that wires a process
-together is a different kind of file from a library module"). At 944 that argument is no longer needed to
+together is a different kind of file from a library module"). At 948 that argument is no longer needed to
 reach the limit — but it is still the honest description of what is left.
 
 Nothing above is a recommendation on A-vs-C — the reviewer's caution stands, and option C is still a
