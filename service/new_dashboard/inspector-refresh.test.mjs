@@ -63,21 +63,29 @@ test("the two kind sets are disjoint", () => {
   assert.deepEqual(overlap, [], `a kind cannot be both read-only and a form: ${overlap.join(', ')}`);
 });
 
-test("the classification covers every kind app.js actually sets", async () => {
-  // The gate that stops this module drifting from the UI it describes. A kind that app.js opens but
+test("the classification covers every kind the dashboard actually sets", async () => {
+  // The gate that stops this module drifting from the UI it describes. A kind the dashboard opens but
   // neither set names would silently fail closed forever — correct, but invisible, so it would look
   // like the original bug for that one panel.
-  const { readFileSync } = await import('node:fs');
-  const src = readFileSync(new URL('./app.js', import.meta.url), 'utf8');
+  // EVERY dashboard module, not just app.js. The v0.5.4 decomposition moved several `state.inspector`
+  // assignments out to agent-drawer.mjs, identity-directory.mjs and inspector-forms.mjs, so scanning
+  // app.js alone quietly stopped seeing most of them — the gate would have kept passing while covering
+  // less and less. Widening it is the fix; narrowing the claim to 'app.js' would have been the bug.
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const dir = new URL('./', import.meta.url);
+  const sources = readdirSync(dir)
+    .filter((f) => (f.endsWith('.js') || f.endsWith('.mjs')) && !f.endsWith('.test.mjs'))
+    .map((f) => readFileSync(new URL(f, dir), 'utf8'))
+    .join(String.fromCharCode(10));
   const found = new Set(
-    [...src.matchAll(/state\.inspector\s*=\s*\{[^}]*?kind:\s*'([a-z-]+)'/g)].map((m) => m[1]),
+    [...sources.matchAll(/state\.inspector\s*=\s*\{[^}]*?kind:\s*'([a-z-]+)'/g)].map((m) => m[1]),
   );
   const unclassified = [...found].filter(
     (k) => !REFRESHABLE_INSPECTOR_KINDS.has(k) && !FORM_INSPECTOR_KINDS.has(k),
   );
   assert.deepEqual(
     unclassified, [],
-    `app.js opens inspector kind(s) this module does not classify: ${unclassified.join(', ')}. `
+    `the dashboard opens inspector kind(s) this module does not classify: ${unclassified.join(', ')}. `
     + 'Add each to REFRESHABLE_INSPECTOR_KINDS or FORM_INSPECTOR_KINDS — failing closed is correct '
     + 'but silent, so an unclassified panel just looks stale forever.',
   );

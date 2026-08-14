@@ -293,17 +293,15 @@ test("WS half-open watchdog is per-socket (not a shared global id)", () => {
   assert.match(source, /if \(rs === WebSocket\.OPEN \|\| rs === WebSocket\.CONNECTING\) return;/);
 });
 
-test("agent edit runtime choices include Hermes and preserve the current runtime", () => {
-  const source = read("app.js");
-  // Line-ending agnostic. A bare \n cannot match CRLF, so this assertion failed purely because the
-  // working tree was CRLF while git normalises to LF on commit — i.e. green in CI, red locally, the
-  // worst kind of flake. Assert structure, never whitespace.
-  const expression = source.match(/const runtimeOptions = (\[[^\r\n]+\])\r?\n\s+\.map/)?.[1];
-  assert.ok(expression, "runtime choice expression must remain inspectable");
-  const choices = Function("currentRuntime", `return ${expression}`)("future-runtime");
-  assert.ok(choices.includes("hermes"), "Hermes must be selectable with its canonical backend identifier");
-  assert.ok(choices.includes("future-runtime"), "an existing runtime must not be silently replaced");
-});
+// The agent-edit runtime choices were asserted here by pulling the `runtimeOptions` expression out of
+// app.js with a regex and eval'ing it. `openAgentEditForm` moved to inspector-forms.mjs in v0.5.4, and
+// inspector-forms.test.mjs now RENDERS the form and reads the options out of the markup: that hermes is
+// offered under its canonical identifier, and that an unrecognised runtime is added to the list rather
+// than silently reset — which would change an agent's runtime as a side effect of opening a form.
+//
+// Worth noting what the old test had already been through: it once asserted whitespace and went red
+// locally while green in CI, because the working tree was CRLF and git normalises to LF. Rendering the
+// output has no whitespace to be wrong about.
 
 test("the agent-level stop is routed and confirmed by app.js", () => {
   const source = read("app.js");

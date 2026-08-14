@@ -316,6 +316,16 @@ const EXTRACTIONS = [
       { name: "copyActiveConsole", at: 2381, marker: "// copyActiveConsole moved to ./clipboard.mjs in v0.5.4." },
     ],
   },
+  {
+    module: "inspector-forms.mjs",
+    importLine: "import { openAgentEditForm, openContinueForm, openMessageDetail } from './inspector-forms.mjs';",
+    items: [
+      { name: "openAgentEditForm", at: 3609, marker: "// openAgentEditForm moved to ./inspector-forms.mjs in v0.5.4." },
+      { name: "openMessageDetail", at: 3696, marker: "// openMessageDetail moved to ./inspector-forms.mjs in v0.5.4." },
+      { name: "buildHandoffPacket", at: 3723, marker: "// buildHandoffPacket moved to ./inspector-forms.mjs in v0.5.4." },
+      { name: "openContinueForm", at: 3731, marker: "// openContinueForm moved to ./inspector-forms.mjs in v0.5.4." },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -340,6 +350,7 @@ const MODULES = () => ({
   "environments-panels.mjs": read("environments-panels.mjs"),
   "summary-tiles.mjs": read("summary-tiles.mjs"),
   "clipboard.mjs": read("clipboard.mjs"),
+  "inspector-forms.mjs": read("inspector-forms.mjs"),
 });
 
 function rebuild(overrides = {}) {
