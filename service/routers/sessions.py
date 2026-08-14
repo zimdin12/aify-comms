@@ -7,8 +7,12 @@ the series, which is the part worth noting.
 "local to sessions", but only because a borrow shim does not count as a user: their real callers were
 `list_spawn_requests` (borrowing them) and `control_session` (moving now). Their natural owner is the
 spawn-requests domain, so that is where they went — which retires two of the borrows
-`service/routers/spawn_requests.py` was carrying, exactly as its retirement map predicted. This
-module imports them from there.
+`service/routers/spawn_requests.py` was carrying, exactly as its retirement map predicted.
+
+v0.5.4 moved them once more, to `service/api_core/spawn_requests_io.py`. The DOMAIN judgement above
+still holds and is not being revisited; what changed is the LAYER. This module was importing them
+from another router, and one route domain reaching into another is an edge neither of them should
+have. Both now import from a leaf.
 
 That is the measurement needing judgement rather than obedience: "no users outside this domain" is a
 necessary condition for locality, not a sufficient one, because shims are invisible to it.
@@ -77,7 +81,7 @@ from service.env_status import environment_effective_status as _environment_effe
 from service.models import ConsoleStartRequest, SessionControlRequest
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 # Retired borrows: these now have a real owner in the spawn-requests domain.
-from service.routers.spawn_requests import _spawn_request_to_dict, _spawn_spec_to_dict
+from service.api_core.spawn_requests_io import _spawn_request_to_dict, _spawn_spec_to_dict
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
 from service.api_core.workspace import (
     _normalize_workspace_for_environment,
