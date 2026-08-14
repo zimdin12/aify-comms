@@ -1320,6 +1320,63 @@ const EXTRACTIONS = [
       },
     ],
   },
+  {
+    module: "message-actions.mjs",
+    importLine: "import { addChannelMember, chatChannelAction, initMessageActions, markConversationRead, markMessageRead, mountChatConsole, openMessageThread, removeChannelMember, toggleFavorite, unsendMessage } from './message-actions.mjs';",
+    seeding: "initMessageActions({ chatController, refreshSoon, renderSessionConsole });",
+    items: [
+      {
+        name: "markMessageRead",
+        at: 180,
+        leading: 2,
+        marker: "// markMessageRead moved to ./message-actions.mjs in v0.5.4, with its optimistic-update note.",
+      },
+      {
+        name: "unsendMessage",
+        at: 191,
+        marker: "// unsendMessage moved to ./message-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "markConversationRead",
+        at: 202,
+        marker: "// markConversationRead moved to ./message-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "toggleFavorite",
+        at: 221,
+        leading: 1,
+        marker: "// toggleFavorite moved to ./message-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "mountChatConsole",
+        at: 252,
+        leading: 5,
+        marker: "// mountChatConsole moved to ./message-actions.mjs in v0.5.4, with the note on what it mounts.",
+      },
+      {
+        name: "chatChannelAction",
+        at: 395,
+        marker: "// chatChannelAction moved to ./message-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "addChannelMember",
+        at: 416,
+        leading: 1,
+        marker: "// addChannelMember moved to ./message-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "removeChannelMember",
+        at: 428,
+        marker: "// removeChannelMember moved to ./message-actions.mjs in v0.5.4.",
+      },
+      {
+        name: "openMessageThread",
+        at: 4025,
+        leading: 1,
+        marker: "// openMessageThread moved to ./message-actions.mjs in v0.5.4.",
+      },
+    ],
+  },
 ];
 
 const MODULES = () => ({
@@ -1362,6 +1419,7 @@ const MODULES = () => ({
   "agent-session-actions.mjs": read("agent-session-actions.mjs"),
   "analytics-page.mjs": read("analytics-page.mjs"),
   "work-loop-actions.mjs": read("work-loop-actions.mjs"),
+  "message-actions.mjs": read("message-actions.mjs"),
   "agent-drawer.mjs": read("agent-drawer.mjs"),
   "work-loop-panels.mjs": read("work-loop-panels.mjs"),
   "codex-console.mjs": read("codex-console.mjs"),
