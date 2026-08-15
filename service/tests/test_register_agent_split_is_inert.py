@@ -56,6 +56,12 @@ EXTRACTIONS = [
     "_stage_manual_resident_takeover",
     "_adopt_console_terminal_on_register",
     "_upsert_registered_agent_row",
+    # NESTED: this one ENCLOSES `_adopt_console_terminal_on_register`, which is already in this list.
+    # Proving the pair together needed the dependency-ordered inlining that `extract_method` refused
+    # until v0.5.4 — the console-terminal branch is an early exit, so it could not be extracted at all
+    # before the call-site-shape rule, and could not be PROVED with its callee before the topological
+    # order. Both landed in this release.
+    "_register_via_adopted_console_terminal",
 ]
 
 #: Where each helper is expected to be declared. The four gates stayed; the five registration WRITES
@@ -70,6 +76,7 @@ OWNERS = {
     "_stage_manual_resident_takeover": REG_WRITES,
     "_adopt_console_terminal_on_register": REG_WRITES,
     "_upsert_registered_agent_row": REG_WRITES,
+    "_register_via_adopted_console_terminal": REG_WRITES,
 }
 
 

@@ -34,6 +34,7 @@ from service.models import (
 )
 
 from service.api_core.agent_registration_writes import (
+    _register_via_adopted_console_terminal,
     _adopt_console_terminal_on_register,
     _record_registered_session_handle,
     _stage_manual_resident_takeover,
@@ -244,56 +245,10 @@ async def register_agent(req: AgentRegister, request: Request):
                 )
             ).fetchone()
         if console_terminal:
-            existing_mode = _normalize_session_mode((row["session_mode"] if row else "") or "managed")
-            existing_state = _json_loads_or((row["runtime_state"] if row else "") or "{}", {})
-            existing_capabilities = (row["capabilities"] if row and "capabilities" in row.keys() else "") or json.dumps(capabilities or [])
-            existing_runtime_config = (row["runtime_config"] if row and "runtime_config" in row.keys() else "") or json.dumps(runtime_config)
-            next_state = _runtime_state_with_handle(normalized_runtime, existing_state, session_handle)
-            next_state["consoleTerminal"] = {
-                "terminalId": terminal_id,
-                "bridgeId": bridge_id,
-                "sessionHandle": session_handle,
-                "at": now,
-            }
-            await _adopt_console_terminal_on_register(
-                db, req, console_terminal, terminal_id, normalized_runtime, session_handle,
-                resolved_cwd, next_state, existing_capabilities, existing_runtime_config, now,
+            return await _register_via_adopted_console_terminal(
+                db, req, request, row, console_terminal, terminal_id,
+                bridge_id, normalized_runtime, session_handle, resolved_cwd, capabilities, runtime_config, now,
             )
-            if bridge_id:
-                await _record_bridge_registration(
-                    db,
-                    bridge_id=bridge_id,
-                    agent_id=req.agentId,
-                    machine_id=req.machineId or "",
-                    runtime=normalized_runtime,
-                    session_mode="managed",
-                    session_handle=session_handle,
-                    terminal_id=terminal_id,
-                    now=now,
-                )
-            await _invalidate_agent_live_state(db, req.agentId)
-            await db.commit()
-            ws = await _get_ws(request)
-            if ws:
-                await ws.broadcast("agent_registered", {
-                    "agentId": req.agentId,
-                    "role": req.role,
-                    "runtime": normalized_runtime,
-                    "machineId": req.machineId or "",
-                    "sessionMode": existing_mode,
-                    "ownershipTransition": "console_terminal_attached",
-                })
-            return {
-                "ok": True,
-                "agentId": req.agentId,
-                "role": req.role,
-                "status": req.status or "idle",
-                "runtime": normalized_runtime,
-                "machineId": req.machineId or "",
-                "bridgeId": bridge_id,
-                "sessionMode": existing_mode,
-                "ownershipTransition": "console_terminal_attached",
-            }
         fresh_state = _runtime_state_with_handle(normalized_runtime, {}, session_handle)
         if bridge_id:
             fresh_state["bridgeInstanceId"] = bridge_id

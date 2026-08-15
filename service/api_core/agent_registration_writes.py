@@ -18,8 +18,12 @@ import json
 
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.events import _append_terminal_control, _append_terminal_event
+from service.api_core.bridge_registration import _record_bridge_registration
+from service.api_core.runtime import _normalize_session_mode
 from service.api_core.runtime_state import _runtime_state_with_handle
 from service.api_core.serialization import _json_loads_or
+from service.api_core.ws import _get_ws
+from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 
 async def _record_registered_session_handle(db, req, normalized_runtime, runtime_config, session_handle, now) -> None:
     """Pin the freshly-registered session handle onto the agent's CURRENT session row.
@@ -401,3 +405,67 @@ async def _upsert_registered_agent_row(db, req, row, normalized_runtime: str, no
                 row["registered_at"] if row and row["registered_at"] else now, now
             )
         )
+
+
+async def _register_via_adopted_console_terminal(
+    db, req, request, row, console_terminal, terminal_id,
+    bridge_id, normalized_runtime, session_handle, resolved_cwd, capabilities, runtime_config, now,
+):
+    """The register path where an existing console terminal is ADOPTED instead of a new session.
+
+    Extracted from `register_agent` in v0.5.4, byte-identical apart from the dedent. It is an
+    early-exit branch: it ends in the response the handler returns, so the caller is
+    `return await ...` rather than a bare call. That shape was REFUSED by
+    `service/tests/extract_method.py` until the call-site-shape rule landed, which is why 51
+    lines sat in the handler with no way to prove moving them was inert.
+    """
+    existing_mode = _normalize_session_mode((row["session_mode"] if row else "") or "managed")
+    existing_state = _json_loads_or((row["runtime_state"] if row else "") or "{}", {})
+    existing_capabilities = (row["capabilities"] if row and "capabilities" in row.keys() else "") or json.dumps(capabilities or [])
+    existing_runtime_config = (row["runtime_config"] if row and "runtime_config" in row.keys() else "") or json.dumps(runtime_config)
+    next_state = _runtime_state_with_handle(normalized_runtime, existing_state, session_handle)
+    next_state["consoleTerminal"] = {
+        "terminalId": terminal_id,
+        "bridgeId": bridge_id,
+        "sessionHandle": session_handle,
+        "at": now,
+    }
+    await _adopt_console_terminal_on_register(
+        db, req, console_terminal, terminal_id, normalized_runtime, session_handle,
+        resolved_cwd, next_state, existing_capabilities, existing_runtime_config, now,
+    )
+    if bridge_id:
+        await _record_bridge_registration(
+            db,
+            bridge_id=bridge_id,
+            agent_id=req.agentId,
+            machine_id=req.machineId or "",
+            runtime=normalized_runtime,
+            session_mode="managed",
+            session_handle=session_handle,
+            terminal_id=terminal_id,
+            now=now,
+        )
+    await _invalidate_agent_live_state(db, req.agentId)
+    await db.commit()
+    ws = await _get_ws(request)
+    if ws:
+        await ws.broadcast("agent_registered", {
+            "agentId": req.agentId,
+            "role": req.role,
+            "runtime": normalized_runtime,
+            "machineId": req.machineId or "",
+            "sessionMode": existing_mode,
+            "ownershipTransition": "console_terminal_attached",
+        })
+    return {
+        "ok": True,
+        "agentId": req.agentId,
+        "role": req.role,
+        "status": req.status or "idle",
+        "runtime": normalized_runtime,
+        "machineId": req.machineId or "",
+        "bridgeId": bridge_id,
+        "sessionMode": existing_mode,
+        "ownershipTransition": "console_terminal_attached",
+    }

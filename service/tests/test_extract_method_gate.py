@@ -1783,18 +1783,18 @@ class ExtractMultipleBlocksTests(unittest.TestCase):
             assert_extractions_preserve_behaviour(self.ORIGINAL, self.SPLIT, ["_first", "_nope"])
         self.assertIn("_nope", str(caught.exception))
 
-    def test_a_helper_that_calls_another_helper_in_the_list_is_refused(self):
-        """Direct siblings only — enforced, not merely documented.
+    def test_a_helper_that_calls_another_helper_in_the_list_is_PROVED(self):
+        """Nested extractions, in dependency order. This test used to assert the OPPOSITE.
 
-        The reviewer noticed this docstring once claimed the helpers were inlined "innermost calls
-        first". They are not; they are inlined in the order supplied. For the analytics split that
-        is harmless because all three helpers are called directly by the handler, so narrowing the
-        sentence would have been enough for today.
+        The refusal it replaced was honest about being a stopgap: its own message promised "a real
+        topological order with its own tests" as the fix if nesting were ever wanted. It was wanted
+        the first time a helper was extracted AROUND an existing one — `register_agent`'s
+        console-terminal branch encloses `_adopt_console_terminal_on_register`, already extracted —
+        and until now the pair could not be proved together at all.
 
-        A caveat in a docstring is exactly what the next person does not read, though, so the
-        narrower contract is checked instead. Verifying a nested extraction in supplied order would
-        make the verdict depend on argument order rather than on the code — which is a verifier
-        that can be argued with, and the whole point of this one is that it cannot.
+        What the old refusal protected is preserved rather than dropped: the verdict must not depend
+        on the order the list happens to be written in. Supplied order is now IGNORED instead of
+        trusted, and the test below asserts that directly.
         """
         original = (
             "def f(n):\n"
@@ -1820,12 +1820,62 @@ class ExtractMultipleBlocksTests(unittest.TestCase):
             "        a.append(i)\n"
             "    return a\n"
         )
+        assert_extractions_preserve_behaviour(original, nested, ["_outer", "_inner"])
+
+    def test_the_nested_verdict_does_not_depend_on_the_supplied_order(self):
+        """The property the old refusal existed to protect, now asserted instead of side-stepped."""
+        original = (
+            "def f(n):\n"
+            "    a = []\n"
+            "    for i in range(n):\n"
+            "        a.append(i)\n"
+            "    return a\n"
+        )
+        nested = (
+            "def f(n):\n"
+            "    a = _outer(n)\n"
+            "    return a\n"
+            "\n"
+            "\n"
+            "def _outer(n):\n"
+            "    a = _inner(n)\n"
+            "    return a\n"
+            "\n"
+            "\n"
+            "def _inner(n):\n"
+            "    a = []\n"
+            "    for i in range(n):\n"
+            "        a.append(i)\n"
+            "    return a\n"
+        )
+        for supplied in (["_outer", "_inner"], ["_inner", "_outer"]):
+            assert_extractions_preserve_behaviour(original, nested, supplied)
+
+    def test_a_call_CYCLE_among_the_helpers_is_refused(self):
+        """No order inlines every helper after its callees, so no round trip can be defined.
+
+        Not reachable from real extracted code — but the order resolver recurses, and an unguarded
+        cycle would surface as RecursionError, which reads as a broken gate rather than as a
+        rejected input.
+        """
+        original = "def f(n):\n    return n\n"
+        cyclic = (
+            "def f(n):\n"
+            "    return _a(n)\n"
+            "\n"
+            "\n"
+            "def _a(n):\n"
+            "    return _b(n)\n"
+            "\n"
+            "\n"
+            "def _b(n):\n"
+            "    return _a(n)\n"
+        )
         with self.assertRaises(AssertionError) as caught:
-            assert_extractions_preserve_behaviour(original, nested, ["_outer", "_inner"])
+            assert_extractions_preserve_behaviour(original, cyclic, ["_a", "_b"])
         message = str(caught.exception)
         self.assertIn("REFUSED", message)
-        self.assertIn("_outer", message)
-        self.assertIn("_inner", message)
+        self.assertIn("CYCLE", message)
 
 
 class CallSiteShapeTests(unittest.TestCase):

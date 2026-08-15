@@ -1318,21 +1318,53 @@ def assert_extractions_preserve_behaviour(
 
     caller = funcs[original.name]
 
-    # Direct siblings only — see the docstring. Inlining happens in the supplied order, so a helper
-    # that calls another helper in the same list would collapse in the wrong order and the round
-    # trip's verdict would depend on argument order rather than on the code.
+    # NESTED EXTRACTIONS, in dependency order. This used to be REFUSED outright, with the refusal
+    # message promising "a real topological order with its own tests" as the fix if it were ever
+    # wanted. It was wanted the first time a helper was extracted around an existing one:
+    # `register_agent`'s console-terminal branch encloses `_adopt_console_terminal_on_register`,
+    # which had already been extracted, so the pair could not be proved together at all.
+    #
+    # The order is what makes it sound. Each helper is fully resolved BEFORE anything inlines it, so
+    # a parent is only ever inlined once its own callees have collapsed into it. Supplied order is
+    # ignored, which is the property the old refusal was protecting: the verdict must depend on the
+    # code, not on how the list happens to be written.
+    parents = {
+        h: [o for o in helper_names if o != h and _helper_call_anywhere(funcs[h], o)]
+        for h in helper_names
+    }
+    order: list[str] = []
+    visiting: set[str] = set()
+
+    def _resolve_order(name: str, trail: tuple[str, ...]) -> None:
+        if name in order:
+            return
+        if name in visiting:
+            raise AssertionError(
+                "REFUSED: the extraction list contains a call CYCLE "
+                f"({' -> '.join(trail + (name,))}). There is no order that inlines each helper after "
+                "its callees, so no round trip can be defined."
+            )
+        visiting.add(name)
+        for callee in parents[name]:
+            _resolve_order(callee, trail + (name,))
+        visiting.discard(name)
+        order.append(name)
+
     for helper_name in helper_names:
-        for other in helper_names:
-            if other != helper_name and _helper_call_anywhere(funcs[helper_name], other):
-                raise AssertionError(
-                    f"REFUSED: {helper_name!r} calls {other!r}, and both are in the same extraction "
-                    "list. This verifier inlines in the order given, not in dependency order, so a "
-                    "nested extraction would be proved in the wrong order. Verify nested helpers "
-                    "separately, or add a real topological order with its own tests."
-                )
+        _resolve_order(helper_name, ())
+
+    # A helper's call site lives in whoever calls it — the original function for a direct
+    # extraction, another helper for a nested one. Every per-helper check below inspects that call
+    # site, so pointing them all at the caller would crash on a nested helper rather than check it.
+    site_of = {
+        h: next((funcs[o] for o in helper_names if o != h and _helper_call_anywhere(funcs[o], h)),
+                caller)
+        for h in helper_names
+    }
 
     for helper_name in helper_names:
         helper = funcs[helper_name]
+        enclosing = site_of[helper_name]
         bad = escapes(_helper_body(helper))
         if bad and not _returns_only_at_tail(helper):
             raise AssertionError(
@@ -1344,35 +1376,42 @@ def assert_extractions_preserve_behaviour(
             raise AssertionError(
                 f"REFUSED [{helper_name}]: the extracted block is not structurally movable:\n  - "
                 + "\n  - ".join(blocked))
-        mismatched = call_signature_violations(caller, helper)
+        mismatched = call_signature_violations(enclosing, helper)
         if mismatched:
             raise AssertionError(
                 f"REFUSED [{helper_name}]: the call does not match the helper's signature:\n  - "
                 + "\n  - ".join(mismatched))
-        unbound = conditionally_bound_argument_violations(caller, helper, module)
+        unbound = conditionally_bound_argument_violations(enclosing, helper, module)
         if unbound:
             raise AssertionError(
                 f"REFUSED [{helper_name}]: the call reads caller locals that may not be bound "
                 "yet:\n  - " + "\n  - ".join(unbound))
-        unpassed = live_in_violations(helper, module, caller)
+        unpassed = live_in_violations(helper, module, enclosing)
         if unpassed:
             raise AssertionError(
                 f"REFUSED [{helper_name}]: the helper reads caller locals it was not given:\n  - "
                 + "\n  - ".join(unpassed))
-        misshapen = call_site_shape_violations(caller, helper)
+        misshapen = call_site_shape_violations(enclosing, helper)
         if misshapen:
             raise AssertionError(
                 f"REFUSED [{helper_name}]: the call site's shape disagrees with the helper's "
                 "tail:\n  - " + "\n  - ".join(misshapen))
-        leaked = live_out_violations(caller, helper)
+        leaked = live_out_violations(enclosing, helper)
         if leaked:
             raise AssertionError(
                 f"REFUSED [{helper_name}]: the split does not hand back every local the caller "
                 "still needs:\n  - " + "\n  - ".join(leaked))
 
+    # Bottom-up: a parent is inlined only after its own callees have collapsed into it.
+    resolved = {h: funcs[h] for h in helper_names}
+    for helper_name in order:
+        for callee in parents[helper_name]:
+            resolved[helper_name] = inline_back(resolved[helper_name], resolved[callee])
+
     rebuilt = caller
-    for helper_name in helper_names:
-        rebuilt = inline_back(rebuilt, funcs[helper_name])
+    for helper_name in order:
+        if _helper_call_anywhere(caller, helper_name):
+            rebuilt = inline_back(rebuilt, resolved[helper_name])
 
     if original.decorator_list:
         if [normalized(d) for d in original.decorator_list] != [normalized(d) for d in rebuilt.decorator_list]:
