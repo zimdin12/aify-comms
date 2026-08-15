@@ -15,8 +15,6 @@ split, which is what made it a clean cut rather than a rearrangement.
 from __future__ import annotations
 
 import json
-import uuid
-from typing import Any
 
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.events import _append_terminal_control, _append_terminal_event

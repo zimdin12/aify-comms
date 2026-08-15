@@ -14,7 +14,7 @@ plane is now a caller.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from service.api_core.managed_env import _managed_console_is_booting
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES

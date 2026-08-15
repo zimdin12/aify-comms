@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Optional
 
 from service.api_core.events import _append_terminal_event  # v0.5.1i: the leaf owner
 from service.api_core.terminal_controls_io import _clear_console_terminal_binding

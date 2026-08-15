@@ -16,7 +16,6 @@ DB ACCESS: `db` is passed in. No connection opened, no commit, no rollback.
 
 from __future__ import annotations
 
-from typing import Any, Optional
 
 from service.api_core.events import _append_terminal_control
 from service.api_core.serialization import _json_loads_or

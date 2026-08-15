@@ -20,9 +20,7 @@ from pathlib import Path
 from fastapi import Request
 
 from service.api_core.routing import domain_router
-from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.ws import _get_ws
-from service.clock import now as _now
 from service.db import get_db
 # Imported for the ANNOTATION. Under postponed evaluation a missing model does not fail import --
 # FastAPI demotes the body to a query param and the endpoint 422s. On a DESTRUCTIVE route that

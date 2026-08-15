@@ -6,19 +6,16 @@ declares NO tags — the parent applies `tags=["api"]` once when api_v2 includes
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any
 
-from fastapi import HTTPException, Query, Request
+from fastapi import HTTPException, Request
 
 from service.api_core.session_mode_gates import (
     _enforce_switch_not_blocked_by_active_run,
     _start_managed_backing_after_switch,
 )
-from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.runtime_state import _runtime_state_replacing_handle, _runtime_state_with_handle
 from service.api_core.session_handle_change import (
     _detect_fresh_start_terminal,
@@ -37,102 +34,30 @@ logger = logging.getLogger("aify_comms.routers.agents.session_mode")
 from service.models import AgentSessionHandleUpdate, AgentSessionModeSwitchRequest
 
 from service.api_core.resume_command import _resume_command_for
-from service.api_core.dispatch_run_state import _append_dispatch_control
-from service.api_core.message_store import _get_unread_count_map
-from service.db_errors import _is_lock_error
-from service.api_core.agent_sessions import _upsert_resident_agent_session
-from service.api_core.bridge_registration import _record_bridge_registration
-from service.api_core.outbound_activity import _get_outbound_activity_map
 from service.routers.agents.shared import (
     DEFAULT_SETTINGS,
-    LIVE_SESSION_STATUSES,
     _SESSION_MODES,
     _agent_record_to_dict,
-    _agent_session_to_dict,
     _agent_tombstone,
-    _append_terminal_control,
-    _append_terminal_event,
-    _borrowed_console_tail_max_bytes,
-    _borrowed_console_tail_max_lines,
-    _borrowed_list_agents_refresh_limit,
-    _borrowed_listen_events,
-    _borrowed_live_session_statuses,
-    _borrowed_manual_statuses,
-    _borrowed_runtime_config_live_keys,
-    _borrowed_shell_placeholder_handle_re,
-    _broadcast_agent_status,
-    _broadcast_engine_status,
-    _clear_status_state_in_turn,
-    _coldstart_refusal_message,
     _compute_agent_status,
     _compute_live_status_cache,
     _default_capabilities_for,
-    _environment_effective_status,
-    _environment_record_to_dict,
-    _fail_active_runs_for_superseded_bridges,
     _get_dispatch_state_for_agent,
-    _get_dispatch_state_map,
     _get_ws,
-    _has_codex_live_app_server,
-    _has_live_terminal_session,
-    _has_pending_or_booting_spawn_request,
-    _invalidate_agent_live_state,
-    _iso_to_epoch,
     _json_loads_or,
-    _live_state_get,
     _load_settings,
-    _managed_owning_environment_row,
-    _managed_via_wrapper_for_runtime,
-    _merge_runtime_policy_for_wrapper_reregister,
     _normalize_machine_id,
     _normalize_runtime,
     _normalize_session_mode,
     _now,
-    _record_channel_sidecar_heartbeat,
-    _record_claimer_lease,
-    _refresh_expired_agent_live_states,
     _render_live_terminal_screen,
-    _render_terminal_snapshot,
-    _repair_unusable_active_runs,
-    _row_status_note,
-    _runtime_capability_for_environment,
     _sanitize_session_handle,
     _session_handle_live_owner,
-    _stop_virtual_terminals_for_superseded_bridges,
-    _synth_terminal_should_be_created,
-    _terminal_failure_line,
-    _terminal_failure_tail,
-    _terminal_session_to_dict,
-    _timestamp_sort_key,
-    _touch_current_agent_session,
-    apply_event,
-    derive,
-    engine_status,
     get_db,
     logger,
-    re,
     sqlite3,
     validate_name,
 )
-from service.api_core.workspace import _workspace_for_environment
-from service.api_core.terminal_ownership import _active_terminal_for_agent
-from service.api_core.dispatch_start import (
-    _coldstart_spawn_request_for_dispatch,
-    _ensure_managed_pty_for_dispatch,
-)
-from service.api_core.registration_gates import (
-    _enforce_env_reachable_gate,
-    _enforce_live_worker_gate,
-    _fresh_same_mode_bridge_conflict,
-    _machine_family,
-    _validate_registration_cwd,
-)
-from service.api_core.agent_terminal_ops import (
-    _request_stop_agent_terminals,
-    _resolve_live_console_terminal,
-)
-from service.api_core.agent_sessions import _adopt_live_resident_driver
-from service.api_core.agent_removal import _remove_agent_record
 
 router = domain_router()
 

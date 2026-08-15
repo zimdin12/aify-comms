@@ -12,17 +12,12 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import time
-from typing import Any, Optional
 
-from fastapi import HTTPException, Query, Request
+from fastapi import Request
 
 from service.api_core.routing import domain_router
 from service.api_core.serialization import _iso_from_ms
-from service.api_core.settings import DEFAULT_SETTINGS, _invalidate_settings_cache, _load_settings
-from service.api_core.ws import _get_ws
-from service.clock import now as _now
 from service.db import get_db
 from service.models import validate_model_shape
 

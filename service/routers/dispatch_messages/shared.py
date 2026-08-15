@@ -18,78 +18,46 @@ Nearly all of it retires with `agents`, the last domain.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import re
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Optional
 
-from fastapi import HTTPException, Query, Request
 
-from service import longpoll
 from service.api_core.reply_expectation import (
     _dispatch_requires_reply,
     _message_type_expects_reply,
 )
 from service.api_core.dispatch_text import _auto_handoff_body_for_run
-from service.api_core.execution_mode import _auto_return_resident_to_managed_if_possible
-from service.api_core.spawn_request_state import _has_claimable_spawn_request
 from service.api_core.events import _append_dispatch_event, _append_terminal_event
-from service.api_core.routing import domain_router
-from service.api_core.runtime import _NATIVE_MANAGED_RUNTIMES, _normalize_runtime, _normalize_session_mode
+from service.api_core.runtime import _normalize_runtime
 from service.api_core.dispatch_text import (  # v0.5.4 owner; re-exported for this package
     _auto_handoff_subject_for_run,
-    _coldstart_refusal_message,
 )
 from service.api_core.reply_contract import (  # v0.5.4 owner; re-exported for this package
     _message_satisfies_reply_contract,
 )
 from service.api_core.serialization import (
-    _clip_text,
     _dedupe_preserve,
     _iso_from_ms,
-    _json_loads_or,
     _quote_untrusted_subject,
-    _row_require_reply,
-    _timestamp_sort_key,
 )
-from service.api_core.capabilities import _managed_via_wrapper_for_runtime
-from service.api_core.settings import DEFAULT_SETTINGS, _load_settings, _managed_terminal_backing_enabled
-from service.api_core.validation import validate_name
-from service.api_core.ws import _get_ws
-from service.api_core.liveness import _has_live_managed_wrapper_child
 from service.api_core.agent_sessions import (
-    _agent_tombstone,
     _touch_agent,
-    _touch_current_agent_session,
 )
-from service.api_core.dispatch_state import _get_dispatch_state_for_agent
-from service.api_core.turn_state import _clear_turn_busy_if_no_open_reply_owing_run
-from service.api_core.recovery_writes import _record_channel_sidecar_heartbeat
-from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
-from service.db import SQLITE_CLAIM_BUSY_TIMEOUT_MS, get_db
-from service.ntfy import notify_operator
+from service.db import get_db
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
-from service.status_engine import apply_event
 
 # Resolved to their REAL owners, asked of the repo rather than guessed:
 from service.api_core.events import _append_terminal_control
-from service.api_core.serialization import _machine_ids_same_host
-from service.db import _NATIVE_MANAGED_RUNTIMES
 from service.api_core.dispatch_run_state import _mark_dispatch_run_answered
-from service.reconcilers.dispatch_lifecycle import _close_steered_contracts_for_parent_run
 from service.reconcilers.dispatch_queue import _close_reconcilable_delivered_runs
 from service.status_engine import VALID_STATUSES
-from service.env_status import environment_effective_status as _environment_effective_status
 # Imported for the ANNOTATION as much as the call: under postponed evaluation an unresolved
 # model name does not fail import, it fails a type-hint gate or a request at runtime.
 from service.models import DispatchClaimRequest
-from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES
-from service.api_core.capabilities import _row_capabilities
 from service.api_core.dispatch_state import _DISPATCH_TERMINAL_STATUSES
 
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.shared")
@@ -213,7 +181,6 @@ from service.api_core.dispatch_runs import _preflight_live_send_recipients  # no
 
 # Was a borrow shim: the owner lived in the control plane, which this module cannot import at
 # module level without a cycle. It moved to service/api_core/dispatch_sweeps.py in v0.5.4.
-from service.api_core.dispatch_sweeps import _run_contract_reminders_once  # noqa: E402
 
 
 

@@ -49,24 +49,22 @@ from fastapi import HTTPException, Query, Request
 from service.db_errors import _is_lock_error
 from service.api_core.dispatch_run_state import _append_dispatch_control
 from service.api_core.active_run_lookup import _get_blocking_active_run
-from service.api_core.spawn_request_state import _has_claimable_spawn_request
 from service.api_core.routing import domain_router
-from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.runtime import _normalize_runtime
 from service.api_core.records import (
     _agent_session_to_dict,
     _environment_record_to_dict,
     _terminal_session_to_dict,
 )
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
-from service.api_core.serialization import _iso_from_ms, _json_loads_or
+from service.api_core.serialization import _json_loads_or
 from service.api_core.capabilities import _default_console_command
 from service.api_core.console_terminal_rows import (
     _insert_pty_console_terminal,
     _insert_virtual_console_terminal,
 )
 from service.api_core.console_capability_gate import _refuse_console_without_terminal_capability
-from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
-from service.api_core.validation import validate_name
+from service.api_core.settings import _load_settings
 from service.api_core.ws import _get_ws
 from service.api_core.session_restart import _prepare_restart_spawn
 from service.api_core.agent_sessions import (
@@ -81,7 +79,6 @@ from service.reconcilers.sessions import _compute_session_display_status
 from service.reconcilers.terminal_consistency import _repair_terminal_session_consistency
 from service.terminal_snapshot import drop_live_screen as _drop_live_terminal_screen
 from service.db import get_db
-from service.env_status import environment_effective_status as _environment_effective_status
 # Imported for ANNOTATIONS as well as calls. Under postponed evaluation a missing model does not
 # fail import -- FastAPI demotes the body to a query param and the route 422s at request time.
 from service.models import ConsoleStartRequest, SessionControlRequest
@@ -90,11 +87,8 @@ from service.reconcilers.status_cache import invalidate_agent_live_state as _inv
 from service.api_core.spawn_requests_io import _spawn_request_to_dict, _spawn_spec_to_dict
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
 from service.api_core.workspace import (
-    _normalize_workspace_for_environment,
     _workspace_for_environment,
-    _workspace_root_for,
 )
-from service.api_core.dispatch_start import _coldstart_spawn_request_for_dispatch
 from service.api_core.tuning import _SESSION_DELETE_ALLOWED_STATUSES
 
 logger = logging.getLogger("aify_comms.routers.sessions")

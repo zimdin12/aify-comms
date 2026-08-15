@@ -19,7 +19,6 @@ from __future__ import annotations
 import time
 from typing import Any, Optional
 
-from service.api_core.spawn_request_state import _has_claimable_spawn_request
 from service.api_core.records import _environment_record_to_dict
 from service.api_core.runtime import (
     _normalize_runtime,

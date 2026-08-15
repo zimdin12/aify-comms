@@ -46,7 +46,6 @@ from service.api_core.running_spawn import _settle_running_spawn
 from service.api_core.routing import domain_router
 from service.api_core.runtime import (
     _normalize_runtime,
-    _normalize_session_mode,
     _runtime_capability_for_environment,
 )
 from service.api_core.records import _environment_record_to_dict
@@ -54,10 +53,8 @@ from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
-from service.db import SQLITE_CLAIM_BUSY_TIMEOUT_MS, get_db
-from service.env_status import environment_effective_status as _environment_effective_status
+from service.db import get_db
 from service.models import SpawnRequestClaim, SpawnRequestCreate, SpawnRequestUpdate
-from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 from service.api_core.workspace import _normalize_workspace_for_environment, _workspace_root_for
 from service.api_core.spawn_requests_io import (
     _claim_spawn_request_once,

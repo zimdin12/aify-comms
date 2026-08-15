@@ -21,9 +21,7 @@ from __future__ import annotations
 
 import logging
 import time
-import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
 
 from service.terminal_diagnostics import meaningful_failure_line as _terminal_failure_line
 from service.clock import now as _now

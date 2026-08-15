@@ -24,10 +24,9 @@ from __future__ import annotations
 import json
 import logging
 import time
-import uuid
 from typing import Any, Optional
 
-from fastapi import HTTPException, Query, Request
+from fastapi import HTTPException, Request
 
 
 from service import longpoll
@@ -35,20 +34,17 @@ from service.api_core.events import _append_terminal_control, _append_terminal_e
 from service.api_core.terminal_control_status import _apply_terminal_status_from_control
 from service.api_core.terminal_snapshot_view import _attach_terminal_snapshot
 from service.api_core.routing import domain_router
-from service.api_core.runtime import _normalize_session_mode
 from service.api_core.records import _terminal_session_to_dict
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
-from service.api_core.serialization import _iso_from_ms, _json_loads_or
-from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
+from service.api_core.settings import _load_settings
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
-from service.db import SQLITE_CLAIM_BUSY_TIMEOUT_MS, get_db
+from service.db import get_db
 from service.env_status import environment_effective_status as _environment_effective_status
 from service.reconcilers.terminal_runs import _close_active_terminal_runs_for_terminal
 from service.terminal_snapshot import (
     TERMINAL_MAX_COLS,
     TERMINAL_MAX_ROWS,
-    feed_live_screen as _feed_live_terminal_screen,
     resize_live_screen as _resize_live_terminal_screen,
 )
 # Imported for ANNOTATIONS as well as calls: under postponed evaluation a missing model does not

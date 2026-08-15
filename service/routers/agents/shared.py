@@ -7,21 +7,14 @@ anything another module already borrows from the router stays borrowed here too.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import time
-import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any
 
-from fastapi import HTTPException, Query, Request
 
 from service.api_core.liveness import _LIVE_SESSION_STATUSES
-from service.api_core.execution_mode import _auto_return_resident_to_managed_if_possible
-from service.api_core.routing import domain_router
 
-from service.api_core.events import _append_dispatch_event
 from service.api_core.events import _append_terminal_control
 from service.api_core.events import _append_terminal_event
 from service.api_core.runtime import _normalize_runtime
@@ -32,13 +25,8 @@ from service.api_core.records import (
     _environment_record_to_dict,
     _terminal_session_to_dict,
 )
-from service.api_core.dispatch_text import (  # v0.5.4 owner; re-exported for this package
-    _coldstart_refusal_message,
-)
-from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 from service.api_core.serialization import _json_loads_or
 from service.api_core.serialization import _normalize_machine_id
-from service.api_core.serialization import _timestamp_sort_key
 from service.api_core.capabilities import (  # re-exported for this package's modules
     _default_capabilities_for,
     _managed_via_wrapper_for_runtime,
@@ -48,7 +36,6 @@ from service.api_core.settings import _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.vocabulary import SESSION_MODES as _SESSION_MODES
 from service.api_core.ws import _get_ws
-from service.api_core.liveness import _has_live_terminal_session
 from service.api_core.agent_sessions import (
     _agent_tombstone,
     _session_handle_live_owner,
@@ -58,18 +45,13 @@ from service.api_core.dispatch_state import _get_dispatch_state_for_agent, _get_
 from service.api_core.turn_state import _clear_status_state_in_turn
 from service.api_core.managed_env import (
     _has_pending_or_booting_spawn_request,
-    _managed_owning_environment_row,
 )
-from service.api_core.recovery_writes import _record_channel_sidecar_heartbeat
-from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
 from service.db import get_db
-from service.env_status import environment_effective_status as _environment_effective_status
 from service.reconcilers.managed_workers import _repair_unusable_active_runs
 from service.reconcilers.sessions import LIVE_SESSION_STATUSES
 from service.reconcilers.status_cache import _live_state_get
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
-from service.status_engine import apply_event
 from service.status_engine import derive
 from service.terminal_diagnostics import failure_tail as _terminal_failure_tail
 from service.terminal_diagnostics import meaningful_failure_line as _terminal_failure_line
@@ -77,11 +59,6 @@ from service.terminal_snapshot import render_live_screen as _render_live_termina
 from service.terminal_snapshot import render_snapshot as _render_terminal_snapshot
 import re
 import sqlite3
-from service.api_core.capabilities import _has_codex_live_app_server
-from service.api_core.bridge_supersede import (
-    _fail_active_runs_for_superseded_bridges,
-    _stop_virtual_terminals_for_superseded_bridges,
-)
 
 logger = logging.getLogger("aify_comms.routers.agents.shared")
 

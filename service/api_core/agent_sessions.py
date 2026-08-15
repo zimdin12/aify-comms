@@ -25,11 +25,7 @@ import time
 import uuid
 from typing import Any, Optional
 
-from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.runtime import _normalize_session_mode
-from service.api_core.serialization import _json_loads_or
-from service.api_core.events import _append_terminal_control, _append_terminal_event
-from service.api_core.runtime_state import _runtime_state_with_handle
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
 

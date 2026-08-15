@@ -21,7 +21,6 @@ from typing import Any, Optional
 
 from service.api_core.capabilities import (
     _has_codex_live_app_server,
-    _has_hermes_gateway_url,
     _managed_via_wrapper_for_runtime,
     _row_capabilities,
 )

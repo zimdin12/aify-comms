@@ -30,7 +30,7 @@ DB ACCESS: `db` passed in, no connection opened, no commit, no rollback.
 
 from __future__ import annotations
 
-from typing import Any, NamedTuple, Optional
+from typing import Any, NamedTuple
 
 from service.api_core.agent_sessions import _current_agent_session_row
 from service.api_core.liveness import (
@@ -41,9 +41,8 @@ from service.api_core.liveness import (
 )
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
-from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
+from service.api_core.settings import DEFAULT_SETTINGS
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
-from service.clock import iso_to_epoch as _iso_to_epoch
 
 
 _CHANNEL_MANAGED_RUNTIMES = {"claude-code"}

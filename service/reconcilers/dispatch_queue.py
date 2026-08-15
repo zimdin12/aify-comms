@@ -31,7 +31,6 @@ import json
 import logging
 import time
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Optional
 
 from service.api_core.reconcilable_runs_query import _select_reconcilable_delivered_runs
@@ -54,7 +53,6 @@ from service.api_core.liveness import (
 )
 from service.api_core.managed_env import _has_pending_or_booting_spawn_request
 from service.clock import now as _now
-from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 from service.api_core.channel_delivery import (
     _CHANNEL_FLAG_GATED_RUNTIMES,

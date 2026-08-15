@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent

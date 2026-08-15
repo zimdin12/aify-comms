@@ -8,7 +8,6 @@ A leaf module: it imports nothing from the service.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 # Which stored statuses mean "this environment has been heartbeating". Moved with the function that
 # reads it, in slice 2 — a constant is a dependency exactly as much as a function call is, and my

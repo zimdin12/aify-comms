@@ -23,7 +23,6 @@ import itertools
 import json
 import time
 import uuid
-from typing import Any, Optional
 
 from service.clock import now as _now
 

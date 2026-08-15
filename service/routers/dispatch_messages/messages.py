@@ -18,124 +18,59 @@ Local helpers are used by message handlers and nothing else; anything shared wit
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import re
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import HTTPException, Query, Request
 
-from service import longpoll
-from service.api_core.spawn_request_state import _has_claimable_spawn_request
-from service.api_core.events import _append_dispatch_event, _append_terminal_event
 from service.api_core.inbox_read_receipts import _settle_inbox_read
 from service.api_core.reply_expectation import (
     _dispatch_requires_reply,
     _message_type_expects_reply,
 )
 from service.api_core.routing import domain_router
-from service.api_core.runtime import _NATIVE_MANAGED_RUNTIMES, _normalize_runtime, _normalize_session_mode
-from service.api_core.dispatch_text import COLDSTART_REFUSED_PREFIX
+from service.api_core.runtime import _normalize_runtime
 from service.api_core.serialization import (
     _clip_text,
-    _dedupe_preserve,
-    _iso_from_ms,
-    _json_loads_or,
-    _quote_untrusted_subject,
-    _row_require_reply,
-    _timestamp_sort_key,
 )
-from service.api_core.settings import DEFAULT_SETTINGS, _load_settings, _managed_terminal_backing_enabled
+from service.api_core.settings import _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
-from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
-from service.db import SQLITE_CLAIM_BUSY_TIMEOUT_MS, get_db
+from service.db import get_db
 from service.ntfy import notify_operator
-from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
-from service.status_engine import apply_event
 
 # Imported for ANNOTATIONS as well as calls -- see the note in dispatch.py.
 from service.models import ConversationClearRequest, MessageSend
-from service.api_core.agent_sessions import (
-    _agent_tombstone,
-    _touch_current_agent_session,
-)
-from service.api_core.dispatch_state import _get_dispatch_state_for_agent
-from service.api_core.recovery_writes import _record_channel_sidecar_heartbeat
-from service.api_core.serialization import _machine_ids_same_host
 from service.api_core.dispatch_launch import _launch_recipients_for_dispatch
 from service.api_core.dispatch_run_state import (
-    _append_dispatch_control,
     _cancel_queued_dispatch_runs_for_message_ids,
     _finalize_dispatch_runs,
-    _mark_dispatch_run_answered,
 )
 from service.api_core.message_view import _serialize_inbox_message
 from service.api_core.message_store import _delete_messages_by_ids
 from service.api_core.validation import _reject_sender_truncated_body
 from service.routers.dispatch_messages.shared import (
-    VALID_STATUSES,
-    _append_terminal_control,
-    _auto_handoff_subject_for_run,
-    _borrowed_unthreaded_handoff_window_ms,
-    _clear_turn_busy_if_no_open_reply_owing_run,
     _close_reconcilable_delivered_runs,
-    _close_steered_contracts_for_parent_run,
-    _coldstart_refusal_message,
-    _console_dispatch_input_body,
     _create_dispatch_runs,
     _delete_messages_where,
     _get_recipient_info,
-    _has_live_managed_wrapper_child,
-    _is_replaceable_auto_handoff_message,
     _link_reply_message_to_dispatch_run,
     _link_unthreaded_reply_to_recent_dispatch_run,
     _queue_console_dispatch_inputs,
-    _managed_via_wrapper_for_runtime,
-    _message_satisfies_reply_contract,
-    _mirror_missing_dispatch_handoff,
     _preflight_live_send_recipients,
     _primary_result_message_id,
-    _record_terminal_delivery_contract,
     _resolve_recipient_ids,
     _resolve_reply_parent_message_id,
-    _run_contract_reminders_once,
     _touch_agent,
     _wake_agent,
 )
-from service.api_core.channel_delivery import _CHANNEL_MANAGED_RUNTIMES
 from service.api_core.channel_delivery import (
     _apply_channel_routing_to_claude_runs,
-    _insert_messages_via_console,
 )
-from service.api_core.terminal_ownership import _active_terminal_for_agent
-from service.api_core.dispatch_start import (
-    _coldstart_spawn_request_for_dispatch,
-    _ensure_managed_pty_for_dispatch,
-)
-from service.api_core.active_run_discard import _fail_pending_controls_for_run
-from service.api_core.execution_mode import _agent_execution_mode, _auto_return_resident_to_managed_if_possible
-from service.api_core.reply_contract import (
-    _dispatch_reply_pending,
-    _dispatch_reply_state,
-)
-from service.api_core.dispatch_text import _pending_dispatch_count
-from service.api_core.dispatch_state import _is_delivery_only_claude_run
-from service.api_core.claim_gating import (
-    _bridge_claim_block_reason,
-    _dispatch_conversation_context,
-    _has_claimable_steerable_run,
-    _release_stale_console_owner_for_claim,
-    _turn_busy_holds_delivery,
-)
-from service.api_core.claim_gating import _mark_dispatch_source_messages_read
-from service.api_core.agent_sessions import _adopt_live_resident_driver
-from service.api_core.dispatch_hint import _dispatch_fix_hint
 
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.messages")
 

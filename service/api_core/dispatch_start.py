@@ -39,45 +39,28 @@ import time
 import uuid
 from typing import Any, Optional
 
-from fastapi import HTTPException
 
 from service.api_core.agent_sessions import _session_handle_live_owner
 from service.api_core.capabilities import (
     _default_console_command,
     _environment_supports_terminal,
-    _managed_via_wrapper_for_runtime,
 )
-from service.api_core.channel_delivery import (
-    _CHANNEL_MANAGED_RUNTIMES,
-    _insert_messages_via_console,
-)
-from service.api_core.claim_gating import _turn_busy_holds_delivery
-from service.api_core.dispatch_hint import _dispatch_fix_hint
-from service.api_core.dispatch_state import _get_dispatch_state_for_agent
-from service.api_core.dispatch_text import COLDSTART_REFUSED_PREFIX, _coldstart_refusal_message
+from service.api_core.dispatch_text import COLDSTART_REFUSED_PREFIX
 from service.api_core.events import (
     _append_terminal_control,
     _append_terminal_event,
 )
-from service.api_core.execution_mode import (
-    _agent_execution_mode,
-    _auto_return_resident_to_managed_if_possible,
-)
-from service.api_core.liveness import _has_live_managed_wrapper_child
 from service.api_core.managed_env import (
     _has_pending_or_booting_spawn_request,
-    _managed_environment_unavailable_reason,
     _select_online_environment_for_runtime,
 )
 from service.api_core.records import _environment_record_to_dict
 from service.api_core.runtime import (
-    _NATIVE_MANAGED_RUNTIMES,
     _normalize_runtime,
     _runtime_capability_for_environment,
 )
 from service.api_core.serialization import _json_loads_or
-from service.api_core.settings import _load_settings, _managed_terminal_backing_enabled
-from service.api_core.spawn_request_state import _has_claimable_spawn_request
+from service.api_core.settings import _load_settings
 from service.api_core.terminal_ownership import _active_terminal_for_agent
 from service.api_core.workspace import _workspace_for_environment
 from service.clock import now as _now

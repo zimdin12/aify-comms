@@ -19,9 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
 
 from service.api_core.serialization import _json_loads_or  # v0.5.1c: the leaf owner, not via the router
 from service.api_core.events import (

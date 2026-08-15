@@ -21,10 +21,8 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Optional
 
 from service.clock import now as _now
-from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 
 
