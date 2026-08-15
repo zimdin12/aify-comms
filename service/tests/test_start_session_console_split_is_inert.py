@@ -27,15 +27,27 @@ from service.tests.extract_method import assert_extractions_preserve_behaviour
 REPO = Path(__file__).resolve().parent.parent.parent
 SESSIONS = REPO / "service" / "routers" / "sessions.py"
 GATE = REPO / "service" / "api_core" / "console_capability_gate.py"
+#: The two terminal_sessions inserts moved together, into a module of their own rather than
+#: beside the gate: they refuse nothing, and the point of the move was to put the TWINS side
+#: by side where their duplication is visible.
+ROWS = REPO / "service" / "api_core" / "console_terminal_rows.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "start_session_console_before_split.py"
 
 SOURCE_FUNCTION = "start_session_console"
-EXTRACTIONS = ["_refuse_console_without_terminal_capability"]
+EXTRACTIONS = [
+    "_refuse_console_without_terminal_capability",
+    "_insert_virtual_console_terminal",
+    "_insert_pty_console_terminal",
+]
 
 #: Where each helper is expected to be declared. PER HELPER, over every module below.
-OWNERS = {"_refuse_console_without_terminal_capability": GATE}
+OWNERS = {
+    "_refuse_console_without_terminal_capability": GATE,
+    "_insert_virtual_console_terminal": ROWS,
+    "_insert_pty_console_terminal": ROWS,
+}
 
-MODULES = (SESSIONS, GATE)
+MODULES = (SESSIONS, GATE, ROWS)
 
 
 def _combined_split_source() -> str:
@@ -87,15 +99,20 @@ class StartSessionConsoleSplitIsInertTests(unittest.TestCase):
             owners = [path for path in MODULES if helper in _declared(path)]
             self.assertEqual([owner], owners, f"{helper} must be declared exactly once, in {owner.name}")
 
-    def test_the_leaf_does_not_import_upward(self):
-        """An api_core leaf reaching into a router — or the control plane — is the cycle to prevent."""
-        for node in ast.walk(ast.parse(GATE.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                self.assertFalse(
-                    node.module.startswith("service.routers")
-                    or node.module == "service.control_plane",
-                    f"console_capability_gate.py imports upward from {node.module}",
-                )
+    def test_the_leaves_do_not_import_upward(self):
+        """An api_core leaf reaching into a router — or the control plane — is the cycle to prevent.
+
+        Over EVERY leaf. Naming one module is how this check goes quietly blind the moment a second
+        helper lands somewhere else, which is exactly what happened here.
+        """
+        for leaf in (GATE, ROWS):
+            for node in ast.walk(ast.parse(leaf.read_text(encoding="utf-8"))):
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    self.assertFalse(
+                        node.module.startswith("service.routers")
+                        or node.module == "service.control_plane",
+                        f"{leaf.name} imports upward from {node.module}",
+                    )
 
     def test_BOTH_refusal_branches_survive_with_their_distinct_remedies(self):
         """The reason this block is worth extracting at all, asserted so it cannot quietly collapse.

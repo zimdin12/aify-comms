@@ -38,8 +38,13 @@ EXPECTED_SITE_COUNT = 4
 
 TABLE = "INSERT INTO terminal_sessions"
 
-SESSIONS = SERVICE / "routers" / "sessions.py"
-CONSOLE_START = "start_session_console"
+#: v0.5.4: both inserts LEFT `start_session_console` for a leaf of their own, precisely so the
+#: duplication this file pins would be visible instead of sitting ninety lines apart inside a
+#: 292-line handler. The pair is now two sibling functions, so the twins are found by NAME rather
+#: than by walking one handler.
+ROWS = SERVICE / "api_core" / "console_terminal_rows.py"
+VIRTUAL_TWIN = "_insert_virtual_console_terminal"
+PTY_TWIN = "_insert_pty_console_terminal"
 
 #: (line as it appears in the VIRTUAL RPC insert, line as it appears in the REAL PTY insert).
 #: Compared stripped, so indentation between the two branches does not register as divergence.
@@ -78,27 +83,30 @@ def _column_list(sql: str) -> list[str]:
 
 
 def _console_insert_bodies() -> tuple[list[str], list[str]]:
-    """The two `db.execute(INSERT ...)` calls inside `start_session_console`, stripped.
+    """The two `db.execute(INSERT ...)` bodies, stripped, virtual first then real PTY.
 
-    Returned in source order, which is the virtual RPC branch first and the real PTY second.
+    Compared STRIPPED because the two live at different columns in the leaf -- each body was moved at
+    its original indentation so the SQL literals inside stayed byte-identical, which is what let the
+    extract-method round trip close. Indentation is therefore not divergence here.
     """
-    source = SESSIONS.read_text(encoding="utf-8").replace("\r\n", "\n")
-    lines = source.split("\n")
-    handler = next(
-        n for n in ast.parse(source).body
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == CONSOLE_START
-    )
-    bodies = []
-    for node in ast.walk(handler):
-        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "execute" and node.args):
-            continue
-        first = node.args[0]
-        if isinstance(first, ast.Constant) and isinstance(first.value, str) and TABLE in first.value:
-            bodies.append((node.lineno, [
-                line.strip() for line in lines[node.lineno - 1:node.end_lineno] if line.strip()
-            ]))
-    return tuple(body for _, body in sorted(bodies))  # type: ignore[return-value]
+    source = ROWS.read_text(encoding="utf-8")
+    lines = source.splitlines()
+    tree = ast.parse(source)
+
+    def body(function_name: str) -> list[str]:
+        fn = next(
+            n for n in tree.body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == function_name
+        )
+        call = next(
+            n for n in ast.walk(fn)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "execute" and n.args
+            and isinstance(n.args[0], ast.Constant) and TABLE in n.args[0].value
+        )
+        return [l.strip() for l in lines[call.lineno - 1:call.end_lineno] if l.strip()]
+
+    return body(VIRTUAL_TWIN), body(PTY_TWIN)
 
 
 class TerminalSessionInsertsAgreeTests(unittest.TestCase):

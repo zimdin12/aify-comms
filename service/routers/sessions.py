@@ -60,6 +60,10 @@ from service.api_core.records import (
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 from service.api_core.serialization import _iso_from_ms, _json_loads_or
 from service.api_core.capabilities import _default_console_command
+from service.api_core.console_terminal_rows import (
+    _insert_pty_console_terminal,
+    _insert_virtual_console_terminal,
+)
 from service.api_core.console_capability_gate import _refuse_console_without_terminal_capability
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import validate_name
@@ -493,30 +497,9 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
             bridge_id = str(environment.get("bridgeId") or "").strip()
             virtual_command = VIRTUAL_RPC_COMMANDS_BY_RUNTIME["pi"]
             requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
-            await db.execute(
-                """
-                INSERT INTO terminal_sessions (
-                    id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command,
-                    output, status, requested_by, created_at, updated_at, stopped_at, error
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    terminal_id,
-                    session_id,
-                    session["agent_id"],
-                    session["environment_id"],
-                    bridge_id,
-                    session["runtime"],
-                    workspace,
-                    virtual_command,
-                    "",
-                    "running",
-                    requested_by,
-                    now,
-                    now,
-                    None,
-                    "",
-                ),
+            await _insert_virtual_console_terminal(
+                db, terminal_id, session_id, session, bridge_id, workspace, virtual_command,
+                requested_by, now,
             )
             await _append_terminal_event(
                 db,
@@ -579,30 +562,8 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
         command = str(req.command or "").strip() or _default_console_command(session, workspace, interactive=True)
         requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
         bridge_id = str(environment.get("bridgeId") or "").strip()
-        await db.execute(
-            """
-            INSERT INTO terminal_sessions (
-                id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command,
-                output, status, requested_by, created_at, updated_at, stopped_at, error
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                terminal_id,
-                session_id,
-                session["agent_id"],
-                session["environment_id"],
-                bridge_id,
-                session["runtime"],
-                workspace,
-                command,
-                "",
-                "starting",
-                requested_by,
-                now,
-                now,
-                None,
-                "",
-            ),
+        await _insert_pty_console_terminal(
+            db, terminal_id, session_id, session, bridge_id, workspace, command, requested_by, now,
         )
         await _append_terminal_event(
             db,
