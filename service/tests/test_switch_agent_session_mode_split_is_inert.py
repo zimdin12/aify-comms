@@ -38,6 +38,10 @@ ENV_BINDING = REPO / "service" / "api_core" / "session_mode_env_binding.py"
 #: The audit trail got its own module too: it neither refuses nor derives, it RECORDS, and
 #: the synthetic-run workaround it carries deserves to be explained where it lives.
 AUDIT = REPO / "service" / "api_core" / "session_mode_audit.py"
+#: v0.5.4: the UPDATE itself got its own module, beside the gates that guard it rather
+#: than inside them — a gate module that also performs the mutation it gates is the
+#: arrangement those earlier splits existed to undo.
+WRITES = REPO / "service" / "api_core" / "session_mode_writes.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "switch_agent_session_mode_before_split.py"
 
 SOURCE_FUNCTION = "switch_agent_session_mode"
@@ -49,6 +53,7 @@ EXTRACTIONS = [
     "_start_managed_backing_after_switch",
     "_infer_environment_binding_for_managed_switch",
     "_record_session_mode_switch_audit",
+    "_apply_session_mode_switch_to_agent",
 ]
 
 #: Where each helper is expected to be declared. Asserted PER HELPER and over every module below, so a
@@ -58,9 +63,10 @@ OWNERS = {
     "_start_managed_backing_after_switch": GATES,
     "_infer_environment_binding_for_managed_switch": ENV_BINDING,
     "_record_session_mode_switch_audit": AUDIT,
+    "_apply_session_mode_switch_to_agent": WRITES,
 }
 
-MODULES = (SESSION_MODE, GATES, ENV_BINDING, AUDIT)
+MODULES = (SESSION_MODE, GATES, ENV_BINDING, AUDIT, WRITES)
 
 
 def _combined_split_source() -> str:

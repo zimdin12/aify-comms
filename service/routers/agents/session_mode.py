@@ -23,6 +23,7 @@ from service.api_core.session_handle_change import (
     _detect_fresh_start_terminal,
     _mirror_handle_onto_live_session,
 )
+from service.api_core.session_mode_writes import _apply_session_mode_switch_to_agent
 from service.api_core.session_mode_audit import _record_session_mode_switch_audit
 from service.api_core.session_mode_env_binding import _infer_environment_binding_for_managed_switch
 from service.api_core.status_events import _apply_status_event
@@ -383,47 +384,11 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             if new_mode == "resident"
             else str(row["cwd"] or "")
         )
-        await db.execute(
-            """
-            UPDATE agents
-            SET session_mode = ?,
-                runtime = ?,
-                launch_mode = ?,
-                session_handle = ?,
-                machine_id = ?,
-                cwd = ?,
-                capabilities = ?,
-                runtime_config = ?,
-                runtime_state = ?,
-                driver_state = ?,
-                status = CASE WHEN status = 'stopped' THEN 'idle' ELSE status END,
-                status_note = ?,
-                last_seen = ?
-            WHERE id = ?
-            """,
-            (
-                new_mode,
-                effective_runtime,
-                next_launch_mode,
-                switch_session_handle,
-                next_machine_id,
-                next_cwd,
-                json.dumps(capabilities),
-                json.dumps(runtime_config),
-                json.dumps(runtime_state),
-                # Switching TO resident while adopting a LIVE resident bridge keeps that
-                # session as the active driver. The previous unconditional 'idle' clobbered
-                # the 'driving' the just-registered resident session had set, so its OWN
-                # channel sidecar was told to RELEASE on its next claim/heartbeat and
-                # resident delivery silently died — sends said "sent", runs queued forever
-                # (sc-manager, 2026-06-12: launch terminal first, click switch second).
-                ("driving" if (new_mode == "resident" and str(resident_candidate.get("bridgeId") or "").strip()) else "idle"),
-                f"Manually switched from {current_mode} to {new_mode} by {requested_by}"
-                + (f" (runtime {runtime}->{effective_runtime})" if effective_runtime != runtime else "")
-                + ".",
-                now,
-                agent_id,
-            ),
+        await _apply_session_mode_switch_to_agent(
+            db, agent_id, new_mode, current_mode,
+            runtime, effective_runtime, runtime_config, runtime_state,
+            capabilities, switch_session_handle, next_cwd, next_launch_mode,
+            next_machine_id, resident_candidate, requested_by, now,
         )
         await _record_session_mode_switch_audit(
             db, agent_id, current_mode, new_mode, effective_runtime, requested_by, now
