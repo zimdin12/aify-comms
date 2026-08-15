@@ -466,7 +466,8 @@ from service.api_core.vocabulary import (
 # _bridge_is_superseded moved to service/api_core/liveness.py in v0.5.4.
 
 
-# _active_wrapper_terminal_id moved to service/api_core/claim_gating.py in v0.5.4.
+# _active_wrapper_terminal_id moved to service/api_core/claim_gating.py in v0.5.4, then on to
+# service/api_core/claim_block_reason.py.
 
 
 # _ANSI_RE was declared HERE as well until v0.5.3, with a NARROWER pattern that did not strip
@@ -479,14 +480,17 @@ from service.api_core.vocabulary import (
 # _terminal_text_compact moved to service/api_core/terminal_text.py in v0.5.4.
 
 
-# _hermes_terminal_still_resuming moved to service/api_core/claim_gating.py in v0.5.4.
+# _hermes_terminal_still_resuming moved to service/api_core/claim_gating.py in v0.5.4, then on to
+# service/api_core/claim_block_reason.py.
 
 
-# _active_wrapper_terminal_not_ready_reason moved to service/api_core/claim_gating.py in v0.5.4.
+# _active_wrapper_terminal_not_ready_reason moved to service/api_core/claim_gating.py in v0.5.4, then on to
+# service/api_core/claim_block_reason.py.
 
 
 # _bridge_claim_block_reason moved to service/routers/dispatch_messages/shared.py in v0.5.3, then on
-# to service/api_core/claim_gating.py in v0.5.4.
+# to service/api_core/claim_gating.py in v0.5.4, then on to
+# service/api_core/claim_block_reason.py.
 
 
 

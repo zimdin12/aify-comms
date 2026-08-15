@@ -40,8 +40,8 @@ from service.api_core.agent_sessions import (
     _touch_current_agent_session,
 )
 from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES
+from service.api_core.claim_block_reason import _bridge_claim_block_reason
 from service.api_core.claim_gating import (
-    _bridge_claim_block_reason,
     _dispatch_conversation_context,
     _has_claimable_steerable_run,
     _mark_dispatch_source_messages_read,

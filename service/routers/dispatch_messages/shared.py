@@ -46,7 +46,8 @@ logger = logging.getLogger("aify_comms.routers.dispatch_messages.shared")
 
 
 
-# _bridge_claim_block_reason moved to service/api_core/claim_gating.py in v0.5.4.
+# _bridge_claim_block_reason moved to service/api_core/claim_gating.py in v0.5.4, then on to
+# service/api_core/claim_block_reason.py.
 
 
 # _dispatch_conversation_context moved to service/api_core/claim_gating.py in v0.5.4.
