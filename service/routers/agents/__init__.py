@@ -16,6 +16,7 @@ from service.routers.agents.session_lease import router as _session_lease_router
 from service.routers.agents.session_ops import router as _session_ops_router
 from service.routers.agents.session_mode import router as _session_mode_router
 from service.routers.agents.liveness import router as _liveness_router
+from service.routers.agents.turn_boundaries import router as _turn_boundaries_router
 
 router = domain_router()
 router.include_router(_config_router)
@@ -29,3 +30,5 @@ router.include_router(_session_ops_router)
 router.include_router(_session_lease_router)
 router.include_router(_session_mode_router)
 router.include_router(_liveness_router)
+# The turn-boundary pair left `liveness.py` in v0.5.4, still in first-appearance order.
+router.include_router(_turn_boundaries_router)
