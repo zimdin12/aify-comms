@@ -28,6 +28,11 @@ from service.config import get_config
 # `import mcp` resolves to the PyPI distribution the line above imports FastMCP from, which is why
 # `service/main.py` loads THIS file by path instead of importing it. See `service/sse/__init__.py`.
 from service.sse.api_client import api as _api, api_url as _api_url  # noqa: F401
+from service.sse.container_tools import (
+    bind_app as _bind_container_app,
+    get_manager as _get_manager,
+    register as _register_container_tools,
+)
 from service.sse.rendering import SAFETY_HEADER, fence as _fence
 
 logger = logging.getLogger(__name__)
@@ -39,17 +44,6 @@ client_name_var: ContextVar[str] = ContextVar("client_name", default="unknown")
 # Create MCP server instance
 config = get_config()
 mcp_server = FastMCP(config.name)
-
-# Reference to the FastAPI app (set during setup)
-_app = None
-
-
-def _get_manager():
-    """Get container manager from app state."""
-    if _app is None:
-        return None
-    return getattr(_app.state, "container_manager", None)
-
 
 # ---------------------------------------------------------------------------
 # Service Tools
@@ -87,72 +81,11 @@ async def service_health() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Container Management Tools
+# Container Management Tools — declared in service/sse/container_tools.py, registered here so they
+# land on this server in the position they always occupied.
 # ---------------------------------------------------------------------------
 
-@mcp_server.tool()
-async def list_containers() -> dict:
-    """List all managed sub-containers, their status, GPU allocation, and URLs."""
-    manager = _get_manager()
-    if not manager:
-        return {"error": "No container manager configured"}
-    return {
-        "containers": manager.list_containers(),
-        "groups": manager.get_groups(),
-    }
-
-
-@mcp_server.tool()
-async def start_container(name: str) -> dict:
-    """
-    Start a managed sub-container by name. If already running, returns current state.
-    If the container is shared with another, starts the target container instead.
-    """
-    manager = _get_manager()
-    if not manager:
-        return {"error": "No container manager configured"}
-    if name not in manager.definitions:
-        return {"error": f"Unknown container: {name}", "available": list(manager.definitions.keys())}
-    try:
-        state = await manager.start_container(name)
-        return {"status": state.status.value, "url": state.internal_url}
-    except Exception as e:
-        return {"error": str(e)}
-
-
-@mcp_server.tool()
-async def stop_container(name: str) -> dict:
-    """Stop a running sub-container by name."""
-    manager = _get_manager()
-    if not manager:
-        return {"error": "No container manager configured"}
-    if name not in manager.definitions:
-        return {"error": f"Unknown container: {name}"}
-    try:
-        await manager.stop_container(name)
-        return {"status": "stopped", "name": name}
-    except Exception as e:
-        return {"error": str(e)}
-
-
-@mcp_server.tool()
-async def gpu_status() -> dict:
-    """Get GPU device allocation status showing which containers are using which GPUs."""
-    manager = _get_manager()
-    if not manager:
-        return {"error": "No container manager configured"}
-    return manager.gpu.get_status()
-
-
-@mcp_server.tool()
-async def container_logs(name: str, tail: int = 50) -> str:
-    """Get recent logs from a managed sub-container."""
-    manager = _get_manager()
-    if not manager:
-        return "No container manager configured"
-    if name not in manager.definitions:
-        return f"Unknown container: {name}"
-    return manager.get_container_logs(name, tail=tail)
+_register_container_tools(mcp_server)
 
 
 # ---------------------------------------------------------------------------
@@ -677,8 +610,7 @@ async def comms_dashboard() -> str:
 
 def setup_mcp_server(app):
     """Mount the MCP server onto the FastAPI app."""
-    global _app
-    _app = app
+    _bind_container_app(app)
     cfg = get_config()
 
     # Get the SSE app from FastMCP
