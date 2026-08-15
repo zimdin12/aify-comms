@@ -27,15 +27,24 @@ from service.tests.extract_method import assert_extractions_preserve_behaviour
 REPO = Path(__file__).resolve().parent.parent.parent
 ENVIRONMENTS = REPO / "service" / "routers" / "environments.py"
 STOPS = REPO / "service" / "api_core" / "superseded_bridge_stops.py"
+#: The upsert got its own module: it records, it refuses nothing, and the two-statement
+#: relationship it carries deserves to be explained where it lives.
+REGISTRATION = REPO / "service" / "api_core" / "environment_registration.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "environment_heartbeat_before_split.py"
 
 SOURCE_FUNCTION = "environment_heartbeat"
-EXTRACTIONS = ["_queue_stop_for_superseded_bridge"]
+EXTRACTIONS = [
+    "_queue_stop_for_superseded_bridge",
+    "_record_environment_registration",
+]
 
 #: Where each helper is expected to be declared. PER HELPER, over every module below.
-OWNERS = {"_queue_stop_for_superseded_bridge": STOPS}
+OWNERS = {
+    "_queue_stop_for_superseded_bridge": STOPS,
+    "_record_environment_registration": REGISTRATION,
+}
 
-MODULES = (ENVIRONMENTS, STOPS)
+MODULES = (ENVIRONMENTS, STOPS, REGISTRATION)
 
 TRAVELLING_CONSTANT = "SUPERSEDE_STOP_STALE_SECONDS"
 
@@ -94,13 +103,14 @@ class EnvironmentHeartbeatSplitIsInertTests(unittest.TestCase):
 
     def test_the_leaf_does_not_import_upward(self):
         """An api_core leaf reaching into a router — or the control plane — is the cycle to prevent."""
-        for node in ast.walk(ast.parse(STOPS.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                self.assertFalse(
-                    node.module.startswith("service.routers")
-                    or node.module == "service.control_plane",
-                    f"superseded_bridge_stops.py imports upward from {node.module}",
-                )
+        for leaf in (STOPS, REGISTRATION):
+            for node in ast.walk(ast.parse(leaf.read_text(encoding="utf-8"))):
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    self.assertFalse(
+                        node.module.startswith("service.routers")
+                        or node.module == "service.control_plane",
+                        f"{leaf.name} imports upward from {node.module}",
+                    )
 
     def test_the_constant_TRAVELLED_and_did_not_fork(self):
         """Exactly one declaration, in the module that reads it.

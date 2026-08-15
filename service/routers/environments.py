@@ -25,6 +25,7 @@ from typing import Any, Optional
 from fastapi import HTTPException, Request
 
 from service import longpoll
+from service.api_core.environment_registration import _record_environment_registration
 from service.api_core.superseded_bridge_stops import _queue_stop_for_superseded_bridge
 from service.api_core.routing import domain_router
 from service.api_core.records import _environment_record_to_dict
@@ -169,54 +170,10 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
             and str(existing["bridge_id"] or "").strip() != str(req.bridgeId or "").strip()
         ):
             return {"ok": True, "environment": _environment_record_to_dict(existing)}
-        if existing:
-            await db.execute(
-                """
-                UPDATE environments
-                SET label = ?, machine_id = ?, os = ?, kind = ?, bridge_id = ?,
-                    bridge_version = ?, cwd_roots = ?, runtimes = ?, status = ?,
-                    metadata = ?, last_seen = ?
-                WHERE id = ?
-                """,
-                (
-                    req.label or env_id,
-                    req.machineId or "",
-                    req.os or "",
-                    req.kind or "",
-                    req.bridgeId or "",
-                    req.bridgeVersion or "",
-                    json.dumps(effective_roots),
-                    json.dumps(runtimes),
-                    requested_status,
-                    json.dumps(next_metadata),
-                    now,
-                    env_id,
-                ),
-            )
-        else:
-            await db.execute(
-                """
-                INSERT INTO environments (
-                    id, label, machine_id, os, kind, bridge_id, bridge_version,
-                    cwd_roots, runtimes, status, metadata, registered_at, last_seen
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    env_id,
-                    req.label or env_id,
-                    req.machineId or "",
-                    req.os or "",
-                    req.kind or "",
-                    req.bridgeId or "",
-                    req.bridgeVersion or "",
-                    json.dumps(effective_roots),
-                    json.dumps(runtimes),
-                    requested_status,
-                    json.dumps(next_metadata),
-                    registered_at,
-                    now,
-                ),
-            )
+        await _record_environment_registration(
+            db, existing, env_id, req, effective_roots, runtimes, requested_status,
+            next_metadata, registered_at, now,
+        )
         await _queue_stop_for_superseded_bridge(db, env_id, superseded_bridge_id, req, now)
         # Env recovery / status transition: when the env flips between online and
         # offline/degraded, bound agents' derived status (offline ↔ available/online)
