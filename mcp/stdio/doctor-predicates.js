@@ -184,7 +184,7 @@ export function bridgeInstallVerdict({ installedSha = "", headSha = "", headShor
 // import of `mcp.stdio` (the `from mcp.server.fastmcp` hits are the PyPI package); and CLAUDE.md
 // documents exactly this split.
 export const SERVICE_RUNTIME_PATHS = [
-  "service", "mcp/sse_server.py", "config", "Dockerfile",
+  "service", "mcp", "config", "Dockerfile",
 ];
 
 // Third instance of the same class, found by the fix flagging its OWN commit: `service/` is a
@@ -197,9 +197,24 @@ export const SERVICE_RUNTIME_PATHS = [
 // Kept as an EXCLUDE list rather than by narrowing SERVICE_RUNTIME_PATHS to specific
 // subdirectories, because the safe default for a new directory under `service/` is "this is
 // runtime, demand a rebuild". Opt-out beats opt-in when the wrong answer is a false green.
+//
+// `mcp` FOLLOWS THE SAME RULE AS OF 2026-08-15, and did not until then. It was listed as the exact
+// file `mcp/sse_server.py`, which is opt-IN: a second runtime module beside it — the obvious result
+// of decomposing a 730-line file — would have been cargo by default, and doctor would have reported
+// the container clean while the code it runs had changed. That is the same false green this list's
+// own comment argues against one paragraph up; the rule was simply never carried across to `mcp`.
+// Nothing detects the difference until the day someone adds the file, and then nothing detects it
+// at all, which is why this is a default rather than a check.
+//
+// The flip is behaviour-neutral today, measured rather than assumed: over the last 200 commits both
+// pathspecs select the same 136 runtime commits, and `mcp/` currently holds nothing but
+// `sse_server.py` and `stdio/`.
 export const SERVICE_RUNTIME_EXCLUDE_PATHS = [
   "service/tests",
   "service/**/*.test.mjs",
+  // Host-side bridge code the container never executes. Frequently edited, so leaving it in would
+  // demand a rebuild on most bridge commits — noise that trains the operator to ignore the check.
+  "mcp/stdio",
 ];
 
 // Copied into the image but NOT executed by the service. Kept as an explicit, reasoned allowlist
@@ -207,8 +222,9 @@ export const SERVICE_RUNTIME_EXCLUDE_PATHS = [
 // Dockerfile COPY source is accounted for SOMEWHERE. Silent omission would let a new COPY of
 // genuinely-runtime code slip in with doctor reporting clean — a false green, the worse direction.
 export const SERVICE_IMAGE_NON_RUNTIME_PATHS = {
-  "mcp": "partially runtime: mcp/sse_server.py is listed in SERVICE_RUNTIME_PATHS; mcp/stdio is "
-    + "host-side bridge code the container never executes (covered by the bridge-installed check)",
+  "mcp": "partially runtime: mcp/ is listed in SERVICE_RUNTIME_PATHS, so anything added beside "
+    + "sse_server.py is runtime by default; mcp/stdio is excluded there as host-side bridge code "
+    + "the container never executes (covered by the bridge-installed check)",
   "integrations": "installer/host integration flows; no runtime consumer in service.main or "
     + "mcp/sse_server.py",
   ".agents": "Codex skill mirror cargo; referenced only by health/info text and tests",

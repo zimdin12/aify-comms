@@ -11,8 +11,11 @@
 // This pins the carry-across so the two checks cannot drift apart again.
 
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   SERVICE_IMAGE_NON_RUNTIME_PATHS,
   SERVICE_RUNTIME_EXCLUDE_PATHS,
@@ -20,6 +23,8 @@ import {
   bridgeInstallVerdict,
   serviceBuildVerdict,
 } from "../doctor-predicates.js";
+
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
 const BUILT = "76fb7b9aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const HEAD = "f94b884bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -131,10 +136,60 @@ test("every non-runtime entry carries a non-trivial reason", () => {
 test("host-side bridge code is NOT a service rebuild trigger", () => {
   // The concrete false red that forced this rework: a bridge-only commit demanded a container
   // rebuild for code the container never executes.
-  assert.ok(!SERVICE_RUNTIME_PATHS.includes("mcp"), "whole mcp/ must not be a runtime path");
-  assert.ok(!SERVICE_RUNTIME_PATHS.includes("mcp/stdio"));
-  assert.ok(SERVICE_RUNTIME_PATHS.includes("mcp/sse_server.py"),
-    "but the SSE transport the service does load must be");
+  //
+  // THIS TEST USED TO PIN THE WRONG THING. It asserted the literal list — `!includes("mcp")` and
+  // `includes("mcp/sse_server.py")` — which is WHERE the rule was written rather than WHAT it does.
+  // Naming the exact file made `mcp/` opt-in, so a second runtime module beside the SSE transport
+  // would have been cargo by default and doctor would have called the container clean while the
+  // code it runs had changed. The list satisfied this test and still had the hole, because the two
+  // are not the same claim. Excluding `mcp/stdio` from a directory-wide `mcp` keeps the property
+  // this test was built for AND closes that.
+  assert.ok(SERVICE_RUNTIME_PATHS.includes("mcp"),
+    "mcp/ must be runtime by DEFAULT, so a new module beside sse_server.py is covered on the day "
+    + "it is created — the only day the question can still be answered");
+  assert.ok(!SERVICE_RUNTIME_PATHS.includes("mcp/stdio"), "the bridge is not runtime");
+  assert.ok(SERVICE_RUNTIME_EXCLUDE_PATHS.includes("mcp/stdio"),
+    "and it must be excluded explicitly, or every bridge commit demands a container rebuild");
+});
+
+test("a real bridge-only commit is not selected by the real pathspec", () => {
+  // The property itself, run against git rather than against the arrays. The list assertions above
+  // describe a pathspec; only git can say what that pathspec SELECTS, and the exclude syntax
+  // (`:(exclude)`) is the part most likely to be written correctly-looking and wrong.
+  //
+  // THE SUBJECT IS FOUND, NOT HARDCODED: a pinned sha would rot, and this must keep meaning
+  // something as history grows. It walks back until it finds a commit whose every changed file is
+  // under mcp/stdio/ — a genuine bridge-only commit — and asserts the doctor's own pathspec skips
+  // it. If none exists in range the test says so rather than passing on an empty search.
+  const git = (...args) => execFileSync("git", args, { cwd: REPO, encoding: "utf8" }).trim();
+  const spec = [
+    ...SERVICE_RUNTIME_PATHS,
+    ...SERVICE_RUNTIME_EXCLUDE_PATHS.map((p) => `:(exclude)${p}`),
+  ];
+
+  let bridgeOnly = null;
+  for (const sha of git("log", "--format=%H", "-40", "--", "mcp/stdio").split("\n").filter(Boolean)) {
+    const touched = git("show", "--name-only", "--format=", sha).split("\n").filter(Boolean);
+    if (touched.length && touched.every((f) => f.startsWith("mcp/stdio/"))) {
+      bridgeOnly = sha;
+      break;
+    }
+  }
+  assert.ok(bridgeOnly, "no bridge-only commit found in the last 40 touching mcp/stdio — this "
+    + "test proved nothing and must not be read as a pass");
+
+  const selected = git("log", "--format=%H", `${bridgeOnly}^..${bridgeOnly}`, "--", ...spec);
+  assert.equal(selected, "", `${bridgeOnly} touches only mcp/stdio and must not demand a rebuild`);
+
+  // …and the same pathspec must still SELECT the SSE transport, or the exclude swallowed the
+  // include and every commit would look docs-only — the opposite false report, equally silent.
+  const sseCommit = git("log", "--format=%H", "-1", "--", "mcp/sse_server.py");
+  assert.ok(sseCommit, "expected mcp/sse_server.py to have history");
+  assert.equal(
+    git("log", "--format=%H", `${sseCommit}^..${sseCommit}`, "--", ...spec),
+    sseCommit,
+    "a commit touching the SSE transport MUST demand a rebuild",
+  );
 });
 
 test("test files under a runtime path are excluded", () => {

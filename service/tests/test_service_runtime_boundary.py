@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import ast
 import re
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -37,20 +38,37 @@ EXCLUDED_ROOTS = ("mcp/stdio", "integrations", ".agents", "install.sh")
 
 # What the container actually runs: `uvicorn service.main:app`, plus the SSE transport that
 # service/main.py loads dynamically.
-RUNTIME_SOURCES = ["service", "mcp/sse_server.py"]
+#
+# `mcp` IS A DIRECTORY HERE, and was the single file `mcp/sse_server.py` until 2026-08-15. Both this
+# scan and doctor's `SERVICE_RUNTIME_PATHS` named that one file, so a second runtime module beside it
+# — the obvious result of decomposing a 730-line file — would have been scanned by neither. It could
+# have imported `mcp.stdio` freely and doctor would still have called the container clean. Naming a
+# DIRECTORY makes the safe answer the default for a file that does not exist yet, which is the only
+# moment this can be decided: once the file is there, nothing reports that it went ungoverned.
+RUNTIME_SOURCES = ["service", "mcp"]
+
+# Mirrors SERVICE_RUNTIME_EXCLUDE_PATHS in doctor-predicates.js. Directory names, matched on parts.
+RUNTIME_EXCLUDE_DIRS = ("tests", "stdio", "node_modules", "__pycache__", "fixtures")
 
 
-def _runtime_python_files() -> list[Path]:
+def _runtime_python_files(repo_root: Path = REPO_ROOT, sources=RUNTIME_SOURCES) -> list[Path]:
+    """Parameterised so the SELECTION can be tested against a synthetic tree.
+
+    Against the real repo this scan cannot demonstrate its own rule: `mcp/` holds exactly one runtime
+    module today, so "we scan the directory" and "we scan that one file" produce identical results
+    and the difference only appears the day someone adds the second — which is the day nothing is
+    left to report it. A tmpdir can hold the file that does not exist yet.
+    """
     files: list[Path] = []
-    for rel in RUNTIME_SOURCES:
-        p = REPO_ROOT / rel
+    for rel in sources:
+        p = repo_root / rel
         if p.is_file() and p.suffix == ".py":
             files.append(p)
         elif p.is_dir():
             for f in p.rglob("*.py"):
                 # Tests are not the runtime — they legitimately reference installer and skill
                 # paths, and excluding them is what makes this assertion about the SERVICE.
-                if "tests" in f.parts or f.name.startswith("test_"):
+                if any(part in RUNTIME_EXCLUDE_DIRS for part in f.parts) or f.name.startswith("test_"):
                     continue
                 files.append(f)
     return files
@@ -153,6 +171,48 @@ class RuntimeImportBoundaryTests(unittest.TestCase):
         """If an excluded path stops existing, the exclusion is stale and should be removed."""
         for rel in EXCLUDED_ROOTS:
             self.assertTrue((REPO_ROOT / rel).exists(), f"{rel} no longer exists; drop the exclusion")
+
+    def test_a_NEW_module_beside_the_sse_transport_is_runtime_by_default(self):
+        """The hole this scan shipped with, shown on the tree that does not exist yet.
+
+        `RUNTIME_SOURCES` named the single file `mcp/sse_server.py`, which is opt-IN: decompose that
+        730-line module and its siblings are scanned by nothing, free to import `mcp.stdio`, while
+        doctor reports the container clean because its `SERVICE_RUNTIME_PATHS` named the same one
+        file. Both halves had the rule written the same wrong way, so neither could catch the other.
+
+        Nothing in the real tree distinguishes the two spellings — that is the whole difficulty, and
+        why this builds the case in a tmpdir instead of asserting on the repo.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for rel in (
+                "mcp/sse_server.py",
+                "mcp/sse_container_tools.py",   # the sibling a decomposition would create
+                "mcp/stdio/server.py",          # host-side: never executed by the container
+                "mcp/stdio/node_modules/pkg/setup.py",
+                "service/main.py",
+                "service/tests/test_thing.py",
+                "service/api_core/test_helpers.py",  # a test_ file outside a tests dir
+            ):
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text("x = 1\n", encoding="utf-8")
+
+            scanned = {p.relative_to(root).as_posix() for p in _runtime_python_files(root)}
+            self.assertEqual(
+                {"mcp/sse_server.py", "mcp/sse_container_tools.py", "service/main.py"},
+                scanned,
+            )
+
+    def test_the_sources_name_a_DIRECTORY_not_the_one_file_in_it(self):
+        """Pinned separately, because the tmpdir test above would pass a hardcoded file list too.
+
+        This is the declaration itself: `mcp` must be the directory. Naming `mcp/sse_server.py` is
+        what made the sibling invisible, and it is the spelling a future edit is most likely to
+        "restore" as a tidy-up.
+        """
+        self.assertIn("mcp", RUNTIME_SOURCES)
+        self.assertNotIn("mcp/sse_server.py", RUNTIME_SOURCES)
+        self.assertIn("stdio", RUNTIME_EXCLUDE_DIRS, "or every bridge file becomes runtime")
 
 
 if __name__ == "__main__":
