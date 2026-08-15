@@ -15,42 +15,14 @@ from typing import Any
 
 from service.api_core.liveness import _LIVE_SESSION_STATUSES
 
-from service.api_core.events import _append_terminal_control
-from service.api_core.events import _append_terminal_event
 from service.api_core.runtime import _normalize_runtime
-from service.api_core.runtime import _normalize_session_mode
-from service.api_core.runtime import _runtime_capability_for_environment
-from service.api_core.records import (
-    _agent_session_to_dict,
-    _environment_record_to_dict,
-    _terminal_session_to_dict,
-)
 from service.api_core.serialization import _json_loads_or
-from service.api_core.serialization import _normalize_machine_id
 from service.api_core.capabilities import (  # re-exported for this package's modules
-    _default_capabilities_for,
     _managed_via_wrapper_for_runtime,
 )
-from service.api_core.settings import DEFAULT_SETTINGS
-from service.api_core.settings import _load_settings
-from service.api_core.validation import validate_name
 from service.api_core.vocabulary import SESSION_MODES as _SESSION_MODES
-from service.api_core.ws import _get_ws
-from service.api_core.agent_sessions import (
-    _agent_tombstone,
-    _session_handle_live_owner,
-    _touch_current_agent_session,
-)
-from service.api_core.dispatch_state import _get_dispatch_state_for_agent, _get_dispatch_state_map
-from service.api_core.turn_state import _clear_status_state_in_turn
-from service.api_core.managed_env import (
-    _has_pending_or_booting_spawn_request,
-)
 from service.clock import now as _now
 from service.db import get_db
-from service.reconcilers.managed_workers import _repair_unusable_active_runs
-from service.reconcilers.sessions import LIVE_SESSION_STATUSES
-from service.reconcilers.status_cache import _live_state_get
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 from service.terminal_diagnostics import failure_tail as _terminal_failure_tail
 from service.terminal_diagnostics import meaningful_failure_line as _terminal_failure_line
@@ -67,7 +39,6 @@ logger = logging.getLogger("aify_comms.routers.agents.shared")
 
 
 # Was a borrow shim; the owner is service/api_core/records.py, not the control plane.
-from service.api_core.records import _agent_record_to_dict  # noqa: E402
 
 
 
@@ -78,7 +49,6 @@ from service.api_core.records import _agent_record_to_dict  # noqa: E402
 # Was a borrow shim: the owner lived in the control plane, which a router cannot import at
 # module level without a cycle. It moved to service/api_core/status_refresh.py in v0.5.4, so
 # a plain import works.
-from service.api_core.status_refresh import _compute_agent_status  # noqa: E402
 
 
 # Was a borrow shim for the same reason `engine_status` above was: the legacy status path lived in
@@ -107,7 +77,6 @@ from service.api_core.status_inputs import _compute_live_status_cache  # noqa: E
 
 
 
-from service.api_core.status_refresh import _refresh_expired_agent_live_states  # noqa: E402
 
 
 

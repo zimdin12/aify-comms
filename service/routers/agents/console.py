@@ -26,26 +26,24 @@ logger = logging.getLogger("aify_comms.routers.agents.console")
 # the endpoint 422s at request time. The route annotation gate caught 17 of these here.
 from service.models import AgentConsoleInputRequest, VirtualTerminalEnsureRequest
 
+from service.api_core.events import _append_terminal_control, _append_terminal_event
+from service.api_core.records import _agent_session_to_dict, _terminal_session_to_dict
+from service.api_core.runtime import _normalize_runtime
+from service.api_core.serialization import _json_loads_or
+from service.api_core.settings import _load_settings
+from service.api_core.status_inputs import _compute_live_status_cache
+from service.api_core.ws import _get_ws
+from service.db import get_db
 from service.routers.agents.shared import (
-    _agent_session_to_dict,
-    _append_terminal_control,
-    _append_terminal_event,
     _borrowed_console_tail_max_bytes,
     _borrowed_console_tail_max_lines,
-    _compute_live_status_cache,
-    _get_ws,
     _invalidate_agent_live_state,
-    _json_loads_or,
-    _load_settings,
-    _normalize_runtime,
     _now,
     _render_live_terminal_screen,
     _render_terminal_snapshot,
     _synth_terminal_should_be_created,
     _terminal_failure_line,
     _terminal_failure_tail,
-    _terminal_session_to_dict,
-    get_db,
     logger,
     re,
     sqlite3,

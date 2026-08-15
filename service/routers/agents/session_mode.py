@@ -34,29 +34,25 @@ logger = logging.getLogger("aify_comms.routers.agents.session_mode")
 from service.models import AgentSessionHandleUpdate, AgentSessionModeSwitchRequest
 
 from service.api_core.resume_command import _resume_command_for
+from service.api_core.agent_sessions import _agent_tombstone, _session_handle_live_owner
+from service.api_core.capabilities import _default_capabilities_for
+from service.api_core.dispatch_state import _get_dispatch_state_for_agent
+from service.api_core.records import _agent_record_to_dict
+from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.serialization import _json_loads_or, _normalize_machine_id
+from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
+from service.api_core.status_inputs import _compute_live_status_cache
+from service.api_core.status_refresh import _compute_agent_status
+from service.api_core.validation import validate_name
+from service.api_core.ws import _get_ws
+from service.db import get_db
 from service.routers.agents.shared import (
-    DEFAULT_SETTINGS,
     _SESSION_MODES,
-    _agent_record_to_dict,
-    _agent_tombstone,
-    _compute_agent_status,
-    _compute_live_status_cache,
-    _default_capabilities_for,
-    _get_dispatch_state_for_agent,
-    _get_ws,
-    _json_loads_or,
-    _load_settings,
-    _normalize_machine_id,
-    _normalize_runtime,
-    _normalize_session_mode,
     _now,
     _render_live_terminal_screen,
     _sanitize_session_handle,
-    _session_handle_live_owner,
-    get_db,
     logger,
     sqlite3,
-    validate_name,
 )
 
 router = domain_router()

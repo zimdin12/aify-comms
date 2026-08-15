@@ -29,32 +29,29 @@ logger = logging.getLogger("aify_comms.routers.agents.session_ops")
 from service.models import AgentControlRequest, AgentResidentLostRequest, AgentSessionResolveRequest
 
 from service.api_core.dispatch_run_state import _append_dispatch_control
+from service.api_core.agent_sessions import _agent_tombstone
+from service.api_core.capabilities import _default_capabilities_for
+from service.api_core.dispatch_state import _get_dispatch_state_for_agent
+from service.api_core.events import _append_terminal_control, _append_terminal_event
+from service.api_core.managed_env import _has_pending_or_booting_spawn_request
+from service.api_core.records import _agent_record_to_dict, _terminal_session_to_dict
+from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.serialization import _json_loads_or
+from service.api_core.settings import _load_settings
+from service.api_core.status_inputs import _compute_live_status_cache
+from service.api_core.status_refresh import _compute_agent_status
+from service.api_core.turn_state import _clear_status_state_in_turn
+from service.api_core.validation import validate_name
+from service.api_core.ws import _get_ws
+from service.db import get_db
+from service.reconcilers.sessions import LIVE_SESSION_STATUSES
 from service.routers.agents.shared import (
-    LIVE_SESSION_STATUSES,
-    _agent_record_to_dict,
-    _agent_tombstone,
-    _append_terminal_control,
-    _append_terminal_event,
     _borrowed_live_session_statuses,
-    _clear_status_state_in_turn,
-    _compute_agent_status,
-    _compute_live_status_cache,
-    _default_capabilities_for,
-    _get_dispatch_state_for_agent,
-    _get_ws,
-    _has_pending_or_booting_spawn_request,
     _invalidate_agent_live_state,
-    _json_loads_or,
-    _load_settings,
-    _normalize_runtime,
-    _normalize_session_mode,
     _now,
     _render_live_terminal_screen,
-    _terminal_session_to_dict,
-    get_db,
     logger,
     sqlite3,
-    validate_name,
 )
 from service.api_core.dispatch_start import (
     _coldstart_spawn_request_for_dispatch,

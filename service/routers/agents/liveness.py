@@ -27,22 +27,21 @@ logger = logging.getLogger("aify_comms.routers.agents.liveness")
 # the endpoint 422s at request time. The route annotation gate caught 17 of these here.
 from service.models import AgentReadyUpdate
 
+from service.api_core.agent_sessions import _agent_tombstone
+from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.settings import _load_settings
+from service.api_core.status_inputs import _compute_live_status_cache
+from service.api_core.validation import validate_name
+from service.api_core.ws import _get_ws
+from service.db import get_db
+from service.reconcilers.status_cache import _live_state_get
 from service.routers.agents.shared import (
-    _agent_tombstone,
-    _compute_live_status_cache,
-    _get_ws,
     _invalidate_agent_live_state,
-    _live_state_get,
-    _load_settings,
-    _normalize_runtime,
-    _normalize_session_mode,
     _now,
     _record_claimer_lease,
     _render_live_terminal_screen,
-    get_db,
     logger,
     sqlite3,
-    validate_name,
 )
 from service.api_core.agent_sessions import _adopt_live_resident_driver
 

@@ -52,30 +52,29 @@ from service.db_errors import _is_lock_error
 from service.api_core.agent_sessions import _upsert_resident_agent_session
 from service.api_core.bridge_registration import _record_bridge_registration
 from service.api_core.outbound_activity import _get_outbound_activity_map
+from service.api_core.agent_sessions import _agent_tombstone
+from service.api_core.capabilities import _default_capabilities_for
+from service.api_core.dispatch_state import _get_dispatch_state_map
+from service.api_core.records import _agent_record_to_dict
+from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.serialization import _json_loads_or
+from service.api_core.settings import _load_settings
+from service.api_core.status_inputs import _compute_live_status_cache
+from service.api_core.status_refresh import _refresh_expired_agent_live_states
+from service.api_core.validation import validate_name
+from service.api_core.ws import _get_ws
+from service.db import get_db
+from service.reconcilers.managed_workers import _repair_unusable_active_runs
+from service.reconcilers.status_cache import _live_state_get
 from service.routers.agents.shared import (
-    _agent_record_to_dict,
-    _agent_tombstone,
     _borrowed_list_agents_refresh_limit,
-    _compute_live_status_cache,
-    _default_capabilities_for,
-    _get_dispatch_state_map,
-    _get_ws,
     _invalidate_agent_live_state,
-    _json_loads_or,
-    _live_state_get,
-    _load_settings,
     _merge_runtime_policy_for_wrapper_reregister,
-    _normalize_runtime,
-    _normalize_session_mode,
     _now,
-    _refresh_expired_agent_live_states,
     _render_live_terminal_screen,
-    _repair_unusable_active_runs,
     _sanitize_session_handle,
-    get_db,
     logger,
     sqlite3,
-    validate_name,
 )
 from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES
 from service.api_core.registration_gates import (
