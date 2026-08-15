@@ -29,6 +29,7 @@ from service.api_core.dispatch_runs import _create_dispatch_runs
 from service.api_core.dispatch_sweeps import _run_contract_reminders_once
 from service.api_core.status_inputs import _compute_live_status_cache
 from service.clock import now as _now
+from service.reconcilers.terminal_history import _prune_terminal_history
 from service.reconcilers.orphaned_managed_runs import _close_orphaned_managed_runs
 from service.reconcilers.dispatch_lifecycle import (
     _clear_turn_busy_for_dead_bridges,
@@ -64,7 +65,6 @@ from service.reconcilers.terminal_runs import (
 )
 from service.reconcilers.terminals import (
     _close_idle_virtual_rpc_workers,
-    _prune_terminal_history,
 )
 from service.routers.spawn_requests import list_spawn_requests
 from service.terminal_write_queue import TerminalOutputWriteQueue

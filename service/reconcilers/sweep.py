@@ -31,6 +31,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     # v0.5 slice 1a: these two moved out of api_v2 into their own module. Imported here in the
     # SAME commit as the move so there is never a tree with mixed old/new sources.
     # v0.5 slice 2: spawn lifecycle moved out of api_v2 in the same commit as this import change.
+    from service.reconcilers.terminal_history import _prune_terminal_history
     from service.reconcilers.console_binding import rebind_orphaned_live_consoles
     # v0.5 slice 3a: session reconcilers moved; imported here in the same commit as the move.
     # v0.5 slice 4.
@@ -63,7 +64,6 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     )
     from service.reconcilers.terminals import (
         _close_idle_virtual_rpc_workers,
-        _prune_terminal_history,
         _reconcile_resurrected_managed_consoles,
         _reconcile_stale_managed_terminals_for_resident_agents,
     )
