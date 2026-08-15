@@ -19,14 +19,18 @@ from contextvars import ContextVar
 from mcp.server.fastmcp import FastMCP
 
 from service.config import get_config
-# Layer-0 leaves that used to sit in this file. Imported under their ORIGINAL private names so every
-# call site below is unchanged by the move — and so `test_sse_renderers.py`, which swaps `_api` for a
-# canned payload, still patches the name the tool bodies resolve.
+# Every comms_* tool now lives in one of these modules and is REGISTERED here rather than declared
+# here. The transport keeps the server object, the two service tools that read container state, and
+# the mount — nothing that renders a message.
 #
 # They live under `service/` rather than beside this file because `mcp/` is NOT this repo's package:
 # `import mcp` resolves to the PyPI distribution the line above imports FastMCP from, which is why
 # `service/main.py` loads THIS file by path instead of importing it. See `service/sse/__init__.py`.
-from service.sse.api_client import api as _api
+#
+# `_api` was imported here until the last tool that called it left. It is gone rather than kept "for
+# convenience": an unused re-export is what makes a stale patch target look valid, and a test that
+# swapped THIS module's `_api` would have intercepted nothing while appearing to work.
+from service.sse.agent_tools import register as _register_agent_tools
 from service.sse.channel_tools import register as _register_channel_tools
 from service.sse.console_tools import register as _register_console_tools
 from service.sse.container_tools import (
@@ -37,6 +41,7 @@ from service.sse.container_tools import (
 from service.sse.inbox_tools import register as _register_inbox_tools
 from service.sse.management_tools import register as _register_management_tools
 from service.sse.run_tools import register as _register_run_tools
+from service.sse.send_tools import register as _register_send_tools
 from service.sse.shared_file_tools import register as _register_shared_file_tools
 
 logger = logging.getLogger(__name__)
@@ -93,146 +98,18 @@ _register_container_tools(mcp_server)
 
 
 # ---------------------------------------------------------------------------
-# Messaging Tools (comms_*)
+# Registration + presence — declared in service/sse/agent_tools.py.
 # ---------------------------------------------------------------------------
 
-@mcp_server.tool()
-async def comms_register(
-    agentId: str,
-    role: str,
-    name: str = "",
-    cwd: str = "",
-    model: str = "",
-    instructions: str = "",
-) -> str:
-    """Register this MCP client as an agent for messaging and presence. SSE clients can coordinate work, but cannot host local runtime launches."""
-    r = await _api("POST", "/agents", {
-        "agentId": agentId, "role": role, "name": name or agentId,
-        "cwd": cwd, "model": model, "instructions": instructions,
-    })
-    if "detail" in r:
-        return f"Error: {r['detail']}"
-    return f'Registered "{r.get("agentId", agentId)}" (role: {role}).'
+_register_agent_tools(mcp_server)
 
 
-@mcp_server.tool()
-async def comms_agents() -> str:
-    """List all registered agents, their roles, and unread message counts."""
-    r = await _api("GET", "/agents")
-    entries = r.get("agents", {})
-    if not entries:
-        return "No agents registered."
-    lines = []
-    for aid, info in entries.items():
-        status = f" [{info['status']}]" if info.get("status") else ""
-        lines.append(
-            f"- {aid} ({info['role']}){status} -- \"{info.get('name', aid)}\" "
-            f"| unread: {info.get('unread', 0)} | last seen: {info.get('lastSeen', '?')}"
-        )
-    return "\n".join(lines)
+# ---------------------------------------------------------------------------
+# Send + dispatch — declared in service/sse/send_tools.py, registered here so they land on this
+# server in the position they always occupied.
+# ---------------------------------------------------------------------------
 
-
-@mcp_server.tool()
-async def comms_send(
-    from_agent: str,
-    type: str,
-    subject: str,
-    body: str,
-    to: str = "",
-    toRole: str = "",
-    inReplyTo: str = "",
-    priority: str = "normal",
-    silent: bool = False,
-    steer: bool | None = None,
-    queueIfBusy: bool = False,
-    requireReply: bool | None = None,
-) -> str:
-    """Send a live-gated message to an agent by ID or role. Offline/stopped/no-wake targets fail without storing. Busy steer-capable targets receive ordinary sends as current-run steer; busy live non-steer targets queue/merge as next-turn work. Set queueIfBusy=true only when you intentionally want next-turn delivery even if steering is available. Reply tracking: omit requireReply for type defaults (request/review/error=true; info/response/approval=false); set true only when a normally optional message needs a tracked response, and false only for intentional fire-and-forget. requireReply does not control delivery or waking. Use silent=true only for legacy inbox-only delivery."""
-    if not to and not toRole:
-        return "Error: need 'to' or 'toRole'"
-    should_trigger = not silent
-    force_queue = bool(queueIfBusy)
-    data = {
-        "from_agent": from_agent,
-        "type": type,
-        "subject": subject,
-        "body": body,
-        "priority": priority,
-        "trigger": should_trigger,
-        "steer": False if force_queue else (steer if steer is not None else True),
-        "queueIfBusy": force_queue,
-        "requireReply": requireReply,
-    }
-    if to:
-        data["to"] = to
-    if toRole:
-        data["toRole"] = toRole
-    if inReplyTo:
-        data["inReplyTo"] = inReplyTo
-    r = await _api("POST", "/messages/send", data)
-    if not r.get("ok"):
-        return r.get("error", "No recipients found.")
-    if should_trigger and r.get("recipients"):
-        queued = [
-            f"{run.get('targetAgentId', '?')} [{run.get('status', 'queued')}]"
-            + (f" -> {run.get('runId')}" if run.get("runId") else "")
-            for run in r.get("dispatchRuns", [])
-        ]
-        skipped = [f"{item.get('targetAgentId', '?')}: {item.get('reason', 'not started')}" for item in r.get("notStarted", [])]
-        note = f"Sent + live delivery for {', '.join(queued) if queued else 'no launchable recipients'}."
-        if skipped:
-            note += f" Not started: {'; '.join(skipped)}."
-        note += " Use comms_run_status(...) to inspect progress. Request-type sends expect an explicit reply by default, and the bridge mirrors the result if none is sent."
-        return note
-    return f"Sent ({r['messageId']}) to {', '.join(r['recipients'])}. Subject: {subject}"
-
-
-@mcp_server.tool()
-async def comms_dispatch(
-    from_agent: str,
-    type: str,
-    subject: str,
-    body: str,
-    to: str = "",
-    toRole: str = "",
-    inReplyTo: str = "",
-    requireStart: bool = False,
-    requireReply: bool | None = None,
-) -> str:
-    """Lower-level tracked run-control/debug API. Normal teamwork should use comms_send, which already fails visibly when live delivery is unavailable. Direct dispatch expects a reply by default unless requireReply=false."""
-    if not to and not toRole:
-        return "Error: need 'to' or 'toRole'"
-    data = {
-        "from_agent": from_agent,
-        "type": type,
-        "subject": subject,
-        "body": body,
-        "mode": "require_start" if requireStart else "start_if_possible",
-        "createMessage": True,
-        "requireReply": requireReply,
-    }
-    if to:
-        data["to"] = to
-    if toRole:
-        data["toRole"] = toRole
-    if inReplyTo:
-        data["inReplyTo"] = inReplyTo
-    r = await _api("POST", "/dispatch", data)
-    if not r.get("ok"):
-        return r.get("error", "Dispatch failed.")
-    runs = r.get("runs", [])
-    not_started = r.get("notStarted", [])
-    lines = [f"- {run['targetAgentId']}: {run['runId']} [{run['status']}]" for run in runs]
-    if not_started:
-        lines.append("Not started:")
-        lines.extend([f"- {item['targetAgentId']}: {item['reason']}" for item in not_started])
-    if not lines:
-        return "No dispatch runs were created."
-    if requireStart:
-        lines.extend(["", "Use comms_run_status(...) to inspect progress. For normal teamwork messages, prefer comms_send(...); it already fails visibly when live delivery is not possible."])
-    else:
-        lines.extend(["", "Use comms_run_status(...) to inspect progress. Direct dispatch expects an explicit reply by default, and the bridge mirrors the result if none is sent."])
-    return "\n".join(lines)
+_register_send_tools(mcp_server)
 
 # NOTE (2026-05-31): comms_run_steer was REMOVED here to match the canonical
 # stdio bridge (mcp/stdio/server.js), which retired it — ordinary comms_send to
