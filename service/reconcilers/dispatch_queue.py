@@ -33,6 +33,7 @@ import time
 import uuid
 from typing import Any, Optional
 
+from service.api_core.channel_replay_query import _select_undelivered_channel_messages
 from service.api_core.reconcilable_runs_query import _select_reconcilable_delivered_runs
 from service.api_core.dispatch_run_state import _finalize_dispatch_runs
 from service.api_core.managed_env import _managed_environment_unavailable_reason
@@ -399,32 +400,7 @@ async def _replay_undelivered_channel_messages_on_env_recovery(
         )
     horizon_hours = max(1, int(horizon_hours))
     cutoff_param = f"-{horizon_hours} hours"
-    cursor = await db.execute(
-        """
-        SELECT m.id, m.from_agent, m.to_agent, m.channel, m.type, m.subject, m.body, m.priority
-        FROM messages m
-        LEFT JOIN read_receipts rr ON rr.message_id = m.id AND rr.agent_id = m.to_agent
-        WHERE m.source = 'channel'
-          AND m.to_agent IS NOT NULL AND m.to_agent != '' AND m.to_agent != 'dashboard'
-          AND m.dispatch_requested = 1
-          -- `messages.timestamp` is epoch MILLISECONDS, not ISO. `datetime(1786402075333)` returns
-          -- NULL, so this comparison was NULL — never true — and this reconciler could not match a
-          -- single row it exists to replay. Measured on the live DB: 0 candidates under the old
-          -- predicate, 115 under this one.
-          --
-          -- Same class as the `finished_at` guard that excluded its own target rows for two months,
-          -- and the sixth lexical/epoch timestamp bug recorded in this repo. Other code already
-          -- knew the shape and did it correctly (`datetime(timestamp / 1000, 'unixepoch')`), which
-          -- is what makes this a copy that drifted rather than a misunderstanding.
-          AND datetime(m.timestamp / 1000, 'unixepoch') >= datetime('now', ?)
-          AND rr.message_id IS NULL
-          AND NOT EXISTS (SELECT 1 FROM dispatch_runs dr WHERE dr.message_id = m.id)
-        ORDER BY m.timestamp ASC
-        LIMIT ?
-        """,
-        (cutoff_param, max(1, int(limit or 200))),
-    )
-    rows = await cursor.fetchall()
+    rows = await _select_undelivered_channel_messages(db, cutoff_param, limit)
     replayed: list[dict[str, str]] = []
     for row in rows:
         message_id = str(row["id"] or "").strip()

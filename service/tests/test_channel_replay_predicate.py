@@ -32,6 +32,21 @@ from __future__ import annotations
 import sqlite3
 import time
 import unittest
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[2]
+
+
+def _product_sources():
+    """(path, text) for every non-test Python source under service/, mcp/ and scripts/."""
+    for base in ("service", "mcp", "scripts"):
+        root = REPO / base
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*.py")):
+            if "__pycache__" in path.parts or "tests" in path.parts:
+                continue
+            yield path, path.read_text(encoding="utf-8", errors="replace")
 
 
 class ChannelReplayTimestampPredicateTests(unittest.TestCase):
@@ -84,25 +99,43 @@ class ChannelReplayTimestampPredicateTests(unittest.TestCase):
 class ReconcilerSourceTests(unittest.TestCase):
     """The reconciler itself must use the corrected form."""
 
-    def test_the_replay_reconciler_divides_by_1000(self):
-        from pathlib import Path
-        src = Path(__file__).resolve().parents[2] / "service" / "reconcilers" / "dispatch_queue.py"
-        text = src.read_text(encoding="utf-8", errors="replace")
-        at = text.index("_replay_undelivered_channel_messages_on_env_recovery")
-        body = text[at:at + 6000]
-        self.assertIn("datetime(m.timestamp / 1000, 'unixepoch')", body)
-        self.assertNotIn("datetime(m.timestamp) >=", body,
-                         "the raw-epoch form never matches and must not come back")
+    def test_the_replay_predicate_divides_by_1000_WHEREVER_IT_LIVES(self):
+        """FINDS THE CODE RATHER THAN NAMING ITS FILE.
 
-    def test_no_reconciler_compares_a_raw_millisecond_column_as_a_date(self):
-        """Sweep for the whole class, not just the one instance the reviewer happened to find."""
+        This sliced 6000 characters out of `dispatch_queue.py` from a function name, and went red on
+        a v0.5.4 relocation that changed nothing about the predicate — the fourth location pin in
+        this repo to do that. The predicate is what matters, so the product tree is searched for it
+        and required to have exactly one writer.
+
+        `test_channel_replay_query.py` now also asserts this by EXECUTING the query, which is the
+        stronger check; this one survives because "the broken form has not come back ANYWHERE" is a
+        different question from "this one query behaves".
+        """
+        holders = [
+            path for path, text in _product_sources()
+            if "datetime(m.timestamp / 1000, 'unixepoch')" in text
+        ]
+        self.assertEqual(1, len(holders), f"expected exactly one writer of this predicate: {holders}")
+        self.assertIn(
+            "test_channel_replay_query.py",
+            {p.name for p in (Path(__file__).resolve().parent).iterdir()},
+            "the behavioural successor to this source check must exist")
+
+    def test_NOTHING_ANYWHERE_compares_a_raw_millisecond_column_as_a_date(self):
+        """The whole class, tree-wide — which is what this always claimed to be.
+
+        Its docstring said "sweep for the whole class, not just the one instance", and then it read
+        one file. The claim is now true: every product source is scanned, so the same drift landing
+        in another module fails here rather than surviving because nobody pointed a test at it.
+        """
         import re
-        from pathlib import Path
-        src = Path(__file__).resolve().parents[2] / "service" / "reconcilers" / "dispatch_queue.py"
-        text = src.read_text(encoding="utf-8", errors="replace")
-        # `datetime(<something>.timestamp)` with no /1000 — the exact broken shape.
-        offenders = re.findall(r"datetime\(\s*\w*\.?timestamp\s*\)", text)
-        self.assertEqual(offenders, [], f"raw epoch-ms compared as a date: {offenders}")
+
+        offenders = [
+            f"{path.relative_to(REPO).as_posix()}: {match}"
+            for path, text in _product_sources()
+            for match in re.findall(r"datetime\(\s*\w*\.?timestamp\s*\)", text)
+        ]
+        self.assertEqual([], offenders, f"raw epoch-ms compared as a date: {offenders}")
 
 
 if __name__ == "__main__":
