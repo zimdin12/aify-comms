@@ -15,8 +15,8 @@ from fastapi.testclient import TestClient
 from service.db import get_db, init_db
 from service import main as service_main
 from service.reconcilers import status_cache
-from service.api_core.liveness import _has_live_terminal_session
-from service.api_core.liveness import _has_live_channel_sidecar
+from service.api_core.live_process_probes import _has_live_terminal_session
+from service.api_core.live_process_probes import _has_live_channel_sidecar
 from service.api_core.turn_state import TURN_BUSY_STALE_SECONDS, _turn_busy_state
 from service.api_core.settings import DEFAULT_SETTINGS
 from service.api_core.virtual_rpc import VIRTUAL_PI_RPC_COMMAND
@@ -90,7 +90,7 @@ from service.api_core.events import _append_terminal_control
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _iso_add_seconds, _iso_from_ms
 from service.api_core.settings import _load_settings
-from service.api_core.liveness import _resident_bridge_is_fresh
+from service.api_core.live_process_probes import _resident_bridge_is_fresh
 from service.api_core import dispatch_start  # v0.5.4: call the OWNER, not the carrier alias
 from service.api_core import liveness  # v0.5.4: call the OWNER
 from service.api_core import claim_gating  # v0.5.4: call the OWNER, not a re-export
@@ -14634,7 +14634,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(run["execution_mode"], "managed", "the pi run stays managed")
 
     def _run_has_live_managed_wrapper_child(self, agent_id):
-        from service.api_core.liveness import _has_live_managed_wrapper_child
+        from service.api_core.live_process_probes import _has_live_managed_wrapper_child
 
         async def _run():
             db = await get_db()

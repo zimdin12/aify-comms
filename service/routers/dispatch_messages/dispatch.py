@@ -30,7 +30,7 @@ from service.api_core.reply_linking import _link_reply_message_to_dispatch_run
 from service.api_core.console_input_queue import _queue_console_inputs_for_dispatch
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime
-from service.api_core.liveness import ACTIVE_RUN_BRIDGE_STALE_SECONDS
+from service.api_core.live_process_probes import ACTIVE_RUN_BRIDGE_STALE_SECONDS
 from service.api_core.serialization import (
     _json_loads_or,
 )

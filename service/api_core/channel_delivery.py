@@ -33,8 +33,8 @@ from __future__ import annotations
 from typing import Any, NamedTuple
 
 from service.api_core.agent_sessions import _current_agent_session_row
-from service.api_core.liveness import (
-    _LIVE_SESSION_STATUSES,
+from service.api_core.liveness import _LIVE_SESSION_STATUSES
+from service.api_core.live_process_probes import (
     _has_live_channel_sidecar,
     _has_live_managed_wrapper_child,
     _has_live_terminal_session,

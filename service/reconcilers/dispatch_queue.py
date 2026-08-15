@@ -42,10 +42,7 @@ from service.api_core.runtime import (
 )
 from service.api_core.settings import _load_settings  # v0.5.1g: the leaf owner
 from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
-from service.api_core.liveness import (
-    ACTIVE_RUN_BRIDGE_STALE_SECONDS,
-    _has_live_channel_sidecar,
-)
+from service.api_core.live_process_probes import ACTIVE_RUN_BRIDGE_STALE_SECONDS, _has_live_channel_sidecar
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 from service.api_core.channel_delivery import (

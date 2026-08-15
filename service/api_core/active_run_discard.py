@@ -35,10 +35,7 @@ import time
 from typing import Any
 
 from service.api_core.events import _append_dispatch_event
-from service.api_core.liveness import (
-    ACTIVE_RUN_BRIDGE_STALE_SECONDS,
-    _bridge_is_superseded,
-)
+from service.api_core.live_process_probes import ACTIVE_RUN_BRIDGE_STALE_SECONDS, _bridge_is_superseded
 from service.api_core.recovery_writes import _requeue_instead_of_failing_undelivered_claim
 from service.api_core.runtime import _normalize_session_mode
 from service.api_core.serialization import _json_loads_or

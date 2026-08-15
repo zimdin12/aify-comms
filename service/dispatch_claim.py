@@ -51,7 +51,7 @@ from service.api_core.claim_gating import (
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.events import _append_dispatch_event
 from service.api_core.claim_run_selection import _select_claimable_run
-from service.api_core.liveness import ACTIVE_RUN_BRIDGE_STALE_SECONDS
+from service.api_core.live_process_probes import ACTIVE_RUN_BRIDGE_STALE_SECONDS
 from service.api_core.recovery_writes import _record_channel_sidecar_heartbeat
 from service.api_core.runtime import (
     _normalize_runtime,

@@ -50,7 +50,7 @@ from service.api_core.capabilities import (
     _has_codex_live_app_server,
     _managed_via_wrapper_for_runtime,
 )
-from service.api_core.liveness import _has_live_terminal_session
+from service.api_core.live_process_probes import _has_live_terminal_session
 from service.api_core.managed_env import _managed_owning_environment_row
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _timestamp_sort_key

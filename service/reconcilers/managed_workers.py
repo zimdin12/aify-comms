@@ -32,7 +32,7 @@ from service.api_core.serialization import _json_loads_or  # v0.5.1c: the leaf o
 from service.api_core.runtime import _normalize_runtime  # v0.5.1e: the leaf owner, not via the router
 from service.api_core.events import _append_terminal_event  # v0.5.1i: the leaf owner
 from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
-from service.api_core.liveness import (
+from service.api_core.live_process_probes import (
     _has_live_channel_sidecar,
     _has_live_managed_wrapper_child,
     _has_live_terminal_session,

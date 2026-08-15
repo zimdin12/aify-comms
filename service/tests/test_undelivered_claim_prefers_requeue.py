@@ -284,9 +284,16 @@ class UndeliveredClaimPrefersRequeueTests(FastApiTestCase):
                     declarations.append(path.relative_to(REPO_ROOT).as_posix())
         # The FILE, not the line: a line number would break on any edit above the declaration and
         # would be asserting formatting rather than ownership.
+        # v0.5.4 SPLIT `api_core/liveness.py` again: the six process probes became
+        # `api_core/live_process_probes.py`, and this constant went with them because the predicate
+        # that applies it went with them. The rule this test states — the threshold lives with its
+        # predicate — is unchanged; only the module those two share is new. Had the constant been
+        # left behind, the probes module would import it from `liveness.py` while `liveness.py`
+        # imports the probes: a cycle, which is the concrete reason "keep it near its reader" is a
+        # structural rule here and not a preference.
         self.assertEqual(
             declarations,
-            ["service/api_core/liveness.py"],
+            ["service/api_core/live_process_probes.py"],
             "the staleness ceiling must have exactly one declaration, and it belongs with the "
             f"liveness predicates that apply it; found {declarations}",
         )

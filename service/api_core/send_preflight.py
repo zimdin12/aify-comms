@@ -29,7 +29,7 @@ from service.api_core.execution_mode import (
     _agent_execution_mode,
     _auto_return_resident_to_managed_if_possible,
 )
-from service.api_core.liveness import _resident_bridge_is_fresh
+from service.api_core.live_process_probes import _resident_bridge_is_fresh
 from service.api_core.managed_env import _managed_environment_unavailable_reason
 from service.api_core.records import _status_with_dispatch
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode

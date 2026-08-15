@@ -26,11 +26,10 @@ from typing import Any, Optional
 from service.api_core.channel_delivery import _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
 from service.api_core.dispatch_start import _coldstart_spawn_request_for_dispatch
 from service.api_core.events import _append_dispatch_event
-from service.api_core.liveness import (
+from service.api_core.liveness import _has_live_claimer_lease, _has_recorded_claimer_lease
+from service.api_core.live_process_probes import (
     ACTIVE_RUN_BRIDGE_STALE_SECONDS,
     _has_live_channel_sidecar,
-    _has_live_claimer_lease,
-    _has_recorded_claimer_lease,
     _resident_bridge_is_fresh,
 )
 from service.api_core.managed_env import _has_pending_or_booting_spawn_request

@@ -22,7 +22,7 @@ from service.api_core.dispatch_start import (
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.dispatch_text import COLDSTART_REFUSED_PREFIX, _coldstart_refusal_message
 from service.api_core.execution_mode import _auto_return_resident_to_managed_if_possible
-from service.api_core.liveness import _has_live_managed_wrapper_child
+from service.api_core.live_process_probes import _has_live_managed_wrapper_child
 from service.api_core.runtime import _NATIVE_MANAGED_RUNTIMES, _normalize_runtime
 from service.api_core.settings import _managed_terminal_backing_enabled
 from service.api_core.spawn_request_state import _has_claimable_spawn_request

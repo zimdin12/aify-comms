@@ -79,9 +79,7 @@ from service.api_core.recovery_writes import (  # v0.5.4: moved out; the control
 from service.api_core.managed_env import (  # v0.5.4: moved out; the control plane is now a CALLER
     _managed_console_is_booting,
 )
-from service.api_core.liveness import (  # v0.5.4: moved out; the control plane is now a CALLER
-    ACTIVE_RUN_BRIDGE_STALE_SECONDS,
-)
+from service.api_core.live_process_probes import ACTIVE_RUN_BRIDGE_STALE_SECONDS
 from service.env_status import _ENVIRONMENT_HEARTBEAT_STATUSES
 # v0.5 slice 2: the spawn-lifecycle reconcilers moved to their own module.
 from service.reconcilers.undeliverable_queued_runs import _reap_undeliverable_queued_runs
@@ -322,7 +320,9 @@ from service.api_core.vocabulary import (
 # _channel_managed_eligible moved to service/api_core/channel_delivery.py in v0.5.4.
 
 
-# _has_live_terminal_session moved to service/api_core/liveness.py in v0.5.4.
+# _has_live_terminal_session moved to service/api_core/liveness.py in v0.5.4, then on to service/api_core/live_process_probes.py in v0.5.4 — the six
+# process probes and their two staleness constants left together, so nothing had to import
+# back across the split.
 
 
 # _has_live_rpc_controller moved to service/api_core/capabilities.py in v0.5.4.
@@ -334,7 +334,9 @@ from service.api_core.vocabulary import (
 # (claim_dispatch: "the claim poll itself is the heartbeat"), so a live sidecar
 # stays well within this window; a process that has exited goes stale quickly.
 # CHANNEL_SIDECAR_STALE_SECONDS moved to service/api_core/liveness.py in v0.5.4, with the
-# predicates that apply it — a threshold apart from its predicate is how they drift.
+# predicates that apply it — a threshold apart from its predicate is how they drift, then on to service/api_core/live_process_probes.py in v0.5.4 — the six
+# process probes and their two staleness constants left together, so nothing had to import
+# back across the split.
 
 # WS5 Task 5.1 (2026-06-02): an ACQUIRED claimer lease that has not been
 # refreshed within this window is treated as stale (the loop died without
@@ -348,10 +350,14 @@ from service.api_core.vocabulary import (
 
 
 
-# _has_live_channel_sidecar moved to service/api_core/liveness.py in v0.5.4.
+# _has_live_channel_sidecar moved to service/api_core/liveness.py in v0.5.4, then on to service/api_core/live_process_probes.py in v0.5.4 — the six
+# process probes and their two staleness constants left together, so nothing had to import
+# back across the split.
 
 
-# _has_live_managed_wrapper_child moved to service/api_core/liveness.py in v0.5.4.
+# _has_live_managed_wrapper_child moved to service/api_core/liveness.py in v0.5.4, then on to service/api_core/live_process_probes.py in v0.5.4 — the six
+# process probes and their two staleness constants left together, so nothing had to import
+# back across the split.
 
 
 # _claimer_lease_row moved to service/api_core/liveness.py in v0.5.4.
@@ -370,7 +376,9 @@ from service.api_core.vocabulary import (
 
 
 # ACTIVE_RUN_BRIDGE_STALE_SECONDS moved to service/api_core/liveness.py in v0.5.4, with the
-# predicates that apply it — a threshold apart from its predicate is how they drift.
+# predicates that apply it — a threshold apart from its predicate is how they drift, then on to service/api_core/live_process_probes.py in v0.5.4 — the six
+# process probes and their two staleness constants left together, so nothing had to import
+# back across the split.
 # CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX moved to service/api_core/dispatch_state.py in v0.5.4.
 # CLAUDE_CHANNEL_DELIVERY_SUMMARY_PREFIX moved to service/api_core/dispatch_state.py in v0.5.4.
 
@@ -440,10 +448,14 @@ from service.api_core.vocabulary import (
 # _get_dispatch_state_map moved to service/api_core/dispatch_state.py in v0.5.4.
 
 
-# _resident_bridge_is_fresh moved to service/api_core/liveness.py in v0.5.4.
+# _resident_bridge_is_fresh moved to service/api_core/liveness.py in v0.5.4, then on to service/api_core/live_process_probes.py in v0.5.4 — the six
+# process probes and their two staleness constants left together, so nothing had to import
+# back across the split.
 
 
-# _agent_has_live_terminal moved to service/api_core/liveness.py in v0.5.4.
+# _agent_has_live_terminal moved to service/api_core/liveness.py in v0.5.4, then on to service/api_core/live_process_probes.py in v0.5.4 — the six
+# process probes and their two staleness constants left together, so nothing had to import
+# back across the split.
 
 
 # TODO consolidate existing *_is_fresh helpers (_resident_bridge_is_fresh,
@@ -463,7 +475,9 @@ from service.api_core.vocabulary import (
 # _session_handle_live_owner moved to service/api_core/agent_sessions.py in v0.5.4.
 
 
-# _bridge_is_superseded moved to service/api_core/liveness.py in v0.5.4.
+# _bridge_is_superseded moved to service/api_core/liveness.py in v0.5.4, then on to service/api_core/live_process_probes.py in v0.5.4 — the six
+# process probes and their two staleness constants left together, so nothing had to import
+# back across the split.
 
 
 # _active_wrapper_terminal_id moved to service/api_core/claim_gating.py in v0.5.4, then on to

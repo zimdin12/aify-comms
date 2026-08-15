@@ -20,7 +20,7 @@ transaction.
 from __future__ import annotations
 
 from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES
-from service.api_core.liveness import _has_live_managed_wrapper_child
+from service.api_core.live_process_probes import _has_live_managed_wrapper_child
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.settings import _load_settings
 from service.api_core.dispatch_start import _coldstart_spawn_request_for_dispatch

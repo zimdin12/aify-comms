@@ -30,7 +30,7 @@ from typing import Any, Optional
 
 from service.api_core.capabilities import _has_live_rpc_controller
 from service.api_core.dispatch_state import _get_dispatch_state_map
-from service.api_core.liveness import _has_live_terminal_session
+from service.api_core.live_process_probes import _has_live_terminal_session
 from service.api_core.manual_status import _MANUAL_STATUSES
 from service.api_core.message_store import _get_unread_count_map
 from service.api_core.records import _agent_record_to_dict

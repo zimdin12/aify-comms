@@ -43,8 +43,8 @@ from service.api_core.liveness import (
     _agent_config_defect,
     _agent_wake_mode,
     _console_working_lease_fresh,
-    _resident_bridge_is_fresh,
 )
+from service.api_core.live_process_probes import _resident_bridge_is_fresh
 from service.api_core.managed_env import (
     _managed_console_is_booting,
     _managed_owning_environment_row,

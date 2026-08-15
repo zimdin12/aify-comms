@@ -46,7 +46,7 @@ sys.path.insert(0, str(ROOT.parent))
 from service.db import init_db  # noqa: E402
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now  # noqa: E402
 from service.routers.api_v2 import router
-from service.api_core.liveness import _has_live_channel_sidecar  # noqa: E402
+from service.api_core.live_process_probes import _has_live_channel_sidecar
 from service.api_core.channel_delivery import _apply_channel_routing_to_claude_runs
 
 # v0.5.2m: ONLY this one moved. The other three are still router-owned, so the import stays split
