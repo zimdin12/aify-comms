@@ -21,6 +21,7 @@ import logging
 import time
 from datetime import datetime, timezone
 
+from service.api_core.idle_worker_query import _select_idle_virtual_rpc_workers
 from service.api_core.serialization import _json_loads_or  # v0.5.1c: the leaf owner, not via the router
 from service.api_core.events import (
     _append_terminal_control,
@@ -266,44 +267,7 @@ async def _close_idle_virtual_rpc_workers(db, *, idle_close_enabled: bool, idle_
     minutes = int(idle_close_minutes or 0)
     if minutes <= 0 or not bool(idle_close_enabled):
         return []
-    cursor = await db.execute(
-        f"""
-        SELECT
-          t.id,
-          t.agent_id,
-          t.command,
-          t.environment_id,
-          t.bridge_id,
-          s.id AS agent_session_id
-        FROM terminal_sessions t
-        LEFT JOIN agent_sessions s ON s.id = t.session_id
-        LEFT JOIN agents a ON a.id = t.agent_id
-        WHERE t.status IN ('starting', 'attached', 'running', 'recovering', 'active', 'idle')
-          AND (
-            t.command IN ({",".join("?" for _ in VIRTUAL_RPC_COMMAND_SET)})
-            OR t.command LIKE '%-aify%'
-            OR t.command LIKE 'opencode%'
-          )
-          AND (
-            COALESCE(a.session_mode, '') = 'managed'
-            OR COALESCE(s.owner_mode, '') = 'managed'
-            OR COALESCE(s.mode, '') LIKE 'managed%'
-          )
-          AND datetime(t.updated_at) <= datetime('now', ?)
-          AND NOT EXISTS (
-            SELECT 1 FROM dispatch_runs r
-            WHERE r.target_agent = t.agent_id
-              AND (
-                r.status IN ('queued', 'claimed', 'running')
-                OR (r.status = 'delivered' AND COALESCE(r.require_reply, 0) = 1)
-              )
-          )
-        ORDER BY t.updated_at ASC
-        LIMIT ?
-        """,
-        (*VIRTUAL_RPC_COMMAND_SET, f"-{minutes} minutes", limit),
-    )
-    rows = await cursor.fetchall()
+    rows = await _select_idle_virtual_rpc_workers(db, minutes, limit)
     now = _now()
     closed: list[dict[str, str]] = []
     for row in rows:
