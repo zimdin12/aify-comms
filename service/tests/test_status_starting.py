@@ -186,14 +186,18 @@ class EnsureManagedPtyRowAccessTests(unittest.TestCase):
 
         from service.tests._source import code_only
 
-        # v0.5.2g moved the spawn handlers out; this probe follows the code, not the file. The
-        # OTHER source reads in this file still point at api_v2 because their subjects are borrowed
-        # helpers that stayed there — repointing them all would have been wrong.
-        src = code_only(
-            (Path(__file__).resolve().parents[1] / "routers" / "spawn_requests.py").read_text(
-                encoding="utf-8", errors="replace"
-            )
-        )
+        # FINDS THE CODE RATHER THAN NAMING ITS FILE. This comment used to say "this probe follows
+        # the code, not the file" and then named a file — which is how it went red on a v0.5.4
+        # relocation that changed nothing about the logging. The warning is what matters, wherever
+        # it lives, so the product tree is searched for it.
+        service_dir = Path(__file__).resolve().parents[1]
+        holders = [
+            path for path in service_dir.rglob("*.py")
+            if "tests" not in path.parts
+            and "eager managed PTY for" in path.read_text(encoding="utf-8", errors="replace")
+        ]
+        self.assertEqual(1, len(holders), f"expected exactly one writer of this warning: {holders}")
+        src = code_only(holders[0].read_text(encoding="utf-8", errors="replace"))
         at = src.index("eager managed PTY for")
         window = src[max(0, at - 400) : at + 200]
         self.assertIn("logger.warning", window)

@@ -153,15 +153,29 @@ class ReconcilerSourceTests(unittest.TestCase):
         self.assertIn("requested_at >= ?", self._body())
 
     def test_the_dispatcher_default_subject_is_still_what_this_predicate_assumes(self):
-        """Agreement between the two halves, in one file: the reconciler reconstructs the subject
-        the dispatcher generated. If someone edits one f-string, this fails instead of the feature
-        quietly repairing nothing."""
+        """Agreement between the two halves: the reconciler reconstructs the subject the dispatcher
+        generated. If someone edits one f-string, this fails instead of the feature quietly
+        repairing nothing.
+
+        FINDS THE CODE RATHER THAN NAMING ITS FILE. This named `routers/spawn_requests.py` and went
+        red on a v0.5.4 relocation that changed nothing about the subject. The agreement is between
+        two f-strings wherever they live, so it is asked of the product tree — and asking that way
+        also catches a FORK, which naming one file never could.
+        """
         from pathlib import Path
-        # v0.5.2g: the spawn brief is built in the spawn-requests domain now.
-        src = Path(__file__).resolve().parents[1] / "routers" / "spawn_requests.py"
-        text = src.read_text(encoding="utf-8", errors="replace")
-        self.assertIn('f"Spawn {row[\'agent_id\']}"', text,
-                      "the dispatcher's default subject shape changed — update the reconciler with it")
+
+        service_dir = Path(__file__).resolve().parents[1]
+        needle = 'f"Spawn {row[\'agent_id\']}"'
+        holders = [
+            path.relative_to(service_dir).as_posix()
+            for path in service_dir.rglob("*.py")
+            if "tests" not in path.parts
+            and needle in path.read_text(encoding="utf-8", errors="replace")
+        ]
+        self.assertEqual(
+            1, len(holders),
+            "the dispatcher's default subject shape changed, or forked into two writers — the "
+            f"reconciler reconstructs exactly this string. Found in: {holders}")
 
 
 if __name__ == "__main__":
