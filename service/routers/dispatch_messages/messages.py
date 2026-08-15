@@ -31,10 +31,7 @@ from service.api_core.reply_expectation import (
     _dispatch_requires_reply,
     _message_type_expects_reply,
 )
-from service.api_core.reply_linking import (
-    _link_reply_message_to_dispatch_run,
-    _link_unthreaded_reply_to_recent_dispatch_run,
-)
+from service.api_core.reply_threading import _thread_reply_onto_dispatch_runs
 from service.api_core.console_input_queue import _queue_console_dispatch_inputs
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime
@@ -520,28 +517,9 @@ async def send_message(req: MessageSend, request: Request):
                 "warnings": [],
             }
 
-        if resolved_in_reply_to:
-            await _link_reply_message_to_dispatch_run(
-                db,
-                from_agent=req.from_agent,
-                resolved_in_reply_to=resolved_in_reply_to,
-                reply_message_id=linked_result_message_id,
-                reply_type=req.type,
-                reply_body=req.body,
-            )
-        else:
-            for r in recipients:
-                recipient_message_id = f"{msg_id}-{r}" if len(recipients) > 1 else msg_id
-                await _link_unthreaded_reply_to_recent_dispatch_run(
-                    db,
-                    from_agent=req.from_agent,
-                    to_agent=r,
-                    reply_message_id=recipient_message_id,
-                    reply_type=req.type,
-                    reply_subject=req.subject,
-                    reply_body=req.body,
-                    reply_timestamp_ms=ts,
-                )
+        await _thread_reply_onto_dispatch_runs(
+            db, req, recipients, msg_id, ts, resolved_in_reply_to, linked_result_message_id,
+        )
 
         dispatch_runs = []
         if req.trigger:

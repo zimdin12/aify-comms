@@ -38,11 +38,20 @@ CONSOLE_QUEUE = REPO / "service" / "api_core" / "console_input_queue.py"
 #: `_launch_recipients_for_dispatch` was RELOCATED out of dispatch_start.py in v0.5.4 — byte-identical,
 #: so the round trip still closes, but only if the proof reads the file it lives in now.
 DISPATCH_LAUNCH = REPO / "service" / "api_core" / "dispatch_launch.py"
-MODULES = (MESSAGES, DISPATCH_START, CONSOLE_QUEUE, DISPATCH_LAUNCH)
+#: The reply-threading block was BLOCKED for two slices: both writers it calls lived in
+#: `dispatch_messages/shared.py`, and an api_core leaf importing from a router is the cycle the
+#: layering exists to prevent. They moved to `reply_linking.py` first; this is what that unblocked.
+REPLY_THREADING = REPO / "service" / "api_core" / "reply_threading.py"
+REPLY_LINKING = REPO / "service" / "api_core" / "reply_linking.py"
+MODULES = (MESSAGES, DISPATCH_START, CONSOLE_QUEUE, DISPATCH_LAUNCH, REPLY_THREADING)
 FIXTURE = Path(__file__).resolve().parent / "data" / "send_message_before_split.py"
 
 SOURCE_FUNCTION = "send_message"
-EXTRACTIONS = ["_launch_recipients_for_dispatch", "_queue_console_dispatch_inputs"]
+EXTRACTIONS = [
+    "_launch_recipients_for_dispatch",
+    "_queue_console_dispatch_inputs",
+    "_thread_reply_onto_dispatch_runs",
+]
 
 
 def _combined_split_source() -> str:
@@ -98,6 +107,7 @@ class SendMessageSplitIsInertTests(unittest.TestCase):
         expected = {
             "_launch_recipients_for_dispatch": DISPATCH_LAUNCH,
             "_queue_console_dispatch_inputs": CONSOLE_QUEUE,
+            "_thread_reply_onto_dispatch_runs": REPLY_THREADING,
         }
         self.assertEqual(sorted(expected), sorted(EXTRACTIONS), "every extraction needs a declared owner")
         for helper, owner in expected.items():
@@ -124,6 +134,43 @@ class SendMessageSplitIsInertTests(unittest.TestCase):
                     or node.module == "service.control_plane",
                     f"dispatch_start.py imports upward from {node.module}",
                 )
+
+    def test_the_two_reply_paths_stay_EXCLUSIVE(self):
+        """One reply closes one run. The round trip proves the block moved, not that it is right.
+
+        A future edit that ran both paths would thread the message onto the run the sender NAMED and
+        also onto the most recent one it guessed at, closing a run that is still owed an answer. The
+        if/else shape is what prevents that, so it is asserted directly.
+        """
+        helper = next(
+            n for n in ast.parse(REPLY_THREADING.read_text(encoding="utf-8")).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and n.name == "_thread_reply_onto_dispatch_runs"
+        )
+        statements = [
+            node for node in helper.body
+            if not (isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant))
+        ]
+        self.assertEqual(1, len(statements), "the guard must be the helper's only statement")
+        guard = statements[0]
+        self.assertIsInstance(guard, ast.If)
+        self.assertTrue(guard.orelse, "the guess path must be the ELSE, never a second if")
+
+    def test_the_relocation_that_unblocked_the_threading_split_still_holds(self):
+        """Both link writers must stay OUT of the router, or that extraction becomes illegal."""
+        dm_shared = REPO / "service" / "routers" / "dispatch_messages" / "shared.py"
+        declared_in_router = {
+            n.name for n in ast.parse(dm_shared.read_text(encoding="utf-8")).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        declared_in_leaf = {
+            n.name for n in ast.parse(REPLY_LINKING.read_text(encoding="utf-8")).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        for name in ("_link_reply_message_to_dispatch_run",
+                     "_link_unthreaded_reply_to_recent_dispatch_run"):
+            self.assertIn(name, declared_in_leaf, f"{name} must live in reply_linking.py")
+            self.assertNotIn(name, declared_in_router, f"{name} is declared in a router again")
 
     def test_the_fixture_is_tracked(self):
         self.assertTrue(FIXTURE.exists())
