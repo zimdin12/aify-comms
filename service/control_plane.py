@@ -1,6 +1,6 @@
-"""The live control plane: the helpers, constants and queues the route domains share.
+"""The control plane's TRAIL: where everything that used to live here went, and why.
 
-25 helpers and the constants behind status, dispatch, terminals, spawn and console. It declares NO
+It declares NO
 routes and owns no router — `service/routers/api_v2.py` is the composition surface, and it is 53
 lines of `include_router` with no re-export of anything here, so a stale
 `from service.routers.api_v2 import <helper>` fails loudly instead of quietly resolving.
@@ -19,10 +19,23 @@ migration finished long before any of this. That was worth fixing rather than ca
 central whose first three lines are wrong teaches every reader something false before they reach the
 code.
 
-IT IS STILL TOO BIG, and what is left is no longer a pile of small helpers: 25 functions hold ~1,450
-lines, and the four largest hold ~950 of them. Splitting those is extract-method, not relocation —
-gated by `service/tests/extract_method.py` — and a v0.6 question. Until then: put NEW behaviour in a
-leaf (`service/api_core/`, `service/reconcilers/`, `service/status_engine.py`) and import it.
+IT IS NO LONGER TOO BIG; IT IS NO LONGER CODE. Measured today, this file declares ZERO functions,
+zero classes and zero constants. What remains is a docstring, 37 import bindings and 148 `moved to`
+pointer lines carrying the reasoning behind each departure. The paragraph that stood here said "25
+functions hold ~1,450 lines" and "splitting those is a v0.6 question" — the splitting happened, and
+the prose describing the plan outlived it. Which is exactly what the paragraph above warns about.
+
+THE 37 IMPORTS NOW HAVE NO REAL READER, measured rather than assumed: two names look like they are
+imported through this module, and both occurrences are SYNTHETIC FIXTURE STRINGS inside tests rather
+than live imports. They are still here because removing them is not a free cleanup — four tests use
+this module as a WITNESS that a constant has one owner (`api_v2._SESSION_MODES is SESSION_MODES`),
+and one asserts as an anti-vacuity floor that the control plane imports MORE THAN TEN service
+modules, reasoning that finding none means the scan broke rather than the architecture having
+changed. It has changed. Retiring the imports means re-aiming those four gates at modules that
+actually READ the names, which is a reviewer decision rather than a sweep.
+
+Until then: put NEW behaviour in a leaf (`service/api_core/`, `service/reconcilers/`,
+`service/status_engine.py`) and import it. Nothing new belongs here.
 
 DO NOT LEAVE AN IMPORT BEHIND WHEN YOU MOVE SOMETHING OUT. In v0.5.4 this file carried 309 import
 bindings of which 180 were reached by nothing at all — one orphaned per extraction, accumulated over
@@ -148,7 +161,6 @@ from service.api_core.vocabulary import (
 # _TERMINAL_END_STATUSES and _TERMINAL_END_STATUSES_ORDERED moved to
 # service/api_core/terminal_status.py in v0.5.4, together — the ordered form is DERIVED from
 # the set and a test guards their agreement, so the derivation must not span a module boundary.
-_DISPATCH_ACTIVE_STATUSES = {"queued", "claimed", "running"}
 # A session whose spawn/run is in flight or live. "starting" is included so a
 # spawn-in-progress is not marked offline merely because the environment bridge
 # instance id rotated (same rationale as a running session surviving a bridge
@@ -164,9 +176,7 @@ _DISPATCH_ACTIVE_STATUSES = {"queued", "claimed", "running"}
 # the terminal row is absent). Used by the new deriver + the dead-session
 # reconcile case (a) to join the LIVE terminal truth instead of the frozen
 # agent_sessions.terminal_status denorm.
-TERMINAL_DEAD_STATUSES = {"failed", "stopped", "exited", "lost", "ended", "cancelled"}
 # Terminal reached an end state (distinct from the transient "stopping").
-_TERMINAL_DEAD_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
 # A bridge-pushed turn_busy=1 is "working" only if refreshed within this
 # window; the bridge re-sends true on every per-agent heartbeat during long
 # turns (keep its cadence well under this).
