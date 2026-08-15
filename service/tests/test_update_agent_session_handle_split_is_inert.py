@@ -27,7 +27,11 @@ from pathlib import Path
 from service.tests.extract_method import assert_extractions_preserve_behaviour
 
 REPO = Path(__file__).resolve().parent.parent.parent
-SESSION_MODE = REPO / "service" / "routers" / "agents" / "session_mode.py"
+# `update_agent_session_handle` moved to `agents/session_handle.py` in v0.5.4 — a mode switch
+# changes how an agent is DRIVEN, a handle change changes WHICH conversation it drives, and the
+# file kept the name that fits what stayed. A round-trip proof names the module holding the
+# CALLER, so a relocation must touch it — see the one-line pin below.
+CALLER = REPO / "service" / "routers" / "agents" / "session_handle.py"
 CHANGE = REPO / "service" / "api_core" / "session_handle_change.py"
 CAPABILITIES = REPO / "service" / "api_core" / "session_capabilities.py"
 AGENTS_SHARED = REPO / "service" / "routers" / "agents" / "shared.py"
@@ -51,7 +55,7 @@ OWNERS = {
     "_park_pending_session_handle_change": CHANGE,
 }
 
-MODULES = (SESSION_MODE, CHANGE)
+MODULES = (CALLER, CHANGE)
 
 #: Relocated to unblock the mirror. Byte-identical; asserted because nothing else would notice it
 #: drifting back into a router.
@@ -80,6 +84,24 @@ class UpdateAgentSessionHandleSplitIsInertTests(unittest.TestCase):
         assert_extractions_preserve_behaviour(
             ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
 
+    def test_the_source_function_is_still_where_this_proof_looks(self):
+        """`CALLER` is a location pin, and a relocation is what breaks it.
+
+        Added when `update_agent_session_handle` moved out of `session_mode.py` in v0.5.4. The round
+        trip already fails then — it cannot find the caller to inline into — but it fails as a
+        gate-internal error about a missing definition. This says the true thing in one line.
+        """
+        declared = {
+            n.name for n in ast.parse(CALLER.read_text(encoding="utf-8")).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertIn(
+            SOURCE_FUNCTION, declared,
+            f"{SOURCE_FUNCTION} is not declared in {CALLER.name}. If it was relocated, repoint "
+            "CALLER at its new module — this proof names the file holding the caller, so a move "
+            "must touch it.",
+        )
+
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""
         self.assertIn(SOURCE_FUNCTION, _declared(FIXTURE))
@@ -94,8 +116,8 @@ class UpdateAgentSessionHandleSplitIsInertTests(unittest.TestCase):
         """If the split were reverted, the round trip would pass by having nothing to inline."""
         for helper in EXTRACTIONS:
             self.assertNotIn(
-                helper, _declared(SESSION_MODE),
-                f"{helper} is back in session_mode.py; this proof is vacuous")
+                helper, _declared(CALLER),
+                f"{helper} is back in session_handle.py; this proof is vacuous")
 
     def test_exactly_one_module_declares_EACH_helper(self):
         self.assertEqual(sorted(OWNERS), sorted(EXTRACTIONS), "every extraction needs a declared owner")
@@ -135,7 +157,7 @@ class UpdateAgentSessionHandleSplitIsInertTests(unittest.TestCase):
         self.assertIsInstance(returned, ast.Return)
         self.assertEqual("_fresh_start_terminal", returned.value.id)
         call = next(
-            n for n in ast.walk(ast.parse(SESSION_MODE.read_text(encoding="utf-8")))
+            n for n in ast.walk(ast.parse(CALLER.read_text(encoding="utf-8")))
             if isinstance(n, ast.Assign) and isinstance(n.value, ast.Await)
             and getattr(n.value.value.func, "id", "") == "_detect_fresh_start_terminal"
         )

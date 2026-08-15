@@ -16,6 +16,7 @@ from service.routers.agents.identity import router as _identity_router
 from service.routers.agents.rename import router as _rename_router
 from service.routers.agents.session_lease import router as _session_lease_router
 from service.routers.agents.session_ops import router as _session_ops_router
+from service.routers.agents.session_handle import router as _session_handle_router
 from service.routers.agents.session_mode import router as _session_mode_router
 from service.routers.agents.liveness import router as _liveness_router
 from service.routers.agents.turn_boundaries import router as _turn_boundaries_router
@@ -38,6 +39,9 @@ router.include_router(_session_ops_router)
 # The session-lease trio left `session_ops.py` in v0.5.4, still in first-appearance order.
 router.include_router(_session_lease_router)
 router.include_router(_session_mode_router)
+# The session-handle write left `session_mode.py` in v0.5.4 — a mode switch changes how an agent is
+# driven, a handle change changes which conversation it is driving.
+router.include_router(_session_handle_router)
 router.include_router(_liveness_router)
 # The turn-boundary pair left `liveness.py` in v0.5.4, still in first-appearance order.
 router.include_router(_turn_boundaries_router)
