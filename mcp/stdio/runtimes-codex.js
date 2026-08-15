@@ -4,6 +4,9 @@
 // (task #123). runtimes.js re-exports the public surface.
 import fs from "fs";
 import path from "path";
+// Thread selection left for `codex-thread-selection.js` in v0.5.4 — which conversation to resume is
+// a decision worth being able to test without a codex install.
+import { pickNewestCodexThreadId } from "./codex-thread-selection.js";
 import { fileURLToPath } from "url";
 import { listRuntimeMarkers } from "./runtime-markers.js";
 import { resolveCodexRequestCwdFor } from "./codex-errors.js";
@@ -404,51 +407,6 @@ export function codexSpawnCwd(launcher, cwd) {
 export function hasCodexLiveAppServer(runtimeConfig = {}) {
   const url = String(runtimeConfig?.appServerUrl || "").trim();
   return /^wss?:\/\//i.test(url);
-}
-
-function parseTimestamp(value) {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  const text = String(value || "").trim();
-  if (!text) return 0;
-  const numeric = Number(text);
-  if (Number.isFinite(numeric) && numeric > 0) return numeric;
-  const parsed = Date.parse(text);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function normalizePathForCompare(value) {
-  return String(value || "").trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-}
-
-function pickNewestCodexThreadId(listResult, cwd) {
-  const threads = Array.isArray(listResult?.threads)
-    ? listResult.threads
-    : (Array.isArray(listResult?.data) ? listResult.data : []);
-  if (!threads.length) return "";
-
-  // Normalize both sides: Codex stores Windows thread cwds with backslashes,
-  // but our bridge passes forward-slash paths now, so a literal === comparison
-  // would silently fall through and pick the wrong thread.
-  const normalizedCwd = normalizePathForCompare(cwd);
-  const preferred = [];
-  const fallback = [];
-
-  for (const thread of threads) {
-    const id = String(thread?.id || "").trim();
-    if (!id) continue;
-    const threadCwd = normalizePathForCompare(thread?.cwd || thread?.directory || thread?.worktree || "");
-    if (normalizedCwd && threadCwd && threadCwd === normalizedCwd) preferred.push(thread);
-    else fallback.push(thread);
-  }
-
-  const candidates = preferred.length ? preferred : fallback;
-  candidates.sort((a, b) => {
-    const aTime = parseTimestamp(a?.updatedAt || a?.lastUpdatedAt || a?.createdAt || a?.timestamp);
-    const bTime = parseTimestamp(b?.updatedAt || b?.lastUpdatedAt || b?.createdAt || b?.timestamp);
-    return bTime - aTime;
-  });
-
-  return String(candidates[0]?.id || "").trim();
 }
 
 async function fetchCodexThreadList(rpc) {
