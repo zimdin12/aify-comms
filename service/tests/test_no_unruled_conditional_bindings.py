@@ -56,7 +56,7 @@ RULINGS = {
     ("service/routers/dispatch_messages/messages.py", "send_message", "settings"): (
         "Bound on the trigger path and read on the dispatch-run path, which is reached only from it."
     ),
-    ("service/routers/channels.py", "send_channel_message", "prefer_steer"): (
+    ("service/routers/channel_send.py", "send_channel_message", "prefer_steer"): (
         "Bound inside `if should_trigger and recipients:` and read inside `if should_trigger and "
         "dispatch_recipients:`. Safe because `dispatch_recipients` is DERIVED from `recipients`, so "
         "an empty `recipients` makes both conditions false, and `should_trigger` gates both. That "

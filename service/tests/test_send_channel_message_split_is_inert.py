@@ -29,10 +29,13 @@ from pathlib import Path
 from service.tests.extract_method import assert_extractions_preserve_behaviour
 
 REPO = Path(__file__).resolve().parent.parent.parent
-CHANNELS = REPO / "service" / "routers" / "channels.py"
+# `send_channel_message` moved to `routers/channel_send.py` in v0.5.4 as a private cluster, with
+# its dedup helper and the window constant. A round-trip proof names the module holding the
+# CALLER, so a relocation must touch it — see the one-line pin below.
+CALLER = REPO / "service" / "routers" / "channel_send.py"
 COLDSTART = REPO / "service" / "api_core" / "channel_coldstart.py"
 
-MODULES = (CHANNELS, COLDSTART)
+MODULES = (CALLER, COLDSTART)
 FIXTURE = Path(__file__).resolve().parent / "data" / "send_channel_message_before_split.py"
 
 SOURCE_FUNCTION = "send_channel_message"
@@ -54,6 +57,24 @@ class SendChannelMessageSplitIsInertTests(unittest.TestCase):
         assert_extractions_preserve_behaviour(
             ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
 
+    def test_the_source_function_is_still_where_this_proof_looks(self):
+        """`CALLER` is a location pin, and a relocation is what breaks it.
+
+        Added when `send_channel_message` moved out of `channels.py` in v0.5.4. The round trip
+        already fails then — it cannot find the caller to inline into — but it fails as a
+        gate-internal error about a missing definition. This says the true thing in one line.
+        """
+        declared = {
+            n.name for n in ast.parse(CALLER.read_text(encoding="utf-8")).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertIn(
+            SOURCE_FUNCTION, declared,
+            f"{SOURCE_FUNCTION} is not declared in {CALLER.name}. If it was relocated, repoint "
+            "CALLER at its new module — this proof names the file holding the caller, so a move "
+            "must touch it.",
+        )
+
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         names = {
             n.name for n in ast.parse(FIXTURE.read_text(encoding="utf-8")).body
@@ -65,7 +86,7 @@ class SendChannelMessageSplitIsInertTests(unittest.TestCase):
         """`subprocess.run(text=True)` decodes with the Windows locale and mangles every dash."""
         text = FIXTURE.read_text(encoding="utf-8")
         self.assertNotIn("�", text, "fixture contains U+FFFD replacement characters")
-        live = CHANNELS.read_text(encoding="utf-8")
+        live = CALLER.read_text(encoding="utf-8")
         expected = ast.get_source_segment(live, next(
             n for n in ast.parse(live).body
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
@@ -75,11 +96,11 @@ class SendChannelMessageSplitIsInertTests(unittest.TestCase):
 
     def test_the_helper_is_not_still_inline(self):
         declared = {
-            n.name for n in ast.parse(CHANNELS.read_text(encoding="utf-8")).body
+            n.name for n in ast.parse(CALLER.read_text(encoding="utf-8")).body
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
         for helper in EXTRACTIONS:
-            self.assertNotIn(helper, declared, f"{helper} is back in channels.py; this proof is vacuous")
+            self.assertNotIn(helper, declared, f"{helper} is back in channel_send.py; this proof is vacuous")
 
     def test_exactly_one_module_declares_the_helper(self):
         self.assertEqual(sorted(OWNERS), sorted(EXTRACTIONS), "every extraction needs a declared owner")

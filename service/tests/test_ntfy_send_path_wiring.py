@@ -52,8 +52,14 @@ def _messages_source() -> str:
 
 
 def _channels_source() -> str:
-    """v0.5.2h moved the channel fan-out into its own domain module."""
-    path = Path(__file__).resolve().parents[1] / "routers" / "channels.py"
+    """v0.5.2h moved the channel fan-out into its own domain module; v0.5.4 moved it again.
+
+    `send_channel_message` now lives in `routers/channel_send.py`. This test reads SOURCE, so it
+    follows the code rather than the filename — reading `channels.py` after the move would find zero
+    `notify_operator(` calls and the "both send paths notify" assertion would fail while both paths
+    still notify.
+    """
+    path = Path(__file__).resolve().parents[1] / "routers" / "channel_send.py"
     return code_only(path.read_text(encoding="utf-8", errors="replace"))
 
 
