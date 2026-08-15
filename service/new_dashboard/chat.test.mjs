@@ -7,7 +7,10 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createChatController, dmMessages, chatConversationItems, deliveryToastFor, messageHtml, sortChronological, subjectIsEchoOfBody } from "./chat.js";
+import { createChatController, dmMessages, chatConversationItems, sortChronological } from "./chat.js";
+// The pure HTML builders moved to `chat-render.mjs` in v0.5.4. Imported from their OWNER rather
+// than re-exported through `chat.js`: a re-export is what makes a stale import look valid.
+import { deliveryToastFor, messageHtml, subjectIsEchoOfBody } from "./chat-render.mjs";
 
 test("sortChronological orders oldest→newest so the newest sits at the bottom (2026-07-06)", () => {
   // /messages/recent returns DESCENDING (newest first). The timeline must show ascending.
