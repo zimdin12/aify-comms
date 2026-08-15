@@ -4,8 +4,14 @@ The managed-claude host bridge posts this while the claude TUI spinner footer is
 visible; the lease is OR'd into derived `working` (a fresh turn_busy-equivalent) so
 the agent reads `working` during a long thinking phase the per-completed-message
 transcript can't see. Schema: service/db.py agent_console_signal. Derivation:
-service/routers/api_v2.py _compute_live_status_cache (mirrors the turn_busy fresh
-lease; surfaces as `working` at the turn_busy branch when a live worker is present).
+service/api_core/status_inputs.py _compute_live_status_cache (mirrors the turn_busy
+fresh lease; surfaces as `working` at the turn_busy branch when a live worker is
+present).
+
+That derivation pointer said `service/routers/api_v2.py` until 2026-08-15, and by then
+that module declared NOTHING — v0.5.x emptied it down to fifteen `include_router`
+calls. A reader following it to understand where `working` comes from would have found
+an empty file and no clue where to go next.
 """
 
 import sqlite3
