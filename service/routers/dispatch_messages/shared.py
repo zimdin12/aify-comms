@@ -28,15 +28,11 @@ from service.api_core.runtime import _normalize_runtime
 from service.api_core.serialization import (
     _dedupe_preserve,
 )
-from service.api_core.agent_sessions import (
-    _touch_agent,
-)
 from service.clock import now as _now
 from service.db import get_db
 
 # Resolved to their REAL owners, asked of the repo rather than guessed:
 from service.reconcilers.dispatch_queue import _close_reconcilable_delivered_runs
-from service.status_engine import VALID_STATUSES
 # Imported for the ANNOTATION as much as the call: under postponed evaluation an unresolved
 # model name does not fail import, it fails a type-hint gate or a request at runtime.
 from service.models import DispatchClaimRequest
@@ -107,11 +103,9 @@ logger = logging.getLogger("aify_comms.routers.dispatch_messages.shared")
 
 # Was a borrow shim: the owner lived in the control plane, which this module cannot import at
 # module level without a cycle. It moved to service/api_core/dispatch_runs.py in v0.5.4.
-from service.api_core.dispatch_runs import _create_dispatch_runs  # noqa: E402
 
 
 
-from service.api_core.message_store import _delete_messages_where  # noqa: E402
 
 
 
@@ -124,19 +118,16 @@ from service.api_core.message_store import _delete_messages_where  # noqa: E402
 # Was a borrow shim: the owner lived in the control plane, which a router cannot import at
 # module level without a cycle. It moved to service/api_core/status_refresh.py in v0.5.4, so
 # a plain import works.
-from service.api_core.status_refresh import _get_recipient_info  # noqa: E402
 
 
 
 
 # Was a borrow shim: the owner lived in the control plane, which this module cannot import at
 # module level without a cycle. It moved to service/api_core/dispatch_sweeps.py in v0.5.4.
-from service.api_core.dispatch_sweeps import _mirror_missing_dispatch_handoff  # noqa: E402
 
 
 # Was a borrow shim: the owner lived in the control plane, which this module cannot import at
 # module level without a cycle. It moved to service/api_core/dispatch_runs.py in v0.5.4.
-from service.api_core.dispatch_runs import _preflight_live_send_recipients  # noqa: E402
 
 
 
@@ -154,7 +145,6 @@ from service.api_core.dispatch_runs import _preflight_live_send_recipients  # no
 # Was a borrow shim: the owner lived in the control plane, which a router cannot import at
 # module level without a cycle. It moved to service/longpoll.py in v0.5.4 — the module that
 # already owned the other waiter registry — so a plain import works.
-from service.longpoll import _wake_agent  # noqa: E402
 
 
 # _console_dispatch_input_body moved to service/api_core/console_input_queue.py in v0.5.4.
