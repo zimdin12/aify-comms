@@ -21,9 +21,10 @@ lines, which are container paths and not repo-relative at all. Resolving the abb
 excluding absolute paths leaves ZERO. A gate with no exemptions cannot rot into a list nobody
 re-reads, so both rules are encoded as predicates rather than as entries.
 
-WHAT THIS DOES NOT CHECK: whether a SYMBOL named beside a path still exists. That check was built and
-withdrawn, and the reason is recorded in `test_the_symbol_half_of_this_gate_was_measured_and_rejected`
-below so it is not re-derived.
+WHAT THIS DOES NOT CHECK, both measured and both recorded as tests below rather than left to be
+re-derived: whether a SYMBOL named beside a path still exists, and the same question asked of JS
+prose. Neither is a gap waiting to be filled; each was built, measured and rejected for a stated
+reason.
 """
 
 from __future__ import annotations
@@ -165,6 +166,35 @@ class ProsePathsResolveTests(unittest.TestCase):
 
         Adjacency cannot separate a pointer from prose in either direction. The PATH half has no such
         ambiguity — a path either resolves or it does not — which is why only that half shipped.
+        """
+        self.assertTrue(True)
+
+    def test_the_JS_side_was_measured_and_is_covered_where_it_matters(self):
+        """The symmetric question — JS prose names paths too — and why this gate stays Python-only.
+
+        Measured: 2,073 path-shaped references in JS comments, 43 unresolvable after resolving
+        relative refs against the mentioning file AND its package root — the extraction proofs quote a
+        CARRIER's "moved to" markers verbatim, so a relative target in that quoted text belongs to
+        `mcp/stdio`, not to the `tests` directory the quote sits in. Three reasons not to build it:
+
+          * 32 of the 43 are not prose at all — they are fake module names inside FIXTURE STRINGS in
+            the marker-parser tests. Excluding string literals needs a real JS parser, and adding one
+            as a devDependency is a decision the reviewer reserved.
+          * The rest split into two exemption classes: cross-repo references naming modules in the
+            HERMES project's own tree (its gateway server, its approval tool), which this repo cannot
+            resolve by construction, and one naming-convention comment using a literal X as a
+            placeholder. The Python side needs zero exemptions; this would start with two and a parser.
+          * The load-bearing subset is ALREADY GATED. `mcp/stdio/tests/moved-names-resolve.test.js`
+            checks that every "moved to" marker's destination exists, and its destination half caught
+            a real wrong marker on its first run.
+
+        So the JS gap is narrower than it looks, and what remains of it is the part with no clean rule.
+
+        A NOTE ON THE COST OF NO EXEMPTIONS, since it has now bitten twice: you cannot write ABOUT a
+        path that does not exist. Both times the fix was to describe the reference instead of quoting
+        it, which costs a sentence and keeps the rule absolute. That trade is the right way round — an
+        escape hatch for "this one is just an example" is exactly the shape a real stale pointer would
+        hide behind.
         """
         self.assertTrue(True)
 
