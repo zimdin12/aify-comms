@@ -35,6 +35,9 @@ GATES = REPO / "service" / "api_core" / "session_mode_gates.py"
 #: nothing, so it is not a gate. A proof that named only GATES would have gone blind on it, which is
 #: the exact failure MODULES exists to prevent.
 ENV_BINDING = REPO / "service" / "api_core" / "session_mode_env_binding.py"
+#: The audit trail got its own module too: it neither refuses nor derives, it RECORDS, and
+#: the synthetic-run workaround it carries deserves to be explained where it lives.
+AUDIT = REPO / "service" / "api_core" / "session_mode_audit.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "switch_agent_session_mode_before_split.py"
 
 SOURCE_FUNCTION = "switch_agent_session_mode"
@@ -45,6 +48,7 @@ EXTRACTIONS = [
     "_enforce_switch_not_blocked_by_active_run",
     "_start_managed_backing_after_switch",
     "_infer_environment_binding_for_managed_switch",
+    "_record_session_mode_switch_audit",
 ]
 
 #: Where each helper is expected to be declared. Asserted PER HELPER and over every module below, so a
@@ -53,9 +57,10 @@ OWNERS = {
     "_enforce_switch_not_blocked_by_active_run": GATES,
     "_start_managed_backing_after_switch": GATES,
     "_infer_environment_binding_for_managed_switch": ENV_BINDING,
+    "_record_session_mode_switch_audit": AUDIT,
 }
 
-MODULES = (SESSION_MODE, GATES, ENV_BINDING)
+MODULES = (SESSION_MODE, GATES, ENV_BINDING, AUDIT)
 
 
 def _combined_split_source() -> str:
@@ -129,7 +134,7 @@ class SwitchAgentSessionModeSplitIsInertTests(unittest.TestCase):
         Over EVERY leaf, not the one that happened to exist when this was written. Naming a single
         module here is how a check goes quietly blind when a second helper lands elsewhere.
         """
-        for leaf in (GATES, ENV_BINDING):
+        for leaf in (GATES, ENV_BINDING, AUDIT):
             for node in ast.walk(ast.parse(leaf.read_text(encoding="utf-8"))):
                 if isinstance(node, ast.ImportFrom) and node.module:
                     self.assertFalse(

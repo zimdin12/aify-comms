@@ -9,8 +9,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
-import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -22,6 +20,7 @@ from service.api_core.session_mode_gates import (
 )
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.runtime_state import _runtime_state_replacing_handle, _runtime_state_with_handle
+from service.api_core.session_mode_audit import _record_session_mode_switch_audit
 from service.api_core.session_mode_env_binding import _infer_environment_binding_for_managed_switch
 from service.api_core.status_events import _apply_status_event
 from service.api_core.routing import domain_router
@@ -47,7 +46,6 @@ from service.routers.agents.shared import (
     _agent_record_to_dict,
     _agent_session_to_dict,
     _agent_tombstone,
-    _append_dispatch_event,
     _append_terminal_control,
     _append_terminal_event,
     _borrowed_console_tail_max_bytes,
@@ -620,43 +618,8 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                 agent_id,
             ),
         )
-        # C1 audit log — `dispatch_events.run_id` is a NOT NULL FK to
-        # `dispatch_runs(id)`, so we can't attach an agent-level event with
-        # an empty run_id. Workaround: insert a synthetic anchor row into
-        # `dispatch_runs` with status='completed' (so it never enters the
-        # claim/queue paths) and a recognizable subject. Then attach the
-        # mode_switch event to it. Operators see the audit row in the same
-        # per-agent dispatch history view; no new table needed.
-        event_type = f"mode_switch_{current_mode}_to_{new_mode}"
-        audit_run_id = f"mode_switch_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-        await db.execute(
-            """
-            INSERT INTO dispatch_runs (
-                id, from_agent, target_agent, dispatch_mode, execution_mode,
-                runtime, message_type, subject, body, status, summary, requested_at, finished_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                audit_run_id,
-                requested_by,
-                agent_id,
-                "audit",
-                "audit",
-                effective_runtime,
-                "audit",
-                "session-mode-switch",
-                f"agentId={agent_id} {current_mode}->{new_mode} by={requested_by}",
-                "completed",
-                event_type,
-                now,
-                now,
-            ),
-        )
-        await _append_dispatch_event(
-            db,
-            audit_run_id,
-            event_type,
-            f"agentId={agent_id} by={requested_by}",
+        await _record_session_mode_switch_audit(
+            db, agent_id, current_mode, new_mode, effective_runtime, requested_by, now
         )
 
         # C2 state-transition side effects. Wrapped in try/except so a side
