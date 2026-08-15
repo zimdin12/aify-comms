@@ -46,6 +46,7 @@ router = domain_router()
 from service.api_core.status_refresh import _compute_agent_status  # noqa: E402
 from service.api_core.analytics_series import (
     _agent_leaderboard,
+    _build_online_agent_board,
     _append_daily_message_buckets,
     _busiest_channels,
     _dispatch_outcomes_series,
@@ -572,45 +573,10 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
             if r["target_agent"]:
                 last_worked[r["target_agent"]] = r["lw"]
 
-        # Online-agent board (exclude offline/stopped).
-        agents_c = await db.execute("SELECT * FROM agents")
-        board = []
-        online_count = 0
-        working_now = 0
-        fleet_working = 0.0
-        for row in await agents_c.fetchall():
-            if row["id"] == "dashboard":
-                continue
-            status = await _compute_agent_status(row, db)
-            if status.startswith("offline") or status.startswith("stopped"):
-                continue
-            online_count += 1
-            aid = row["id"]
-            # Cap at wall-clock: OVERLAPPING runs (e.g. several orphaned `delivered`
-            # contracts from a dead worker epoch) each accrue the full window and
-            # summed to absurd "240m work in 1h" (2026-07-02 screenshot incident).
-            # An agent cannot work more than the window's wall-clock.
-            wm = round(min(working_min.get(aid, 0.0), float(window_minutes)), 1)
-            fleet_working += wm
-            if status.startswith("working"):
-                working_now += 1
-            board.append({
-                "id": aid,
-                "role": row["role"],
-                "runtime": row["runtime"],
-                "mode": row["session_mode"],
-                "status": status,
-                "lastWorkedAt": last_worked.get(aid),
-                # SINGLE SOURCE OF TRUTH (2026-07-02): the per-row label previously used
-                # open-runs (`active_now`) while the tile count + status dot use derive()
-                # — orphaned `delivered` contracts made three rows say "working now" under
-                # a "2 Working now" tile with online dots. derive() is the sole authority.
-                "workingNow": status.startswith("working"),
-                "messagesInWindow": msgs_by_agent.get(aid, 0),
-                "workingMinutesInWindow": wm,
-            })
-        # Working agents first, then most-active, then alphabetical.
-        board.sort(key=lambda a: (0 if a["workingNow"] else 1, -a["messagesInWindow"], a["id"]))
+        board, online_count, working_now, fleet_working = await _build_online_agent_board(
+            db, working_min, last_worked,
+            msgs_by_agent, window_minutes,
+        )
         utilization = (
             round((fleet_working / (online_count * window_minutes)) * 100, 1)
             if online_count and window_minutes else 0.0

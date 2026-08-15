@@ -15,6 +15,7 @@ import time
 from typing import Any
 
 from service.api_core.serialization import _iso_from_ms
+from service.api_core.status_refresh import _compute_agent_status
 
 async def _fleet_median_reply_minutes(db, run_where, run_params):
     """Median reply latency in minutes across completed required-reply runs, or None.
@@ -219,3 +220,66 @@ async def _hourly_message_series(now_s, count_messages_between):
             "count": await count_messages_between(start_s * 1000, (start_s + 3600) * 1000),
         })
     return hourly
+
+
+async def _build_online_agent_board(
+    db, working_min, last_worked,
+    msgs_by_agent, window_minutes,
+):
+        """The online-agent board and the three fleet counters computed alongside it.
+
+        Extracted from `get_analytics_pulse` (`service/routers/analytics.py`) in v0.5.4. A router
+        should hold routes; this is aggregation, and it was the last large piece of that handler not
+        already living here.
+
+        IT RETURNS FOUR THINGS BECAUSE THEY ARE ONE PASS. The board rows, how many agents are online,
+        how many are working, and the fleet's total working minutes all fall out of a single loop over
+        agents. Computing them separately would derive each agent's status three times, and
+        `_compute_agent_status` is the expensive call here.
+
+        TWO INCIDENTS ARE PINNED IN THIS BODY, both about a number that lied. Working minutes are
+        capped at the window's wall clock, because overlapping orphaned `delivered` contracts each
+        accrued the full window and summed to 240 minutes of work in one hour. And the per-row
+        workingNow label reads derive() like the tile count does, after three rows claimed to be
+        working under a tile that said two.
+        """
+        # Online-agent board (exclude offline/stopped).
+        agents_c = await db.execute("SELECT * FROM agents")
+        board = []
+        online_count = 0
+        working_now = 0
+        fleet_working = 0.0
+        for row in await agents_c.fetchall():
+            if row["id"] == "dashboard":
+                continue
+            status = await _compute_agent_status(row, db)
+            if status.startswith("offline") or status.startswith("stopped"):
+                continue
+            online_count += 1
+            aid = row["id"]
+            # Cap at wall-clock: OVERLAPPING runs (e.g. several orphaned `delivered`
+            # contracts from a dead worker epoch) each accrue the full window and
+            # summed to absurd "240m work in 1h" (2026-07-02 screenshot incident).
+            # An agent cannot work more than the window's wall-clock.
+            wm = round(min(working_min.get(aid, 0.0), float(window_minutes)), 1)
+            fleet_working += wm
+            if status.startswith("working"):
+                working_now += 1
+            board.append({
+                "id": aid,
+                "role": row["role"],
+                "runtime": row["runtime"],
+                "mode": row["session_mode"],
+                "status": status,
+                "lastWorkedAt": last_worked.get(aid),
+                # SINGLE SOURCE OF TRUTH (2026-07-02): the per-row label previously used
+                # open-runs (`active_now`) while the tile count + status dot use derive()
+                # — orphaned `delivered` contracts made three rows say "working now" under
+                # a "2 Working now" tile with online dots. derive() is the sole authority.
+                "workingNow": status.startswith("working"),
+                "messagesInWindow": msgs_by_agent.get(aid, 0),
+                "workingMinutesInWindow": wm,
+            })
+        # Working agents first, then most-active, then alphabetical.
+        board.sort(key=lambda a: (0 if a["workingNow"] else 1, -a["messagesInWindow"], a["id"]))
+        return board, online_count, working_now, fleet_working
