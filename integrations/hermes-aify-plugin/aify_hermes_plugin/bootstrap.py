@@ -7,9 +7,9 @@ import sys
 from types import ModuleType
 from typing import Callable
 
+from .gateway_patch import patch_gateway_server
 from .patches import (
     patch_codex_runtime,
-    patch_gateway_server,
     patch_hermes_cli_web_server,
     patch_hermes_cli_main,
 )

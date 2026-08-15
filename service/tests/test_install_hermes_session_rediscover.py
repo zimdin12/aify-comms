@@ -25,9 +25,12 @@ INSTALL_SH = REPO / "install.sh"
 # install.sh's `AIFY_HERMES_LEGACY_SOURCE_PATCH` gate) and now live in the
 # durable hermes-aify plugin loaded at runtime. Tests that used to assert these
 # as install.sh-emitted source patches now assert them against the plugin.
-HERMES_PLUGIN_PATCHES = (
-    REPO / "integrations" / "hermes-aify-plugin" / "aify_hermes_plugin" / "patches.py"
-)
+#: EVERY patch module, not one file. `patch_gateway_server` — which holds most of what the
+#: assertions below look for — moved to `gateway_patch.py` in v0.5.4, and reading only `patches.py`
+#: then finds NONE of these strings. That failure reads as "the installer stopped emitting the
+#: visible-session patch", which is the regression these tests exist to catch, so the scan follows
+#: the CODE rather than the filename: any new patch module in the package is picked up.
+HERMES_PLUGIN_DIR = REPO / "integrations" / "hermes-aify-plugin" / "aify_hermes_plugin"
 
 
 def _read_install_sh() -> str:
@@ -35,7 +38,13 @@ def _read_install_sh() -> str:
 
 
 def _read_plugin_patches() -> str:
-    return HERMES_PLUGIN_PATCHES.read_text(encoding="utf-8")
+    sources = sorted(
+        path.read_text(encoding="utf-8")
+        for path in HERMES_PLUGIN_DIR.glob("*.py")
+        if path.name not in {"__init__.py", "bootstrap.py"}
+    )
+    assert sources, f"no patch modules found under {HERMES_PLUGIN_DIR}"
+    return "\n".join(sources)
 
 
 def test_hermes_wrapper_does_not_rediscover_from_gateway_history():

@@ -23,7 +23,7 @@ class HermesAifyPluginTests(unittest.TestCase):
             pass
 
     def test_gateway_patch_registers_visible_bind_method(self) -> None:
-        from aify_hermes_plugin.patches import patch_gateway_server
+        from aify_hermes_plugin.gateway_patch import patch_gateway_server
 
         class FakeTeeTransport:
             def __init__(self, primary, bridge):
@@ -65,7 +65,7 @@ class HermesAifyPluginTests(unittest.TestCase):
         self.assertIs(session["transport"].bridge, bridge_transport)
 
     def test_gateway_patch_registers_visible_render_notice_method(self) -> None:
-        from aify_hermes_plugin.patches import patch_gateway_server
+        from aify_hermes_plugin.gateway_patch import patch_gateway_server
 
         writes: list[dict] = []
 
@@ -117,7 +117,7 @@ class HermesAifyPluginTests(unittest.TestCase):
         )
 
     def test_gateway_patch_discovers_mcp_before_tui_agent_build(self) -> None:
-        from aify_hermes_plugin.patches import patch_gateway_server
+        from aify_hermes_plugin.gateway_patch import patch_gateway_server
 
         calls: list[str] = []
         fake_tools = types.ModuleType("tools")
