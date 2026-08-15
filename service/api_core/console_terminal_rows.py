@@ -1,11 +1,18 @@
-"""The two terminal_sessions inserts a Console start makes, side by side.
+"""What a Console start does to `terminal_sessions`: the two row inserts, and the two virtual paths.
 
-Extracted from `start_session_console` in `service/routers/sessions.py` in v0.5.4;
-`test_start_session_console_split_is_inert.py` inlines both back and AST-compares against the
+FOUR FUNCTIONS NOW, not the two this docstring described until v0.5.4 — the inserts came out first,
+then the two virtual-pi console branches that surround them. `_start_virtual_pi_console` opens a new
+RPC console (and calls `_insert_virtual_console_terminal` below it); `_reuse_virtual_rpc_console_-
+terminal` takes over when one is already live. Keeping the pair adjacent is the point: which one runs
+is decided by a single status test in the handler, and reading them apart is how you get two
+answers to "what happens when a pi console starts".
+
+Extracted from `start_session_console` in `service/routers/sessions.py`;
+`test_start_session_console_split_is_inert.py` inlines them all back and AST-compares against the
 pre-split fixture. Each body is at its ORIGINAL column so the SQL literals are preserved
-byte-for-byte -- which is why the first is indented four spaces deeper than the second. That looks
-like a mistake and is the opposite: re-indenting either one would rewrite the string contents inside
-it, and the extract-method gate would refuse the move.
+byte-for-byte -- which is why they are indented at four different depths. That looks like a mistake
+and is the opposite: re-indenting any one of them would rewrite the string contents inside it, and
+the extract-method gate would refuse the move.
 
 THEY ARE TWINS AND THEY ARE NOT MERGED. Twenty-five lines each, and exactly two differ: the command,
 and the status a terminal is BORN with. A virtual RPC console is born `running` because the session
@@ -24,10 +31,23 @@ from __future__ import annotations
 
 import json
 
+import time
+import uuid
+
+from fastapi import HTTPException
+
 from service.api_core.events import _append_terminal_event
-from service.api_core.records import _agent_session_to_dict, _terminal_session_to_dict
+from service.api_core.records import (
+    _agent_session_to_dict,
+    _environment_record_to_dict,
+    _terminal_session_to_dict,
+)
+from service.api_core.serialization import _json_loads_or
+from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMANDS_BY_RUNTIME
+from service.api_core.workspace import _workspace_for_environment
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
+from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 
 
 async def _insert_virtual_console_terminal(
@@ -157,3 +177,86 @@ async def _reuse_virtual_rpc_console_terminal(
                             "reused": True,
                             "virtual": True,
                         }
+
+
+async def _start_virtual_pi_console(
+    db, req, request, session, session_id,
+    settings, env_row, agent_row_for_virtual,
+):
+            """Start a NEW virtual pi RPC console: gate the environment, insert the row, announce it.
+
+            Extracted from `start_session_console` in v0.5.4 — the counterpart to
+            `_reuse_virtual_rpc_console_terminal` above, which takes over when one is already live.
+            Another early exit ending in the handler's response, and it ENCLOSES
+            `_insert_virtual_console_terminal`, so it needed both this release's call-site-shape rule
+            and its dependency-ordered inlining.
+
+            Body at its ORIGINAL COLUMN, same reason as its neighbours: it contains triple-quoted SQL
+            and dedenting would rewrite the string contents.
+
+            The two `raise HTTPException` guards travelled with it deliberately. A raise propagates out
+            of a helper exactly as it did from the handler, which is why the extract-method gate counts
+            `return` as an escape and `raise` as ordinary control flow.
+            """
+            environment = _environment_record_to_dict(env_row, offline_seconds=settings.get("environment_offline_seconds", 90))
+            if str(environment.get("status") or "").lower() != "online":
+                raise HTTPException(409, f'Environment "{environment.get("id")}" is {environment.get("status") or "unknown"}')
+            if not str(session["session_handle"] or "").strip() and not bool(req.freshContext):
+                raise HTTPException(409, 'Pi Console needs a session handle to preserve context. Set a handle or request freshContext=true.')
+            workspace, _workspace_root = _workspace_for_environment(environment, req.workspace, session["workspace"] or "")
+            terminal_id = f"vterm_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+            now = _now()
+            bridge_id = str(environment.get("bridgeId") or "").strip()
+            virtual_command = VIRTUAL_RPC_COMMANDS_BY_RUNTIME["pi"]
+            requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
+            await _insert_virtual_console_terminal(
+                db, terminal_id, session_id, session, bridge_id, workspace, virtual_command,
+                requested_by, now,
+            )
+            await _append_terminal_event(
+                db,
+                terminal_id,
+                "virtual_pi_rpc_console_started",
+                json.dumps({"requestedBy": requested_by, "sessionId": session_id, "workspace": workspace}),
+            )
+            await db.execute(
+                """
+                UPDATE agent_sessions
+                SET owner_mode = 'managed',
+                    owner_bridge_id = ?,
+                    terminal_id = ?,
+                    terminal_status = 'running',
+                    terminal_command = ?,
+                    terminal_workspace = ?,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (bridge_id, terminal_id, virtual_command, workspace, now, session_id),
+            )
+            next_runtime_state = _json_loads_or((agent_row_for_virtual["runtime_state"] if agent_row_for_virtual else "") or "{}", {}) or {}
+            next_runtime_state["virtualTerminal"] = True
+            next_runtime_state["virtualTerminalId"] = terminal_id
+            await db.execute(
+                "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
+                (json.dumps(next_runtime_state), now, session["agent_id"]),
+            )
+            # The agent now has a live worker (virtualTerminalId + terminal_status
+            # running). Invalidate the live-status cache so it recomputes to online
+            # immediately instead of lying `available` until the 60s sweep.
+            await _invalidate_agent_live_state(db, session["agent_id"])
+            await db.commit()
+            terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+            updated_session = await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))).fetchone()
+            ws_for_virtual = await _get_ws(request)
+            if ws_for_virtual:
+                await ws_for_virtual.broadcast(
+                    "terminal_started",
+                    {"terminalId": terminal_id, "sessionId": session_id, "agentId": session["agent_id"], "virtual": True},
+                )
+            return {
+                "ok": True,
+                "terminal": _terminal_session_to_dict(terminal),
+                "session": _agent_session_to_dict(updated_session),
+                "reused": False,
+                "virtual": True,
+            }

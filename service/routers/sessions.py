@@ -63,6 +63,7 @@ from service.api_core.console_terminal_rows import (
     _insert_pty_console_terminal,
     _insert_virtual_console_terminal,
     _reuse_virtual_rpc_console_terminal,
+    _start_virtual_pi_console,
 )
 from service.api_core.console_capability_gate import _refuse_console_without_terminal_capability
 from service.api_core.settings import _load_settings
@@ -71,7 +72,6 @@ from service.api_core.session_restart import _prepare_restart_spawn
 from service.api_core.agent_sessions import (
     _settle_agent_for_session_control,
 )
-from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMANDS_BY_RUNTIME
 from service.clock import now as _now
 import sqlite3
 from service.api_core.events import _append_terminal_control, _append_terminal_event
@@ -86,7 +86,6 @@ from service.db import get_db
 # Imported for ANNOTATIONS as well as calls. Under postponed evaluation a missing model does not
 # fail import -- FastAPI demotes the body to a query param and the route 422s at request time.
 from service.models import ConsoleStartRequest, SessionControlRequest
-from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 # Retired borrows: these now have a real owner in the spawn-requests domain.
 from service.api_core.spawn_requests_io import _spawn_request_to_dict, _spawn_spec_to_dict
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
@@ -385,68 +384,10 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
 
         runtime = _normalize_runtime(session["runtime"] or "")
         if runtime == "pi":
-            environment = _environment_record_to_dict(env_row, offline_seconds=settings.get("environment_offline_seconds", 90))
-            if str(environment.get("status") or "").lower() != "online":
-                raise HTTPException(409, f'Environment "{environment.get("id")}" is {environment.get("status") or "unknown"}')
-            if not str(session["session_handle"] or "").strip() and not bool(req.freshContext):
-                raise HTTPException(409, 'Pi Console needs a session handle to preserve context. Set a handle or request freshContext=true.')
-            workspace, _workspace_root = _workspace_for_environment(environment, req.workspace, session["workspace"] or "")
-            terminal_id = f"vterm_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-            now = _now()
-            bridge_id = str(environment.get("bridgeId") or "").strip()
-            virtual_command = VIRTUAL_RPC_COMMANDS_BY_RUNTIME["pi"]
-            requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
-            await _insert_virtual_console_terminal(
-                db, terminal_id, session_id, session, bridge_id, workspace, virtual_command,
-                requested_by, now,
+            return await _start_virtual_pi_console(
+                db, req, request, session, session_id,
+                settings, env_row, agent_row_for_virtual,
             )
-            await _append_terminal_event(
-                db,
-                terminal_id,
-                "virtual_pi_rpc_console_started",
-                json.dumps({"requestedBy": requested_by, "sessionId": session_id, "workspace": workspace}),
-            )
-            await db.execute(
-                """
-                UPDATE agent_sessions
-                SET owner_mode = 'managed',
-                    owner_bridge_id = ?,
-                    terminal_id = ?,
-                    terminal_status = 'running',
-                    terminal_command = ?,
-                    terminal_workspace = ?,
-                    last_seen = ?
-                WHERE id = ?
-                """,
-                (bridge_id, terminal_id, virtual_command, workspace, now, session_id),
-            )
-            next_runtime_state = _json_loads_or((agent_row_for_virtual["runtime_state"] if agent_row_for_virtual else "") or "{}", {}) or {}
-            next_runtime_state["virtualTerminal"] = True
-            next_runtime_state["virtualTerminalId"] = terminal_id
-            await db.execute(
-                "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
-                (json.dumps(next_runtime_state), now, session["agent_id"]),
-            )
-            # The agent now has a live worker (virtualTerminalId + terminal_status
-            # running). Invalidate the live-status cache so it recomputes to online
-            # immediately instead of lying `available` until the 60s sweep.
-            await _invalidate_agent_live_state(db, session["agent_id"])
-            await db.commit()
-            terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
-            updated_session = await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))).fetchone()
-            ws_for_virtual = await _get_ws(request)
-            if ws_for_virtual:
-                await ws_for_virtual.broadcast(
-                    "terminal_started",
-                    {"terminalId": terminal_id, "sessionId": session_id, "agentId": session["agent_id"], "virtual": True},
-                )
-            return {
-                "ok": True,
-                "terminal": _terminal_session_to_dict(terminal),
-                "session": _agent_session_to_dict(updated_session),
-                "reused": False,
-                "virtual": True,
-            }
 
         environment = _environment_record_to_dict(env_row, offline_seconds=settings.get("environment_offline_seconds", 90))
         if str(environment.get("status") or "").lower() != "online":

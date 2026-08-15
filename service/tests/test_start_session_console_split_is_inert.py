@@ -40,10 +40,13 @@ EXTRACTIONS = [
     "_insert_pty_console_terminal",
     # The virtual-RPC REUSE path — an early exit, unprovable until the call-site-shape rule.
     "_reuse_virtual_rpc_console_terminal",
+    # NESTED: encloses `_insert_virtual_console_terminal`, already in this list.
+    "_start_virtual_pi_console",
 ]
 
 #: Where each helper is expected to be declared. PER HELPER, over every module below.
 OWNERS = {
+    "_start_virtual_pi_console": ROWS,
     "_reuse_virtual_rpc_console_terminal": ROWS,
     "_refuse_console_without_terminal_capability": GATE,
     "_insert_virtual_console_terminal": ROWS,
