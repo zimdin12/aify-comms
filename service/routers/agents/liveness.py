@@ -17,6 +17,7 @@ from fastapi import HTTPException, Request
 from service.api_core.bridge_liveness_beat import _upsert_bridge_liveness_beat
 from service.api_core.turn_busy_signal import _apply_turn_busy_signal
 from service.api_core.status_events import _apply_status_event
+from service.api_core.status_broadcast import _broadcast_engine_status
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.liveness")
@@ -28,7 +29,6 @@ from service.models import AgentReadyUpdate
 
 from service.routers.agents.shared import (
     _agent_tombstone,
-    _broadcast_engine_status,
     _compute_live_status_cache,
     _get_ws,
     _invalidate_agent_live_state,

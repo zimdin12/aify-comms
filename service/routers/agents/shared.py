@@ -52,7 +52,6 @@ from service.reconcilers.managed_workers import _repair_unusable_active_runs
 from service.reconcilers.sessions import LIVE_SESSION_STATUSES
 from service.reconcilers.status_cache import _live_state_get
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
-from service.status_engine import derive
 from service.terminal_diagnostics import failure_tail as _terminal_failure_tail
 from service.terminal_diagnostics import meaningful_failure_line as _terminal_failure_line
 from service.terminal_snapshot import render_live_screen as _render_live_terminal_screen
@@ -113,7 +112,6 @@ from service.api_core.status_refresh import _refresh_expired_agent_live_states  
 
 
 
-from service.api_core.records import _row_status_note  # noqa: E402
 
 
 
@@ -129,7 +127,6 @@ from service.api_core.records import _row_status_note  # noqa: E402
 # Was a borrow shim: the DB-reading wrapper lived in the control plane, and a router importing that
 # at module level is a cycle. It moved to service/api_core/status_inputs.py in v0.5.4, so this is a
 # plain import now. NOT `derive` — that is the pure state machine this wrapper feeds.
-from service.api_core.status_inputs import engine_status  # noqa: E402
 from service.api_core.tuning import (
     LIST_AGENTS_REFRESH_LIMIT,
     _CONSOLE_TAIL_MAX_BYTES,
@@ -180,16 +177,7 @@ def _borrowed_live_session_statuses():
     return _LIVE_SESSION_STATUSES
 
 
-def _borrowed_manual_statuses():
-    """One owner, never a copy (finding N7) — and the owner is now a LEAF, not the control plane.
-
-    This borrowed through `service.control_plane` while `_MANUAL_STATUSES` lived there. v0.5.4 moved it to
-    `api_core/manual_status.py`, a stdlib-only leaf, so this reads the owner directly and
-    the control plane is no longer in the path.
-    """
-    from service.api_core.manual_status import _MANUAL_STATUSES
-
-    return _MANUAL_STATUSES
+# _borrowed_manual_statuses moved to service/api_core/status_broadcast.py in v0.5.4.
 
 
 
@@ -233,81 +221,10 @@ def _borrowed_listen_events():
 # declaring it blocked every api_core leaf that needed it.
 
 
-async def _broadcast_agent_status(ws, db, agent_id: str) -> None:
-    """Recompute one agent's live status and push it to dashboards so an
-    operator-driven state transition is reflected without waiting for the 60s
-    reconcile sweep or a full client refetch. Best-effort: never raise into the
-    caller. Mirrors the single-agent GET status compute (_compute_live_status_cache).
-    """
-    if ws is None:
-        return
-    try:
-        agent_id = str(agent_id or "").strip()
-        if not agent_id:
-            return
-        row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-        if not row:
-            return
-        settings = await _load_settings(db)
-        cache = await _compute_live_status_cache(db, row, settings=settings)
-        status = cache.get("status") or ""
-        # PUSH/POLL PARITY: the WS push serves the SAME proof-engine value the polled read does
-        # (derive of the assembled inputs), so a push never overwrites a correct polled status.
-        note = cache.get("reason") or ""
-        if status not in _borrowed_manual_statuses():
-            try:
-                _derived = derive(cache["status_inputs"])
-                # PUSH/POLL PARITY of the NOTE too (2026-07-10 review): the polled
-                # read blanks the legacy-cascade reason when derive() disagrees
-                # (the reason describes the superseded status). Mirror it here so the
-                # WS-pushed statusNote never contradicts the pushed status.
-                if _derived != status:
-                    note = ""
-                status = _derived
-            except Exception:
-                pass
-        await ws.broadcast("agent_status", {
-            "agentId": agent_id,
-            "status": status,
-            "statusNote": note,
-        })
-    except Exception:
-        pass
+# _broadcast_agent_status moved to service/api_core/status_broadcast.py in v0.5.4.
 
 
-async def _broadcast_engine_status(ws, db, agent_id: str, *, settings=None) -> None:
-    """status v2 (Phase D1): push the EVENT-ENGINE status for one agent over WS
-    so the dashboard reflects a turn start/end the instant the event lands — not
-    on its next poll. Best-effort: never raise into the caller. Only meaningful
-    under `status_engine=new`; callers gate on the flag so the legacy `old` path
-    stays push-identical to before (it uses `_broadcast_agent_status`).
-    """
-    if ws is None:
-        return
-    try:
-        agent_id = str(agent_id or "").strip()
-        if not agent_id:
-            return
-        row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-        if not row:
-            return
-        settings = settings or await _load_settings(db)
-        # Manual statuses (stop/disable) are operator overrides both paths honor
-        # identically — surface the persisted status, not an engine derivation.
-        manual = str(row["status"] or "").strip().lower()
-        if manual in _borrowed_manual_statuses():
-            status = manual
-            note = _row_status_note(row)
-        else:
-            status = await engine_status(db, row, settings=settings)
-            note = ""
-        await ws.broadcast("agent_status", {
-            "agentId": agent_id,
-            "status": status or "",
-            "statusNote": note or "",
-        })
-    except Exception:
-        pass
+# _broadcast_engine_status moved to service/api_core/status_broadcast.py in v0.5.4.
 
 
 # _enforce_env_reachable_gate moved to service/api_core/registration_gates.py in v0.5.4.

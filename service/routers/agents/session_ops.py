@@ -18,6 +18,7 @@ from service.api_core.runtime_state import _runtime_state_replacing_handle
 from service.api_core.resident_loss import _settle_lost_resident_when_no_transition
 from service.api_core.status_events import _apply_status_event
 from service.api_core.agent_stop_resume import _apply_agent_stop_or_resume
+from service.api_core.status_broadcast import _broadcast_agent_status
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.session_ops")
@@ -35,7 +36,6 @@ from service.routers.agents.shared import (
     _append_terminal_control,
     _append_terminal_event,
     _borrowed_live_session_statuses,
-    _broadcast_agent_status,
     _clear_status_state_in_turn,
     _compute_agent_status,
     _compute_live_status_cache,
