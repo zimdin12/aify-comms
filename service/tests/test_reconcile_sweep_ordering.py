@@ -30,7 +30,10 @@ from pathlib import Path
 
 from service.tests._source import code_only
 
-MAIN = Path(__file__).resolve().parents[1] / "main.py"
+#: v0.5.4: the sweep moved OUT of main.py to the reconciler layer. This pin had to be re-aimed by
+#: hand, which is the standing cost of asserting where code lives — kept anyway, because "these
+#: sweeps run in this order" has no behavioural equivalent that any other test could express.
+MAIN = Path(__file__).resolve().parents[1] / "reconcilers" / "sweep.py"
 
 # (earlier, later, why the order is not arbitrary)
 ORDERING_CONSTRAINTS = [
@@ -92,7 +95,11 @@ def _sweep_source() -> str:
     """
     text = code_only(MAIN.read_text(encoding="utf-8", errors="replace"))
     start = text.index("async def _run_dispatch_reconcile_once")
-    return text[start : text.index("\nasync def ", start + 10)]
+    # END-OF-FILE IS A VALID END. This used to require a FOLLOWING `async def` and raised ValueError
+    # when the sweep became the last (and only) declaration in its own module — a test that failed
+    # because the code got tidier, which is the shape to fix rather than work around.
+    end = text.find("\nasync def ", start + 10)
+    return text[start:] if end == -1 else text[start:end]
 
 
 def _call_position(source: str, fn: str) -> int:

@@ -12,8 +12,10 @@ Two existing paths share a trigger and disagree on the outcome, both gated on th
     _discard_unclaimable_active_run    FAILS the run, taking the spawn with it
 
 KNOWN_ISSUES called it a race. Verified 2026-08-07 it is a DETERMINISTIC loss, and the cause
-is ordering: in one reconcile sweep the failing path is reached at `main.py:113` and the
-recovery runs at `main.py:171`, with a commit between. `test_the_sweep_orders_failure_before_recovery`
+is ordering: in one reconcile sweep the failing path is reached BEFORE the recovery, with a commit
+between. (That was written as `main.py:113` and `main.py:171`; the sweep moved to
+`service/reconcilers/sweep.py` in v0.5.4 and line numbers rot on the next edit either way, so the
+fact is stated instead of pointed at.) `test_the_sweep_orders_failure_before_recovery`
 pins that ordering fact, because it is the whole reason this fix has to live in the failing
 path rather than in the recovery path.
 """
@@ -233,7 +235,8 @@ class UndeliveredClaimPrefersRequeueTests(FastApiTestCase):
         If someone reorders the sweep so recovery runs first, this test fails — and that is
         the moment to re-read whether this fix is still the right shape.
         """
-        source = (REPO_ROOT / "service" / "main.py").read_text(encoding="utf-8")
+        # Re-aimed in v0.5.4 when the sweep left main.py for the reconciler layer.
+        source = (REPO_ROOT / "service" / "reconcilers" / "sweep.py").read_text(encoding="utf-8")
         fail_at = source.index("_repair_unusable_active_runs(db")
         requeue_at = source.index("_requeue_orphaned_claimed_runs(db")
         self.assertLess(
