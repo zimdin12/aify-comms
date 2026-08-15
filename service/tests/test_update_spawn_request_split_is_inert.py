@@ -33,10 +33,23 @@ RUNNING = REPO / "service" / "api_core" / "running_spawn.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "update_spawn_request_before_split.py"
 
 SOURCE_FUNCTION = "update_spawn_request"
-EXTRACTIONS = ["_settle_running_spawn"]
+#: NESTED as of v0.5.4. `_settle_running_spawn` was itself split into three helpers, so
+#: inlining it alone no longer reproduces this fixture — its own callees have to collapse
+#: into it first. The verifier resolves that order itself; the list just has to be complete.
+EXTRACTIONS = [
+    "_settle_running_spawn",
+    "_migrate_bridge_id_onto_live_terminal",
+    "_hand_settled_spawn_to_dispatch",
+    "_ensure_pty_for_settled_spawn",
+]
 
 #: Where each helper is expected to be declared. PER HELPER, over every module below.
-OWNERS = {"_settle_running_spawn": RUNNING}
+OWNERS = {
+    "_settle_running_spawn": RUNNING,
+    "_migrate_bridge_id_onto_live_terminal": RUNNING,
+    "_hand_settled_spawn_to_dispatch": RUNNING,
+    "_ensure_pty_for_settled_spawn": RUNNING,
+}
 
 MODULES = (SPAWN_REQUESTS, RUNNING)
 

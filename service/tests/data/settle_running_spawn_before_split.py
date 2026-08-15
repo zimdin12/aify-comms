@@ -1,52 +1,3 @@
-"""Everything that happens the moment a spawn reports RUNNING.
-
-Extracted from `update_spawn_request` in `service/routers/spawn_requests.py` in v0.5.4;
-`test_update_spawn_request_split_is_inert.py` inlines it back and AST-compares against the pre-split
-fixture. The body is at its original 8-space column so the SQL literals are preserved byte-for-byte.
-
-THIS IS THE LARGEST SINGLE EXTRACTION IN THE SERIES and it is one subject, not a grab bag. A bridge
-saying "the worker is up" is the moment a spawn REQUEST becomes a live agent, and every write here
-exists to finish that conversion: upsert the agent row the spec described, open its session, bind a
-terminal if the environment backs one, and deliver the initial message the spawn was created to
-carry. Splitting it further would divide one transition across modules without making any part of it
-independently meaningful.
-
-IT RUNS INSIDE THE ROUTE'S TRANSACTION AND OWNS NONE OF IT. The commit stays in the caller. These
-writes must all land or none of them: an agent row without its session, or a session without the
-message that justified the spawn, is worse than a failed spawn because it looks like a working one.
-
-`session_id` IS RETURNED RATHER THAN MUTATED. It is generated here when the request had none, and the
-caller writes it back to `spawn_requests` after this returns. After the split it would otherwise be a
-HELPER local the caller still reads -- the live-out defect the extract-method gate refuses.
-"""
-from __future__ import annotations
-
-import json
-import logging
-import time
-import uuid
-
-from service.api_core.capabilities import _default_capabilities_for, _managed_via_wrapper_for_runtime
-from service.api_core.channel_delivery import (
-    _apply_channel_routing_to_claude_runs,
-    _insert_messages_via_console,
-)
-from service.api_core.dispatch_runs import _create_dispatch_runs
-from service.api_core.dispatch_start import _ensure_managed_pty_for_dispatch
-from service.api_core.runtime import _normalize_runtime
-from service.api_core.runtime_state import _runtime_state_with_handle
-from service.api_core.serialization import _json_loads_or
-from service.api_core.settings import DEFAULT_SETTINGS, _load_settings, _managed_terminal_backing_enabled
-from service.longpoll import _wake_agent
-
-#: DELIBERATELY the ROUTER'S logger name, not this module's. The one warning in this block records an
-#: eager-PTY failure that must never be silent -- a bare `pass` there once hid an AttributeError for
-#: two live restarts while the operator saw an agent with no worker. Renaming the logger would move
-#: that line to a channel nobody greps, which is the same outcome by a different route. v0.5.x is a
-#: refactor line: the log output is part of what must not change.
-logger = logging.getLogger("aify_comms.routers.spawn_requests")
-
-
 async def _settle_running_spawn(
     db, req, row, spec_row, now, started_at, status_value, session_id, runtime_state
 ):
@@ -220,62 +171,6 @@ async def _settle_running_spawn(
             # rather than silently disabling the rescue.
             migrate_bridge_id = req.bridgeId or row["claimed_by_bridge_id"] or ""
             if migrate_bridge_id:
-                await _migrate_bridge_id_onto_live_terminal(db, row, session_id, migrate_bridge_id)
-            await db.execute(
-                """
-                UPDATE agent_sessions
-                SET status = 'ended',
-                    ended_at = COALESCE(NULLIF(ended_at, ''), ?),
-                    last_seen = COALESCE(NULLIF(ended_at, ''), NULLIF(last_seen, ''), ?)
-                WHERE agent_id = ?
-                  AND id != ?
-                  AND status IN ('starting', 'running', 'recovering', 'restarting')
-                """,
-                (now, now, row["agent_id"], session_id),
-            )
-            if row["status"] != "running" and str(row["initial_message"] or "").strip():
-                await _hand_settled_spawn_to_dispatch(db, row)
-
-            # Slices 1/2/4 (architectural): when managed_terminal_backing
-            # is enabled, proactively launch the wrapper PTY for this
-            # newly-registered managed agent. The wrapper stays alive
-            # across dispatches; subsequent sends reuse it via slice 3's
-            # console-attach reuse + the existing
-            # _active_terminal_for_agent lookup in
-            # _ensure_managed_pty_for_dispatch. Operator-visible win: no
-            # "console pops up when I send" — the console pre-exists by
-            # the time the first dispatch arrives. Best-effort: a
-            # wrapper-launch failure here does NOT fail the spawn-request
-            # running transition (the dispatch path's lazy spawn is the
-            # fallback).
-            settings_for_pty = await _load_settings(db)
-            _is_claude_managed = _normalize_runtime(row["runtime"]) == "claude-code"
-            _eager_flag = bool(settings_for_pty.get("managed_pty_eager_spawn", DEFAULT_SETTINGS["managed_pty_eager_spawn"]))
-            # When insert_messages_via_console=false (the default), managed
-            # claude needs a wrapper PTY hosting claude-aify so its
-            # claude-channel.js child polls /dispatch/claim for this
-            # specific agent. Without it, channel dispatches sit queued
-            # forever (originally observed in run_1779309370301).
-            _claude_needs_wrapper = _is_claude_managed and not _insert_messages_via_console(settings_for_pty)
-            # Unified-backing refactor 2026-05-24: when this runtime is
-            # wrapper-backed, the wrapper PTY MUST pre-exist by spawn-request
-            # running transition — otherwise nothing claims dispatches (the
-            # main bridge dispatch loop drops 'managed' from supportedExecutionModes
-            # for this runtime, and the wrapper's child bridge doesn't exist
-            # until the PTY launches).
-            _wrapper_backed = _managed_via_wrapper_for_runtime(settings_for_pty, row["runtime"] or "")
-            if _managed_terminal_backing_enabled(settings_for_pty) and (_eager_flag or _claude_needs_wrapper or _wrapper_backed):
-                await _ensure_pty_for_settled_spawn(db, row, settings_for_pty)
-        return session_id
-
-
-async def _migrate_bridge_id_onto_live_terminal(db, row, session_id, migrate_bridge_id):
-                """Move a spawn's bridge id onto the terminal that is actually serving its session.
-
-                Extracted from `_settle_running_spawn` in v0.5.4. Body at its ORIGINAL COLUMN: it contains
-                triple-quoted SQL, and dedenting would rewrite the string contents and make the round trip
-                unprovable.
-                """
                 live_terminal = await (await db.execute(
                     """
                     SELECT id, status, command, workspace, session_id FROM terminal_sessions
@@ -319,15 +214,19 @@ async def _migrate_bridge_id_onto_live_terminal(db, row, session_id, migrate_bri
                             session_id,
                         ),
                     )
-
-
-async def _hand_settled_spawn_to_dispatch(db, row):
-                """Create the dispatch runs for a spawn that has just become live, and wake it.
-
-                Extracted from `_settle_running_spawn` in v0.5.4. This is the handoff: the spawn stopped being
-                a request and became a worker, so the work that was waiting on it becomes real dispatch runs.
-                Guarded on the row having only just reached `running`, so a re-run does not double-dispatch.
+            await db.execute(
                 """
+                UPDATE agent_sessions
+                SET status = 'ended',
+                    ended_at = COALESCE(NULLIF(ended_at, ''), ?),
+                    last_seen = COALESCE(NULLIF(ended_at, ''), NULLIF(last_seen, ''), ?)
+                WHERE agent_id = ?
+                  AND id != ?
+                  AND status IN ('starting', 'running', 'recovering', 'restarting')
+                """,
+                (now, now, row["agent_id"], session_id),
+            )
+            if row["status"] != "running" and str(row["initial_message"] or "").strip():
                 settings_for_runs = await _load_settings(db)
                 runs = await _create_dispatch_runs(
                     db,
@@ -358,14 +257,35 @@ async def _hand_settled_spawn_to_dispatch(db, row):
                 for run in runs:
                     _wake_agent(run["targetAgentId"])
 
-
-async def _ensure_pty_for_settled_spawn(db, row, settings_for_pty):
-                """Give a settled spawn its managed PTY, best-effort.
-
-                Extracted from `_settle_running_spawn` in v0.5.4. Best-effort by design: the spawn is already
-                settled and its runs already exist, so a PTY that fails to come up must not undo that — the
-                except clause logs and moves on.
-                """
+            # Slices 1/2/4 (architectural): when managed_terminal_backing
+            # is enabled, proactively launch the wrapper PTY for this
+            # newly-registered managed agent. The wrapper stays alive
+            # across dispatches; subsequent sends reuse it via slice 3's
+            # console-attach reuse + the existing
+            # _active_terminal_for_agent lookup in
+            # _ensure_managed_pty_for_dispatch. Operator-visible win: no
+            # "console pops up when I send" — the console pre-exists by
+            # the time the first dispatch arrives. Best-effort: a
+            # wrapper-launch failure here does NOT fail the spawn-request
+            # running transition (the dispatch path's lazy spawn is the
+            # fallback).
+            settings_for_pty = await _load_settings(db)
+            _is_claude_managed = _normalize_runtime(row["runtime"]) == "claude-code"
+            _eager_flag = bool(settings_for_pty.get("managed_pty_eager_spawn", DEFAULT_SETTINGS["managed_pty_eager_spawn"]))
+            # When insert_messages_via_console=false (the default), managed
+            # claude needs a wrapper PTY hosting claude-aify so its
+            # claude-channel.js child polls /dispatch/claim for this
+            # specific agent. Without it, channel dispatches sit queued
+            # forever (originally observed in run_1779309370301).
+            _claude_needs_wrapper = _is_claude_managed and not _insert_messages_via_console(settings_for_pty)
+            # Unified-backing refactor 2026-05-24: when this runtime is
+            # wrapper-backed, the wrapper PTY MUST pre-exist by spawn-request
+            # running transition — otherwise nothing claims dispatches (the
+            # main bridge dispatch loop drops 'managed' from supportedExecutionModes
+            # for this runtime, and the wrapper's child bridge doesn't exist
+            # until the PTY launches).
+            _wrapper_backed = _managed_via_wrapper_for_runtime(settings_for_pty, row["runtime"] or "")
+            if _managed_terminal_backing_enabled(settings_for_pty) and (_eager_flag or _claude_needs_wrapper or _wrapper_backed):
                 try:
                     await _ensure_managed_pty_for_dispatch(
                         db,
@@ -388,3 +308,4 @@ async def _ensure_pty_for_settled_spawn(db, row, settings_for_pty):
                         "eager managed PTY for %s failed (%s: %s); falling back to lazy spawn on dispatch",
                         row["agent_id"], type(exc).__name__, exc,
                     )
+        return session_id
