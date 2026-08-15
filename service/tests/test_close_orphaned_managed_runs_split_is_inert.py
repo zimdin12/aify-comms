@@ -25,7 +25,9 @@ from pathlib import Path
 from service.tests.extract_method import assert_extractions_preserve_behaviour
 
 REPO = Path(__file__).resolve().parent.parent.parent
-LIFECYCLE = REPO / "service" / "reconcilers" / "dispatch_lifecycle.py"
+#: v0.5.4: the reaper moved OUT of dispatch_lifecycle.py to its own module. This proof reads
+#: whichever file the CALLER lives in, so the pin had to be re-aimed with the move.
+LIFECYCLE = REPO / "service" / "reconcilers" / "orphaned_managed_runs.py"
 QUERY = REPO / "service" / "api_core" / "orphaned_runs_query.py"
 FIXTURE = (Path(__file__).resolve().parent / "data"
            / "close_orphaned_managed_runs_before_split.py")

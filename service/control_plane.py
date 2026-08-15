@@ -84,8 +84,8 @@ from service.api_core.liveness import (  # v0.5.4: moved out; the control plane 
 )
 from service.env_status import _ENVIRONMENT_HEARTBEAT_STATUSES
 # v0.5 slice 2: the spawn-lifecycle reconcilers moved to their own module.
+from service.reconcilers.orphaned_managed_runs import _close_orphaned_managed_runs
 from service.reconcilers.dispatch_lifecycle import (
-    _close_orphaned_managed_runs,
     _fail_stranded_delivered_reply_runs,
     _sweep_unmirrored_failed_handoffs,
 )

@@ -29,9 +29,9 @@ from service.api_core.dispatch_runs import _create_dispatch_runs
 from service.api_core.dispatch_sweeps import _run_contract_reminders_once
 from service.api_core.status_inputs import _compute_live_status_cache
 from service.clock import now as _now
+from service.reconcilers.orphaned_managed_runs import _close_orphaned_managed_runs
 from service.reconcilers.dispatch_lifecycle import (
     _clear_turn_busy_for_dead_bridges,
-    _close_orphaned_managed_runs,
     _prune_orphaned_dispatch_runs,
 )
 from service.reconcilers.dispatch_queue import (
