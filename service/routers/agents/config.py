@@ -19,6 +19,7 @@ from typing import Any, Optional
 from fastapi import HTTPException, Query, Request
 
 from service.api_core.status_events import _apply_status_event
+from service.api_core.spawn_spec_assignment import _upsert_spawn_spec_for_assignment
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.config")
@@ -268,60 +269,9 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
             preserve_handle = str(agent["session_handle"] or latest_session_handle or state_handle or "").strip()
         preserved_runtime_state = _runtime_state_with_handle(runtime, {}, preserve_handle)
 
-        spec_cursor = await db.execute(
-            "SELECT * FROM spawn_specs WHERE agent_id = ? ORDER BY updated_at DESC LIMIT 1",
-            (agent_id,),
+        spec_id = await _upsert_spawn_spec_for_assignment(
+            db, agent, agent_id, req, environment_id, runtime, workspace, model, runtime_config, now
         )
-        spec = await spec_cursor.fetchone()
-        if spec:
-            spec_id = spec["id"]
-            await db.execute(
-                """
-                UPDATE spawn_specs
-                SET environment_id = ?, runtime = ?, workspace = ?, model = ?, metadata = ?, updated_at = ?
-                WHERE agent_id = ?
-                """,
-                (
-                    environment_id,
-                    runtime,
-                    workspace,
-                    model,
-                    json.dumps({**_json_loads_or(spec["metadata"], {}), **({"runtimeConfig": runtime_config} if runtime_config else {})}),
-                    now,
-                    agent_id,
-                ),
-            )
-        else:
-            spec_id = f"spec_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-            await db.execute(
-                """
-                INSERT INTO spawn_specs (
-                    id, agent_id, environment_id, runtime, workspace, model, profile, mode,
-                    system_prompt, standing_instructions, env_vars, channel_ids, budget_policy,
-                    context_policy, restart_policy, metadata, created_at, updated_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    spec_id,
-                    agent_id,
-                    environment_id,
-                    runtime,
-                    workspace,
-                    model,
-                    "",
-                    "managed-warm",
-                    "",
-                    agent["instructions"] or "",
-                    "{}",
-                    "[]",
-                    "{}",
-                    "{}",
-                    "{}",
-                    json.dumps({"createdBy": req.requestedBy or "dashboard", "assignedFromDashboard": True, **({"runtimeConfig": runtime_config} if runtime_config else {})}),
-                    now,
-                    now,
-                ),
-            )
 
         await db.execute(
             """
