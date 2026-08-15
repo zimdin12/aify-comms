@@ -205,10 +205,20 @@ failure logged without failing the message.
 `service/reconcilers/`, plus two new leaf helpers (`service/clock.py`, `service/env_status.py`) —
 twelve files, not the "eleven leaf modules" an earlier draft of this line claimed.
 
-**Honest wording, which the reviewer required and is the accurate claim:** reconcilers extracted;
-**router borrows documented**. NOT "router dependency eliminated". The leaf layer still reaches back
-for one liveness family and a handful of append/normalize helpers, each through a function-scope shim
-reading exactly one owner — no copies, no drift, but a real remaining edge.
+**Honest wording, which the reviewer required and was the accurate claim AT v0.5:** reconcilers
+extracted; **router borrows documented**. NOT "router dependency eliminated". The leaf layer still
+reached back for one liveness family and a handful of append/normalize helpers, each through a
+function-scope shim reading exactly one owner — no copies, no drift, but a real remaining edge.
+
+> **PAID IN v0.5.4 — measured 2026-08-15, reconciler imports of the control plane are ZERO.** The
+> consolidation described below happened: the liveness family and the append/normalize helpers landed
+> in `api_core` leaves and the control plane ended up declaring nothing at all, so there is no longer
+> anything to borrow. `test_leaves_do_not_import_the_carrier.py` now carries a ceiling of 0 and fails
+> if that ceiling is left slack above the real count — it sat at 13 against an actual 0 for a while,
+> quietly licensing thirteen new borrows, which is how a ratchet rots when only one direction is
+> checked. Two function-scope imports remain under `reconcilers/`, but they read `api_core` leaves
+> rather than the carrier; the surviving one is a real cycle (`api_core/liveness.py` needs
+> `LIVE_SESSION_STATUSES`, which still lives in `reconcilers/sessions.py`) and is the next move.
 
 Three gates held on every slice: sweep-ordering (7 load-bearing pairs), import identity (AST), route
 inventory (128 routes, unchanged end to end). Every slice carried a dependency scan BEFORE the move,
@@ -224,7 +234,7 @@ compiled and passed the cycle smoke test. Only reading the router caught that on
 **DEFERRED, tracked, not forgotten:** 1b (status core) and 3b (liveness family). Both are "a small
 function anchored to a large unmoved cluster".
 
-### Post-v0.5 — the consolidation the borrows are waiting for
+### Post-v0.5 — the consolidation the borrows were waiting for (DONE, see the note above)
 
 Reviewer-specified order: **liveness family first** (`_agent_liveness`, `_agent_has_live_terminal`,
 `_has_live_channel_sidecar`, `_resident_bridge_is_fresh`, `_has_live_managed_wrapper_child`,

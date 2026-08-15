@@ -32,6 +32,7 @@ entire defect.
 from __future__ import annotations
 
 import ast
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -44,16 +45,20 @@ CARRIER = "service.control_plane"
 #: `service/reconcilers/` is listed with a documented exception below.
 LEAF_DIRS = ("api_core",)
 
-#: The reconcilers still borrow from the carrier through function-scope shims. That debt is recorded in
-#: docs/ROADMAP.md and is being retired slice by slice, so they are tracked with a COUNT rather than a
-#: ban — a count that may only go down. A hard ban here would fail the suite for pre-existing debt and
-#: teach the next person to weaken the gate instead of paying it.
+#: THE DEBT IS PAID. This was 13 while the reconcilers still borrowed from the carrier through
+#: function-scope shims, tracked with a COUNT rather than a ban so pre-existing debt would not fail
+#: the suite and teach the next person to weaken the gate instead of paying it.
 #:
-#: The number is the MEASURED count, not a comfortable margin above it. I first wrote 200 against an
-#: actual 13, which is the vacuity failure in the other direction: a ceiling nothing can reach reports
-#: success forever. Set at the real value, adding one borrow fails; paying one down means lowering this
-#: line in the same commit, which is the point.
-RECONCILER_BORROW_CEILING = 13
+#: It reached zero and the ceiling was not lowered with it, which left THIRTEEN POINTS OF SLACK —
+#: thirteen new borrows could be added with the gate still green, while the note above claimed
+#: "adding one borrow fails". That is the same rot the ceiling was designed against, arriving from
+#: the other direction: a ceiling set at the real value goes stale the moment the real value moves,
+#: unless something checks. `test_the_ceiling_is_not_left_SLACK` now does.
+#:
+#: At zero this is effectively a ban, which is the goal state — and zero must not itself be a test
+#: failure, so the anti-vacuity check below exercises the detector on a SYNTHETIC borrow rather than
+#: requiring a real one to exist.
+RECONCILER_BORROW_CEILING = 0
 
 
 def _carrier_imports(path: Path):
@@ -166,14 +171,53 @@ class LeavesDoNotImportTheCarrierTests(unittest.TestCase):
             "the sample's import must be function-scope for this to prove anything",
         )
 
-    def test_reconciler_carrier_borrows_only_shrink(self):
-        """Recorded debt, not a ban — but it may only go down."""
-        count = sum(
+    def test_the_DETECTOR_ITSELF_sees_a_synthetic_borrow(self):
+        """At a ceiling of zero, a broken detector and a clean tree are the same reading.
+
+        The test above proves the AST SHAPE is findable, but it re-walks the tree inline instead of
+        calling `_carrier_imports`, so it would still pass if that function stopped matching. With the
+        count at zero the equality check has nothing real to exercise, which makes this the only thing
+        standing between the gate and silent vacuity: hand the actual detector a file it must flag.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            sample = Path(tmp) / "fake_reconciler.py"
+            sample.write_text(
+                "def _borrowed():\n"
+                f"    from {CARRIER} import _thing\n"
+                "    return _thing()\n",
+                encoding="utf-8",
+            )
+            found = list(_carrier_imports(sample))
+        self.assertEqual(1, len(found), "_carrier_imports must flag a function-scope carrier import")
+        self.assertIn("_thing", found[0][1])
+
+    def _reconciler_borrow_count(self) -> int:
+        return sum(
             1
             for path in sorted((SERVICE / "reconcilers").rglob("*.py"))
             if "__pycache__" not in path.parts
             for _ in _carrier_imports(path)
         )
+
+    def test_the_ceiling_is_not_left_SLACK(self):
+        """A ceiling above the real count silently licenses the debt it was meant to retire.
+
+        This is the failure that prompted the check: the count reached zero, the ceiling stayed at
+        thirteen, and the gate would have accepted thirteen new borrows while reading as green. A
+        ceiling is only a ratchet if lowering it is FORCED when the work lands — otherwise paying debt
+        down quietly widens the allowance for adding it back.
+        """
+        count = self._reconciler_borrow_count()
+        self.assertEqual(
+            RECONCILER_BORROW_CEILING, count,
+            f"reconciler borrows are {count} but the ceiling says {RECONCILER_BORROW_CEILING}. "
+            "Lower it to the measured count in the same commit that retired them — slack here is an "
+            "allowance nobody decided to grant.",
+        )
+
+    def test_reconciler_carrier_borrows_only_shrink(self):
+        """Recorded debt, not a ban — but it may only go down."""
+        count = self._reconciler_borrow_count()
         self.assertLessEqual(
             count,
             RECONCILER_BORROW_CEILING,
