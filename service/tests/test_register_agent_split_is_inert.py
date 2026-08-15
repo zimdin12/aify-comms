@@ -27,7 +27,10 @@ from pathlib import Path
 from service.tests.extract_method import assert_extractions_preserve_behaviour
 
 REPO = Path(__file__).resolve().parent.parent.parent
-IDENTITY = REPO / "service" / "routers" / "agents" / "identity.py"
+# `register_agent` moved to `agents/registration.py` in v0.5.4 — 209 lines and four gates against
+# three short reads, which is why `identity.py` was 424. A round-trip proof names the module
+# holding the CALLER, so a relocation must touch it — see the one-line pin below.
+CALLER = REPO / "service" / "routers" / "agents" / "registration.py"
 GATES = REPO / "service" / "api_core" / "registration_gates.py"
 #: v0.5.4: the same-mode gate left with the freshness test it depends on — the pair is only
 #: correct together, so they got their own module.
@@ -46,7 +49,7 @@ TAKEOVER = REPO / "service" / "api_core" / "resident_takeover_writes.py"
 #: ONE tuple, read by every check below. The alternative — each check naming its own modules — has now
 #: gone blind five times in this directory: a helper landing somewhere an inline list does not mention
 #: makes the round trip inline NOTHING while the test keeps passing.
-MODULES = (IDENTITY, GATES, SESSIONS, REG_WRITES, TAKEOVER, SAME_MODE)
+MODULES = (CALLER, GATES, SESSIONS, REG_WRITES, TAKEOVER, SAME_MODE)
 FIXTURE = Path(__file__).resolve().parent / "data" / "register_agent_before_split.py"
 
 SOURCE_FUNCTION = "register_agent"
@@ -106,6 +109,25 @@ class RegisterAgentSplitIsInertTests(unittest.TestCase):
         assert_extractions_preserve_behaviour(
             ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
 
+    def test_the_source_function_is_still_where_this_proof_looks(self):
+        """`CALLER` is a location pin, and a relocation is what breaks it.
+
+        Added when `register_agent` moved out of `identity.py` in v0.5.4. The round trip already
+        fails then — it cannot find the caller to inline into — but it fails as a gate-internal
+        assertion deep in `extract_method.py`, which reads like the ELEVEN extractions broke rather
+        than like the file moved. This says the true thing in one line.
+        """
+        declared = {
+            n.name for n in ast.parse(CALLER.read_text(encoding="utf-8")).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertIn(
+            SOURCE_FUNCTION, declared,
+            f"{SOURCE_FUNCTION} is not declared in {CALLER.name}. If it was relocated, repoint "
+            "CALLER at its new module — this proof names the file holding the caller, so a move "
+            "must touch it.",
+        )
+
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""
         names = {
@@ -117,7 +139,7 @@ class RegisterAgentSplitIsInertTests(unittest.TestCase):
     def test_the_helper_is_not_still_inline(self):
         """If the split were reverted, the round trip above would pass by having nothing to inline."""
         declared = {
-            n.name for n in ast.parse(IDENTITY.read_text(encoding="utf-8")).body
+            n.name for n in ast.parse(CALLER.read_text(encoding="utf-8")).body
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
         for helper in EXTRACTIONS:

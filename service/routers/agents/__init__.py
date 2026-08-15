@@ -13,6 +13,7 @@ from service.routers.agents.environment_assignment import router as _environment
 from service.routers.agents.listen import router as _listen_router
 from service.routers.agents.attributes import router as _attributes_router
 from service.routers.agents.identity import router as _identity_router
+from service.routers.agents.registration import router as _registration_router
 from service.routers.agents.rename import router as _rename_router
 from service.routers.agents.session_lease import router as _session_lease_router
 from service.routers.agents.session_ops import router as _session_ops_router
@@ -32,6 +33,9 @@ router.include_router(_console_router)
 # Virtual-terminal provisioning left `console.py` in v0.5.4, still in first-appearance order.
 router.include_router(_virtual_terminal_router)
 router.include_router(_identity_router)
+# `register_agent` left `identity.py` in v0.5.4 — 209 lines and four gates, against three short
+# reads. Still in first-appearance order.
+router.include_router(_registration_router)
 # Attribute PATCHes and rename left `identity.py` in v0.5.4, still in first-appearance order.
 router.include_router(_rename_router)
 router.include_router(_attributes_router)
