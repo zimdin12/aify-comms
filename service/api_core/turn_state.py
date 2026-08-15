@@ -11,8 +11,12 @@ goes permanently deaf. Every fix in that area has been a BOUND on how long a raw
 the code that reads the signal and the code that ages it belong in one readable place.
 
 `TURN_BUSY_STALE_SECONDS` came with `_turn_busy_state` — its only reader, measured. Note it is NOT the
-same bound as `TURN_BUSY_BACKSTOP_SECONDS`, which stays in the control plane because the status
-engine's `in_turn` clamp reads it and the delivery gate must agree with that clamp exactly.
+same bound as `TURN_BUSY_BACKSTOP_SECONDS`: the status engine's `in_turn` clamp reads that one and the
+delivery gate must agree with the clamp exactly. This line used to add "which stays in the control
+plane", which stopped being true when that constant landed in `api_core/liveness.py` — and the two
+bounds now meet in this file, because v0.5.4 moved the status engine's READ of `agent_turn_state`
+here as `_status_turn_signals`. Both readers of the same row, ageing it against different ceilings,
+are finally adjacent.
 
 DB ACCESS: `db` passed in, no connection opened, no commit, no rollback — each joins its caller's
 transaction.
@@ -21,7 +25,9 @@ transaction.
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 
+from service.api_core.liveness import TURN_BUSY_BACKSTOP_SECONDS
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
 
@@ -135,3 +141,67 @@ async def _clear_status_state_in_turn(db, agent_id: str) -> None:
         "WHERE agent_id = ? AND in_turn = 1",
         (now, now, agent_id),
     )
+
+
+async def _status_turn_signals(db, agent_row):
+    """Read `agent_turn_state` for the STATUS engine: is a turn open, and is the agent ready.
+
+    Extracted from `_compute_live_status_cache` (`api_core/status_inputs.py`) in v0.5.4, which
+    was the largest function in the repo at 432 lines.
+
+    IT IS A TWIN OF `_turn_busy_state` ABOVE AND THE DIFFERENCE IS THE POINT. Both read the same
+    row and both age the signal, but against DIFFERENT bounds: that one uses
+    `TURN_BUSY_STALE_SECONDS`, this one `TURN_BUSY_BACKSTOP_SECONDS`, which is the long
+    wall-clock ceiling for a DROPPED turn-end event rather than a re-pulse cadence. This
+    module's own docstring already warned the two bounds are not interchangeable; putting the
+    readers side by side is what makes that visible instead of a sentence nobody reaches.
+
+    All four values are initialised here, so the caller passes none of them in — the block
+    returns the defaults unchanged on every path where the row is missing or the signal stale.
+    """
+    # Authoritative mid-turn signal pushed by the bridge (contract). Fresh
+    # turn_busy=1 means the runtime is executing a turn right now → working,
+    # even when the dispatch row is delivered/ambiguous. Stale (no refresh
+    # within TURN_BUSY_STALE_SECONDS) is treated as not-busy.
+    turn_busy = False
+    turn_runtime = ""
+    turn_updated_at = ""
+    # Plan 4 task 12 (2026-05-25): `ready` is the bridge-pushed
+    # handshake-complete signal. It remains an internal readiness bit; the
+    # public idle-live status is `online` so operators do not see both
+    # `ready` and `available` as competing positive states.
+    turn_state_ready = False
+    try:
+        _tb = await (await db.execute(
+            "SELECT turn_busy, turn_runtime, turn_updated_at, ready FROM agent_turn_state WHERE agent_id = ?",
+            (agent_row["id"],),
+        )).fetchone()
+        if _tb:
+            if int(_tb["turn_busy"] or 0) == 1:
+                _age = datetime.now(timezone.utc).timestamp() - _iso_to_epoch(str(_tb["turn_updated_at"] or ""))
+                # WS5 Task 5.2/5.3: STATUS staleness uses the LONG backstop. The
+                # turn-END event (POST /turn-end) is the primary clear; this window
+                # only catches a DROPPED event, so it sits at the single long
+                # wall-clock ceiling rather than racing the re-pulse cadence.
+                if _iso_to_epoch(str(_tb["turn_updated_at"] or "")) and _age <= TURN_BUSY_BACKSTOP_SECONDS:
+                    turn_busy = True
+                    turn_runtime = str(_tb["turn_runtime"] or "").strip()
+                    turn_updated_at = str(_tb["turn_updated_at"] or "").strip()
+            # PURE-EVENT (2026-06-19): the turn-end GRACE (#224, 20s) was REMOVED. It held
+            # `working` for 20s after turn_busy cleared to mask a managed claude's premature/
+            # duplicate Stop hooks — a TIME-BASED hold that (a) stacked on the hermes bridge's
+            # 9s idle-debounce to show "working" ~30s after a real idle (operator-reported), and
+            # (b) is exactly the time-decay the status engine must not have. The flap is now
+            # fixed AT THE SOURCE: the bridge turn detectors (hermes gateway / claude transcript)
+            # only clear turn_busy on EVENT-confirmed end, and run fast enough to re-assert a
+            # premature clear within a tick. Status here is pure-event: turn_busy=1 (within the
+            # far 30-min wedged-bridge backstop) AND live → working; otherwise online.
+            try:
+                turn_state_ready = int(_tb["ready"] or 0) == 1
+            except (IndexError, KeyError):
+                # Pre-migration row (column absent on a foreign DB schema).
+                turn_state_ready = False
+    except Exception:
+        turn_busy = False
+        turn_state_ready = False
+    return turn_busy, turn_runtime, turn_updated_at, turn_state_ready

@@ -56,6 +56,7 @@ from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _iso_add_seconds, _json_loads_or
 from service.api_core.settings import _load_settings
 from service.api_core.status_decision import StatusFacts, _decide_effective_status
+from service.api_core.turn_state import _status_turn_signals
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
 from service.api_core.terminal_text import _terminal_prompt_hint_from_raw
 from service.clock import iso_to_epoch as _iso_to_epoch, now as _now
@@ -193,51 +194,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     session_row = await _current_agent_session_row(db, agent_row["id"])
     active_run = await _current_active_run_row(db, agent_row["id"])
     channel_pending_reply_run = await _current_channel_awaiting_reply_run_row(db, agent_row["id"])
-    # Authoritative mid-turn signal pushed by the bridge (contract). Fresh
-    # turn_busy=1 means the runtime is executing a turn right now → working,
-    # even when the dispatch row is delivered/ambiguous. Stale (no refresh
-    # within TURN_BUSY_STALE_SECONDS) is treated as not-busy.
-    turn_busy = False
-    turn_runtime = ""
-    turn_updated_at = ""
-    # Plan 4 task 12 (2026-05-25): `ready` is the bridge-pushed
-    # handshake-complete signal. It remains an internal readiness bit; the
-    # public idle-live status is `online` so operators do not see both
-    # `ready` and `available` as competing positive states.
-    turn_state_ready = False
-    try:
-        _tb = await (await db.execute(
-            "SELECT turn_busy, turn_runtime, turn_updated_at, ready FROM agent_turn_state WHERE agent_id = ?",
-            (agent_row["id"],),
-        )).fetchone()
-        if _tb:
-            if int(_tb["turn_busy"] or 0) == 1:
-                _age = datetime.now(timezone.utc).timestamp() - _iso_to_epoch(str(_tb["turn_updated_at"] or ""))
-                # WS5 Task 5.2/5.3: STATUS staleness uses the LONG backstop. The
-                # turn-END event (POST /turn-end) is the primary clear; this window
-                # only catches a DROPPED event, so it sits at the single long
-                # wall-clock ceiling rather than racing the re-pulse cadence.
-                if _iso_to_epoch(str(_tb["turn_updated_at"] or "")) and _age <= TURN_BUSY_BACKSTOP_SECONDS:
-                    turn_busy = True
-                    turn_runtime = str(_tb["turn_runtime"] or "").strip()
-                    turn_updated_at = str(_tb["turn_updated_at"] or "").strip()
-            # PURE-EVENT (2026-06-19): the turn-end GRACE (#224, 20s) was REMOVED. It held
-            # `working` for 20s after turn_busy cleared to mask a managed claude's premature/
-            # duplicate Stop hooks — a TIME-BASED hold that (a) stacked on the hermes bridge's
-            # 9s idle-debounce to show "working" ~30s after a real idle (operator-reported), and
-            # (b) is exactly the time-decay the status engine must not have. The flap is now
-            # fixed AT THE SOURCE: the bridge turn detectors (hermes gateway / claude transcript)
-            # only clear turn_busy on EVENT-confirmed end, and run fast enough to re-assert a
-            # premature clear within a tick. Status here is pure-event: turn_busy=1 (within the
-            # far 30-min wedged-bridge backstop) AND live → working; otherwise online.
-            try:
-                turn_state_ready = int(_tb["ready"] or 0) == 1
-            except (IndexError, KeyError):
-                # Pre-migration row (column absent on a foreign DB schema).
-                turn_state_ready = False
-    except Exception:
-        turn_busy = False
-        turn_state_ready = False
+    turn_busy, turn_runtime, turn_updated_at, turn_state_ready = await _status_turn_signals(db, agent_row)
     # Console-working lease (2026-06-05): a fresh spinner-gated lease is the managed-claude
     # "working" signal the per-completed-message transcript can't see (a long thinking phase
     # shows the last ENDED message). Read it HERE, but fold it into turn_busy / the v2 in_turn

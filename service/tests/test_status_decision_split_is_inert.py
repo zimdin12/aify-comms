@@ -48,16 +48,19 @@ REPO = Path(__file__).resolve().parent.parent.parent
 #: who sees it red will reach for the wrong explanation first.
 CARRIER = REPO / "service" / "api_core" / "status_inputs.py"
 DECISION = REPO / "service" / "api_core" / "status_decision.py"
+#: v0.5.4: the second extraction went to the module that already owns every other read
+#: and write of `agent_turn_state`, so the proof now spans three files.
+TURN_STATE = REPO / "service" / "api_core" / "turn_state.py"
 
 #: ONE tuple, read by every check that needs the pair. The alternative — each check naming its own
 #: modules — has gone blind five times elsewhere in this directory when a helper landed somewhere the
 #: inline list did not mention. Converted here for consistency rather than in response to a failure,
 #: since this proof only ever spanned two files.
-MODULES = (CARRIER, DECISION)
+MODULES = (CARRIER, DECISION, TURN_STATE)
 FIXTURE = Path(__file__).resolve().parent / "data" / "compute_live_status_cache_before_split.py"
 
 SOURCE_FUNCTION = "_compute_live_status_cache"
-EXTRACTIONS = ["_decide_effective_status"]
+EXTRACTIONS = ["_decide_effective_status", "_status_turn_signals"]
 
 
 def _combined_split_source() -> str:
