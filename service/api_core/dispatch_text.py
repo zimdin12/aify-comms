@@ -84,7 +84,9 @@ def _render_pending_dispatch_item(
         f"From: {from_agent or 'unknown'}",
         f"Type: {message_type or 'request'}",
         # QUOTED: this is somebody else's subject line, not an instruction to the reader.
-        f"Subject: {_quote_untrusted_subject(subject, 240)}",
+        # NEUTRALISED first: quoting stops it reading as a command but not from forging the buffer
+        # markers this module parses — see `_neutralise_buffer_markers`.
+        f"Subject: {_quote_untrusted_subject(_neutralise_buffer_markers(subject), 240)}",
         f"Priority: {priority or 'normal'}",
     ]
     if requested_at:
@@ -92,13 +94,13 @@ def _render_pending_dispatch_item(
     if message_id:
         lines.append(f"MessageId: {message_id}")
         lines.append("Full details are in the inbox. Read them there if you need the complete context.")
-        preview = _clip_text(body or "", 240)
+        preview = _clip_text(_neutralise_buffer_markers(body), 240)
         if preview:
             lines.extend(["Body preview:", preview])
     else:
         if in_reply_to:
             lines.append(f"InReplyTo: {in_reply_to}")
-        lines.extend(["Body:", str(body or "").strip()])
+        lines.extend(["Body:", _neutralise_buffer_markers(body).strip()])
     return "\n".join(lines).strip()
 
 
@@ -170,6 +172,36 @@ def _pending_dispatch_count(body: str) -> int:
 
 
 _MERGED_DISPATCH_FOOTER = "[/AIFY PENDING DISPATCHES]"
+
+_ITEM_MARKER_RE = re.compile(r"^=== ITEM \d+ ===$", re.MULTILINE)
+
+
+def _neutralise_buffer_markers(text: str) -> str:
+    """Stop untrusted text from impersonating the merged buffer's own structure.
+
+    A message body and subject are written by one agent and rendered INTO the markers this module
+    parses. Until 2026-08-16 they went in raw, and both markers could be forged from a message:
+
+      * `_pending_dispatch_count` counts `^=== ITEM n ===$` lines anywhere in the text, so a body
+        carrying nine of them takes a two-item buffer to the ten-item cap. Every subsequent send to
+        that agent is then refused as `buffer_full` — one agent consuming another's capacity — and
+        the next item is numbered from the inflated count.
+      * `_append_pending_dispatch_body` spliced the next item in with `str.replace(FOOTER, ...)`,
+        which rewrites EVERY occurrence. A body containing the footer meant the next dispatch was
+        inserted twice: the buffer ends up with two `=== ITEM 3 ===` blocks and two footers, so the
+        agent reads the same instruction twice.
+
+    Both were verified by calling the real functions before this fix existed, not reasoned about.
+
+    Substituting brackets is the same move `dispatchContent` on the bridge makes when it turns ``` into
+    ''' in a dispatch body: the text stays readable and obviously quoted, and it is structurally inert.
+    This is the body-side counterpart to `_quote_untrusted_subject`, which already exists because a
+    foreign subject read as an instruction to whoever saw it.
+    """
+    neutralised = str(text or "")
+    neutralised = neutralised.replace(_MERGED_DISPATCH_FOOTER, "(/AIFY PENDING DISPATCHES)")
+    neutralised = neutralised.replace(_MERGED_DISPATCH_HEADER, "(AIFY PENDING DISPATCHES)")
+    return _ITEM_MARKER_RE.sub(lambda m: m.group(0).replace("===", "---"), neutralised)
 
 
 # v0.5.4: moved out of the control plane in the dispatch-run-state slice, but NOT into that module. It

@@ -69,7 +69,16 @@ def _append_pending_dispatch_body(
             in_reply_to=in_reply_to,
             requested_at=requested_at,
         )
-        merged_body = existing_body.replace(_MERGED_DISPATCH_FOOTER, f"\n\n{new_item}\n{_MERGED_DISPATCH_FOOTER}")
+        # Splice before the LAST footer, not every one. This was `str.replace`, which rewrites all
+        # occurrences: a buffered item whose body contained the footer text made the next dispatch
+        # get inserted twice, so the agent read the same instruction twice. Render-time
+        # neutralisation (`_neutralise_buffer_markers`) stops such an item being written now, but a
+        # buffer persisted BEFORE that fix can still hold one, and the structural footer is the last
+        # occurrence by construction — the buffer is built with it at the end and stripped.
+        cut = existing_body.rfind(_MERGED_DISPATCH_FOOTER)
+        if cut < 0:
+            return None
+        merged_body = f"{existing_body[:cut]}\n\n{new_item}\n{existing_body[cut:]}"
         return merged_body, count
 
     first_item = _render_pending_dispatch_item(
