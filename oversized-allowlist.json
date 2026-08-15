@@ -17,7 +17,15 @@
     "any file called app.js or server.js anywhere in the tree. Repo-relative, forward slashes.",
     "",
     "Both gates fail if a listed path no longer exists or has dropped below the limit, so this list shrinks",
-    "honestly and cannot rot into names nobody re-checked."
+    "honestly and cannot rot into names nobody re-checked.",
+    "",
+    "SCOPE, so an empty list is not confused with a small population: non-test .py and .js/.mjs, REPO-WIDE.",
+    "Both scans walk from the repo root and prune node_modules, tests, fixtures, __pycache__ and .git at the",
+    "directory level. Until 2026-08-15 the Python half read service/** only -- fifteen files ungoverned,",
+    "including mcp/sse_server.py, which ships in the container -- and the JS half's two hand-listed roots",
+    "covered everything only by coincidence. Shell and CSS are OUT of scope by decision, not oversight:",
+    "install.sh (4,370 lines) and service/new_dashboard/styles.css (1,844) are non-test source over the",
+    "limit, and each gate carries a test asserting that boundary so it cannot drift unnoticed."
   ],
   "limit": 1000,
   "allowed": [

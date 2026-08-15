@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import unittest
 from pathlib import Path
 
@@ -42,18 +43,37 @@ SERVICE = Path(__file__).resolve().parent.parent
 REPO = SERVICE.parent
 ALLOWLIST_FILE = REPO / "oversized-allowlist.json"
 
+#: Pruned at the DIRECTORY level, so a repo-wide walk never descends into node_modules or .git.
+SKIP_DIRS = frozenset(
+    {"__pycache__", "tests", "node_modules", ".git", "fixtures", ".pytest_cache", ".venv", "venv"}
+)
+
 _POLICY = json.loads(io.open(ALLOWLIST_FILE, encoding="utf-8").read())
 LIMIT = _POLICY["limit"]
 #: Repo-relative POSIX paths, set by the reviewer. Not inferred from the tree.
 ALLOWED = {entry["path"] for entry in _POLICY["allowed"]}
 
 
-def _source_files():
-    for path in sorted(SERVICE.rglob("*.py")):
-        parts = path.parts
-        if "__pycache__" in parts or "tests" in parts:
-            continue
-        yield path
+def _source_files(root: Path = REPO, skip=SKIP_DIRS):
+    """Every non-test Python file in the repo, pruned at the directory level.
+
+    REPO-WIDE, and it was not until 2026-08-15. This scanned `service/**` only, which left FIFTEEN
+    Python files outside the gate entirely: `mcp/sse_server.py` — 730 lines, and the SSE transport
+    shipped inside the container — the hermes plugin under `integrations/`, and every script under
+    `scripts/`. None of them was oversized, which is precisely why nobody noticed: an unguarded
+    population reports green for the same reason a guarded one does, and the difference is invisible
+    from the result. The goal this gate serves says "every non-test source file", not "every file
+    under one chosen root".
+
+    The root was not wrong so much as unstated — a new module under `service/` was covered and an
+    identical one beside the SSE transport was not, and nothing said so. Walking from the repo root
+    makes coverage a property of the scan rather than a coincidence of where the code was put.
+    """
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d not in skip)
+        for name in sorted(filenames):
+            if name.endswith(".py") and not name.startswith("test_"):
+                yield Path(dirpath) / name
 
 
 def _rel(path: Path) -> str:
@@ -170,6 +190,50 @@ class NoNewOversizedSourceFileTests(unittest.TestCase):
         self.assertIn("service/control_plane.py", found)
         self.assertIn("service/db.py", found)
         self.assertNotIn("service/tests/test_no_new_oversized_source_file.py", found, "tests are out of scope")
+
+    def test_the_scan_covers_python_OUTSIDE_service(self):
+        """The hole this gate shipped with, named file by file.
+
+        Each of these was invisible to the gate until 2026-08-15, and one of them ships inside the
+        container. Naming them individually rather than asserting a count keeps the test meaningful
+        as files come and go — the mistake the old accessor floor made — and makes a regression to a
+        `service/`-only scan say exactly what stopped being measured.
+        """
+        found = {_rel(p) for p in _source_files()}
+        for rel in (
+            "mcp/sse_server.py",
+            "scripts/undefined_name_sweep.py",
+            "integrations/hermes-aify-plugin/aify_hermes_plugin/patches.py",
+        ):
+            self.assertIn(rel, found, f"{rel} is product Python and must be governed by the size limit")
+
+    def test_the_walk_prunes_rather_than_filters(self):
+        """`node_modules` and `.git` must never be DESCENDED, not merely dropped from the results.
+
+        A filter-after-walk produces the same list and takes seconds doing it. The distinction is not
+        cosmetic: `mcp/stdio/node_modules` is the largest directory in the repo, and a gate slow
+        enough to notice is a gate somebody eventually marks slow and skips.
+        """
+        seen = {part for p in _source_files() for part in _rel(p).split("/")[:-1]}
+        for pruned in ("node_modules", ".git", "__pycache__", "tests", "fixtures"):
+            self.assertNotIn(pruned, seen, f"{pruned} must be pruned at the directory level")
+
+    def test_shell_and_css_are_NOT_covered_and_that_is_a_decision(self):
+        """What this gate does not measure, said out loud rather than left to be discovered.
+
+        `install.sh` is 4,370 lines and `service/new_dashboard/styles.css` is 1,844 — both non-test
+        source, both over the limit, both outside every gate in this repo. That is not an oversight
+        being hidden here; it is an open REVIEWER question, because widening the population to those
+        languages turns two files red and the remedy for each is a different kind of work than the
+        Python and JS decomposition this series did.
+
+        This test asserts only that the boundary is where it is claimed to be. If shell or CSS is
+        later brought in scope, this is the test that must be deleted in the same change — which is
+        the point: the exclusion cannot rot into something nobody re-decided.
+        """
+        found = {_rel(p) for p in _source_files()}
+        self.assertNotIn("install.sh", found)
+        self.assertFalse([f for f in found if f.endswith((".sh", ".css"))], "this gate is Python-only")
 
     def test_the_boundary_predicate_is_exact(self):
         """Off-by-one here would silently accept the precise 1000-line file this exists to catch."""

@@ -34,24 +34,31 @@ const POLICY = JSON.parse(readFileSync(path.join(REPO, "oversized-allowlist.json
 const LIMIT = POLICY.limit;
 const ALLOWED = new Set(POLICY.allowed.map((e) => e.path));
 
-/** Roots that hold shipped JS. Test dirs, fixtures and node_modules are excluded below. */
-const ROOTS = [path.join(REPO, "mcp", "stdio"), path.join(REPO, "service", "new_dashboard")];
-const SKIP_DIRS = new Set(["node_modules", "tests", "fixtures", "__pycache__", ".git"]);
+// THE SCAN IS REPO-WIDE, and it was not until 2026-08-15. It walked two hand-listed roots —
+// `mcp/stdio` and `service/new_dashboard` — which today happens to be every JS file in the repo, so
+// widening it moved the population by ZERO. That is the whole reason it is worth changing: the
+// coverage was correct by coincidence, not by construction. A new module at `service/foo/bar.js`
+// would have been ungoverned, and nothing in the suite would have said so. The Python half had the
+// same shape and a real hole behind it: fifteen files, including the SSE transport that ships in the
+// container. Matching them means neither gate depends on where code happened to be put.
+const SKIP_DIRS = new Set([
+  "node_modules", "tests", "fixtures", "__pycache__", ".git", ".pytest_cache", ".venv", "venv",
+]);
 
-function sourceFiles() {
+function sourceFiles(root = REPO, skip = SKIP_DIRS) {
   const out = [];
   const walk = (dir) => {
-    for (const entry of readdirSync(dir)) {
+    for (const entry of readdirSync(dir).sort()) {
       const full = path.join(dir, entry);
       if (statSync(full).isDirectory()) {
-        if (!SKIP_DIRS.has(entry)) walk(full);
+        if (!skip.has(entry)) walk(full);
         continue;
       }
       if (!/\.m?js$/.test(entry) || /\.test\.m?js$/.test(entry)) continue;
       out.push(full);
     }
   };
-  for (const root of ROOTS) walk(root);
+  walk(root);
   return out.sort();
 }
 
@@ -166,6 +173,35 @@ test("test files, fixtures and node_modules are excluded", () => {
   assert.ok(!files.some((f) => f.includes("node_modules")), "node_modules must not be scanned");
   assert.ok(!files.some((f) => /\.test\.m?js$/.test(f)), "test files must not be scanned");
   assert.ok(!files.some((f) => f.includes("/fixtures/")), "pristine fixtures are not shipped source");
+});
+
+test("the scan is repo-wide, not a pair of hand-listed roots", () => {
+  // The property the old two-root scan could not offer. It covered every JS file in the repo, but
+  // only because every JS file happened to live under one of two directories — so the gate would
+  // have gone on passing while a new ungoverned module grew anywhere else. Asserting that the walk
+  // STARTS at the repo root is what makes coverage structural: an unseen directory cannot exist,
+  // because there is no list of directories to be missing from.
+  assert.equal(sourceFiles().length, sourceFiles(REPO).length);
+
+  // …and it still reaches what it always did. A widened scan that broke discovery would otherwise
+  // pass this file's other tests by covering nothing at all.
+  const found = new Set(sourceFiles().map(rel));
+  assert.ok(found.has("mcp/stdio/server.js"), "expected the bridge entry point in scope");
+  assert.ok(found.has("service/new_dashboard/app.js"), "expected the dashboard entry point in scope");
+});
+
+test("shell and CSS are NOT covered, and that is a decision", () => {
+  // Said out loud rather than left to be discovered. `install.sh` is 4,370 lines and
+  // `service/new_dashboard/styles.css` is 1,844 — both non-test source, both over the limit, both
+  // outside every gate in this repo. Bringing them in scope turns two files red, and the remedy for
+  // each is a different kind of work than the Python and JS decomposition this series did, so it is
+  // an open REVIEWER question rather than something to quietly widen into.
+  //
+  // If either language is later brought in scope, this test must be deleted in the same change.
+  // That is the point: the exclusion cannot rot into something nobody re-decided.
+  const found = sourceFiles().map(rel);
+  assert.ok(!found.some((f) => /\.(sh|css|html)$/.test(f)), "this gate is JS-only");
+  assert.ok(!found.includes("install.sh"));
 });
 
 test("the boundary predicate is exact", () => {
