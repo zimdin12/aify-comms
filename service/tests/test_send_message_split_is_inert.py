@@ -55,6 +55,9 @@ EXTRACTIONS = [
     "_queue_console_dispatch_inputs",
     "_thread_reply_onto_dispatch_runs",
     "_refuse_send_to_unstartable_recipients",
+    # NESTED: `_launch_recipients_for_dispatch` was itself split in v0.5.4, so inlining it
+    # alone no longer reproduces this fixture — its own callee must collapse into it first.
+    "_back_managed_claude_with_a_console",
 ]
 
 
@@ -113,6 +116,7 @@ class SendMessageSplitIsInertTests(unittest.TestCase):
             "_queue_console_dispatch_inputs": CONSOLE_QUEUE,
             "_thread_reply_onto_dispatch_runs": REPLY_THREADING,
             "_refuse_send_to_unstartable_recipients": REFUSAL,
+            "_back_managed_claude_with_a_console": DISPATCH_LAUNCH,
         }
         self.assertEqual(sorted(expected), sorted(EXTRACTIONS), "every extraction needs a declared owner")
         for helper, owner in expected.items():

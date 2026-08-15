@@ -1,33 +1,3 @@
-"""Making a worker EXIST so a dispatch has somewhere to go.
-
-Moved out of `service/api_core/dispatch_start.py` in v0.5.4, byte-identical. At 302 lines it was the
-largest single declaration in that module and had exactly one importer, which makes it the cheapest
-honest reduction available there: one import to repoint.
-
-It still calls `_coldstart_spawn_request_for_dispatch` and `_ensure_managed_pty_for_dispatch`, which
-stay put — the second has roughly ten importers across the routers and moving it is a much larger
-change. So this module imports dispatch_start; dispatch_start does not import back, and the cycle
-smoke checks that by importing both.
-"""
-from __future__ import annotations
-
-from service.api_core.capabilities import _managed_via_wrapper_for_runtime
-from service.api_core.channel_delivery import _CHANNEL_MANAGED_RUNTIMES, _insert_messages_via_console
-from service.api_core.claim_gating import _turn_busy_holds_delivery
-from service.api_core.dispatch_hint import _dispatch_fix_hint
-from service.api_core.dispatch_start import (
-    _coldstart_spawn_request_for_dispatch,
-    _ensure_managed_pty_for_dispatch,
-)
-from service.api_core.dispatch_state import _get_dispatch_state_for_agent
-from service.api_core.dispatch_text import COLDSTART_REFUSED_PREFIX, _coldstart_refusal_message
-from service.api_core.execution_mode import _auto_return_resident_to_managed_if_possible
-from service.api_core.liveness import _has_live_managed_wrapper_child
-from service.api_core.runtime import _NATIVE_MANAGED_RUNTIMES, _normalize_runtime
-from service.api_core.settings import _managed_terminal_backing_enabled
-from service.api_core.spawn_request_state import _has_claimable_spawn_request
-from service.api_core.terminal_ownership import _active_terminal_for_agent
-
 async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipients, db, launchable_recipients, not_started, req, settings) -> None:
     """Make each launchable recipient EXIST, so a dispatch to it can be claimed instead of stranded.
 
@@ -239,65 +209,6 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
             # PTY is the host for the subscriber, not the
             # delivery channel. Existing terminal is reused
             # (slice-3 reuse semantics); only spawned if absent.
-            await _back_managed_claude_with_a_console(
-                db, req, row, runtime, settings,
-                recipient_id, not_started, channel_backing_failed, _execution_mode,
-            )
-            # Final safety (2026-07-04): a channel-managed claude dispatch must
-            # never strand until the 180s queued-run backstop. If — after the
-            # terminal reuse / PTY-ensure above — there is STILL no live
-            # managed-wrapper-child to run claude-channel.js AND no claimable
-            # spawn request, cold-start one now so a bridge spawns the wrapper
-            # and claims this run on its next poll (the aicm-lc-manager
-            # 'queued, never spawned' strand). Idempotent: a live claimer or a
-            # pending spawn short-circuits it, so no duplicate workers.
-            if recipient_id not in channel_backing_failed and (
-                not await _has_live_managed_wrapper_child(db, recipient_id)
-                and not await _has_claimable_spawn_request(db, recipient_id)
-            ):
-                try:
-                    await _coldstart_spawn_request_for_dispatch(
-                        db,
-                        recipient_id,
-                        runtime=runtime,
-                        settings=settings,
-                        requested_by=req.from_agent,
-                    )
-                except Exception:
-                    pass
-            continue
-        console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
-        if not console_terminal:
-            console_terminal = await _ensure_managed_pty_for_dispatch(
-                db,
-                recipient_id,
-                runtime=runtime,
-                settings=settings,
-                requested_by=req.from_agent,
-            )
-        if console_terminal:
-            console_recipients[recipient_id] = console_terminal
-
-
-async def _back_managed_claude_with_a_console(
-    db, req, row, runtime, settings,
-    recipient_id, not_started, channel_backing_failed, _execution_mode,
-):
-            """Give a managed-claude recipient a console to receive on, when the operator asked for one.
-
-            Extracted from `_launch_recipients_for_dispatch` in v0.5.4. This is the legacy via-console
-            delivery path: it only fires when `insert_messages_via_console` is on AND managed-terminal
-            backing is enabled. The DEFAULT route is the channel branch below it, where the run is left
-            launchable with execution_mode='channel' for claude-channel.js to claim.
-
-            It records a coldstart REFUSAL rather than raising: a recipient that cannot be given a
-            console is reported in `not_started`, so the caller can tell the sender which recipients
-            were not woken instead of failing the whole send.
-
-            `_execution_mode` keeps its underscore because the parameter must be named exactly as the
-            argument: inline-back splices the body over the call WITHOUT substituting arguments, so a
-            renamed parameter cannot be verified. It reads as a private name and is a caller local.
-            """
             if (
                 not _insert_messages_via_console(settings)
                 and _managed_terminal_backing_enabled(settings)
@@ -355,3 +266,37 @@ async def _back_managed_claude_with_a_console(
                                 )
                             )
                             channel_backing_failed.add(recipient_id)
+            # Final safety (2026-07-04): a channel-managed claude dispatch must
+            # never strand until the 180s queued-run backstop. If — after the
+            # terminal reuse / PTY-ensure above — there is STILL no live
+            # managed-wrapper-child to run claude-channel.js AND no claimable
+            # spawn request, cold-start one now so a bridge spawns the wrapper
+            # and claims this run on its next poll (the aicm-lc-manager
+            # 'queued, never spawned' strand). Idempotent: a live claimer or a
+            # pending spawn short-circuits it, so no duplicate workers.
+            if recipient_id not in channel_backing_failed and (
+                not await _has_live_managed_wrapper_child(db, recipient_id)
+                and not await _has_claimable_spawn_request(db, recipient_id)
+            ):
+                try:
+                    await _coldstart_spawn_request_for_dispatch(
+                        db,
+                        recipient_id,
+                        runtime=runtime,
+                        settings=settings,
+                        requested_by=req.from_agent,
+                    )
+                except Exception:
+                    pass
+            continue
+        console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
+        if not console_terminal:
+            console_terminal = await _ensure_managed_pty_for_dispatch(
+                db,
+                recipient_id,
+                runtime=runtime,
+                settings=settings,
+                requested_by=req.from_agent,
+            )
+        if console_terminal:
+            console_recipients[recipient_id] = console_terminal
