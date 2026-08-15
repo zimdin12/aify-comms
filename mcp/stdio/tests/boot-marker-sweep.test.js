@@ -25,6 +25,7 @@
 // bust `aify-service-endpoint.mjs`, which resolves its target once at load.
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import http from "node:http";
 import test from "node:test";
 
@@ -66,14 +67,21 @@ test("a non-environment-bridge process sweeps nothing and asks nothing", async (
 });
 
 test("the sweep is exported from its own module rather than the reaper", async () => {
-  // `sweepTombstonedMarkers` lives in reap-managed-survivors.js, which has NO service dependency — zero
-  // httpCall, zero fetch. This orchestrator's first act is a service query, so it deliberately does not
-  // live there. Asserted so a later tidy-up does not merge them and hand that module a network dependency.
+  // `sweepTombstonedMarkers` has NO service dependency — zero httpCall, zero fetch. This
+  // orchestrator's first act is a service query, so it deliberately does not live beside it.
+  // Asserted so a later tidy-up does not merge them and hand the offline module a network dependency.
+  //
+  // v0.5.4 moved the primitive from `reap-managed-survivors.js` to `runtime-marker-files.js` with the
+  // rest of the marker-file read side. The invariant is unchanged and is what is checked: the
+  // primitive is offline, the orchestrator is not, and neither module holds the other.
   assert.equal(typeof m.runBootTombstonedMarkerSweep, "function");
-  const reaper = await import("../reap-managed-survivors.js");
-  assert.equal(typeof reaper.sweepTombstonedMarkers, "function", "the primitive stays where it was");
-  assert.equal(reaper.runBootTombstonedMarkerSweep, undefined,
-    "the orchestrator must NOT have been merged into the offline reaper module");
+  const markers = await import("../runtime-marker-files.js");
+  assert.equal(typeof markers.sweepTombstonedMarkers, "function", "the primitive has an offline home");
+  assert.equal(markers.runBootTombstonedMarkerSweep, undefined,
+    "the orchestrator must NOT have been merged into the offline module");
+  const markerSource = readFileSync(new URL("../runtime-marker-files.js", import.meta.url), "utf8");
+  assert.doesNotMatch(markerSource, /httpCall|fetch\(/,
+    "the offline claim is the point — a network call here would make a boot sweep depend on the service");
 });
 
 test("the module imports cleanly outside a browser and without a live service", async () => {

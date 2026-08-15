@@ -36,8 +36,9 @@ import {
   enumerateManagedSurvivors,
   reapOrphanedManagedSurvivors,
   runManagedTeardown,
-  defaultReadMarkers as readManagedMarkers,
 } from "./reap-managed-survivors.js";
+// The marker read side moved to `runtime-marker-files.js` in v0.5.4.
+import { defaultReadMarkers as readManagedMarkers } from "./runtime-marker-files.js";
 // The process read side moved to `proc-probes.js` in v0.5.4; imported from its OWNER rather than
 // re-exported through the reaper, so a stale import fails here instead of resolving.
 import {

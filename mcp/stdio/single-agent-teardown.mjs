@@ -18,8 +18,9 @@ import { cwdRootsForEnvironment } from "./environment-identity.mjs";
 import { defaultKillByPort, stopDaemon } from "./hermes-daemon.js";
 import {
   runManagedTeardown,
-  defaultReadMarkers as readManagedMarkers,
 } from "./reap-managed-survivors.js";
+// The marker read side moved to `runtime-marker-files.js` in v0.5.4.
+import { defaultReadMarkers as readManagedMarkers } from "./runtime-marker-files.js";
 // The process read side moved to `proc-probes.js` in v0.5.4 — see the note in the sweeps module.
 import {
   defaultKillTree as killManagedTree,

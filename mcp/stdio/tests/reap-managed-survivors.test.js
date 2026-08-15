@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import {
   enumerateManagedSurvivors,
   reapManagedSurvivors,
-  tombstonedMarkerAgentIds,
-  sweepTombstonedMarkers,
 } from "../reap-managed-survivors.js";
+// The marker-file read side moved to `runtime-marker-files.js` in v0.5.4; imported from its OWNER.
+import { sweepTombstonedMarkers, tombstonedMarkerAgentIds } from "../runtime-marker-files.js";
 // The two cmdline readers moved to `proc-probes.js` in v0.5.4 with the rest of the process read
 // side. Imported from their OWNER — the reaper does not re-export them.
 import { cmdlineDeliveryLoopAgent, cmdlineResidentAgent } from "../proc-probes.js";

@@ -23,7 +23,10 @@
 import os from "node:os";
 import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
 import { IS_ENVIRONMENT_BRIDGE } from "./launch-identity.mjs";
-import { sweepTombstonedMarkers } from "./reap-managed-survivors.js";
+// `sweepTombstonedMarkers` moved to `runtime-marker-files.js` in v0.5.4 with the rest of the
+// marker-file read side. The note above about NOT merging this module into the reaper still
+// holds — it is about the SERVICE dependency this module has and the primitive does not.
+import { sweepTombstonedMarkers } from "./runtime-marker-files.js";
 
 // Env-bridge BOOT tombstoned-marker sweep (fix/hermes-leak P4). The survivor
 // sweep above kills orphaned PROCESSES; this deletes the stale marker FILES
