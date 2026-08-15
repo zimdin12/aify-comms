@@ -46,19 +46,13 @@ from service.reconcilers.status_cache import invalidate_agent_live_state as _inv
 # import, it silently demotes the request body to a query parameter and the endpoint 422s.
 from service.models import (
     DispatchClaimRequest,
-    DispatchControlClaimRequest,
-    DispatchControlRequest,
-    DispatchControlUpdate,
     DispatchRequest,
     DispatchRunUpdate,
 )
 from service.api_core.agent_sessions import (
     _touch_current_agent_session,
 )
-from service.api_core.dispatch_run_state import (
-    _append_dispatch_control,
-    _finalize_dispatch_runs,
-)
+from service.api_core.dispatch_run_state import _finalize_dispatch_runs
 from service.api_core.validation import _reject_sender_truncated_body
 from service.api_core.agent_sessions import _touch_agent
 from service.api_core.dispatch_runs import _create_dispatch_runs
@@ -83,7 +77,6 @@ from service.api_core.dashboard_run_report import (
     _maybe_report_async_manager_result_to_dashboard,
 )
 from service.dispatch_claim import _claim_dispatch_once
-from service.api_core.dispatch_controls_io import _claim_dispatch_controls_once
 
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.dispatch")
 
@@ -137,22 +130,6 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
         is_disconnected=request.is_disconnected,
         lock_result={"ok": True, "run": None},
     )
-
-
-@router.post("/dispatch/controls/claim")
-async def claim_dispatch_controls(req: DispatchControlClaimRequest, request: Request):
-    # Long-poll wrapper — see claim_dispatch / service/longpoll.py. Wait only while the
-    # controls list is exactly empty; any pending control returns immediately.
-    return await longpoll.longpoll(
-        getattr(req, "waitMs", 0),
-        lambda: _claim_dispatch_controls_once(req, request),
-        lambda r: r.get("controls") == [],
-        scope="control",
-        fallback_s=3.0,
-        is_disconnected=request.is_disconnected,
-        lock_result={"ok": True, "controls": []},
-    )
-
 
 @router.post("/dispatch")
 async def create_dispatch(req: DispatchRequest, request: Request):
@@ -547,86 +524,6 @@ async def repair_dispatch_handoffs(request: Request, limit: int = Query(100, ge=
         }
     finally:
         await db.close()
-
-
-@router.post("/dispatch/runs/{run_id}/control")
-async def request_dispatch_control(run_id: str, req: DispatchControlRequest, request: Request):
-    action = (req.action or "").strip().lower()
-    if action not in {"interrupt", "steer"}:
-        raise HTTPException(400, "Unsupported control action")
-
-    db = await get_db()
-    try:
-        cursor = await db.execute("SELECT * FROM dispatch_runs WHERE id = ?", (run_id,))
-        run = await cursor.fetchone()
-        if not run:
-            raise HTTPException(404, f"Run '{run_id}' not found")
-        if run["status"] not in {"claimed", "running"}:
-            raise HTTPException(409, f"Run '{run_id}' is not active")
-
-        control_id = await _append_dispatch_control(
-            db,
-            run_id,
-            from_agent=req.from_agent or "",
-            action=action,
-            body=req.body or "",
-        )
-        await db.commit()
-        ws = await _get_ws(request)
-        if ws:
-            await ws.broadcast("dispatch_control_requested", {"runId": run_id, "controlId": control_id, "action": action})
-        return {"ok": True, "controlId": control_id, "runId": run_id, "action": action, "status": "pending"}
-    finally:
-        await db.close()
-
-
-@router.patch("/dispatch/controls/{control_id}")
-async def update_dispatch_control(control_id: str, req: DispatchControlUpdate, request: Request):
-    if req.status not in {"completed", "failed"}:
-        raise HTTPException(400, "Unsupported control status")
-
-    db = await get_db()
-    try:
-        cursor = await db.execute("SELECT * FROM dispatch_controls WHERE id = ?", (control_id,))
-        control = await cursor.fetchone()
-        if not control:
-            raise HTTPException(404, f"Control '{control_id}' not found")
-
-        handled_at = _now()
-        await db.execute(
-            "UPDATE dispatch_controls SET status = ?, response_text = ?, handled_at = ? WHERE id = ?",
-            (req.status, req.response or "", handled_at, control_id)
-        )
-        if req.status == "completed" and (control["source_message_id"] or "").strip():
-            run_cursor = await db.execute(
-                "SELECT target_agent FROM dispatch_runs WHERE id = ?",
-                (control["run_id"],),
-            )
-            run = await run_cursor.fetchone()
-            if run and (run["target_agent"] or "").strip():
-                msg_cursor = await db.execute(
-                    "SELECT 1 FROM messages WHERE id = ?",
-                    ((control["source_message_id"] or "").strip(),),
-                )
-                if await msg_cursor.fetchone():
-                    await db.execute(
-                        "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
-                        ((control["source_message_id"] or "").strip(), run["target_agent"], handled_at),
-                    )
-        await _append_dispatch_event(
-            db,
-            control["run_id"],
-            f"control:{control['action']}:{req.status}",
-            req.response or "",
-        )
-        await db.commit()
-        ws = await _get_ws(request)
-        if ws:
-            await ws.broadcast("dispatch_control_updated", {"controlId": control_id, "status": req.status})
-        return {"ok": True, "controlId": control_id, "status": req.status}
-    finally:
-        await db.close()
-
 
 @router.patch("/dispatch/runs/{run_id}")
 async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Request):
