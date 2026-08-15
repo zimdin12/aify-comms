@@ -34,6 +34,7 @@ from service.models import (
 )
 
 from service.api_core.agent_registration_writes import (
+    _register_via_manual_resident_takeover,
     _register_via_adopted_console_terminal,
     _adopt_console_terminal_on_register,
     _record_registered_session_handle,
@@ -47,7 +48,6 @@ from service.api_core.registration_gates import (
     _enforce_same_mode_bridge_gate,
     _enforce_tombstone_resurrection_gate,
 )
-from service.api_core.resume_command import _resume_command_for
 from service.api_core.message_store import _get_unread_count_map
 from service.db_errors import _is_lock_error
 from service.api_core.agent_sessions import _upsert_resident_agent_session
@@ -277,49 +277,10 @@ async def register_agent(req: AgentRegister, request: Request):
             fresh_state["pi_resident_pending_flip"] = True
         existing_state = json.dumps(fresh_state)
         if row and normalized_session_mode == "resident" and _normalize_session_mode(row["session_mode"] or "resident") == "managed":
-            active_run = await _stage_manual_resident_takeover(
-                db, req, row, bridge_id, normalized_runtime, session_handle,
-                runtime_config, capabilities, resolved_cwd, now,
+            return await _register_via_manual_resident_takeover(
+                bridge_id, capabilities, db, normalized_runtime, now, req,
+                request, resolved_cwd, row, runtime_config, session_handle, terminal_id,
             )
-            if bridge_id:
-                await _record_bridge_registration(
-                    db,
-                    bridge_id=bridge_id,
-                    agent_id=req.agentId,
-                    machine_id=req.machineId or "",
-                    runtime=normalized_runtime,
-                    session_mode="resident",
-                    session_handle=session_handle,
-                    terminal_id=terminal_id,
-                    now=now,
-                )
-            await _invalidate_agent_live_state(db, req.agentId)
-            await db.commit()
-            ws = await _get_ws(request)
-            if ws:
-                await ws.broadcast("agent_registered", {
-                    "agentId": req.agentId,
-                    "role": req.role,
-                    "runtime": normalized_runtime,
-                    "machineId": req.machineId or "",
-                    "sessionMode": "managed",
-                    "residentBridgeId": bridge_id,
-                })
-            return {
-                "ok": True,
-                "agentId": req.agentId,
-                "role": req.role,
-                "status": row["status"] or "active",
-                "runtime": normalized_runtime,
-                "machineId": req.machineId or "",
-                "bridgeId": bridge_id,
-                "sessionMode": "managed",
-                "ownershipTransition": "manual_switch_required",
-                # Task 4.1: the takeover command the operator runs after flipping
-                # the agent to resident in the dashboard (one-driver invariant).
-                "resumeCommand": _resume_command_for(normalized_runtime, session_handle, req.agentId),
-                "blockedByRun": active_run,
-            }
         await _upsert_registered_agent_row(
             db, req, row, normalized_runtime, normalized_session_mode, session_handle,
             resolved_cwd, description_value, model_value, capabilities, runtime_config,

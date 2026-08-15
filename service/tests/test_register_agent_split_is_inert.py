@@ -62,6 +62,8 @@ EXTRACTIONS = [
     # before the call-site-shape rule, and could not be PROVED with its callee before the topological
     # order. Both landed in this release.
     "_register_via_adopted_console_terminal",
+    # NESTED, same as above: this one encloses `_stage_manual_resident_takeover`.
+    "_register_via_manual_resident_takeover",
 ]
 
 #: Where each helper is expected to be declared. The four gates stayed; the five registration WRITES
@@ -77,6 +79,7 @@ OWNERS = {
     "_adopt_console_terminal_on_register": REG_WRITES,
     "_upsert_registered_agent_row": REG_WRITES,
     "_register_via_adopted_console_terminal": REG_WRITES,
+    "_register_via_manual_resident_takeover": REG_WRITES,
 }
 
 

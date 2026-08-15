@@ -19,6 +19,7 @@ import json
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.events import _append_terminal_control, _append_terminal_event
 from service.api_core.bridge_registration import _record_bridge_registration
+from service.api_core.resume_command import _resume_command_for
 from service.api_core.runtime import _normalize_session_mode
 from service.api_core.runtime_state import _runtime_state_with_handle
 from service.api_core.serialization import _json_loads_or
@@ -468,4 +469,60 @@ async def _register_via_adopted_console_terminal(
         "bridgeId": bridge_id,
         "sessionMode": existing_mode,
         "ownershipTransition": "console_terminal_attached",
+    }
+
+
+async def _register_via_manual_resident_takeover(
+    bridge_id, capabilities, db, normalized_runtime, now, req,
+    request, resolved_cwd, row, runtime_config, session_handle, terminal_id,
+):
+    """The register path where a managed agent is being flipped to resident by hand.
+
+    Extracted from `register_agent` in v0.5.4, byte-identical apart from the dedent. Like the
+    console-terminal branch beside it, this is an early exit that ends in the handler's response
+    and encloses an already-extracted helper (`_stage_manual_resident_takeover`), so it needed
+    both the call-site-shape rule and dependency-ordered inlining before it could be proved.
+    """
+    active_run = await _stage_manual_resident_takeover(
+        db, req, row, bridge_id, normalized_runtime, session_handle,
+        runtime_config, capabilities, resolved_cwd, now,
+    )
+    if bridge_id:
+        await _record_bridge_registration(
+            db,
+            bridge_id=bridge_id,
+            agent_id=req.agentId,
+            machine_id=req.machineId or "",
+            runtime=normalized_runtime,
+            session_mode="resident",
+            session_handle=session_handle,
+            terminal_id=terminal_id,
+            now=now,
+        )
+    await _invalidate_agent_live_state(db, req.agentId)
+    await db.commit()
+    ws = await _get_ws(request)
+    if ws:
+        await ws.broadcast("agent_registered", {
+            "agentId": req.agentId,
+            "role": req.role,
+            "runtime": normalized_runtime,
+            "machineId": req.machineId or "",
+            "sessionMode": "managed",
+            "residentBridgeId": bridge_id,
+        })
+    return {
+        "ok": True,
+        "agentId": req.agentId,
+        "role": req.role,
+        "status": row["status"] or "active",
+        "runtime": normalized_runtime,
+        "machineId": req.machineId or "",
+        "bridgeId": bridge_id,
+        "sessionMode": "managed",
+        "ownershipTransition": "manual_switch_required",
+        # Task 4.1: the takeover command the operator runs after flipping
+        # the agent to resident in the dashboard (one-driver invariant).
+        "resumeCommand": _resume_command_for(normalized_runtime, session_handle, req.agentId),
+        "blockedByRun": active_run,
     }
