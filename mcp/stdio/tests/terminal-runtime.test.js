@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { TerminalProcessManager, bridgeTerminalSupported, classifyTerminalRuntimeOutput, expandUserHome, terminalCommandWithoutResume } from "../terminal-runtime.js";
+import { TerminalProcessManager, bridgeTerminalSupported, expandUserHome } from "../terminal-runtime.js";
+// The pure text handling moved to `terminal-text.js` in v0.5.4. Imported from its OWNER rather than
+// re-exported through `terminal-runtime.js`: a re-export keeps a stale import resolving and is what
+// makes the next move look like it changed nothing.
+import { classifyTerminalRuntimeOutput, terminalCommandWithoutResume } from "../terminal-text.js";
 import { tmpDir } from "./_tmpdir.js";
 
 assert.equal(typeof bridgeTerminalSupported(), "boolean");
