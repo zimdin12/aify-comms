@@ -28,6 +28,7 @@ from service.config import get_config
 # `service/main.py` loads THIS file by path instead of importing it. See `service/sse/__init__.py`.
 from service.sse.api_client import api as _api
 from service.sse.channel_tools import register as _register_channel_tools
+from service.sse.console_tools import register as _register_console_tools
 from service.sse.container_tools import (
     bind_app as _bind_container_app,
     get_manager as _get_manager,
@@ -35,6 +36,7 @@ from service.sse.container_tools import (
 )
 from service.sse.inbox_tools import register as _register_inbox_tools
 from service.sse.management_tools import register as _register_management_tools
+from service.sse.run_tools import register as _register_run_tools
 from service.sse.shared_file_tools import register as _register_shared_file_tools
 
 logger = logging.getLogger(__name__)
@@ -232,97 +234,6 @@ async def comms_dispatch(
         lines.extend(["", "Use comms_run_status(...) to inspect progress. Direct dispatch expects an explicit reply by default, and the bridge mirrors the result if none is sent."])
     return "\n".join(lines)
 
-
-@mcp_server.tool()
-async def comms_run_status(runId: str) -> str:
-    """Inspect a dispatched run, including recent events and control requests."""
-    r = await _api("GET", f"/dispatch/runs/{runId}")
-    run = r.get("run")
-    if not run:
-        return f"Run not found: {runId}"
-    if not run.get("requireReply"):
-        reply_summary = "reply not required"
-    elif run.get("resultMessageId"):
-        reply_summary = f"reply sent ({run['resultMessageId']})"
-    elif run.get("replyPending"):
-        reply_summary = "reply pending"
-    else:
-        reply_summary = "reply expected"
-    lines = [
-        f"{run['id']} -> {run['targetAgentId']}",
-        f"Status: {run['status']}",
-        f"Reply: {reply_summary}",
-        f"Runtime: {run.get('runtime') or 'unknown'}",
-        f"Subject: {run.get('subject', '')}",
-        f"Requested: {run.get('requestedAt', '')}",
-    ]
-    if run.get("summary"):
-        lines.extend(["", "Summary:", run["summary"]])
-    if run.get("error"):
-        lines.extend(["", "Error:", run["error"]])
-    events = run.get("events", [])[-10:]
-    if events:
-        lines.append("")
-        lines.append("Recent events:")
-        lines.extend([f"- {event['createdAt']} [{event['type']}] {event.get('body', '')}" for event in events])
-    controls = run.get("controls", [])[-10:]
-    if controls:
-        lines.append("")
-        lines.append("Recent controls:")
-        lines.extend([
-            f"- {control['requestedAt']} [{control['action']}/{control['status']}] {control.get('from') or 'unknown'}"
-            + (f" -> {control['response']}" if control.get("response") else "")
-            for control in controls
-        ])
-    return "\n".join(lines)
-
-
-@mcp_server.tool()
-async def comms_console_tail(agentId: str, lines: int = 40) -> str:
-    """Read the last N lines of another agent's live console (read-only; managed agents)."""
-    n = max(1, min(int(lines or 40), 200))
-    r = await _api("GET", f"/agents/{agentId}/console", params={"lines": n})
-    if not r.get("ok"):
-        return r.get("detail") or r.get("message") or f"Could not read {agentId}'s console."
-    if not r.get("live"):
-        return r.get("message") or f"{agentId} has no live console."
-    output = r.get("output") or "(empty)"
-    return (
-        f"Console of {agentId} (terminal {r.get('terminalId')}, status {r.get('status')}), "
-        f"last {r.get('lines')} lines:\n{output}"
-    )
-
-
-@mcp_server.tool()
-async def comms_console_input(agentId: str, text: str = "", enter: bool = True, from_agent: str = "") -> str:
-    """Recovery-only console input for managed agents; audited.
-
-    Read the console first with comms_console_tail and use this only for a proven
-    interactive prompt or operator recovery. Do not inject normal work messages,
-    reminders, or duplicate comms_send delivery through the console.
-    """
-    r = await _api("POST", f"/agents/{agentId}/console/input", {
-        "text": text or "",
-        "enter": bool(enter),
-        "from": from_agent or "",
-    })
-    if not r.get("ok"):
-        return r.get("detail") or r.get("message") or f"Could not send input to {agentId}."
-    return f"Input sent to {agentId}'s console (terminal {r.get('terminalId')}, control {r.get('controlId')})."
-
-
-@mcp_server.tool()
-async def comms_run_interrupt(runId: str, from_agent: str = "") -> str:
-    """Request interruption of an active dispatched run."""
-    r = await _api("POST", f"/dispatch/runs/{runId}/control", {
-        "from_agent": from_agent,
-        "action": "interrupt",
-    })
-    if not r.get("ok"):
-        return r.get("detail", "Interrupt request failed.")
-    return f"Interrupt requested for {runId}. Control ID: {r['controlId']}"
-
-
 # NOTE (2026-05-31): comms_run_steer was REMOVED here to match the canonical
 # stdio bridge (mcp/stdio/server.js), which retired it — ordinary comms_send to
 # the target steers automatically when the target is busy and steer-capable.
@@ -330,6 +241,23 @@ async def comms_run_interrupt(runId: str, from_agent: str = "") -> str:
 # lifecycle/contract/inbox-management tools like comms_spawn / comms_compact /
 # comms_contracts / comms_agent_info / comms_remove_agent / comms_delete_session);
 # use the stdio bridge for the full tool set.
+
+
+# ---------------------------------------------------------------------------
+# Run status + interrupt — declared in service/sse/run_tools.py. They were never adjacent here:
+# comms_run_status stood above the console pair and comms_run_interrupt below it, which is how one
+# subject reads as two unrelated tools.
+# ---------------------------------------------------------------------------
+
+_register_run_tools(mcp_server)
+
+
+# ---------------------------------------------------------------------------
+# Console read + input — declared in service/sse/console_tools.py, registered here so they land on
+# this server in the position they always occupied.
+# ---------------------------------------------------------------------------
+
+_register_console_tools(mcp_server)
 
 
 # ---------------------------------------------------------------------------

@@ -121,18 +121,30 @@ class RuleTests(unittest.TestCase):
         # whoever receives the summary.
         #
         # Scanning the tree instead of a named file means the next move cannot defang it either.
-        service_root = Path(__file__).resolve().parents[1]
+        #
+        # …AND `service/` IS NOT THE WHOLE TREE, which cost a real defect. The SSE transport lives at
+        # `mcp/sse_server.py`, outside this walk, and `comms_run_status` echoed a foreign subject on
+        # a bare line there — no quoting, no safety header — for as long as the rule has existed. It
+        # surfaced only when v0.5.4 moved that tool into `service/sse/run_tools.py` and it entered
+        # the population. The defect did not arrive with the move; it became VISIBLE with it, and it
+        # would have stayed invisible indefinitely otherwise.
+        #
+        # Same shape as the size gate and the container-staleness check, both widened for the same
+        # reason in this series: a scan rooted at one directory reports green over everything outside
+        # it, and the result looks identical either way.
+        repo_root = Path(__file__).resolve().parents[2]
+        roots = [repo_root / "service", repo_root / "mcp"]
         offenders = []
         scanned = 0
-        for path in sorted(service_root.rglob("*.py")):
-            if "__pycache__" in path.parts or "tests" in path.parts:
+        for path in sorted(p for root in roots for p in root.rglob("*.py")):
+            if {"__pycache__", "tests", "node_modules"} & set(path.parts):
                 continue
             scanned += 1
             src = code_only(path.read_text(encoding="utf-8", errors="replace"))
             for hit in re.findall(
                 r'f"(?:Subject|latest): \{(?!_quote_untrusted_subject)[^}]*subject[^}]*\}', src
             ):
-                offenders.append(f"{path.relative_to(service_root).as_posix()}: {hit}")
+                offenders.append(f"{path.relative_to(repo_root).as_posix()}: {hit}")
         self.assertGreater(scanned, 20, "the sweep found almost no modules; the walk is broken")
         self.assertEqual(
             offenders, [],
