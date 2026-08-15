@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from fastapi import HTTPException, Query, Request
 
+from service.api_core.bridge_liveness_beat import _upsert_bridge_liveness_beat
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.liveness")
@@ -76,11 +77,9 @@ from service.routers.agents.shared import (
     _managed_owning_environment_row,
     _managed_via_wrapper_for_runtime,
     _merge_runtime_policy_for_wrapper_reregister,
-    _normalize_machine_id,
     _normalize_runtime,
     _normalize_session_mode,
     _now,
-    _record_channel_sidecar_heartbeat,
     _record_claimer_lease,
     _refresh_expired_agent_live_states,
     _render_live_terminal_screen,
@@ -284,62 +283,7 @@ async def agent_heartbeat(agent_id: str, request: Request):
         # bridge_kind. It never clears superseded_by and never touches turn
         # state. (A superseded existing row is already short-circuited by the
         # guard above.)
-        if body.get("liveness") and bridge_id:
-            arow = await (await db.execute(
-                "SELECT machine_id, runtime, session_mode FROM agents WHERE id = ?", (agent_id,),
-            )).fetchone()
-            arow_machine = (arow["machine_id"] if arow else "") or ""
-            arow_runtime = (arow["runtime"] if arow else "") or "generic"
-            if bridge_kind == "channel-sidecar":
-                await _record_channel_sidecar_heartbeat(
-                    db,
-                    bridge_id=bridge_id,
-                    agent_id=agent_id,
-                    machine_id=arow_machine,
-                    runtime=arow_runtime,
-                    session_mode=(arow["session_mode"] if arow else "") or "managed",
-                    now=now,
-                )
-            else:
-                # FIX SET B3 (2026-06-03): the 30s liveness beat from the host-side
-                # bridge (server.js) posts bridgeKind="resident", but the SAME agent
-                # may have a wrapper-child / channel-sidecar bridge row that registered
-                # the authoritative managed kind. A plain COALESCE(NULLIF(?,''),...)
-                # let that generic "resident" beat DEMOTE a 'managed-wrapper-child'
-                # (or 'channel-sidecar') back to 'resident' — after which
-                # _has_live_managed_wrapper_child / _has_live_channel_sidecar stop
-                # matching and the managed agent loses its claimer (the lc-coder /
-                # codex-managed strand). Guard: an incoming '' or 'resident' can NEVER
-                # overwrite an existing 'managed-wrapper-child' or 'channel-sidecar';
-                # any other incoming kind still COALESCE-wins as before.
-                updated = await db.execute(
-                    "UPDATE bridge_instances SET last_seen = ?, "
-                    "bridge_kind = CASE "
-                    "WHEN COALESCE(bridge_kind, '') IN ('managed-wrapper-child', 'channel-sidecar') "
-                    "AND COALESCE(?, '') IN ('', 'resident') THEN bridge_kind "
-                    "ELSE COALESCE(NULLIF(?, ''), bridge_kind) END "
-                    "WHERE id = ? AND agent_id = ?",
-                    (now, bridge_kind, bridge_kind, bridge_id, agent_id),
-                )
-                if not getattr(updated, "rowcount", 0):
-                    await db.execute(
-                        """
-                        INSERT OR IGNORE INTO bridge_instances (
-                            id, agent_id, machine_id, runtime, session_mode,
-                            session_handle, terminal_id, bridge_kind,
-                            registered_at, last_seen, superseded_by, superseded_at
-                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-                        """,
-                        (bridge_id, agent_id,
-                         _normalize_machine_id(arow_machine),
-                         arow_runtime,
-                         "managed", "", "", bridge_kind or "resident",
-                         now, now, "", None),
-                    )
-                    await db.execute(
-                        "UPDATE bridge_instances SET last_seen = ? WHERE id = ? AND agent_id = ?",
-                        (now, bridge_id, agent_id),
-                    )
+        await _upsert_bridge_liveness_beat(db, agent_id, bridge_id, bridge_kind, body, now)
         # Liveness recovery (audit 2026-06-28): a plain liveness beat (no turnBusy) doesn't flip
         # turn state, but it DOES prove the bridge is alive again. If the agent was cached
         # `offline`, drop that entry so the next read recomputes to available/online instead of
