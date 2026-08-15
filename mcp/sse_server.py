@@ -16,7 +16,6 @@ The tools registered here become available to any MCP-compatible client
 import logging
 from contextvars import ContextVar
 
-import httpx  # still used directly by comms_share, which posts form-encoded and cannot go through _api
 from mcp.server.fastmcp import FastMCP
 
 from service.config import get_config
@@ -27,14 +26,16 @@ from service.config import get_config
 # They live under `service/` rather than beside this file because `mcp/` is NOT this repo's package:
 # `import mcp` resolves to the PyPI distribution the line above imports FastMCP from, which is why
 # `service/main.py` loads THIS file by path instead of importing it. See `service/sse/__init__.py`.
-from service.sse.api_client import api as _api, api_url as _api_url  # noqa: F401
+from service.sse.api_client import api as _api
 from service.sse.channel_tools import register as _register_channel_tools
 from service.sse.container_tools import (
     bind_app as _bind_container_app,
     get_manager as _get_manager,
     register as _register_container_tools,
 )
+from service.sse.management_tools import register as _register_management_tools
 from service.sse.rendering import SAFETY_HEADER, fence as _fence
+from service.sse.shared_file_tools import register as _register_shared_file_tools
 
 logger = logging.getLogger(__name__)
 
@@ -439,83 +440,19 @@ _register_channel_tools(mcp_server)
 
 
 # ---------------------------------------------------------------------------
-# File Sharing Tools
+# File Sharing Tools — declared in service/sse/shared_file_tools.py, registered here so they
+# land on this server in the position they always occupied.
 # ---------------------------------------------------------------------------
 
-@mcp_server.tool()
-async def comms_share(from_agent: str, name: str, content: str, description: str = "") -> str:
-    """Share an artifact (code, results, text) with other agents."""
-    # Use form-encoded data to match the API
-    url = f"{_api_url()}/shared"
-    headers = {}
-    cfg = get_config()
-    if cfg.api_key:
-        headers["X-API-Key"] = cfg.api_key
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(url, headers=headers, data={
-            "from_agent": from_agent, "name": name, "content": content, "description": description,
-        })
-        r = resp.json()
-    if "detail" in r:
-        return f"Error: {r['detail']}"
-    return f'Shared "{r.get("name", name)}" ({r.get("size", 0)} bytes).'
-
-
-@mcp_server.tool()
-async def comms_read(name: str) -> str:
-    """Read a shared artifact by name."""
-    r = await _api("GET", f"/shared/{name}")
-    if "detail" in r:
-        return f"Error: {r['detail']}"
-    if r.get("content"):
-        meta = r.get("meta", {})
-        header = f"From: {meta.get('from', '?')} | {meta.get('sharedAt', '')}" if meta.get("from") else ""
-        if meta.get("description"):
-            header += f" | {meta['description']}"
-        return (header + "\n\n" + r["content"]) if header else r["content"]
-    return f'"{name}" -- binary file on server.'
-
-
-@mcp_server.tool()
-async def comms_files() -> str:
-    """List all shared artifacts."""
-    r = await _api("GET", "/shared")
-    files = r.get("files", [])
-    if not files:
-        return "No shared artifacts."
-    lines = [
-        f"- {f['name']} ({f.get('size', 0)}B, from: {f.get('from', '?')}, {f.get('sharedAt', '')})"
-        + (f" -- {f['description']}" if f.get("description") else "")
-        for f in files
-    ]
-    return "\n".join(lines)
+_register_shared_file_tools(mcp_server)
 
 
 # ---------------------------------------------------------------------------
-# Management Tools
+# Management Tools — declared in service/sse/management_tools.py, registered here so they
+# land on this server in the position they always occupied.
 # ---------------------------------------------------------------------------
 
-@mcp_server.tool()
-async def comms_clear(target: str, agentId: str = "", olderThanHours: float = 0) -> str:
-    """Clear messages, shared files, agents, or everything. Optional age filter."""
-    data = {"target": target}
-    if agentId:
-        data["agentId"] = agentId
-    if olderThanHours > 0:
-        data["olderThanHours"] = olderThanHours
-    r = await _api("POST", "/clear", data)
-    if not r.get("ok"):
-        return f"Error: {r.get('detail', 'unknown error')}"
-    c = r.get("cleared", {})
-    parts = [f"{k}: {v}" for k, v in c.items() if v]
-    return f"Cleared: {', '.join(parts)}" if parts else "Nothing to clear."
-
-
-@mcp_server.tool()
-async def comms_dashboard() -> str:
-    """Get the dashboard URL."""
-    cfg = get_config()
-    return f"Dashboard: http://localhost:{cfg.port}/api/v1/dashboard"
+_register_management_tools(mcp_server)
 
 
 def setup_mcp_server(app):
