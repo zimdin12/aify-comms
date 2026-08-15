@@ -38,10 +38,13 @@ EXTRACTIONS = [
     "_refuse_console_without_terminal_capability",
     "_insert_virtual_console_terminal",
     "_insert_pty_console_terminal",
+    # The virtual-RPC REUSE path — an early exit, unprovable until the call-site-shape rule.
+    "_reuse_virtual_rpc_console_terminal",
 ]
 
 #: Where each helper is expected to be declared. PER HELPER, over every module below.
 OWNERS = {
+    "_reuse_virtual_rpc_console_terminal": ROWS,
     "_refuse_console_without_terminal_capability": GATE,
     "_insert_virtual_console_terminal": ROWS,
     "_insert_pty_console_terminal": ROWS,

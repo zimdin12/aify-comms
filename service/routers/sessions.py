@@ -62,6 +62,7 @@ from service.api_core.capabilities import _default_console_command
 from service.api_core.console_terminal_rows import (
     _insert_pty_console_terminal,
     _insert_virtual_console_terminal,
+    _reuse_virtual_rpc_console_terminal,
 )
 from service.api_core.console_capability_gate import _refuse_console_without_terminal_capability
 from service.api_core.settings import _load_settings
@@ -377,55 +378,10 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
                         virtual_command in VIRTUAL_RPC_COMMAND_SET
                         and virtual_status in {"starting", "running", "recovering", "active", "idle"}
                     ):
-                        attach_now = _now()
-                        # Point the requesting session at the canonical
-                        # virtual terminal so the dashboard's session view
-                        # follows it.
-                        await db.execute(
-                            """
-                            UPDATE agent_sessions
-                            SET terminal_id = ?,
-                                terminal_status = ?,
-                                terminal_command = ?,
-                                last_seen = ?
-                            WHERE id = ?
-                            """,
-                            (virtual_terminal_id, virtual_status, virtual_command, attach_now, session_id),
+                        return await _reuse_virtual_rpc_console_terminal(
+                            db, req, request, session, session_id,
+                            virtual_terminal, virtual_terminal_id, virtual_status, virtual_command,
                         )
-                        await _append_terminal_event(
-                            db,
-                            virtual_terminal_id,
-                            "virtual_pi_rpc_console_attached",
-                            json.dumps({
-                                "requestedBy": str(req.requestedBy or "dashboard").strip() or "dashboard",
-                                "sessionId": session_id,
-                                "agentId": session["agent_id"],
-                            }),
-                        )
-                        await db.commit()
-                        updated_session_for_virtual = await (await db.execute(
-                            "SELECT * FROM agent_sessions WHERE id = ?",
-                            (session_id,),
-                        )).fetchone()
-                        ws_for_virtual = await _get_ws(request)
-                        if ws_for_virtual:
-                            await ws_for_virtual.broadcast(
-                                "terminal_started",
-                                {
-                                    "terminalId": virtual_terminal_id,
-                                    "sessionId": session_id,
-                                    "agentId": session["agent_id"],
-                                    "virtual": True,
-                                    "reused": True,
-                                },
-                            )
-                        return {
-                            "ok": True,
-                            "terminal": _terminal_session_to_dict(virtual_terminal),
-                            "session": _agent_session_to_dict(updated_session_for_virtual),
-                            "reused": True,
-                            "virtual": True,
-                        }
 
         runtime = _normalize_runtime(session["runtime"] or "")
         if runtime == "pi":
