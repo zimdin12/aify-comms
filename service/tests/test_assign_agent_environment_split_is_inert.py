@@ -22,7 +22,10 @@ from pathlib import Path
 from service.tests.extract_method import assert_extractions_preserve_behaviour
 
 REPO = Path(__file__).resolve().parent.parent.parent
-CONFIG = REPO / "service" / "routers" / "agents" / "config.py"
+# `assign_agent_environment` moved to `agents/environment_assignment.py` in v0.5.4 — placing an
+# agent in an environment is not a config PATCH, and at 186 lines it was why `config.py` was 444.
+# A round-trip proof names the module holding the CALLER, so a relocation must touch it.
+CALLER = REPO / "service" / "routers" / "agents" / "environment_assignment.py"
 SPEC = REPO / "service" / "api_core" / "spawn_spec_assignment.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "assign_agent_environment_before_split.py"
 
@@ -32,7 +35,7 @@ EXTRACTIONS = ["_upsert_spawn_spec_for_assignment"]
 #: Where each helper is expected to be declared. PER HELPER, over every module below.
 OWNERS = {"_upsert_spawn_spec_for_assignment": SPEC}
 
-MODULES = (CONFIG, SPEC)
+MODULES = (CALLER, SPEC)
 
 
 def _combined_split_source() -> str:
@@ -64,6 +67,24 @@ class AssignAgentEnvironmentSplitIsInertTests(unittest.TestCase):
         assert_extractions_preserve_behaviour(
             ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
 
+    def test_the_source_function_is_still_where_this_proof_looks(self):
+        """`CALLER` is a location pin, and a relocation is what breaks it.
+
+        Added when `assign_agent_environment` moved out of `config.py` in v0.5.4. The round trip
+        already fails then — it cannot find the caller to inline into — but it fails as a
+        gate-internal error about a missing definition. This says the true thing in one line.
+        """
+        declared = {
+            n.name for n in ast.parse(CALLER.read_text(encoding="utf-8")).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertIn(
+            SOURCE_FUNCTION, declared,
+            f"{SOURCE_FUNCTION} is not declared in {CALLER.name}. If it was relocated, repoint "
+            "CALLER at its new module — this proof names the file holding the caller, so a move "
+            "must touch it.",
+        )
+
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""
         self.assertIn(SOURCE_FUNCTION, _declared(FIXTURE))
@@ -83,7 +104,7 @@ class AssignAgentEnvironmentSplitIsInertTests(unittest.TestCase):
         """If the split were reverted, the round trip would pass by having nothing to inline."""
         for helper in EXTRACTIONS:
             self.assertNotIn(
-                helper, _declared(CONFIG), f"{helper} is back in config.py; this proof is vacuous")
+                helper, _declared(CALLER), f"{helper} is back in environment_assignment.py; this proof is vacuous")
 
     def test_exactly_one_module_declares_EACH_helper(self):
         self.assertEqual(sorted(OWNERS), sorted(EXTRACTIONS), "every extraction needs a declared owner")
@@ -113,7 +134,7 @@ class AssignAgentEnvironmentSplitIsInertTests(unittest.TestCase):
         self.assertIsInstance(returned, ast.Return)
         self.assertEqual("spec_id", returned.value.id)
         call = next(
-            n for n in ast.walk(ast.parse(CONFIG.read_text(encoding="utf-8")))
+            n for n in ast.walk(ast.parse(CALLER.read_text(encoding="utf-8")))
             if isinstance(n, ast.Assign) and isinstance(n.value, ast.Await)
             and getattr(n.value.value.func, "id", "") == EXTRACTIONS[0]
         )

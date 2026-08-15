@@ -6,16 +6,14 @@ declares NO tags — the parent applies `tags=["api"]` once when api_v2 includes
 
 from __future__ import annotations
 
-from service.api_core.runtime_state import _runtime_handle_from_state, _runtime_state_with_handle
+from service.api_core.runtime_state import _runtime_handle_from_state
 from service.api_core.virtual_rpc import VIRTUAL_PI_RPC_COMMAND
-import asyncio
 import json
 import logging
 import time
-import uuid
 from typing import Any, Optional
 
-from fastapi import HTTPException, Query, Request
+from fastapi import HTTPException, Request
 
 from service.api_core.status_events import _apply_status_event
 from service.api_core.spawn_spec_assignment import _upsert_spawn_spec_for_assignment
@@ -26,26 +24,19 @@ logger = logging.getLogger("aify_comms.routers.agents.config")
 # Imported for the ANNOTATIONS. Under postponed evaluation these are strings, so a
 # missing one does not fail import -- FastAPI demotes the body to a query parameter and
 # the endpoint 422s at request time. The route annotation gate caught 17 of these here.
-from service.models import AgentEnvironmentAssignRequest, AgentRuntimeStateUpdate
+from service.models import AgentRuntimeStateUpdate
 
 from service.api_core.agent_sessions import _touch_current_agent_session
 from service.api_core.capabilities import _default_capabilities_for
-from service.api_core.records import _environment_record_to_dict, _terminal_session_to_dict
-from service.api_core.runtime import _normalize_runtime, _normalize_session_mode, _runtime_capability_for_environment
-from service.api_core.serialization import _json_loads_or, _normalize_machine_id
-from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
+from service.api_core.records import _terminal_session_to_dict
+from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.serialization import _json_loads_or
 from service.api_core.status_inputs import _compute_live_status_cache
-from service.api_core.validation import validate_name
-from service.api_core.ws import _get_ws
 from service.db import get_db
 from service.clock import now as _now
 from service.terminal_snapshot import render_live_screen as _render_live_terminal_screen
 import sqlite3
-from service.routers.agents.shared import (
-    _borrowed_listen_events,
-    logger,
-)
-from service.api_core.workspace import _workspace_for_environment
+from service.routers.agents.shared import logger
 
 router = domain_router()
 
@@ -120,196 +111,6 @@ async def get_agent_pi_session_state(agent_id: str):
     finally:
         await db.close()
 
-
-@router.post("/agents/{agent_id}/environment")
-async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignRequest, request: Request):
-    validate_name(agent_id, "agent ID")
-    environment_id = str(req.environmentId or "").strip()
-    if not environment_id:
-        raise HTTPException(400, "environmentId is required")
-
-    db = await get_db()
-    try:
-        agent_cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
-        agent = await agent_cursor.fetchone()
-        if not agent:
-            raise HTTPException(404, f'Agent "{agent_id}" not found')
-        env_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))
-        env_row = await env_cursor.fetchone()
-        if not env_row:
-            raise HTTPException(404, f'Environment "{environment_id}" not found')
-        environment = _environment_record_to_dict(env_row)
-        if str(environment.get("status") or "").lower() != "online":
-            raise HTTPException(409, f'Environment "{environment_id}" is {environment.get("status") or "unknown"}, not online')
-
-        runtime = _normalize_runtime(req.runtime or agent["runtime"] or "generic")
-        if not _runtime_capability_for_environment(environment, runtime):
-            raise HTTPException(400, f'Environment "{environment_id}" does not advertise runtime "{runtime}"')
-        workspace, workspace_root = _workspace_for_environment(environment, req.workspace, agent["cwd"] or "")
-        settings = await _load_settings(db)
-        model = str(req.model if req.model is not None else (agent["model"] or "")).strip()
-        if not model:
-            if runtime == "codex":
-                model = str(settings.get("managed_codex_model", DEFAULT_SETTINGS["managed_codex_model"])).strip()
-            elif runtime == "claude-code":
-                model = str(settings.get("managed_claude_model", DEFAULT_SETTINGS["managed_claude_model"])).strip()
-            elif runtime == "pi":
-                model = str(settings.get("managed_pi_model", DEFAULT_SETTINGS["managed_pi_model"])).strip()
-        existing_runtime_config = _json_loads_or(agent["runtime_config"], {})
-        requested_runtime_config = req.runtimeConfig or {}
-        runtime_config = {**existing_runtime_config, **requested_runtime_config}
-        if runtime == "codex" and not str(runtime_config.get("effort") or "").strip():
-            runtime_config = {**runtime_config, "effort": str(settings.get("managed_codex_effort") or DEFAULT_SETTINGS["managed_codex_effort"]).strip()}
-        elif runtime == "claude-code" and not str(runtime_config.get("effort") or "").strip():
-            runtime_config = {**runtime_config, "effort": str(settings.get("managed_claude_effort") or DEFAULT_SETTINGS["managed_claude_effort"]).strip()}
-        elif runtime == "pi" and not str(runtime_config.get("effort") or runtime_config.get("thinking") or "").strip():
-            pi_effort = str(settings.get("managed_pi_effort") or DEFAULT_SETTINGS["managed_pi_effort"]).strip()
-            if pi_effort:
-                runtime_config = {**runtime_config, "effort": pi_effort}
-        now = _now()
-        previous_runtime = _normalize_runtime(agent["runtime"] or runtime)
-        latest_session = await (await db.execute(
-            """
-            SELECT *
-            FROM agent_sessions
-            WHERE agent_id = ?
-            ORDER BY
-                CASE WHEN COALESCE(NULLIF(session_handle, ''), '') != '' THEN 0 ELSE 1 END,
-                last_seen DESC
-            LIMIT 1
-            """,
-            (agent_id,),
-        )).fetchone()
-        latest_session_handle = str((latest_session["session_handle"] if latest_session else "") or "").strip()
-        agent_runtime_state = _json_loads_or(agent["runtime_state"], {})
-        state_handle = _runtime_handle_from_state(previous_runtime, agent_runtime_state)
-        preserve_handle = ""
-        if previous_runtime == runtime:
-            preserve_handle = str(agent["session_handle"] or latest_session_handle or state_handle or "").strip()
-        preserved_runtime_state = _runtime_state_with_handle(runtime, {}, preserve_handle)
-
-        spec_id = await _upsert_spawn_spec_for_assignment(
-            db, agent, agent_id, req, environment_id, runtime, workspace, model, runtime_config, now
-        )
-
-        await db.execute(
-            """
-            UPDATE agent_sessions
-            SET environment_id = ?,
-                runtime = ?,
-                workspace = ?,
-                session_handle = ?,
-                spawn_spec_id = COALESCE(NULLIF(spawn_spec_id, ''), ?),
-                status = CASE WHEN status IN ('starting','running','recovering','restarting') THEN 'lost' ELSE status END,
-                ended_at = CASE WHEN status IN ('starting','running','recovering','restarting') THEN COALESCE(ended_at, ?) ELSE ended_at END,
-                last_seen = ?
-            WHERE agent_id = ?
-            """,
-            (environment_id, runtime, workspace, preserve_handle, spec_id, now, now, agent_id),
-        )
-        session_cursor = await db.execute(
-            "SELECT id FROM agent_sessions WHERE agent_id = ? ORDER BY last_seen DESC LIMIT 1",
-            (agent_id,),
-        )
-        existing_session = await session_cursor.fetchone()
-        if not existing_session:
-            session_id = f"sess_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-            await db.execute(
-                """
-                INSERT INTO agent_sessions (
-                    id, agent_id, environment_id, runtime, workspace, mode,
-                    owner_mode, owner_bridge_id, terminal_id, terminal_status, terminal_command, terminal_workspace,
-                    process_id, session_handle,
-                    app_server_url, spawn_spec_id, spawn_request_id, capabilities, telemetry, status,
-                    started_at, last_seen, ended_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    session_id,
-                    agent_id,
-                    environment_id,
-                    runtime,
-                    workspace,
-                    "managed-warm",
-                    "managed",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    preserve_handle,
-                    "",
-                    spec_id,
-                    None,
-                    json.dumps({"persistent": True, "nativeResume": bool(preserve_handle), "bridgeResume": True, "adopted": True}),
-                    "{}",
-                    "stopped",
-                    now,
-                    now,
-                    now,
-                ),
-            )
-        await db.execute(
-            """
-            UPDATE spawn_requests
-            SET environment_id = ?,
-                runtime = ?,
-                workspace = ?,
-                workspace_root = ?,
-                updated_at = ?
-            WHERE agent_id = ?
-              AND status IN ('queued','claimed','starting')
-            """,
-            (environment_id, runtime, workspace, workspace_root, now, agent_id),
-        )
-        capabilities = _default_capabilities_for(runtime, "managed", preserve_handle, runtime_config)
-        await db.execute(
-            """
-            UPDATE agents
-            SET cwd = ?,
-                model = ?,
-                runtime = ?,
-                machine_id = ?,
-                launch_mode = 'none',
-                session_mode = 'managed',
-                session_handle = ?,
-                capabilities = ?,
-                runtime_config = ?,
-                runtime_state = ?,
-                status = CASE WHEN status = 'stopped' THEN status ELSE 'offline' END,
-                last_seen = ?
-            WHERE id = ?
-            """,
-            (
-                workspace,
-                model,
-                runtime,
-                _normalize_machine_id(environment.get("machineId")),
-                preserve_handle,
-                json.dumps(capabilities),
-                json.dumps(runtime_config),
-                json.dumps(preserved_runtime_state),
-                now,
-                agent_id,
-            ),
-        )
-        await db.commit()
-        ws = await _get_ws(request)
-        if ws:
-            await ws.broadcast("agent_environment_assigned", {"agentId": agent_id, "environmentId": environment_id})
-        return {
-            "ok": True,
-            "agentId": agent_id,
-            "environmentId": environment_id,
-            "runtime": runtime,
-            "workspace": workspace,
-            "spawnSpecId": spec_id,
-        }
-    finally:
-        await db.close()
-
-
 @router.patch("/agents/{agent_id}/runtime-state")
 async def update_agent_runtime_state(agent_id: str, req: AgentRuntimeStateUpdate, request: Request):
     db = await get_db()
@@ -368,77 +169,3 @@ async def update_agent_runtime_state(agent_id: str, req: AgentRuntimeStateUpdate
         return {"ok": True, "agentId": agent_id, "runtimeState": next_state}
     finally:
         await db.close()
-
-
-@router.get("/agents/{agent_id}/listen")
-async def listen_for_messages(agent_id: str, request: Request, timeout: int = Query(300, ge=1, le=600)):
-    """Long-poll: blocks until agent has unread messages or timeout. Returns the messages."""
-    validate_name(agent_id, "agent ID")
-
-    # Set status to idle (waiting for work)
-    db = await get_db()
-    try:
-        await db.execute("UPDATE agents SET status = 'idle', last_seen = ? WHERE id = ?", (_now(), agent_id))
-        await db.commit()
-    finally:
-        await db.close()
-
-    # Create/get wake-up event for this agent
-    if agent_id not in _borrowed_listen_events():
-        _borrowed_listen_events()[agent_id] = asyncio.Event()
-    event = _borrowed_listen_events()[agent_id]
-    event.clear()
-
-    # Poll for unread messages, waiting on the event
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        db = await get_db()
-        try:
-            cursor = await db.execute(
-                "SELECT COUNT(*) FROM messages m LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ? WHERE m.to_agent = ? AND r.message_id IS NULL",
-                (agent_id, agent_id)
-            )
-            unread = (await cursor.fetchone())[0]
-            if unread > 0:
-                # Fetch and return the messages (mark as read)
-                now = _now()
-                mc = await db.execute(
-                    "SELECT m.* FROM messages m LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ? WHERE m.to_agent = ? AND r.message_id IS NULL ORDER BY m.timestamp DESC",
-                    (agent_id, agent_id)
-                )
-                rows = await mc.fetchall()
-                messages = []
-                for row in rows:
-                    msg = {
-                        "id": row["id"], "from": row["from_agent"], "type": row["type"],
-                        "source": row["source"], "channel": row["channel"],
-                        "subject": row["subject"], "body": row["body"],
-                        "priority": row["priority"], "timestamp": row["timestamp"],
-                        "inReplyTo": row["in_reply_to"],
-                        "dispatchRequested": bool(row["dispatch_requested"]) if "dispatch_requested" in row.keys() else False,
-                    }
-                    # Parent context for replies
-                    if row["in_reply_to"]:
-                        pc = await db.execute("SELECT from_agent, subject, body FROM messages WHERE id = ?", (row["in_reply_to"],))
-                        parent = await pc.fetchone()
-                        if parent:
-                            msg["parentContext"] = {"from": parent["from_agent"], "subject": parent["subject"], "preview": (parent["body"] or "")[:100]}
-                    messages.append(msg)
-                    await db.execute("INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)", (row["id"], agent_id, now))
-
-                # Set status to working
-                await db.execute("UPDATE agents SET status = 'working', last_seen = ? WHERE id = ?", (now, agent_id))
-                await db.commit()
-                return {"total": len(messages), "messages": messages}
-        finally:
-            await db.close()
-
-        # Wait for wake-up signal or check every 2 seconds
-        try:
-            await asyncio.wait_for(event.wait(), timeout=2.0)
-            event.clear()
-        except asyncio.TimeoutError:
-            pass
-
-    # Timeout — no messages arrived
-    return {"total": 0, "messages": []}
