@@ -12,7 +12,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { railItemHtml, renderAnalyticsPanelHtml } from "./chat-render.mjs";
+import {
+  deliveryToastFor,
+  messageHtml,
+  railItemHtml,
+  renderAnalyticsPanelHtml,
+  subjectIsEchoOfBody,
+} from './chat-render.mjs';
 
 const item = (over = {}) => ({
   key: "dm:coder",
@@ -108,4 +114,118 @@ test("renderAnalyticsPanelHtml tolerates byPeer arriving as a non-array", () => 
   for (const byPeer of [undefined, null, {}, "nope"]) {
     assert.doesNotThrow(() => renderAnalyticsPanelHtml("coder", { byPeer }));
   }
+});
+
+// ── MOVED FROM `chat.test.mjs` in v0.5.4 ─────────────────────────────────────────────────────
+// These already covered the three builders below; they moved with the code rather than being
+// rewritten. The subject-echo group is long because every one of its cases is a real message shape
+// the API produces — an exact echo, an 80-char derived slice, a deliberately short subject.
+test("deliveryToastFor maps the send response to the truthful ladder", () => {
+  assert.equal(deliveryToastFor({ runs: [{ steered: true }] }, "x").text, "Steered into x's active turn");
+  assert.equal(deliveryToastFor({ runs: [{ status: "queued" }] }, "x").tone, "info");
+  assert.equal(deliveryToastFor({ consoleDeliveries: [{}], runs: [] }, "x").text, "Delivered to x's console");
+  assert.equal(deliveryToastFor({ runs: [{ status: "running" }] }, "x").text, "Woke x");
+  assert.equal(deliveryToastFor({ runs: [], notStarted: [{}] }, "x").tone, "warn");
+  assert.equal(deliveryToastFor({ ok: false, error: "offline" }, "x").tone, "error");
+});
+
+
+// ── subject echo (operator report 2026-07-27: "i see messages in duplicate manner") ──────────
+//
+// A message sent with an empty Subject field gets `subject = body.slice(0, 80)` (app.js
+// chatSendMessage). Rendering that heading above the body printed the same words twice, which reads
+// as the hub duplicating messages. Nothing is duplicated in storage — it is the derivation echoing.
+
+test("subjectIsEchoOfBody: exact match is an echo (body under 80 chars)", () => {
+  const body = "btw this is from another pc. answer me here";
+  assert.equal(subjectIsEchoOfBody(body, body), true);
+});
+
+test("subjectIsEchoOfBody: the 80-char derived slice is an echo", () => {
+  const body = "Hey look at this (I am trying to write and delete stuff in dashboard terminal.. but i cant.. weird)";
+  assert.ok(body.length > 80, "fixture must exceed the 80-char derivation to be meaningful");
+  assert.equal(subjectIsEchoOfBody(body.slice(0, 80), body), true);
+});
+
+test("subjectIsEchoOfBody: a genuinely typed subject is KEPT", () => {
+  assert.equal(subjectIsEchoOfBody("Console garbage", "The draft is full of escape fragments"), false);
+});
+
+test("subjectIsEchoOfBody: degenerate inputs never hide a real subject", () => {
+  // No subject → caller's own `m.subject ?` guard already handles it; report false, not true.
+  assert.equal(subjectIsEchoOfBody("", "some body"), false);
+  assert.equal(subjectIsEchoOfBody(null, "some body"), false);
+  assert.equal(subjectIsEchoOfBody(undefined, "some body"), false);
+  // A subject with NO body is the only thing worth rendering — must never be suppressed.
+  assert.equal(subjectIsEchoOfBody("Only a subject", ""), false);
+  assert.equal(subjectIsEchoOfBody("Only a subject", null), false);
+});
+
+test("subjectIsEchoOfBody: whitespace differences still count as an echo", () => {
+  assert.equal(subjectIsEchoOfBody("  hello world  ", "hello world"), true);
+});
+
+test("subjectIsEchoOfBody: a subject the body merely CONTAINS is not an echo", () => {
+  assert.equal(subjectIsEchoOfBody("deploy", "please deploy the hotfix"), false);
+});
+
+test("subjectIsEchoOfBody: a deliberately-typed SHORT subject is never hidden (self-review fix)", () => {
+  // The first cut tested `body.startsWith(subject)` — any prefix — which hid real subjects the
+  // operator had typed. Suppressing an echo is removing noise; suppressing a chosen subject is
+  // losing signal, which is strictly worse. Only the two exact derivation shapes count.
+  assert.equal(subjectIsEchoOfBody("Deploy", "Deploy the hotfix now"), false);
+  assert.equal(subjectIsEchoOfBody("N7", "N7 is fixed"), false);
+  assert.equal(subjectIsEchoOfBody("Console garbage", "Console garbage is escape fragments"), false);
+});
+
+test("subjectIsEchoOfBody: a subject one char short of the full body is NOT an echo", () => {
+  // Boundary: only `=== body` or `=== body.slice(0,80)` are derivations. Anything else renders.
+  const body = "abcdefghij";
+  assert.equal(subjectIsEchoOfBody(body.slice(0, 9), body), false);
+  assert.equal(subjectIsEchoOfBody(body, body), true);
+});
+
+test("subjectIsEchoOfBody: the 80-char boundary is exact", () => {
+  const body = "x".repeat(200);
+  assert.equal(subjectIsEchoOfBody(body.slice(0, 80), body), true, "the derivation itself");
+  assert.equal(subjectIsEchoOfBody(body.slice(0, 79), body), false, "79 chars is not the derivation");
+  assert.equal(subjectIsEchoOfBody(body.slice(0, 81), body), false, "81 chars is not the derivation");
+});
+
+test("messageHtml omits the subject heading when it echoes the body", () => {
+  const body = "btw this is from another pc. answer me here";
+  const html = messageHtml({ id: "m1", from: "dashboard", subject: body, body });
+  assert.doesNotMatch(html, /chat-msg-subject/, "the echoed heading must not render");
+  assert.match(html, /chat-msg-body/, "the body still renders");
+});
+
+test("messageHtml keeps a distinct subject heading", () => {
+  const html = messageHtml({ id: "m2", from: "dashboard", subject: "Deploy done", body: "cb732c4 is live" });
+  assert.match(html, /chat-msg-subject/);
+  assert.match(html, /Deploy done/);
+});
+
+// ── send(): queueing is EXPLICIT, and replying clears the peer's unread badge ──────────────────
+//
+// Both from operator reports, 2026-07-27:
+//   * "what does ordinary pressing enter do? it should steer / ordinary send, not queue. message was
+//     queued" — the old `#chat-queue` checkbox was sticky and hidden inside the collapsed Options
+//     disclosure, so one tick queued every later message silently. Removed; Queue is now the second
+//     half of the split Send button and passes an explicit flag.
+//   * "if i write to you then it should disappear" — the unread badge survived a reply.
+
+// `send()` toasts, and toast() reaches for document.createElement. Stub a DOM just deep enough.
+
+test("deliveryToastFor does NOT claim 'queued' when a queueIfBusy send actually went straight through", () => {
+  // Operator report 2026-07-31: "these last 2 messages were sent using queue feature. but i already
+  // see that my last one was delivered. must be a bug." It is not — queueIfBusy waits only if the
+  // target is MID-TURN. Live evidence from the same minute: one queued send was claimed after 1s
+  // (target idle), another after 7m24s (target working). The toast must reflect which happened
+  // rather than always saying "Queued", or it would be reporting a wait that never occurred.
+  const delivered = deliveryToastFor({ dispatchRuns: [{ status: 'claimed' }] }, 'peer');
+  assert.doesNotMatch(delivered.text, /queued/i, 'an immediately-claimed run must not report as queued');
+  assert.match(delivered.text, /Woke peer/);
+
+  const queued = deliveryToastFor({ dispatchRuns: [{ status: 'queued' }] }, 'peer');
+  assert.match(queued.text, /Queued behind peer's active work/);
 });
