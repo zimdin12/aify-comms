@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from typing import Any, Optional
+from typing import Optional
 
 from service.api_core.runtime import _normalize_runtime  # v0.5.1e: the leaf owner, not via the router
 from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
@@ -27,6 +27,7 @@ from service.api_core.terminal_text import _ANSI_RE, _terminal_awaiting_input_hi
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
+from service.reconcilers.terminal_controls import _fail_pending_terminal_controls
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES, _TERMINAL_END_STATUSES
 from service.api_core.tuning import STUCK_STOPPING_GRACE_SECONDS
 
@@ -306,100 +307,8 @@ async def _close_idle_pi_terminal_run_without_reply(db, row, *, quiet_seconds: i
     return True
 
 
-async def _fail_pending_terminal_controls(
-    db,
-    terminal_id: str,
-    *,
-    handled_at: str,
-    response_text: str,
-    exclude_actions: tuple[str, ...] = (),
-) -> int:
-    """Fail this terminal's outstanding controls. `exclude_actions` spares specific actions.
-
-    The exclusion exists for the liveness sweep, which must not cancel a queued `stop` (see
-    _reconcile_ended_terminal_controls). It is NOT the default: the terminal-CLOSED callers below
-    are right to fail everything, because once the process is genuinely gone a pending stop is moot.
-    Needed as a parameter rather than relying on the caller's outer WHERE, since a terminal with
-    BOTH an input and a stop outstanding is still selected by that query, and this helper would
-    otherwise fail every pending row for it — taking the stop down with the input.
-    """
-    params: list[Any] = [terminal_id]
-    exclusion_sql = ""
-    normalized_exclusions = tuple(str(a or "").strip().lower() for a in exclude_actions if str(a or "").strip())
-    if normalized_exclusions:
-        placeholders = ", ".join("?" * len(normalized_exclusions))
-        exclusion_sql = f" AND LOWER(COALESCE(action, '')) NOT IN ({placeholders})"
-        params.extend(normalized_exclusions)
-    cursor = await db.execute(
-        f"""
-        SELECT id
-        FROM terminal_controls
-        WHERE terminal_id = ?
-          AND status IN ('pending', 'claimed')
-          {exclusion_sql}
-        """,
-        tuple(params),
-    )
-    rows = await cursor.fetchall()
-    control_ids = [str(row["id"] or "") for row in rows if str(row["id"] or "")]
-    if not control_ids:
-        return 0
-    await db.executemany(
-        """
-        UPDATE terminal_controls
-        SET status = 'failed',
-            handled_at = COALESCE(handled_at, ?),
-            error = CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END
-        WHERE id = ?
-        """,
-        [(handled_at, response_text, control_id) for control_id in control_ids],
-    )
-    return len(control_ids)
 
 
-async def _reconcile_ended_terminal_controls(db, *, limit: int = 500) -> int:
-    """Fail controls nobody will ever run, so a caller is not left waiting on a dead terminal.
-
-    A `stop` is EXEMPT (review finding on `35cc646`, a regression). `stop_agent_worker` marks the
-    terminal `'stopping'` — correct, the host has not acknowledged — and queues the stop control in
-    the SAME transaction. `'stopping'` is not in the active set below, and this sweep runs on a timer
-    while the bridge polls every ~3s, so whenever the sweep won the race it cancelled the very stop
-    that was supposed to kill the process. The PTY then survived a "successful" Stop worker, and
-    900s later the stuck-stopping reaper wrote `'stopped'` over it — a row asserting a death that
-    never happened. Strictly worse than the state lie it replaced, because the process lived.
-
-    The pre-existing VIRTUAL path had the same exposure for a different reason: it marks `'stopped'`
-    and queues its stop together, and `'stopped'` is not in the active set either. So the fix is not
-    "add 'stopping' to the set" — it is that a stop must never be cancelled on liveness grounds.
-    Killing a process is idempotent and stays desirable on a dead-looking row; server.js carries an
-    orphan-pid fallback for exactly the case where no bridge owns the PTY in memory any more.
-
-    Everything else still fails fast, which is the whole point of this reconcile — keystrokes into a
-    console that is gone cannot be honoured, and the caller should learn that instead of hanging.
-    """
-    cursor = await db.execute(
-        """
-        SELECT DISTINCT terminal.id
-        FROM terminal_sessions terminal
-        JOIN terminal_controls control ON control.terminal_id = terminal.id
-        WHERE terminal.status NOT IN ('starting', 'attached', 'running', 'active', 'idle')
-          AND control.status IN ('pending', 'claimed')
-          AND LOWER(COALESCE(control.action, '')) != 'stop'
-        LIMIT ?
-        """,
-        (max(1, int(limit or 500)),),
-    )
-    total = 0
-    now = _now()
-    for row in await cursor.fetchall():
-        total += await _fail_pending_terminal_controls(
-            db,
-            str(row["id"] or ""),
-            handled_at=now,
-            response_text="terminal is not active",
-            exclude_actions=("stop",),
-        )
-    return total
 
 
 async def _reconcile_stuck_terminal_and_session_rows(db) -> dict[str, int]:
@@ -433,3 +342,8 @@ async def _reconcile_stuck_terminal_and_session_rows(db) -> dict[str, int]:
     )
     result["ended_sessions_backfilled"] = cur.rowcount or 0
     return result
+
+
+# _fail_pending_terminal_controls and _reconcile_ended_terminal_controls moved to
+# service/reconcilers/terminal_controls.py in v0.5.4 — they reconcile terminal_controls, not
+# terminal RUNS, and the second calls the first, so the pair travelled together.

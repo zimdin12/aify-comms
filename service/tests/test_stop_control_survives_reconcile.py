@@ -32,7 +32,7 @@ from service import control_plane as api_v2  # v0.5.3: helpers live in the contr
 from service.tests._base import FastApiTestCase
 from service.api_core import terminal_ownership  # v0.5.4: patched on its OWNER, not the carrier
 from service.clock import now as _now
-from service.reconcilers.terminal_runs import _reconcile_ended_terminal_controls
+from service.reconcilers.terminal_controls import _reconcile_ended_terminal_controls
 
 
 class StopControlSurvivesReconcileTests(FastApiTestCase):
