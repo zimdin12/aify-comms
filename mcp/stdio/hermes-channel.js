@@ -30,7 +30,7 @@ import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import { loadSettingsEnv } from "./load-env.js";
-import { readAgentBindingFile } from "./binding-file.js";
+import { boundAgentId, envAgentId } from "./bound-agent-id.mjs";
 import { defaultMachineId } from "./runtimes.js";
 import { createHermesApiServerClient, DEFAULT_BASE_URL as HERMES_DEFAULT_BASE_URL } from "./hermes-apiserver-client.js";
 import { probeApiServer, assertApiServer } from "./hermes-version.js";
@@ -133,17 +133,11 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Resolve the bound agentId from the PID-keyed temp file (same mechanism as
-// claude-channel.js — server.js writes aify-agent-<ppid> on comms_register),
-// falling back to AIFY_AGENT_ID.
+// The binding read is shared (`bound-agent-id.mjs`); the FALLBACK is this module's own choice.
+// This one falls back to AIFY_AGENT_ID, as `hermes-managed-host.js` does and
+// `claude-channel.js` does not.
 function readBoundAgentId() {
-  try {
-    const binding = readAgentBindingFile({ pid: process.ppid || process.pid, dir: TMP_DIR });
-    if (binding.agentId) return binding.agentId;
-  } catch {
-    // fall through
-  }
-  return String(process.env.AIFY_AGENT_ID || "").trim();
+  return boundAgentId({ dir: TMP_DIR, fallback: envAgentId() });
 }
 
 // Default aify httpCall(method, endpoint, body) against ${baseUrl}/api/v1.

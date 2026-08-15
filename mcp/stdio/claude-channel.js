@@ -6,12 +6,12 @@ import { fileURLToPath } from "url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadSettingsEnv } from "./load-env.js";
-import { readAgentBindingFile } from "./binding-file.js";
 import { defaultMachineId } from "./runtimes.js";
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 import { claudeAifyReceiptLine } from "./aify-console-markers.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
 import { AIFY_VERSION } from "./version.js";
+import { boundAgentId } from "./bound-agent-id.mjs";
 // The server-URL helpers have ONE owner: `aify-service-endpoint.mjs`, which imports nothing and so
 // cannot cycle. This module declared its own copies of all four until v0.5.4 — byte-identical for
 // three of them and the same code with a different comment for the fourth, which is what a fork
@@ -103,18 +103,12 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// The binding read is shared (`bound-agent-id.mjs`); the FALLBACK is this module's own choice.
+// This one returns "" when no binding file exists, where both hermes bridges fall back to
+// AIFY_AGENT_ID. That difference predates the dedupe and is preserved deliberately — it is now
+// one visible argument instead of a difference buried in three near-identical bodies.
 function readBoundAgentId() {
-  // Read the agent binding from the PID-keyed temp file written by
-  // server.js on comms_register. The file is keyed by ppid because both
-  // server.js and this process are children of the same Claude Code
-  // process — they share the same ppid.
-  try {
-    const binding = readAgentBindingFile({ pid: process.ppid || process.pid, dir: TMP_DIR });
-    if (binding.agentId) return binding.agentId;
-  } catch {
-    // no binding file yet
-  }
-  return "";
+  return boundAgentId({ dir: TMP_DIR });
 }
 
 async function httpCall(method, endpoint, body = null, opts = {}) {
