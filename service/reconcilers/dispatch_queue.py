@@ -34,6 +34,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from service.api_core.reconcilable_runs_query import _select_reconcilable_delivered_runs
 from service.api_core.dispatch_run_state import _finalize_dispatch_runs
 from service.api_core.managed_env import _managed_environment_unavailable_reason
 from service.api_core.runtime import (
@@ -331,61 +332,7 @@ async def _close_reconcilable_delivered_runs(
     #    session) older than `stale_hours` — the agent that owed the
     #    reply is gone.
 
-    cursor = await db.execute(
-        """
-        SELECT id, result_message_id, require_reply, requested_at
-        FROM dispatch_runs
-        WHERE status = 'delivered'
-          AND (
-            -- Class 1 is evaluated REGARDLESS of finished_at (2026-08-04). It used to sit behind
-            -- an outer `finished_at = ''` guard, which excluded precisely the rows it was written
-            -- for: the path that links a reply sets result_message_id AND finished_at together, so
-            -- every run in this class was filtered out before the clause was reached. Result: a run
-            -- whose reply LANDED and which was stamped finished stayed at status='delivered'
-            -- forever, and the reconciler that exists to repair that could never see it. Found live
-            -- with 7 such rows, the oldest 2026-05-30 — permanently stuck, never once eligible.
-            -- A row that is delivered WITH a finish stamp is inconsistent by definition; that is
-            -- the repair, not a reason to skip it.
-            COALESCE(result_message_id, '') != ''
-            OR (
-              COALESCE(finished_at, '') = ''
-              AND (
-                require_reply = 0
-                AND datetime(requested_at) <= datetime('now', ?)
-              )
-            )
-            OR (
-              COALESCE(finished_at, '') = ''
-              AND (
-              -- #20: a require_reply run that is stale AND has no active owner
-              -- to ever produce the reply is orphaned — nothing will close it
-              -- otherwise, so it lingers as a false "reply pending" forever.
-              require_reply = 1
-              AND datetime(requested_at) <= datetime('now', ?)
-              AND NOT EXISTS (
-                SELECT 1 FROM dispatch_runs r2
-                WHERE r2.target_agent = dispatch_runs.target_agent
-                  AND r2.id != dispatch_runs.id
-                  AND r2.status IN ('queued', 'claimed', 'running')
-              )
-              AND NOT EXISTS (
-                SELECT 1 FROM agent_sessions s
-                WHERE s.agent_id = dispatch_runs.target_agent
-                  AND s.status IN ('starting', 'running', 'recovering', 'restarting', 'cli-takeover')
-              )
-            )
-          )
-        )
-        ORDER BY requested_at ASC
-        LIMIT ?
-        """,
-        (
-            f"-{max(1, int(stale_hours or 24))} hours",
-            f"-{max(1, int(stale_hours or 24))} hours",
-            limit,
-        ),
-    )
-    rows = await cursor.fetchall()
+    rows = await _select_reconcilable_delivered_runs(db, limit, stale_hours)
     now = _now()
     closed: list[dict[str, str]] = []
     for row in rows:

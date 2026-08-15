@@ -159,24 +159,33 @@ class LingeringDeliveredRunTests(unittest.TestCase):
     clause was evaluated. The repair could never see what it was written to repair.
     """
 
-    def test_class_one_is_not_gated_on_an_empty_finished_at(self):
-        import re
-        src = (REPO_ROOT / "service" / "reconcilers" / "dispatch_queue.py").read_text(encoding="utf-8")
-        start = src.index("async def _close_reconcilable_delivered_runs")
-        body = src[start:start + 4000]
-        where = body[body.index("WHERE status = 'delivered'"):body.index("ORDER BY requested_at ASC")]
-        # The result_message_id clause must not sit under an unconditional finished_at guard.
-        before_class1 = where[:where.index("COALESCE(result_message_id, '') != ''")]
-        self.assertNotIn(
-            "COALESCE(finished_at, '') = ''", before_class1,
-            "class 1 (reply landed) must be reachable for rows that already have finished_at — "
-            "gating it on an empty finished_at is what made 7 runs permanently unreconcilable",
-        )
-        # …and the age-based classes must KEEP their guard, so this fix does not widen them.
-        self.assertGreaterEqual(
-            where.count("COALESCE(finished_at, '') = ''"), 2,
-            "the stale/orphan classes must still require an empty finished_at",
-        )
+    def test_the_BEHAVIOURAL_successor_to_this_source_check_exists(self):
+        """THE SOURCE-REGEX CHECK HAS BEEN RETIRED, and this names what replaced it.
+
+        It read `dispatch_queue.py`, sliced the SQL out of a 4000-character window by index, and
+        asserted that a substring did not appear before another substring. It proved the clause was
+        WRITTEN a certain way; it never once ran the query. v0.5.4 moved that SQL to
+        `service/api_core/reconcilable_runs_query.py` and the check broke on a relocation that
+        changed nothing — the third location pin in this repo to do that.
+
+        `test_reconcilable_runs_query.py` now asserts the same invariant by EXECUTING the query
+        against a real database: a delivered run with a result id and a finish stamp is selected,
+        and the age-based classes still require an empty `finished_at`. It is mutation-verified by
+        re-introducing the original 2026-08-04 guard, which fails it.
+
+        The incident above is kept because the history is the reason any of it exists.
+        """
+        successor = REPO_ROOT / "service" / "tests" / "test_reconcilable_runs_query.py"
+        self.assertTrue(successor.exists(), "the behavioural successor is missing")
+        text = successor.read_text(encoding="utf-8")
+        self.assertIn(
+            "test_class_1_is_selected_even_though_it_is_FINISHED", text,
+            "the successor must still cover the exact shape that was excluded")
+        for age_based in ("test_class_2_requires_an_unfinished_run",
+                          "test_class_2_leaves_a_RECENT_info_only_run_alone"):
+            self.assertIn(
+                age_based, text,
+                "the fix must not have widened the age-based classes, and that must stay tested")
 
 
 class ColdStartRefusalReasonTests(unittest.TestCase):
