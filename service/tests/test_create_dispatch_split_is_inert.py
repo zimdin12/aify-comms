@@ -38,10 +38,12 @@ DISPATCH_START = REPO / "service" / "api_core" / "dispatch_start.py"
 #: its largest piece with a single importer). Byte-identical move, so the round trip below still closes
 #: — but only if the proof reads the file it actually lives in now.
 DELIVERY_RESOLVE = REPO / "service" / "api_core" / "dispatch_delivery_resolve.py"
-#: The console-input loop went to the dispatch_messages SIBLING, not down a layer: five of the
-#: names it calls are declared there.
-DM_SHARED = REPO / "service" / "routers" / "dispatch_messages" / "shared.py"
-MODULES = (DISPATCH, DISPATCH_START, DELIVERY_RESOLVE, DM_SHARED)
+#: The console-input loop first went to the dispatch_messages SIBLING rather than down a layer,
+#: because five of the names it calls were declared there. v0.5.4 moved those down too, so in the
+#: same release it left for a leaf of its own. Byte-identical, so the round trip still closes — but
+#: only if the proof reads the file it lives in now.
+CONSOLE_QUEUE = REPO / "service" / "api_core" / "console_input_queue.py"
+MODULES = (DISPATCH, DISPATCH_START, DELIVERY_RESOLVE, CONSOLE_QUEUE)
 FIXTURE = Path(__file__).resolve().parent / "data" / "create_dispatch_before_split.py"
 
 SOURCE_FUNCTION = "create_dispatch"
@@ -52,7 +54,7 @@ EXTRACTIONS = ["_resolve_dispatch_recipient_delivery", "_queue_console_inputs_fo
 #: extraction landed in a different module. Same failure the other proofs in this directory have had.
 OWNERS = {
     "_resolve_dispatch_recipient_delivery": DELIVERY_RESOLVE,
-    "_queue_console_inputs_for_dispatch": DM_SHARED,
+    "_queue_console_inputs_for_dispatch": CONSOLE_QUEUE,
 }
 
 

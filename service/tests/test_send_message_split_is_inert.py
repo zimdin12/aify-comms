@@ -29,14 +29,16 @@ from service.tests.extract_method import assert_extractions_preserve_behaviour
 REPO = Path(__file__).resolve().parent.parent.parent
 MESSAGES = REPO / "service" / "routers" / "dispatch_messages" / "messages.py"
 DISPATCH_START = REPO / "service" / "api_core" / "dispatch_start.py"
-#: The second extraction landed in the dispatch-messages sibling rather than a lower layer: four of the
-#: seven names its body calls are already declared there, so moving it down would have been an upward
-#: import back.
-DM_SHARED = REPO / "service" / "routers" / "dispatch_messages" / "shared.py"
+#: The second extraction first landed in the dispatch-messages sibling rather than a lower layer,
+#: because four of the seven names its body called were declared there and moving it down would have
+#: been an upward import back. v0.5.4 moved those names down too, so in the same release it left for
+#: `service/api_core/console_input_queue.py`. Byte-identical, so the round trip still closes — but
+#: only if the proof reads the file it lives in now.
+CONSOLE_QUEUE = REPO / "service" / "api_core" / "console_input_queue.py"
 #: `_launch_recipients_for_dispatch` was RELOCATED out of dispatch_start.py in v0.5.4 — byte-identical,
 #: so the round trip still closes, but only if the proof reads the file it lives in now.
 DISPATCH_LAUNCH = REPO / "service" / "api_core" / "dispatch_launch.py"
-MODULES = (MESSAGES, DISPATCH_START, DM_SHARED, DISPATCH_LAUNCH)
+MODULES = (MESSAGES, DISPATCH_START, CONSOLE_QUEUE, DISPATCH_LAUNCH)
 FIXTURE = Path(__file__).resolve().parent / "data" / "send_message_before_split.py"
 
 SOURCE_FUNCTION = "send_message"
@@ -95,7 +97,7 @@ class SendMessageSplitIsInertTests(unittest.TestCase):
         """
         expected = {
             "_launch_recipients_for_dispatch": DISPATCH_LAUNCH,
-            "_queue_console_dispatch_inputs": DM_SHARED,
+            "_queue_console_dispatch_inputs": CONSOLE_QUEUE,
         }
         self.assertEqual(sorted(expected), sorted(EXTRACTIONS), "every extraction needs a declared owner")
         for helper, owner in expected.items():

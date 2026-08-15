@@ -35,7 +35,10 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent.parent
-SHARED = REPO / "service" / "routers" / "dispatch_messages" / "shared.py"
+#: v0.5.4: the pair left `dispatch_messages/shared.py` for a leaf, and being ADJACENT is the point —
+#: in the router they sat 200 lines apart, where a fix applied to one and not the other was
+#: invisible. This pin follows them.
+SHARED = REPO / "service" / "api_core" / "console_input_queue.py"
 
 SEND_TWIN = "_queue_console_dispatch_inputs"
 DISPATCH_TWIN = "_queue_console_inputs_for_dispatch"

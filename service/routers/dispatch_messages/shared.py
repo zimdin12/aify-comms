@@ -21,29 +21,20 @@ from __future__ import annotations
 import json
 import logging
 import time
-import uuid
 from typing import Optional
 
 
-from service.api_core.reply_expectation import (
-    _dispatch_requires_reply,
-    _message_type_expects_reply,
-)
-from service.api_core.events import _append_dispatch_event, _append_terminal_event
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.serialization import (
     _dedupe_preserve,
-    _quote_untrusted_subject,
 )
 from service.api_core.agent_sessions import (
     _touch_agent,
 )
 from service.clock import now as _now
 from service.db import get_db
-from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 
 # Resolved to their REAL owners, asked of the repo rather than guessed:
-from service.api_core.events import _append_terminal_control
 from service.reconcilers.dispatch_queue import _close_reconcilable_delivered_runs
 from service.status_engine import VALID_STATUSES
 # Imported for the ANNOTATION as much as the call: under postponed evaluation an unresolved
@@ -166,29 +157,7 @@ from service.api_core.dispatch_runs import _preflight_live_send_recipients  # no
 from service.longpoll import _wake_agent  # noqa: E402
 
 
-def _console_dispatch_input_body(req: DispatchRequest, *, recipient_id: str, message_id: str, bracketed_paste: bool = True) -> str:
-    subject = str(req.subject or "").strip()
-    body = str(req.body or "").replace("\r\n", "\n").replace("\r", "\n").strip()
-    message = "\n".join(
-        part for part in [
-            "AIFY dashboard message",
-            f"From: {req.from_agent}",
-            f"To: {recipient_id}",
-            f"Type: {req.type}",
-            # Quoted like every other echo — see _quote_untrusted_subject. This one has
-            # From/To framing around it, so it is the least dangerous site; one rule
-            # beats four judgement calls about how much framing is enough.
-            f"Subject: {_quote_untrusted_subject(subject, 240)}" if subject else "",
-            f"MessageId: {message_id}",
-            "",
-            body,
-            "",
-            "Reply in the dashboard when appropriate, using the available aify-comms tools.",
-        ] if part != ""
-    )
-    if bracketed_paste:
-        return f"\x1b[200~{message}\x1b[201~\r"
-    return f"{message}\r"
+# _console_dispatch_input_body moved to service/api_core/console_input_queue.py in v0.5.4.
 
 
 # _dispatch_requires_reply moved to service/api_core/reply_expectation.py in v0.5.4.
@@ -208,113 +177,7 @@ def _primary_result_message_id(message_id: str, recipients: list[str]) -> str:
     return f"{message_id}-{recipients[0]}"
 
 
-async def _record_terminal_delivery_contract(
-    db,
-    *,
-    source_message_id: str,
-    from_agent: str,
-    recipient_id: str,
-    message_type: str,
-    subject: str,
-    body: str,
-    priority: str,
-    in_reply_to: Optional[str],
-    require_reply: bool,
-    terminal_id: str,
-    control_id: str,
-    runtime: str = "",
-) -> str:
-    run_id = f"run_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-    requested_at = _now()
-    normalized_runtime = _normalize_runtime(runtime or "")
-    existing_active_turn = None
-    if normalized_runtime in {"claude-code", "codex", "hermes", "opencode", "pi"}:
-        active_cursor = await db.execute(
-            """
-            SELECT id
-            FROM dispatch_runs
-            WHERE target_agent = ?
-              AND dispatch_mode = 'terminal'
-              AND execution_mode = 'managed'
-              AND runtime = ?
-              AND status IN ('claimed', 'running')
-            ORDER BY COALESCE(started_at, claimed_at, requested_at) ASC
-            LIMIT 1
-            """,
-            (recipient_id, normalized_runtime),
-        )
-        existing_active_turn = await active_cursor.fetchone()
-    if existing_active_turn:
-        parent_run_id = str(existing_active_turn["id"] or "").strip()
-        await _append_dispatch_event(
-            db,
-            parent_run_id,
-            "terminal_delivered",
-            f"Additional dashboard input delivered into terminal {terminal_id} with control {control_id}",
-        )
-        await _append_dispatch_event(
-            db,
-            parent_run_id,
-            "terminal_coalesced",
-            f"Coalesced message {source_message_id or 'unknown'} into active terminal-backed turn",
-        )
-        if source_message_id:
-            await db.execute(
-                "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
-                (source_message_id, recipient_id, requested_at),
-            )
-        await _invalidate_agent_live_state(db, recipient_id)
-        return parent_run_id
-
-    tracks_active_turn = normalized_runtime in {"claude-code", "codex", "hermes", "opencode", "pi"}
-    status = "running" if tracks_active_turn else "delivered"
-    await db.execute(
-        """
-        INSERT INTO dispatch_runs (
-            id, message_id, from_agent, target_agent, dispatch_mode, execution_mode, requested_runtime, runtime,
-            message_type, subject, body, priority, in_reply_to, status, require_reply, requested_at, started_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """,
-        (
-            run_id,
-            source_message_id or None,
-            from_agent,
-            recipient_id,
-            "terminal",
-            "managed",
-            "",
-            normalized_runtime,
-            message_type,
-            subject,
-            body,
-            priority,
-            in_reply_to,
-            status,
-            1 if require_reply else 0,
-            requested_at,
-            requested_at if tracks_active_turn else None,
-        ),
-    )
-    await _append_dispatch_event(
-        db,
-        run_id,
-        "terminal_delivered",
-        f"Delivered into terminal {terminal_id} with control {control_id}",
-    )
-    if tracks_active_turn:
-        await _append_dispatch_event(
-            db,
-            run_id,
-            "running",
-            "Awaiting explicit reply from terminal-backed turn",
-        )
-    if source_message_id:
-        await db.execute(
-            "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
-            (source_message_id, recipient_id, requested_at),
-        )
-    await _invalidate_agent_live_state(db, recipient_id)
-    return run_id
+# _record_terminal_delivery_contract moved to service/api_core/console_input_queue.py in v0.5.4.
 
 
 async def _resolve_recipient_ids(db, *, to: Optional[str], to_role: Optional[str], from_agent: str) -> list[str]:
@@ -346,79 +209,7 @@ async def _resolve_reply_parent_message_id(db, reply_id: Optional[str]) -> tuple
     return None, False
 
 
-async def _queue_console_dispatch_inputs(db, req, msg_id, recipients, console_recipients, console_deliveries, resolved_in_reply_to):
-        """Queue the terminal `input` control that actually delivers a dispatch to a console session.
-
-        Extracted from `send_message` in v0.5.4; `test_send_message_split_is_inert.py` inlines it back
-        and AST-compares against the pre-split fixture, so the round trip is re-proved on every run.
-
-        Body left at its original 8-space column. The same reason as the register_agent extractions:
-        re-indenting would have re-indented the contents of the multi-line literals inside it, and the
-        gate compares ASTs rather than accepting "the whitespace does not matter".
-
-        THE PER-RECIPIENT MESSAGE ID is the subtle part. A fan-out send gives every recipient its OWN
-        id (`{msg_id}-{recipient_id}`) but a single-recipient send reuses `msg_id` unchanged — so the
-        common case threads against the id the caller already knows, while a fan-out cannot have two
-        recipients replying against one id and collapsing into each other's thread.
-        """
-        if req.trigger:
-            source_message_ids = {
-                recipient_id: (f"{msg_id}-{recipient_id}" if len(recipients) > 1 else msg_id)
-                for recipient_id in recipients
-            }
-            for recipient_id, terminal in console_recipients.items():
-                terminal_id = str(terminal["terminal_id"] or "").strip()
-                recipient_message_id = source_message_ids.get(recipient_id, msg_id)
-                terminal_runtime = _normalize_runtime(terminal["runtime"] or "")
-                control_id = await _append_terminal_control(
-                    db,
-                    terminal_id=terminal_id,
-                    environment_id=terminal["environment_id"],
-                    bridge_id=terminal["bridge_id"] or "",
-                    action="input",
-                    requested_by=req.from_agent,
-                    body=_console_dispatch_input_body(
-                        req,
-                        recipient_id=recipient_id,
-                        message_id=recipient_message_id,
-                        bracketed_paste=True,
-                    ),
-                )
-                submit_control_id = ""
-                await _append_terminal_event(
-                    db,
-                    terminal_id,
-                    "terminal_input_requested",
-                    json.dumps({
-                        "requestedBy": req.from_agent,
-                        "controlId": control_id,
-                        "submitControlId": submit_control_id,
-                        "source": "message_send",
-                        "messageId": recipient_message_id,
-                    }),
-                )
-                contract_run_id = await _record_terminal_delivery_contract(
-                    db,
-                    source_message_id=recipient_message_id,
-                    from_agent=req.from_agent,
-                    recipient_id=recipient_id,
-                    message_type=req.type,
-                    subject=req.subject,
-                    body=req.body,
-                    priority=req.priority,
-                    in_reply_to=resolved_in_reply_to,
-                    require_reply=_dispatch_requires_reply(req.requireReply, default=_message_type_expects_reply(req.type)),
-                    terminal_id=terminal_id,
-                    control_id=control_id,
-                    runtime=terminal["runtime"] or "",
-                )
-                console_deliveries.append({
-                    "targetAgentId": recipient_id,
-                    "terminalId": terminal_id,
-                    "controlId": control_id,
-                    "contractRunId": contract_run_id,
-                    "status": "sent_to_console",
-                })
+# _queue_console_dispatch_inputs moved to service/api_core/console_input_queue.py in v0.5.4.
 
 
 # --- threading a reply that arrived without one --------------------------------------------------
@@ -433,77 +224,4 @@ async def _queue_console_dispatch_inputs(db, req, msg_id, recipients, console_re
 # _link_unthreaded_reply_to_recent_dispatch_run moved to service/api_core/reply_linking.py in v0.5.4.
 
 
-async def _queue_console_inputs_for_dispatch(db, req, message_id, console_recipients, console_deliveries,
-                                             source_message_ids, resolved_in_reply_to):
-        """Queue the terminal `input` control that delivers a DISPATCH to a console session.
-
-        Extracted from `create_dispatch` in v0.5.4; `test_create_dispatch_split_is_inert.py` inlines it
-        back and AST-compares against the pre-split fixture. Body at its original 8-space column so the
-        literals inside are preserved byte-for-byte.
-
-        IT IS A NEAR-TWIN OF `_queue_console_dispatch_inputs` ABOVE, and that is recorded rather than
-        merged. Fifty-one of the fifty-three lines are identical; the two that are not are:
-
-            source_message_ids.get(recipient_id, msg_id)   vs   (..., message_id)   — a rename
-            "source": "message_send"                       vs   "source": "dispatch" — a VALUE
-
-        The second is real: the delivery contract records which path produced it, and collapsing the two
-        would either lose that or need it threaded through as a parameter. That is a behaviour-shaped
-        change, not a byte-identical move, so it is not being smuggled into a refactor slice.
-
-        `test_console_input_queueing_twins_agree.py` pins the pair: the two bodies must stay identical
-        MODULO exactly those two substitutions, so a fix applied to one and not the other fails.
-        """
-        for recipient_id, terminal in console_recipients.items():
-            terminal_id = str(terminal["terminal_id"] or "").strip()
-            recipient_message_id = source_message_ids.get(recipient_id, message_id)
-            terminal_runtime = _normalize_runtime(terminal["runtime"] or "")
-            control_id = await _append_terminal_control(
-                db,
-                terminal_id=terminal_id,
-                environment_id=terminal["environment_id"],
-                bridge_id=terminal["bridge_id"] or "",
-                action="input",
-                requested_by=req.from_agent,
-                body=_console_dispatch_input_body(
-                    req,
-                    recipient_id=recipient_id,
-                    message_id=recipient_message_id,
-                    bracketed_paste=True,
-                ),
-            )
-            submit_control_id = ""
-            await _append_terminal_event(
-                db,
-                terminal_id,
-                "terminal_input_requested",
-                json.dumps({
-                    "requestedBy": req.from_agent,
-                    "controlId": control_id,
-                    "submitControlId": submit_control_id,
-                    "source": "dispatch",
-                    "messageId": recipient_message_id,
-                }),
-            )
-            contract_run_id = await _record_terminal_delivery_contract(
-                db,
-                source_message_id=recipient_message_id,
-                from_agent=req.from_agent,
-                recipient_id=recipient_id,
-                message_type=req.type,
-                subject=req.subject,
-                body=req.body,
-                priority=req.priority,
-                in_reply_to=resolved_in_reply_to,
-                require_reply=_dispatch_requires_reply(req.requireReply, default=_message_type_expects_reply(req.type)),
-                terminal_id=terminal_id,
-                control_id=control_id,
-                runtime=terminal["runtime"] or "",
-            )
-            console_deliveries.append({
-                "targetAgentId": recipient_id,
-                "terminalId": terminal_id,
-                "controlId": control_id,
-                "contractRunId": contract_run_id,
-                "status": "sent_to_console",
-            })
+# _queue_console_inputs_for_dispatch moved to service/api_core/console_input_queue.py in v0.5.4.
