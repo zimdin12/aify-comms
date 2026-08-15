@@ -1,6 +1,9 @@
 """Agent identity: registration, listing, lookup, rename, description, favourite, removal.
 
-`register_agent` (684 lines) is the largest handler in the product and moves WHOLE here.
+`register_agent` moved here WHOLE in v0.5.2m, when it was 684 lines and the largest handler in
+the product. It is not that any more — v0.5.4 lifted eleven verbatim blocks out of it under the
+inline-back proof in `service/tests/test_register_agent_split_is_inert.py`. The line count is
+deliberately not restated here; measure the file.
 
 v0.5.2m, one surface of the agents package. Built with `domain_router()`;
 declares NO tags — the parent applies `tags=["api"]` once when api_v2 includes the package.
@@ -50,7 +53,7 @@ from service.api_core.registration_gates import (
 )
 from service.api_core.message_store import _get_unread_count_map
 from service.db_errors import _is_lock_error
-from service.api_core.agent_sessions import _upsert_resident_agent_session
+from service.api_core.resident_session_upsert import _upsert_resident_agent_session
 from service.api_core.bridge_registration import _record_bridge_registration
 from service.api_core.outbound_activity import _get_outbound_activity_map
 from service.api_core.agent_sessions import _agent_tombstone
