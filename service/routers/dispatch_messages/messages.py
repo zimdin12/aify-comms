@@ -32,6 +32,7 @@ from fastapi import HTTPException, Query, Request
 from service import longpoll
 from service.api_core.spawn_request_state import _has_claimable_spawn_request
 from service.api_core.events import _append_dispatch_event, _append_terminal_event
+from service.api_core.inbox_read_receipts import _settle_inbox_read
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _NATIVE_MANAGED_RUNTIMES, _normalize_runtime, _normalize_session_mode
 from service.api_core.dispatch_text import COLDSTART_REFUSED_PREFIX
@@ -274,39 +275,7 @@ async def get_inbox(
             messages.append(msg)
 
         # Mark as read + update status (unless peek)
-        if not peek:
-            now = _now()
-            unread_found = 0
-            for msg in messages:
-                if not msg["read"]:
-                    unread_found += 1
-                    await db.execute(
-                        "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
-                        (msg["id"], agent_id, now)
-                    )
-            # Complete stuck dispatch runs linked to messages we just read.
-            # Only claimed/running (stuck from dead bridges) — NOT queued.
-            # Queued dispatches should be left for the bridge to claim and
-            # execute as a turn. Completing them here would prevent the wake.
-            if unread_found > 0:
-                read_msg_ids = [msg["id"] for msg in messages if not msg["read"]]
-                for msg_id in read_msg_ids:
-                    await db.execute(
-                        """
-                        UPDATE dispatch_runs
-                        SET status = 'completed', summary = 'Message read via inbox', finished_at = ?
-                        WHERE message_id = ? AND target_agent = ? AND status IN ('claimed', 'running')
-                        """,
-                        (now, msg_id, agent_id),
-                    )
-
-            # Smart status: got messages = working, no messages = idle
-            new_status = "working" if unread_found > 0 else "idle"
-            await db.execute(
-                "UPDATE agents SET last_seen = ?, status = CASE WHEN status = 'stopped' THEN status ELSE ? END WHERE id = ?",
-                (now, new_status, agent_id)
-            )
-            await db.commit()
+        await _settle_inbox_read(db, messages, agent_id, peek)
 
         return {"total": total, "showing": len(messages), "messages": messages}
     finally:
