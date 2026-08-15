@@ -68,8 +68,8 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _reconcile_stale_managed_terminals_for_resident_agents,
     )
     from service.reconcilers.terminal_consistency import _repair_terminal_session_consistency
+    from service.reconcilers.dead_session_status import _reconcile_dead_session_status
     from service.reconcilers.sessions import (
-        _reconcile_dead_session_status,
         _reconcile_duplicate_resident_sessions,
     )
     from service.reconcilers.spawn_lifecycle import (

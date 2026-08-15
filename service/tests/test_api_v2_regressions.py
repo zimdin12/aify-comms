@@ -43,9 +43,9 @@ from service.reconcilers.managed_workers import (
     _reconcile_managed_worker_hygiene,
     _repair_unusable_active_runs,
 )
+from service.reconcilers.dead_session_status import _reconcile_dead_session_status
 from service.reconcilers.sessions import (
     _compute_session_display_status,
-    _reconcile_dead_session_status,
 )
 from service.reconcilers.spawn_lifecycle import (
     _fail_orphaned_running_spawn_requests,
