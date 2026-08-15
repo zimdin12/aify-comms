@@ -20,6 +20,7 @@ from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.execution_mode import _auto_return_resident_to_managed_if_possible
 from service.api_core.runtime_state import _runtime_state_replacing_handle
 from service.api_core.resident_loss import _settle_lost_resident_when_no_transition
+from service.api_core.status_events import _apply_status_event
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.session_ops")
@@ -45,7 +46,6 @@ from service.routers.agents.shared import (
     _append_dispatch_event,
     _append_terminal_control,
     _append_terminal_event,
-    _apply_status_event,
     _borrowed_console_tail_max_bytes,
     _borrowed_console_tail_max_lines,
     _borrowed_list_agents_refresh_limit,

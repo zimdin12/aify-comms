@@ -19,6 +19,8 @@ from pydantic import BaseModel
 from fastapi import HTTPException, Query, Request
 
 from service.api_core.bridge_liveness_beat import _upsert_bridge_liveness_beat
+from service.api_core.turn_busy_signal import _apply_turn_busy_signal
+from service.api_core.status_events import _apply_status_event
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.liveness")
@@ -44,7 +46,6 @@ from service.routers.agents.shared import (
     _append_dispatch_event,
     _append_terminal_control,
     _append_terminal_event,
-    _apply_status_event,
     _borrowed_console_tail_max_bytes,
     _borrowed_console_tail_max_lines,
     _borrowed_list_agents_refresh_limit,
@@ -301,64 +302,7 @@ async def agent_heartbeat(agent_id: str, request: Request):
         # so a stale false from a superseded bridge/run cannot wipe a newer
         # active turn.
         turn_flip = False  # WS-1: did this heartbeat actually change turn_busy (working⇄ready)?
-        if "turnBusy" in body:
-            turn_busy = bool(body.get("turnBusy"))
-            turn_run_id = str(body.get("turnRunId", "") or "").strip()
-            turn_runtime = str(body.get("turnRuntime", "") or "").strip()
-            _prev_row = await (await db.execute(
-                "SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", (agent_id,))).fetchone()
-            _prev_busy = bool(_prev_row and _prev_row["turn_busy"])
-            if turn_busy:
-                await db.execute(
-                    """
-                    INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-                    VALUES (?, 1, ?, ?, ?, ?)
-                    ON CONFLICT(agent_id) DO UPDATE SET
-                        turn_busy = 1,
-                        turn_run_id = excluded.turn_run_id,
-                        turn_bridge_id = excluded.turn_bridge_id,
-                        turn_runtime = excluded.turn_runtime,
-                        turn_updated_at = excluded.turn_updated_at
-                    """,
-                    (agent_id, turn_run_id, bridge_id, turn_runtime, now),
-                )
-                turn_flip = not _prev_busy  # to-working transition
-                # status v2 (Fix A, 2026-06-05): the /heartbeat turnBusy field is the
-                # DOMINANT turn signal for MANAGED runtimes (hermes/codex/pi/opencode)
-                # and claude channel-woken turns — the dispatch lifecycle pulses it,
-                # but it only ever wrote agent_turn_state (OLD engine) and never fed
-                # agent_status_state, so the `new` engine showed online/idle mid-turn.
-                # Feed turn_start here too. Flag-agnostic at the write layer (only the
-                # `new` read path consumes agent_status_state, so it is a no-op for
-                # `old`); idempotent with any resident turn-start hook (turn_start just
-                # sets in_turn=1). Mirrors the /turn-start endpoint's same pattern.
-                await _apply_status_event(db, agent_id, {"kind": "turn_start", "runId": turn_run_id})
-            else:
-                cur = await (await db.execute(
-                    "SELECT turn_bridge_id, turn_run_id FROM agent_turn_state WHERE agent_id = ?",
-                    (agent_id,),
-                )).fetchone()
-                if cur:
-                    stored_bridge = str(cur["turn_bridge_id"] or "").strip()
-                    stored_run = str(cur["turn_run_id"] or "").strip()
-                    if stored_bridge == bridge_id and (not stored_run or stored_run == turn_run_id):
-                        await db.execute(
-                            "UPDATE agent_turn_state SET turn_busy = 0, turn_updated_at = ? WHERE agent_id = ?",
-                            (now, agent_id),
-                        )
-                        # status v2 (Fix A): clear in_turn ONLY inside the SAME
-                        # ownership guard that gates the turn_busy=0 write, so a
-                        # stale/superseded bridge or a non-owning run can never wipe
-                        # a live turn's in_turn. Mirrors exactly the guard the
-                        # turn_busy=0 write uses — never clears where the old code
-                        # would not clear turn_busy.
-                        await _apply_status_event(db, agent_id, {"kind": "turn_end", "runId": ""})
-                        turn_flip = _prev_busy  # to-ready transition (only when we actually cleared)
-            # A turn_busy flip changes derived status (working ⇄ idle). Invalidate
-            # the live-state cache so the next read recomputes immediately, instead
-            # of lagging up to the 60s reconcile sweep. Symmetric with the dedicated
-            # /turn-start and /turn-end endpoints, which already invalidate.
-            await _invalidate_agent_live_state(db, agent_id)
+        turn_flip = await _apply_turn_busy_signal(db, agent_id, bridge_id, body, now, turn_flip)
         await db.commit()
         # WS-1 (2026-06-17): the /heartbeat turnBusy field is the DOMINANT turn signal for
         # managed runtimes, but it only invalidated the cache — the dashboard still waited its

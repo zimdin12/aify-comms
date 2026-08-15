@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
 
+from service.api_core.status_events import _apply_status_event
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.console")
@@ -43,7 +44,6 @@ from service.routers.agents.shared import (
     _append_dispatch_event,
     _append_terminal_control,
     _append_terminal_event,
-    _apply_status_event,
     _borrowed_console_tail_max_bytes,
     _borrowed_console_tail_max_lines,
     _borrowed_list_agents_refresh_limit,

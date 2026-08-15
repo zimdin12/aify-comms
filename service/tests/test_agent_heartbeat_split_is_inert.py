@@ -6,13 +6,17 @@ running the round trip in the suite proves it STAYS true.
 WHAT WAS EXTRACTED: the unconditional liveness beat — the branch that refreshes, or creates, the
 `bridge_instances` row for a bridge reporting that it is alive.
 
-WHY ONE EXTRACTION AND NOT TWO. The turn-busy branch below it is the other obvious candidate and is
-deliberately NOT taken yet: it calls `_apply_status_event`, which is declared in
-`service/routers/agents/shared.py`. An api_core leaf importing from a router is the cycle this
-layering exists to prevent, so that block is blocked on relocating `_apply_status_event` down to a
-leaf first — a move with seven router importers, which is its own slice rather than a detail of this
-one. Injecting the function as a parameter would have worked and would have papered over the
-layering defect instead of recording it.
+AND the turn-busy branch below it, which was blocked for a release and is no longer. It calls
+`_apply_status_event`, which was declared in `service/routers/agents/shared.py`; an api_core leaf
+importing from a router is the cycle this layering exists to prevent, so it could not move while the
+function sat there. Relocating `_apply_status_event` to `service/api_core/status_events.py` — where
+its only dependencies, the clock and the pure status engine, already were — is what unblocked it.
+Injecting the function as a parameter would have worked and would have papered over the layering
+defect instead of fixing it.
+
+BOTH EXTRACTIONS INLINE BACK TOGETHER against the ONE original fixture, not a chain of per-slice
+fixtures. A fixture per extraction is a second copy of a function that is still being edited, and a
+stale one proves the wrong thing while staying green.
 
 THE SUBSTITUTION, declared rather than left to be noticed: the helper lives in
 `service/api_core/bridge_liveness_beat.py`, because leaving it in the router would not have reduced
@@ -31,15 +35,19 @@ from service.tests.extract_method import assert_extractions_preserve_behaviour
 REPO = Path(__file__).resolve().parent.parent.parent
 LIVENESS = REPO / "service" / "routers" / "agents" / "liveness.py"
 BEAT = REPO / "service" / "api_core" / "bridge_liveness_beat.py"
+TURN = REPO / "service" / "api_core" / "turn_busy_signal.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "agent_heartbeat_before_split.py"
 
 SOURCE_FUNCTION = "agent_heartbeat"
-EXTRACTIONS = ["_upsert_bridge_liveness_beat"]
+EXTRACTIONS = ["_upsert_bridge_liveness_beat", "_apply_turn_busy_signal"]
 
 #: Where each helper is expected to be declared. PER HELPER, over every module below.
-OWNERS = {"_upsert_bridge_liveness_beat": BEAT}
+OWNERS = {
+    "_upsert_bridge_liveness_beat": BEAT,
+    "_apply_turn_busy_signal": TURN,
+}
 
-MODULES = (LIVENESS, BEAT)
+MODULES = (LIVENESS, BEAT, TURN)
 
 
 def _combined_split_source() -> str:
@@ -86,19 +94,33 @@ class AgentHeartbeatSplitIsInertTests(unittest.TestCase):
             owners = [path for path in MODULES if helper in _declared(path)]
             self.assertEqual([owner], owners, f"{helper} must be declared exactly once, in {owner.name}")
 
-    def test_the_leaf_does_not_import_upward(self):
+    def test_the_leaves_do_not_import_upward(self):
         """An api_core leaf reaching into a router — or the control plane — is the cycle to prevent.
 
-        Not a formality here: the block's sibling in the same handler could NOT be extracted for
-        exactly this reason, so the rule is doing real work rather than being satisfied by accident.
+        Not a formality here: the turn-busy block could not be extracted AT ALL until
+        `_apply_status_event` stopped living in a router, so this rule is what shaped the work
+        rather than something satisfied by accident. Over EVERY leaf — naming one module is how a
+        check goes quietly blind when a second helper lands elsewhere.
         """
-        for node in ast.walk(ast.parse(BEAT.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                self.assertFalse(
-                    node.module.startswith("service.routers")
-                    or node.module == "service.control_plane",
-                    f"bridge_liveness_beat.py imports upward from {node.module}",
-                )
+        for leaf in (BEAT, TURN):
+            for node in ast.walk(ast.parse(leaf.read_text(encoding="utf-8"))):
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    self.assertFalse(
+                        node.module.startswith("service.routers")
+                        or node.module == "service.control_plane",
+                        f"{leaf.name} imports upward from {node.module}",
+                    )
+
+    def test_the_relocation_that_unblocked_the_turn_busy_split_still_holds(self):
+        """`_apply_status_event` must stay OUT of the router, or the split above becomes illegal.
+
+        Asserted rather than trusted to review: moving it back would not fail any behavioural test,
+        and the upward-import check above would then start failing somewhere confusing.
+        """
+        status_events = REPO / "service" / "api_core" / "status_events.py"
+        self.assertIn("_apply_status_event", _declared(status_events))
+        shared = REPO / "service" / "routers" / "agents" / "shared.py"
+        self.assertNotIn("_apply_status_event", _declared(shared))
 
     def test_the_fixture_is_tracked(self):
         self.assertTrue(FIXTURE.exists())

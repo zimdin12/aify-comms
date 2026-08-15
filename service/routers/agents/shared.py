@@ -251,27 +251,9 @@ def _borrowed_listen_events():
 
 
 
-async def _apply_status_event(db, agent_id: str, event: dict) -> dict:
-    now = _now()
-    row = await (await db.execute(
-        "SELECT in_turn, awaiting_input, turn_run_id FROM agent_status_state WHERE agent_id = ?",
-        (agent_id,))).fetchone()
-    cur = {"in_turn": (row["in_turn"] if row else 0),
-           "awaiting_input": (row["awaiting_input"] if row else 0),
-           "turn_run_id": (row["turn_run_id"] if row else "")}
-    new = apply_event(cur, event)
-    await db.execute("""
-        INSERT INTO agent_status_state (agent_id, in_turn, awaiting_input, turn_run_id,
-                                        last_event, last_event_at, updated_at)
-        VALUES (?,?,?,?,?,?,?)
-        ON CONFLICT(agent_id) DO UPDATE SET
-            in_turn=excluded.in_turn, awaiting_input=excluded.awaiting_input,
-            turn_run_id=excluded.turn_run_id, last_event=excluded.last_event,
-            last_event_at=excluded.last_event_at, updated_at=excluded.updated_at
-    """, (agent_id, new["in_turn"], new["awaiting_input"], new["turn_run_id"],
-          str(event.get("kind") or ""), now, now))
-    await db.commit()
-    return new
+# _apply_status_event moved to service/api_core/status_events.py in v0.5.4 — it had seven
+# router importers and depends only on the clock and the pure status engine, and a router
+# declaring it blocked every api_core leaf that needed it.
 
 
 async def _broadcast_agent_status(ws, db, agent_id: str) -> None:
