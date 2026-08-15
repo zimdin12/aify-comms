@@ -12,47 +12,22 @@ import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 import { claudeAifyReceiptLine } from "./aify-console-markers.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
 import { AIFY_VERSION } from "./version.js";
+// The server-URL helpers have ONE owner: `aify-service-endpoint.mjs`, which imports nothing and so
+// cannot cycle. This module declared its own copies of all four until v0.5.4 — byte-identical for
+// three of them and the same code with a different comment for the fourth, which is what a fork
+// looks like right up until one copy gets a fix and the others do not.
+import {
+  coerceLoopbackToIPv4,
+  defaultFallbackServerUrls,
+  splitServerUrls,
+  uniqueServerUrls,
+} from "./aify-service-endpoint.mjs";
 
 loadSettingsEnv();
-
-// Windows + Docker Desktop: `localhost` resolves to IPv6 ::1 first, but
-// Docker Desktop's IPv6 port forwarding is unreliable — HTTP requests
-// time out silently and the channel bridge cannot claim dispatches.
-// Force the IPv4 loopback. Benign on Linux/macOS (same loopback address).
-function coerceLoopbackToIPv4(url) {
-  return String(url || "").replace(
-    /^(https?:\/\/)localhost(?=[:\/]|$)/i,
-    "$1127.0.0.1",
-  );
-}
 
 const SERVER_URL = coerceLoopbackToIPv4(
   process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "",
 );
-function splitServerUrls(value) {
-  return String(value || "")
-    .split(/[,\s]+/)
-    .map(item => coerceLoopbackToIPv4(item.trim().replace(/\/+$/, "")))
-    .filter(Boolean);
-}
-function uniqueServerUrls(urls) {
-  const seen = new Set();
-  const result = [];
-  for (const url of urls) {
-    if (!url || seen.has(url)) continue;
-    seen.add(url);
-    result.push(url);
-  }
-  return result;
-}
-function defaultFallbackServerUrls(primary) {
-  if (!/^https?:\/\/(localhost|127\.0\.0\.1)(?::|\/|$)/i.test(String(primary || ""))) return [];
-  // Loopback only — see the matching note in server.js. A local bridge must not
-  // silently fail over to host.docker.internal or a hardcoded LAN IP and
-  // register its agents on a remote server. Opt into non-loopback fallback via
-  // AIFY_SERVER_FALLBACK_URLS / CLAUDE_MCP_FALLBACK_URLS.
-  return ["http://127.0.0.1:8800", "http://localhost:8800"];
-}
 const SERVER_URLS = uniqueServerUrls([
   SERVER_URL,
   ...splitServerUrls(process.env.CLAUDE_MCP_FALLBACK_URLS || process.env.AIFY_SERVER_FALLBACK_URLS || ""),

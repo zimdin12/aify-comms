@@ -45,7 +45,16 @@ function strip(text) {
 export function deadImportsIn(text) {
   const withSpecifiers = strip(text);
   // Blank the module specifiers before counting uses, but keep them for PARSING the import statements.
-  const src = withSpecifiers.replace(/(\bfrom\s*)"[^"]*"/g, '$1""');
+  //
+  // SPREAD DOTS ARE NOT PROPERTY ACCESS. The count below excludes a name preceded by `.` so that
+  // `obj.name` does not look like a use of an imported `name` — but `...name(x)` is a plain call
+  // whose preceding character is also a dot, so a helper used ONLY in a spread read as dead. That is
+  // not hypothetical: `splitServerUrls` and `defaultFallbackServerUrls` are called exactly that way
+  // in `claude-channel.js`, and this gate reported both as dead the moment they were imported rather
+  // than declared locally. Deleting them on that advice would have broken the fallback URL set.
+  //
+  // Blanking the spread operator keeps the member-access exclusion intact and makes the call visible.
+  const src = withSpecifiers.replace(/(\bfrom\s*)"[^"]*"/g, '$1""').replace(/\.\.\./g, " ");
   const names = new Set();
   for (const m of withSpecifiers.matchAll(/^import\s*\{([^}]*)\}\s*from\s*"[^"]+";/gm)) {
     for (const raw of m[1].split(",")) {
@@ -91,4 +100,15 @@ test("the detector really detects — it finds a dead import in a synthetic modu
   // Aliased imports are judged on the LOCAL name, which is the one that would be dangling.
   const aliased = `import { spawnSync as sp } from "node:child_process";\nexport const y = sp(1);\n`;
   assert.deepEqual(deadImportsIn(aliased), [], "an aliased import used under its alias is live");
+
+  // SPREAD-CALLED IMPORTS ARE LIVE, and the detector said otherwise until v0.5.4. The count excludes
+  // a name preceded by `.` so `obj.name` is not mistaken for a use — but `...name(x)` is a call whose
+  // preceding character is also a dot. `splitServerUrls` and `defaultFallbackServerUrls` are used
+  // exactly that way in `claude-channel.js`, and both were reported dead the moment they became
+  // imports instead of local declarations. Acting on that would have emptied the fallback URL set.
+  const spread = `import { a } from "./x.mjs";\nexport const y = [...a("k")];\n`;
+  assert.deepEqual(deadImportsIn(spread), [], "a helper used only in a spread is live");
+  // …and the member-access exclusion the dot rule exists for still holds.
+  const member = `import { a } from "./x.mjs";\nexport const y = obj.a;\n`;
+  assert.deepEqual(deadImportsIn(member), ["a"], "`obj.a` is not a use of the imported `a`");
 });

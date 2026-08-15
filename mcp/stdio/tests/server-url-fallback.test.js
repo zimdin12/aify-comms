@@ -12,11 +12,22 @@ const installer = fs.readFileSync(path.join(__dirname, "..", "..", "..", "instal
 // `aify-service-endpoint.mjs` (layer 0 of the server.js decomposition). The loopback-only fallback
 // policy these assertions protect did not change — it changed ADDRESS. Checking server.js for it now
 // would pass vacuously the day someone deletes the policy, so the check follows the code.
-// `claude-channel.js` still carries its own copy in its own process; see the four-way HTTP-caller
-// duplication packet.
+// …AND `claude-channel.js` NO LONGER CARRIES ITS OWN COPY. It did until v0.5.4 — that is what the
+// note here used to record — along with `aify-http.mjs` and `hermes-channel.js`, four declarations
+// of `coerceLoopbackToIPv4` between them in two different formattings. They now import the four URL
+// helpers from the owner, so the policy below is asserted where it is DECLARED rather than in each
+// module that happens to apply it. Looping over the channel too would now pass on an import line,
+// which is the vacuous check this comment block warns about one paragraph up.
 const endpoint = fs.readFileSync(path.join(__dirname, "..", "aify-service-endpoint.mjs"), "utf8");
 
-for (const source of [endpoint, channel]) {
+// The channel is still read, for the ONE thing that is genuinely its own: it must not grow a second
+// copy of the policy. A regression here is a re-fork, not a missing fallback.
+assert.doesNotMatch(channel, /function defaultFallbackServerUrls/,
+  "claude-channel.js must import the fallback policy, not redeclare it");
+assert.match(channel, /from "\.\/aify-service-endpoint\.mjs"/,
+  "and it must be importing it from the owner");
+
+for (const source of [endpoint]) {
   assert.match(source, /AIFY_SERVER_FALLBACK_URLS/);
   // Fallbacks are LOOPBACK-ONLY by design (a hardcoded LAN/docker fallback once silently
   // failed a local bridge over to a remote host); non-loopback fallbacks are explicit

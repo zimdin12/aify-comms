@@ -207,6 +207,9 @@ export function activeServerUrl() {
 
 
 export { API_KEY, IS_REMOTE, SERVER_URL, SERVER_URLS, coerceLoopbackToIPv4, uniqueServerUrls, httpCall,
+         // splitServerUrls / defaultFallbackServerUrls joined the surface in v0.5.4, when three other
+         // modules stopped declaring their own copies of these helpers.
+         splitServerUrls, defaultFallbackServerUrls,
          isRetriableRequest, isTransientHttpError, HTTP_TIMEOUT_MS, HTTP_RETRY_ATTEMPTS,
          HTTP_RETRY_BASE_MS, RETRIABLE_POST_PATHS };
 

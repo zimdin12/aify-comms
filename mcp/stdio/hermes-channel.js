@@ -43,6 +43,8 @@ import { dispatchContent } from "./claude-channel.js";
 import { startInFlightRepulse } from "./hermes-turn-repulse.js";
 import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
 import { reportGatewayDead } from "./hermes-gateway.mjs";
+// `coerceLoopbackToIPv4` from its owner; this module carried a fourth copy until v0.5.4.
+import { coerceLoopbackToIPv4 } from "./aify-service-endpoint.mjs";
 
 // In-flight re-pulse cadence (#172). chatStream can run a turn well past the
 // server's 120s TURN_BUSY_STALE_SECONDS window; re-pulse turn_busy while the
@@ -57,11 +59,6 @@ loadSettingsEnv();
 
 const IS_MAIN =
   Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-
-// Windows + Docker Desktop: force IPv4 loopback (see claude-channel.js).
-function coerceLoopbackToIPv4(url) {
-  return String(url || "").replace(/^(https?:\/\/)localhost(?=[:\/]|$)/i, "$1127.0.0.1");
-}
 
 // Same aify base-url env vars claude-channel.js honors.
 const AIFY_SERVER_URL = coerceLoopbackToIPv4(
