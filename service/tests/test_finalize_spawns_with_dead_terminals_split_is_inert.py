@@ -27,7 +27,11 @@ from pathlib import Path
 from service.tests.extract_method import assert_extractions_preserve_behaviour
 
 REPO = Path(__file__).resolve().parent.parent.parent
-LIFECYCLE = REPO / "service" / "reconcilers" / "spawn_lifecycle.py"
+# `_finalize_spawns_with_dead_terminals` moved to `reconcilers/spawn_terminal_settlement.py` in
+# v0.5.4 with the superseded-spawn reaper: both end a RUNNING spawn the world has moved past,
+# while the two left behind repair spawn REQUESTS. A round-trip proof names the module holding
+# the CALLER, so a relocation must touch it — see the one-line pin below.
+CALLER = REPO / "service" / "reconcilers" / "spawn_terminal_settlement.py"
 QUERY = REPO / "service" / "api_core" / "dead_terminal_spawn_query.py"
 STATUS_OWNER = REPO / "service" / "api_core" / "terminal_status.py"
 FIXTURE = (Path(__file__).resolve().parent / "data"
@@ -45,7 +49,7 @@ OWNERS = {
     "_count_spawns_masked_by_live_sibling": QUERY,
 }
 
-MODULES = (LIFECYCLE, QUERY)
+MODULES = (CALLER, QUERY)
 
 #: Travelled WITH the two queries: they were its only callers.
 RELOCATED_ACCESSOR = "_terminal_end_statuses_ordered"
@@ -73,6 +77,24 @@ class FinalizeSpawnsWithDeadTerminalsSplitIsInertTests(unittest.TestCase):
         assert_extractions_preserve_behaviour(
             ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
 
+    def test_the_source_function_is_still_where_this_proof_looks(self):
+        """`CALLER` is a location pin, and a relocation is what breaks it.
+
+        Added when the finaliser moved out of `spawn_lifecycle.py` in v0.5.4. The round trip already
+        fails then — it cannot find the caller to inline into — but it fails as a gate-internal
+        error about a missing definition. This says the true thing in one line.
+        """
+        declared = {
+            n.name for n in ast.parse(CALLER.read_text(encoding="utf-8")).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertIn(
+            SOURCE_FUNCTION, declared,
+            f"{SOURCE_FUNCTION} is not declared in {CALLER.name}. If it was relocated, repoint "
+            "CALLER at its new module — this proof names the file holding the caller, so a move "
+            "must touch it.",
+        )
+
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""
         self.assertIn(SOURCE_FUNCTION, _declared(FIXTURE))
@@ -87,8 +109,8 @@ class FinalizeSpawnsWithDeadTerminalsSplitIsInertTests(unittest.TestCase):
         """If the split were reverted, the round trip would pass by having nothing to inline."""
         for helper in EXTRACTIONS:
             self.assertNotIn(
-                helper, _declared(LIFECYCLE),
-                f"{helper} is back in spawn_lifecycle.py; this proof is vacuous")
+                helper, _declared(CALLER),
+                f"{helper} is back in spawn_terminal_settlement.py; this proof is vacuous")
 
     def test_exactly_one_module_declares_EACH_helper(self):
         self.assertEqual(sorted(OWNERS), sorted(EXTRACTIONS), "every extraction needs a declared owner")
@@ -114,7 +136,7 @@ class FinalizeSpawnsWithDeadTerminalsSplitIsInertTests(unittest.TestCase):
         than declare anything.
         """
         self.assertIn(RELOCATED_ACCESSOR, _declared(QUERY))
-        self.assertNotIn(RELOCATED_ACCESSOR, _declared(LIFECYCLE))
+        self.assertNotIn(RELOCATED_ACCESSOR, _declared(CALLER))
         source = QUERY.read_text(encoding="utf-8")
         self.assertIn("from service.api_core.terminal_status import _TERMINAL_END_STATUSES_ORDERED",
                       source)

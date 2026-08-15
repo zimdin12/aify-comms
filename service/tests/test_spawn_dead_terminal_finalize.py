@@ -28,7 +28,7 @@ from service.tests._base import FastApiTestCase
 from service.api_core.managed_env import _has_pending_or_booting_spawn_request
 from service.api_core import terminal_status  # v0.5.4: call the OWNER
 from service.clock import now as _now
-from service.reconcilers.spawn_lifecycle import _finalize_spawns_with_dead_terminals
+from service.reconcilers.spawn_terminal_settlement import _finalize_spawns_with_dead_terminals
 
 
 class _SpawnSeedMixin:
@@ -240,7 +240,11 @@ class SpawnDeadTerminalFinalizeTests(_SpawnSeedMixin, FastApiTestCase):
         """The live-sibling guard is correct but SILENT, and a masked row is otherwise
         indistinguishable from "nothing was dead" (reviewer suggestion, 2026-08-07)."""
         self._seed("masked", extra_live_terminal=True)
-        with self.assertLogs("service.reconcilers.spawn_lifecycle", level="INFO") as captured:
+        # THE LOGGER NAME IS A LOCATION PIN, and `_finalize_spawns_with_dead_terminals` moved to
+        # `spawn_terminal_settlement.py` in v0.5.4. `assertLogs` on a module that no longer emits
+        # fails with "no logs of level INFO or higher triggered" — which reads like the guard went
+        # silent, the exact failure this test exists to detect. Named after the module that logs.
+        with self.assertLogs("service.reconcilers.spawn_terminal_settlement", level="INFO") as captured:
             self.assertEqual(self._finalize(), 0)
         joined = " ".join(captured.output)
         self.assertIn("0 finalized, 1 left alone", joined)

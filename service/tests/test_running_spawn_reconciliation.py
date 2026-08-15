@@ -13,7 +13,7 @@ from service import control_plane as api_v2  # v0.5.3: helpers live in the contr
 
 from service.tests._base import FastApiTestCase
 from service.clock import now as _now
-from service.reconcilers.spawn_lifecycle import _fail_running_spawns_superseded_by_current_session
+from service.reconcilers.spawn_terminal_settlement import _fail_running_spawns_superseded_by_current_session
 
 
 def _iso_ago(seconds: int) -> str:

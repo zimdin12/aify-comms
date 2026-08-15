@@ -94,7 +94,7 @@ from service.reconcilers.dispatch_queue import (
     _requeue_orphaned_claimed_runs,
     _reroute_orphaned_managed_channel_runs,
 )
-from service.reconcilers.spawn_lifecycle import (
+from service.reconcilers.spawn_terminal_settlement import (
     _fail_running_spawns_superseded_by_current_session,
     _finalize_spawns_with_dead_terminals,
 )

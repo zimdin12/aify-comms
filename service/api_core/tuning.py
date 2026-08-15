@@ -89,3 +89,9 @@ LIVE_SESSION_STATUSES = {
 # (sc-architect showed 909h). A real worked span — even a long autonomous run — never
 # approaches this; anything above it is a reaped/stuck run and contributes 0 worked minutes.
 WORKED_SPAN_CEILING_SECONDS = 4 * 3600
+
+
+# MOVED HERE IN v0.5.4 when `reconcilers/spawn_lifecycle.py` split: the orphan reaper and the
+# superseded-spawn reaper both read it, and a constant shared by two modules that do not import
+# each other needs a home neither owns. Same reason as WORKED_SPAN_CEILING_SECONDS above.
+SPAWN_ORPHAN_GRACE_SECONDS = 180  # matches the dispatch queued-run backstop window

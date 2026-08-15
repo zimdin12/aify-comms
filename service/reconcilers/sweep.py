@@ -73,9 +73,11 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     )
     from service.reconcilers.spawn_lifecycle import (
         _fail_orphaned_running_spawn_requests,
+        _repair_spawn_requests_from_initial_dispatch_failures,
+    )
+    from service.reconcilers.spawn_terminal_settlement import (
         _fail_running_spawns_superseded_by_current_session,
         _finalize_spawns_with_dead_terminals,
-        _repair_spawn_requests_from_initial_dispatch_failures,
     )
     from service.reconcilers.status_cache import (
         _prune_superseded_bridges,
