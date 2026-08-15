@@ -23,6 +23,11 @@ import logging
 import time
 from datetime import datetime, timezone
 
+from service.api_core.dead_terminal_spawn_query import (
+    _count_spawns_masked_by_live_sibling,
+    _select_spawns_with_dead_terminals,
+    _terminal_end_statuses_ordered,
+)
 from service.terminal_diagnostics import meaningful_failure_line as _terminal_failure_line
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
@@ -38,17 +43,8 @@ logger = logging.getLogger(__name__)
 SPAWN_ORPHAN_GRACE_SECONDS = 180  # matches the dispatch queued-run backstop window
 
 
-def _terminal_end_statuses_ordered() -> tuple[str, ...]:
-    """Imported LAZILY from the router, deliberately.
-
-    `_TERMINAL_END_STATUSES_ORDERED` derives from `_TERMINAL_END_STATUSES`, which the router still
-    owns and which `test_terminal_status_sets_agree` pins there. Forking a second copy here is
-    exactly the divergence that produced finding N7 (two sweeps disagreeing about `degraded`), so
-    this module borrows the one owner instead. A module-level import would be a cycle; a function
-    call at use time is not, because the router is fully loaded by then."""
-    from service.api_core.terminal_status import _TERMINAL_END_STATUSES_ORDERED
-
-    return _TERMINAL_END_STATUSES_ORDERED
+# _terminal_end_statuses_ordered moved to service/api_core/dead_terminal_spawn_query.py in
+# v0.5.4 - it travelled with the two queries that were its only callers.
 
 SPAWN_DEAD_TERMINAL_GRACE_SECONDS = 45
 
@@ -367,32 +363,7 @@ async def _finalize_spawns_with_dead_terminals(
     """
     now = _now()
     end_statuses = ",".join("?" for _ in _terminal_end_statuses_ordered())
-    cursor = await db.execute(
-        f"""
-        SELECT s.id AS spawn_id,
-               s.agent_id AS agent_id,
-               t.id AS terminal_id,
-               t.status AS terminal_status,
-               t.output AS terminal_output,
-               t.error AS terminal_error,
-               COALESCE(NULLIF(t.stopped_at, ''), t.updated_at) AS died_at
-        FROM spawn_requests s
-        JOIN terminal_sessions t ON t.session_id = s.session_id
-        WHERE s.status IN ('starting', 'running')
-          AND COALESCE(s.finished_at, '') = ''
-          AND COALESCE(s.session_id, '') != ''
-          AND LOWER(COALESCE(t.status, '')) IN ({end_statuses})
-          AND NOT EXISTS (
-            SELECT 1 FROM terminal_sessions live
-            WHERE live.session_id = s.session_id
-              AND LOWER(COALESCE(live.status, '')) NOT IN ({end_statuses})
-          )
-        ORDER BY s.created_at ASC
-        LIMIT ?
-        """,
-        (*_terminal_end_statuses_ordered(), *_terminal_end_statuses_ordered(), max(1, int(limit or 200))),
-    )
-    rows = await cursor.fetchall()
+    rows = await _select_spawns_with_dead_terminals(db, end_statuses, limit)
     now_epoch = datetime.now(timezone.utc).timestamp()
     grace = max(1, int(grace_seconds or SPAWN_DEAD_TERMINAL_GRACE_SECONDS))
     finalized = 0
@@ -432,26 +403,7 @@ async def _finalize_spawns_with_dead_terminals(
     # repo has been bitten by exactly that ambiguity: on the day this shipped, "0
     # finalized" could not be told apart from "the sweep never ran" without reading the
     # container's imports. Logged, not returned, so the tested int contract is unchanged.
-    masked_row = await (await db.execute(
-        f"""
-        SELECT COUNT(*) AS n
-        FROM spawn_requests s
-        WHERE s.status IN ('starting', 'running')
-          AND COALESCE(s.finished_at, '') = ''
-          AND COALESCE(s.session_id, '') != ''
-          AND EXISTS (
-            SELECT 1 FROM terminal_sessions dead
-            WHERE dead.session_id = s.session_id
-              AND LOWER(COALESCE(dead.status, '')) IN ({end_statuses})
-          )
-          AND EXISTS (
-            SELECT 1 FROM terminal_sessions live
-            WHERE live.session_id = s.session_id
-              AND LOWER(COALESCE(live.status, '')) NOT IN ({end_statuses})
-          )
-        """,
-        (*_terminal_end_statuses_ordered(), *_terminal_end_statuses_ordered()),
-    )).fetchone()
+    masked_row = await _count_spawns_masked_by_live_sibling(db, end_statuses)
     masked = int((masked_row["n"] if masked_row is not None else 0) or 0)
     if masked:
         logger.info(
