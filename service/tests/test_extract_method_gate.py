@@ -248,7 +248,14 @@ def outer():
         self.assertIn("Continue", escapes(ast.parse("continue\n").body))
         self.assertIn("Yield", escapes(ast.parse("y = (yield 1)\n").body))
 
-    def test_two_call_sites_are_rejected_as_undefined(self):
+    def test_two_call_sites_that_replaced_DIFFERENT_code_are_refused(self):
+        """Extracting one helper over two sites is allowed; claiming it for unequal blocks is not.
+
+        This used to be refused by COUNT — "inline-back is only defined for a single call site" — and
+        that ruled out the one thing an extraction is for when the same block appears twice. The
+        constraint is now the honest one: the body goes back to EVERY site, so a split whose original
+        had different code at the two places cannot reconstruct it.
+        """
         original = '''
 def handler():
     a = 1
@@ -265,7 +272,77 @@ def _w():
 '''
         with self.assertRaises(AssertionError) as caught:
             assert_extraction_preserves_behaviour(original, split, "_w")
-        self.assertIn("exactly one call", str(caught.exception))
+        self.assertIn("did not reproduce the original", str(caught.exception))
+
+    def test_one_helper_extracted_from_TWO_IDENTICAL_blocks_is_proved(self):
+        """The deduplication case, which the old count-based refusal made unprovable.
+
+        `send_message` carried the same 22-line refusal block twice, thirty lines apart and
+        byte-identical. Pinning that as "twins" would have been the wrong answer — the repo's own
+        twins test says so, reserving agreement tests for blocks that DIFFER and calling an identical
+        pair a merge decision worth making deliberately.
+        """
+        original = '''
+def handler(x):
+    if x == 1:
+        note("stop")
+        return {"ok": False}
+    if x == 2:
+        note("stop")
+        return {"ok": False}
+    return {"ok": True}
+'''
+        split = '''
+def handler(x):
+    if x == 1:
+        return _refuse()
+    if x == 2:
+        return _refuse()
+    return {"ok": True}
+
+
+def _refuse():
+    note("stop")
+    return {"ok": False}
+'''
+        assert_extraction_preserves_behaviour(original, split, "_refuse")
+
+    def test_several_call_sites_with_DIFFERENT_calls_are_refused(self):
+        """Multi-site is allowed; multi-site with unequal calls is not, and the reason is honest.
+
+        Inline-back handles any number of sites, but every other rule here — arguments, whether they
+        are bound yet, what the statement does with the result — resolves ONE call site. Running them
+        against the first of several would leave the rest unexamined, which is worse than refusing.
+        Identical calls make checking one of them sufficient.
+        """
+        original = '''
+def handler(x, y):
+    if x:
+        note(x)
+        return {"ok": False}
+    if y:
+        note(y)
+        return {"ok": False}
+    return {"ok": True}
+'''
+        split = '''
+def handler(x, y):
+    if x:
+        return _refuse(x)
+    if y:
+        return _refuse(y)
+    return {"ok": True}
+
+
+def _refuse(x):
+    note(x)
+    return {"ok": False}
+'''
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original, split, "_refuse")
+        message = str(caught.exception)
+        self.assertIn("REFUSED", message)
+        self.assertIn("NOT identical", message)
 
 
 

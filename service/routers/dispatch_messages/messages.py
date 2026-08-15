@@ -32,6 +32,7 @@ from service.api_core.reply_expectation import (
     _message_type_expects_reply,
 )
 from service.api_core.reply_threading import _thread_reply_onto_dispatch_runs
+from service.api_core.send_refusal import _refuse_send_to_unstartable_recipients
 from service.api_core.console_input_queue import _queue_console_dispatch_inputs
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime
@@ -423,27 +424,7 @@ async def send_message(req: MessageSend, request: Request):
             # to persist + thread regardless of recipient live-startability
             # (see is_reply note above). Only NEW dispatches hard-gate.
             if not_started and not is_reply:
-                recipient_info = {}
-                for r in recipients:
-                    info = await _get_recipient_info(db, r)
-                    if info:
-                        recipient_info[r] = {
-                            "status": info["status"],
-                            "unread": info["unread"],
-                            "runtime": info["runtime"],
-                            "machineId": info["machineId"],
-                        }
-                await db.commit()
-                return {
-                    "ok": False,
-                    "error": "Message was not sent because one or more recipients cannot start live work now.",
-                    "recipients": recipients,
-                    "recipientStatus": recipient_info,
-                    "dispatchRuns": [],
-                    "notStarted": not_started,
-                    "consoleDeliveries": [],
-                    "warnings": warnings,
-                }
+                return await _refuse_send_to_unstartable_recipients(db, recipients, not_started, warnings)
             settings = await _load_settings(db)
             channel_backing_failed = set()
             await _launch_recipients_for_dispatch(channel_backing_failed, console_recipients, db, launchable_recipients, not_started, req, settings)
@@ -455,27 +436,7 @@ async def send_message(req: MessageSend, request: Request):
             # ASYMMETRY: replies are never hard-rejected — see is_reply note
             # above. Fall through to persist + thread the reply.
             if not_started and not is_reply:
-                recipient_info = {}
-                for r in recipients:
-                    info = await _get_recipient_info(db, r)
-                    if info:
-                        recipient_info[r] = {
-                            "status": info["status"],
-                            "unread": info["unread"],
-                            "runtime": info["runtime"],
-                            "machineId": info["machineId"],
-                        }
-                await db.commit()
-                return {
-                    "ok": False,
-                    "error": "Message was not sent because one or more recipients cannot start live work now.",
-                    "recipients": recipients,
-                    "recipientStatus": recipient_info,
-                    "dispatchRuns": [],
-                    "notStarted": not_started,
-                    "consoleDeliveries": [],
-                    "warnings": warnings,
-                }
+                return await _refuse_send_to_unstartable_recipients(db, recipients, not_started, warnings)
 
         linked_result_message_id = _primary_result_message_id(msg_id, recipients)
 

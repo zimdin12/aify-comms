@@ -412,6 +412,33 @@ def _read_before_rebind(after: list[ast.stmt], name: str) -> bool:
     return scan(after) == "read"
 
 
+def divergent_call_site_violations(split_fn: ast.AST, helper_fn: ast.AST) -> list[str]:
+    """Several call sites are allowed ONLY when the calls are identical.
+
+    Inline-back splices the body into every site, so a helper extracted from two places is provable.
+    The other rules here are not: each inspects THE call — its arguments, whether they are bound yet,
+    what the statement does with the result — by resolving a single site. Running them against the
+    first of several would leave the rest unexamined, which is worse than the refusal it replaced.
+
+    Requiring the calls to be identical makes checking one of them sufficient, and it is exactly the
+    shape a deduplication produces: the same block, extracted from places that were already the same.
+    Anything else — different arguments, one site assigning and another returning — is refused rather
+    than half-checked. Widening this means teaching all four rules to iterate, with its own tests.
+    """
+    sites = _find_call_sites(split_fn, helper_fn.name)
+    if len(sites) < 2:
+        return []
+    rendered = {ast.dump(block[index], include_attributes=False) for block, index in sites}
+    if len(rendered) > 1:
+        return [
+            f"{helper_fn.name!r} is called from {len(sites)} places and the calls are NOT identical. "
+            "Inline-back handles that, but the argument, binding and shape checks each resolve ONE "
+            "call site, so the others would go unexamined. Make the calls identical, or extract a "
+            "helper per site."
+        ]
+    return []
+
+
 def call_site_shape_violations(split_fn: ast.AST, helper_fn: ast.AST) -> list[str]:
     """The call site's shape must agree with whether the helper RETURNS.
 
@@ -1023,8 +1050,8 @@ def _calls(stmt: ast.stmt, helper: str) -> bool:
     )
 
 
-def _find_call_site(fn: ast.AST, helper: str) -> tuple[list[ast.stmt], int]:
-    """The (block, index) of the single statement calling `helper`, AT ANY DEPTH.
+def _find_call_sites(fn: ast.AST, helper: str) -> list[tuple[list[ast.stmt], int]]:
+    """Every (block, index) whose statement calls `helper`, AT ANY DEPTH.
 
     Depth matters, and getting it wrong made the gate useless on real code. The first version only
     looked at the function's TOP-LEVEL statements, so a call nested inside a `with` resolved to the
@@ -1052,12 +1079,21 @@ def _find_call_site(fn: ast.AST, helper: str) -> tuple[list[ast.stmt], int]:
                 found.append((block, index))  # nothing deeper claimed it
 
     descend(fn.body)
-    if len(found) != 1:
+    if not found:
         raise AssertionError(
-            f"expected exactly one call to {helper!r} in the split function, found {len(found)}. "
-            "Inline-back is only defined for a single call site."
+            f"expected a call to {helper!r} in the split function, found none."
         )
-    return found[0]
+    return found
+
+
+def _find_call_site(fn: ast.AST, helper: str) -> tuple[list[ast.stmt], int]:
+    """The single call site, for the checks that examine one.
+
+    Kept as a separate name because most rules here ask about "the call" and reading them is easier
+    when that is literally what they get. A helper with several call sites is checked at EVERY site
+    by the callers that matter; see `_find_call_sites`.
+    """
+    return _find_call_sites(fn, helper)[0]
 
 
 def _helper_body(helper_fn: ast.AST) -> list[ast.stmt]:
@@ -1083,7 +1119,18 @@ def inline_back(split_fn: ast.AST, helper_fn: ast.AST) -> ast.AST:
     no other escape anywhere in the helper (`_returns_only_at_tail`).
     """
     result = copy.deepcopy(split_fn)
-    block, index = _find_call_site(result, helper_fn.name)
+    # EVERY call site, not just the first. One block extracted from SEVERAL places is how a
+    # duplicate is removed, and the reconstruction is only exact if the body goes back to all of
+    # them — which is also what makes the proof honest: if the original had DIFFERENT code at two
+    # sites, splicing the same body into both cannot match it and the round trip fails.
+    # Reverse order so an earlier splice does not shift a later index inside the same block.
+    sites = _find_call_sites(result, helper_fn.name)
+    for block, index in sorted(sites, key=lambda site: site[1], reverse=True):
+        _splice_one(block, index, helper_fn)
+    return result
+
+
+def _splice_one(block: list[ast.stmt], index: int, helper_fn: ast.AST) -> None:
     call_stmt = block[index]
     body = _helper_body(helper_fn)
 
@@ -1137,7 +1184,6 @@ def inline_back(split_fn: ast.AST, helper_fn: ast.AST) -> ast.AST:
             body = body[:-1] + [rebound]
 
     block[index:index + 1] = body
-    return result
 
 
 def _returns_only_at_tail(helper_fn: ast.AST) -> bool:
@@ -1215,6 +1261,10 @@ def assert_extraction_preserves_behaviour(original_src: str, split_src: str, hel
             + "\nInline-back CANNOT catch this either - it reconstructs the ORIGINAL, where those "
             "names are in scope. The SPLIT is what raises NameError."
         )
+
+    divergent = divergent_call_site_violations(funcs[original.name], helper)
+    if divergent:
+        raise AssertionError("REFUSED: " + "; ".join(divergent))
 
     misshapen = call_site_shape_violations(funcs[original.name], helper)
     if misshapen:
@@ -1391,6 +1441,9 @@ def assert_extractions_preserve_behaviour(
             raise AssertionError(
                 f"REFUSED [{helper_name}]: the helper reads caller locals it was not given:\n  - "
                 + "\n  - ".join(unpassed))
+        divergent = divergent_call_site_violations(enclosing, helper)
+        if divergent:
+            raise AssertionError(f"REFUSED [{helper_name}]: " + "; ".join(divergent))
         misshapen = call_site_shape_violations(enclosing, helper)
         if misshapen:
             raise AssertionError(

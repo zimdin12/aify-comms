@@ -43,7 +43,10 @@ DISPATCH_LAUNCH = REPO / "service" / "api_core" / "dispatch_launch.py"
 #: layering exists to prevent. They moved to `reply_linking.py` first; this is what that unblocked.
 REPLY_THREADING = REPO / "service" / "api_core" / "reply_threading.py"
 REPLY_LINKING = REPO / "service" / "api_core" / "reply_linking.py"
-MODULES = (MESSAGES, DISPATCH_START, CONSOLE_QUEUE, DISPATCH_LAUNCH, REPLY_THREADING)
+#: v0.5.4: the refusal block was DEDUPLICATED, not merely moved — it appeared twice in
+#: `send_message`, byte-identical, and one helper now serves both call sites.
+REFUSAL = REPO / "service" / "api_core" / "send_refusal.py"
+MODULES = (MESSAGES, DISPATCH_START, CONSOLE_QUEUE, DISPATCH_LAUNCH, REPLY_THREADING, REFUSAL)
 FIXTURE = Path(__file__).resolve().parent / "data" / "send_message_before_split.py"
 
 SOURCE_FUNCTION = "send_message"
@@ -51,6 +54,7 @@ EXTRACTIONS = [
     "_launch_recipients_for_dispatch",
     "_queue_console_dispatch_inputs",
     "_thread_reply_onto_dispatch_runs",
+    "_refuse_send_to_unstartable_recipients",
 ]
 
 
@@ -108,6 +112,7 @@ class SendMessageSplitIsInertTests(unittest.TestCase):
             "_launch_recipients_for_dispatch": DISPATCH_LAUNCH,
             "_queue_console_dispatch_inputs": CONSOLE_QUEUE,
             "_thread_reply_onto_dispatch_runs": REPLY_THREADING,
+            "_refuse_send_to_unstartable_recipients": REFUSAL,
         }
         self.assertEqual(sorted(expected), sorted(EXTRACTIONS), "every extraction needs a declared owner")
         for helper, owner in expected.items():
