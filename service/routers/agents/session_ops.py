@@ -21,6 +21,7 @@ from service.api_core.execution_mode import _auto_return_resident_to_managed_if_
 from service.api_core.runtime_state import _runtime_state_replacing_handle
 from service.api_core.resident_loss import _settle_lost_resident_when_no_transition
 from service.api_core.status_events import _apply_status_event
+from service.api_core.agent_stop_resume import _apply_agent_stop_or_resume
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.session_ops")
@@ -43,7 +44,6 @@ from service.routers.agents.shared import (
     _agent_record_to_dict,
     _agent_session_to_dict,
     _agent_tombstone,
-    _append_dispatch_event,
     _append_terminal_control,
     _append_terminal_event,
     _borrowed_console_tail_max_bytes,
@@ -123,7 +123,6 @@ from service.api_core.registration_gates import (
     _validate_registration_cwd,
 )
 from service.api_core.agent_terminal_ops import (
-    _request_stop_agent_terminals,
     _resolve_live_console_terminal,
 )
 from service.api_core.agent_sessions import _adopt_live_resident_driver
@@ -236,49 +235,9 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
                 raise HTTPException(409, f'Agent "{agent_id}" has no active run to interrupt')
 
         cancelled_queued = 0
-        if action == "stop":
-            queued_cursor = await db.execute(
-                "SELECT id FROM dispatch_runs WHERE target_agent = ? AND status = 'queued'",
-                (agent_id,),
-            )
-            queued_rows = await queued_cursor.fetchall()
-            for row in queued_rows:
-                await db.execute(
-                    "UPDATE dispatch_runs SET status = 'cancelled', summary = ?, finished_at = ? WHERE id = ?",
-                    (f'Agent "{agent_id}" was stopped from the dashboard before the run could start.', now, row["id"]),
-                )
-                await _append_dispatch_event(db, row["id"], "agent_stopped", "Agent stopped from dashboard")
-                cancelled_queued += 1
-            stop_note = "Stopped from dashboard. Resume to allow wake/dispatch again."
-            if _normalize_session_mode(agent["session_mode"] or "resident") == "resident":
-                stop_note = "Resident session stop requested from dashboard; live bridge should terminate the CLI host."
-            await db.execute(
-                """
-                UPDATE agents
-                SET status = 'stopped', status_note = ?, launch_mode = 'none', last_seen = ?
-                WHERE id = ?
-                """,
-                (stop_note, now, agent_id),
-            )
-            # Kill the managed console/TUI too — aify-comms is the lifecycle driver
-            # for managed sessions, so Stop must tear down the running terminal
-            # instead of leaving an abandoned TUI (operator-reported 2026-05-31).
-            # Resident windows are the operator's OWN process; the bridge teardown
-            # handles those (see stop_note), so this is managed-only.
-            if _normalize_session_mode(agent["session_mode"] or "resident") == "managed":
-                await _request_stop_agent_terminals(
-                    db, agent_id, requested_by=req.from_agent or "dashboard", now=now,
-                )
-        elif action == "resume":
-            await db.execute(
-                """
-                UPDATE agents
-                SET status = 'idle', status_note = '', launch_mode = CASE WHEN launch_mode = 'none' THEN 'detached' ELSE launch_mode END,
-                    last_seen = ?
-                WHERE id = ?
-                """,
-                (now, agent_id),
-            )
+        cancelled_queued = await _apply_agent_stop_or_resume(
+            db, agent_id, agent, req, action, now, cancelled_queued
+        )
 
         await db.commit()
         updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
