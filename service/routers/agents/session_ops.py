@@ -19,6 +19,7 @@ from fastapi import HTTPException, Query, Request
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.execution_mode import _auto_return_resident_to_managed_if_possible
 from service.api_core.runtime_state import _runtime_state_replacing_handle
+from service.api_core.resident_loss import _settle_lost_resident_when_no_transition
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.session_ops")
@@ -487,68 +488,9 @@ async def resident_lost(agent_id: str, req: AgentResidentLostRequest, request: R
             reason="resident_runtime_lost",
         )
 
-        if not transition:
-            # A session_mode='managed' agent reaching here is NOT a resident that lost
-            # its runtime — it's a MANAGED worker whose backing died (the hermes
-            # managed-host reuses this signal via reportGatewayDead when its gateway
-            # port goes dead). The server can re-spawn a managed worker on the next
-            # message, so it must rest at a COLD-STARTABLE state, not 'stopped'.
-            #
-            # The old code stopped it (status='stopped', launch_mode='none'), which the
-            # send-gate rejects outright ("agent status is stopped") — so a dead-gateway
-            # hermes could NEVER wake; every send bounced and the only recovery was a
-            # manual hermes-aify restart (operator-reported: whole hermes team stuck
-            # 'stopped', 2026-07-06/07). Wake test proved status='stopped' hard-blocks
-            # delivery (dispatchRuns:[], reason "agent status is stopped").
-            #
-            # Fix: for a managed agent, mirror an idle-available managed worker
-            # (stored status='active' → _compute_agent_status derives 'available' with
-            # no live worker; launch_mode='detached') so the next send cold-starts a
-            # fresh session (new gateway). The bound env still gates via the send
-            # preflight, so an offline env yields a clean "env unavailable" wait rather
-            # than a permanent stop. Resident agents keep the stop fallback (a resident
-            # that lost its runtime with no managed backing is correctly stopped).
-            agent_is_managed = str(row["session_mode"] or "").strip().lower() == "managed"
-            if agent_is_managed:
-                await db.execute(
-                    """
-                    UPDATE agents
-                    SET status = 'active',
-                        status_note = ?,
-                        launch_mode = 'detached',
-                        last_seen = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        (
-                            "Managed worker backing ended ("
-                            + str(req.reason or "runtime/gateway lost").strip()[:200]
-                            + "); will cold-start a fresh session on the next message."
-                        )[:500],
-                        now,
-                        agent_id,
-                    ),
-                )
-                returned = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-                transition = "managed_worker_lost_available"
-            else:
-                await db.execute(
-                    """
-                    UPDATE agents
-                    SET status = 'stopped',
-                        status_note = ?,
-                        launch_mode = 'none',
-                        last_seen = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        str(req.reason or "Resident runtime bridge was lost and no managed backing was available.")[:500],
-                        now,
-                        agent_id,
-                    ),
-                )
-                returned = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-                transition = "resident_to_stopped"
+        returned, transition = await _settle_lost_resident_when_no_transition(
+            db, agent_id, row, req, now, returned, transition
+        )
 
         await db.commit()
         dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
