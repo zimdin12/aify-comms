@@ -36,7 +36,6 @@ from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import _load_settings
 from service.api_core.status_refresh import _compute_agent_status
-from service.terminal_write_queue import TERMINAL_OUTPUT_WRITES
 
 
 async def _preflight_live_send_recipients(
@@ -187,6 +186,9 @@ async def _preflight_live_send_recipients(
 
 # TERMINAL_OUTPUT_WRITES moved to service/terminal_write_queue.py in v0.5.4 —
 # the declaration must stay beside the class so a second instance cannot appear.
-
-
-    await TERMINAL_OUTPUT_WRITES.flush_all()
+#
+# That move left ONE line of the flushing function's body behind, and because comments and blank
+# lines do not close a Python block it landed inside `_preflight_live_send_recipients`, 27 lines
+# after its `return` — unreachable, and the only remaining reference to the name, which is why the
+# now-removed `TERMINAL_OUTPUT_WRITES` import still read as live. Deleted 2026-08-16;
+# `test_no_unreachable_statements.py` is the gate that makes the next one a red test.
