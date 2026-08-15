@@ -45,12 +45,26 @@ const STDIO = TOOL_SOURCES.join("\n");
 // SSE tool modules can live in two places and both are scanned: `mcp/` holds the transport itself,
 // and `service/sse/` holds what comes out of it — `mcp/` is not an importable package here (see
 // `service/sse/__init__.py`), so decomposition lands under `service/`.
+//
+// AND THE DECORATOR IS NOT THE SIGNAL ANY MORE. The first version of this widening kept the old
+// filter — files containing `@mcp_server.tool(` — and it was wrong on the very next slice, because
+// an extracted group has NO decorators: the module cannot import the server it would decorate
+// against (that would be a cycle), so it declares its tools bare and a `register(mcp_server)` call
+// applies the decorator where the declarations used to stand. Keeping the decorator as the marker
+// meant the extracted file was not even opened, and the parity test failed exactly the way this
+// comment block was written to prevent. Preparing for a move is not the same as testing one.
+//
+// So the marker is REGISTRATION IN EITHER FORM: a file that decorates, or one that exposes a
+// `register(`. What is counted is still the declaration — `async def comms_x` — which is a claim
+// that the tool EXISTS, not proof that it reaches the server. That proof cannot be had from JS at
+// all, so it lives on the Python side, where the transport can be loaded and FastMCP asked directly:
+// `test_sse_tools_are_registered.py`.
 const SSE_DIRS = [new URL("../../", import.meta.url), new URL("../../../service/sse/", import.meta.url)];
 const SSE_SOURCES = SSE_DIRS.flatMap((dir) =>
   readdirSync(dir)
     .filter((name) => name.endsWith(".py"))
     .map((name) => readFileSync(new URL(name, dir), "utf8"))
-    .filter((src) => /@mcp_server\.tool\(/.test(src)));
+    .filter((src) => /@mcp_server\.tool\(/.test(src) || /^def register\(/m.test(src)));
 const SSE = SSE_SOURCES.join("\n");
 
 // `server.tool("name",` — the stdio registration form. The leading `\s*` absorbs the indentation a
@@ -59,11 +73,11 @@ function stdioTools() {
   return new Set([...STDIO.matchAll(/server\.tool\(\s*\n?\s*"(comms_[a-z_]+)"/g)].map((m) => m[1]));
 }
 
-// `@mcp_server.tool()` followed by `async def name(`.
+// `async def comms_name(` at column 0, in a file that registers tools. The decorator used to be part
+// of this pattern and cannot be: an extracted group declares its tools bare (see above). Anchoring
+// at the start of a line is what keeps this from matching a nested helper.
 function sseTools() {
-  return new Set(
-    [...SSE.matchAll(/@mcp_server\.tool\(\)\s*\nasync def\s+(comms_[a-z_]+)\s*\(/g)].map((m) => m[1]),
-  );
+  return new Set([...SSE.matchAll(/^async def\s+(comms_[a-z_]+)\s*\(/gm)].map((m) => m[1]));
 }
 
 // Tools deliberately absent from SSE, each with the reason. SSE is a REDUCED surface by design —

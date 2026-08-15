@@ -28,6 +28,7 @@ from service.config import get_config
 # `import mcp` resolves to the PyPI distribution the line above imports FastMCP from, which is why
 # `service/main.py` loads THIS file by path instead of importing it. See `service/sse/__init__.py`.
 from service.sse.api_client import api as _api, api_url as _api_url  # noqa: F401
+from service.sse.channel_tools import register as _register_channel_tools
 from service.sse.container_tools import (
     bind_app as _bind_container_app,
     get_manager as _get_manager,
@@ -430,102 +431,11 @@ async def comms_search(
 
 
 # ---------------------------------------------------------------------------
-# Channel Tools
+# Channel Tools — declared in service/sse/channel_tools.py, registered here so they land on this
+# server in the position they always occupied.
 # ---------------------------------------------------------------------------
 
-@mcp_server.tool()
-async def comms_channel_create(name: str, from_agent: str, description: str = "") -> str:
-    """Create a new channel (group chat) for multiple agents to communicate."""
-    r = await _api("POST", "/channels", {"name": name, "createdBy": from_agent, "description": description})
-    if "detail" in r:
-        return f"Error: {r['detail']}"
-    return f"Channel #{name} created. You're a member."
-
-
-@mcp_server.tool()
-async def comms_channel_join(channel: str, from_agent: str) -> str:
-    """Join an existing channel."""
-    r = await _api("POST", f"/channels/{channel}/join", {"agentId": from_agent})
-    if "detail" in r:
-        return f"Error: {r['detail']}"
-    return f"Joined #{channel}. Members: {', '.join(r.get('members', []))}"
-
-
-@mcp_server.tool()
-async def comms_channel_send(
-    channel: str,
-    from_agent: str,
-    body: str,
-    type: str = "info",
-    priority: str = "normal",
-    silent: bool = False,
-    steer: bool | None = None,
-    queueIfBusy: bool = False,
-) -> str:
-    """Send a live-gated message to a channel. Offline/stale/stopped/no-wake members fail the send without storing. Busy steer-capable members receive ordinary sends as current-run steer; busy live non-steer members queue/merge as next-turn work. Set queueIfBusy=true only when you intentionally want next-turn delivery even if steering is available."""
-    should_trigger = not silent
-    force_queue = bool(queueIfBusy)
-    r = await _api("POST", f"/channels/{channel}/send", {
-        "from_agent": from_agent, "channel": channel, "body": body, "type": type, "priority": priority,
-        "trigger": should_trigger, "silent": silent, "steer": False if force_queue else (steer if steer is not None else True),
-        "queueIfBusy": force_queue,
-    })
-    if "detail" in r:
-        return f"Error: {r['detail']}"
-    if should_trigger and (r.get("dispatchRuns") or r.get("notStarted")):
-        queued = [
-            (
-                f"{run.get('targetAgentId', '?')} ({run.get('runId', '?')})"
-                + f" [{run.get('status', 'queued')}]"
-                + (
-                    f" queued behind active run {run['queuedBehindActiveRun']['runId']}"
-                    if run.get("queuedBehindActiveRun", {}).get("runId")
-                    else ""
-                )
-            )
-            for run in r.get("dispatchRuns", [])
-        ]
-        skipped = [f"{item.get('targetAgentId', '?')}: {item.get('reason', 'not started')}" for item in r.get("notStarted", [])]
-        note = f"Sent to #{channel} with live delivery for {', '.join(queued) if queued else 'no launchable recipients'}."
-        if skipped:
-            note += f" Not started: {'; '.join(skipped)}."
-        note += " Use comms_run_status(...) to inspect progress."
-        return note
-    return f"Sent to #{channel} ({r.get('members', {})  if isinstance(r.get('members'), int) else len(r.get('members', []))} members)."
-
-
-@mcp_server.tool()
-async def comms_channel_read(channel: str, limit: int = 20) -> str:
-    """Read recent messages from a channel."""
-    r = await _api("GET", f"/channels/{channel}", params={"limit": str(limit)})
-    if "detail" in r:
-        return f"Error: {r['detail']}"
-    msgs = r.get("messages", [])
-    if not msgs:
-        return f"#{channel} -- no messages yet. Members: {', '.join(r.get('members', []))}"
-    header = f"#{channel} -- {r.get('totalMessages', len(msgs))} messages, {len(r.get('members', []))} members ({', '.join(r.get('members', []))})"
-    lines = []
-    for m in msgs:
-        t = m.get("timestamp", "")
-        safe_body = _fence(m.get("body", ""))
-        lines.append(f"[{t}] {m.get('from', '?')}: {safe_body}")
-    return f"{SAFETY_HEADER}\n\n{header}\n\n" + "\n\n".join(lines)
-
-
-@mcp_server.tool()
-async def comms_channel_list() -> str:
-    """List all channels."""
-    r = await _api("GET", "/channels")
-    channels = r.get("channels", [])
-    if not channels:
-        return "No channels."
-    lines = [
-        f"#{c['name']} -- {c.get('description', '(no description)')} | "
-        f"{c.get('members', 0) if isinstance(c.get('members'), int) else len(c.get('members', []))} members, "
-        f"{c.get('messageCount', 0)} messages"
-        for c in channels
-    ]
-    return "\n".join(lines)
+_register_channel_tools(mcp_server)
 
 
 # ---------------------------------------------------------------------------
