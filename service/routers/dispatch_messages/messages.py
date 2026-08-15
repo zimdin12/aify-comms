@@ -31,6 +31,10 @@ from service.api_core.reply_expectation import (
     _dispatch_requires_reply,
     _message_type_expects_reply,
 )
+from service.api_core.reply_linking import (
+    _link_reply_message_to_dispatch_run,
+    _link_unthreaded_reply_to_recent_dispatch_run,
+)
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.serialization import (
@@ -58,8 +62,6 @@ from service.routers.dispatch_messages.shared import (
     _create_dispatch_runs,
     _delete_messages_where,
     _get_recipient_info,
-    _link_reply_message_to_dispatch_run,
-    _link_unthreaded_reply_to_recent_dispatch_run,
     _queue_console_dispatch_inputs,
     _preflight_live_send_recipients,
     _primary_result_message_id,

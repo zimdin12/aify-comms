@@ -740,7 +740,8 @@ _TERMINAL_DEAD_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "c
 # then on to service/api_core/claim_gating.py in v0.5.4.
 
 
-# _is_replaceable_auto_handoff_message moved to service/routers/dispatch_messages/shared.py in v0.5.3.
+# _is_replaceable_auto_handoff_message moved to service/routers/dispatch_messages/shared.py in v0.5.3,
+# then on to service/api_core/reply_linking.py in v0.5.4.
 
 
 # _HANDOFF_REPLY_TYPES moved to service/api_core/reply_contract.py in v0.5.4 with its

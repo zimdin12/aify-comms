@@ -28,6 +28,7 @@ from service.api_core.reply_expectation import (
     _dispatch_requires_reply,
     _message_type_expects_reply,
 )
+from service.api_core.reply_linking import _link_reply_message_to_dispatch_run
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.liveness import ACTIVE_RUN_BRIDGE_STALE_SECONDS
@@ -64,7 +65,6 @@ from service.routers.dispatch_messages.shared import (
     _close_reconcilable_delivered_runs,
     _create_dispatch_runs,
     _get_recipient_info,
-    _link_reply_message_to_dispatch_run,
     _mirror_missing_dispatch_handoff,
     _primary_result_message_id,
     _resolve_recipient_ids,
