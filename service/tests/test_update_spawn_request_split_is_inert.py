@@ -41,6 +41,7 @@ EXTRACTIONS = [
     "_migrate_bridge_id_onto_live_terminal",
     "_hand_settled_spawn_to_dispatch",
     "_ensure_pty_for_settled_spawn",
+    "_upsert_running_agent_session",
 ]
 
 #: Where each helper is expected to be declared. PER HELPER, over every module below.
@@ -49,6 +50,7 @@ OWNERS = {
     "_migrate_bridge_id_onto_live_terminal": RUNNING,
     "_hand_settled_spawn_to_dispatch": RUNNING,
     "_ensure_pty_for_settled_spawn": RUNNING,
+    "_upsert_running_agent_session": RUNNING,
 }
 
 MODULES = (SPAWN_REQUESTS, RUNNING)

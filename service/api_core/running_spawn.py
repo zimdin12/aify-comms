@@ -134,63 +134,9 @@ async def _settle_running_spawn(
                     None,
                 ),
             )
-            # UPSERT, not INSERT OR REPLACE (bughunt 2026-07-03, HIGH): a duplicate/retried
-            # 'running' PATCH (routine on the slow 9p/WSL host, where the bridge marks all
-            # PATCHes retriable) re-ran this block. INSERT OR REPLACE DELETES the existing
-            # row on the reused session_id, and foreign_keys=ON then CASCADE-dropped the
-            # live terminal_sessions + terminal_events + pending terminal_controls — the
-            # dashboard showed "Console not started" for a live PTY and queued keystrokes/
-            # Stop were lost. ON CONFLICT DO UPDATE omits terminal_id/terminal_status so a
-            # console bound between PATCHes survives (mirrors the resident path ~15051).
-            await db.execute(
-                """
-                INSERT INTO agent_sessions (
-                    id, agent_id, environment_id, runtime, workspace, mode,
-                    owner_mode, owner_bridge_id, terminal_id, terminal_status, terminal_command, terminal_workspace,
-                    process_id, session_handle,
-                    app_server_url, spawn_spec_id, spawn_request_id, capabilities, telemetry, status,
-                    started_at, last_seen, ended_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                ON CONFLICT(id) DO UPDATE SET
-                    runtime = excluded.runtime,
-                    workspace = excluded.workspace,
-                    mode = excluded.mode,
-                    owner_mode = excluded.owner_mode,
-                    owner_bridge_id = excluded.owner_bridge_id,
-                    process_id = excluded.process_id,
-                    session_handle = excluded.session_handle,
-                    app_server_url = excluded.app_server_url,
-                    capabilities = excluded.capabilities,
-                    telemetry = excluded.telemetry,
-                    status = 'running',
-                    last_seen = excluded.last_seen,
-                    ended_at = NULL
-                """,
-                (
-                    session_id,
-                    row["agent_id"],
-                    row["environment_id"],
-                    row["runtime"],
-                    row["workspace"] or "",
-                    row["mode"] or "managed-warm",
-                    "managed",
-                    req.bridgeId or row["claimed_by_bridge_id"] or "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    req.processId or "",
-                    effective_session_handle,
-                    "",
-                    row["spawn_spec_id"],
-                    row["id"],
-                    json.dumps(req.capabilities or {"persistent": True, "bridgeResume": True}),
-                    json.dumps(req.telemetry or {}),
-                    "running",
-                    started_at or now,
-                    now,
-                    None,
-                ),
+            await _upsert_running_agent_session(
+                db, req, row, session_id,
+                effective_session_handle, started_at, now,
             )
             # Migrate a live terminal orphaned by this rotation (operator-reported
             # 2026-05-31, sc-architect). A managed respawn's bridge can create the
@@ -388,3 +334,79 @@ async def _ensure_pty_for_settled_spawn(db, row, settings_for_pty):
                         "eager managed PTY for %s failed (%s: %s); falling back to lazy spawn on dispatch",
                         row["agent_id"], type(exc).__name__, exc,
                     )
+
+
+async def _upsert_running_agent_session(
+    db, req, row, session_id,
+    effective_session_handle, started_at, now,
+):
+            """Write the agent_sessions row for a spawn that has just become a running worker.
+
+            Extracted from `_settle_running_spawn` in v0.5.4 — fifty lines of one SQL statement sitting
+            in the middle of a settlement, which is what made the surrounding phases hard to see.
+
+            The comment above the statement travelled WITH it, because it records why this is an UPSERT
+            rather than INSERT OR REPLACE and what happened when it was not. Separated from the SQL it
+            explains, that reasoning is one edit away from being lost.
+
+            Body at its ORIGINAL COLUMN: the statement contains triple-quoted SQL, and dedenting would
+            rewrite the string contents and make the round trip unprovable.
+            """
+            # UPSERT, not INSERT OR REPLACE (bughunt 2026-07-03, HIGH): a duplicate/retried
+            # 'running' PATCH (routine on the slow 9p/WSL host, where the bridge marks all
+            # PATCHes retriable) re-ran this block. INSERT OR REPLACE DELETES the existing
+            # row on the reused session_id, and foreign_keys=ON then CASCADE-dropped the
+            # live terminal_sessions + terminal_events + pending terminal_controls — the
+            # dashboard showed "Console not started" for a live PTY and queued keystrokes/
+            # Stop were lost. ON CONFLICT DO UPDATE omits terminal_id/terminal_status so a
+            # console bound between PATCHes survives (mirrors the resident path ~15051).
+            await db.execute(
+                """
+                INSERT INTO agent_sessions (
+                    id, agent_id, environment_id, runtime, workspace, mode,
+                    owner_mode, owner_bridge_id, terminal_id, terminal_status, terminal_command, terminal_workspace,
+                    process_id, session_handle,
+                    app_server_url, spawn_spec_id, spawn_request_id, capabilities, telemetry, status,
+                    started_at, last_seen, ended_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(id) DO UPDATE SET
+                    runtime = excluded.runtime,
+                    workspace = excluded.workspace,
+                    mode = excluded.mode,
+                    owner_mode = excluded.owner_mode,
+                    owner_bridge_id = excluded.owner_bridge_id,
+                    process_id = excluded.process_id,
+                    session_handle = excluded.session_handle,
+                    app_server_url = excluded.app_server_url,
+                    capabilities = excluded.capabilities,
+                    telemetry = excluded.telemetry,
+                    status = 'running',
+                    last_seen = excluded.last_seen,
+                    ended_at = NULL
+                """,
+                (
+                    session_id,
+                    row["agent_id"],
+                    row["environment_id"],
+                    row["runtime"],
+                    row["workspace"] or "",
+                    row["mode"] or "managed-warm",
+                    "managed",
+                    req.bridgeId or row["claimed_by_bridge_id"] or "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    req.processId or "",
+                    effective_session_handle,
+                    "",
+                    row["spawn_spec_id"],
+                    row["id"],
+                    json.dumps(req.capabilities or {"persistent": True, "bridgeResume": True}),
+                    json.dumps(req.telemetry or {}),
+                    "running",
+                    started_at or now,
+                    now,
+                    None,
+                ),
+            )

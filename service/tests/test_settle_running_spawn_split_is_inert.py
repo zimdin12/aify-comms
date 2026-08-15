@@ -1,15 +1,20 @@
 """The `_settle_running_spawn` split, re-proved against the real code on every run.
 
-WHAT WAS EXTRACTED: three of the four things that happen when a spawn request becomes a live worker —
-migrating its bridge id onto the terminal actually serving the session, handing the waiting work to
-dispatch, and giving it a managed PTY. Ninety lines out of a 311-line function.
+WHAT WAS EXTRACTED: four of the things that happen when a spawn request becomes a live worker —
+writing the `agent_sessions` row, migrating the bridge id onto the terminal actually serving the
+session, handing the waiting work to dispatch, and giving the worker a managed PTY. 311 -> 166.
 
 THE HELPERS STAYED IN THIS MODULE, which is the unusual part and is deliberate. `running_spawn.py` is
 already under the 400-line target, so the problem was never the file — it was one function long enough
-that its four phases could not be seen at once. Moving the helpers to a new module would have split
-one subject across two files to fix a size problem that did not exist, and the three phases are not a
-shared subject: bridge migration, dispatch handoff and PTY creation have nothing in common except the
-moment they run.
+that its phases could not be seen at once. Moving the helpers to a new module would have split one
+subject across two files to fix a size problem that did not exist, and the phases are not a shared
+subject: a session upsert, bridge migration, dispatch handoff and PTY creation have nothing in common
+except the moment they run.
+
+THE SESSION UPSERT WAS FIFTY LINES OF ONE SQL STATEMENT, which is why it counted: not a decision, just
+a large opaque middle. Its comment travelled with it, because that comment records why the statement
+is an UPSERT rather than INSERT OR REPLACE and what broke when it was not — reasoning that is one edit
+from being lost once separated from the SQL it explains.
 
 WHY IT WAS EXTRACTABLE AT ALL: `_settle_running_spawn` contains no `return` anywhere. Every other
 large function reached in this release has been a guard chain — `_bridge_claim_block_reason` is 208
@@ -39,6 +44,7 @@ EXTRACTIONS = [
     "_migrate_bridge_id_onto_live_terminal",
     "_hand_settled_spawn_to_dispatch",
     "_ensure_pty_for_settled_spawn",
+    "_upsert_running_agent_session",
 ]
 OWNERS = {name: SPAWN for name in EXTRACTIONS}
 
