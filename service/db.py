@@ -660,8 +660,18 @@ async def _migrate_agent_turn_state_table(db: aiosqlite.Connection):
 
 
 # Runtimes the bridge can drive through a native managed integration.
-# Kept in sync with mcp/stdio/runtimes.js defaultCapabilitiesForRuntime and
-# service/routers/api_v2.py _NATIVE_MANAGED_RUNTIMES.
+#
+# A DELIBERATE THIRD COPY, and it cannot become an import. The owner is
+# `service/api_core/runtime.py`, but this module sits BELOW api_core — three api_core modules import
+# `service.db` and it imports none of them — so reaching up for the constant would invert the layering
+# and close a package-level cycle. The other copy is JS (`mcp/stdio/dispatch-execution.js`) and cannot
+# import a Python name at all.
+#
+# What keeps the three honest is `service/tests/test_native_managed_runtimes_parity.py`, which compares
+# all three by CONTENT (the type differs — a tuple here, a set there — because both are only ever
+# membership-tested). The previous note here said "kept in sync with ... service/routers/api_v2.py",
+# naming a file that has declared nothing since v0.5.4: a manual-sync instruction pointing at a
+# declaration that no longer exists, which is worse than no note, since it reads as governance.
 _NATIVE_MANAGED_RUNTIMES = ("codex", "pi", "opencode", "hermes")
 
 
