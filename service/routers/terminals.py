@@ -29,10 +29,10 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
 
-import asyncio
 
 from service import longpoll
 from service.api_core.events import _append_terminal_control, _append_terminal_event
+from service.api_core.terminal_snapshot_view import _attach_terminal_snapshot
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_session_mode
 from service.api_core.records import _terminal_session_to_dict
@@ -48,9 +48,6 @@ from service.terminal_snapshot import (
     TERMINAL_MAX_COLS,
     TERMINAL_MAX_ROWS,
     feed_live_screen as _feed_live_terminal_screen,
-    infer_source_width as _infer_terminal_source_width,
-    render_live_screen as _render_live_terminal_screen,
-    render_snapshot as _render_terminal_snapshot,
     resize_live_screen as _resize_live_terminal_screen,
 )
 # Imported for ANNOTATIONS as well as calls: under postponed evaluation a missing model does not
@@ -174,46 +171,7 @@ async def get_terminal(terminal_id: str, cols: Optional[int] = None, rows: Optio
         # differential painter's screen from a 64KB tail, which is the scrambled/half-missing
         # console. The live screen is rendered at the PTY's OWN geometry; the client already
         # widens its xterm to `renderedCols` (applyRenderedWidth), so a wide mirror still fits.
-        live = None
-        if term_dict.get("id"):
-            try:
-                live = _render_live_terminal_screen(str(term_dict["id"]))
-            except Exception:
-                live = None
-        if live:
-            snap, live_cols, live_rows = live
-            term_dict["snapshot"] = snap
-            term_dict["renderedCols"] = live_cols
-            term_dict["renderedRows"] = live_rows
-        elif cols and rows and term_dict.get("output"):
-            try:
-                loop = asyncio.get_event_loop()
-                raw = term_dict["output"]
-                # Never render NARROWER than the source: a resident wrapper mirrors the
-                # operator's real (often much wider) terminal, and its native width is not
-                # stored. Rendering at the pane's fit-width wrapped/mangled every line
-                # ("gappy / bugged console"). Infer the source width and render at the max
-                # of it and the viewer width; the client widens its xterm to renderedCols so
-                # the wide mirror scrolls instead of re-wrapping. Managed terminals are drawn
-                # at the size we set, so inferred≈viewer and behaviour is unchanged.
-                # A3 real-cols (2026-07-02): prefer the PTY's AUTHORITATIVE size (recorded
-                # when a resize control completes) over the heuristic — inference guesses
-                # from drawn cells and can mis-size a live redraw. Fall back to inference
-                # for rows that predate real-cols recording (stored cols 0/NULL).
-                stored_cols = int(term_dict.get("cols") or 0)
-                if stored_cols > 0:
-                    src_w = stored_cols
-                else:
-                    src_w = await loop.run_in_executor(None, _infer_terminal_source_width, raw)
-                eff_cols = max(20, min(max(int(cols), int(src_w or 0)), 500))
-                eff_rows = max(5, min(int(rows), 200))
-                term_dict["snapshot"] = await loop.run_in_executor(
-                    None, _render_terminal_snapshot, raw, eff_cols, eff_rows
-                )
-                term_dict["renderedCols"] = eff_cols
-                term_dict["renderedRows"] = eff_rows
-            except Exception:
-                pass
+        await _attach_terminal_snapshot(term_dict, cols, rows)
         return {
             "ok": True,
             "terminal": term_dict,
