@@ -27,6 +27,10 @@ import path from "node:path";
 import { probeApiServer } from "./hermes-version.js";
 import { agentEndpoint, clearGatewayMarkers as defaultClearGatewayMarkers } from "./hermes-endpoint.js";
 import { terminateProcessTree } from "./runtimes.js";
+// The filename sanitiser has ONE owner (`hermes-endpoint.js`); this module carried a
+// byte-identical copy until v0.5.4. Three copies of a function that turns an agent id into a
+// PATH is three chances for the same agent to get two different files.
+import { sanitizeAgentId } from "./hermes-endpoint.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const execFile = promisify(nodeExecFile);
@@ -81,15 +85,6 @@ export function looksLikeHermesProcess(cmdline) {
 // kill the PRIOR daemon — even if its port has since changed/been abandoned —
 // instead of leaking a stray hermes.exe. Mirrors the reuse-on-persist pattern of
 // resolveGatewayPort/loadOrCreateKey.
-
-// Sanitize an agentId into a safe filename fragment. Kept identical to
-// hermes-endpoint.js's private sanitizeAgentId so the pid file sits next to the
-// agent's port/key files.
-function sanitizeAgentId(agentId) {
-  return String(agentId || "")
-    .replace(/[^a-zA-Z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
 
 function daemonPidFile(agentId, tempDir, fsImpl) {
   return path.join(tempDir || os.tmpdir(), `aify-hermes-daemon-pid-${sanitizeAgentId(agentId)}`);

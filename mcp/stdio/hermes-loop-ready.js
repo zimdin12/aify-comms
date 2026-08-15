@@ -17,15 +17,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-
-// Sanitize an agentId into a safe filename fragment. Kept identical to
-// hermes-daemon.js / hermes-endpoint.js sanitizeAgentId so the ready marker sits
-// next to the agent's port/key/daemon-pid files.
-function sanitizeAgentId(agentId) {
-  return String(agentId || "")
-    .replace(/[^a-zA-Z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
+// The filename sanitiser has ONE owner (`hermes-endpoint.js`); this module carried a
+// byte-identical copy until v0.5.4. Three copies of a function that turns an agent id into a
+// PATH is three chances for the same agent to get two different files.
+import { sanitizeAgentId } from "./hermes-endpoint.js";
 
 // Absolute path to the ready marker for an agent.
 export function loopReadyFile(agentId, dir, { fs: _fsImpl = fs } = {}) {

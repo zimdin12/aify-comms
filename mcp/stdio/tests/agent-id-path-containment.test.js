@@ -1,9 +1,14 @@
 // An agent id becomes part of a FILE PATH in four modules, and nothing tested that it cannot escape.
 //
 // `claude-session-store.js`, `hermes-endpoint.js`, `hermes-daemon.js` and `hermes-loop-ready.js` each build
-// a store or marker path from an agent id, each through its own private `sanitizeAgentId`. Agent ids are not
-// operator-typed constants: they arrive from `AIFY_AGENT_ID` in a spawned process's environment, from
-// registration payloads, and from marker files written by other processes.
+// a store or marker path from an agent id. Agent ids are not operator-typed constants: they arrive from
+// `AIFY_AGENT_ID` in a spawned process's environment, from registration payloads, and from marker files
+// written by other processes.
+//
+// FOUR PRIVATE COPIES BECAME TWO OWNERS in v0.5.4. The three hermes modules held byte-identical
+// declarations; `hermes-endpoint.js` owns that one now and the other two import it. What did NOT change is
+// the part below that matters: there are still two VARIANTS, because the claude store's is a different
+// function that happens to share a name.
 //
 // CONTAINMENT HOLDS AND IS SAFE BY CONSTRUCTION RATHER THAN BY CONTRACT, which is why it is worth writing
 // down. Both sanitiser variants strip `/` and `\`, and every caller embeds the result with a literal prefix
@@ -14,10 +19,12 @@
 // UNIQUENESS DOES NOT HOLD, and that is a live defect this file pins rather than fixes: two agent ids that
 // both pass registration can collapse onto one hermes marker. See the CURRENT DEFECT case below.
 //
-// THE TWO VARIANTS DIFFER and that is recorded rather than reconciled. The hermes trio allows
+// THE TWO VARIANTS DIFFER and that is recorded rather than reconciled. The hermes one allows
 // `[a-zA-Z0-9_-]` and strips leading/trailing hyphens; `claude-session-store.js` also allows `.` and does
 // not strip. Both are contained; unifying them is a decision, not a cleanup, because the hermes value is a
 // path segment and the claude value is a filename infix — different jobs with different safe alphabets.
+// Deduplicating the three hermes copies did not touch that: it removed copies of ONE variant, and both
+// declarations now carry a comment naming the other so the shared name cannot suggest a shared function.
 
 import assert from "node:assert/strict";
 import test from "node:test";

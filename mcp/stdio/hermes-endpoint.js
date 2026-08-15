@@ -55,7 +55,16 @@ export function agentPort(agentId) {
 
 // Sanitize an agentId into a safe filename fragment (same charset rules as the
 // pinned session id), so the key file name is a valid path component.
-function sanitizeAgentId(agentId) {
+// THE OWNER of the hermes filename sanitiser. `hermes-daemon.js` and `hermes-loop-ready.js`
+// declared byte-identical copies until v0.5.4; this module imports nothing, so it cannot cycle,
+// and it holds eight of the eleven call sites.
+//
+// NOT THE SAME FUNCTION as `sanitizeAgentId` in `claude-session-store.js`, which shares the name
+// and does something different: it keeps dots and substitutes underscores, where this one folds
+// runs of anything unsafe into a single dash and trims the ends. `agent.1` becomes `agent.1`
+// there and `agent-1` here. Unifying them would repoint existing files on disk, which is a
+// migration and not a refactor — so they stay separate and this says why.
+export function sanitizeAgentId(agentId) {
   return String(agentId || "")
     .replace(/[^a-zA-Z0-9_-]+/g, "-")
     .replace(/^-+|-+$/g, "");

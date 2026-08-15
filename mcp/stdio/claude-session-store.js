@@ -15,6 +15,11 @@ function storeBaseDir(dir = "") {
   return dir || process.env.TEMP || process.env.TMP || os.tmpdir();
 }
 
+// SAME NAME, DIFFERENT FUNCTION from `sanitizeAgentId` in `hermes-endpoint.js`, and deliberately
+// so: this one keeps dots and substitutes underscores, that one folds runs into a dash and trims.
+// `agent.1` maps to `agent.1` here and `agent-1` there. They name files in different stores, so
+// unifying them would repoint existing files on disk — a migration, not a refactor. Recorded
+// because a shared name across four modules is exactly what made this look like one function.
 function sanitizeAgentId(agentId) {
   return String(agentId).replace(/[^a-zA-Z0-9._-]/g, "_");
 }
