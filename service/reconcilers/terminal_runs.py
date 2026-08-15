@@ -27,7 +27,7 @@ from service.api_core.terminal_text import _ANSI_RE, _terminal_awaiting_input_hi
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
-from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
+from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES, _TERMINAL_END_STATUSES
 from service.api_core.tuning import STUCK_STOPPING_GRACE_SECONDS
 
 logger = logging.getLogger(__name__)
@@ -94,22 +94,11 @@ def _terminal_pi_idle_prompt_hint(output: str) -> str:
 
 
 
-
-
-
-def _terminal_end_statuses():
-    from service.api_core.terminal_status import _TERMINAL_END_STATUSES
-    return _TERMINAL_END_STATUSES
-
-
-
-
-
 async def _close_active_terminal_runs_for_terminal(db, terminal, terminal_status: str, *, now: Optional[str] = None, reason: str = "") -> int:
     if not terminal:
         return 0
     status = str(terminal_status or "").strip().lower()
-    if status not in _terminal_end_statuses():
+    if status not in _TERMINAL_END_STATUSES:
         return 0
     terminal_id = str(terminal["id"] or "")
     agent_id = str(terminal["agent_id"] or "")
