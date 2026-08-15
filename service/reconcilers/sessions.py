@@ -23,7 +23,9 @@ import logging
 import time
 
 from service.api_core.agent_sessions import _touch_current_agent_session
+from service.api_core.liveness import _agent_liveness
 from service.api_core.serialization import _json_loads_or
+from service.api_core.tuning import LIVE_SESSION_STATUSES
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 
@@ -31,28 +33,9 @@ from service.reconcilers.status_cache import invalidate_agent_live_state as _inv
 
 logger = logging.getLogger(__name__)
 
-# Phase 3 (2026-06-03) — ONE canonical `agent_sessions.status` live set.
-# This is the FULL set of agent_sessions.status values that count as a live
-# (not-yet-terminal) session row, used by the session reconcilers
-# (_reconcile_dead_session_status / _reconcile_duplicate_resident_sessions),
-# the new on-read deriver (_compute_session_display_status), and embedded into
-# the dashboard bootstrap config so Dashboard Next reads the SAME set instead
-# of its own wider hardcode. It is a SUPERSET of _LIVE_SESSION_STATUSES above:
-# _LIVE_SESSION_STATUSES is the narrower "live agent-status engine" gate used by
-# _compute_live_status_cache (which treats attached/active/idle as worker-detail
-# rather than session-live), whereas this set is the session-row liveness set the
-# reconcilers historically used as their inline `live_states` tuple. Keep these
-# two distinct on purpose — collapsing them would change the agent-status engine.
-# Members are EXACTLY the inline `live_states` tuple the two session reconcilers
-# historically used, so adopting the constant is behavior-preserving for them.
-LIVE_SESSION_STATUSES = {
-    "running",
-    "attached",
-    "active",
-    "idle",
-    "starting",
-    "recovering",
-}
+# LIVE_SESSION_STATUSES moved to service/api_core/tuning.py in v0.5.4. It is imported above and
+# still read here; it left because `api_core/liveness.py` needed it, and an api_core leaf importing
+# a reconciler is the inversion that forced `_agent_liveness` to be imported inside a function body.
 # ENDED `agent_sessions.status` values — the complement of LIVE_SESSION_STATUSES that
 # `_current_agent_session_row` filters on (R2c, 2026-07-26). A session in one of these is over and
 # can never become live again, so it must never answer "what is this agent's CURRENT session".
@@ -135,12 +118,6 @@ async def _compute_session_display_status(db, session_row, agent_row=None) -> st
     raw_owner_mode = str((session_row["owner_mode"] if "owner_mode" in keys else "") or "").strip().lower()
     session_mode = str((session_row["mode"] if "mode" in keys else "") or "").strip().lower()
     is_resident = raw_owner_mode == "resident" or session_mode == "resident"
-
-    # FUNCTION-SCOPE IMPORT, deliberately. `_agent_liveness` moved to api_core/liveness.py in v0.5.4,
-    # and that module imports LIVE_SESSION_STATUSES from THIS one — so a module-level import here is a
-    # cycle. The underlying inversion is that an api_core leaf reaches up to a reconciler for a
-    # constant; moving LIVE_SESSION_STATUSES to a leaf would fix it properly and is not this slice.
-    from service.api_core.liveness import _agent_liveness
 
     liveness = await _agent_liveness(db, agent_id, agent_row=agent_row)
     if is_resident:

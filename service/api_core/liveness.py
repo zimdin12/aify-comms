@@ -37,7 +37,7 @@ from service.api_core.capabilities import (
 )
 from service.api_core.serialization import _json_loads_or
 from service.clock import iso_to_epoch as _iso_to_epoch
-from service.reconcilers.sessions import LIVE_SESSION_STATUSES
+from service.api_core.tuning import LIVE_SESSION_STATUSES
 
 
 CONSOLE_WORKING_LEASE_SECONDS = 20
@@ -341,7 +341,7 @@ TURN_BUSY_BACKSTOP_SECONDS = 30 * 60
 # SIDES — `_compute_live_status_cache` still uses it — so this is a deliberate owner chosen by subject
 # rather than by direction, and the control plane now imports it.
 #
-# IT SITS BESIDE `LIVE_SESSION_STATUSES` (imported above from the session reconcilers) ON PURPOSE, and the
+# IT SITS BESIDE `LIVE_SESSION_STATUSES` (imported above from api_core/tuning.py) ON PURPOSE, and the
 # two are NOT the same set. That one is the WIDER session-row liveness set the reconcilers use; this one is
 # the narrower agent-status-engine gate, which treats attached/active/idle as worker DETAIL rather than as
 # session-live. They were 3,000 lines apart and the distinction was recorded only in a comment beside the

@@ -18,7 +18,7 @@ from service import control_plane as api_v2  # v0.5.3: helpers live in the contr
 
 from service.tests._base import FastApiTestCase
 from service.clock import now as _now
-from service.reconcilers.sessions import LIVE_SESSION_STATUSES
+from service.api_core.tuning import LIVE_SESSION_STATUSES
 
 
 class StartAgentLiveSessionGateTests(FastApiTestCase):

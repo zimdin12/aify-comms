@@ -45,3 +45,33 @@ _UNTHREADED_HANDOFF_WINDOW_MS = 24 * 60 * 60 * 1000
 _CONSOLE_TAIL_MAX_LINES = 200
 
 _CONSOLE_TAIL_MAX_BYTES = 16 * 1024
+
+# Moved here from service/reconcilers/sessions.py in v0.5.4. It lived in a reconciler while
+# `api_core/liveness.py` needed it, which is an api_core leaf reaching UP for a constant — and that
+# inversion forced `reconcilers/sessions.py` to import `_agent_liveness` inside a function body,
+# because a module-level import would have closed the loop. This module imports nothing, so owning
+# the constant here breaks the cycle and both imports are now ordinary module-level ones.
+#
+# Phase 3 (2026-06-03) — ONE canonical `agent_sessions.status` live set.
+# This is the FULL set of agent_sessions.status values that count as a live
+# (not-yet-terminal) session row, used by the session reconcilers
+# (_reconcile_dead_session_status / _reconcile_duplicate_resident_sessions),
+# the new on-read deriver (_compute_session_display_status), and embedded into
+# the dashboard bootstrap config so Dashboard Next reads the SAME set instead
+# of its own wider hardcode. It is a SUPERSET of _LIVE_SESSION_STATUSES, which
+# lives in api_core/liveness.py:
+# _LIVE_SESSION_STATUSES is the narrower "live agent-status engine" gate used by
+# _compute_live_status_cache (which treats attached/active/idle as worker-detail
+# rather than session-live), whereas this set is the session-row liveness set the
+# reconcilers historically used as their inline `live_states` tuple. Keep these
+# two distinct on purpose — collapsing them would change the agent-status engine.
+# Members are EXACTLY the inline `live_states` tuple the two session reconcilers
+# historically used, so adopting the constant is behavior-preserving for them.
+LIVE_SESSION_STATUSES = {
+    "running",
+    "attached",
+    "active",
+    "idle",
+    "starting",
+    "recovering",
+}

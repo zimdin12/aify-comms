@@ -44,7 +44,7 @@ from service.api_core.turn_state import _clear_status_state_in_turn
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.db import get_db
-from service.reconcilers.sessions import LIVE_SESSION_STATUSES
+from service.api_core.tuning import LIVE_SESSION_STATUSES
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 from service.terminal_snapshot import render_live_screen as _render_live_terminal_screen
