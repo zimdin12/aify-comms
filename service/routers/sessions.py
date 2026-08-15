@@ -69,13 +69,16 @@ from service.api_core.ws import _get_ws
 from service.api_core.session_restart import _prepare_restart_spawn
 from service.api_core.agent_sessions import (
     _settle_agent_for_session_control,
-    _touch_current_agent_session,
 )
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMANDS_BY_RUNTIME
 from service.clock import now as _now
 import sqlite3
 from service.api_core.events import _append_terminal_control, _append_terminal_event
-from service.reconcilers.sessions import _compute_session_display_status
+from service.reconcilers.sessions import (
+    _compute_session_display_status,
+    _repair_current_session_freshness,
+    _repair_superseded_recovering_sessions,
+)
 from service.reconcilers.terminal_consistency import _repair_terminal_session_consistency
 from service.terminal_snapshot import drop_live_screen as _drop_live_terminal_screen
 from service.db import get_db
@@ -149,66 +152,12 @@ async def _agent_session_dict_live(db, row, *, agent_row=None) -> dict[str, Any]
     return data
 
 
-async def _repair_current_session_freshness(db) -> int:
-    cursor = await db.execute(
-        """
-        SELECT id, last_seen, runtime_state
-        FROM agents
-        WHERE session_mode = 'managed'
-          AND runtime_state IS NOT NULL
-          AND runtime_state != ''
-          AND runtime_state != '{}'
-        """
-    )
-    repaired = 0
-    for row in await cursor.fetchall():
-        runtime_state = _json_loads_or(row["runtime_state"], {})
-        if not (runtime_state.get("spawnRequestId") or runtime_state.get("environmentId")):
-            continue
-        before = db.total_changes
-        await _touch_current_agent_session(db, row["id"], runtime_state, row["last_seen"] or _now())
-        if db.total_changes > before:
-            repaired += 1
-    if repaired:
-        await db.commit()
-    return repaired
+# _repair_current_session_freshness moved to service/reconcilers/sessions.py in v0.5.4 - session
+# reconciliation belongs to the reconciler; the CALL SITE is unchanged.
 
 
-async def _repair_superseded_recovering_sessions(db) -> int:
-    now = _now()
-    cursor = await db.execute(
-        """
-        SELECT old.id
-        FROM agent_sessions old
-        WHERE old.status IN ('starting', 'recovering', 'restarting')
-          AND EXISTS (
-            SELECT 1
-            FROM agent_sessions current
-            WHERE current.agent_id = old.agent_id
-              AND current.id != old.id
-              AND current.status = 'running'
-              AND COALESCE(NULLIF(current.last_seen, ''), NULLIF(current.started_at, ''), '') >=
-                  COALESCE(NULLIF(old.last_seen, ''), NULLIF(old.started_at, ''), '')
-          )
-        """
-    )
-    rows = await cursor.fetchall()
-    if not rows:
-        return 0
-    for row in rows:
-        await db.execute(
-            """
-            UPDATE agent_sessions
-            SET status = 'ended',
-                ended_at = COALESCE(NULLIF(ended_at, ''), NULLIF(last_seen, ''), ?),
-                last_seen = COALESCE(NULLIF(ended_at, ''), NULLIF(last_seen, ''), ?)
-            WHERE id = ?
-              AND status IN ('starting', 'recovering', 'restarting')
-            """,
-            (now, now, row["id"]),
-        )
-    await db.commit()
-    return len(rows)
+# _repair_superseded_recovering_sessions moved to service/reconcilers/sessions.py in v0.5.4 - session
+# reconciliation belongs to the reconciler; the CALL SITE is unchanged.
 
 
 @router.get("/sessions")

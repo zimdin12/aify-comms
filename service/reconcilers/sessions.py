@@ -22,6 +22,8 @@ from __future__ import annotations
 import logging
 import time
 
+from service.api_core.agent_sessions import _touch_current_agent_session
+from service.api_core.serialization import _json_loads_or
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 
@@ -497,3 +499,77 @@ async def _reconcile_dead_session_status(db, *, lease_seconds: int, limit: int =
 
     await db.commit()
     return changed
+
+# --- read-path consistency repairs ------------------------------------------------------------
+#
+# RELOCATED from `service/routers/sessions.py` in v0.5.4, byte-identical. They are SESSION
+# reconciliation and this module owns that; a router declaring them was the odd one out, since
+# their sibling `_repair_terminal_session_consistency` already lives in
+# `service/reconcilers/terminal_consistency.py` and is called from the same read path.
+#
+# THE MODULE MOVED; THE CALL SITE DID NOT. `GET /sessions` still awaits both inline, and the note
+# there explaining why -- they correct the console/terminal binding shown in THAT response, so a
+# 60s reconcile lag would surface a dead terminal as still-attached -- is unchanged and still
+# true. "Not moved to reconcile" is a statement about the LOOP, not about which file declares
+# them, and this move does not touch it.
+
+async def _repair_current_session_freshness(db) -> int:
+    cursor = await db.execute(
+        """
+        SELECT id, last_seen, runtime_state
+        FROM agents
+        WHERE session_mode = 'managed'
+          AND runtime_state IS NOT NULL
+          AND runtime_state != ''
+          AND runtime_state != '{}'
+        """
+    )
+    repaired = 0
+    for row in await cursor.fetchall():
+        runtime_state = _json_loads_or(row["runtime_state"], {})
+        if not (runtime_state.get("spawnRequestId") or runtime_state.get("environmentId")):
+            continue
+        before = db.total_changes
+        await _touch_current_agent_session(db, row["id"], runtime_state, row["last_seen"] or _now())
+        if db.total_changes > before:
+            repaired += 1
+    if repaired:
+        await db.commit()
+    return repaired
+
+
+async def _repair_superseded_recovering_sessions(db) -> int:
+    now = _now()
+    cursor = await db.execute(
+        """
+        SELECT old.id
+        FROM agent_sessions old
+        WHERE old.status IN ('starting', 'recovering', 'restarting')
+          AND EXISTS (
+            SELECT 1
+            FROM agent_sessions current
+            WHERE current.agent_id = old.agent_id
+              AND current.id != old.id
+              AND current.status = 'running'
+              AND COALESCE(NULLIF(current.last_seen, ''), NULLIF(current.started_at, ''), '') >=
+                  COALESCE(NULLIF(old.last_seen, ''), NULLIF(old.started_at, ''), '')
+          )
+        """
+    )
+    rows = await cursor.fetchall()
+    if not rows:
+        return 0
+    for row in rows:
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET status = 'ended',
+                ended_at = COALESCE(NULLIF(ended_at, ''), NULLIF(last_seen, ''), ?),
+                last_seen = COALESCE(NULLIF(ended_at, ''), NULLIF(last_seen, ''), ?)
+            WHERE id = ?
+              AND status IN ('starting', 'recovering', 'restarting')
+            """,
+            (now, now, row["id"]),
+        )
+    await db.commit()
+    return len(rows)
