@@ -8,12 +8,10 @@ shape of that coupling, not a shortcut.
 
 BORROW TABLE with the retirement map, as required for any domain that carries debt:
 
-    _coldstart_spawn_request_for_dispatch    retires with: agents, messages, sessions
     _create_dispatch_runs                    retires with: dispatch, messages
     _delete_messages_where                   retires with: messages, and the clear/rotate routes
     _finalize_dispatch_runs                  retires with: dispatch, messages
     _get_recipient_info                      retires with: dispatch, messages
-    _has_live_managed_wrapper_child          retires with: messages
     _preflight_live_send_recipients          retires with: messages
     _reject_sender_truncated_body            retires with: dispatch, messages
     _touch_agent                             retires with: dispatch, messages
@@ -42,11 +40,8 @@ from fastapi import HTTPException, Query, Request
 from service.api_core.validation import _reject_sender_truncated_body
 from service.api_core.dispatch_run_state import _finalize_dispatch_runs
 from service.api_core.routing import domain_router
-from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
-from service.api_core.settings import _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
-from service.api_core.liveness import _has_live_managed_wrapper_child
 from service.api_core.agent_sessions import _touch_agent
 from service.clock import now as _now
 from service.db import get_db
@@ -56,8 +51,7 @@ from service.ntfy import notify_operator
 # the endpoint 422s at request time. That is the v0.5.2g defect; two gates now catch it, and this
 # comment is here so the next person does not "tidy away" an import that looks unused.
 from service.models import ChannelCreate, ChannelJoin, ChannelMessage
-from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES
-from service.api_core.dispatch_start import _coldstart_spawn_request_for_dispatch
+from service.api_core.channel_coldstart import _coldstart_cold_channel_members
 
 logger = logging.getLogger("aify_comms.routers.channels")
 
@@ -482,40 +476,7 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
                 require_reply=False,
             )
             dispatch_runs = await _finalize_dispatch_runs(db, dispatch_runs, launchable_recipients, not_started)
-            # Send-time coldstart for COLD managed members (2026-07-02). Channel posts
-            # previously created queued runs and relied entirely on the 180s queued-run
-            # backstop to spawn workers (and before the backstop's coldstart-rescue existed,
-            # those runs just FAILED — the "sc-manager's broadcasts left targets available,
-            # no answers" incident, #191). Mirror the direct-send path: spawn a managed-warm
-            # worker NOW for each launchable member with no live wrapper child, so a channel
-            # roll-call wakes a cold team in seconds, not minutes. The helper is idempotent
-            # (pending/booting spawn_request short-circuits; unresolvable env returns False,
-            # leaving the run queued for the backstop rescue as before).
-            coldstart_settings = await _load_settings(db)
-            for recipient_id, _exec_mode in launchable_recipients:
-                agent_cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))
-                agent_row = await agent_cursor.fetchone()
-                if not agent_row:
-                    continue
-                if _normalize_session_mode(agent_row["session_mode"] or "resident") != "managed":
-                    continue
-                member_runtime = _normalize_runtime(agent_row["runtime"] or "")
-                # Wrapper-child rows only exist for the channel-claim runtimes; for
-                # pi/opencode (native RPC controllers inside the env bridge) the gate
-                # below is permanently False, so coldstarting on it would duplicate-spawn
-                # a LIVE worker on every channel post. Those runtimes spawn on claim,
-                # same as the direct-send path.
-                if member_runtime not in _CHANNEL_CLAIM_RUNTIMES:
-                    continue
-                if await _has_live_managed_wrapper_child(db, recipient_id):
-                    continue
-                await _coldstart_spawn_request_for_dispatch(
-                    db,
-                    recipient_id,
-                    runtime=member_runtime,
-                    settings=coldstart_settings,
-                    requested_by=req.from_agent,
-                )
+            await _coldstart_cold_channel_members(db, req, launchable_recipients)
 
         recipient_info = {}
         for recipient_id in recipients:
