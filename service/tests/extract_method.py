@@ -412,6 +412,66 @@ def _read_before_rebind(after: list[ast.stmt], name: str) -> bool:
     return scan(after) == "read"
 
 
+def call_site_shape_violations(split_fn: ast.AST, helper_fn: ast.AST) -> list[str]:
+    """The call site's shape must agree with whether the helper RETURNS.
+
+    THE SIXTH HOLE, and it leaked in BOTH directions. Inline-back splices the helper's body over the
+    call, so it reproduces the original whenever the BODY is right — it never looks at what the call
+    statement does with control flow. That leaves two splits whose round trip closes while behaviour
+    changed, which is precisely what this gate exists to refuse up front:
+
+      TAIL-CALL WITHOUT A RETURN. `return await _helper(x)` where the helper does NOT end in a
+      `return`. The original fell through to the code below; the split returns None right there.
+      Inline-back drops the `return` along with the call and reconstructs the original exactly.
+
+      VOID CALL OF A RETURNING HELPER. `await _helper(x)` as a bare statement where the helper DOES
+      end in a `return`. The original returned at that point; the split discards the value and keeps
+      going. Inline-back splices the `return` back in and the round trip closes.
+
+    Both were found by probing the verifier rather than by a failing extraction — the shapes are
+    plausible enough to write by hand, and the second is what you get by extracting an early-exit
+    branch and forgetting to move the exit with it.
+
+    THE RULE, stated over the helper's tail:
+      helper ends in `return`  -> the call must be `return _helper(...)` (tail-call) or
+                                  `x = _helper(...)` (VALUE, where inline-back rewrites the return
+                                  into the assignment and execution correctly continues).
+      helper does not          -> the call must NOT be a `return` statement.
+
+    A bare `return` with no value counts as returning: `return await _helper(x)` against a helper
+    ending in bare `return` yields None on both sides, so it is equivalent and allowed.
+
+    NOT COVERED, DELIBERATELY: `x = _helper(...)` against a helper with no trailing return. That is
+    wrong too, but it is not a blind spot — inline-back splices a body that never rebinds `x`, the
+    reconstruction lacks the assignment, and the round trip already fails. A rule here would be
+    untested belt-and-braces over a case the existing proof catches.
+    """
+    block, index = _find_call_site(split_fn, helper_fn.name)
+    call_stmt = block[index]
+    body = _helper_body(helper_fn)
+    helper_returns = bool(body) and isinstance(body[-1], ast.Return)
+
+    is_return_site = isinstance(call_stmt, ast.Return)
+    is_value_site = isinstance(call_stmt, (ast.Assign, ast.AnnAssign))
+
+    if helper_returns and not (is_return_site or is_value_site):
+        return [
+            f"{helper_fn.name!r} ends in a `return`, but the call discards it as a bare statement. "
+            "In the original that `return` exited the function; in the split it exits only the "
+            "helper and the caller keeps going. Write `return "
+            f"{helper_fn.name}(...)` if the exit was meant to move, or `x = {helper_fn.name}(...)` "
+            "if the value was meant to be used."
+        ]
+    if is_return_site and not helper_returns:
+        return [
+            f"the call site is `return {helper_fn.name}(...)` but {helper_fn.name!r} has no trailing "
+            "`return`, so the split returns None where the original carried on to the statements "
+            "below. Give the helper the `return` that belongs to this path, or make the call a bare "
+            "statement."
+        ]
+    return []
+
+
 def live_out_violations(split_fn: ast.AST, helper_fn: ast.AST) -> list[str]:
     """Locals the helper binds that the CALLER still reads afterwards, without being handed back.
 
@@ -1156,6 +1216,16 @@ def assert_extraction_preserves_behaviour(original_src: str, split_src: str, hel
             "names are in scope. The SPLIT is what raises NameError."
         )
 
+    misshapen = call_site_shape_violations(funcs[original.name], helper)
+    if misshapen:
+        raise AssertionError(
+            "REFUSED: the call site's shape disagrees with the helper's tail:\n  - "
+            + "\n  - ".join(misshapen)
+            + "\nInline-back splices the BODY over the call and never reads the call statement's "
+            "control flow, so both of these reconstruct the original while the split returns from a "
+            "different place."
+        )
+
     leaked = live_out_violations(funcs[original.name], helper)
     if leaked:
         raise AssertionError(
@@ -1289,6 +1359,11 @@ def assert_extractions_preserve_behaviour(
             raise AssertionError(
                 f"REFUSED [{helper_name}]: the helper reads caller locals it was not given:\n  - "
                 + "\n  - ".join(unpassed))
+        misshapen = call_site_shape_violations(caller, helper)
+        if misshapen:
+            raise AssertionError(
+                f"REFUSED [{helper_name}]: the call site's shape disagrees with the helper's "
+                "tail:\n  - " + "\n  - ".join(misshapen))
         leaked = live_out_violations(caller, helper)
         if leaked:
             raise AssertionError(

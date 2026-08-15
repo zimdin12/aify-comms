@@ -1828,5 +1828,189 @@ class ExtractMultipleBlocksTests(unittest.TestCase):
         self.assertIn("_inner", message)
 
 
+class CallSiteShapeTests(unittest.TestCase):
+    """The sixth hole: the call site's control flow versus the helper's tail.
+
+    Inline-back splices the helper BODY over the call and never reads what the call statement does
+    with control flow, so a split can return from a different place than the original while the
+    round trip closes perfectly. Both directions leaked, and both were found by probing the verifier
+    rather than by an extraction failing — which is the only way this class of hole ever surfaces,
+    since by construction the proof stays green.
+    """
+
+    ORIGINAL_FALLTHROUGH = (
+        "async def handler(db):\n"
+        "    x = await load(db)\n"
+        "    if x:\n"
+        "        note(x)\n"
+        "    return {'ok': False}\n"
+    )
+    ORIGINAL_EARLY_EXIT = (
+        "async def handler(db):\n"
+        "    x = await load(db)\n"
+        "    if x:\n"
+        "        note(x)\n"
+        "        return {'ok': True}\n"
+        "    return {'ok': False}\n"
+    )
+
+    def test_a_tail_call_to_a_helper_that_does_not_return_is_REFUSED(self):
+        """`return await _h(x)` over a helper with no trailing return: the split returns None here.
+
+        The original carried on to the statements below. Inline-back drops the caller's `return`
+        along with the call, so the reconstruction matches the original exactly and the round trip
+        cannot see it.
+        """
+        split = (
+            "async def handler(db):\n"
+            "    x = await load(db)\n"
+            "    if x:\n"
+            "        return await _tail(x)\n"
+            "    return {'ok': False}\n"
+            "\n"
+            "\n"
+            "async def _tail(x):\n"
+            "    note(x)\n"
+        )
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(self.ORIGINAL_FALLTHROUGH, split, "_tail")
+        message = str(caught.exception)
+        self.assertIn("REFUSED", message)
+        self.assertIn("no trailing", message)
+
+    def test_a_void_call_to_a_RETURNING_helper_is_REFUSED(self):
+        """The mirror: the original returned at that point, the split discards it and keeps going.
+
+        This is what you get by extracting an early-exit branch and leaving the exit behind — a
+        plausible enough mistake to write by hand, and the round trip splices the `return` back in.
+        """
+        split = (
+            "async def handler(db):\n"
+            "    x = await load(db)\n"
+            "    if x:\n"
+            "        await _tail(x)\n"
+            "    return {'ok': False}\n"
+            "\n"
+            "\n"
+            "async def _tail(x):\n"
+            "    note(x)\n"
+            "    return {'ok': True}\n"
+        )
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(self.ORIGINAL_EARLY_EXIT, split, "_tail")
+        message = str(caught.exception)
+        self.assertIn("REFUSED", message)
+        self.assertIn("discards", message)
+
+    def test_a_correct_TAIL_CALL_is_still_accepted(self):
+        """The shape this unblocks, and the reason the rule is not simply "refuse return sites".
+
+        An early-exit branch extracted WITH its exit is exactly right, and it is the shape the two
+        largest blocks left in `register_agent` need. Inline-back handles it without any special
+        case: the helper's trailing return IS the return the caller wanted, so splicing the body
+        over `return await _tail(...)` reproduces the original verbatim.
+        """
+        split = (
+            "async def handler(db):\n"
+            "    x = await load(db)\n"
+            "    if x:\n"
+            "        return await _tail(x)\n"
+            "    return {'ok': False}\n"
+            "\n"
+            "\n"
+            "async def _tail(x):\n"
+            "    note(x)\n"
+            "    return {'ok': True}\n"
+        )
+        assert_extraction_preserves_behaviour(self.ORIGINAL_EARLY_EXIT, split, "_tail")
+
+    def test_a_bare_return_counts_as_returning(self):
+        """`return` with no value returns None on both sides, so the tail-call is equivalent."""
+        original = (
+            "async def handler(db):\n"
+            "    x = await load(db)\n"
+            "    if x:\n"
+            "        note(x)\n"
+            "        return\n"
+            "    return {'ok': False}\n"
+        )
+        split = (
+            "async def handler(db):\n"
+            "    x = await load(db)\n"
+            "    if x:\n"
+            "        return await _tail(x)\n"
+            "    return {'ok': False}\n"
+            "\n"
+            "\n"
+            "async def _tail(x):\n"
+            "    note(x)\n"
+            "    return\n"
+        )
+        assert_extraction_preserves_behaviour(original, split, "_tail")
+
+    def test_the_VOID_and_VALUE_shapes_are_untouched(self):
+        """The new rule must not narrow the two shapes every existing proof in this repo uses."""
+        void_original = (
+            "async def handler(db):\n"
+            "    x = await load(db)\n"
+            "    note(x)\n"
+            "    log(x)\n"
+            "    return {'ok': False}\n"
+        )
+        void_split = (
+            "async def handler(db):\n"
+            "    x = await load(db)\n"
+            "    await _tail(x)\n"
+            "    return {'ok': False}\n"
+            "\n"
+            "\n"
+            "async def _tail(x):\n"
+            "    note(x)\n"
+            "    log(x)\n"
+        )
+        assert_extraction_preserves_behaviour(void_original, void_split, "_tail")
+
+        value_original = (
+            "async def handler(db):\n"
+            "    x = await load(db)\n"
+            "    total = weigh(x) + 1\n"
+            "    return total\n"
+        )
+        value_split = (
+            "async def handler(db):\n"
+            "    x = await load(db)\n"
+            "    total = await _tail(x)\n"
+            "    return total\n"
+            "\n"
+            "\n"
+            "async def _tail(x):\n"
+            "    total = weigh(x) + 1\n"
+            "    return total\n"
+        )
+        assert_extraction_preserves_behaviour(value_original, value_split, "_tail")
+
+    def test_the_rule_runs_in_the_MULTI_extraction_path_too(self):
+        """Every earlier hole had to be wired into both entry points; this one is no different.
+
+        `assert_extractions_preserve_behaviour` is what the real proofs call — `register_agent`
+        lists nine helpers — so a check wired only into the single-extraction function would be
+        absent from every proof that matters.
+        """
+        split = (
+            "async def handler(db):\n"
+            "    x = await load(db)\n"
+            "    if x:\n"
+            "        return await _tail(x)\n"
+            "    return {'ok': False}\n"
+            "\n"
+            "\n"
+            "async def _tail(x):\n"
+            "    note(x)\n"
+        )
+        with self.assertRaises(AssertionError) as caught:
+            assert_extractions_preserve_behaviour(self.ORIGINAL_FALLTHROUGH, split, ["_tail"])
+        self.assertIn("REFUSED [_tail]", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
