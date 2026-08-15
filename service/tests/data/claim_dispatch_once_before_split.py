@@ -1,91 +1,10 @@
-"""The dispatch claim funnel — one bridge, one BEGIN IMMEDIATE, one run.
-
-SERVICE LEVEL, NOT api_core, and the reason is the whole shape of this module. Every api_core leaf takes
-`db` and owns no transaction: no `get_db(`, no `.commit(`, no `.rollback(`. This function opens the
-connection, takes `BEGIN IMMEDIATE`, and commits or rolls back at 13 different points — because SERIALISING
-THE CLAIM IS ITS JOB. Two bridges must not claim the same run, and the only thing that guarantees that is
-a write transaction held across the select-and-mark. So it sits beside `terminal_write_queue.py`, the other
-service-level transaction owner, rather than diluting the api_core rule to fit.
-
-The 422 lines are not one decision. They are: work out whether this bridge may claim at all (delegated
-entirely to `api_core/claim_gating.py`), clean up whatever the previous claimant left, then select and mark
-exactly one run — each step able to end the request with a different, specific response shape. A bridge
-receiving "no work" when it was actually blocked by a stale console owner is how several production
-mysteries started, which is why the block REASONS are plumbed through rather than collapsed.
-
-WHY IT COULD NOT MOVE UNTIL NOW. It reached twelve route-layer names. Seven were re-exports of api_core
-leaves that `dispatch_messages/shared.py` was merely forwarding — a dependency that resolved, satisfied
-every mechanical gate, and was still a lie about the layering. The other five became
-`api_core/claim_gating.py`. This function is unchanged; what changed is that everything under it now has an
-owner.
-
-THE ROUTE KEEPS THE LONG POLL. `claim_dispatch` still owns the `longpoll.longpoll` wrapper, the `_is_empty`
-predicate, the fallback, the lock result and the disconnect hook; this module is only the attempt that
-wrapper retries. That split is deliberate: the transaction belongs to whoever can commit it, and the
-waiting belongs to whoever holds the HTTP request.
-"""
-
-from __future__ import annotations
-
-import time
-
-from fastapi import (
-    HTTPException,
-    Request,
-)
-from service.api_core.active_run_discard import _fail_pending_controls_for_run
-from service.api_core.agent_sessions import (
-    _adopt_live_resident_driver,
-    _agent_tombstone,
-    _touch_current_agent_session,
-)
-from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES
-from service.api_core.claim_gating import (
-    _bridge_claim_block_reason,
-    _dispatch_conversation_context,
-    _has_claimable_steerable_run,
-    _mark_dispatch_source_messages_read,
-    _release_stale_console_owner_for_claim,
-    _turn_busy_holds_delivery,
-)
-from service.api_core.dispatch_state import _get_dispatch_state_for_agent
-from service.api_core.events import _append_dispatch_event
-from service.api_core.claim_run_selection import _select_claimable_run
-from service.api_core.liveness import ACTIVE_RUN_BRIDGE_STALE_SECONDS
-from service.api_core.recovery_writes import _record_channel_sidecar_heartbeat
-from service.api_core.runtime import (
-    _normalize_runtime,
-    _normalize_session_mode,
-)
-from service.api_core.serialization import (
-    _json_loads_or,
-    _machine_ids_same_host,
-    _row_require_reply,
-)
-from service.api_core.settings import _load_settings
-from service.api_core.ws import _get_ws
-from service.clock import (
-    iso_to_epoch as _iso_to_epoch,
-    now as _now,
-)
-from service.db import (
-    SQLITE_CLAIM_BUSY_TIMEOUT_MS,
-    get_db,
-)
-from service.models import DispatchClaimRequest
-from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
-
-
 async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
     db = await get_db(busy_timeout_ms=SQLITE_CLAIM_BUSY_TIMEOUT_MS)
     try:
         await db.execute("BEGIN IMMEDIATE")
-        # Plan 5 (2026-05-25): settings is needed below for the `_agent_execution_mode` call, so
-        # the wrapper-backed channel route fires symmetrically with the dispatch-create path. That
-        # call now lives in `api_core/claim_run_selection.py`, which is why `claim_settings` is read
-        # here and passed down rather than used in this function. (The comment also cited "line
-        # 1047", from a file that no longer exists at that length — a line number is a pointer that
-        # rots on the next edit, so it is not replaced with another one.)
+        # Plan 5 (2026-05-25): settings is needed below for the
+        # _agent_execution_mode call (so the wrapper-backed channel route
+        # at line 1047 fires symmetrically with the dispatch-create path).
         claim_settings = await _load_settings(db)
         cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (req.agentId,))
         agent = await cursor.fetchone()
@@ -387,10 +306,55 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
             (req.agentId,)
         )
         runs = await run_cursor.fetchall()
-        selected_run = await _select_claimable_run(
-            db, req, runs, agent,
-            agent_runtime, claim_settings, hold_explicit_queue, supported_modes,
-        )
+        selected_run = None
+        for run in runs:
+            if hold_explicit_queue and (
+                bool(run["queue_if_busy"]) or not bool(run["steer_if_busy"])
+            ):
+                continue
+            run_execution_mode = (run["execution_mode"] or "managed").strip().lower()
+            if supported_modes and run_execution_mode not in supported_modes:
+                continue
+            if run["dispatch_mode"] == "message_only":
+                await db.execute(
+                    "UPDATE dispatch_runs SET status = 'cancelled', finished_at = ? WHERE id = ?",
+                    (_now(), run["id"])
+                )
+                await _append_dispatch_event(db, run["id"], "skipped", "Dispatch mode is message_only")
+                continue
+            requested_runtime = run["requested_runtime"] or ""
+            if requested_runtime and _normalize_runtime(requested_runtime) != agent_runtime:
+                continue
+
+            # Plan 5 (2026-05-25): pass settings so the wrapper-backed
+            # channel route (line 1047) matches what _agent_execution_mode
+            # returned when the run was created. Without settings here, the
+            # helper short-circuits to 'managed', then line 11258 below sees
+            # run.execution_mode='channel' != 'managed' and cancels the run.
+            execution_mode, reason = _agent_execution_mode(agent, requested_runtime or None, settings=claim_settings)
+            if reason or not execution_mode:
+                final_status = "failed" if run["dispatch_mode"] == "require_start" else "cancelled"
+                await db.execute(
+                    "UPDATE dispatch_runs SET status = ?, error_text = ?, finished_at = ? WHERE id = ?",
+                    (final_status, reason or "active dispatch unavailable", _now(), run["id"])
+                )
+                await _append_dispatch_event(db, run["id"], "skipped", reason or "active dispatch unavailable")
+                continue
+            if (run["execution_mode"] or execution_mode) != execution_mode:
+                final_status = "failed" if run["dispatch_mode"] == "require_start" else "cancelled"
+                reason = (
+                    f'Run execution mode "{run["execution_mode"] or "unknown"}" does not match the '
+                    f'current capabilities of agent "{req.agentId}" ({execution_mode}).'
+                )
+                await db.execute(
+                    "UPDATE dispatch_runs SET status = ?, error_text = ?, finished_at = ? WHERE id = ?",
+                    (final_status, reason, _now(), run["id"])
+                )
+                await _append_dispatch_event(db, run["id"], "skipped", reason)
+                continue
+
+            selected_run = run
+            break
 
         if not selected_run:
             await db.commit()
