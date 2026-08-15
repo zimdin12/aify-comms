@@ -67,6 +67,7 @@ from service.api_core.terminal_output_settlement import (
 from service.api_core.terminal_controls_io import (
     _claim_terminal_controls_once,
     _clear_console_terminal_binding,
+    _reconcile_stop_for_unclaimable_terminal,
     _terminal_control_to_dict,
 )
 
@@ -352,64 +353,10 @@ async def stop_terminal(terminal_id: str, req: TerminalControlRequest, request: 
             json.dumps({"requestedBy": requested_by, "body": req.body or "", "controlId": control_id}),
         )
         if terminal_status in {"stopped", "failed"} or not bridge_can_claim:
-            reason = "Terminal bridge is no longer current; stop reconciled in control plane."
-            await db.execute(
-                """
-                UPDATE terminal_controls
-                SET status = 'completed',
-                    claimed_at = COALESCE(claimed_at, ?),
-                    handled_at = ?
-                WHERE id = ?
-                """,
-                (now, now, control_id),
+            return await _reconcile_stop_for_unclaimable_terminal(
+                db, request, terminal, terminal_id, terminal_status, terminal_bridge_id,
+                current_bridge_id, env_status, control_id, requested_by, now,
             )
-            await db.execute(
-                """
-                UPDATE terminal_sessions
-                SET status = 'stopped',
-                    updated_at = ?,
-                    stopped_at = COALESCE(stopped_at, ?),
-                    error = CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END
-                WHERE id = ?
-                """,
-                (now, now, reason if terminal_status not in {"stopped", "failed"} else "", terminal_id),
-            )
-            await db.execute(
-                """
-                UPDATE agent_sessions
-                SET owner_mode = 'managed',
-                    terminal_status = 'stopped',
-                    last_seen = ?
-                WHERE id = ?
-                """,
-                (now, terminal["session_id"]),
-            )
-            await _clear_console_terminal_binding(db, terminal["agent_id"], terminal_id, now=now)
-            # _clear_console_terminal_binding only invalidates when the agent's
-            # consoleTerminal pointer matches (no-ops for virtual/RPC terminals,
-            # whose pointer is virtualTerminalId). Invalidate explicitly here —
-            # mirroring the sibling bridge-reported completion path — so the
-            # reconciled stop drops the agent out of `online`/`working`
-            # immediately rather than lying until the 60s sweep.
-            await _invalidate_agent_live_state(db, terminal["agent_id"])
-            await _append_terminal_event(
-                db,
-                terminal_id,
-                "console_stop_reconciled",
-                json.dumps({
-                    "requestedBy": requested_by,
-                    "reason": reason,
-                    "terminalBridge": terminal_bridge_id,
-                    "environmentBridge": current_bridge_id,
-                    "environmentStatus": env_status,
-                }),
-            )
-            await db.commit()
-            updated = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
-            ws = await _get_ws(request)
-            if ws:
-                await ws.broadcast("terminal_stopped", {"terminalId": terminal_id, "sessionId": terminal["session_id"]})
-            return {"ok": True, "terminal": _terminal_session_to_dict(updated)}
         await db.execute(
             """
             UPDATE terminal_sessions
