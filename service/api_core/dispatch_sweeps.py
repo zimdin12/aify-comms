@@ -20,11 +20,11 @@ from typing import Any, Optional
 
 from fastapi import Request
 
+from service.api_core.send_preflight import _preflight_live_send_recipients
 from service.api_core.channel_delivery import _apply_channel_routing_to_claude_runs
 from service.api_core.dispatch_run_state import _finalize_dispatch_runs
 from service.api_core.dispatch_runs import (
     _create_dispatch_runs,
-    _preflight_live_send_recipients,
 )
 from service.api_core.dispatch_state import (
     _DISPATCH_TERMINAL_STATUSES,

@@ -26,6 +26,7 @@ from typing import Optional
 
 from fastapi import HTTPException, Query, Request
 
+from service.api_core.send_preflight import _preflight_live_send_recipients
 from service.api_core.inbox_read_receipts import _settle_inbox_read
 from service.api_core.reply_expectation import (
     _dispatch_requires_reply,
@@ -57,7 +58,7 @@ from service.api_core.message_view import _serialize_inbox_message
 from service.api_core.message_store import _delete_messages_by_ids
 from service.api_core.validation import _reject_sender_truncated_body
 from service.api_core.agent_sessions import _touch_agent
-from service.api_core.dispatch_runs import _create_dispatch_runs, _preflight_live_send_recipients
+from service.api_core.dispatch_runs import _create_dispatch_runs
 from service.api_core.message_store import _delete_messages_where
 from service.api_core.status_refresh import _get_recipient_info
 from service.longpoll import _wake_agent
