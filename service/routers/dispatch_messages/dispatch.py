@@ -16,12 +16,10 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, Optional
 
-from fastapi import HTTPException, Query, Request
+from fastapi import HTTPException, Request
 
 from service import longpoll
-from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.events import _append_dispatch_event
 from service.api_core.dispatch_run_settlement import _settle_terminated_dispatch_run
 from service.api_core.reply_expectation import (
@@ -56,10 +54,8 @@ from service.api_core.dispatch_run_state import _finalize_dispatch_runs
 from service.api_core.validation import _reject_sender_truncated_body
 from service.api_core.agent_sessions import _touch_agent
 from service.api_core.dispatch_runs import _create_dispatch_runs
-from service.api_core.dispatch_sweeps import _mirror_missing_dispatch_handoff
 from service.api_core.status_refresh import _get_recipient_info
 from service.longpoll import _wake_agent
-from service.reconcilers.dispatch_queue import _close_reconcilable_delivered_runs
 from service.status_engine import VALID_STATUSES
 from service.routers.dispatch_messages.shared import (
     _primary_result_message_id,
@@ -70,12 +66,7 @@ from service.api_core.channel_delivery import (
     _apply_channel_routing_to_claude_runs,
 )
 from service.api_core.dispatch_delivery_resolve import _resolve_dispatch_recipient_delivery
-from service.api_core.dispatch_state import _is_delivery_only_claude_run
 from service.api_core.dispatch_state import _DISPATCH_TERMINAL_STATUSES
-from service.api_core.records import _serialize_dispatch_run_row
-from service.api_core.dashboard_run_report import (
-    _maybe_report_async_manager_result_to_dashboard,
-)
 from service.dispatch_claim import _claim_dispatch_once
 
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.dispatch")
@@ -264,263 +255,6 @@ async def create_dispatch(req: DispatchRequest, request: Request):
             "notStarted": not_started,
             "consoleDeliveries": console_deliveries,
             "warnings": warnings,
-        }
-    finally:
-        await db.close()
-
-
-@router.get("/dispatch/runs/{run_id}")
-async def get_dispatch_run(run_id: str, request: Request):
-    db = await get_db()
-    try:
-        cursor = await db.execute("SELECT * FROM dispatch_runs WHERE id = ?", (run_id,))
-        row = await cursor.fetchone()
-        if not row:
-            raise HTTPException(404, f"Run '{run_id}' not found")
-        ec = await db.execute(
-            "SELECT event_type, body, created_at FROM dispatch_events WHERE run_id = ? ORDER BY id ASC LIMIT 200",
-            (run_id,)
-        )
-        events = [
-            {"type": event["event_type"], "body": event["body"], "createdAt": event["created_at"]}
-            for event in await ec.fetchall()
-        ]
-        cc = await db.execute(
-            """
-            SELECT id, from_agent, action, body, status, response_text, source_message_id, requested_at, claimed_at, handled_at
-            FROM dispatch_controls WHERE run_id = ? ORDER BY requested_at ASC LIMIT 200
-            """,
-            (run_id,)
-        )
-        controls = [
-            {
-                "id": control["id"],
-                "from": control["from_agent"],
-                "action": control["action"],
-                "body": control["body"],
-                "status": control["status"],
-                "response": control["response_text"],
-                "sourceMessageId": control["source_message_id"],
-                "requestedAt": control["requested_at"],
-                "claimedAt": control["claimed_at"],
-                "handledAt": control["handled_at"],
-            }
-            for control in await cc.fetchall()
-        ]
-        blocked_by = None
-        if row["status"] == "queued":
-            blocked_by = await _get_blocking_active_run(db, row["target_agent"], row["id"])
-        return {
-            "run": _serialize_dispatch_run_row(
-                row,
-                blocked_by=blocked_by,
-                include_body=True,
-                include_events=events,
-                include_controls=controls,
-            )
-        }
-    finally:
-        await db.close()
-
-
-@router.get("/dispatch/runs/{run_id}/events")
-async def list_dispatch_run_events(
-    run_id: str,
-    limit: int = Query(50, ge=1),
-    before: Optional[int] = Query(None, ge=1),
-    order: str = Query("desc", pattern="^(asc|desc)$"),
-):
-    db = await get_db()
-    try:
-        run_cursor = await db.execute("SELECT 1 FROM dispatch_runs WHERE id = ?", (run_id,))
-        if not await run_cursor.fetchone():
-            raise HTTPException(404, f"Run '{run_id}' not found")
-
-        bounded_limit = min(limit, 50)
-        params: list[Any] = [run_id]
-        cursor_clause = ""
-        direction = "DESC" if order == "desc" else "ASC"
-        if before is not None:
-            cursor_clause = "AND id < ?" if order == "desc" else "AND id > ?"
-            params.append(before)
-        params.append(bounded_limit + 1)
-        events_cursor = await db.execute(
-            f"""
-            SELECT id, event_type, body, created_at
-            FROM dispatch_events
-            WHERE run_id = ? {cursor_clause}
-            ORDER BY id {direction}
-            LIMIT ?
-            """,
-            tuple(params),
-        )
-        rows = await events_cursor.fetchall()
-        page = rows[:bounded_limit]
-        return {
-            "ok": True,
-            "runId": run_id,
-            "events": [
-                {
-                    "id": str(event["id"]),
-                    "type": event["event_type"],
-                    "eventType": event["event_type"],
-                    "body": event["body"] or "",
-                    "createdAt": event["created_at"],
-                }
-                for event in page
-            ],
-            "hasMore": len(rows) > bounded_limit,
-            "nextBefore": str(page[-1]["id"]) if len(rows) > bounded_limit and page else "",
-            "order": order,
-            "limit": bounded_limit,
-        }
-    finally:
-        await db.close()
-
-
-@router.get("/dispatch/runs")
-async def list_dispatch_runs(
-    request: Request,
-    agentId: Optional[str] = None,
-    fromAgent: Optional[str] = None,
-    status: Optional[str] = None,
-    limit: int = Query(50, ge=1, le=200),
-):
-    db = await get_db()
-    try:
-        # Read-path-write fix (2026-06-29): _repair_unusable_active_runs scanned the runs table on
-        # every poll of this endpoint and is already run by the 60s reconcile loop — removed here so
-        # this stays a pure read (no write-txn contention on the single writer).
-        # Plan 6 follow-up (2026-05-26): Section C's mode-switch audit
-        # inserts synthetic `dispatch_runs` rows with dispatch_mode='audit'
-        # to satisfy the dispatch_events.run_id FK constraint. Those rows
-        # are never claimed/queued/started — they exist only as audit
-        # anchors. Hide them from the listing endpoint so the dashboard's
-        # dispatch history view doesn't fill with mode_switch_* entries.
-        # Audit anchors are still queryable individually via the
-        # per-id endpoint and via dispatch_events.
-        query = "SELECT * FROM dispatch_runs WHERE (dispatch_mode IS NULL OR dispatch_mode != 'audit')"
-        params = []
-        if agentId:
-            query += " AND target_agent = ?"
-            params.append(agentId)
-        if fromAgent:
-            query += " AND from_agent = ?"
-            params.append(fromAgent)
-        if status:
-            query += " AND status = ?"
-            params.append(status)
-        query += " ORDER BY requested_at DESC LIMIT ?"
-        params.append(limit)
-        cursor = await db.execute(query, params)
-        rows = await cursor.fetchall()
-        # Perf (audit 2026-06-28): batch the per-run source-controls lookup into ONE query keyed
-        # by all run_ids on the page, instead of a sub-query per row (was ~80 queries/poll on the
-        # dashboard's 15s cycle → 1). Read-only; output is identical (same fields, ASC order, the
-        # per-run 50 cap is applied in Python below).
-        run_ids = [row["id"] for row in rows]
-        controls_by_run: dict[str, list[dict[str, Any]]] = {}
-        if run_ids:
-            placeholders = ",".join("?" * len(run_ids))
-            controls_cursor = await db.execute(
-                f"""
-                SELECT run_id, id, action, status, source_message_id, response_text
-                FROM dispatch_controls
-                WHERE run_id IN ({placeholders}) AND source_message_id != ''
-                ORDER BY requested_at ASC
-                """,
-                run_ids,
-            )
-            for control in await controls_cursor.fetchall():
-                controls_by_run.setdefault(control["run_id"], []).append({
-                    "id": control["id"],
-                    "action": control["action"],
-                    "status": control["status"],
-                    "sourceMessageId": control["source_message_id"],
-                    "response": control["response_text"] or "",
-                })
-        runs = []
-        for row in rows:
-            blocked_by = None
-            if row["status"] == "queued":
-                blocked_by = await _get_blocking_active_run(db, row["target_agent"], row["id"])
-            payload = _serialize_dispatch_run_row(row, blocked_by=blocked_by)
-            source_controls = controls_by_run.get(row["id"], [])[:50]
-            if source_controls:
-                payload["sourceControls"] = source_controls
-            runs.append(payload)
-        return {"runs": runs}
-    finally:
-        await db.close()
-
-
-@router.post("/dispatch/handoffs/repair")
-async def repair_dispatch_handoffs(request: Request, limit: int = Query(100, ge=1, le=500)):
-    db = await get_db()
-    try:
-        closed_delivered = await _close_reconcilable_delivered_runs(db, limit=limit)
-        cursor = await db.execute(
-            """
-            SELECT *
-            FROM dispatch_runs
-            WHERE require_reply = 1
-              AND status IN ('completed', 'failed', 'cancelled')
-              AND COALESCE(result_message_id, '') = ''
-            ORDER BY requested_at ASC
-            LIMIT ?
-            """,
-            (max(1, limit - len(closed_delivered)),),
-        )
-        rows = await cursor.fetchall()
-        mirrored = []
-        dashboard_reports = []
-        skipped_delivery_only = 0
-        skipped = 0
-        for row in rows:
-            if _is_delivery_only_claude_run(row):
-                skipped_delivery_only += 1
-                continue
-            message_id = await _mirror_missing_dispatch_handoff(db, row)
-            if message_id:
-                mirrored.append({"runId": row["id"], "messageId": message_id})
-            else:
-                skipped += 1
-
-        report_cursor = await db.execute(
-            """
-            SELECT *
-            FROM dispatch_runs
-            WHERE require_reply = 0
-              AND status = 'completed'
-              AND COALESCE(summary, '') != ''
-            ORDER BY requested_at DESC
-            LIMIT ?
-            """,
-            (limit,),
-        )
-        report_rows = await report_cursor.fetchall()
-        for row in report_rows:
-            message_id = await _maybe_report_async_manager_result_to_dashboard(db, row)
-            if message_id:
-                dashboard_reports.append({"runId": row["id"], "messageId": message_id})
-
-        await db.commit()
-        ws = await _get_ws(request)
-        if ws and (mirrored or dashboard_reports or closed_delivered):
-            await ws.broadcast(
-                "dispatch_handoffs_repaired",
-                {"mirrored": len(mirrored), "dashboardReports": len(dashboard_reports), "closedDelivered": len(closed_delivered)},
-            )
-        return {
-            "ok": True,
-            "mirrored": len(mirrored),
-            "dashboardReports": len(dashboard_reports),
-            "closedDelivered": len(closed_delivered),
-            "skippedDeliveryOnly": skipped_delivery_only,
-            "skipped": skipped,
-            "runs": mirrored,
-            "reports": dashboard_reports,
-            "closed": closed_delivered,
         }
     finally:
         await db.close()

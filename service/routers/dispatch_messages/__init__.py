@@ -9,10 +9,14 @@ boundary.
 from service.api_core.routing import domain_router
 from service.routers.dispatch_messages.controls import router as _controls_router
 from service.routers.dispatch_messages.dispatch import router as _dispatch_router
+from service.routers.dispatch_messages.handoff_repair import router as _handoff_repair_router
 from service.routers.dispatch_messages.messages import router as _messages_router
+from service.routers.dispatch_messages.run_queries import router as _run_queries_router
 
 router = domain_router()
 router.include_router(_dispatch_router)
 # Controls left `dispatch.py` in v0.5.4 with a clean closure — see controls.py.
 router.include_router(_controls_router)
+router.include_router(_run_queries_router)
+router.include_router(_handoff_repair_router)
 router.include_router(_messages_router)

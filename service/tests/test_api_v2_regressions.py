@@ -77,7 +77,7 @@ from service.terminal_write_queue import TerminalOutputWriteQueue
 from service.api_core import status_refresh
 from service import terminal_write_queue
 # v0.5.2l: dispatch run serialization moved into the dispatch+messages package.
-from service.routers.dispatch_messages import dispatch as dispatch_router
+from service.api_core.records import _serialize_dispatch_run_row
 from service.routers.dispatch_messages import shared as dispatch_shared  # v0.5.3: owner of _turn_busy_holds_delivery
 # v0.5.2m: the agent console handler moved, and each module owns its OWN binding -- patching
 # api_v2 would no longer reach it and the test would exercise the happy path while claiming
@@ -3404,7 +3404,10 @@ class ApiV2RegressionTests(FastApiTestCase):
             self._fetchone("SELECT id FROM dispatch_controls WHERE run_id = ?", ("run_hermes_active",)),
             "channel-owned Hermes must not receive an unconsumed bridge control",
         )
-        serialized = dispatch_router._serialize_dispatch_run_row(self._fetchone("SELECT * FROM dispatch_runs WHERE id = ?", (queued_id,)))
+        # Reached through `service.api_core.records`, its OWNER. It used to be read off
+        # `dispatch_router`, which never declared it — that module merely imported the name, and
+        # the attribute vanished the moment the last handler using it moved out in v0.5.4.
+        serialized = _serialize_dispatch_run_row(self._fetchone("SELECT * FROM dispatch_runs WHERE id = ?", (queued_id,)))
         self.assertTrue(serialized["steerIfBusy"])
 
     def test_explicit_queue_to_busy_steerable_target_waits_for_turn_end(self):
