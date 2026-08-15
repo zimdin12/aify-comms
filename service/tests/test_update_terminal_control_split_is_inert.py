@@ -26,7 +26,9 @@ from pathlib import Path
 from service.tests.extract_method import assert_extractions_preserve_behaviour
 
 REPO = Path(__file__).resolve().parent.parent.parent
-TERMINALS = REPO / "service" / "routers" / "terminals.py"
+# `update_terminal_control` moved to `terminal_controls.py` in v0.5.4. See the note in
+# `test_stop_terminal_split_is_inert.py`: the caller module is a location pin by construction.
+CALLER = REPO / "service" / "routers" / "terminal_controls.py"
 CONTROL_STATUS = REPO / "service" / "api_core" / "terminal_control_status.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "update_terminal_control_before_split.py"
 
@@ -36,7 +38,7 @@ EXTRACTIONS = ["_apply_terminal_status_from_control"]
 #: Where each helper is expected to be declared. PER HELPER, over every module below.
 OWNERS = {"_apply_terminal_status_from_control": CONTROL_STATUS}
 
-MODULES = (TERMINALS, CONTROL_STATUS)
+MODULES = (CALLER, CONTROL_STATUS)
 
 
 def _combined_split_source() -> str:
@@ -68,6 +70,25 @@ class UpdateTerminalControlSplitIsInertTests(unittest.TestCase):
         assert_extractions_preserve_behaviour(
             ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
 
+    def test_the_source_function_is_still_where_this_proof_looks(self):
+        """`CALLER` is a location pin, and a relocation is what breaks it.
+
+        Added after `update_terminal_control` moved out of `terminals.py` in v0.5.4, in the same slice. The round trip already fails in that case — it cannot find the
+        caller to inline into — but it fails as a gate-internal error about a missing definition,
+        alongside two or three unrelated-looking failures in the same file. That reads like the
+        SPLIT broke. This says the true thing in one line instead.
+        """
+        declared = {
+            n.name for n in ast.parse(CALLER.read_text(encoding="utf-8")).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertIn(
+            SOURCE_FUNCTION, declared,
+            f"{SOURCE_FUNCTION} is not declared in {CALLER.name}. If it was relocated, repoint "
+            "CALLER at its new module — this proof names the file holding the caller, so a move "
+            "must touch it.",
+        )
+
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""
         self.assertIn(SOURCE_FUNCTION, _declared(FIXTURE))
@@ -82,7 +103,7 @@ class UpdateTerminalControlSplitIsInertTests(unittest.TestCase):
         """If the split were reverted, the round trip would pass by having nothing to inline."""
         for helper in EXTRACTIONS:
             self.assertNotIn(
-                helper, _declared(TERMINALS), f"{helper} is back in terminals.py; proof is vacuous")
+                helper, _declared(CALLER), f"{helper} is back in terminals.py; proof is vacuous")
 
     def test_exactly_one_module_declares_EACH_helper(self):
         self.assertEqual(sorted(OWNERS), sorted(EXTRACTIONS), "every extraction needs a declared owner")
@@ -126,7 +147,7 @@ class UpdateTerminalControlSplitIsInertTests(unittest.TestCase):
         self.assertIsInstance(returned, ast.Return)
         self.assertEqual("terminal_status", returned.value.id)
         call = next(
-            n for n in ast.walk(ast.parse(TERMINALS.read_text(encoding="utf-8")))
+            n for n in ast.walk(ast.parse(CALLER.read_text(encoding="utf-8")))
             if isinstance(n, ast.Assign) and isinstance(n.value, ast.Await)
             and getattr(n.value.value.func, "id", "") == EXTRACTIONS[0]
         )

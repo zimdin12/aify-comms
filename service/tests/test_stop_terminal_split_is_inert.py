@@ -31,13 +31,16 @@ from pathlib import Path
 from service.tests.extract_method import assert_extractions_preserve_behaviour
 
 REPO = Path(__file__).resolve().parent.parent.parent
-TERMINALS = REPO / "service" / "routers" / "terminals.py"
+# `stop_terminal` moved to `terminal_lifecycle.py` in v0.5.4. A round-trip proof names the module
+# holding the CALLER, so a relocation must touch it — that is what the location pin costs, and it
+# is why `test_the_source_function_is_still_where_this_proof_looks` states it in one line below.
+CALLER = REPO / "service" / "routers" / "terminal_lifecycle.py"
 CONTROLS = REPO / "service" / "api_core" / "terminal_controls_io.py"
 
 #: ONE tuple, read by every check below. Naming modules inline per check has gone blind five times in
 #: this directory: a helper landing somewhere an inline list does not mention makes the round trip
 #: inline NOTHING while the test keeps passing.
-MODULES = (TERMINALS, CONTROLS)
+MODULES = (CALLER, CONTROLS)
 FIXTURE = Path(__file__).resolve().parent / "data" / "stop_terminal_before_split.py"
 
 SOURCE_FUNCTION = "stop_terminal"
@@ -62,6 +65,25 @@ class StopTerminalSplitIsInertTests(unittest.TestCase):
         assert_extractions_preserve_behaviour(
             ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
 
+    def test_the_source_function_is_still_where_this_proof_looks(self):
+        """`CALLER` is a location pin, and a relocation is what breaks it.
+
+        Added after `stop_terminal` moved out of `terminals.py` in v0.5.4 and this file went red four ways at once. The round trip already fails in that case — it cannot find the
+        caller to inline into — but it fails as a gate-internal error about a missing definition,
+        alongside two or three unrelated-looking failures in the same file. That reads like the
+        SPLIT broke. This says the true thing in one line instead.
+        """
+        declared = {
+            n.name for n in ast.parse(CALLER.read_text(encoding="utf-8")).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertIn(
+            SOURCE_FUNCTION, declared,
+            f"{SOURCE_FUNCTION} is not declared in {CALLER.name}. If it was relocated, repoint "
+            "CALLER at its new module — this proof names the file holding the caller, so a move "
+            "must touch it.",
+        )
+
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""
         names = {
@@ -79,7 +101,7 @@ class StopTerminalSplitIsInertTests(unittest.TestCase):
         """
         text = FIXTURE.read_text(encoding="utf-8")
         self.assertNotIn("�", text, "fixture contains U+FFFD replacement characters")
-        live = TERMINALS.read_text(encoding="utf-8")
+        live = CALLER.read_text(encoding="utf-8")
         expected = ast.get_source_segment(live, next(
             n for n in ast.parse(live).body
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
@@ -90,7 +112,7 @@ class StopTerminalSplitIsInertTests(unittest.TestCase):
     def test_the_helper_is_not_still_inline(self):
         """If the split were reverted, the round trip would pass by having nothing to inline."""
         declared = {
-            n.name for n in ast.parse(TERMINALS.read_text(encoding="utf-8")).body
+            n.name for n in ast.parse(CALLER.read_text(encoding="utf-8")).body
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
         for helper in EXTRACTIONS:
@@ -127,7 +149,7 @@ class StopTerminalSplitIsInertTests(unittest.TestCase):
         them in would be noise — and worse, it would let the caller's value leak in silently if the
         assignment were ever moved under a branch.
         """
-        split = ast.parse(TERMINALS.read_text(encoding="utf-8"))
+        split = ast.parse(CALLER.read_text(encoding="utf-8"))
         call = next(
             node for node in ast.walk(split)
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)

@@ -29,51 +29,42 @@ from typing import Any, Optional
 from fastapi import HTTPException, Request
 
 
-from service import longpoll
 from service.api_core.events import _append_terminal_control, _append_terminal_event
-from service.api_core.terminal_control_status import _apply_terminal_status_from_control
 from service.api_core.terminal_snapshot_view import _attach_terminal_snapshot
 from service.api_core.routing import domain_router
 from service.api_core.records import _terminal_session_to_dict
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
-from service.api_core.settings import _load_settings
 from service.api_core.ws import _get_ws
-from service.clock import now as _now
 from service.db import get_db
-from service.env_status import environment_effective_status as _environment_effective_status
-from service.reconcilers.terminal_runs import _close_active_terminal_runs_for_terminal
-from service.terminal_snapshot import (
-    TERMINAL_MAX_COLS,
-    TERMINAL_MAX_ROWS,
-    resize_live_screen as _resize_live_terminal_screen,
-)
+from service.terminal_snapshot import TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS
 # Imported for ANNOTATIONS as well as calls: under postponed evaluation a missing model does not
 # fail import, it silently demotes the request body to a query parameter.
-from service.models import (
-    TerminalControlClaim,
-    TerminalControlRequest,
-    TerminalControlUpdate,
-    TerminalDeadReport,
-    TerminalOutputRequest,
-)
-from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
-from service.api_core.terminal_output import _append_terminal_output
+from service.models import TerminalControlRequest, TerminalOutputRequest
 from service.terminal_write_queue import TERMINAL_OUTPUT_WRITES
 from service.api_core.terminal_status import _TERMINAL_END_STATUSES
 from service.api_core.terminal_output_settlement import (
     _close_out_terminal_on_end_status,
     _settle_bridge_takeover_for_output,
 )
-from service.api_core.terminal_controls_io import (
-    _claim_terminal_controls_once,
-    _clear_console_terminal_binding,
-    _reconcile_stop_for_unclaimable_terminal,
-    _terminal_control_to_dict,
-)
+from service.api_core.terminal_controls_io import _terminal_control_to_dict
 
 logger = logging.getLogger("aify_comms.routers.terminals")
 
 router = domain_router()
+
+# THE TERMINAL DOMAIN IS THREE FILES, COMPOSED HERE rather than in `api_v2.py`. Controls and the two
+# ways a terminal ends left in v0.5.4; this module keeps the read and the output/input surface and
+# includes the other two, so `api_v2.py` still sees ONE terminal router.
+#
+# Not converted to a package, deliberately. Thirteen provenance comments across `api_core/`,
+# `control_plane.py` and the split fixtures say a helper "moved out of service/routers/terminals.py"
+# — statements about what HAPPENED. Turning this module into a package of that name would make every
+# one of them false, and rewriting history in comments to satisfy a path gate is the wrong trade.
+from service.routers.terminal_controls import router as _terminal_controls_router
+from service.routers.terminal_lifecycle import router as _terminal_lifecycle_router
+
+router.include_router(_terminal_controls_router)
+router.include_router(_terminal_lifecycle_router)
 
 
 # _TERMINAL_MONOTONIC_STATUSES moved to service/api_core/terminal_status.py in v0.5.4, together
@@ -309,293 +300,5 @@ async def resize_terminal(terminal_id: str, req: TerminalControlRequest, request
         if ws:
             await ws.broadcast("terminal_control_requested", {"terminalId": terminal_id, "action": "resize"})
         return {"ok": True, "control": _terminal_control_to_dict(control)}
-    finally:
-        await db.close()
-
-
-@router.post("/terminals/{terminal_id}/stop")
-async def stop_terminal(terminal_id: str, req: TerminalControlRequest, request: Request):
-    db = await get_db()
-    try:
-        terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
-        if not terminal:
-            raise HTTPException(404, f'Terminal "{terminal_id}" not found')
-        now = _now()
-        requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
-        env_row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (terminal["environment_id"],))).fetchone()
-        settings = await _load_settings(db)
-        env_status = _environment_effective_status(
-            env_row,
-            offline_seconds=max(30, int(settings.get("environment_offline_seconds", 90) or 90)),
-        ) if env_row else "offline"
-        current_bridge_id = str((env_row["bridge_id"] if env_row else "") or "").strip()
-        terminal_bridge_id = str(terminal["bridge_id"] or "").strip()
-        terminal_status = str(terminal["status"] or "").strip().lower()
-        bridge_can_claim = bool(
-            terminal_bridge_id
-            and current_bridge_id
-            and terminal_bridge_id == current_bridge_id
-            and env_status in {"online", "degraded"}
-        )
-        control_id = await _append_terminal_control(
-            db,
-            terminal_id=terminal_id,
-            environment_id=terminal["environment_id"],
-            bridge_id=terminal["bridge_id"] or "",
-            action="stop",
-            requested_by=requested_by,
-            body=req.body or "",
-        )
-        await _append_terminal_event(
-            db,
-            terminal_id,
-            "console_stop_requested",
-            json.dumps({"requestedBy": requested_by, "body": req.body or "", "controlId": control_id}),
-        )
-        if terminal_status in {"stopped", "failed"} or not bridge_can_claim:
-            return await _reconcile_stop_for_unclaimable_terminal(
-                db, request, terminal, terminal_id, terminal_status, terminal_bridge_id,
-                current_bridge_id, env_status, control_id, requested_by, now,
-            )
-        await db.execute(
-            """
-            UPDATE terminal_sessions
-            SET status = 'stopping', updated_at = ?
-            WHERE id = ?
-            """,
-            (now, terminal_id),
-        )
-        await db.execute(
-            """
-            UPDATE agent_sessions
-            SET terminal_status = 'stopping',
-                last_seen = ?
-            WHERE id = ?
-            """,
-            (now, terminal["session_id"]),
-        )
-        await db.commit()
-        updated = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
-        ws = await _get_ws(request)
-        if ws:
-            await ws.broadcast("terminal_stopped", {"terminalId": terminal_id, "sessionId": terminal["session_id"]})
-        return {"ok": True, "terminal": _terminal_session_to_dict(updated)}
-    finally:
-        await db.close()
-
-
-@router.post("/terminals/{terminal_id}/report-dead")
-async def report_terminal_dead(terminal_id: str, req: TerminalDeadReport, request: Request):
-    """Host-reported dead-PTY signal (WS4 Task 4.2).
-
-    The server cannot probe a remote host's PID; only the OWNING environment
-    bridge can. When a bridge observes that one of its `attached` console PTY
-    rows has a `process_id` that is no longer alive locally, it POSTs here so the
-    server can mark the row stopped, close any active runs, clear the console
-    binding, and invalidate the agent's live state (a frozen/crashed console
-    can otherwise keep manufacturing presence).
-
-    SAFETY: if a `processId` is supplied it MUST match the stored process_id.
-    A bridge that has since restarted the console owns a NEW pid; a stale
-    report carrying the OLD pid must NOT stop the live row. Already-terminal
-    rows are a harmless idempotent no-op.
-    """
-    db = await get_db()
-    try:
-        terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
-        if not terminal:
-            raise HTTPException(404, f'Terminal "{terminal_id}" not found')
-        now = _now()
-        current_status = str(terminal["status"] or "").strip().lower()
-        # Idempotent: already terminal → nothing to do.
-        if current_status in _TERMINAL_END_STATUSES:
-            return {"ok": True, "terminal": _terminal_session_to_dict(terminal), "changed": False}
-        # PID guard: a supplied pid must match the stored process_id so a stale
-        # report can't stop a row a restarted bridge now owns with a NEW pid.
-        reported_pid = str(req.processId or "").strip()
-        stored_pid = str(terminal["process_id"] or "").strip()
-        if reported_pid and stored_pid and reported_pid != stored_pid:
-            await _append_terminal_event(
-                db,
-                terminal_id,
-                "console_dead_report_ignored",
-                json.dumps({"reportedPid": reported_pid, "storedPid": stored_pid, "bridgeId": req.bridgeId or ""}),
-            )
-            await db.commit()
-            return {"ok": True, "terminal": _terminal_session_to_dict(terminal), "changed": False, "ignored": "pid-mismatch"}
-        reason = str(req.reason or "").strip() or "Console PTY process is no longer alive (host-reported)."
-        # Close any active runs bound to this terminal before stopping the row.
-        await _close_active_terminal_runs_for_terminal(
-            db,
-            terminal,
-            "stopped",
-            now=now,
-            reason=reason,
-        )
-        await db.execute(
-            """
-            UPDATE terminal_sessions
-            SET status = 'stopped',
-                updated_at = ?,
-                stopped_at = COALESCE(stopped_at, ?),
-                error = CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END
-            WHERE id = ?
-            """,
-            (now, now, reason, terminal_id),
-        )
-        await db.execute(
-            """
-            UPDATE agent_sessions
-            SET owner_mode = 'managed',
-                terminal_status = 'stopped',
-                last_seen = ?
-            WHERE id = ?
-            """,
-            (now, terminal["session_id"]),
-        )
-        await _clear_console_terminal_binding(db, terminal["agent_id"], terminal_id, now=now)
-        # Bug D fix (2026-07-02): the dead PTY's in-session wrapper-child bridge died with it,
-        # but its heartbeat row would otherwise look "live" for up to
-        # ACTIVE_RUN_BRIDGE_STALE_SECONDS and suppress the send-path coldstart. Supersede the
-        # rows now so the very next send cold-starts a fresh worker instead of queuing.
-        # SCOPED to this terminal (review 2026-07-02): a stale dead-report for an OLD
-        # terminal must not kill the NEW live worker's row. Rows with no terminal_id
-        # (flag-only wrapper children) are still covered — nothing else supersedes them
-        # at death, and a false-positive there only costs one redundant coldstart check.
-        await db.execute(
-            """
-            UPDATE bridge_instances
-            SET superseded_by = 'terminal-dead:' || ?,
-                superseded_at = ?
-            WHERE agent_id = ?
-              AND bridge_kind = 'managed-wrapper-child'
-              AND COALESCE(superseded_by, '') = ''
-              AND (COALESCE(terminal_id, '') = '' OR terminal_id = ?)
-            """,
-            (terminal_id, now, terminal["agent_id"], terminal_id),
-        )
-        # Phantom-pending fix (review 2026-07-02): a `running` spawn_request is the
-        # terminal SUCCESS state and its timestamps freeze at boot, so for 5 minutes
-        # after boot _has_pending_or_booting_spawn_request would treat this now-dead
-        # worker as "mid-boot" and suppress the very respawn its death requires (and
-        # burn the backstop's one-shot rescue on a phantom). Mark the death terminal.
-        # SCOPED to THIS terminal's session (review 2026-07-03): an unscoped agent-wide
-        # stamp would also finish a NEW live worker's still-booting spawn (bound to a
-        # different session) — a stale dead-report for an OLD terminal would then trigger a
-        # DUPLICATE spawn whose registration supersedes and fails the live worker, exactly
-        # what the terminal-scoped bridge supersede above exists to prevent. Set status too
-        # so the row reaches a terminal state (else it lingers `running`+finished forever,
-        # skipped by _fail_orphaned_running_spawn_requests). Empty-session_id arm covers
-        # legacy rows written before session binding.
-        await db.execute(
-            """
-            UPDATE spawn_requests
-            SET status = 'failed',
-                finished_at = ?,
-                error = COALESCE(NULLIF(error, ''), 'Worker terminal died (report-dead); spawn finalized.'),
-                updated_at = ?
-            WHERE agent_id = ?
-              AND status = 'running'
-              AND COALESCE(finished_at, '') = ''
-              AND (COALESCE(session_id, '') = '' OR session_id = ?)
-            """,
-            (now, now, terminal["agent_id"], terminal["session_id"]),
-        )
-        await _invalidate_agent_live_state(db, terminal["agent_id"])
-        await _append_terminal_event(
-            db,
-            terminal_id,
-            "console_dead_reported",
-            json.dumps({"reportedPid": reported_pid, "bridgeId": req.bridgeId or "", "reason": reason}),
-        )
-        await db.commit()
-        updated = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
-        ws = await _get_ws(request)
-        if ws:
-            await ws.broadcast("terminal_stopped", {"terminalId": terminal_id, "sessionId": terminal["session_id"]})
-        return {"ok": True, "terminal": _terminal_session_to_dict(updated), "changed": True}
-    finally:
-        await db.close()
-
-
-@router.post("/terminals/controls/claim")
-async def claim_terminal_controls(req: TerminalControlClaim):
-    # Long-poll wrapper — see claim_dispatch / service/longpoll.py. Fallback 1s matches
-    # the legacy 800ms console-control poll so interactivity latency never regresses.
-    return await longpoll.longpoll(
-        getattr(req, "waitMs", 0),
-        lambda: _claim_terminal_controls_once(req),
-        lambda r: r.get("controls") == [],
-        scope="terminal-control",
-        fallback_s=1.0,
-        lock_result={"ok": True, "controls": []},
-    )
-
-
-@router.patch("/terminals/controls/{control_id}")
-async def update_terminal_control(control_id: str, req: TerminalControlUpdate, request: Request):
-    status = str(req.status or "").strip().lower()
-    if status not in {"completed", "failed"}:
-        raise HTTPException(400, f'Unsupported terminal control status "{req.status}"')
-    db = await get_db()
-    try:
-        control = await (await db.execute("SELECT * FROM terminal_controls WHERE id = ?", (control_id,))).fetchone()
-        if not control:
-            raise HTTPException(404, f'Terminal control "{control_id}" not found')
-        terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (control["terminal_id"],))).fetchone()
-        if not terminal:
-            raise HTTPException(404, f'Terminal "{control["terminal_id"]}" not found')
-        now = _now()
-        await db.execute(
-            """
-            UPDATE terminal_controls
-            SET status = ?, handled_at = ?, error = ?
-            WHERE id = ?
-            """,
-            (status, now, req.error or "", control_id),
-        )
-        # Persist the PTY root pid reported by the owning bridge (start-control
-        # attach). Stored so Dashboard Stop/Restart can kill-by-pid even if the
-        # owning bridge later dies and the PTY is orphaned. Only set on a real
-        # positive value — never blank out an existing pid.
-        report_pid = str(req.processId or "").strip()
-        if report_pid:
-            await db.execute(
-                "UPDATE terminal_sessions SET process_id = ? WHERE id = ?",
-                (report_pid, terminal["id"]),
-            )
-        terminal_status = await _apply_terminal_status_from_control(db, req, control, terminal, status, now)
-        # A3 real-cols (2026-07-02): a COMPLETED resize control means the bridge actually
-        # applied these dims to the PTY — record them as the terminal's authoritative size.
-        # GET /terminals prefers this over the infer_source_width heuristic, so the console
-        # snapshot renders at the PTY's true width (kills the live-redraw garble caused by
-        # inferred≠actual width).
-        if (
-            status == "completed"
-            and str(control["action"] or "").strip().lower() == "resize"
-            and int(control["cols"] or 0) > 0
-            and int(control["rows"] or 0) > 0
-        ):
-            await db.execute(
-                "UPDATE terminal_sessions SET cols = ?, rows = ? WHERE id = ?",
-                (int(control["cols"]), int(control["rows"]), terminal["id"]),
-            )
-            _resize_live_terminal_screen(terminal["id"], control["cols"], control["rows"])
-        if req.output:
-            latest_terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal["id"],))).fetchone()
-            await _append_terminal_output(db, latest_terminal or terminal, req.output, status=terminal_status)
-        await _append_terminal_event(
-            db,
-            terminal["id"],
-            f"terminal_control_{status}",
-            json.dumps({"controlId": control_id, "action": control["action"], "error": req.error or ""}),
-        )
-        await db.commit()
-        updated = await (await db.execute("SELECT * FROM terminal_controls WHERE id = ?", (control_id,))).fetchone()
-        updated_terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal["id"],))).fetchone()
-        ws = await _get_ws(request)
-        if ws:
-            await ws.broadcast("terminal_control_updated", {"terminalId": terminal["id"], "controlId": control_id, "status": status})
-        return {"ok": True, "control": _terminal_control_to_dict(updated), "terminal": _terminal_session_to_dict(updated_terminal)}
     finally:
         await db.close()
