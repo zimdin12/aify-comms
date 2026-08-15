@@ -397,14 +397,8 @@ def _sanitize_session_handle(session_handle: Any) -> str:
     return handle
 
 
-def _session_capabilities_replacing_handle(capabilities: Any, session_handle: str) -> dict[str, Any]:
-    existing = capabilities if isinstance(capabilities, dict) else _json_loads_or(capabilities, {})
-    result = dict(existing or {}) if isinstance(existing, dict) else {}
-    handle_present = bool(str(session_handle or "").strip())
-    result.setdefault("persistent", True)
-    result["bridgeResume"] = True
-    result["nativeResume"] = handle_present
-    return result
+# _session_capabilities_replacing_handle moved to service/api_core/session_capabilities.py
+# in v0.5.4 - six router importers, and a router declaring it blocked an api_core split.
 
 
 def _synth_terminal_should_be_created(runtime: str, settings: dict[str, Any]) -> bool:

@@ -20,6 +20,10 @@ from service.api_core.session_mode_gates import (
 )
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.runtime_state import _runtime_state_replacing_handle, _runtime_state_with_handle
+from service.api_core.session_handle_change import (
+    _detect_fresh_start_terminal,
+    _mirror_handle_onto_live_session,
+)
 from service.api_core.session_mode_audit import _record_session_mode_switch_audit
 from service.api_core.session_mode_env_binding import _infer_environment_binding_for_managed_switch
 from service.api_core.status_events import _apply_status_event
@@ -93,7 +97,6 @@ from service.routers.agents.shared import (
     _row_status_note,
     _runtime_capability_for_environment,
     _sanitize_session_handle,
-    _session_capabilities_replacing_handle,
     _session_handle_live_owner,
     _stop_virtual_terminals_for_superseded_bridges,
     _synth_terminal_should_be_created,
@@ -237,32 +240,9 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
                 "auto_confirm_session_id", DEFAULT_SETTINGS["auto_confirm_session_id"]
             )
         )
-        # FRESH-START GUARD (2026-06-12, the ci-manager lost-context incident): auto-adopt
-        # exists for SAFE self-changes (a compaction/resume issues a new id that CARRIES the
-        # context). But when the live terminal started FRESH (its command has no --resume —
-        # e.g. the wrapper dropped an unresumable handle after days offline), the reported id
-        # is an EMPTY session: adopting it overwrites the pinned handle of the real
-        # context-bearing session, and every later Restart then "correctly" resumes the empty
-        # one. Park such ids for manual Confirm instead, even when auto-confirm is ON.
-        _fresh_start_terminal = False
-        if (
-            _auto_confirm_sid
-            and requested_by == "bridge-heartbeat"
-            and session_handle
-            and persisted_handle
-            and session_handle != persisted_handle
-        ):
-            try:
-                _lt = await (await db.execute(
-                    "SELECT command FROM terminal_sessions WHERE agent_id = ? "
-                    "AND status IN ('starting','attached','running','active','idle') "
-                    "AND id NOT LIKE 'vterm_%' ORDER BY datetime(COALESCE(updated_at, created_at)) DESC LIMIT 1",
-                    (agent_id,),
-                )).fetchone()
-                if _lt is not None:
-                    _fresh_start_terminal = "--resume" not in str(_lt["command"] or "")
-            except Exception:
-                _fresh_start_terminal = False
+        _fresh_start_terminal = await _detect_fresh_start_terminal(
+            db, agent_id, _auto_confirm_sid, requested_by, session_handle, persisted_handle
+        )
         if (
             requested_by == "bridge-heartbeat"
             and session_handle
@@ -356,41 +336,9 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
                 agent_id,
             ),
         )
-        latest_session = await (await db.execute(
-            """
-            SELECT id, capabilities, telemetry
-            FROM agent_sessions
-            WHERE agent_id = ?
-              AND runtime = ?
-            ORDER BY last_seen DESC
-            LIMIT 1
-            """,
-            (agent_id, runtime),
-        )).fetchone()
-        if latest_session:
-            session_telemetry = _json_loads_or(latest_session["telemetry"], {})
-            if registered_handle:
-                session_telemetry["registeredHandle"] = registered_handle
-            else:
-                session_telemetry.pop("registeredHandle", None)
-            session_capabilities = _session_capabilities_replacing_handle(latest_session["capabilities"], session_handle)
-            await db.execute(
-                """
-                UPDATE agent_sessions
-                SET session_handle = ?,
-                    capabilities = ?,
-                    telemetry = ?,
-                    last_seen = ?
-                WHERE id = ?
-                """,
-                (
-                    session_handle,
-                    json.dumps(session_capabilities),
-                    json.dumps(session_telemetry),
-                    now,
-                    latest_session["id"],
-                ),
-            )
+        await _mirror_handle_onto_live_session(
+            db, agent_id, runtime, session_handle, registered_handle, now
+        )
         await db.commit()
 
         updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()

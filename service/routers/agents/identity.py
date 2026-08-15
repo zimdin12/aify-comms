@@ -113,7 +113,6 @@ from service.routers.agents.shared import (
     _row_status_note,
     _runtime_capability_for_environment,
     _sanitize_session_handle,
-    _session_capabilities_replacing_handle,
     _session_handle_live_owner,
     _stop_virtual_terminals_for_superseded_bridges,
     _synth_terminal_should_be_created,
