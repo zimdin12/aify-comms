@@ -274,6 +274,27 @@ def _loaded_names(nodes) -> set[str]:
     out: set[str] = set()
 
     def visit(node: ast.AST, bound: frozenset) -> None:
+        # A LAMBDA/DEF PARAMETER IS BOUND IN ITS OWN SCOPE — the same case as a comprehension target
+        # below, and it went wrong the same way. `board.sort(key=lambda a: a["id"])` does not read an
+        # outer `a`; but `get_analytics_pulse` happens to bind its own `a` in an earlier loop, so the
+        # live-in check saw "helper reads a, caller binds a" and refused a correct extraction. Only
+        # the PARAMETERS are shadowed — the body's other reads still count, because a closure reading
+        # an enclosing local is a genuine read of it, which is what the docstring above is about.
+        if isinstance(node, (ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef)):
+            args = node.args
+            params = {a.arg for group in (args.posonlyargs, args.args, args.kwonlyargs) for a in group}
+            if args.vararg:
+                params.add(args.vararg.arg)
+            if args.kwarg:
+                params.add(args.kwarg.arg)
+            # Defaults are evaluated in the ENCLOSING scope, so they are not shadowed.
+            for default in list(args.defaults) + [d for d in args.kw_defaults if d is not None]:
+                visit(default, bound)
+            inner = frozenset(bound | params)
+            body = node.body if isinstance(node.body, list) else [node.body]
+            for child in body:
+                visit(child, inner)
+            return
         if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
             generators = node.generators
             if generators:
@@ -985,6 +1006,41 @@ def call_signature_violations(split_fn: ast.AST, helper_fn: ast.AST) -> list[str
     return problems
 
 
+def _closure_captures_nothing(node: ast.AST) -> bool:
+    """True when a nested function/lambda/class reads only its own parameters and builtins.
+
+    A closure is dangerous to move because it captures the ENCLOSING frame's locals, and after an
+    extraction that frame is the helper's rather than the original's. A closure that captures nothing
+    has no such dependency — `lambda a: (a["x"], a["y"])` sorts the same list whichever function it
+    was defined in.
+
+    Conservative on purpose. A module-level name (a constant, an imported function) would also be
+    safe, but this check is handed the BLOCK, not the module, so it cannot tell a module-level name
+    from a caller local. Refusing those costs an extraction; accepting one wrongly ships a helper
+    that reads a name from the wrong frame.
+    """
+    if isinstance(node, ast.ClassDef):
+        return False  # a class body can bind and read in ways this does not model
+    params: set[str] = set()
+    args = getattr(node, "args", None)
+    if args is not None:
+        for group in (args.posonlyargs, args.args, args.kwonlyargs):
+            params.update(a.arg for a in group)
+        if args.vararg:
+            params.add(args.vararg.arg)
+        if args.kwarg:
+            params.add(args.kwarg.arg)
+    bound = set(params)
+    free = set()
+    for child in ast.walk(node):
+        if isinstance(child, ast.Name):
+            if isinstance(child.ctx, ast.Store):
+                bound.add(child.id)
+            elif child.id not in bound and not hasattr(builtins, child.id):
+                free.add(child.id)
+    return not free
+
+
 def preconditions(helper_fn: ast.AST, *, caller_is_async: bool) -> list[str]:
     """Reasons this block must NOT be extracted, beyond the escape rule.
 
@@ -1013,10 +1069,21 @@ def preconditions(helper_fn: ast.AST, *, caller_is_async: bool) -> list[str]:
         if isinstance(sub, ast.Delete):
             reasons.append("`del` — deletion cannot travel back through a return value")
         # A closure defined in B captures F's locals; moved into H it captures H's instead.
+        #
+        # UNLESS IT CAPTURES NOTHING. `board.sort(key=lambda a: (a["x"], a["y"]))` reads only its own
+        # parameter, so which frame encloses it cannot matter — and refusing it blocked a correct
+        # extraction whose only sin was sorting a list. The rule is about CAPTURE, so it now asks
+        # whether the closure has any free name at all rather than whether a closure exists.
+        #
+        # Deliberately strict about what counts as "captures nothing": every name the closure reads
+        # must be one of its own parameters or a builtin. A module-level name would also be safe in
+        # practice, but proving that needs the module and this check only has the block — and a
+        # false ACCEPT here is a silently-wrong extraction, while a false refuse is an inconvenience.
         if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
-            reasons.append(
-                f"defines a nested {type(sub).__name__} — it would capture the HELPER's locals, not the original's"
-            )
+            if not _closure_captures_nothing(sub):
+                reasons.append(
+                    f"defines a nested {type(sub).__name__} — it would capture the HELPER's locals, not the original's"
+                )
         # Frame-sensitive builtins: a new frame is exactly what breaks them.
         if isinstance(sub, ast.Call):
             fn = sub.func

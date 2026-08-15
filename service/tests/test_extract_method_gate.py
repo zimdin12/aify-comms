@@ -2139,5 +2139,89 @@ class CallSiteShapeTests(unittest.TestCase):
         self.assertIn("REFUSED [_tail]", str(caught.exception))
 
 
+
+class ClosureThatCapturesNothingTests(unittest.TestCase):
+    """A nested closure is refused because it CAPTURES, not because it is nested.
+
+    Both halves of this were false refusals, found by a real extraction: a 38-line run out of
+    `get_analytics_pulse` whose only nested scope was `board.sort(key=lambda a: ...)`.
+    """
+
+    def test_a_lambda_that_reads_only_its_own_parameter_is_allowed(self):
+        original = """
+def handler(rows):
+    board = list(rows)
+    board.sort(key=lambda a: a["id"])
+    return board
+"""
+        split = """
+def handler(rows):
+    board = _ordered(rows)
+    return board
+
+
+def _ordered(rows):
+    board = list(rows)
+    board.sort(key=lambda a: a["id"])
+    return board
+"""
+        assert_extraction_preserves_behaviour(original, split, "_ordered")
+
+    def test_a_lambda_that_DOES_capture_is_still_refused(self):
+        """The rule it replaced still has to hold for the case it was written for."""
+        original = """
+def handler(rows, cutoff):
+    board = [r for r in rows]
+    board.sort(key=lambda a: a["n"] - cutoff)
+    return board
+"""
+        split = """
+def handler(rows, cutoff):
+    board = _ordered(rows)
+    return board
+
+
+def _ordered(rows):
+    board = [r for r in rows]
+    board.sort(key=lambda a: a["n"] - cutoff)
+    return board
+"""
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original, split, "_ordered")
+        self.assertIn("REFUSED", str(caught.exception))
+
+    def test_a_lambda_parameter_does_not_collide_with_a_caller_local(self):
+        """The second false refusal: same NAME, different scope.
+
+        `get_analytics_pulse` binds its own `a` in an earlier loop, and the moved block's lambda
+        takes a parameter also called `a`. The live-in check saw "helper reads `a`, caller binds
+        `a`" and demanded it be passed in — a name the lambda binds for itself.
+        """
+        original = """
+def handler(rows):
+    for r in rows:
+        a = r["x"]
+        note(a)
+    board = list(rows)
+    board.sort(key=lambda a: a["id"])
+    return board
+"""
+        split = """
+def handler(rows):
+    for r in rows:
+        a = r["x"]
+        note(a)
+    board = _ordered(rows)
+    return board
+
+
+def _ordered(rows):
+    board = list(rows)
+    board.sort(key=lambda a: a["id"])
+    return board
+"""
+        assert_extraction_preserves_behaviour(original, split, "_ordered")
+
+
 if __name__ == "__main__":
     unittest.main()
