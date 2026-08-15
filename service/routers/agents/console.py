@@ -6,6 +6,7 @@ declares NO tags — the parent applies `tags=["api"]` once when api_v2 includes
 
 from __future__ import annotations
 
+from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMANDS_BY_RUNTIME
 from service.api_core.terminal_text import _ANSI_RE
 import asyncio
@@ -54,9 +55,6 @@ from service.routers.agents.shared import (
     logger,
 )
 from service.terminal_write_queue import TERMINAL_OUTPUT_WRITES
-from service.api_core.dispatch_start import (
-    _ensure_managed_pty_for_dispatch,
-)
 from service.api_core.agent_terminal_ops import (
     _resolve_live_console_terminal,
 )

@@ -692,7 +692,9 @@ from service.api_core.vocabulary import (
 # _coldstart_spawn_request_for_dispatch moved to service/api_core/dispatch_start.py in v0.5.4.
 
 
-# _ensure_managed_pty_for_dispatch moved to service/api_core/dispatch_start.py in v0.5.4.
+# _ensure_managed_pty_for_dispatch moved to service/api_core/dispatch_start.py in v0.5.4, then on
+# to service/api_core/managed_pty_for_dispatch.py — five modules import it and dispatch_start was
+# not one of them.
 
 
 # _MERGED_DISPATCH_HEADER moved to service/api_core/dispatch_text.py in v0.5.4.

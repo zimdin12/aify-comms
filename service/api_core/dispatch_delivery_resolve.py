@@ -12,10 +12,10 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
+from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
 from service.api_core.capabilities import _managed_via_wrapper_for_runtime
 from service.api_core.channel_delivery import _CHANNEL_MANAGED_RUNTIMES, _insert_messages_via_console
 from service.api_core.dispatch_hint import _dispatch_fix_hint
-from service.api_core.dispatch_start import _ensure_managed_pty_for_dispatch
 from service.api_core.execution_mode import (
     _agent_execution_mode,
     _auto_return_resident_to_managed_if_possible,

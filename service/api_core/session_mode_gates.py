@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
+from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
 from service.api_core.capabilities import _managed_via_wrapper_for_runtime
 from service.api_core.dispatch_start import (
     _coldstart_spawn_request_for_dispatch,
-    _ensure_managed_pty_for_dispatch,
 )
 from service.api_core.dispatch_text import _coldstart_refusal_message
 from service.api_core.terminal_ownership import _active_terminal_for_agent

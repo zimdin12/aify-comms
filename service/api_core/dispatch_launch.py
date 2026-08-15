@@ -11,13 +11,13 @@ smoke checks that by importing both.
 """
 from __future__ import annotations
 
+from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
 from service.api_core.capabilities import _managed_via_wrapper_for_runtime
 from service.api_core.channel_delivery import _CHANNEL_MANAGED_RUNTIMES, _insert_messages_via_console
 from service.api_core.claim_gating import _turn_busy_holds_delivery
 from service.api_core.dispatch_hint import _dispatch_fix_hint
 from service.api_core.dispatch_start import (
     _coldstart_spawn_request_for_dispatch,
-    _ensure_managed_pty_for_dispatch,
 )
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.dispatch_text import COLDSTART_REFUSED_PREFIX, _coldstart_refusal_message

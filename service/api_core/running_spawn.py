@@ -26,13 +26,13 @@ import logging
 import time
 import uuid
 
+from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
 from service.api_core.capabilities import _default_capabilities_for, _managed_via_wrapper_for_runtime
 from service.api_core.channel_delivery import (
     _apply_channel_routing_to_claude_runs,
     _insert_messages_via_console,
 )
 from service.api_core.dispatch_runs import _create_dispatch_runs
-from service.api_core.dispatch_start import _ensure_managed_pty_for_dispatch
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.runtime_state import _runtime_state_with_handle
 from service.api_core.serialization import _json_loads_or
