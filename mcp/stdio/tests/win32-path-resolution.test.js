@@ -15,7 +15,8 @@ import { resolveOnWindowsPath } from "../runtimes-exec.js";
 import { PS_UTF8_PRELUDE } from "../win32-text.js";
 import { defaultGetCmdline as hermesGetCmdline } from "../hermes-daemon.js";
 import { defaultGetCmdline as reapGetCmdline, defaultListClaudeProcs } from "../reap-managed-claude.js";
-import { defaultListProcesses } from "../reap-managed-survivors.js";
+// `defaultListProcesses` moved to `proc-probes.js` in v0.5.4 with the rest of the process read side.
+import { defaultListProcesses } from "../proc-probes.js";
 import { tmpDir } from "./_tmpdir.js";
 
 function makeExecutable(filePath, content) {

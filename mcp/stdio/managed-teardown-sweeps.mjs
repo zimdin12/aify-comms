@@ -36,10 +36,14 @@ import {
   enumerateManagedSurvivors,
   reapOrphanedManagedSurvivors,
   runManagedTeardown,
-  defaultListProcesses as listManagedProcesses,
   defaultReadMarkers as readManagedMarkers,
-  defaultKillTree as killManagedTree,
 } from "./reap-managed-survivors.js";
+// The process read side moved to `proc-probes.js` in v0.5.4; imported from its OWNER rather than
+// re-exported through the reaper, so a stale import fails here instead of resolving.
+import {
+  defaultKillTree as killManagedTree,
+  defaultListProcesses as listManagedProcesses,
+} from "./proc-probes.js";
 
 /**
  * Build the three sweeps over one shared confirmation latch.

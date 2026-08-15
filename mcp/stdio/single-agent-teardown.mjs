@@ -18,10 +18,13 @@ import { cwdRootsForEnvironment } from "./environment-identity.mjs";
 import { defaultKillByPort, stopDaemon } from "./hermes-daemon.js";
 import {
   runManagedTeardown,
-  defaultListProcesses as listManagedProcesses,
   defaultReadMarkers as readManagedMarkers,
-  defaultKillTree as killManagedTree,
 } from "./reap-managed-survivors.js";
+// The process read side moved to `proc-probes.js` in v0.5.4 — see the note in the sweeps module.
+import {
+  defaultKillTree as killManagedTree,
+  defaultListProcesses as listManagedProcesses,
+} from "./proc-probes.js";
 
 // Tear down ONE managed-hermes agent's triad (gateway host, delivery loop,
 // daemon, console PTY) — the agent-scoped reaper for a Dashboard STOP/REMOVE of
