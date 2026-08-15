@@ -29,6 +29,9 @@ from service.tests.extract_method import assert_extractions_preserve_behaviour
 REPO = Path(__file__).resolve().parent.parent.parent
 IDENTITY = REPO / "service" / "routers" / "agents" / "identity.py"
 GATES = REPO / "service" / "api_core" / "registration_gates.py"
+#: v0.5.4: the same-mode gate left with the freshness test it depends on — the pair is only
+#: correct together, so they got their own module.
+SAME_MODE = REPO / "service" / "api_core" / "same_mode_bridge_gate.py"
 SESSIONS = REPO / "service" / "api_core" / "agent_sessions.py"
 #: v0.5.4 split the registration-only writes out of `agent_sessions.py`, which had become the landing
 #: site for six extractions in this series and reached 832 lines. Every function in the new module has
@@ -38,7 +41,7 @@ REG_WRITES = REPO / "service" / "api_core" / "agent_registration_writes.py"
 #: ONE tuple, read by every check below. The alternative — each check naming its own modules — has now
 #: gone blind five times in this directory: a helper landing somewhere an inline list does not mention
 #: makes the round trip inline NOTHING while the test keeps passing.
-MODULES = (IDENTITY, GATES, SESSIONS, REG_WRITES)
+MODULES = (IDENTITY, GATES, SESSIONS, REG_WRITES, SAME_MODE)
 FIXTURE = Path(__file__).resolve().parent / "data" / "register_agent_before_split.py"
 
 SOURCE_FUNCTION = "register_agent"
@@ -69,7 +72,7 @@ EXTRACTIONS = [
 #: Where each helper is expected to be declared. The four gates stayed; the five registration WRITES
 #: moved to their own module in v0.5.4 when `agent_sessions.py` reached 832 lines.
 OWNERS = {
-    "_enforce_same_mode_bridge_gate": GATES,
+    "_enforce_same_mode_bridge_gate": SAME_MODE,
     "_enforce_driving_mode_switch_gate": GATES,
     "_enforce_tombstone_registration_gate": GATES,
     "_enforce_tombstone_resurrection_gate": GATES,

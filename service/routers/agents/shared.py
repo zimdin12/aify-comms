@@ -196,7 +196,8 @@ def _borrowed_listen_events():
 # _enforce_live_worker_gate moved to service/api_core/registration_gates.py in v0.5.4.
 
 
-# _fresh_same_mode_bridge_conflict moved to service/api_core/registration_gates.py in v0.5.4.
+# _fresh_same_mode_bridge_conflict moved to service/api_core/registration_gates.py in v0.5.4, then on to
+# service/api_core/same_mode_bridge_gate.py.
 
 
 

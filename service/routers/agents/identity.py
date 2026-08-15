@@ -45,10 +45,10 @@ from service.api_core.agent_registration_writes import (
     _supersede_stale_resident_terminals,
     _upsert_registered_agent_row,
 )
+from service.api_core.same_mode_bridge_gate import _enforce_same_mode_bridge_gate
 from service.api_core.registration_gates import (
     _enforce_driving_mode_switch_gate,
     _enforce_tombstone_registration_gate,
-    _enforce_same_mode_bridge_gate,
     _enforce_tombstone_resurrection_gate,
 )
 from service.api_core.message_store import _get_unread_count_map

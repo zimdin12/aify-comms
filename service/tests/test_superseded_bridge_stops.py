@@ -19,6 +19,7 @@ that a live bridge was about to claim.
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timedelta, timezone
 
 import aiosqlite
 
@@ -35,11 +36,23 @@ CREATE TABLE environment_controls (
 );
 """
 
-NOW = "2026-08-15T12:00:00Z"
+#: DERIVED FROM THE REAL CLOCK, not hardcoded, and that is the whole point of these three lines.
+#: They used to read "2026-08-15T12:00:00Z" / "11:59:00Z" / "00:00:00Z". `_queue_stop_for_superseded_-
+#: bridge` takes `now` as a PARAMETER but computes its staleness cutoff from `datetime.now(utc)` —
+#: the real clock — so a JUST_NOW pinned to a wall-clock time stops being "just now" as the day
+#: advances. These tests passed all morning and began failing at 12:04 UTC, when real time crossed
+#: the frozen JUST_NOW plus the TTL. Nothing about the code had changed.
+#:
+#: Sealing the input is the fix a test owns: derive the fixtures from the same clock the code reads,
+#: so "recent" and "stale" mean what they say whenever the suite runs. Not fixed in the production
+#: function — making it honour its own `now` argument would be a behaviour change, and in production
+#: the caller passes `_now()` so the two agree.
+_REAL_NOW = datetime.now(timezone.utc)
+NOW = _REAL_NOW.strftime("%Y-%m-%dT%H:%M:%SZ")
 #: Comfortably outside the TTL, and written in the same lexical format the drain compares against.
-LONG_AGO = "2026-08-15T00:00:00Z"
-#: Comfortably inside it: one minute before NOW, against a TTL of several.
-JUST_NOW = "2026-08-15T11:59:00Z"
+LONG_AGO = (_REAL_NOW - timedelta(seconds=SUPERSEDE_STOP_STALE_SECONDS * 4)).strftime("%Y-%m-%dT%H:%M:%SZ")
+#: Comfortably inside it: a fraction of the TTL before now, so a slow suite cannot age it out.
+JUST_NOW = (_REAL_NOW - timedelta(seconds=max(1, SUPERSEDE_STOP_STALE_SECONDS // 10))).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 SERVER = "server:superseded-bridge"
 
