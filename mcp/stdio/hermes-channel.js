@@ -96,6 +96,11 @@ const MACHINE_ID = defaultMachineId();
 // machine-global `hermes-channel-<machine>` id collided across co-located hermes
 // agents because bridge_instances.id is the PRIMARY KEY — only one agent could
 // own the row, starving the others' liveness heartbeats. Scope by agentId.
+// …AND THE PREFIX IS ALSO WHY THIS IS NOT A DUPLICATE OF `hermes-run-reporting.mjs`, which declares
+// the same five reporting names with byte-identical bodies. That module speaks for the managed-hermes
+// visible TUI; this one for the channel sidecar. Merging them would give two live bridges one
+// `bridge_instances` row — the same primary-key collision the paragraph above records happening
+// between co-located agents, one level up. A v0.5.4 fork scan flagged the pair; this is the ruling.
 const CHANNEL_BRIDGE_PREFIX = `hermes-channel-${MACHINE_ID}`;
 function channelBridgeId(agentId) {
   const id = String(agentId || "").trim();

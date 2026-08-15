@@ -26,6 +26,19 @@
 
 import { MACHINE_ID, RUNTIME } from "./hermes-env.mjs";
 
+// LOOKS LIKE A DUPLICATE OF `hermes-channel.js` AND MUST NOT BE MERGED WITH IT. That module declares
+// the same five names with byte-identical bodies — `channelBridgeId`, `reportTurnBusy`, `clearTurn`,
+// `markRunDelivered`, `markRunFailed` — and a v0.5.4 fork scan flagged them for exactly that reason.
+//
+// The bodies are the same because the SHAPE of a delivery report is the same. What differs is what
+// they report ABOUT: this module speaks for the managed-hermes visible TUI and that one for the
+// hermes channel sidecar. Two different bridges, two different `bridge_instances` rows, two
+// different prefixes — and `bridge_instances.id` is the PRIMARY KEY, so merging them would put two
+// live bridges on one row and starve one of its liveness heartbeats. That is the collision the
+// agent-scoping comment in `hermes-channel.js` records already happening once.
+//
+// The event text differs for the same reason: "Delivered to managed-hermes visible TUI" and
+// "Delivered to hermes channel sidecar" are what an operator reads to tell the two paths apart.
 export const CHANNEL_BRIDGE_PREFIX = `hermes-managed-host-${MACHINE_ID}`;
 
 
