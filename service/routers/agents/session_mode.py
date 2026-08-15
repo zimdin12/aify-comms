@@ -22,6 +22,7 @@ from service.api_core.session_mode_gates import (
 )
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.runtime_state import _runtime_state_replacing_handle, _runtime_state_with_handle
+from service.api_core.session_mode_env_binding import _infer_environment_binding_for_managed_switch
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.session_mode")
@@ -557,43 +558,9 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             "requestedBy": requested_by,
             "at": now,
         }
-        if new_mode == "managed" and not str(runtime_state.get("environmentId") or "").strip():
-            # ENV-BINDING INFERENCE (2026-06-12, operator-reported): flipping resident→managed
-            # left runtime_state without an environmentId — the agent then rendered in the
-            # Sessions page's "unassigned" group and looked unreachable until the operator
-            # hand-edited the identity or a spawn re-bound it. The right binding is almost
-            # always derivable: the latest session row's environment, else the (online-first,
-            # newest) environment registered for the agent's own machine.
-            inferred_env = ""
-            try:
-                _ls = await (await db.execute(
-                    "SELECT environment_id FROM agent_sessions WHERE agent_id = ? "
-                    "AND COALESCE(environment_id, '') != '' "
-                    "ORDER BY datetime(COALESCE(last_seen, created_at)) DESC LIMIT 1",
-                    (agent_id,),
-                )).fetchone()
-                inferred_env = str((_ls["environment_id"] if _ls else "") or "").strip()
-                if not inferred_env:
-                    _machine = _normalize_machine_id(row["machine_id"] or "")
-                    if _machine:
-                        _er = await (await db.execute(
-                            "SELECT id FROM environments WHERE machine_id = ? "
-                            "AND status NOT IN ('forgotten', 'disabled') "
-                            "ORDER BY CASE WHEN status = 'online' THEN 0 ELSE 1 END, "
-                            "datetime(COALESCE(last_seen, '')) DESC LIMIT 1",
-                            (_machine,),
-                        )).fetchone()
-                        inferred_env = str((_er["id"] if _er else "") or "").strip()
-            except Exception:
-                inferred_env = ""
-            if inferred_env:
-                runtime_state["environmentId"] = inferred_env
-            else:
-                switch_warnings.append(
-                    "No environment binding could be inferred for this machine — the agent "
-                    "will appear under 'unassigned' on the Sessions page until an environment "
-                    "bridge for its machine comes online."
-                )
+        await _infer_environment_binding_for_managed_switch(
+            db, agent_id, row, new_mode, runtime_state, switch_warnings
+        )
         next_launch_mode = "managed" if new_mode == "managed" else "detached"
         capabilities = _default_capabilities_for(
             effective_runtime,
