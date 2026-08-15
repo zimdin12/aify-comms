@@ -35,12 +35,20 @@ FIXTURE = (Path(__file__).resolve().parent / "data"
            / "update_agent_session_handle_before_split.py")
 
 SOURCE_FUNCTION = "update_agent_session_handle"
-EXTRACTIONS = ["_detect_fresh_start_terminal", "_mirror_handle_onto_live_session"]
+EXTRACTIONS = [
+    "_detect_fresh_start_terminal",
+    "_mirror_handle_onto_live_session",
+    # Both early exits, unprovable until v0.5.4's call-site-shape rule.
+    "_refuse_colliding_session_handle",
+    "_park_pending_session_handle_change",
+]
 
 #: Where each helper is expected to be declared. PER HELPER, over every module below.
 OWNERS = {
     "_detect_fresh_start_terminal": CHANGE,
     "_mirror_handle_onto_live_session": CHANGE,
+    "_refuse_colliding_session_handle": CHANGE,
+    "_park_pending_session_handle_change": CHANGE,
 }
 
 MODULES = (SESSION_MODE, CHANGE)

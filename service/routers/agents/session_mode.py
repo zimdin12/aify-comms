@@ -18,6 +18,8 @@ from service.api_core.session_mode_gates import (
 )
 from service.api_core.runtime_state import _runtime_state_replacing_handle, _runtime_state_with_handle
 from service.api_core.session_handle_change import (
+    _park_pending_session_handle_change,
+    _refuse_colliding_session_handle,
     _detect_fresh_start_terminal,
     _mirror_handle_onto_live_session,
 )
@@ -116,39 +118,10 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
                 lease_seconds=_settings_g.get("resident_lease_seconds", 150),
             )
             if _owner:
-                _note = (
-                    f"session-collision: reported id '{session_handle}' is already owned by live "
-                    f"agent '{_owner['agentId']}' ({_owner['sessionMode']}); kept own handle. "
-                    "Two live agents must not share one session id."
+                return await _refuse_colliding_session_handle(
+                    db, request, agent_id, session_handle,
+                    persisted_handle, now, _owner,
                 )
-                await db.execute(
-                    "UPDATE agents SET pending_session_id = ?, status_note = ?, last_seen = ? WHERE id = ?",
-                    (session_handle, _note, now, agent_id),
-                )
-                await db.commit()
-                updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-                settings = await _load_settings(db)
-                status = await _compute_agent_status(updated, db)
-                dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
-                ws = await _get_ws(request)
-                if ws:
-                    await ws.broadcast("agent_session_changed", {
-                        "agentId": agent_id,
-                        "sessionHandle": persisted_handle,
-                        "pendingSessionId": session_handle,
-                        "collisionWith": _owner["agentId"],
-                    })
-                return {
-                    "ok": True,
-                    "agentId": agent_id,
-                    "state": "session-collision",
-                    "collisionWith": _owner["agentId"],
-                    # Delivery keeps targeting THIS agent's own handle; the
-                    # colliding id is NOT adopted.
-                    "sessionHandle": persisted_handle,
-                    "pendingSessionId": session_handle,
-                    "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
-                }
 
         # Auto-confirm (2026-06-04): when ON (default), a SAFE self-change — the
         # cross-agent collision guard above already returned for a live-owned id —
@@ -171,45 +144,10 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
             and session_handle != persisted_handle
             and (not _auto_confirm_sid or _fresh_start_terminal)
         ):
-            await db.execute(
-                """
-                UPDATE agents
-                SET pending_session_id = ?,
-                    status_note = ?,
-                    last_seen = ?
-                WHERE id = ?
-                """,
-                (
-                    session_handle,
-                    (
-                        f"session-changed: reported id '{session_handle}' differs from "
-                        f"pinned '{persisted_handle}'. Confirm new or keep current."
-                    ),
-                    now,
-                    agent_id,
-                ),
+            return await _park_pending_session_handle_change(
+                db, request, agent_id, session_handle,
+                persisted_handle, now,
             )
-            await db.commit()
-            updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-            settings = await _load_settings(db)
-            status = await _compute_agent_status(updated, db)
-            dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
-            ws = await _get_ws(request)
-            if ws:
-                await ws.broadcast("agent_session_changed", {
-                    "agentId": agent_id,
-                    "sessionHandle": persisted_handle,
-                    "pendingSessionId": session_handle,
-                })
-            return {
-                "ok": True,
-                "agentId": agent_id,
-                "state": "session-changed",
-                # Delivery still targets the OLD (persisted) handle — unchanged.
-                "sessionHandle": persisted_handle,
-                "pendingSessionId": session_handle,
-                "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
-            }
 
         runtime = _normalize_runtime(row["runtime"] or "generic")
         session_mode = _normalize_session_mode(row["session_mode"] or "resident")

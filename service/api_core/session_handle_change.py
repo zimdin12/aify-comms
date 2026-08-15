@@ -28,7 +28,12 @@ from __future__ import annotations
 
 import json
 
+from service.api_core.dispatch_state import _get_dispatch_state_for_agent
+from service.api_core.records import _agent_record_to_dict
 from service.api_core.serialization import _json_loads_or
+from service.api_core.settings import _load_settings
+from service.api_core.status_refresh import _compute_agent_status
+from service.api_core.ws import _get_ws
 from service.api_core.session_capabilities import _session_capabilities_replacing_handle
 
 
@@ -109,3 +114,107 @@ async def _mirror_handle_onto_live_session(
                     latest_session["id"],
                 ),
             )
+
+
+async def _park_pending_session_handle_change(
+    db, request, agent_id, session_handle,
+    persisted_handle, now,
+):
+            """Park a handle change as PENDING and answer `session-changed`, without adopting it.
+
+            Extracted from `update_agent_session_handle` in v0.5.4. Reached when the change is not
+            auto-confirmable: delivery keeps targeting the OLD persisted handle, and the new id waits in
+            `pending_session_id` for a confirm.
+
+            An early exit ending in the handler's response, so it needed this release's call-site-shape
+            rule. Body at its ORIGINAL COLUMN: it contains triple-quoted SQL and dedenting would rewrite
+            the string contents.
+            """
+            await db.execute(
+                """
+                UPDATE agents
+                SET pending_session_id = ?,
+                    status_note = ?,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (
+                    session_handle,
+                    (
+                        f"session-changed: reported id '{session_handle}' differs from "
+                        f"pinned '{persisted_handle}'. Confirm new or keep current."
+                    ),
+                    now,
+                    agent_id,
+                ),
+            )
+            await db.commit()
+            updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+            settings = await _load_settings(db)
+            status = await _compute_agent_status(updated, db)
+            dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
+            ws = await _get_ws(request)
+            if ws:
+                await ws.broadcast("agent_session_changed", {
+                    "agentId": agent_id,
+                    "sessionHandle": persisted_handle,
+                    "pendingSessionId": session_handle,
+                })
+            return {
+                "ok": True,
+                "agentId": agent_id,
+                "state": "session-changed",
+                # Delivery still targets the OLD (persisted) handle — unchanged.
+                "sessionHandle": persisted_handle,
+                "pendingSessionId": session_handle,
+                "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
+            }
+
+
+async def _refuse_colliding_session_handle(
+    db, request, agent_id, session_handle,
+    persisted_handle, now, _owner,
+):
+                """Refuse a handle already owned by a DIFFERENT live agent, keeping this agent's own.
+
+                Extracted from `update_agent_session_handle` in v0.5.4. Two live agents sharing one session id
+                is the collision this guard exists for; the colliding id is parked as `pending_session_id` and
+                NOT adopted, so delivery keeps targeting this agent's own handle.
+
+                `_owner` is passed in rather than re-derived: it is the live-owner row the caller already read
+                to decide this branch at all, and looking it up again would let the refusal depend on a second
+                read that could disagree with the one that chose this path.
+                """
+                _note = (
+                    f"session-collision: reported id '{session_handle}' is already owned by live "
+                    f"agent '{_owner['agentId']}' ({_owner['sessionMode']}); kept own handle. "
+                    "Two live agents must not share one session id."
+                )
+                await db.execute(
+                    "UPDATE agents SET pending_session_id = ?, status_note = ?, last_seen = ? WHERE id = ?",
+                    (session_handle, _note, now, agent_id),
+                )
+                await db.commit()
+                updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+                settings = await _load_settings(db)
+                status = await _compute_agent_status(updated, db)
+                dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
+                ws = await _get_ws(request)
+                if ws:
+                    await ws.broadcast("agent_session_changed", {
+                        "agentId": agent_id,
+                        "sessionHandle": persisted_handle,
+                        "pendingSessionId": session_handle,
+                        "collisionWith": _owner["agentId"],
+                    })
+                return {
+                    "ok": True,
+                    "agentId": agent_id,
+                    "state": "session-collision",
+                    "collisionWith": _owner["agentId"],
+                    # Delivery keeps targeting THIS agent's own handle; the
+                    # colliding id is NOT adopted.
+                    "sessionHandle": persisted_handle,
+                    "pendingSessionId": session_handle,
+                    "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
+                }
