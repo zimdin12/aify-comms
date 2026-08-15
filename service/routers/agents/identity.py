@@ -21,6 +21,7 @@ from fastapi import HTTPException, Query, Request
 from service.api_core.liveness import _agent_liveness
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.runtime_state import _runtime_state_with_handle
+from service.api_core.agent_rename_writes import _rewrite_agent_references_for_rename
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.identity")
@@ -560,47 +561,7 @@ async def rename_agent(agent_id: str, req: AgentRenameRequest, request: Request)
             raise HTTPException(409, f'Agent "{new_agent_id}" was intentionally removed before; clear that ID before reusing it')
 
         now = _now()
-        await db.execute(
-            """
-            INSERT INTO agents (
-                id, role, name, cwd, model, description, instructions, status, status_note,
-                runtime, machine_id, launch_mode, session_mode, session_handle, managed_by,
-                capabilities, runtime_config, runtime_state, registered_at, last_seen
-            )
-            SELECT ?, role, CASE WHEN name = id THEN ? ELSE name END, cwd, model, description,
-                   instructions, status, status_note, runtime, machine_id, launch_mode,
-                   session_mode, session_handle, managed_by, capabilities, runtime_config,
-                   runtime_state, registered_at, ?
-            FROM agents
-            WHERE id = ?
-            """,
-            (new_agent_id, new_agent_id, now, agent_id),
-        )
-        for table, column in (
-            ("agent_sessions", "agent_id"),
-            ("spawn_specs", "agent_id"),
-            ("spawn_requests", "agent_id"),
-            ("bridge_instances", "agent_id"),
-            ("read_receipts", "agent_id"),
-            ("channel_members", "agent_id"),
-        ):
-            await db.execute(f"UPDATE {table} SET {column} = ? WHERE {column} = ?", (new_agent_id, agent_id))
-        await db.execute("UPDATE messages SET from_agent = ? WHERE from_agent = ?", (new_agent_id, agent_id))
-        await db.execute("UPDATE messages SET to_agent = ? WHERE to_agent = ?", (new_agent_id, agent_id))
-        await db.execute("UPDATE shared_artifacts SET from_agent = ? WHERE from_agent = ?", (new_agent_id, agent_id))
-        await db.execute("UPDATE dispatch_runs SET from_agent = ? WHERE from_agent = ?", (new_agent_id, agent_id))
-        await db.execute("UPDATE dispatch_runs SET target_agent = ? WHERE target_agent = ?", (new_agent_id, agent_id))
-        await db.execute("UPDATE dispatch_controls SET from_agent = ? WHERE from_agent = ?", (new_agent_id, agent_id))
-        await db.execute("UPDATE channels SET created_by = ? WHERE created_by = ?", (new_agent_id, agent_id))
-        await db.execute("UPDATE agents SET managed_by = ? WHERE managed_by = ?", (new_agent_id, agent_id))
-        await db.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
-        await db.execute(
-            """
-            INSERT OR REPLACE INTO agent_tombstones (agent_id, removed_at, removed_by, bridge_id, reason)
-            VALUES (?,?,?,?,?)
-            """,
-            (agent_id, now, req.requestedBy or "dashboard", "", f"renamed_to:{new_agent_id}"),
-        )
+        await _rewrite_agent_references_for_rename(db, agent_id, new_agent_id, now, req)
         await db.commit()
         # Rename is DB-only: a still-running session is bootstrapped under the OLD id (now
         # tombstoned), so it is orphaned — its heartbeats bounce and it does NOT keep the new id
