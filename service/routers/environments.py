@@ -1,6 +1,7 @@
 """The `environments` route domain: registration heartbeat, roots, and environment controls.
 
-v0.5.2f. Six handlers, 385 lines, three domain-local helpers and one constant moved with them.
+v0.5.2f. Six handlers and three domain-local helpers. The constant that came with them,
+SUPERSEDE_STOP_STALE_SECONDS, left again in v0.5.4 with the only block that read it.
 
 This is the first domain whose handlers WRITE state that the fleet depends on — the heartbeat is how
 an environment bridge stays ONLINE, and `aify-comms doctor`'s `env-bridge` check keys on exactly that
@@ -19,12 +20,12 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import HTTPException, Request
 
 from service import longpoll
+from service.api_core.superseded_bridge_stops import _queue_stop_for_superseded_bridge
 from service.api_core.routing import domain_router
 from service.api_core.records import _environment_record_to_dict
 from service.api_core.serialization import _json_loads_or, _timestamp_sort_key
@@ -51,12 +52,8 @@ router = domain_router()
 
 
 
-# A superseded env bridge polls env-control every ~3s, so it claims its stop
-# within seconds. A `server:superseded-bridge` stop still pending well past this
-# targets a bridge that never came back — drained on the next registration to
-# keep environment_controls from growing one-row-per-restart (see the 2026-07-03
-# accumulation that self-terminated fresh bridges).
-SUPERSEDE_STOP_STALE_SECONDS = 300
+# SUPERSEDE_STOP_STALE_SECONDS moved to service/api_core/superseded_bridge_stops.py in v0.5.4 —
+# it travelled with the drain that was its only reader.
 
 
 def _bridge_started_at(metadata: Any) -> str:
@@ -220,62 +217,7 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
                     now,
                 ),
             )
-        if superseded_bridge_id:
-            # Bound accumulation: drain superseded-bridge stops for this env that have
-            # been pending well past the point a live superseded bridge would have
-            # claimed them (it polls every ~3s). Anything still pending after the TTL
-            # targets a bridge that never came back; left unbounded these accumulate
-            # one-per-restart (99 observed for a single env, 2026-07-03). The claim-side
-            # guard already prevents any of them from stopping a live bridge; this just
-            # keeps the table from growing without limit.
-            drain_cutoff = (
-                datetime.now(timezone.utc) - timedelta(seconds=SUPERSEDE_STOP_STALE_SECONDS)
-            ).strftime("%Y-%m-%dT%H:%M:%SZ")
-            await db.execute(
-                """
-                UPDATE environment_controls
-                SET status = 'failed',
-                    handled_at = ?,
-                    error = 'stale superseded-bridge stop drained (target bridge never claimed)'
-                WHERE environment_id = ?
-                  AND action = 'stop'
-                  AND status = 'pending'
-                  AND requested_by = 'server:superseded-bridge'
-                  AND requested_at < ?
-                """,
-                (now, env_id, drain_cutoff),
-            )
-            pending_cursor = await db.execute(
-                """
-                SELECT id
-                FROM environment_controls
-                WHERE environment_id = ?
-                  AND bridge_id = ?
-                  AND action = 'stop'
-                  AND status IN ('pending', 'claimed')
-                LIMIT 1
-                """,
-                (env_id, superseded_bridge_id),
-            )
-            pending = await pending_cursor.fetchone()
-            if not pending:
-                await db.execute(
-                    """
-                    INSERT INTO environment_controls (
-                        id, environment_id, bridge_id, machine_id, action, status, requested_by, requested_at
-                    ) VALUES (?,?,?,?,?,?,?,?)
-                    """,
-                    (
-                        f"envctl-{uuid.uuid4().hex}",
-                        env_id,
-                        superseded_bridge_id,
-                        req.machineId or "",
-                        "stop",
-                        "pending",
-                        "server:superseded-bridge",
-                        now,
-                    ),
-                )
+        await _queue_stop_for_superseded_bridge(db, env_id, superseded_bridge_id, req, now)
         # Env recovery / status transition: when the env flips between online and
         # offline/degraded, bound agents' derived status (offline ↔ available/online)
         # changes too. Invalidate their live-status cache so the transition shows
