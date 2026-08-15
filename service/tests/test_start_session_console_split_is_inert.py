@@ -25,7 +25,9 @@ from pathlib import Path
 from service.tests.extract_method import assert_extractions_preserve_behaviour
 
 REPO = Path(__file__).resolve().parent.parent.parent
-SESSIONS = REPO / "service" / "routers" / "sessions.py"
+# `start_session_console` moved to `routers/session_console.py` in v0.5.4. A round-trip proof names the module holding
+# the CALLER, so a relocation must touch it — see the one-line pin below.
+CALLER = REPO / "service" / "routers" / "session_console.py"
 GATE = REPO / "service" / "api_core" / "console_capability_gate.py"
 #: The two terminal_sessions inserts moved together, into a module of their own rather than
 #: beside the gate: they refuse nothing, and the point of the move was to put the TWINS side
@@ -53,7 +55,7 @@ OWNERS = {
     "_insert_pty_console_terminal": ROWS,
 }
 
-MODULES = (SESSIONS, GATE, ROWS)
+MODULES = (CALLER, GATE, ROWS)
 
 
 def _combined_split_source() -> str:
@@ -78,6 +80,25 @@ class StartSessionConsoleSplitIsInertTests(unittest.TestCase):
         assert_extractions_preserve_behaviour(
             ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
 
+    def test_the_source_function_is_still_where_this_proof_looks(self):
+        """`CALLER` is a location pin, and a relocation is what breaks it.
+
+        Added when `start_session_console` moved out of `sessions.py` in v0.5.4. The round trip already fails then —
+        it cannot find the caller to inline into — but it fails as a gate-internal error about a
+        missing definition, alongside unrelated-looking failures in the same file. That reads like
+        the SPLIT broke. This says the true thing in one line instead.
+        """
+        declared = {
+            n.name for n in ast.parse(CALLER.read_text(encoding="utf-8")).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertIn(
+            SOURCE_FUNCTION, declared,
+            f"{SOURCE_FUNCTION} is not declared in {CALLER.name}. If it was relocated, repoint "
+            "CALLER at its new module — this proof names the file holding the caller, so a move "
+            "must touch it.",
+        )
+
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""
         self.assertIn(SOURCE_FUNCTION, _declared(FIXTURE))
@@ -97,7 +118,7 @@ class StartSessionConsoleSplitIsInertTests(unittest.TestCase):
         """If the split were reverted, the round trip would pass by having nothing to inline."""
         for helper in EXTRACTIONS:
             self.assertNotIn(
-                helper, _declared(SESSIONS), f"{helper} is back in sessions.py; this proof is vacuous")
+                helper, _declared(CALLER), f"{helper} is back in sessions.py; this proof is vacuous")
 
     def test_exactly_one_module_declares_EACH_helper(self):
         self.assertEqual(sorted(OWNERS), sorted(EXTRACTIONS), "every extraction needs a declared owner")

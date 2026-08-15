@@ -26,7 +26,9 @@ from pathlib import Path
 from service.tests.extract_method import assert_extractions_preserve_behaviour
 
 REPO = Path(__file__).resolve().parent.parent.parent
-SESSIONS = REPO / "service" / "routers" / "sessions.py"
+# `control_session` moved to `routers/session_control.py` in v0.5.4. A round-trip proof names the module holding
+# the CALLER, so a relocation must touch it — see the one-line pin below.
+CALLER = REPO / "service" / "routers" / "session_control.py"
 AGENT_SESSIONS = REPO / "service" / "api_core" / "agent_sessions.py"
 #: Its own module, and the reason is the import graph rather than taste — see its docstring: putting it
 #: beside `_has_claimable_spawn_request` would have closed a cycle through `dispatch_start.py`.
@@ -46,7 +48,7 @@ OWNERS = {
     "_prepare_restart_spawn": SESSION_RESTART,
 }
 
-MODULES = (SESSIONS, AGENT_SESSIONS, SESSION_RESTART)
+MODULES = (CALLER, AGENT_SESSIONS, SESSION_RESTART)
 
 
 def _combined_split_source() -> str:
@@ -63,6 +65,25 @@ class ControlSessionSplitIsInertTests(unittest.TestCase):
         )
         assert_extractions_preserve_behaviour(
             ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+
+    def test_the_source_function_is_still_where_this_proof_looks(self):
+        """`CALLER` is a location pin, and a relocation is what breaks it.
+
+        Added when `control_session` moved out of `sessions.py` in v0.5.4. The round trip already fails then —
+        it cannot find the caller to inline into — but it fails as a gate-internal error about a
+        missing definition, alongside unrelated-looking failures in the same file. That reads like
+        the SPLIT broke. This says the true thing in one line instead.
+        """
+        declared = {
+            n.name for n in ast.parse(CALLER.read_text(encoding="utf-8")).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertIn(
+            SOURCE_FUNCTION, declared,
+            f"{SOURCE_FUNCTION} is not declared in {CALLER.name}. If it was relocated, repoint "
+            "CALLER at its new module — this proof names the file holding the caller, so a move "
+            "must touch it.",
+        )
 
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""
@@ -87,7 +108,7 @@ class ControlSessionSplitIsInertTests(unittest.TestCase):
         # — it is "as many as the source has", since a locale-mangled decode turns EVERY one into a
         # replacement character. So the live source is asked, which also keeps the check honest if
         # the dashes are ever edited away.
-        live = SESSIONS.read_text(encoding="utf-8")
+        live = CALLER.read_text(encoding="utf-8")
         expected = ast.get_source_segment(live, next(
             n for n in ast.parse(live).body
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
@@ -98,7 +119,7 @@ class ControlSessionSplitIsInertTests(unittest.TestCase):
     def test_the_helper_is_not_still_inline(self):
         """If the split were reverted, the round trip would pass by having nothing to inline."""
         declared = {
-            n.name for n in ast.parse(SESSIONS.read_text(encoding="utf-8")).body
+            n.name for n in ast.parse(CALLER.read_text(encoding="utf-8")).body
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
         for helper in EXTRACTIONS:

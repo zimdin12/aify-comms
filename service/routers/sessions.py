@@ -41,24 +41,16 @@ from __future__ import annotations
 import json
 import logging
 import time
-import uuid
 from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
 
 from service.db_errors import _is_lock_error
-from service.api_core.dispatch_run_state import _append_dispatch_control
-from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime
-from service.api_core.records import (
-    _agent_session_to_dict,
-    _environment_record_to_dict,
-    _terminal_session_to_dict,
-)
+from service.api_core.records import _agent_session_to_dict
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 from service.api_core.serialization import _json_loads_or
-from service.api_core.capabilities import _default_console_command
 from service.api_core.console_terminal_rows import (
     _insert_pty_console_terminal,
     _insert_virtual_console_terminal,
@@ -66,7 +58,6 @@ from service.api_core.console_terminal_rows import (
     _start_virtual_pi_console,
 )
 from service.api_core.console_capability_gate import _refuse_console_without_terminal_capability
-from service.api_core.settings import _load_settings
 from service.api_core.ws import _get_ws
 from service.api_core.session_restart import _prepare_restart_spawn
 from service.api_core.agent_sessions import (
@@ -74,7 +65,6 @@ from service.api_core.agent_sessions import (
 )
 from service.clock import now as _now
 import sqlite3
-from service.api_core.events import _append_terminal_control, _append_terminal_event
 from service.reconcilers.sessions import (
     _compute_session_display_status,
     _repair_current_session_freshness,
@@ -85,18 +75,25 @@ from service.terminal_snapshot import drop_live_screen as _drop_live_terminal_sc
 from service.db import get_db
 # Imported for ANNOTATIONS as well as calls. Under postponed evaluation a missing model does not
 # fail import -- FastAPI demotes the body to a query param and the route 422s at request time.
-from service.models import ConsoleStartRequest, SessionControlRequest
-# Retired borrows: these now have a real owner in the spawn-requests domain.
-from service.api_core.spawn_requests_io import _spawn_request_to_dict, _spawn_spec_to_dict
-from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
-from service.api_core.workspace import (
-    _workspace_for_environment,
-)
 from service.api_core.tuning import _SESSION_DELETE_ALLOWED_STATUSES
 
 logger = logging.getLogger("aify_comms.routers.sessions")
 
 router = domain_router()
+
+# THE SESSION DOMAIN IS THREE FILES, COMPOSED HERE rather than in `api_v2.py`. Starting a console and
+# controlling a live session left in v0.5.4; this module keeps the list and the delete, and includes
+# the other two, so `api_v2.py` still sees ONE sessions router.
+#
+# Not converted to a package, for the same reason `terminals.py` was not: ten provenance comments
+# across `api_core/`, `reconcilers/` and the split fixtures say a helper "moved out of
+# service/routers/sessions.py" — statements about what HAPPENED. A package rename makes every one of
+# them false, and rewriting history in comments to satisfy a path gate is the wrong trade.
+from service.routers.session_console import router as _session_console_router
+from service.routers.session_control import router as _session_control_router
+
+router.include_router(_session_console_router)
+router.include_router(_session_control_router)
 
 
 # Domain-local: nothing outside this module referenced them once the handlers moved.
@@ -296,277 +293,6 @@ async def delete_session(session_id: str, request: Request):
             "sessionId": session_id,
             "agentId": session["agent_id"],
             "staleActiveTerminalsDeleted": stale_active_terminal_ids,
-        }
-    finally:
-        await db.close()
-
-
-@router.post("/sessions/{session_id}/console/start")
-async def start_session_console(session_id: str, req: ConsoleStartRequest, request: Request):
-    db = await get_db()
-    try:
-        session = await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))).fetchone()
-        if not session:
-            raise HTTPException(404, f'Session "{session_id}" not found')
-        env_row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (session["environment_id"],))).fetchone()
-        if not env_row:
-            raise HTTPException(409, f'Environment "{session["environment_id"]}" is not available')
-        settings = await _load_settings(db)
-
-        # Slice 3: reuse the existing live wrapper PTY for this agent
-        # session when one is already attached. Avoids the symptom
-        # where each "Start Console" click (or auto-attach via the
-        # dashboard) spawns a fresh wrapper PTY even though a previous
-        # one is still running — operator-visible "console pops up
-        # again". The dispatch path (via _ensure_managed_pty_for_dispatch
-        # -> _active_terminal_for_agent) already reuses; this brings the
-        # manual-start path to parity.
-        existing_terminal_id = str(session["terminal_id"] or "").strip()
-        if existing_terminal_id:
-            existing_terminal = await (await db.execute(
-                "SELECT * FROM terminal_sessions WHERE id = ?",
-                (existing_terminal_id,),
-            )).fetchone()
-            if existing_terminal:
-                existing_status = str(existing_terminal["status"] or "").strip().lower()
-                if existing_status in {"starting", "attached", "running", "active", "idle", "recovering"}:
-                    await _append_terminal_event(
-                        db,
-                        existing_terminal_id,
-                        "console_attach_reused_existing",
-                        json.dumps({
-                            "requestedBy": str(req.requestedBy or "dashboard").strip() or "dashboard",
-                            "sessionId": session_id,
-                            "agentId": session["agent_id"],
-                        }),
-                    )
-                    await db.commit()
-                    return {
-                        "ok": True,
-                        "terminal": _terminal_session_to_dict(existing_terminal),
-                        "reused": True,
-                    }
-
-        # Agent-scoped virtual terminal reattach (Phase 2 follow-up).
-        # The virtual terminal_session created by /agents/{id}/virtual-terminal/ensure
-        # is canonical per-agent: ONE row per agent regardless of how many
-        # agent_sessions exist over the agent's lifetime. The bridge creates
-        # it tied to whichever agent_session was active at first dispatch,
-        # but a later dashboard Console click on a DIFFERENT agent_session
-        # for the same agent must attach to that same virtual terminal —
-        # otherwise the dashboard would spawn a fresh pi-aify PTY console
-        # and the operator sees a different terminal than the one actually
-        # driving their dispatches. Skip the PTY env-supports check too:
-        # virtual terminals don't need node-pty.
-        agent_row_for_virtual = await (await db.execute(
-            "SELECT id, runtime, runtime_state FROM agents WHERE id = ?",
-            (session["agent_id"],),
-        )).fetchone()
-        if agent_row_for_virtual:
-            agent_runtime_state = _json_loads_or(agent_row_for_virtual["runtime_state"], {}) or {}
-            virtual_terminal_id = str(agent_runtime_state.get("virtualTerminalId") or "").strip()
-            if virtual_terminal_id:
-                virtual_terminal = await (await db.execute(
-                    "SELECT * FROM terminal_sessions WHERE id = ?",
-                    (virtual_terminal_id,),
-                )).fetchone()
-                if virtual_terminal:
-                    virtual_status = str(virtual_terminal["status"] or "").strip().lower()
-                    virtual_command = str(virtual_terminal["command"] or "")
-                    if (
-                        virtual_command in VIRTUAL_RPC_COMMAND_SET
-                        and virtual_status in {"starting", "running", "recovering", "active", "idle"}
-                    ):
-                        return await _reuse_virtual_rpc_console_terminal(
-                            db, req, request, session, session_id,
-                            virtual_terminal, virtual_terminal_id, virtual_status, virtual_command,
-                        )
-
-        runtime = _normalize_runtime(session["runtime"] or "")
-        if runtime == "pi":
-            return await _start_virtual_pi_console(
-                db, req, request, session, session_id,
-                settings, env_row, agent_row_for_virtual,
-            )
-
-        environment = _environment_record_to_dict(env_row, offline_seconds=settings.get("environment_offline_seconds", 90))
-        if str(environment.get("status") or "").lower() != "online":
-            raise HTTPException(409, f'Environment "{environment.get("id")}" is {environment.get("status") or "unknown"}')
-        _refuse_console_without_terminal_capability(environment, session)
-        if runtime == "pi" and not str(session["session_handle"] or "").strip() and not bool(req.freshContext):
-            raise HTTPException(409, 'Pi Console needs a session handle to preserve context. Set a handle or request freshContext=true.')
-
-        workspace, _workspace_root = _workspace_for_environment(environment, req.workspace, session["workspace"] or "")
-        terminal_id = f"term_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-        now = _now()
-        command = str(req.command or "").strip() or _default_console_command(session, workspace, interactive=True)
-        requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
-        bridge_id = str(environment.get("bridgeId") or "").strip()
-        await _insert_pty_console_terminal(
-            db, terminal_id, session_id, session, bridge_id, workspace, command, requested_by, now,
-        )
-        await _append_terminal_event(
-            db,
-            terminal_id,
-            "console_start_requested",
-            json.dumps({"requestedBy": requested_by, "sessionId": session_id, "workspace": workspace, "command": command}),
-        )
-        await _append_terminal_control(
-            db,
-            terminal_id=terminal_id,
-            environment_id=session["environment_id"],
-            bridge_id=bridge_id,
-            action="start",
-            requested_by=requested_by,
-            body=command,
-        )
-
-        await db.execute(
-            """
-            UPDATE agent_sessions
-            SET owner_mode = 'console',
-                owner_bridge_id = ?,
-                terminal_id = ?,
-                terminal_status = 'starting',
-                terminal_command = ?,
-                terminal_workspace = ?,
-                last_seen = ?
-            WHERE id = ?
-            """,
-            (bridge_id, terminal_id, command, workspace, now, session_id),
-        )
-        await db.commit()
-        terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
-        updated_session = await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))).fetchone()
-        ws = await _get_ws(request)
-        if ws:
-            await ws.broadcast("terminal_started", {"terminalId": terminal_id, "sessionId": session_id, "agentId": session["agent_id"]})
-        return {
-            "ok": True,
-            "terminal": _terminal_session_to_dict(terminal),
-            "session": _agent_session_to_dict(updated_session),
-        }
-    finally:
-        await db.close()
-
-
-@router.post("/sessions/{session_id}/control")
-async def control_session(session_id: str, req: SessionControlRequest, request: Request):
-    action = str(req.action or "").strip().lower()
-    # Lifecycle cleanup (2026-06-03): `recover` + `resume` were byte-identical
-    # aliases of `restart` with NO dashboard caller — dropped. (Resident
-    # wake-resume lives on POST /agents/{id}/control, a different endpoint.)
-    if action not in {"stop", "restart", "recreate", "cli_takeover"}:
-        raise HTTPException(400, f'Unsupported session control action "{req.action}"')
-
-    db = await get_db()
-    try:
-        cursor = await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))
-        session = await cursor.fetchone()
-        if not session:
-            raise HTTPException(404, f'Session "{session_id}" not found')
-
-        now = _now()
-        agent_id = session["agent_id"]
-        active_run = await _get_blocking_active_run(db, agent_id)
-        control_id = ""
-        if active_run:
-            control_id = await _append_dispatch_control(
-                db,
-                active_run["runId"],
-                from_agent=req.from_agent or "dashboard",
-                action="interrupt",
-                body=req.body or f"Session {action} requested from dashboard.",
-            )
-
-        spawn_request_row = None
-        spawn_spec_row = None
-        cancelled_spawns = 0
-        coldstart_warnings: list[str] = []
-        if action in {"restart", "recreate"}:
-            pending_cursor = await db.execute(
-                """
-                SELECT *
-                FROM spawn_requests
-                WHERE agent_id = ?
-                  AND status IN ('queued', 'claimed', 'starting')
-                ORDER BY created_at DESC
-                LIMIT 1
-                """,
-                (agent_id,),
-            )
-            pending_spawn = await pending_cursor.fetchone()
-            if pending_spawn:
-                raise HTTPException(
-                    409,
-                    f'Agent "{agent_id}" already has pending spawn request "{pending_spawn["id"]}" ({pending_spawn["status"]}).',
-                )
-
-        spawn_request_row, spawn_spec_row = await _prepare_restart_spawn(
-            db, req, session, session_id, agent_id, action, now, coldstart_warnings,
-            spawn_request_row, spawn_spec_row,
-        )
-
-        next_status = {
-            "stop": "stopped",
-            "restart": "restarting",
-            "recreate": "ended",
-            "cli_takeover": "cli-takeover",
-        }[action]
-        await db.execute(
-            """
-            UPDATE agent_sessions
-            SET status = ?, last_seen = ?, ended_at = CASE WHEN ? IN ('stopped','restarting','recovering','ended') THEN ? ELSE ended_at END
-            WHERE id = ?
-            """,
-            (next_status, now, next_status, now, session_id),
-        )
-        cancelled_spawns = await _settle_agent_for_session_control(
-            db, session_id, agent_id, action, now, cancelled_spawns,
-        )
-
-        # Halt the running backing (2026-06-07): Stop/Restart/Reset/CLI-takeover must PROMPTLY
-        # kill the live managed PTY, not just flip DB status. Previously only the agent-control
-        # stop enqueued a terminal stop, so the UI's session-control Stop left the worker running
-        # as a headless orphan until a reaper / the next Restart's reap-prior. Enqueue a terminal
-        # 'stop' for the session's live terminal(s). For restart/recreate the new spawn_request
-        # was already queued above (and an env-offline target 409'd before reaching here), so we
-        # never kill the old backing without a replacement queued. Resume is unaffected — it
-        # carries via the durable session_handle, not the live PTY.
-        live_terminals = await (await db.execute(
-            "SELECT id, environment_id, bridge_id, status FROM terminal_sessions WHERE session_id = ?",
-            (session_id,),
-        )).fetchall()
-        for term_row in live_terminals:
-            if str(term_row["status"] or "").strip().lower() in _TERMINAL_ACTIVE_STATUSES:
-                await _append_terminal_control(
-                    db,
-                    terminal_id=term_row["id"],
-                    environment_id=term_row["environment_id"] or "",
-                    bridge_id=term_row["bridge_id"] or "",
-                    action="stop",
-                    requested_by=req.from_agent or "dashboard",
-                    body=f"Session {action} from dashboard.",
-                )
-
-        await db.commit()
-        updated = await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))).fetchone()
-        ws = await _get_ws(request)
-        if ws:
-            await ws.broadcast("session_control_requested", {"sessionId": session_id, "agentId": agent_id, "action": action})
-            if spawn_request_row:
-                await ws.broadcast(
-                    "spawn_request_created",
-                    {"spawnRequestId": spawn_request_row["id"], "environmentId": spawn_request_row["environment_id"]},
-                )
-        return {
-            "ok": True,
-            "action": action,
-            "session": _agent_session_to_dict(updated),
-            "interruptControlId": control_id,
-            "cancelledSpawns": cancelled_spawns,
-            "warnings": coldstart_warnings,
-            "spawnRequest": _spawn_request_to_dict(spawn_request_row, _spawn_spec_to_dict(spawn_spec_row) if spawn_spec_row else None) if spawn_request_row else None,
         }
     finally:
         await db.close()
