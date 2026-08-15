@@ -203,6 +203,33 @@ class RuntimeImportBoundaryTests(unittest.TestCase):
                 scanned,
             )
 
+    def test_the_repo_mcp_directory_must_NOT_become_a_python_package(self):
+        """Adding an `__init__.py` under `mcp/` would shadow the PyPI distribution it runs on.
+
+        `mcp/sse_server.py` does `from mcp.server.fastmcp import FastMCP`, and that `mcp` is the
+        PyPI package — not this repo's directory of the same name. The directory stays a plain
+        folder, which is why `service/main.py` loads the transport by FILE PATH through
+        `spec_from_file_location` instead of importing it, and why the transport's extracted leaves
+        live under `service/sse/`.
+
+        The trap is that adding the `__init__.py` looks like exactly the right move when you want to
+        split a 730-line module, and the repo root is on `sys.path` under pytest — so the shadow
+        would be immediate and total: FastMCP stops importing, in the container as well as here.
+        This is cheap to assert and impossible to notice in review, which is the whole case for it.
+        """
+        self.assertFalse(
+            (REPO_ROOT / "mcp" / "__init__.py").exists(),
+            "an __init__.py under mcp/ shadows the PyPI `mcp` package FastMCP is imported from. To split "
+            "the SSE transport, put the new modules under service/sse/ — see its __init__.py.",
+        )
+        import mcp as pypi_mcp
+
+        self.assertNotIn(
+            str(REPO_ROOT).lower(),
+            str(getattr(pypi_mcp, "__file__", "") or "").lower(),
+            "`import mcp` resolved to this repo's directory instead of the PyPI package",
+        )
+
     def test_the_sources_name_a_DIRECTORY_not_the_one_file_in_it(self):
         """Pinned separately, because the tmpdir test above would pass a hardcoded file list too.
 

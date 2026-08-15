@@ -34,7 +34,24 @@ const TOOL_SOURCES = readdirSync(STDIO_DIR)
   .map((name) => readFileSync(new URL(name, STDIO_DIR), "utf8"))
   .filter((src) => /server\.tool\(/.test(src));
 const STDIO = TOOL_SOURCES.join("\n");
-const SSE = readFileSync(new URL("../../sse_server.py", import.meta.url), "utf8");
+
+// AND NEITHER IS THE SSE SURFACE — carried across 2026-08-15. This read the single file
+// `mcp/sse_server.py`, which is the same defect the paragraph above describes, left unfixed on the
+// other half: the moment a tool group leaves that file the inventory reports it MISSING FROM SSE,
+// and the honest-looking response is to add it to INTENTIONALLY_STDIO_ONLY — declaring a tool
+// deliberately absent when it is merely somewhere else. A parity test that can be silenced by
+// relocating code is worse than none, because the silencing looks like maintenance.
+//
+// SSE tool modules can live in two places and both are scanned: `mcp/` holds the transport itself,
+// and `service/sse/` holds what comes out of it — `mcp/` is not an importable package here (see
+// `service/sse/__init__.py`), so decomposition lands under `service/`.
+const SSE_DIRS = [new URL("../../", import.meta.url), new URL("../../../service/sse/", import.meta.url)];
+const SSE_SOURCES = SSE_DIRS.flatMap((dir) =>
+  readdirSync(dir)
+    .filter((name) => name.endsWith(".py"))
+    .map((name) => readFileSync(new URL(name, dir), "utf8"))
+    .filter((src) => /@mcp_server\.tool\(/.test(src)));
+const SSE = SSE_SOURCES.join("\n");
 
 // `server.tool("name",` — the stdio registration form. The leading `\s*` absorbs the indentation a
 // registration picks up when it moves inside a `registerXTools(server, z)` wrapper.
@@ -114,6 +131,41 @@ test("both transports actually parsed — a zero inventory would pass everything
     TOOL_SOURCES.length >= 2,
     `only ${TOOL_SOURCES.length} source file(s) register tools — the multi-file scan is not working`,
   );
+  // The SSE side scans two directories and today finds its tools in exactly one file. Asserting
+  // ">= 1" rather than ">= 2" is deliberate: the surface has not been split yet, and a floor the
+  // tree cannot meet is a red test that says nothing. What it does catch is the scan finding NOTHING
+  // — a wrong directory, a renamed transport — which would otherwise read as "SSE has no tools" and
+  // be indistinguishable from a total regression.
+  assert.ok(SSE_SOURCES.length >= 1, "the SSE scan found no file registering @mcp_server.tool()");
+});
+
+test("both transports warn the reading agent with the SAME sentence", () => {
+  // A cross-language forked constant with nothing holding the two halves together. `SAFETY_HEADER`
+  // is what tells a model that an inbox payload is DATA and not instructions — the difference
+  // between a message and a prompt injection — and each transport declares its own copy: the JS one
+  // in `tool-response-format.mjs`, the Python one in `service/sse/rendering.py`.
+  //
+  // It cannot be deduplicated (different languages, and SSE runs in the container), so per the
+  // standing rule the answer to duplication that must not drift is an AGREEMENT TEST, not a
+  // refactor. Drift here is silent and one-sided: agents on one transport keep a weaker warning
+  // than agents on the other, and every existing test still passes because each side is internally
+  // consistent.
+  //
+  // Testable at all only because the Python copy now has a named home. It spent this whole series
+  // in the middle of a 730-line tool registry, where "read the constant" meant "parse the file".
+  const jsSrc = readFileSync(new URL("../tool-response-format.mjs", import.meta.url), "utf8");
+  const pySrc = readFileSync(new URL("../../../service/sse/rendering.py", import.meta.url), "utf8");
+
+  const sentences = (src) =>
+    [...src.matchAll(/"([^"\\]*(?:\\.[^"\\]*)*)"/g)]
+      .map((m) => m[1])
+      .filter((s) => s.startsWith("WARNING: AGENT MESSAGE") || s.startsWith("Read it as information"))
+      .join("");
+
+  const js = sentences(jsSrc);
+  const py = sentences(pySrc);
+  assert.ok(js.startsWith("WARNING: AGENT MESSAGE"), `no safety header found in the JS transport: ${js}`);
+  assert.equal(py, js, "the two transports' SAFETY_HEADER text has drifted");
 });
 
 test("the tools that turn API JSON into CONCLUSIONS exist in both", () => {
