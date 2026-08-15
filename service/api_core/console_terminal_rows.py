@@ -260,3 +260,90 @@ async def _start_virtual_pi_console(
                 "reused": False,
                 "virtual": True,
             }
+
+
+async def _reanchor_existing_virtual_terminal(
+    db, existing, session_row, session_id, bridge_id, virtual_command,
+):
+            """Re-point an existing virtual RPC terminal at the session now asking for it.
+
+            Extracted from `ensure_virtual_terminal` (`service/routers/agents/console.py`) in v0.5.4.
+            Another early exit, extractable only since this release's call-site-shape rule.
+
+            IT IS THE INVERSE OF `_reuse_virtual_rpc_console_terminal` ABOVE, and they are deliberately
+            adjacent rather than merged. That one points a SESSION at an existing terminal (it writes
+            `agent_sessions`); this one points a TERMINAL at a new session (it writes
+            `terminal_sessions.session_id`). Same pair of rows, opposite direction, different entry
+            points — sessions console start versus the agents console ensure. Collapsing them would
+            mean deciding which row is authoritative, which is a behaviour question.
+
+            `existing` and `session_row` are parameters AND rebound here: on the path where the
+            terminal is already anchored to this session neither is re-read, so both must arrive from
+            the caller. A free-name scan misses that — the names are written somewhere in the block, so
+            they look local — and only the gate's live-in check sees it.
+
+            Body at its ORIGINAL COLUMN: it contains triple-quoted SQL, and dedenting rewrites the
+            string contents.
+            """
+            existing_session_id = existing["session_id"]
+            if existing_session_id != session_id:
+                rebind_now = _now()
+                await db.execute(
+                    """
+                    UPDATE terminal_sessions
+                    SET session_id = ?,
+                        bridge_id = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (session_id, bridge_id, rebind_now, existing["id"]),
+                )
+                # Detach the prior session from the terminal but keep its
+                # historical record otherwise intact.
+                await db.execute(
+                    """
+                    UPDATE agent_sessions
+                    SET terminal_id = '',
+                        terminal_status = '',
+                        terminal_command = ''
+                    WHERE id = ? AND terminal_id = ?
+                    """,
+                    (existing_session_id, existing["id"]),
+                )
+                # Point the new active session at the terminal.
+                await db.execute(
+                    """
+                    UPDATE agent_sessions
+                    SET terminal_id = ?,
+                        terminal_status = 'running',
+                        terminal_command = ?,
+                        last_seen = ?
+                    WHERE id = ?
+                    """,
+                    (existing["id"], virtual_command, rebind_now, session_id),
+                )
+                await _append_terminal_event(
+                    db,
+                    existing["id"],
+                    "virtual_pi_rpc_reanchored",
+                    json.dumps({
+                        "fromSessionId": existing_session_id,
+                        "toSessionId": session_id,
+                        "bridgeId": bridge_id,
+                    }),
+                )
+                await db.commit()
+                existing = await (await db.execute(
+                    "SELECT * FROM terminal_sessions WHERE id = ?",
+                    (existing["id"],),
+                )).fetchone()
+                session_row = await (await db.execute(
+                    "SELECT * FROM agent_sessions WHERE id = ?",
+                    (session_id,),
+                )).fetchone()
+            return {
+                "ok": True,
+                "terminal": _terminal_session_to_dict(existing),
+                "session": _agent_session_to_dict(session_row),
+                "reused": True,
+            }

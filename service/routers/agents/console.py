@@ -27,6 +27,7 @@ logger = logging.getLogger("aify_comms.routers.agents.console")
 from service.models import AgentConsoleInputRequest, VirtualTerminalEnsureRequest
 
 from service.api_core.events import _append_terminal_control, _append_terminal_event
+from service.api_core.console_terminal_rows import _reanchor_existing_virtual_terminal
 from service.api_core.records import _agent_session_to_dict, _terminal_session_to_dict
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.serialization import _json_loads_or
@@ -136,68 +137,9 @@ async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureReque
             (agent_id, virtual_command),
         )).fetchone()
         if existing:
-            existing_session_id = existing["session_id"]
-            if existing_session_id != session_id:
-                rebind_now = _now()
-                await db.execute(
-                    """
-                    UPDATE terminal_sessions
-                    SET session_id = ?,
-                        bridge_id = ?,
-                        updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (session_id, bridge_id, rebind_now, existing["id"]),
-                )
-                # Detach the prior session from the terminal but keep its
-                # historical record otherwise intact.
-                await db.execute(
-                    """
-                    UPDATE agent_sessions
-                    SET terminal_id = '',
-                        terminal_status = '',
-                        terminal_command = ''
-                    WHERE id = ? AND terminal_id = ?
-                    """,
-                    (existing_session_id, existing["id"]),
-                )
-                # Point the new active session at the terminal.
-                await db.execute(
-                    """
-                    UPDATE agent_sessions
-                    SET terminal_id = ?,
-                        terminal_status = 'running',
-                        terminal_command = ?,
-                        last_seen = ?
-                    WHERE id = ?
-                    """,
-                    (existing["id"], virtual_command, rebind_now, session_id),
-                )
-                await _append_terminal_event(
-                    db,
-                    existing["id"],
-                    "virtual_pi_rpc_reanchored",
-                    json.dumps({
-                        "fromSessionId": existing_session_id,
-                        "toSessionId": session_id,
-                        "bridgeId": bridge_id,
-                    }),
-                )
-                await db.commit()
-                existing = await (await db.execute(
-                    "SELECT * FROM terminal_sessions WHERE id = ?",
-                    (existing["id"],),
-                )).fetchone()
-                session_row = await (await db.execute(
-                    "SELECT * FROM agent_sessions WHERE id = ?",
-                    (session_id,),
-                )).fetchone()
-            return {
-                "ok": True,
-                "terminal": _terminal_session_to_dict(existing),
-                "session": _agent_session_to_dict(session_row),
-                "reused": True,
-            }
+            return await _reanchor_existing_virtual_terminal(
+                db, existing, session_row, session_id, bridge_id, virtual_command,
+            )
 
         # Plan 4 (2026-05-25) synth-terminal deprecation: when this runtime
         # routes through a *-aify wrapper PTY, the wrapper IS the terminal —
