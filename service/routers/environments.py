@@ -25,6 +25,7 @@ from typing import Any, Optional
 from fastapi import HTTPException, Request
 
 from service import longpoll
+from service.environment_claim import _claim_environment_control_once
 from service.api_core.environment_registration import _record_environment_registration
 from service.api_core.superseded_bridge_stops import _queue_stop_for_superseded_bridge
 from service.api_core.routing import domain_router
@@ -34,8 +35,7 @@ from service.api_core.runtime import _normalize_runtime
 from service.api_core.settings import _load_settings
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
-from service.clock import iso_to_epoch as _iso_to_epoch
-from service.db import SQLITE_CLAIM_BUSY_TIMEOUT_MS, get_db
+from service.db import get_db
 from service.env_status import environment_effective_status as _environment_effective_status
 from service.models import (
     EnvironmentControlClaim,
@@ -362,94 +362,8 @@ async def claim_environment_control(req: EnvironmentControlClaim):
     )
 
 
-async def _claim_environment_control_once(req: EnvironmentControlClaim):
-    db = await get_db(busy_timeout_ms=SQLITE_CLAIM_BUSY_TIMEOUT_MS)
-    try:
-        row = None
-        while True:
-            cursor = await db.execute(
-                """
-                SELECT *
-                FROM environment_controls
-                WHERE environment_id = ?
-                  AND status = 'pending'
-                  AND (bridge_id = '' OR bridge_id = ?)
-                ORDER BY requested_at ASC
-                LIMIT 1
-                """,
-                (req.environmentId, req.bridgeId),
-            )
-            candidate = await cursor.fetchone()
-            if not candidate:
-                return {"ok": True, "control": None}
-            env_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (req.environmentId,))
-            env = await env_cursor.fetchone()
-            env_bridge_id = str((env["bridge_id"] if env else "") or "").strip()
-            metadata = _json_loads_or(env["metadata"], {}) if env else {}
-            bridge_started_at = metadata.get("bridgeStartedAt") or ""
-            claimer_is_current_owner = bool(env_bridge_id) and env_bridge_id == req.bridgeId
-            is_supersede_stop = (
-                candidate["action"] == "stop"
-                and str(candidate["requested_by"] or "") == "server:superseded-bridge"
-            )
-            requested_before_bridge_start = (
-                _iso_to_epoch(candidate["requested_at"]) > 0
-                and _iso_to_epoch(bridge_started_at) > 0
-                and _iso_to_epoch(candidate["requested_at"]) < _iso_to_epoch(bridge_started_at)
-            )
-            # Void a stop the CURRENT env owner must never honor:
-            #   1. A `server:superseded-bridge` stop that targets the current owner is
-            #      self-contradictory — a bridge cannot be both the live owner AND a
-            #      superseded predecessor. This is the race that self-terminated
-            #      freshly-registered env bridges (2026-07-03): the supersede-stop was
-            #      created at/after the bridge became current, so the timestamp guard
-            #      (case 2) missed it and the current owner claimed its own stop and
-            #      exited. 99 such controls had accumulated for a single env.
-            #   2. Any stop requested BEFORE this bridge started — it predates this
-            #      incarnation (the original stale guard).
-            # An OPERATOR env-stop for the current owner (requested_by != superseded,
-            # fresh timestamp) matches neither and correctly stops the bridge.
-            if candidate["action"] == "stop" and claimer_is_current_owner and (
-                is_supersede_stop or requested_before_bridge_start
-            ):
-                now = _now()
-                reason = (
-                    "superseded-bridge stop targeted the current live owner"
-                    if is_supersede_stop
-                    else f'requested before bridge "{req.bridgeId}" started'
-                )
-                await db.execute(
-                    "UPDATE environment_controls SET status = 'failed', handled_at = ?, error = ? WHERE id = ? AND status = 'pending'",
-                    (
-                        now,
-                        f"Stale stop control ignored: {reason}.",
-                        candidate["id"],
-                    ),
-                )
-                await db.commit()
-                continue
-            row = candidate
-            break
-        now = _now()
-        await db.execute(
-            "UPDATE environment_controls SET status = 'claimed', machine_id = ?, claimed_at = ? WHERE id = ? AND status = 'pending'",
-            (req.machineId or "", now, row["id"]),
-        )
-        await db.commit()
-        return {
-            "ok": True,
-            "control": {
-                "id": row["id"],
-                "environmentId": row["environment_id"],
-                "bridgeId": row["bridge_id"] or "",
-                "action": row["action"],
-                "requestedBy": row["requested_by"] or "",
-                "requestedAt": row["requested_at"] or "",
-                "currentEnvironment": _environment_record_to_dict(env) if env else None,
-            },
-        }
-    finally:
-        await db.close()
+# _claim_environment_control_once moved to service/environment_claim.py in v0.5.4 - it owns
+# its own connection and transaction, which is the service-level rule dispatch_claim.py set.
 
 
 @router.patch("/environments/controls/{control_id}")
