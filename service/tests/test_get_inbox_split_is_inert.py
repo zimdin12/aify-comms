@@ -14,6 +14,13 @@ THE SUBSTITUTION, declared rather than left to be noticed: the helper lives in
 it — that was the point. The extract-method gate needs the caller and the helper in one tree, so the
 sources are CONCATENATED for the proof. Concatenation changes no body and the gate re-parses the
 result, but it is not the single-file comparison the analytics precedent makes.
+
+THE CALLER MOVED IN v0.5.4 and this proof moved with it. `get_inbox` now lives in
+`dispatch_messages/inbox.py`, not `messages.py`, and this test FAILED on the day of that move rather
+than quietly comparing against a file that no longer held the function — which is the whole reason
+`test_the_source_function_is_still_where_this_proof_looks` exists below. A round-trip proof is
+location-pinned by construction: it has to name the module holding the caller, so it is the one kind
+of test a relocation must always be expected to touch.
 """
 
 from __future__ import annotations
@@ -25,7 +32,7 @@ from pathlib import Path
 from service.tests.extract_method import assert_extractions_preserve_behaviour
 
 REPO = Path(__file__).resolve().parent.parent.parent
-MESSAGES = REPO / "service" / "routers" / "dispatch_messages" / "messages.py"
+CALLER = REPO / "service" / "routers" / "dispatch_messages" / "inbox.py"
 RECEIPTS = REPO / "service" / "api_core" / "inbox_read_receipts.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "get_inbox_before_split.py"
 
@@ -35,7 +42,7 @@ EXTRACTIONS = ["_settle_inbox_read"]
 #: Where each helper is expected to be declared. PER HELPER, over every module below.
 OWNERS = {"_settle_inbox_read": RECEIPTS}
 
-MODULES = (MESSAGES, RECEIPTS)
+MODULES = (CALLER, RECEIPTS)
 
 
 def _combined_split_source() -> str:
@@ -71,6 +78,22 @@ class GetInboxSplitIsInertTests(unittest.TestCase):
         """A fixture that stopped containing the function would make the test above vacuous."""
         self.assertIn(SOURCE_FUNCTION, _declared(FIXTURE))
 
+    def test_the_source_function_is_still_where_this_proof_looks(self):
+        """`CALLER` is a location pin, and a relocation is what breaks it.
+
+        Added when `get_inbox` moved out of `messages.py` in v0.5.4. The round trip already fails in
+        that case — it cannot find the caller to inline into — but it fails with a gate-internal
+        error about a missing definition, which reads like the split broke rather than like the file
+        moved. This says the true thing directly, so the next relocation gets a one-line diagnosis
+        instead of a confusing one.
+        """
+        self.assertIn(
+            SOURCE_FUNCTION, _declared(CALLER),
+            f"{SOURCE_FUNCTION} is not declared in {CALLER.name}. If it was relocated, repoint "
+            "CALLER at its new module — this proof names the file holding the caller, so a move "
+            "must touch it.",
+        )
+
     def test_the_fixture_was_not_captured_with_a_mangled_decode(self):
         """`subprocess.run(text=True)` decodes with the Windows locale and mangles every dash.
 
@@ -86,7 +109,7 @@ class GetInboxSplitIsInertTests(unittest.TestCase):
         """If the split were reverted, the round trip would pass by having nothing to inline."""
         for helper in EXTRACTIONS:
             self.assertNotIn(
-                helper, _declared(MESSAGES), f"{helper} is back in messages.py; this proof is vacuous")
+                helper, _declared(CALLER), f"{helper} is back in inbox.py; this proof is vacuous")
 
     def test_exactly_one_module_declares_EACH_helper(self):
         self.assertEqual(sorted(OWNERS), sorted(EXTRACTIONS), "every extraction needs a declared owner")
