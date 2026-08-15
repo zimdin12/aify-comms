@@ -34,19 +34,23 @@ from service.api_core.settings import _load_settings
 from service.api_core.status_inputs import _compute_live_status_cache
 from service.api_core.ws import _get_ws
 from service.db import get_db
+import re
+from service.clock import now as _now
+from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
+from service.terminal_diagnostics import (
+    failure_tail as _terminal_failure_tail,
+    meaningful_failure_line as _terminal_failure_line,
+)
+from service.terminal_snapshot import (
+    render_live_screen as _render_live_terminal_screen,
+    render_snapshot as _render_terminal_snapshot,
+)
+import sqlite3
 from service.routers.agents.shared import (
     _borrowed_console_tail_max_bytes,
     _borrowed_console_tail_max_lines,
-    _invalidate_agent_live_state,
-    _now,
-    _render_live_terminal_screen,
-    _render_terminal_snapshot,
     _synth_terminal_should_be_created,
-    _terminal_failure_line,
-    _terminal_failure_tail,
     logger,
-    re,
-    sqlite3,
 )
 from service.terminal_write_queue import TERMINAL_OUTPUT_WRITES
 from service.api_core.dispatch_start import (

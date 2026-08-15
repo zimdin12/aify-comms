@@ -38,12 +38,12 @@ from service.api_core.status_inputs import _compute_live_status_cache
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.db import get_db
+from service.clock import now as _now
+from service.terminal_snapshot import render_live_screen as _render_live_terminal_screen
+import sqlite3
 from service.routers.agents.shared import (
     _borrowed_listen_events,
-    _now,
-    _render_live_terminal_screen,
     logger,
-    sqlite3,
 )
 from service.api_core.workspace import _workspace_for_environment
 

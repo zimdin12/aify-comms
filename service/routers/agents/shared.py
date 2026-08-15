@@ -20,15 +20,9 @@ from service.api_core.serialization import _json_loads_or
 from service.api_core.capabilities import (  # re-exported for this package's modules
     _managed_via_wrapper_for_runtime,
 )
-from service.api_core.vocabulary import SESSION_MODES as _SESSION_MODES
 from service.clock import now as _now
 from service.db import get_db
-from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
-from service.terminal_diagnostics import failure_tail as _terminal_failure_tail
-from service.terminal_diagnostics import meaningful_failure_line as _terminal_failure_line
 from service.terminal_snapshot import render_live_screen as _render_live_terminal_screen
-from service.terminal_snapshot import render_snapshot as _render_terminal_snapshot
-import re
 import sqlite3
 
 logger = logging.getLogger("aify_comms.routers.agents.shared")

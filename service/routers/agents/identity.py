@@ -66,15 +66,15 @@ from service.api_core.ws import _get_ws
 from service.db import get_db
 from service.reconcilers.managed_workers import _repair_unusable_active_runs
 from service.reconcilers.status_cache import _live_state_get
+from service.clock import now as _now
+from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
+from service.terminal_snapshot import render_live_screen as _render_live_terminal_screen
+import sqlite3
 from service.routers.agents.shared import (
     _borrowed_list_agents_refresh_limit,
-    _invalidate_agent_live_state,
     _merge_runtime_policy_for_wrapper_reregister,
-    _now,
-    _render_live_terminal_screen,
     _sanitize_session_handle,
     logger,
-    sqlite3,
 )
 from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES
 from service.api_core.registration_gates import (
