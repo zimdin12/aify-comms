@@ -28,13 +28,16 @@ from pathlib import Path
 from service.tests.extract_method import assert_extractions_preserve_behaviour
 
 REPO = Path(__file__).resolve().parent.parent.parent
-CONSOLE = REPO / "service" / "routers" / "agents" / "console.py"
+# `ensure_virtual_terminal` moved to `agents/virtual_terminal.py` in v0.5.4 — provisioning a
+# terminal is not using one, and `console.py` kept the read/input verbs. A round-trip proof
+# names the module holding the CALLER, so a relocation must touch it — see the pin below.
+CALLER = REPO / "service" / "routers" / "agents" / "virtual_terminal.py"
 ROWS = REPO / "service" / "api_core" / "console_terminal_rows.py"
 
 #: ONE tuple, read by every check below. Naming modules inline per check has gone blind five times in
 #: this directory: a helper landing somewhere an inline list does not mention makes the round trip
 #: inline NOTHING while the test keeps passing.
-MODULES = (CONSOLE, ROWS)
+MODULES = (CALLER, ROWS)
 FIXTURE = Path(__file__).resolve().parent / "data" / "ensure_virtual_terminal_before_split.py"
 
 SOURCE_FUNCTION = "ensure_virtual_terminal"
@@ -59,6 +62,25 @@ class EnsureVirtualTerminalSplitIsInertTests(unittest.TestCase):
         assert_extractions_preserve_behaviour(
             ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
 
+    def test_the_source_function_is_still_where_this_proof_looks(self):
+        """`CALLER` is a location pin, and a relocation is what breaks it.
+
+        Added when `ensure_virtual_terminal` moved out of `console.py` in v0.5.4. The round trip
+        already fails then — it cannot find the caller to inline into — but it fails as a
+        gate-internal error about a missing definition, alongside two unrelated-looking failures in
+        this file. This says the true thing in one line instead.
+        """
+        declared = {
+            n.name for n in ast.parse(CALLER.read_text(encoding="utf-8")).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertIn(
+            SOURCE_FUNCTION, declared,
+            f"{SOURCE_FUNCTION} is not declared in {CALLER.name}. If it was relocated, repoint "
+            "CALLER at its new module — this proof names the file holding the caller, so a move "
+            "must touch it.",
+        )
+
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""
         names = {
@@ -76,7 +98,7 @@ class EnsureVirtualTerminalSplitIsInertTests(unittest.TestCase):
         """
         text = FIXTURE.read_text(encoding="utf-8")
         self.assertNotIn("�", text, "fixture contains U+FFFD replacement characters")
-        live = CONSOLE.read_text(encoding="utf-8")
+        live = CALLER.read_text(encoding="utf-8")
         expected = ast.get_source_segment(live, next(
             n for n in ast.parse(live).body
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
@@ -87,11 +109,11 @@ class EnsureVirtualTerminalSplitIsInertTests(unittest.TestCase):
     def test_the_helper_is_not_still_inline(self):
         """If the split were reverted, the round trip would pass by having nothing to inline."""
         declared = {
-            n.name for n in ast.parse(CONSOLE.read_text(encoding="utf-8")).body
+            n.name for n in ast.parse(CALLER.read_text(encoding="utf-8")).body
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
         for helper in EXTRACTIONS:
-            self.assertNotIn(helper, declared, f"{helper} is back in console.py; this proof is vacuous")
+            self.assertNotIn(helper, declared, f"{helper} is back in virtual_terminal.py; this proof is vacuous")
 
     def test_exactly_one_module_declares_EACH_helper(self):
         self.assertEqual(sorted(OWNERS), sorted(EXTRACTIONS), "every extraction needs a declared owner")
@@ -124,7 +146,7 @@ class EnsureVirtualTerminalSplitIsInertTests(unittest.TestCase):
         because dropping either parameter still parses, still passes the round trip, and raises
         UnboundLocalError only on the branch that skips the rebinding.
         """
-        split = ast.parse(CONSOLE.read_text(encoding="utf-8"))
+        split = ast.parse(CALLER.read_text(encoding="utf-8"))
         call = next(
             node for node in ast.walk(split)
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)

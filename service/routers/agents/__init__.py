@@ -17,10 +17,13 @@ from service.routers.agents.session_ops import router as _session_ops_router
 from service.routers.agents.session_mode import router as _session_mode_router
 from service.routers.agents.liveness import router as _liveness_router
 from service.routers.agents.turn_boundaries import router as _turn_boundaries_router
+from service.routers.agents.virtual_terminal import router as _virtual_terminal_router
 
 router = domain_router()
 router.include_router(_config_router)
 router.include_router(_console_router)
+# Virtual-terminal provisioning left `console.py` in v0.5.4, still in first-appearance order.
+router.include_router(_virtual_terminal_router)
 router.include_router(_identity_router)
 # Attribute PATCHes and rename left `identity.py` in v0.5.4, still in first-appearance order.
 router.include_router(_rename_router)
