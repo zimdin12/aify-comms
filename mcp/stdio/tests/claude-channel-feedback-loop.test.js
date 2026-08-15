@@ -12,7 +12,7 @@
 // had genuinely finished and Stop hook had fired.
 
 import assert from "node:assert/strict";
-import { decideRepulse } from "../claude-channel.js";
+import { decideRepulse } from "../claude-channel-content.js";
 
 // Case A: hasActiveRun=true with an IN-FLIGHT run (running) → re-pulse with that run's id.
 {

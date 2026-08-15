@@ -8,7 +8,6 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { loadSettingsEnv } from "./load-env.js";
 import { defaultMachineId } from "./runtimes.js";
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
-import { claudeAifyReceiptLine } from "./aify-console-markers.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
 import { AIFY_VERSION } from "./version.js";
 import { boundAgentId } from "./bound-agent-id.mjs";
@@ -22,6 +21,10 @@ import {
   splitServerUrls,
   uniqueServerUrls,
 } from "./aify-service-endpoint.mjs";
+// Content and the re-pulse decision left for `claude-channel-content.js` in v0.5.4 — pure, and
+// therefore testable without a bridge. Importers were repointed at the new module rather than
+// re-exported through this one: two import paths for one name is how a fork starts.
+import { controlContent, decideRepulse, dispatchContent } from "./claude-channel-content.js";
 
 loadSettingsEnv();
 
@@ -161,65 +164,6 @@ async function httpCall(method, endpoint, body = null, opts = {}) {
   throw lastError || new Error(`HTTP ${method} ${endpoint} failed`);
 }
 
-export function dispatchContent(agentId, run) {
-  const body = String(run.body || "").replace(/```/g, "'''");
-  const priority = (run.priority || "normal").toLowerCase();
-  const priorityLabel =
-    priority === "urgent" ? "URGENT" :
-    priority === "high" ? "HIGH" :
-    "NORMAL";
-  const actionLine =
-    priority === "urgent" ? "Drop current work and handle this immediately." :
-    priority === "high" ? "Read before continuing current work." :
-    "Handle when you reach a natural break.";
-  const requireReply = !!run.requireReply;
-  // require_reply dispatches MUST be answered in THIS turn. A managed/channel
-  // session goes idle after the turn ends and is NOT re-woken to finish a
-  // deferred reply — root-caused 2026-06-02: a session that split read (turn 1)
-  // from reply (turn 2) stranded the reply ~20min until the next dispatch
-  // happened to re-wake it. So instruct the same-turn reply explicitly.
-  // Terse on purpose (2026-06-18): the full "why same-turn" rationale lives once in the
-  // MCP server `instructions` the session already loaded — don't re-pay it on every delivery.
-  const replyLine = run.messageId
-    ? (requireReply
-        ? `Reply THIS turn before you end: comms_send(inReplyTo="${run.messageId}", ...). A deferred reply strands — the session is not re-woken for it.`
-        : `When you reply, include inReplyTo="${run.messageId}".`)
-    : "Reply through aify when the task is done.";
-  return [
-    claudeAifyReceiptLine(),
-    `[${priorityLabel}] ${run.from || "unknown"} → ${agentId}: ${run.subject || "(no subject)"}`,
-    actionLine,
-    `From: ${run.from}`,
-    `Subject: ${run.subject}`,
-    priority !== "normal" ? `Priority: ${priority.toUpperCase()}` : "",
-    run.messageId ? `Message ID: ${run.messageId}` : "",
-    "",
-    "Handle this directly in the current session.",
-    replyLine,
-    "",
-    "```",
-    body,
-    "```",
-  ].filter(Boolean).join("\n");
-}
-
-function controlContent(agentId, control) {
-  const body = String(control.body || "").replace(/```/g, "'''");
-  const lines = [
-    `Aify ${control.action} for agent "${agentId}".`,
-    control.from ? `Requested by: ${control.from}` : "",
-  ];
-  if (body) {
-    lines.push("", "```", body, "```");
-  }
-  if (control.action === "interrupt") {
-    lines.push("", "Stop your current task as soon as practical. Send a brief status reply.");
-  } else if (control.action === "steer") {
-    lines.push("", "Apply this guidance to your current work.");
-  }
-  return lines.filter(Boolean).join("\n");
-}
-
 const mcp = new Server(
   { name: "aify-comms-channel", version: AIFY_VERSION },
   {
@@ -234,33 +178,6 @@ const mcp = new Server(
       "If a reply is requested, send it in the SAME turn before you end — a managed session is not re-woken to finish a deferred reply, so a reply deferred to a later turn will strand.",
   },
 );
-
-// Pure decision: given a /agents/{id} snapshot, should the channel
-// bridge re-pulse turn_busy on this poll cycle? Exported for tests.
-// Returns { repulse: boolean, runId: string }. See the call site +
-// 2026-05-23 feedback-loop discussion in pollLoop for rationale.
-export function decideRepulse(agentSnapshot = {}) {
-  const dispatchState = agentSnapshot.dispatchState || {};
-  const hasActiveRun = Boolean(dispatchState.hasActiveRun);
-  if (!hasActiveRun) return { repulse: false, runId: "" };
-  // Re-pulse turn_busy ONLY for an IN-FLIGHT run (claimed/running). A
-  // require_reply run that's been delivered sits in 'delivered' while the
-  // agent — which already finished the turn — merely owes a reply. Re-pulsing
-  // turn_busy for that keeps the server's `elif turn_busy` branch lighting up
-  // "working" instead of the intended idle "online / awaiting reply" state.
-  // (operator-reported 2026-06-01: idle agent stuck at "working" while only
-  // owing a reply.) The server's `activeRun.status` carries the run status
-  // (api_v2 _format_dispatch_state); gate on it. Note: today the snapshot's
-  // dispatch-state query only selects claimed/running, but gating here is the
-  // correct contract regardless of which runs the serializer surfaces, and
-  // preserves the anti-feedback-loop property (no re-pulse off derived status).
-  const activeRun = dispatchState.activeRun || {};
-  const status = String(activeRun.status || "").trim().toLowerCase();
-  const inFlight = status === "claimed" || status === "running";
-  if (!inFlight) return { repulse: false, runId: "" };
-  const activeRunId = String(activeRun.runId || "");
-  return { repulse: true, runId: activeRunId };
-}
 
 async function emitChannel(content, meta = {}) {
   await mcp.notification({

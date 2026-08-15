@@ -12,7 +12,7 @@ import { writeAgentBindingFile } from "../binding-file.js";
 import { tmpDir } from "./_tmpdir.js";
 
 test("Claude channel dispatch content starts with a native aify-comms receipt marker", async () => {
-  const { dispatchContent } = await import("../claude-channel.js");
+  const { dispatchContent } = await import("../claude-channel-content.js");
   const text = dispatchContent("claude-test", {
     from: "sender",
     subject: "Hello",
@@ -27,7 +27,7 @@ test("Claude channel dispatch content starts with a native aify-comms receipt ma
 });
 
 test("Claude channel require_reply dispatch instructs a same-turn reply (no deferred reply)", async () => {
-  const { dispatchContent } = await import("../claude-channel.js");
+  const { dispatchContent } = await import("../claude-channel-content.js");
   const text = dispatchContent("claude-test", {
     from: "sender",
     subject: "Please review",
@@ -50,7 +50,7 @@ test("Claude channel require_reply dispatch instructs a same-turn reply (no defe
 });
 
 test("Claude channel non-require_reply dispatch does NOT force a same-turn reply directive", async () => {
-  const { dispatchContent } = await import("../claude-channel.js");
+  const { dispatchContent } = await import("../claude-channel-content.js");
   const text = dispatchContent("claude-test", {
     from: "sender",
     subject: "FYI",

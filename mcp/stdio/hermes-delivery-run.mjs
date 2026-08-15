@@ -1,4 +1,4 @@
-import { dispatchContent } from "./claude-channel.js";
+import { dispatchContent } from "./claude-channel-content.js";
 import {
   ATTACH_POLL_MS,
   ATTACH_WAIT_MS,

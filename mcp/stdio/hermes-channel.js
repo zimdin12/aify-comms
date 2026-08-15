@@ -39,7 +39,7 @@ import { agentEndpoint } from "./hermes-endpoint.js";
 import { stopDaemon as defaultStopDaemon } from "./hermes-daemon.js";
 // Reuse claude-channel.js's dispatch content/prompt builder verbatim so the
 // hermes agent receives the same priority framing + inReplyTo guidance.
-import { dispatchContent } from "./claude-channel.js";
+import { dispatchContent } from "./claude-channel-content.js";
 import { startInFlightRepulse } from "./hermes-turn-repulse.js";
 import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
 import { reportGatewayDead } from "./hermes-gateway.mjs";
