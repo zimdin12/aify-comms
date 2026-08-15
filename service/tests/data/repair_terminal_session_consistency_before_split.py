@@ -1,37 +1,3 @@
-"""Terminal/session correlation repair: when the two tables disagree about who owns what.
-
-v0.5 slice 4, extracted from `service/routers/api_v2.py`. One function, 230 lines — the reviewer's
-bound says a body this size anchors its own slice, and this one does.
-
-NAMES WERE BORROWED FROM THE ROUTER rather than moved, and the reason was caller count, measured
-before deciding: `_append_terminal_event` had 36 call sites in the router and
-`_clear_console_terminal_binding` had 9. Dragging those across was a migration of its own, not part of
-moving one reconciler — the same judgement that deferred `_agent_liveness` in slice 3a.
-
-`_clear_console_terminal_binding` IS NO LONGER ONE OF THEM. v0.5.4 moved it, with the two helpers it
-sits beside, to `service/api_core/terminal_controls_io.py` — this module imports it from there now,
-so that upward edge is gone rather than merely tolerated. This was the "later slice" the paragraph
-above anticipated; what remains is `_append_terminal_event`, which the api_core events leaf already
-owns.
-"""
-
-from __future__ import annotations
-
-import json
-import logging
-
-from service.api_core.events import _append_terminal_event  # v0.5.1i: the leaf owner
-from service.api_core.terminal_controls_io import _clear_console_terminal_binding
-from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
-from service.clock import now as _now
-
-logger = logging.getLogger(__name__)
-
-
-
-
-
-
 async def _repair_terminal_session_consistency(db) -> int:
     now = _now()
     active_statuses = ("starting", "attached", "running", "active", "idle")
@@ -113,7 +79,14 @@ async def _repair_terminal_session_consistency(db) -> int:
             """,
             (now, terminal_id),
         )
-        await _record_consistency_repair(db, agent_id, terminal_id, reason, now)
+        if agent_id:
+            await _clear_console_terminal_binding(db, agent_id, terminal_id, now=now)
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "terminal_consistency_repaired",
+            json.dumps({"reason": reason}),
+        )
         repaired += 1
 
     # Exclude virtual rpc terminals from PTY-status mirroring. The
@@ -155,7 +128,14 @@ async def _repair_terminal_session_consistency(db) -> int:
             """,
             (terminal_status, now, now, reason, terminal_id),
         )
-        await _record_consistency_repair(db, agent_id, terminal_id, reason, now)
+        if agent_id:
+            await _clear_console_terminal_binding(db, agent_id, terminal_id, now=now)
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "terminal_consistency_repaired",
+            json.dumps({"reason": reason}),
+        )
         repaired += 1
 
     orphan_cursor = await db.execute(
@@ -186,7 +166,14 @@ async def _repair_terminal_session_consistency(db) -> int:
             """,
             (now, now, reason, terminal_id),
         )
-        await _record_consistency_repair(db, agent_id, terminal_id, reason, now)
+        if agent_id:
+            await _clear_console_terminal_binding(db, agent_id, terminal_id, now=now)
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "terminal_consistency_repaired",
+            json.dumps({"reason": reason}),
+        )
         repaired += 1
 
     inactive_binding_cursor = await db.execute(
@@ -241,29 +228,3 @@ async def _repair_terminal_session_consistency(db) -> int:
     if repaired:
         await db.commit()
     return repaired
-
-
-async def _record_consistency_repair(db, agent_id, terminal_id, reason, now):
-        """Clear a dead console binding and record that this terminal row was repaired.
-
-        DEDUPLICATED out of `_repair_terminal_session_consistency` in v0.5.4. The same eight lines
-        closed all THREE repair branches of that function - dead PTY, stale status, orphaned row -
-        each of which had already written its own UPDATE and then repeated this ending verbatim.
-
-        Three copies of one ending is how a branch quietly stops clearing the console binding: a
-        fix applied to the branch someone is debugging leaves the other two behind, and the
-        dashboard then auto-mounts an xterm over a dead PTY - the incident recorded in
-        `_clear_console_terminal_binding` itself.
-
-        `repaired += 1` deliberately STAYED at the call sites. It reads and writes a counter the
-        caller owns, so moving it would mean passing the count in and handing it back - turning a
-        void helper into one whose return value must not be dropped, for no gain.
-        """
-        if agent_id:
-            await _clear_console_terminal_binding(db, agent_id, terminal_id, now=now)
-        await _append_terminal_event(
-            db,
-            terminal_id,
-            "terminal_consistency_repaired",
-            json.dumps({"reason": reason}),
-        )
