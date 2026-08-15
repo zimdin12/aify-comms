@@ -30,7 +30,7 @@ from fastapi.testclient import TestClient
 
 from service.db import get_db, init_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
-from service.reconcilers import dispatch_queue
+from service.reconcilers import undeliverable_queued_runs
 from service.routers.api_v2 import router
 from service.api_core.liveness import _has_live_claimer_lease
 from service.clock import now as _now
@@ -106,7 +106,7 @@ class ClaimerLeaseStoreTests(unittest.TestCase):
             try:
                 row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
                 # v0.5.3: owner is the dispatch-queue reconciler, which is what production calls.
-                return await dispatch_queue._agent_has_live_claimer(db, row)
+                return await undeliverable_queued_runs._agent_has_live_claimer(db, row)
             finally:
                 await db.close()
 

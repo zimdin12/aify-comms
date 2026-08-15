@@ -31,6 +31,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     # v0.5 slice 1a: these two moved out of api_v2 into their own module. Imported here in the
     # SAME commit as the move so there is never a tree with mixed old/new sources.
     # v0.5 slice 2: spawn lifecycle moved out of api_v2 in the same commit as this import change.
+    from service.reconcilers.undeliverable_queued_runs import _reap_undeliverable_queued_runs
     from service.reconcilers.terminal_controls import _reconcile_ended_terminal_controls
     from service.reconcilers.terminal_history import _prune_terminal_history
     from service.reconcilers.console_binding import rebind_orphaned_live_consoles
@@ -50,7 +51,6 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     )
     from service.reconcilers.dispatch_queue import (
         _close_reconcilable_delivered_runs,
-        _reap_undeliverable_queued_runs,
         _replay_undelivered_channel_messages_on_env_recovery,
         _requeue_orphaned_claimed_runs,
         _reroute_orphaned_managed_channel_runs,

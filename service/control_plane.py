@@ -84,6 +84,7 @@ from service.api_core.liveness import (  # v0.5.4: moved out; the control plane 
 )
 from service.env_status import _ENVIRONMENT_HEARTBEAT_STATUSES
 # v0.5 slice 2: the spawn-lifecycle reconcilers moved to their own module.
+from service.reconcilers.undeliverable_queued_runs import _reap_undeliverable_queued_runs
 from service.reconcilers.orphaned_managed_runs import _close_orphaned_managed_runs
 from service.reconcilers.dispatch_lifecycle import (
     _fail_stranded_delivered_reply_runs,
@@ -91,7 +92,6 @@ from service.reconcilers.dispatch_lifecycle import (
 )
 from service.reconcilers.dispatch_queue import (
     _close_reconcilable_delivered_runs,
-    _reap_undeliverable_queued_runs,
     _replay_undelivered_channel_messages_on_env_recovery,
     _requeue_orphaned_claimed_runs,
     _reroute_orphaned_managed_channel_runs,
@@ -837,10 +837,12 @@ from service.api_core.vocabulary import (
 # ─── Dispatch Runs ────────────────────────────────────────────────────────────
 
 
-# _agent_has_live_claimer moved to service/reconcilers/dispatch_queue.py in v0.5.3.
+# _agent_has_live_claimer moved to service/reconcilers/dispatch_queue.py in v0.5.3, then on
+# to service/reconcilers/undeliverable_queued_runs.py.
 
 
-# _mirror_undeliverable_queued_run_to_sender moved to service/reconcilers/dispatch_queue.py in v0.5.3.
+# _mirror_undeliverable_queued_run_to_sender moved to service/reconcilers/dispatch_queue.py in v0.5.3, then on
+# to service/reconcilers/undeliverable_queued_runs.py.
 
 
 # _contract_list_query moved to service/api_core/reply_contract.py in v0.5.4.

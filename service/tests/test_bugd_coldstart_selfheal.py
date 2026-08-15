@@ -29,7 +29,7 @@ from service.tests._base import FastApiTestCase
 from service.api_core.settings import _load_settings
 from service.api_core import dispatch_start  # v0.5.4: call the OWNER, not the carrier alias
 from service.clock import now as _now
-from service.reconcilers.dispatch_queue import _reap_undeliverable_queued_runs
+from service.reconcilers.undeliverable_queued_runs import _reap_undeliverable_queued_runs
 
 
 ENV_ID = "linux:test-host:default"
