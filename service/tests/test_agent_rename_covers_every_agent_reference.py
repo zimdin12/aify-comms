@@ -36,7 +36,12 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent.parent
-DB = REPO / "service" / "db.py"
+#: The schema is read as TEXT, so this pin follows the DDL rather than the connection layer.
+#: v0.5.4 moved SCHEMA out of `service/db.py` — 431 lines of DDL in a module that opens
+#: connections — and this had to be re-aimed by hand, which is the standing cost of a pin that
+#: asserts where code lives. Kept: "every column holding an agent id is classified" has no
+#: behavioural equivalent any other test could express.
+DB = REPO / "service" / "schema.py"
 RENAME_WRITES = REPO / "service" / "api_core" / "agent_rename_writes.py"
 
 #: Column names that hold an agent id. `requested_by` and `removed_by` are audit trails of WHO asked
@@ -96,7 +101,7 @@ UNRESOLVED = {
 
 
 def _schema_tables() -> dict[str, set[str]]:
-    """Every CREATE TABLE in `service/db.py`, as {table: {column, ...}}."""
+    """Every CREATE TABLE in `service/schema.py`, as {table: {column, ...}}."""
     source = DB.read_text(encoding="utf-8")
     tables: dict[str, set[str]] = {}
     for match in re.finditer(
