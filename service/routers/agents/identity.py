@@ -30,13 +30,15 @@ logger = logging.getLogger("aify_comms.routers.agents.identity")
 from service.models import AgentRegister
 
 from service.api_core.agent_registration_writes import (
-    _register_via_manual_resident_takeover,
-    _register_via_adopted_console_terminal,
     _adopt_console_terminal_on_register,
     _record_registered_session_handle,
+    _register_via_adopted_console_terminal,
+    _upsert_registered_agent_row,
+)
+from service.api_core.resident_takeover_writes import (
+    _register_via_manual_resident_takeover,
     _stage_manual_resident_takeover,
     _supersede_stale_resident_terminals,
-    _upsert_registered_agent_row,
 )
 from service.api_core.same_mode_bridge_gate import _enforce_same_mode_bridge_gate
 from service.api_core.registration_gates import (

@@ -37,11 +37,16 @@ SESSIONS = REPO / "service" / "api_core" / "agent_sessions.py"
 #: site for six extractions in this series and reached 832 lines. Every function in the new module has
 #: exactly one caller and it is this one.
 REG_WRITES = REPO / "service" / "api_core" / "agent_registration_writes.py"
+#: v0.5.4 split it AGAIN: the three resident-takeover writes went to their own module when
+#: `agent_registration_writes.py` reached 528 lines. This proof concatenates its modules, so a
+#: helper landing in a file MODULES does not mention makes the round trip inline nothing while
+#: staying green — the failure the tuple comment above records happening five times already.
+TAKEOVER = REPO / "service" / "api_core" / "resident_takeover_writes.py"
 
 #: ONE tuple, read by every check below. The alternative — each check naming its own modules — has now
 #: gone blind five times in this directory: a helper landing somewhere an inline list does not mention
 #: makes the round trip inline NOTHING while the test keeps passing.
-MODULES = (IDENTITY, GATES, SESSIONS, REG_WRITES, SAME_MODE)
+MODULES = (IDENTITY, GATES, SESSIONS, REG_WRITES, TAKEOVER, SAME_MODE)
 FIXTURE = Path(__file__).resolve().parent / "data" / "register_agent_before_split.py"
 
 SOURCE_FUNCTION = "register_agent"
@@ -77,12 +82,12 @@ OWNERS = {
     "_enforce_tombstone_registration_gate": GATES,
     "_enforce_tombstone_resurrection_gate": GATES,
     "_record_registered_session_handle": REG_WRITES,
-    "_supersede_stale_resident_terminals": REG_WRITES,
-    "_stage_manual_resident_takeover": REG_WRITES,
+    "_supersede_stale_resident_terminals": TAKEOVER,
+    "_stage_manual_resident_takeover": TAKEOVER,
     "_adopt_console_terminal_on_register": REG_WRITES,
     "_upsert_registered_agent_row": REG_WRITES,
     "_register_via_adopted_console_terminal": REG_WRITES,
-    "_register_via_manual_resident_takeover": REG_WRITES,
+    "_register_via_manual_resident_takeover": TAKEOVER,
 }
 
 
