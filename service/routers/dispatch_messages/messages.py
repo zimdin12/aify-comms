@@ -33,6 +33,10 @@ from service import longpoll
 from service.api_core.spawn_request_state import _has_claimable_spawn_request
 from service.api_core.events import _append_dispatch_event, _append_terminal_event
 from service.api_core.inbox_read_receipts import _settle_inbox_read
+from service.api_core.reply_expectation import (
+    _dispatch_requires_reply,
+    _message_type_expects_reply,
+)
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _NATIVE_MANAGED_RUNTIMES, _normalize_runtime, _normalize_session_mode
 from service.api_core.dispatch_text import COLDSTART_REFUSED_PREFIX
@@ -86,7 +90,6 @@ from service.routers.dispatch_messages.shared import (
     _console_dispatch_input_body,
     _create_dispatch_runs,
     _delete_messages_where,
-    _dispatch_requires_reply,
     _get_recipient_info,
     _has_live_managed_wrapper_child,
     _is_replaceable_auto_handoff_message,
@@ -95,7 +98,6 @@ from service.routers.dispatch_messages.shared import (
     _queue_console_dispatch_inputs,
     _managed_via_wrapper_for_runtime,
     _message_satisfies_reply_contract,
-    _message_type_expects_reply,
     _mirror_missing_dispatch_handoff,
     _preflight_live_send_recipients,
     _primary_result_message_id,

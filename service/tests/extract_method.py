@@ -90,6 +90,7 @@ sitting — the whole point is that the reviewer can verify the verifier.
 from __future__ import annotations
 
 import ast
+import builtins
 import copy
 from typing import Optional
 
@@ -628,6 +629,138 @@ def _helper_call(stmt: ast.stmt, helper: str) -> Optional[ast.Call]:
     return None
 
 
+def conditionally_bound_argument_violations(
+    split_fn: ast.AST, helper_fn: ast.AST, module: ast.Module
+) -> list[str]:
+    """Arguments the CALL reads that the caller may not have bound yet.
+
+    THE FIFTH HOLE, and it shipped a 500 before it was found. `send_message` assigns `prefer_steer`
+    and `settings` only inside `if req.trigger:`, and the extracted block's OWN guard was
+    `if req.trigger:` — so INSIDE the block those reads were always safe. Hoisting them to the call
+    site changed WHEN they are evaluated: on a send without `trigger`, the call now reads an unbound
+    local and raises `UnboundLocalError` before the guard it moved into ever runs.
+
+    Every other check passed. Inline-back closed perfectly, because reconstruction puts the reads
+    back inside the guard — the round trip cannot see a timing change that only exists in the split.
+    `live_in_violations` is the dual and does not catch it either: the name IS passed, so nothing is
+    missing; the defect is that passing it is now unconditional.
+
+    MODULE-LEVEL NAMES ARE ALWAYS SAFE, which is not a nicety: the first version of this check
+    refused three existing, correct proofs because a helper took `logger` -- a module global that
+    no caller ever binds. A check that fires on the whole suite is not a check, it is a rewrite
+    request, and it would have been silenced rather than fixed.
+
+    ONE EXHAUSTIVE CASE IS HANDLED rather than refused: an `if` with an `else` binds whatever both
+    of its branches bind. That is not scope creep -- the first version refused `register_agent`'s
+    shipped, correct split over a two-line if/else, and a gate that refuses correct work gets
+    switched off.
+
+    THE RULE, otherwise deliberately conservative: an argument is safe if it is a module-level
+    name, or the caller binds it somewhere that DOMINATES the call — a statement at the function's top level before the call, a parameter, or a
+    binding in an enclosing block that contains the call. An argument whose only bindings live in
+    branches that do NOT contain the call is refused. That will occasionally refuse a safe split
+    (two exhaustive branches both binding it, say); a refusal costs a rewrite, and a miss costs a
+    500 on a live route.
+    """
+    block, index = _find_call_site(split_fn, helper_fn.name)
+    call = _helper_call(block[index], helper_fn.name)
+    if call is None:
+        return []
+    argument_names = {a.id for a in call.args if isinstance(a, ast.Name)} | {
+        kw.value.id for kw in call.keywords if isinstance(kw.value, ast.Name)
+    }
+    if not argument_names:
+        return []
+
+    parameters = {
+        a.arg for a in list(split_fn.args.args) + list(split_fn.args.kwonlyargs)
+        + list(split_fn.args.posonlyargs)
+    }
+    for special in (split_fn.args.vararg, split_fn.args.kwarg):
+        if special is not None:
+            parameters.add(special.arg)
+
+    # Every block on the path from the function body down to the call's own block. A binding in any
+    # of them runs before the call does (statement order is checked below for the innermost).
+    dominating: list[tuple[list[ast.stmt], int]] = []
+
+    def descend(stmts: list[ast.stmt]) -> bool:
+        for position, stmt in enumerate(stmts):
+            if stmt is block[index]:
+                dominating.append((stmts, position))
+                return True
+            for field in _BLOCK_FIELDS:
+                nested = getattr(stmt, field, None)
+                if isinstance(nested, list) and nested and isinstance(nested[0], ast.stmt):
+                    if descend(nested):
+                        dominating.append((stmts, position))
+                        return True
+            for handler in getattr(stmt, "handlers", []) or []:
+                if descend(handler.body):
+                    dominating.append((stmts, position))
+                    return True
+        return False
+
+    descend(split_fn.body)
+
+    def _unconditionally_assigned(stmts: list[ast.stmt]) -> set[str]:
+        """Names these statements ALWAYS bind, running top to bottom.
+
+        `_assigned_names` walks recursively and is wrong for this question: it counts a name
+        assigned inside an `if` body as bound, which is exactly the case that shipped a 500. So the
+        descent here is by statement kind. `with` bodies always run; a `try` guarantees only its
+        `finally`; a bare `if` and every loop guarantee nothing. An `if` WITH an `else` guarantees
+        the intersection of its branches, because exactly one of them runs.
+        """
+        bound: set[str] = set()
+        for stmt in stmts:
+            if isinstance(stmt, ast.If):
+                # AN `if` WITH AN `else` IS EXHAUSTIVE: exactly one branch runs, so a name bound in
+                # BOTH is always bound. Not a nicety — the first version skipped every `if` and
+                # refused `register_agent`'s shipped, correct split, where `description_value` is
+                # assigned in both arms of a two-line if/else. A gate that refuses correct work gets
+                # switched off, so the cheap exhaustive case is handled rather than waved at.
+                if stmt.orelse:
+                    bound |= (_unconditionally_assigned(stmt.body)
+                              & _unconditionally_assigned(stmt.orelse))
+                continue
+            if isinstance(stmt, (ast.For, ast.AsyncFor, ast.While)):
+                continue
+            if isinstance(stmt, ast.Try):
+                bound |= _unconditionally_assigned(stmt.finalbody)
+                continue
+            if isinstance(stmt, (ast.With, ast.AsyncWith)):
+                for item in stmt.items:
+                    if item.optional_vars is not None:
+                        bound |= _assigned_names(
+                            [ast.Assign(targets=[item.optional_vars], value=ast.Constant(None))])
+                bound |= _unconditionally_assigned(stmt.body)
+                continue
+            bound |= _assigned_names([stmt])
+        return bound
+
+    safe = set(parameters) | _module_level_names(module) | set(dir(builtins))
+    for stmts, position in dominating:
+        # Only statements BEFORE the call (or the enclosing statement) in each block have run.
+        safe |= _unconditionally_assigned(stmts[:position])
+        # A `for` target and a `with ... as` name bind for the body the call sits in.
+        enclosing = stmts[position]
+        if isinstance(enclosing, (ast.For, ast.AsyncFor)):
+            safe |= _assigned_names([ast.Assign(targets=[enclosing.target], value=ast.Constant(None))])
+        for item in getattr(enclosing, "items", []) or []:
+            if item.optional_vars is not None:
+                safe |= _assigned_names(
+                    [ast.Assign(targets=[item.optional_vars], value=ast.Constant(None))])
+
+    return [
+        f"`{name}` is passed to the helper but the caller binds it only inside a branch that does "
+        f"not contain the call. Before the split the read happened INSIDE the extracted block, so it "
+        f"ran only when that branch had run; the call now evaluates it unconditionally and raises "
+        f"UnboundLocalError on any path that skipped the binding"
+        for name in sorted(argument_names - safe)
+    ]
+
+
 def call_signature_violations(split_fn: ast.AST, helper_fn: ast.AST) -> list[str]:
     """Does the CALL actually supply the helper's parameters?
 
@@ -1005,6 +1138,15 @@ def assert_extraction_preserves_behaviour(original_src: str, split_src: str, hel
             "a TypeError raised before the body ever runs is invisible to it."
         )
 
+    unbound = conditionally_bound_argument_violations(funcs[original.name], helper, module)
+    if unbound:
+        raise AssertionError(
+            "REFUSED: the call reads caller locals that may not be bound yet:\n  - "
+            + "\n  - ".join(unbound)
+            + "\nInline-back cannot see this: reconstruction puts the read back inside the guard "
+            "it moved into, so the round trip closes on a split that raises UnboundLocalError."
+        )
+
     unpassed = live_in_violations(helper, module, funcs[original.name])
     if unpassed:
         raise AssertionError(
@@ -1137,6 +1279,11 @@ def assert_extractions_preserve_behaviour(
             raise AssertionError(
                 f"REFUSED [{helper_name}]: the call does not match the helper's signature:\n  - "
                 + "\n  - ".join(mismatched))
+        unbound = conditionally_bound_argument_violations(caller, helper, module)
+        if unbound:
+            raise AssertionError(
+                f"REFUSED [{helper_name}]: the call reads caller locals that may not be bound "
+                "yet:\n  - " + "\n  - ".join(unbound))
         unpassed = live_in_violations(helper, module, caller)
         if unpassed:
             raise AssertionError(

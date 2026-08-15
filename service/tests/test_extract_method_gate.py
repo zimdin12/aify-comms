@@ -10,11 +10,13 @@ the round-trip proof CANNOT judge, and the gate must refuse it rather than pass 
 
 from __future__ import annotations
 
+import ast
 import unittest
 
 from service.tests.extract_method import (
     assert_extraction_preserves_behaviour,
     assert_extractions_preserve_behaviour,
+    conditionally_bound_argument_violations,
     escapes,
 )
 
@@ -266,6 +268,258 @@ def _w():
         self.assertIn("exactly one call", str(caught.exception))
 
 
+
+
+class ExtractMethodConditionalArgumentTests(unittest.TestCase):
+    """THE FIFTH HOLE, found by shipping it: an argument the caller may not have bound yet.
+
+    v0.5.4 extracted the dispatch-run creation out of `send_message`. The block's own guard was
+    `if req.trigger:`, and the caller assigns `prefer_steer` only inside an EARLIER
+    `if req.trigger:` — so inside the block the read was always safe. Hoisting it to the call site
+    made it unconditional, and a send without `trigger` raised UnboundLocalError. 48 tests went red
+    and the route returned 500.
+
+    EVERY OTHER CHECK PASSED, including the round trip: reconstruction puts the read back inside the
+    guard, so inline-back cannot see a timing change that exists only in the split. `live_in` is the
+    dual and misses it too — the name IS passed; the defect is that passing it is unconditional.
+    """
+
+    def test_refuses_an_argument_bound_only_inside_an_earlier_branch(self):
+        original = '''
+def handler(req, db):
+    rows = []
+    if req.trigger:
+        mode = req.mode
+    if req.trigger:
+        rows = db.start(mode)
+    return rows
+'''
+        split = '''
+def handler(req, db):
+    rows = []
+    if req.trigger:
+        mode = req.mode
+    rows = _start(req, db, mode)
+    return rows
+
+
+def _start(req, db, mode):
+    rows = []
+    if req.trigger:
+        rows = db.start(mode)
+    return rows
+'''
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original, split, "_start")
+        self.assertIn("REFUSED", str(caught.exception))
+        self.assertIn("may not be bound", str(caught.exception))
+        self.assertIn("mode", str(caught.exception))
+
+    def test_allows_an_argument_bound_unconditionally_before_the_call(self):
+        original = '''
+def handler(req, db):
+    mode = req.mode
+    rows = []
+    if req.trigger:
+        rows = db.start(mode)
+    return rows
+'''
+        split = '''
+def handler(req, db):
+    mode = req.mode
+    rows = _start(req, db, mode)
+    return rows
+
+
+def _start(req, db, mode):
+    rows = []
+    if req.trigger:
+        rows = db.start(mode)
+    return rows
+'''
+        assert_extraction_preserves_behaviour(original, split, "_start")
+
+    def test_a_parameter_of_the_caller_is_always_safe(self):
+        """Otherwise the check would refuse nearly every real extraction."""
+        original = '''
+def handler(req, db):
+    rows = []
+    if req.trigger:
+        rows = db.start(req.mode)
+    return rows
+'''
+        split = '''
+def handler(req, db):
+    rows = _start(req, db)
+    return rows
+
+
+def _start(req, db):
+    rows = []
+    if req.trigger:
+        rows = db.start(req.mode)
+    return rows
+'''
+        assert_extraction_preserves_behaviour(original, split, "_start")
+
+    def test_a_binding_in_an_ENCLOSING_block_is_safe(self):
+        """The call sits inside the same `if`, so the binding above it in that block has run."""
+        original = '''
+def handler(req, db):
+    rows = []
+    if req.trigger:
+        mode = req.mode
+        if mode:
+            rows = db.start(mode)
+    return rows
+'''
+        split = '''
+def handler(req, db):
+    rows = []
+    if req.trigger:
+        mode = req.mode
+        rows = _start(db, mode, rows)
+    return rows
+
+
+def _start(db, mode, rows):
+    if mode:
+        rows = db.start(mode)
+    return rows
+'''
+        assert_extraction_preserves_behaviour(original, split, "_start")
+
+    def test_an_if_with_an_ELSE_binds_what_both_branches_bind(self):
+        """The exhaustive case, handled rather than refused.
+
+        The first version of this check skipped every `if` and refused `register_agent`'s shipped,
+        correct split, where `description_value` is assigned in both arms of a two-line if/else. A
+        gate that refuses correct work gets switched off, so this shape is proven to pass.
+        """
+        original = '''
+def handler(req, db):
+    if req.mode is None:
+        mode = "default"
+    else:
+        mode = req.mode
+    rows = []
+    if req.trigger:
+        rows = db.start(mode)
+    return rows
+'''
+        split = '''
+def handler(req, db):
+    if req.mode is None:
+        mode = "default"
+    else:
+        mode = req.mode
+    rows = _start(req, db, mode)
+    return rows
+
+
+def _start(req, db, mode):
+    rows = []
+    if req.trigger:
+        rows = db.start(mode)
+    return rows
+'''
+        assert_extraction_preserves_behaviour(original, split, "_start")
+
+    def test_an_if_with_only_ONE_branch_binding_is_still_refused(self):
+        """Exhaustive means both arms. One arm that binds and one that does not is the live defect."""
+        original = '''
+def handler(req, db):
+    if req.mode is None:
+        pass
+    else:
+        mode = req.mode
+    rows = []
+    if req.trigger:
+        rows = db.start(mode)
+    return rows
+'''
+        split = '''
+def handler(req, db):
+    if req.mode is None:
+        pass
+    else:
+        mode = req.mode
+    rows = _start(req, db, mode)
+    return rows
+
+
+def _start(req, db, mode):
+    rows = []
+    if req.trigger:
+        rows = db.start(mode)
+    return rows
+'''
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(original, split, "_start")
+        self.assertIn("may not be bound", str(caught.exception))
+
+    def test_a_module_level_name_is_never_flagged(self):
+        """`logger` is the real case: THREE existing, correct proofs went red on the first version.
+
+        Asked of the predicate directly rather than through `assert_extraction_preserves_behaviour`,
+        which takes an original source containing exactly one function and cannot express a module
+        with a global in it. Testing the unit is the honest way to state a rule about module scope.
+        """
+        split = ast.parse('''
+logger = object()
+
+
+def handler(req, db):
+    rows = _start(req, db, logger)
+    return rows
+
+
+def _start(req, db, logger):
+    rows = []
+    if req.trigger:
+        logger.warning("starting")
+        rows = db.start()
+    return rows
+''')
+        funcs = {n.name: n for n in split.body if isinstance(n, ast.FunctionDef)}
+        self.assertEqual(
+            [],
+            conditionally_bound_argument_violations(funcs["handler"], funcs["_start"], split),
+            "a module-level name is bound before any call and must never be flagged")
+
+    def test_a_with_body_binding_is_safe_but_a_for_body_binding_is_not(self):
+        """`with` always runs its body; a `for` over an empty sequence binds nothing.
+
+        The refusal on `for` is conservative and deliberate: proving a loop runs at least once is
+        more analysis than a refusal is worth, and a refusal costs a rewrite while a miss costs a
+        500 on a live route.
+        """
+        loop_original = '''
+def handler(req, db):
+    for mode in req.modes:
+        pass
+    rows = []
+    if req.trigger:
+        rows = db.start(mode)
+    return rows
+'''
+        loop_split = '''
+def handler(req, db):
+    for mode in req.modes:
+        pass
+    rows = _start(req, db, mode)
+    return rows
+
+
+def _start(req, db, mode):
+    rows = []
+    if req.trigger:
+        rows = db.start(mode)
+    return rows
+'''
+        with self.assertRaises(AssertionError) as caught:
+            assert_extraction_preserves_behaviour(loop_original, loop_split, "_start")
+        self.assertIn("may not be bound", str(caught.exception))
 
 
 class ExtractMethodPreconditionTests(unittest.TestCase):

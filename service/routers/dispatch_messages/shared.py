@@ -30,6 +30,10 @@ from typing import Any, Optional
 from fastapi import HTTPException, Query, Request
 
 from service import longpoll
+from service.api_core.reply_expectation import (
+    _dispatch_requires_reply,
+    _message_type_expects_reply,
+)
 from service.api_core.dispatch_text import _auto_handoff_body_for_run
 from service.api_core.execution_mode import _auto_return_resident_to_managed_if_possible
 from service.api_core.spawn_request_state import _has_claimable_spawn_request
@@ -250,10 +254,7 @@ def _console_dispatch_input_body(req: DispatchRequest, *, recipient_id: str, mes
     return f"{message}\r"
 
 
-def _dispatch_requires_reply(explicit: Optional[bool], *, default: bool) -> bool:
-    if explicit is None:
-        return bool(default)
-    return bool(explicit)
+# _dispatch_requires_reply moved to service/api_core/reply_expectation.py in v0.5.4.
 
 
 async def _link_reply_message_to_dispatch_run(
@@ -321,8 +322,7 @@ async def _link_reply_message_to_dispatch_run(
     return True
 
 
-def _message_type_expects_reply(message_type: str) -> bool:
-    return (message_type or "").strip().lower() in {"request", "review", "error"}
+# _message_type_expects_reply moved to service/api_core/reply_expectation.py in v0.5.4.
 
 
 def _primary_result_message_id(message_id: str, recipients: list[str]) -> str:

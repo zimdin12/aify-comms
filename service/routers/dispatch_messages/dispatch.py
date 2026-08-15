@@ -28,6 +28,10 @@ from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.managed_env import _managed_environment_unavailable_reason
 from service.api_core.events import _append_dispatch_event, _append_terminal_event
 from service.api_core.dispatch_run_settlement import _settle_terminated_dispatch_run
+from service.api_core.reply_expectation import (
+    _dispatch_requires_reply,
+    _message_type_expects_reply,
+)
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _NATIVE_MANAGED_RUNTIMES, _normalize_runtime, _normalize_session_mode
 from service.api_core.liveness import ACTIVE_RUN_BRIDGE_STALE_SECONDS
@@ -84,14 +88,12 @@ from service.routers.dispatch_messages.shared import (
     _console_dispatch_input_body,
     _create_dispatch_runs,
     _delete_messages_where,
-    _dispatch_requires_reply,
     _get_recipient_info,
     _has_live_managed_wrapper_child,
     _is_replaceable_auto_handoff_message,
     _link_reply_message_to_dispatch_run,
     _managed_via_wrapper_for_runtime,
     _message_satisfies_reply_contract,
-    _message_type_expects_reply,
     _mirror_missing_dispatch_handoff,
     _preflight_live_send_recipients,
     _primary_result_message_id,
