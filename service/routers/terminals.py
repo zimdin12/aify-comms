@@ -32,6 +32,7 @@ from fastapi import HTTPException, Query, Request
 
 from service import longpoll
 from service.api_core.events import _append_terminal_control, _append_terminal_event
+from service.api_core.terminal_control_status import _apply_terminal_status_from_control
 from service.api_core.terminal_snapshot_view import _attach_terminal_snapshot
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_session_mode
@@ -620,44 +621,7 @@ async def update_terminal_control(control_id: str, req: TerminalControlUpdate, r
                 "UPDATE terminal_sessions SET process_id = ? WHERE id = ?",
                 (report_pid, terminal["id"]),
             )
-        terminal_status = str(req.terminalStatus or "").strip()
-        if status == "failed":
-            terminal_status = terminal_status or "failed"
-        if control["action"] == "stop" and status == "completed":
-            terminal_status = terminal_status or "stopped"
-        if terminal_status:
-            terminal_status_norm = terminal_status.strip().lower()
-            if terminal_status_norm in _TERMINAL_END_STATUSES:
-                await _close_active_terminal_runs_for_terminal(
-                    db,
-                    terminal,
-                    terminal_status_norm,
-                    now=now,
-                    reason=f"Terminal {terminal_status_norm} before an explicit reply was recorded.",
-                )
-            await db.execute(
-                """
-                UPDATE terminal_sessions
-                SET status = ?, updated_at = ?, stopped_at = CASE WHEN ? IN ('stopped','failed') THEN COALESCE(stopped_at, ?) ELSE stopped_at END,
-                    error = CASE WHEN ? = 'failed' THEN ? ELSE error END
-                WHERE id = ?
-                """,
-                (terminal_status, now, terminal_status, now, status, req.error or "", terminal["id"]),
-            )
-            await db.execute(
-                """
-                UPDATE agent_sessions
-                SET terminal_status = ?,
-                    owner_mode = CASE WHEN ? IN ('stopped','failed') THEN 'managed' ELSE owner_mode END,
-                    last_seen = ?
-                WHERE id = ?
-                """,
-                (terminal_status, terminal_status, now, terminal["session_id"]),
-            )
-        if terminal_status in {"stopped", "failed"}:
-            await _clear_console_terminal_binding(db, terminal["agent_id"], terminal["id"], now=now)
-        if terminal_status.strip().lower() in _TERMINAL_END_STATUSES:
-            await _invalidate_agent_live_state(db, terminal["agent_id"])
+        terminal_status = await _apply_terminal_status_from_control(db, req, control, terminal, status, now)
         # A3 real-cols (2026-07-02): a COMPLETED resize control means the bridge actually
         # applied these dims to the PTY — record them as the terminal's authoritative size.
         # GET /terminals prefers this over the infer_source_width heuristic, so the console
