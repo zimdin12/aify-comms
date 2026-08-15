@@ -75,3 +75,17 @@ LIVE_SESSION_STATUSES = {
     "starting",
     "recovering",
 }
+
+
+# MOVED HERE IN v0.5.4 when the analytics router split in two: the fleet handlers and the
+# per-agent one both read it, and a constant read by two modules that do not import each other
+# needs a home that neither owns. `tuning.py` imports NOTHING, so it cannot participate in a
+# cycle — the same reason `LIVE_SESSION_STATUSES` landed here.
+# Analytics data-quality ceiling (2026-06-19). NOT a status timer — used only by the
+# work-minutes analytics. Dispatch runs go queued→claimed→completed, and a run that is
+# claimed but then abandoned/stuck is force-closed by a 24h reaper, leaving a completed row
+# whose claimed→finished span is ~24h of NON-work. Counting COALESCE(started_at, claimed_at)→
+# finished for those (a regression in 93f44df) inflated "working total" to absurd values
+# (sc-architect showed 909h). A real worked span — even a long autonomous run — never
+# approaches this; anything above it is a reaped/stuck run and contributes 0 worked minutes.
+WORKED_SPAN_CEILING_SECONDS = 4 * 3600
