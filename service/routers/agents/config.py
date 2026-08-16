@@ -15,8 +15,6 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Request
 
-from service.api_core.status_events import _apply_status_event
-from service.api_core.spawn_spec_assignment import _upsert_spawn_spec_for_assignment
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.config")
@@ -31,10 +29,8 @@ from service.api_core.capabilities import _default_capabilities_for
 from service.api_core.records import _terminal_session_to_dict
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
-from service.api_core.status_inputs import _compute_live_status_cache
 from service.db import get_db
 from service.clock import now as _now
-from service.terminal_snapshot import render_live_screen as _render_live_terminal_screen
 import sqlite3
 from service.routers.agents.shared import logger
 

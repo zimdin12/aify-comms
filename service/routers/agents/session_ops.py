@@ -13,8 +13,6 @@ import time
 from fastapi import HTTPException, Request
 
 from service.api_core.active_run_lookup import _get_blocking_active_run
-from service.api_core.resident_loss import _settle_lost_resident_when_no_transition
-from service.api_core.status_events import _apply_status_event
 from service.api_core.agent_stop_resume import _apply_agent_stop_or_resume
 from service.api_core.status_broadcast import _broadcast_agent_status
 from service.api_core.routing import domain_router
@@ -35,7 +33,6 @@ from service.api_core.records import _agent_record_to_dict, _terminal_session_to
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import _load_settings
-from service.api_core.status_inputs import _compute_live_status_cache
 from service.api_core.status_refresh import _compute_agent_status
 from service.api_core.turn_state import _clear_status_state_in_turn
 from service.api_core.ws import _get_ws
@@ -43,7 +40,6 @@ from service.db import get_db
 from service.api_core.tuning import LIVE_SESSION_STATUSES
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
-from service.terminal_snapshot import render_live_screen as _render_live_terminal_screen
 import sqlite3
 from service.routers.agents.shared import (
     _borrowed_live_session_statuses,

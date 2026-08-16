@@ -28,16 +28,14 @@ logger = logging.getLogger("aify_comms.routers.agents.liveness")
 from service.models import AgentReadyUpdate
 
 from service.api_core.agent_sessions import _agent_tombstone
-from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.runtime import _normalize_session_mode
 from service.api_core.settings import _load_settings
-from service.api_core.status_inputs import _compute_live_status_cache
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.db import get_db
 from service.reconcilers.status_cache import _live_state_get
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
-from service.terminal_snapshot import render_live_screen as _render_live_terminal_screen
 import sqlite3
 from service.routers.agents.shared import (
     _record_claimer_lease,

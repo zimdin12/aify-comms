@@ -15,14 +15,9 @@ from typing import Any
 
 from service.api_core.liveness import _LIVE_SESSION_STATUSES
 
-from service.api_core.runtime import _normalize_runtime
-from service.api_core.serialization import _json_loads_or
 from service.api_core.capabilities import (  # re-exported for this package's modules
     _managed_via_wrapper_for_runtime,
 )
-from service.clock import now as _now
-from service.db import get_db
-from service.terminal_snapshot import render_live_screen as _render_live_terminal_screen
 import sqlite3
 
 logger = logging.getLogger("aify_comms.routers.agents.shared")
@@ -48,7 +43,6 @@ logger = logging.getLogger("aify_comms.routers.agents.shared")
 # Was a borrow shim for the same reason `engine_status` above was: the legacy status path lived in
 # the control plane, which a router cannot import at module level. Both status paths moved to
 # service/api_core/status_inputs.py in v0.5.4, so this is a plain import.
-from service.api_core.status_inputs import _compute_live_status_cache  # noqa: E402
 
 
 

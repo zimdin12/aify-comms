@@ -47,23 +47,8 @@ from fastapi import HTTPException, Query, Request
 
 from service.db_errors import _is_lock_error
 from service.api_core.routing import domain_router
-from service.api_core.runtime import _normalize_runtime
 from service.api_core.records import _agent_session_to_dict
-from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
-from service.api_core.serialization import _json_loads_or
-from service.api_core.console_terminal_rows import (
-    _insert_pty_console_terminal,
-    _insert_virtual_console_terminal,
-    _reuse_virtual_rpc_console_terminal,
-    _start_virtual_pi_console,
-)
-from service.api_core.console_capability_gate import _refuse_console_without_terminal_capability
 from service.api_core.ws import _get_ws
-from service.api_core.session_restart import _prepare_restart_spawn
-from service.api_core.agent_sessions import (
-    _settle_agent_for_session_control,
-)
-from service.clock import now as _now
 import sqlite3
 from service.reconcilers.sessions import (
     _compute_session_display_status,

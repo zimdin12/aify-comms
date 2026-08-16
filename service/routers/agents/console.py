@@ -15,7 +15,6 @@ import time
 
 from fastapi import HTTPException, Request
 
-from service.api_core.status_events import _apply_status_event
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.console")
@@ -26,15 +25,10 @@ logger = logging.getLogger("aify_comms.routers.agents.console")
 from service.models import AgentConsoleInputRequest
 
 from service.api_core.events import _append_terminal_control, _append_terminal_event
-from service.api_core.console_terminal_rows import _reanchor_existing_virtual_terminal
-from service.api_core.runtime import _normalize_runtime
-from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import _load_settings
-from service.api_core.status_inputs import _compute_live_status_cache
 from service.api_core.ws import _get_ws
 from service.db import get_db
 import re
-from service.clock import now as _now
 from service.terminal_diagnostics import (
     failure_tail as _terminal_failure_tail,
     meaningful_failure_line as _terminal_failure_line,

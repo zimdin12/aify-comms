@@ -16,16 +16,9 @@ from service.api_core.session_mode_gates import (
     _enforce_switch_not_blocked_by_active_run,
     _start_managed_backing_after_switch,
 )
-from service.api_core.session_handle_change import (
-    _park_pending_session_handle_change,
-    _refuse_colliding_session_handle,
-    _detect_fresh_start_terminal,
-    _mirror_handle_onto_live_session,
-)
 from service.api_core.session_mode_writes import _apply_session_mode_switch_to_agent
 from service.api_core.session_mode_audit import _record_session_mode_switch_audit
 from service.api_core.session_mode_env_binding import _infer_environment_binding_for_managed_switch
-from service.api_core.status_events import _apply_status_event
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.session_mode")
@@ -43,14 +36,12 @@ from service.api_core.records import _agent_record_to_dict
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _json_loads_or, _normalize_machine_id
 from service.api_core.settings import _load_settings
-from service.api_core.status_inputs import _compute_live_status_cache
 from service.api_core.status_refresh import _compute_agent_status
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.db import get_db
 from service.api_core.vocabulary import SESSION_MODES as _SESSION_MODES
 from service.clock import now as _now
-from service.terminal_snapshot import render_live_screen as _render_live_terminal_screen
 import sqlite3
 from service.routers.agents.shared import logger
 

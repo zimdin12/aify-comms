@@ -23,11 +23,6 @@ import logging
 import time
 from datetime import datetime, timezone
 
-from service.api_core.dead_terminal_spawn_query import (
-    _count_spawns_masked_by_live_sibling,
-    _select_spawns_with_dead_terminals,
-    _terminal_end_statuses_ordered,
-)
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.env_status import environment_effective_status as _environment_effective_status

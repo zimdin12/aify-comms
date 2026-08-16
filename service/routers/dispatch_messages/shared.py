@@ -24,18 +24,13 @@ import time
 from typing import Optional
 
 
-from service.api_core.runtime import _normalize_runtime
 from service.api_core.serialization import (
     _dedupe_preserve,
 )
-from service.clock import now as _now
-from service.db import get_db
 
 # Resolved to their REAL owners, asked of the repo rather than guessed:
-from service.reconcilers.dispatch_queue import _close_reconcilable_delivered_runs
 # Imported for the ANNOTATION as much as the call: under postponed evaluation an unresolved
 # model name does not fail import, it fails a type-hint gate or a request at runtime.
-from service.models import DispatchClaimRequest
 
 logger = logging.getLogger("aify_comms.routers.dispatch_messages.shared")
 
