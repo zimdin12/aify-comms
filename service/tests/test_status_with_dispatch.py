@@ -93,6 +93,41 @@ def test_a_null_active_run_is_treated_as_absent_not_as_an_error():
     assert _status_with_dispatch("online", {"activeRun": None}) == "online"
 
 
+def test_the_protected_list_has_DRIFTED_from_the_canonical_vocabulary():
+    """CHARACTERIZATION OF A SUSPECTED DEFECT — pinned, reported, NOT fixed here.
+
+    The guard is a hand-written literal, `status not in {"stale", "offline", "blocked"}`, and it has
+    drifted from `vocabulary.py` in both directions:
+
+      * it protects `stale`, which is NOT a canonical agent status at all;
+      * it does NOT protect `misconfigured` or `starting`, which ARE canonical and mean, in the
+        vocabulary's own words, "Identity exists but can never start" and "no worker YET".
+
+    So a running dispatch row promotes both to `working` — defined as "Live worker, open turn". By
+    construction neither can have one: `status_engine.derive()` returns `working`/`online` FIRST when
+    `alive and worker_present`, so reaching `misconfigured` or `starting` means it already decided
+    there is no live worker. This promotion overrides that verdict using a raw dispatch_runs row,
+    which is the same weaker-authority-overrides-derive() shape the engine was built to end.
+
+    The visible consequences: an agent that can never start displays as `working`, and `send_preflight`
+    tells a sender "agent is working" — so they wait — when the true answer is that a human must fix
+    the config.
+
+    NOT FIXED HERE because the correct protected set is a design decision in a subsystem whose
+    docstring calls `derive()` the sole authority, and the reviewer is unreachable. This test pins
+    what the code does today so the fix is a deliberate flip with a visible diff.
+    """
+    from service.api_core.vocabulary import AGENT_STATUSES
+
+    assert "stale" not in AGENT_STATUSES, "if `stale` became canonical, this analysis needs redoing"
+
+    promoted = [s for s in AGENT_STATUSES if _status_with_dispatch(s, state("running")) != s]
+    assert promoted == ["online", "available", "starting", "misconfigured"], (
+        f"the promoted set changed to {promoted}. If `misconfigured`/`starting` were removed from it, "
+        "the suspected defect is FIXED and this test should become the positive assertion."
+    )
+
+
 def test_an_unknown_base_status_is_passed_through_rather_than_normalised():
     """This function decides ONE thing. A status it does not recognise is somebody else's business
     and must arrive at the caller intact rather than being coerced into a known word."""
