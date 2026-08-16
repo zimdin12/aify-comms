@@ -5,6 +5,13 @@ Not imported by anything. It is the ONE true original that
 
 Captured from `git show HEAD:service/routers/agents/liveness.py` at the commit before the first
 extraction, decoded as utf-8 rather than through the locale codec.
+
+AMENDED ONCE, 2026-08-16: the agent-existence check below did not exist when this was captured, and
+adding it to the live function is a BEHAVIOUR change, not a move — the round trip cannot close
+unless the fixture carries it too. Amended identically to the live code and recorded here rather
+than silently, because an unexplained edit to a frozen fixture is indistinguishable from someone
+making a failing proof pass. The extraction being proved is unaffected: this statement is outside
+both lifted blocks.
 """
 
 
@@ -24,6 +31,22 @@ async def agent_heartbeat(agent_id: str, request: Request):
         tombstone = await _agent_tombstone(db, agent_id)
         if tombstone:
             raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
+        # THE AGENT HAS TO EXIST, like every sibling on this surface (`ready`, `claimer-lease`,
+        # `turn-start`, `status-event` all 404 first). This one did not check, and the two ways it
+        # ended were both wrong: a beat with no bridgeId ran an UPDATE that matched no row and
+        # answered `{"ok": true}` — telling the caller its agent is alive when the service has never
+        # heard of it — while a beat WITH one (what every real bridge sends) reached the
+        # `bridge_instances` upsert and died on the foreign key, returning 500 with the raw
+        # "FOREIGN KEY constraint failed" text in the body.
+        #
+        # Found by the removed-agent census, which asks a different question — "can any write
+        # endpoint succeed against an agent that is not there" — and answered it for an id that
+        # never existed rather than one that was removed.
+        agent_row = await (await db.execute(
+            "SELECT id FROM agents WHERE id = ?", (agent_id,)
+        )).fetchone()
+        if not agent_row:
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
         # Mode FSM release signal (Task 4.1, 2026-05-30). Symmetric with the
         # claim path: a DISPLACED managed sidecar (bridgeKind="channel-sidecar")
         # pulsing turn_busy via heartbeat is told to RELEASE once the agent has
