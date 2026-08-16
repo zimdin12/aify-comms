@@ -218,7 +218,9 @@ async def _upsert_registered_agent_row(db, req, row, normalized_runtime: str, no
             """,
             (
                 req.agentId, req.role, req.name or req.agentId, resolved_cwd, model_value,
-                description_value, req.instructions or "", req.status or "idle",
+                # Folded for the same reason as `launch_mode` two lines down: `agents.status`
+                # is compared against lowercase literals by readers that do not all fold.
+                description_value, req.instructions or "", str(req.status or "idle").strip().lower(),
                 (row["status_note"] if row and "status_note" in row.keys() else "") or "",
                 normalized_runtime,
                 # NORMALISED, like `runtime` and `session_mode` beside it. Stored verbatim, a
@@ -291,7 +293,7 @@ async def _register_via_adopted_console_terminal(
         "ok": True,
         "agentId": req.agentId,
         "role": req.role,
-        "status": req.status or "idle",
+        "status": str(req.status or "idle").strip().lower(),
         "runtime": normalized_runtime,
         "machineId": req.machineId or "",
         "bridgeId": bridge_id,

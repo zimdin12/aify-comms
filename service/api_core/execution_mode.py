@@ -29,7 +29,7 @@ from service.api_core.channel_delivery import (
     _CHANNEL_MANAGED_RUNTIMES,
     _channel_managed_eligible,
 )
-from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.runtime import _normalize_launch_mode, _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
 from service.api_core.vocabulary import LAUNCHABLE_RUNTIMES as _LAUNCHABLE_RUNTIMES
 
@@ -44,7 +44,7 @@ def _agent_execution_mode(row, requested_runtime: Optional[str] = None, settings
         return None, f'runtime "{runtime}" does not support active dispatch'
     capabilities = _row_capabilities(row)
     if session_mode == "managed":
-        if (row["launch_mode"] or "detached") == "none":
+        if _normalize_launch_mode(row["launch_mode"]) == "none":
             return None, "launch mode is disabled"
         # Unified-backing refactor 2026-05-24: when this runtime is
         # wrapper-backed (managed_via_wrapper includes it), route managed
@@ -142,7 +142,7 @@ def _agent_execution_mode(row, requested_runtime: Optional[str] = None, settings
                 f'agent "{row["id"]}" is a resident Hermes session without a bound session handle. '
                 "Restart with hermes-aify and a resumable session handle, or create an environment-managed session."
             )
-    if (row["launch_mode"] or "detached") == "none":
+    if _normalize_launch_mode(row["launch_mode"]) == "none":
         return None, "launch mode is disabled"
     return "resident", None
 

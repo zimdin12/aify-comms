@@ -13,14 +13,15 @@ NOT AN IMPORTABLE MODULE. This is a function lifted out of its module, so it rea
 scope THERE and are not here. `scripts/undefined_name_sweep.py` skips `service/tests/data/` for exactly
 that reason. Nothing should import this file; the test reads it as text.
 
-EDITED TWICE SINCE CAPTURE, and the rule is the same one `environment_heartbeat_before_split.py`
+EDITED THREE TIMES SINCE CAPTURE, and the rule is the same one `environment_heartbeat_before_split.py`
 records. The round trip proves the split was a pure block-lift OF THE CODE AS IT STANDS, so a later
 change to a line the split did not move must be applied here IDENTICALLY, or the proof forbids ever
 editing the function again. The one change: `incoming_started = _timestamp_sort_key(...)` became
 `_parsed_timestamp(...)` when the tombstone gates stopped treating an unparseable, caller-supplied
 `bridgeStartedAt` as newer than every real timestamp. The second: three `req.launchMode` reads became
-`_normalize_launch_mode(req.launchMode)` when the stop marker stopped being case-sensitive. Same
-statements, same positions, a normalising builder. Anything larger belongs in a reviewed re-capture,
+`_normalize_launch_mode(req.launchMode)` when the stop marker stopped being case-sensitive. The third:
+`req.status or "idle"` gained the same case fold, for the same reason one field over. Same statements,
+same positions, normalising builders. Anything larger belongs in a reviewed re-capture,
 not a fixture nudge to go green.
 """
 
@@ -370,7 +371,7 @@ async def register_agent(req: AgentRegister, request: Request):
                 "ok": True,
                 "agentId": req.agentId,
                 "role": req.role,
-                "status": req.status or "idle",
+                "status": str(req.status or "idle").strip().lower(),
                 "runtime": normalized_runtime,
                 "machineId": req.machineId or "",
                 "bridgeId": bridge_id,
@@ -534,7 +535,9 @@ async def register_agent(req: AgentRegister, request: Request):
             """,
             (
                 req.agentId, req.role, req.name or req.agentId, resolved_cwd, model_value,
-                description_value, req.instructions or "", req.status or "idle",
+                # Folded for the same reason as `launch_mode` two lines down: `agents.status`
+                # is compared against lowercase literals by readers that do not all fold.
+                description_value, req.instructions or "", str(req.status or "idle").strip().lower(),
                 (row["status_note"] if row and "status_note" in row.keys() else "") or "",
                 normalized_runtime,
                 req.machineId or "", _normalize_launch_mode(req.launchMode),
@@ -700,7 +703,7 @@ async def register_agent(req: AgentRegister, request: Request):
             "ok": True,
             "agentId": req.agentId,
             "role": req.role,
-            "status": req.status or "idle",
+            "status": str(req.status or "idle").strip().lower(),
             "runtime": normalized_runtime,
             "machineId": req.machineId or "",
             "bridgeId": bridge_id,

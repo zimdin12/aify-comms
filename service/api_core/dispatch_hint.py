@@ -23,7 +23,7 @@ from __future__ import annotations
 from typing import Any
 
 from service.api_core.capabilities import _row_capabilities
-from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.runtime import _normalize_launch_mode, _normalize_runtime, _normalize_session_mode
 from service.api_core.vocabulary import LAUNCHABLE_RUNTIMES as _LAUNCHABLE_RUNTIMES
 
 
@@ -109,7 +109,7 @@ def _dispatch_fix_hint(recipient_id: str, row, reason: str) -> dict[str, Any]:
         hint["suggestedCommands"] = [f'comms_agent_info(agentId="{recipient_id}")']
         return hint
 
-    if session_mode == "managed" and (row["launch_mode"] or "detached") == "none":
+    if session_mode == "managed" and _normalize_launch_mode(row["launch_mode"]) == "none":
         hint["fix"] = "Enable launch mode or recreate this agent as an environment-managed session."
         hint["suggestedCommands"] = [f'comms_agent_info(agentId="{recipient_id}")']
         return hint

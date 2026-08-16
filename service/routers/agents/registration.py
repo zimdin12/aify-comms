@@ -277,7 +277,7 @@ async def register_agent(req: AgentRegister, request: Request):
             "ok": True,
             "agentId": req.agentId,
             "role": req.role,
-            "status": req.status or "idle",
+            "status": str(req.status or "idle").strip().lower(),
             "runtime": normalized_runtime,
             "machineId": req.machineId or "",
             "bridgeId": bridge_id,

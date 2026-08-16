@@ -26,7 +26,7 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 
-from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.runtime import _normalize_launch_mode, _normalize_runtime, _normalize_session_mode
 from service.api_core.terminal_text import _terminal_prompt_hint_from_raw
 from service.api_core.vocabulary import LAUNCHABLE_RUNTIMES as _LAUNCHABLE_RUNTIMES
 from service.api_core.settings import _load_settings
@@ -164,7 +164,7 @@ def _agent_wake_mode(row) -> str:
     capabilities = _row_capabilities(row) if row else []
     runtime_config = _json_loads_or(row["runtime_config"], {}) if row else {}
 
-    if (row["launch_mode"] or "detached") == "none":
+    if _normalize_launch_mode(row["launch_mode"]) == "none":
         return "disabled"
     if session_mode == "managed" and "managed-run" in capabilities:
         return "managed-worker"

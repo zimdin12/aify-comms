@@ -39,10 +39,16 @@ async def update_agent(agent_id: str, req: AgentStatusUpdate, request: Request):
     db = await get_db()
     try:
         note = getattr(req, 'note', None) or ''
-        status_val = f"{req.status}: {note}" if note else req.status
+        # FOLDED, like every sibling identity field on this row. `agents.status` is compared against
+        # lowercase literals in 25 places -- 14 of them fold case first and 11 do not -- so a stored
+        # `"Stopped"` is the operator's manual stop to half the service and an unrecognised value to
+        # the other half. `_MANUAL_STATUSES` is the one the operator would notice: it is the status
+        # derivation is forbidden to argue with, and it matches on `"stopped"` exactly.
+        status = str(req.status or "").strip().lower()
+        status_val = f"{status}: {note}" if note else status
         cursor = await db.execute(
             "UPDATE agents SET status = ?, status_note = ?, last_seen = ? WHERE id = ?",
-            (req.status, note, _now(), agent_id)
+            (status, note, _now(), agent_id)
         )
         await db.commit()
         if cursor.rowcount == 0:
@@ -51,8 +57,8 @@ async def update_agent(agent_id: str, req: AgentStatusUpdate, request: Request):
         if ws:
             # Keep req.status authoritative (operator-set), enrich with the note
             # so dashboards can render it on the agent's row without a refetch.
-            await ws.broadcast("agent_status", {"agentId": agent_id, "status": req.status, "statusNote": note})
-        return {"ok": True, "agentId": agent_id, "status": status_val, "statusRaw": req.status, "statusNote": note}
+            await ws.broadcast("agent_status", {"agentId": agent_id, "status": status, "statusNote": note})
+        return {"ok": True, "agentId": agent_id, "status": status_val, "statusRaw": status, "statusNote": note}
     finally:
         await db.close()
 

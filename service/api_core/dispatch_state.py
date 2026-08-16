@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from service.api_core.dispatch_text import _format_dispatch_state
+from service.api_core.runtime import _normalize_runtime
 
 
 async def _get_dispatch_state_for_agent(db, agent_id: str) -> dict[str, Any]:
@@ -90,7 +91,7 @@ CLAUDE_CHANNEL_DELIVERY_SUMMARY_PREFIX = "Delivered to Claude channel session"
 def _is_delivery_only_claude_run(row) -> bool:
     if not row:
         return False
-    if str((row["runtime"] if "runtime" in row.keys() else "") or "").strip() != "claude-code":
+    if _normalize_runtime((row["runtime"] if "runtime" in row.keys() else "") or "") != "claude-code":
         return False
     if str((row["status"] if "status" in row.keys() else "") or "").strip().lower() != "completed":
         return False
