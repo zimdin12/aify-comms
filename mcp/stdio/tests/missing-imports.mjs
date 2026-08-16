@@ -75,15 +75,84 @@ export function moduleBindings(source) {
   return { bound, specifiers };
 }
 
+/** Blank the TEXT of every template literal while keeping what is inside `${...}`.
+ *
+ * A SCANNER, NOT A REGEX, and the dashboard is why. `run-inspector.mjs` writes
+ *
+ *     ${sourceMessage ? `<button … ="${esc(messageId(sourceMessage))}">…</button>` : ''}
+ *
+ * — a template nested inside another template's interpolation. Extracting interpolations with
+ * `/\$\{([^{}]*)\}/g` cannot span the inner braces, so `messageId` was dropped and the gate did not
+ * catch the very defect it was extended here to find. Mutation caught that; the fixture alone did
+ * not, because the fixture I wrote first was only one level deep.
+ *
+ * Blanking template literals wholesale is not an option either: `${messageId(sourceMessage)}` is a
+ * genuine call. So the text goes, character by character, and the interpolations stay — tracking
+ * backtick nesting and brace depth, which is the only way to know which is which.
+ */
+export function stripTemplateText(source) {
+  let out = "";
+  let i = 0;
+  // Each open template pushes a frame; an interpolation inside it tracks its own brace depth.
+  const stack = [];
+  while (i < source.length) {
+    const ch = source[i];
+    const inTemplateText = stack.length > 0 && stack[stack.length - 1].depth === 0;
+    if (ch === "\\" && inTemplateText) {
+      out += "  ";
+      i += 2;
+      continue;
+    }
+    if (ch === "`") {
+      if (inTemplateText) stack.pop();
+      else stack.push({ depth: 0 });
+      out += " ";
+      i += 1;
+      continue;
+    }
+    if (inTemplateText) {
+      if (ch === "$" && source[i + 1] === "{") {
+        stack[stack.length - 1].depth = 1;
+        out += "  ";
+        i += 2;
+        continue;
+      }
+      out += ch === "\n" ? "\n" : " ";
+      i += 1;
+      continue;
+    }
+    if (stack.length) {
+      const frame = stack[stack.length - 1];
+      if (ch === "{") frame.depth += 1;
+      else if (ch === "}") {
+        frame.depth -= 1;
+        if (frame.depth === 0) {
+          out += " ";
+          i += 1;
+          continue;
+        }
+      }
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
 /** Text in which a bare identifier occurrence really is a USE of a binding. */
 export function usableCode(source) {
-  return strip(source)
+  const withoutTemplateText = stripTemplateText(strip(source));
+  return withoutTemplateText
     // A re-export names without binding: `export { A } from "./x.js"` is not a use of A.
     .replace(/^export\s*\{[^}]*\}\s*from\s*["'][^"']+["'];?/gm, "")
     // An alias import leaves the ORIGINAL on the line: `import { X as Y }` binds only Y.
     .replace(/([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)/g, "$2")
-    // A specifier is text: `'./api-client.mjs'` contains `api`.
-    .replace(/(\bfrom\s*)["'][^"']*["']/g, '$1""')
+    // STRING CONTENT IS TEXT, NOT CODE — including, but not only, module specifiers. A quoted
+    // `'./api-client.mjs'` contains `api`, and so does the URL in
+    // `` `${apiOrigin}/api/v1/dashboard` ``, which is how `static-links.mjs` reported a missing
+    // import of an `api` it never mentions.
+    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
     // SPREAD DOTS, and I wrote this bug into the detector before I fixed it. The use-scan excludes a
     // name preceded by `.` so `obj.name` is not a use of an imported `name` — and `...NAME` puts a
     // dot there too. That is precisely why `SERVICE_RUNTIME_PATHS` was deleted from `doctor.js` in

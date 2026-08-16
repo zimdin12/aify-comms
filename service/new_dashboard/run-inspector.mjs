@@ -13,7 +13,11 @@
 
 import { api } from './api-client.mjs';
 import { sendRunFollowup } from './message-transport.mjs';
-import { runPendingControlCount, runTargetAgent } from './record-fields.mjs';
+// `messageId` is called in the "Open in thread" button below and was never imported — a
+// ReferenceError on a NORMAL render path (any run with a source message), not an error branch.
+// `node --check` parses it; nothing renders this panel in a test. Found by the bridge's
+// missing-sibling-import gate the day it was extended to the dashboard.
+import { messageId, runPendingControlCount, runTargetAgent } from './record-fields.mjs';
 import { renderRunEvent } from './run-event.mjs';
 import { RUN_INSPECTOR_EVENT_LIMIT, loadRunDetails, loadRunEvents, patchRun, runQueryPath, runSourceMessage, syncRunFilterOptions } from './run-helpers.mjs';
 import { renderRunInspectorControls, runInspectorCapabilities } from './run-inspector-controls.mjs';
