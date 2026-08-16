@@ -25,7 +25,7 @@ import { ensureRequiredReplyHandoff } from "./required-reply-handoff.mjs";
 import { residentRuntimeBindingLost } from "./resident-binding-health.mjs";
 import { processRunControls } from "./run-controls.mjs";
 import { canLaunchRuntime, launchRuntimeRun, normalizeRuntime, runtimeStateWithoutSessionHandle } from "./runtimes.js";
-import { normalizeSessionMode } from "./session-mode.mjs";
+import { normalizeLaunchMode, normalizeSessionMode } from "./session-mode.mjs";
 import { createVirtualTerminalSink, ensureVirtualTerminal } from "./virtual-terminals.mjs";
 import { IS_REMOTE } from "./aify-service-endpoint.mjs";
 import { shouldSkipLoop } from "./loop-gate.mjs";
@@ -65,7 +65,7 @@ export async function runDispatchPass({
       if (liveAgent) {
         if (
           normalizeSessionMode(liveAgent.sessionMode) === "resident" &&
-          (liveAgent.launchMode || "") === "none" &&
+          normalizeLaunchMode(liveAgent.launchMode) === "none" &&
           String(liveAgent.statusRaw || liveAgent.status || "").toLowerCase().startsWith("stopped")
         ) {
           terminateResidentHost(`Stop requested for resident agent "${agentId}"`);

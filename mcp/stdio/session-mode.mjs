@@ -21,3 +21,26 @@ export function normalizeSessionMode(mode) {
   const value = String(mode || "resident").trim().toLowerCase();
   return value === "managed" ? "managed" : "resident";
 }
+
+// THE SIBLING FIELD, which was compared RAW at both of its bridge call sites — each of them sitting
+// one line away from a `normalizeSessionMode(...)` call on the same object.
+//
+//   dispatch-loop.mjs            (liveAgent.launchMode || "") === "none"
+//   managed-environment-sync.mjs (managedInfo.launchMode || "managed") === "none"
+//
+// `none` is the STOP marker: the service writes it as part of stopping an agent
+// (`SET status = 'stopped', launch_mode = 'none'`), so it means "the operator stopped this; do not
+// start it". Compared case-sensitively, a stored `"None"` reads as not-stopped — the first site then
+// leaves a stopped resident host running, and the second syncs an agent the operator disabled.
+//
+// `"None"` is the obvious accident rather than a hostile input: `str(None)` in Python produces it,
+// and `comms_register` accepts `launchMode` as a free-form string. The service now normalises on the
+// way in (`_normalize_launch_mode`); this is the same rule on the side that reads back what older
+// rows already hold.
+//
+// CASE ONLY — no vocabulary check. Unlike session mode there are three known values
+// (`detached`, `managed`, `none`) and no owning set, so folding case fixes the defect without
+// inventing a ruling about unknown modes.
+export function normalizeLaunchMode(mode) {
+  return String(mode || "detached").trim().toLowerCase() || "detached";
+}

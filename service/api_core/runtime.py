@@ -33,6 +33,31 @@ def _normalize_session_mode(mode: Any) -> str:
     return value if value in _SESSION_MODES else "resident"
 
 
+def _normalize_launch_mode(mode: Any) -> str:
+    """Fold case and whitespace on `launch_mode`, the way its two sibling fields already are.
+
+    IT WAS THE ONE IDENTITY FIELD STORED VERBATIM. `runtime` and `session_mode` are normalised on the
+    way in; `req.launchMode or "detached"` went to the column exactly as the caller spelled it, and
+    every reader then asks `(row["launch_mode"] or "detached") == "none"` — case-sensitively, at four
+    Python sites and two more in the bridge.
+
+    `none` is not a cosmetic value: `agent_stop_resume.py` writes it as part of STOP
+    (`SET status = 'stopped', launch_mode = 'none'`), so it means "the operator stopped this agent;
+    do not start it". A row holding `"None"` instead reads as not-stopped everywhere, and the next
+    send cold-starts an agent the operator deliberately stopped.
+
+    `"None"` is not a hostile input, it is the obvious accident: `str(None)` in Python and
+    `String(null)`/`"None"` from a hand-written client both produce it, and `comms_register` takes
+    `launchMode` as a free-form `z.string()`.
+
+    CASE ONLY, deliberately. Rejecting an unknown mode would be a wider behaviour change than this
+    defect calls for — `_SESSION_MODES` exists for session_mode and no such set exists here, and
+    inventing one would need a ruling on values like `codex-live` that appear in tests. Folding case
+    is behaviour-preserving for every valid spelling and fixes the one that is not.
+    """
+    return str(mode or "detached").strip().lower() or "detached"
+
+
 def _runtime_capability_for_environment(environment: dict[str, Any], runtime: str) -> Optional[dict[str, Any]]:
     normalized = _normalize_runtime(runtime)
     for item in environment.get("runtimes") or []:

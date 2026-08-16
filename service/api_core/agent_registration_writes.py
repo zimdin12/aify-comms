@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 
 from service.api_core.bridge_registration import _record_bridge_registration
-from service.api_core.runtime import _normalize_session_mode
+from service.api_core.runtime import _normalize_launch_mode, _normalize_session_mode
 from service.api_core.runtime_state import _runtime_state_with_handle
 from service.api_core.serialization import _json_loads_or
 from service.api_core.ws import _get_ws
@@ -221,7 +221,9 @@ async def _upsert_registered_agent_row(db, req, row, normalized_runtime: str, no
                 description_value, req.instructions or "", req.status or "idle",
                 (row["status_note"] if row and "status_note" in row.keys() else "") or "",
                 normalized_runtime,
-                req.machineId or "", req.launchMode or "detached",
+                # NORMALISED, like `runtime` and `session_mode` beside it. Stored verbatim, a
+                # `launchMode` of "None" made every `== "none"` reader miss the STOP marker.
+                req.machineId or "", _normalize_launch_mode(req.launchMode),
                 normalized_session_mode, session_handle, req.managedBy or "",
                 json.dumps(capabilities or []), json.dumps(runtime_config),
                 existing_state,

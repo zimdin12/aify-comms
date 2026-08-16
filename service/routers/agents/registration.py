@@ -52,7 +52,7 @@ from service.api_core.resident_takeover_writes import (
     _supersede_stale_resident_terminals,
 )
 from service.api_core.routing import domain_router
-from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.runtime import _normalize_launch_mode, _normalize_runtime, _normalize_session_mode
 from service.api_core.runtime_state import _runtime_state_with_handle
 from service.api_core.same_mode_bridge_gate import _enforce_same_mode_bridge_gate
 from service.api_core.serialization import _json_loads_or
@@ -198,7 +198,7 @@ async def register_agent(req: AgentRegister, request: Request):
                 "reason": "registered_cli",
                 "at": now,
             }
-        elif normalized_session_mode == "managed" and req.launchMode == "managed":
+        elif normalized_session_mode == "managed" and _normalize_launch_mode(req.launchMode) == "managed":
             fresh_state["ownership"] = {
                 "mode": "managed",
                 "previousMode": _normalize_session_mode(row["session_mode"] or "resident") if row else "",

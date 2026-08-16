@@ -16,7 +16,7 @@ import { workspaceWithinRoots } from "./environment-identity.mjs";
 import { managedAgentNeedsDispatchHosting, reconcileManagedStateWithSnapshot } from "./managed-teardown-ownership.js";
 import { DEFAULT_CWD } from "./registration-inputs.mjs";
 import { normalizeRuntime } from "./runtimes.js";
-import { normalizeSessionMode } from "./session-mode.mjs";
+import { normalizeLaunchMode, normalizeSessionMode } from "./session-mode.mjs";
 import { isActiveManagedSessionStatus } from "./session-predicates.mjs";
 import { IS_ENVIRONMENT_BRIDGE } from "./launch-identity.mjs";
 import { IS_REMOTE } from "./aify-service-endpoint.mjs";
@@ -47,7 +47,7 @@ export async function syncManagedEnvironmentAgentsPass({
 
   for (const [agentId, managedInfo] of Object.entries(agentsRes.agents || {})) {
     if (normalizeSessionMode(managedInfo.sessionMode) !== "managed") continue;
-    if ((managedInfo.launchMode || "managed") === "none") continue;
+    if (normalizeLaunchMode(managedInfo.launchMode) === "none") continue;
     const capabilities = managedInfo.capabilities || [];
     if (capabilities.length && !capabilities.includes("managed-run")) continue;
 

@@ -34,6 +34,7 @@ from service.api_core.runtime_state import _runtime_state_with_handle
 from service.api_core.serialization import _json_loads_or
 from service.api_core.ws import _get_ws
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
+from service.api_core.runtime import _normalize_launch_mode
 
 
 async def _supersede_stale_resident_terminals(db, req, terminal_id: str, now: str, bridge_id: str) -> None:
@@ -157,7 +158,7 @@ async def _stage_manual_resident_takeover(db, req, row, bridge_id: str, normaliz
                 "runtimeConfig": runtime_config,
                 "capabilities": capabilities or [],
                 "cwd": resolved_cwd,
-                "launchMode": req.launchMode or "detached",
+                "launchMode": _normalize_launch_mode(req.launchMode),
                 "registeredAt": now,
             }
             await db.execute(
