@@ -39,6 +39,14 @@ import {
   bridgeInstallVerdict,
   serviceBuildVerdict,
   skillsInstallVerdict,
+  // USED IN A SPREAD, at `...SERVICE_RUNTIME_PATHS` / `...SERVICE_RUNTIME_EXCLUDE_PATHS` below.
+  // The v0.5.4 dead-import sweep (3d4372a4) deleted both — its detector excluded a name preceded by
+  // `.`, so that `obj.name` would not look like a use, and a spread's own dots made these read as
+  // unused. `node --check` parses fine, the bridge suite never calls `checkService`, and JS has no
+  // undefined-name sweep, so `aify-comms doctor` threw `ReferenceError: SERVICE_RUNTIME_PATHS is not
+  // defined` on its FIRST line of real work — found only by running it against a real deploy.
+  SERVICE_RUNTIME_PATHS,
+  SERVICE_RUNTIME_EXCLUDE_PATHS,
 } from "./doctor-predicates.js";
 
 const args = process.argv.slice(2);
@@ -307,7 +315,33 @@ async function checkEnvBridge() {
     const detail = list.length
       ? `No environment bridge is ONLINE — dashboard-managed spawns cannot run. ${list.length} registered but not connected: ${offline.map(describeEnv).join(", ")}`
       : "No environment bridge is registered — dashboard-managed spawns cannot run.";
-    return add("env-bridge", false, "none", detail, "Start one on the host: `aify-comms`.");
+    add("env-bridge", false, "none", detail, "Start one on the host: `aify-comms`.");
+    // AND STILL REPORT bridge-current, which used to VANISH here. This `return` took the whole
+    // rest of the function with it, so whenever no env bridge was online the report simply had no
+    // `bridge-current` row — not a skip, not a failure, absent. An operator counting checks saw ten
+    // and no sign that the eleventh question went unasked.
+    //
+    // It matters most exactly here. On Windows `bridge-running` and `agent-identity` both skip
+    // (they read /proc), so `bridge-current` is the ONLY check that answers "are the live bridges
+    // running current code" — and it disappeared precisely when the fleet was down, which is when
+    // an operator is most likely to be reading this report.
+    //
+    // Same family as `a2f9e42`'s `unknown-all`: a check that could not gather evidence must say so.
+    // `bridgeCurrentVerdict` already returns a proper skip for "no live environment bridge to
+    // check", so reporting it needs nothing but not returning early.
+    const noLiveBridge = bridgeCurrentVerdict({
+      environments: list,
+      headSha: repo ? repo.sha : "",
+      headShort: repo ? repo.short : "",
+      bridgeCommitsSince: {},
+    });
+    return add(
+      "bridge-current",
+      noLiveBridge.ok,
+      noLiveBridge.code,
+      noLiveBridge.detail,
+      noLiveBridge.fix,
+    );
   }
   // B1: are the LIVE bridges running current code? bridge-installed only proves the files on
   // disk; a process keeps what it loaded at boot, and bridge-running (which would catch that)
