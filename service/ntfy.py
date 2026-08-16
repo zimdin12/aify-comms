@@ -146,7 +146,15 @@ def redact_url(url: str) -> str:
         return ""
     try:
         parts = urlsplit(raw)
-        host = parts.netloc or "?"
+        # `hostname`, NOT `netloc`. netloc INCLUDES userinfo, so a configured
+        # `https://user:hunter2@ntfy.example/topic` redacted to
+        # `ntfy:user:hunter2@ntfy.example/<hash>` — the password printed in full at startup, by the
+        # function whose docstring says it keeps "nothing that grants access". The port is kept
+        # because two relays can differ only by it; the credentials are dropped because that is the
+        # entire point.
+        host = parts.hostname or "?"
+        if parts.port:
+            host = f"{host}:{parts.port}"
         topic = (parts.path or "").strip("/") or "?"
     except Exception:
         return "ntfy:<unparseable>"
