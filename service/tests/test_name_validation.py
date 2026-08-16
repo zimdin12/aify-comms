@@ -67,21 +67,36 @@ class NameValidationTests(unittest.TestCase):
             with self.subTest(name=name):
                 self._rejects(name)
 
-    def test_A_TRAILING_NEWLINE_IS_CURRENTLY_ACCEPTED(self):
-        """DOCUMENTED QUIRK, pinned rather than fixed.
+    def test_a_trailing_newline_is_rejected(self):
+        """TIGHTENED 2026-08-16. This test used to assert the opposite.
 
-        Python's `$` matches before a trailing newline, so `"agent\\n"` passes admission today. That
-        is almost certainly unintended -- the same name with the newline in the middle is rejected,
-        which shows the intent -- but changing it is a BEHAVIOUR change, and v0.5.x is
-        structural-only with an empty behaviour changelog.
+        It was `test_A_TRAILING_NEWLINE_IS_CURRENTLY_ACCEPTED`, a pinned quirk: Python's `$` also
+        matches BEFORE a trailing newline, so `"agent\\n"` passed while `"age\\nnt"` was rejected --
+        and that difference is what shows the intent. The pin deferred the fix ("changing it is a
+        BEHAVIOUR change, and v0.5.x is structural-only") and named the two conditions for making it:
+        do it on purpose, and consider existing names.
 
-        So it is pinned here, loudly, instead of being quietly fixed in a move commit or quietly
-        left undocumented. When someone tightens it (use `\\Z`, or strip first), this test is what
-        tells them the behaviour is changing on purpose and makes them consider existing names.
+        ON PURPOSE, by this suite's own stated principle. `test_rejects_non_ascii` rejects homoglyphs
+        because "homoglyphs are an impersonation vector when a name is an identity", and this gate
+        guards AGENT IDS at twenty-odd call sites. A trailing newline is the perfect homoglyph:
+        `coder` and `coder\\n` are two distinct identities that render identically everywhere an
+        operator or another agent can see them -- there is no character to notice.
+
+        EXISTING NAMES: nothing in this repo generates one, so such a row could only come from a
+        client that sent it. If one exists it now 400s rather than being silently renamed, which is
+        the safe direction for an identity gate.
+
+        BOUNDED, and worth saying because I checked the worse story and it is not true: this could
+        NOT forge a `From:` line in a merged dispatch body. `dispatch_text.py` writes
+        `f"From: {from_agent}"` and `records.py` parses `^From:\\s*(.+)$` back out, but only ONE
+        trailing newline was ever admitted and nothing can follow it, so the most that could be
+        injected is a blank line -- which the parser's own `if match.group(1).strip()` drops.
         """
-        validate_name("agent\n")  # accepted TODAY
-        self.assertTrue(SAFE_NAME_RE.match("agent\n"))
-        self._rejects("age\nnt")  # the same character mid-name IS rejected
+        self._rejects("agent\n")
+        self.assertIsNone(SAFE_NAME_RE.match("agent\n"))
+        self._rejects("age\nnt")  # the same character mid-name was always rejected
+        self._rejects("agent\n\n")
+        validate_name("agent")  # …and the name without it is still fine
 
     def test_the_error_names_the_field(self):
         """The label is caller-supplied and appears in the 400, so it must survive the move."""

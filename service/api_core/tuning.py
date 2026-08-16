@@ -34,7 +34,11 @@ _SESSION_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "compl
 # respawn between beats) is never falsely reaped.
 MANAGED_ORPHAN_GRACE_SECONDS = 90
 
-_SHELL_PLACEHOLDER_HANDLE_RE = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$")
+# `\Z` for the same reason as `SAFE_NAME_RE`: `$` also matches before a trailing newline, so
+# `"${HERMES_SESSION_ID}\n"` would NOT have been recognised as a placeholder and would have been kept
+# as a real session handle. Its only caller strips first, so this was latent rather than live — which
+# is exactly why it is worth closing: the guard must not depend on a caller it cannot see.
+_SHELL_PLACEHOLDER_HANDLE_RE = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\Z")
 
 STUCK_STOPPING_GRACE_SECONDS = 900  # a 'stopping' PTY that never reached 'stopped' is wedged
 
