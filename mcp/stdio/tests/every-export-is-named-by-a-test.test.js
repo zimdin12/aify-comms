@@ -59,8 +59,6 @@ const UNTESTED_EXPORT_BACKLOG = [
   "mcp/stdio/claim-failure-tracker.mjs#spawnClaimFailureCount",
   "mcp/stdio/claim-failure-tracker.mjs#spawnClaimLastLogAt",
   "mcp/stdio/console-tools.mjs#registerConsoleTools",
-  "mcp/stdio/hermes-apiserver-client.js#DEFAULT_BASE_URL",
-  "mcp/stdio/hermes-apiserver-client.js#parseSseStream",
   "mcp/stdio/hermes-daemon.js#defaultKillOnePid",
   "mcp/stdio/hermes-daemon.js#defaultResolveListenerPids",
   "mcp/stdio/hermes-endpoint.js#isPortFree",
