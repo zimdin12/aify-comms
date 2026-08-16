@@ -55,8 +55,6 @@ const WORD_BOUNDARY = String.raw`\b`;
 //: Nothing was chosen for this list — it is the whole of what the scan found.
 const UNTESTED_EXPORT_BACKLOG = [
   "mcp/stdio/console-tools.mjs#registerConsoleTools",
-  "mcp/stdio/hermes-endpoint.js#isPortFree",
-  "mcp/stdio/hermes-gateway-liveness.js#DEFAULT_GATEWAY_PROBE_INTERVAL_MS",
   "mcp/stdio/runtimes-codex.js#discoverCodexLiveBinding",
   "mcp/stdio/runtimes-exec.js#bashShebangFallback",
   "mcp/stdio/runtimes-helpers.js#spawnProcess",
