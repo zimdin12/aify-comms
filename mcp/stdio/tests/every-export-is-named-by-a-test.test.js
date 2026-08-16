@@ -56,8 +56,6 @@ const WORD_BOUNDARY = String.raw`\b`;
 const UNTESTED_EXPORT_BACKLOG = [
   "mcp/stdio/aify-console-markers.js#AIFY_COMMS_RECEIPT_TEXT",
   "mcp/stdio/aify-console-markers.js#claudeAifyReceiptLine",
-  "mcp/stdio/aify-service-endpoint.mjs#HTTP_RETRY_ATTEMPTS",
-  "mcp/stdio/aify-service-endpoint.mjs#HTTP_RETRY_BASE_MS",
   "mcp/stdio/claim-failure-tracker.mjs#spawnClaimFailureCount",
   "mcp/stdio/claim-failure-tracker.mjs#spawnClaimLastLogAt",
   "mcp/stdio/console-tools.mjs#registerConsoleTools",
