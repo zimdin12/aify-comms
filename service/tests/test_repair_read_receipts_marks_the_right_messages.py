@@ -77,10 +77,18 @@ class RepairReadReceiptsTests(unittest.TestCase):
         )
 
     def test_running_it_twice_does_not_double_the_receipts(self):
-        """The endpoint is a repair tool, so a second run is the NORMAL case, not an edge one."""
+        """The endpoint is a repair tool, so a second run is the NORMAL case, not an edge one.
+
+        THE SECOND RUN REPORTS ZERO, and that assertion changed with the count's meaning. It used to
+        return how many source messages EXIST — the same number whether every receipt was new or
+        every one was already there — and both callers report it to a human. An operator running the
+        repair twice saw "repaired: 1" both times and could not tell a real backlog from a no-op.
+        The receipts themselves are unchanged, which is what this test's name is about; only the
+        number is now honest about what was written.
+        """
         row = _Row(message_id="m1", body="")
         marked, receipts = _run(_receipts_after(row, messages=["m1"], times=2))
-        self.assertEqual(marked, 1)
+        self.assertEqual(marked, 0, "the second pass reported work it did not do")
         self.assertEqual(receipts, [("m1", "target")], "INSERT OR IGNORE is what makes this safe")
 
     def test_it_never_invents_a_receipt_for_a_message_that_is_gone(self):

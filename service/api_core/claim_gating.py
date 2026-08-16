@@ -322,6 +322,18 @@ async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
 # two-function pair in two files for no gain. It still takes `db` and commits nothing.
 
 async def _mark_dispatch_source_messages_read(db, row, agent_id: str, read_at: str) -> int:
+    """Returns HOW MANY RECEIPTS WERE ACTUALLY WRITTEN — not how many messages were considered.
+
+    It used to return `len(existing_ids)`, the count of source messages that still exist, which is
+    the same number whether every receipt was new or every one was already there. Both callers
+    report that number to a human: the claim path logs "Marked N dispatched source messages read",
+    and `/contracts/hygiene/repair-read-receipts` answers `{"repaired": N}`. An operator who runs the
+    repair twice saw the same N both times and had no way to tell a real backlog from a no-op — the
+    count said work had been done that had not.
+
+    `INSERT OR IGNORE` makes the distinction available for free: rowcount is 1 on an insert and 0 on
+    an ignore. Nothing about WHICH receipts are written changes.
+    """
     message_ids = _dispatch_source_message_ids(row)
     if not message_ids:
         return 0
@@ -333,14 +345,16 @@ async def _mark_dispatch_source_messages_read(db, row, agent_id: str, read_at: s
     existing_ids = {str(existing["id"]) for existing in await cursor.fetchall()}
     if not existing_ids:
         return 0
+    inserted = 0
     for message_id in message_ids:
         if message_id not in existing_ids:
             continue
-        await db.execute(
+        result = await db.execute(
             "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
             (message_id, agent_id, read_at),
         )
-    return len(existing_ids)
+        inserted += int(getattr(result, "rowcount", 0) or 0)
+    return inserted
 
 # Joins `_dispatch_source_message_ids` in this module, v0.5.4: that function BUILDS the per-recipient
 # map and this one READS it, so they answer the same question from opposite ends.
