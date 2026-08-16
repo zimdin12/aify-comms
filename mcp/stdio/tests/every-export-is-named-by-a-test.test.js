@@ -59,7 +59,6 @@ const UNTESTED_EXPORT_BACKLOG = [
   "mcp/stdio/hermes-daemon.js#defaultResolveListenerPids",
   "mcp/stdio/hermes-endpoint.js#isPortFree",
   "mcp/stdio/hermes-gateway-liveness.js#DEFAULT_GATEWAY_PROBE_INTERVAL_MS",
-  "mcp/stdio/required-reply-handoff.mjs#readReplyCaptureFallback",
   "mcp/stdio/runtimes-codex.js#discoverCodexLiveBinding",
   "mcp/stdio/runtimes-exec.js#bashShebangFallback",
   "mcp/stdio/runtimes-helpers.js#spawnProcess",
