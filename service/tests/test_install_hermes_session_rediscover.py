@@ -15,6 +15,7 @@ shape; the failure path is non-fatal and exercised live by the operator.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -35,6 +36,21 @@ HERMES_PLUGIN_DIR = REPO / "integrations" / "hermes-aify-plugin" / "aify_hermes_
 
 def _read_install_sh() -> str:
     return INSTALL_SH.read_text(encoding="utf-8")
+
+
+def _defines(text: str, name: str) -> bool:
+    """`name() {` — the shell function DEFINITION."""
+    return re.search(rf"^{re.escape(name)}\(\)\s*\{{", text, re.MULTILINE) is not None
+
+
+def _calls(text: str, name: str) -> bool:
+    """`name` at the start of a line (after indent) NOT followed by `()` — an invocation.
+
+    Asserting the bare token instead cannot tell these apart, because the definition contains it.
+    That is how a hook check stayed green after its call sites were deleted (b3cdcd46). Invocations
+    here take arguments, so the shape is "name, then anything that is not the definition's `()`".
+    """
+    return re.search(rf"^[ \t]*{re.escape(name)}(?!\s*\(\))(\s|$)", text, re.MULTILINE) is not None
 
 
 def _read_plugin_patches() -> str:
@@ -120,7 +136,15 @@ def test_hermes_wrapper_forces_utf8_python_io():
 def test_hermes_windows_shim_uses_powershell_not_git_bash_for_tui():
     """Windows PowerShell launches must keep native Hermes attached to console."""
     text = _read_install_sh()
-    assert "install_hermes_windows_tui_shim" in text
+    # DEFINED *and* CALLED. The bare token is satisfied by `install_hermes_windows_tui_shim() {`
+    # alone, so deleting the invocation would leave this green while Windows hermes fell back to the
+    # git-bash launch this test exists to prevent. Same shape as the claude turn-hook check fixed in
+    # b3cdcd46; a call here takes arguments, so it is "the name at line start followed by something
+    # other than `()`".
+    assert _defines(text, "install_hermes_windows_tui_shim")
+    assert _calls(text, "install_hermes_windows_tui_shim"), (
+        "the shim installer is defined but never invoked — the wrapper would not be written"
+    )
     assert "hermes-aify.ps1" in text
     assert 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0hermes-aify.ps1" %*' in text
     # The PS fallback launches the native Hermes TUI resuming the explicit handle.
@@ -234,7 +258,12 @@ def test_hermes_installer_preserves_wrapper_active_session_file():
 def test_hermes_installer_patches_codex_stream_nonetype_fallback():
     """Hermes openai-codex stream bugs should fall back to raw create stream."""
     text = _read_install_sh()
-    assert "patch_hermes_codex_stream_none_fallback" in text
+    # Same reason as the shim above: the patch must be APPLIED, not merely defined. A definition
+    # with no call means the NoneType stream bug returns and this test still passes.
+    assert _defines(text, "patch_hermes_codex_stream_none_fallback")
+    assert _calls(text, "patch_hermes_codex_stream_none_fallback"), (
+        "the codex-stream patch is defined but never applied to the hermes install"
+    )
     assert "Responses stream hit SDK NoneType iterable bug" in text
     assert "agent._run_codex_create_stream_fallback(api_kwargs, client=active_client)" in text
     assert "if not isinstance(_out, list) or not _out:" in text
