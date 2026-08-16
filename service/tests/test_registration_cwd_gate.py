@@ -66,6 +66,9 @@ class RegistrationCwdGateTests(unittest.TestCase):
                     self.assertIn("sc-codex", detail, "the operator needs the agent named")
 
     def test_the_posix_refusal_suggests_a_native_path_for_that_family(self):
+        # The full static tails, so the refusal-coverage gate can see that these two are tested —
+        # it matches the longest literal chunk, and `"/mnt/<drive>/"` alone is a different fragment.
+        self.assertIn('", not a Windows drive-letter path.', _refusal("linux:box", BACKSLASH_CWD))
         self.assertIn("/mnt/<drive>/", _refusal("linux:box", BACKSLASH_CWD))
         self.assertIn("/mnt/<drive>/", _refusal("wsl:box", BACKSLASH_CWD))
         self.assertIn("/Users/", _refusal("darwin:box", BACKSLASH_CWD))
@@ -76,6 +79,12 @@ class RegistrationCwdGateTests(unittest.TestCase):
         detail = _refusal("win32:box", WSL_CWD)
         self.assertIn("Invalid cwd", detail)
         self.assertIn('"C:/repo"', detail, "the fix must be shown, not just the fault")
+        # The full static tail, so `test_every_refusal_is_exercised.py` can see this one is tested:
+        # it matches the longest literal chunk of the message, and the fragments above are shorter.
+        self.assertIn(
+            '" on Windows. Use forward-slash drive-letter form like "C:/repo", not a "/mnt/..." WSL path.',
+            detail,
+        )
 
     def test_windows_accepts_both_drive_spellings(self):
         """The mirror of the first test: on win32 a drive path is CORRECT, in either separator. A

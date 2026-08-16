@@ -66,7 +66,11 @@ class WorkspaceRootMatchingTests(unittest.TestCase):
 
     def test_windows_still_refuses_a_workspace_that_is_genuinely_outside(self):
         detail = _refusal(WINDOWS_ENV, "C:/Other/proj")
-        self.assertIn("outside the roots advertised", detail)
+        # The FULL static phrase, not a fragment. `test_every_refusal_is_exercised.py` matches on
+        # the longest literal chunk of the message, so asserting half of it left this refusal
+        # counted as never-tested while it was in fact tested here — the measurement lying about
+        # work that was done.
+        self.assertIn('" is outside the roots advertised by environment "', detail)
         self.assertIn("env-win", detail, "the operator must know WHICH environment refused")
 
     def test_a_sibling_directory_sharing_a_prefix_is_not_inside_the_root(self):
