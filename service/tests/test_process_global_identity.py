@@ -64,6 +64,17 @@ GLOBALS = {
     # would hang to its timeout, return empty, and log nothing. A hang is the hardest of these to
     # trace back to a duplicated global, which is why it is worth a line here.
     "_listen_events": "service/longpoll.py",
+    # THE SIBLING OF THE LINE ABOVE, and it was the one left out. `longpoll.py` holds two waiter
+    # registries and its own comment says so — "this module already owns the first one" — but only
+    # the second got a line here. `_waiters` is a `defaultdict(set)` of pending futures: `wait()`
+    # registers into it and `notify()` resolves out of it, so two copies mean a waiter sits in one
+    # dict while the wake fires into the other. The long poll then holds until MAX_WAIT_S and the
+    # caller sees a spurious claim timeout — the same silent-hang class as `_listen_events`, which is
+    # exactly why that one was judged worth a line.
+    #
+    # Found by scanning `service/` for module-level mutable state absent from this table: of
+    # everything not already here, `_waiters` was the only real omission.
+    "_waiters": "service/longpoll.py",
 }
 
 # AST, NOT REGEX — and that distinction is the whole gate.
