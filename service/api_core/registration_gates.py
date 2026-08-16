@@ -60,7 +60,11 @@ from service.env_status import environment_effective_status as _environment_effe
 from service.reconcilers.status_cache import _live_state_get
 
 
-_WINDOWS_DRIVE_CWD_RE = re.compile(r"^[a-zA-Z]:/")
+#: Both separators. It matched only `C:/` until 2026-08-16, so the gate below refused `C:/repo` on a
+#: linux host and ADMITTED `C:\repo` — the canonical Windows drive-letter path, and exactly what its
+#: own refusal message names. A backslash cwd then reached the codex app-server as a directory that
+#: does not exist on that host, which is the failure this gate exists to prevent.
+_WINDOWS_DRIVE_CWD_RE = re.compile(r"^[a-zA-Z]:[\\/]")
 _WSL_DRIVE_CWD_RE = re.compile(r"^/mnt/[a-zA-Z](?:/|$)")
 
 
