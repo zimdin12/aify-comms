@@ -54,7 +54,27 @@ def _dispatch_source_message_ids(row) -> list[str]:
     if primary:
         ids.append(primary)
     body = str((row["body"] if row and "body" in row.keys() else "") or "")
-    ids.extend(match.group(1).strip() for match in re.finditer(r"\bMessage\s*Id:\s*([^\s]+)", body, re.IGNORECASE))
+    # STRUCTURAL LINES ONLY. This scan exists to recover the source ids of a MERGED buffer, whose
+    # items `_render_pending_dispatch_item` and `_queue_console_dispatch_inputs` write as a whole
+    # line, `MessageId: <id>`. It used to be `\bMessage\s*Id:\s*(\S+)` with IGNORECASE and no
+    # anchor, so it also matched PROSE anywhere in a body — and a body is free text written by the
+    # SENDING agent.
+    #
+    # What that bought: every id it returns is fed to `_mark_dispatch_source_messages_read`, which
+    # INSERTs a read receipt for the CLAIMING agent against any matching row in `messages` (the
+    # lookup is `WHERE id IN (...)`, unscoped). Unread is computed as the ABSENCE of a receipt
+    # (`routers/agents/listen.py`: LEFT JOIN ... WHERE r.message_id IS NULL), so a receipt the agent
+    # never earned SUPPRESSES that message from `comms_listen`. The same ids are also an exclusion
+    # set in `_dispatch_conversation_context`, dropping a real message from the context window.
+    # Agents quote message ids in bodies routinely, so the accidental case needs no ill intent.
+    #
+    # Anchored to line-start with the exact spelling both producers emit, which keeps merged-buffer
+    # recovery working and stops an id mentioned in a sentence from counting. Bodies that forge the
+    # whole structural line are handled at render time — see `_neutralise_buffer_markers`.
+    ids.extend(
+        match.group(1).strip()
+        for match in re.finditer(r"^MessageId:[ \t]*(\S+)[ \t]*$", body, re.MULTILINE)
+    )
     return _dedupe_preserve([message_id for message_id in ids if message_id])
 
 

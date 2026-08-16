@@ -174,6 +174,11 @@ def _pending_dispatch_count(body: str) -> int:
 _MERGED_DISPATCH_FOOTER = "[/AIFY PENDING DISPATCHES]"
 
 _ITEM_MARKER_RE = re.compile(r"^=== ITEM \d+ ===$", re.MULTILINE)
+#: The buffer's third structural field. `_dispatch_source_message_ids` recovers a merged buffer's
+#: source ids by reading whole `MessageId: <id>` lines, so a body able to write one is able to add
+#: an arbitrary id to that list — and every id there becomes a read receipt for the claiming agent,
+#: which is how a message goes missing from `comms_listen` (unread = no receipt).
+_MESSAGE_ID_FIELD_RE = re.compile(r"^(MessageId:)", re.MULTILINE)
 
 
 def _neutralise_buffer_markers(text: str) -> str:
@@ -201,7 +206,12 @@ def _neutralise_buffer_markers(text: str) -> str:
     neutralised = str(text or "")
     neutralised = neutralised.replace(_MERGED_DISPATCH_FOOTER, "(/AIFY PENDING DISPATCHES)")
     neutralised = neutralised.replace(_MERGED_DISPATCH_HEADER, "(AIFY PENDING DISPATCHES)")
-    return _ITEM_MARKER_RE.sub(lambda m: m.group(0).replace("===", "---"), neutralised)
+    neutralised = _ITEM_MARKER_RE.sub(lambda m: m.group(0).replace("===", "---"), neutralised)
+    # Third field, added 2026-08-16 — see `_MESSAGE_ID_FIELD_RE`. Quoting the line rather than
+    # mangling the word keeps it readable and moves it off column 0, which is all the anchored
+    # parser needs. The parser was ALSO tightened (it used to match the phrase anywhere in prose);
+    # these are the two halves of the same fix and neither is sufficient alone.
+    return _MESSAGE_ID_FIELD_RE.sub(r"> \1", neutralised)
 
 
 # v0.5.4: moved out of the control plane in the dispatch-run-state slice, but NOT into that module. It
