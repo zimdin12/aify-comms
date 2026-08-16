@@ -500,7 +500,18 @@ class VirtualTerminalEnsureRequest(BaseModel):
     bridgeId: str
     sessionHandle: Optional[str] = None
     workspace: Optional[str] = None
-    runtime: Optional[str] = "pi"
+    # NO DEFAULT, deliberately. `ensure_virtual_terminal` resolves this as
+    # `req.runtime or agent["runtime"] or "pi"` — a three-step chain whose middle step was DEAD
+    # while the model substituted "pi" here: a caller that omitted `runtime` never reached the
+    # agent's own. That is not a formatting difference. The runtime picks the sentinel command
+    # written into `terminal_sessions.command`, so a codex agent would have been given
+    # `aify://virtual-rpc/pi`, and it would have passed the wrapper-deprecation gate that exists to
+    # refuse it — pi is never wrapper-backed, codex is. The endpoint keeps the final `or "pi"`, so
+    # nothing loses a default; the agent's own runtime now gets consulted first, as the code reads.
+    #
+    # Latent rather than live: `mcp/stdio/virtual-terminals.mjs` returns null on an empty runtime
+    # and always sends one. The dashboard and any future caller are not bound by that.
+    runtime: Optional[str] = None
     requestedBy: Optional[str] = None
 
 
