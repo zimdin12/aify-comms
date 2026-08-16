@@ -19,6 +19,13 @@ Python constant:
     mcp/stdio/virtual-terminals.mjs          VIRTUAL_RPC_RUNTIMES      <- _NATIVE_MANAGED_RUNTIMES
     mcp/stdio/adapters/base.js               MODEL_PLACEHOLDERS        <- runtimes.base.MODEL_PLACEHOLDERS
     mcp/stdio/adapters/base.js               HANDLE_PLACEHOLDERS       <- runtimes.base.HANDLE_PLACEHOLDERS
+    mcp/stdio/doctor-predicates.js           ENV_KNOWN_STATES          <- env_status.ENVIRONMENT_STATUSES
+
+THE LAST ONE ARRIVED BY THIS GATE WORKING. `ENV_KNOWN_STATES` was unattributable when the ledger was
+first written, because the `environments.status` vocabulary had NO Python owner — it lived as prose
+in one docstring and as literals at three write sites, and the only complete statement of it in the
+repo was that JavaScript set. Declaring `env_status.ENVIRONMENT_STATUSES` made it bindable, and the
+census demanded the declaration on the same run that introduced the constant.
 
 THE LAST TWO ARE WHY THE CENSUS WALKS THE WHOLE REPO. `mcp/stdio/adapters/base.js` is a direct port
 of `service/runtimes/base.py` — same class, same two constants, same normalization — and it sits one
@@ -71,6 +78,7 @@ from service.api_core.dispatch_state import _DISPATCH_TERMINAL_STATUSES
 from service.api_core.liveness import _LIVE_SESSION_STATUSES
 from service.api_core.runtime import _NATIVE_MANAGED_RUNTIMES
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
+from service.env_status import ENVIRONMENT_STATUSES
 from service.ntfy import NOTIFIABLE_EVENTS
 from service.runtimes.base import HANDLE_PLACEHOLDERS, MODEL_PLACEHOLDERS
 from service.status_engine import VALID_STATUSES
@@ -88,6 +96,7 @@ OWNERS: dict[str, frozenset] = {
     "_LIVE_SESSION_STATUSES": frozenset(_LIVE_SESSION_STATUSES),
     "_NATIVE_MANAGED_RUNTIMES": frozenset(_NATIVE_MANAGED_RUNTIMES),
     "_TERMINAL_ACTIVE_STATUSES": frozenset(_TERMINAL_ACTIVE_STATUSES),
+    "ENVIRONMENT_STATUSES": frozenset(ENVIRONMENT_STATUSES),
     "HANDLE_PLACEHOLDERS": frozenset(HANDLE_PLACEHOLDERS),
     "MODEL_PLACEHOLDERS": frozenset(MODEL_PLACEHOLDERS),
 }
@@ -103,6 +112,12 @@ EXACT_TWINS: dict[tuple[str, str], list[str]] = {
     # the port.
     ("mcp/stdio/adapters/base.js", "HANDLE_PLACEHOLDERS"): ["HANDLE_PLACEHOLDERS"],
     ("mcp/stdio/adapters/base.js", "MODEL_PLACEHOLDERS"): ["MODEL_PLACEHOLDERS"],
+    # THIS ENTRY EXISTS BECAUSE THE PYTHON SIDE GAINED AN OWNER, not because the JS changed.
+    # `ENV_KNOWN_STATES` held the only complete statement of the `environments.status` vocabulary
+    # anywhere in the repo — Python had it as prose plus three scattered write sites — so the census
+    # could not attribute it to anything. Declaring `ENVIRONMENT_STATUSES` made it bindable, and this
+    # gate demanded the declaration on the same run.
+    ("mcp/stdio/doctor-predicates.js", "ENV_KNOWN_STATES"): ["ENVIRONMENT_STATUSES"],
     ("mcp/stdio/dispatch-execution.js", "NATIVE_MANAGED_RUNTIMES"): ["_NATIVE_MANAGED_RUNTIMES"],
     ("mcp/stdio/lifecycle-tools.mjs", "live"): ["_LIVE_SESSION_STATUSES"],
     ("mcp/stdio/runtimes-pi.js", "PI_MODEL_PLACEHOLDER_VALUES"): ["MODEL_PLACEHOLDERS"],

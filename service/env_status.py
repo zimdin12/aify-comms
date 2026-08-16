@@ -9,6 +9,27 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+# EVERY status an `environments.status` column can hold. It had no owner until 2026-08-16: the
+# vocabulary lived in the docstring below ("only ever written `online|degraded|offline` by a
+# registration, plus `forgotten`/`disabled` server-side"), in three scattered write sites, and — in
+# full — only in JavaScript, as `ENV_KNOWN_STATES` in `mcp/stdio/doctor-predicates.js`, which reports
+# any status outside it as unrecognised. Prose is not read by the suite, so the only complete
+# statement of this vocabulary was one a Python change could not break.
+#
+# Ordered narrowest-first, and each set is a strict subset of the next:
+#
+#   heartbeat  {online, degraded}                    -> a bridge is talking to us; ages to offline
+#   registrable  + {offline}                         -> what a REGISTERING bridge may ask to be
+#   all          + {forgotten, disabled}             -> plus the two an operator action writes
+#
+# `forgotten` (the forget endpoint) and `disabled` (the disable control) are DECISIONS, not
+# observations, which is why a bridge cannot request them and why the derivation below returns them
+# untouched. `_environments` also carries a `status_rank` map listing a sixth spelling, `unknown`;
+# nothing can write it and its `.get(..., 5)` default already covers anything unranked, so it is a
+# dead entry rather than a member of this vocabulary.
+ENVIRONMENT_STATUSES = frozenset({"online", "degraded", "offline", "forgotten", "disabled"})
+ENVIRONMENT_REGISTRABLE_STATUSES = frozenset({"online", "degraded", "offline"})
+
 # Which stored statuses mean "this environment has been heartbeating". Moved with the function that
 # reads it, in slice 2 — a constant is a dependency exactly as much as a function call is, and my
 # dependency scan only counted CALLS. That is why this move needed three follow-up fixes.

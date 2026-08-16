@@ -36,6 +36,7 @@ from service.api_core.settings import _load_settings
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
 from service.db import get_db
+from service.env_status import ENVIRONMENT_REGISTRABLE_STATUSES
 from service.env_status import environment_effective_status as _environment_effective_status
 from service.models import (
     EnvironmentControlClaim,
@@ -116,7 +117,7 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
             if str(runtime or "").strip()
         ]
     requested_status = str(req.status or "online").strip().lower()
-    if requested_status not in {"online", "degraded", "offline"}:
+    if requested_status not in ENVIRONMENT_REGISTRABLE_STATUSES:
         requested_status = "online"
     db = await get_db()
     try:

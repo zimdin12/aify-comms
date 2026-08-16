@@ -5,6 +5,14 @@ Not imported by anything. It is the ONE true original that
 
 Captured from `git show HEAD:service/routers/environments.py` at the commit before the extraction,
 decoded as utf-8 rather than through the locale codec.
+
+EDITED ONCE SINCE CAPTURE, and the edit is the whole reason this note exists. The round trip proves
+the split was a pure block-lift OF THE CODE AS IT STANDS, so a later change to a line the split did
+not move must be applied here IDENTICALLY or the proof forbids ever editing the function again. The
+one change: `if requested_status not in {"online", "degraded", "offline"}:` became
+`... not in ENVIRONMENT_REGISTRABLE_STATUSES:` when the environment status vocabulary got an owner in
+`service/env_status.py`. Same statement, same position, a named set in place of the literal. Anything
+larger than that belongs in a reviewed re-capture, not in a fixture nudge to go green.
 """
 
 
@@ -28,7 +36,7 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
             if str(runtime or "").strip()
         ]
     requested_status = str(req.status or "online").strip().lower()
-    if requested_status not in {"online", "degraded", "offline"}:
+    if requested_status not in ENVIRONMENT_REGISTRABLE_STATUSES:
         requested_status = "online"
     db = await get_db()
     try:
