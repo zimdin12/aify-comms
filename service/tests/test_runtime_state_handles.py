@@ -73,9 +73,20 @@ class RuntimeHandleFromStateTests(unittest.TestCase):
             self.assertEqual("", _runtime_handle_from_state("claude-code", state))
 
     def test_round_trip_through_with_handle(self):
-        for runtime in ("codex", "claude-code", "hermes", "pi"):
-            state = _runtime_state_with_handle(runtime, {}, "h-1")
-            self.assertEqual("h-1", _runtime_handle_from_state(runtime, state), runtime)
+        """ENUMERATED FROM THE REGISTRY. This listed four runtimes and omitted `opencode`, which
+        happens to round-trip fine — but the gap was the shape that matters: codex writes its handle
+        under a DIFFERENT key (`threadId`) from everyone else, so a future runtime with its own key
+        whose reader disagreed with its writer would lose the handle silently, and resume would fail
+        with nothing to point at. Deriving the list means a new adapter cannot arrive uncovered."""
+        from service.runtimes import supported_runtimes
+
+        runtimes = supported_runtimes()
+        self.assertIn("opencode", runtimes, "the registry looks truncated")
+        # `generic` and an unknown name exercise the fallback branch, which no adapter owns.
+        for runtime in [*runtimes, "generic", "unknown-runtime"]:
+            with self.subTest(runtime=runtime):
+                state = _runtime_state_with_handle(runtime, {}, "h-1")
+                self.assertEqual("h-1", _runtime_handle_from_state(runtime, state), runtime)
 
 
 class RuntimeStateReplacingHandleTests(unittest.TestCase):

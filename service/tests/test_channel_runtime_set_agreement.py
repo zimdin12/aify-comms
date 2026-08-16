@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import pytest
 
+from service.runtimes import supported_runtimes
 from service.api_core.channel_delivery import (
     _CHANNEL_CLAIM_RUNTIMES,
     _CHANNEL_FLAG_GATED_RUNTIMES,
@@ -34,7 +35,11 @@ from service.api_core.channel_delivery import (
     _channel_managed_eligible,
 )
 
-KNOWN_RUNTIMES = ["claude-code", "codex", "hermes", "pi", "opencode", "generic"]
+# Derived, not listed: a runtime added to the registry must join the probe below automatically, or
+# the eligibility assertions would be measuring a set that no longer covers the product. (This did
+# fail safe when hand-listed — a missing runtime made `eligible` a strict subset of the union and the
+# assertion failed — but failing safe by accident is worth replacing with covering by construction.)
+KNOWN_RUNTIMES = [*supported_runtimes(), "generic"]
 
 
 # ── the relationships ────────────────────────────────────────────────────────────────────────
