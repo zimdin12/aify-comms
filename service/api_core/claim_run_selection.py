@@ -40,7 +40,10 @@ async def _select_claimable_run(
             run_execution_mode = (run["execution_mode"] or "managed").strip().lower()
             if supported_modes and run_execution_mode not in supported_modes:
                 continue
-            if run["dispatch_mode"] == "message_only":
+            # NORMALISED, like `execution_mode` three lines above. Raw, a `Message_Only` run was
+            # not recognised here and started a turn the sender asked to be message-only.
+            run_dispatch_mode = str(run["dispatch_mode"] or "").strip().lower()
+            if run_dispatch_mode == "message_only":
                 await db.execute(
                     "UPDATE dispatch_runs SET status = 'cancelled', finished_at = ? WHERE id = ?",
                     (_now(), run["id"])
@@ -58,7 +61,7 @@ async def _select_claimable_run(
             # run.execution_mode='channel' != 'managed' and cancels the run.
             execution_mode, reason = _agent_execution_mode(agent, requested_runtime or None, settings=claim_settings)
             if reason or not execution_mode:
-                final_status = "failed" if run["dispatch_mode"] == "require_start" else "cancelled"
+                final_status = "failed" if run_dispatch_mode == "require_start" else "cancelled"
                 await db.execute(
                     "UPDATE dispatch_runs SET status = ?, error_text = ?, finished_at = ? WHERE id = ?",
                     (final_status, reason or "active dispatch unavailable", _now(), run["id"])
@@ -66,7 +69,7 @@ async def _select_claimable_run(
                 await _append_dispatch_event(db, run["id"], "skipped", reason or "active dispatch unavailable")
                 continue
             if (run["execution_mode"] or execution_mode) != execution_mode:
-                final_status = "failed" if run["dispatch_mode"] == "require_start" else "cancelled"
+                final_status = "failed" if run_dispatch_mode == "require_start" else "cancelled"
                 reason = (
                     f'Run execution mode "{run["execution_mode"] or "unknown"}" does not match the '
                     f'current capabilities of agent "{req.agentId}" ({execution_mode}).'

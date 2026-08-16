@@ -108,6 +108,16 @@ async def _create_dispatch_runs(
     require_reply: bool = False,
     allow_merge: bool = True,
 ):
+    # NORMALISED ONCE, HERE, because this is the only place a caller-supplied mode enters the column.
+    # `dispatch.py` passes `req.mode` straight from the request body (`models.py` types it a bare
+    # `str` with no validator); every other caller passes a server literal, which this leaves alone.
+    #
+    # It matters because the readers DISAGREE about whether to normalise. Six sites do
+    # `str(row["dispatch_mode"] or "").strip().lower()`; four compared it raw, including
+    # `claim_run_selection.py`'s `== "message_only"`, which CANCELS the run — so a mode spelled
+    # `Message_Only` was recognised by the delivery path and not by the claim path, and a run the
+    # sender asked to deliver as a message only would have started a turn instead.
+    dispatch_mode = str(dispatch_mode or "").strip().lower()
     runs = []
     requested_at = _now()
     for recipient_id in recipients:
@@ -277,7 +287,9 @@ async def _create_dispatch_runs(
                     _build_pending_dispatch_subject(merged_count, subject),
                     merged_body,
                     _stronger_priority(mergeable_run["priority"], priority),
-                    "require_start" if mergeable_run["dispatch_mode"] == "require_start" or dispatch_mode == "require_start" else mergeable_run["dispatch_mode"],
+                    # Both sides normalised: `dispatch_mode` above, and the STORED value of the run
+                    # being merged into, which may predate that normalisation.
+                    "require_start" if str(mergeable_run["dispatch_mode"] or "").strip().lower() == "require_start" or dispatch_mode == "require_start" else mergeable_run["dispatch_mode"],
                     message_type,
                     1 if (bool(mergeable_run["require_reply"]) or require_reply) else 0,
                     1 if (bool(mergeable_run["queue_if_busy"]) or queue_if_busy) else 0,

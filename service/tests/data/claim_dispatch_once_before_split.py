@@ -1,3 +1,17 @@
+"""The pre-split `_claim_dispatch_once`, frozen — the round trip's reference.
+
+EDITED ONCE SINCE CAPTURE, under the rule the other pre-split fixtures record: the proof shows the
+split was a pure block-lift OF THE CODE AS IT STANDS, so a later change to a line the split did not
+move must be applied here IDENTICALLY, or the proof forbids ever editing the function again. The one
+change: the three raw `run["dispatch_mode"] == ...` comparisons became `run_dispatch_mode`, folded
+once above them, when `dispatch_mode` stopped being read two different ways by ten different readers.
+Same statements, same positions, a normalised operand. Anything larger belongs in a reviewed
+re-capture, not a fixture nudge to go green.
+
+Not an importable module: it reads names that were in scope in its original module and are not here.
+"""
+
+
 async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
     db = await get_db(busy_timeout_ms=SQLITE_CLAIM_BUSY_TIMEOUT_MS)
     try:
@@ -315,7 +329,10 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
             run_execution_mode = (run["execution_mode"] or "managed").strip().lower()
             if supported_modes and run_execution_mode not in supported_modes:
                 continue
-            if run["dispatch_mode"] == "message_only":
+            # NORMALISED, like `execution_mode` three lines above. Raw, a `Message_Only` run was
+            # not recognised here and started a turn the sender asked to be message-only.
+            run_dispatch_mode = str(run["dispatch_mode"] or "").strip().lower()
+            if run_dispatch_mode == "message_only":
                 await db.execute(
                     "UPDATE dispatch_runs SET status = 'cancelled', finished_at = ? WHERE id = ?",
                     (_now(), run["id"])
@@ -333,7 +350,7 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
             # run.execution_mode='channel' != 'managed' and cancels the run.
             execution_mode, reason = _agent_execution_mode(agent, requested_runtime or None, settings=claim_settings)
             if reason or not execution_mode:
-                final_status = "failed" if run["dispatch_mode"] == "require_start" else "cancelled"
+                final_status = "failed" if run_dispatch_mode == "require_start" else "cancelled"
                 await db.execute(
                     "UPDATE dispatch_runs SET status = ?, error_text = ?, finished_at = ? WHERE id = ?",
                     (final_status, reason or "active dispatch unavailable", _now(), run["id"])
@@ -341,7 +358,7 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
                 await _append_dispatch_event(db, run["id"], "skipped", reason or "active dispatch unavailable")
                 continue
             if (run["execution_mode"] or execution_mode) != execution_mode:
-                final_status = "failed" if run["dispatch_mode"] == "require_start" else "cancelled"
+                final_status = "failed" if run_dispatch_mode == "require_start" else "cancelled"
                 reason = (
                     f'Run execution mode "{run["execution_mode"] or "unknown"}" does not match the '
                     f'current capabilities of agent "{req.agentId}" ({execution_mode}).'
