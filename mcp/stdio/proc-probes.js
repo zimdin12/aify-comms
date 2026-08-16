@@ -34,7 +34,10 @@ export function cmdlineDeliveryLoopAgent(commandLine) {
   if (!s) return null;
   // Require the host script AND the `run <agent>` subcommand. `ensure-host` and
   // bare invocations are not long-lived delivery loops.
-  const m = s.match(/hermes-managed-host\.js\s+run\s+([A-Za-z0-9_-]+)/);
+  // Charset mirrors the service's `SAFE_NAME_RE` (service/api_core/validation.py):
+  // `[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}`. The DOT is the part that was missing — the API accepts
+  // `team.coder` (verified: 200) and this class stopped at the dot, so the id came back truncated.
+  const m = s.match(/hermes-managed-host\.js\s+run\s+([A-Za-z0-9][A-Za-z0-9._-]*)/);
   return m ? m[1] : null;
 }
 
@@ -48,7 +51,12 @@ export function cmdlineResidentAgent(commandLine) {
   const s = String(commandLine || "");
   if (!s) return null;
   if (cmdlineDeliveryLoopAgent(s)) return null; // a managed loop is not resident
-  const m = s.match(/--aify-agent[=\s]+([A-Za-z0-9_-]+)/);
+  // Same charset as above, and for the same reason. A truncated id here is not a cosmetic bug: the
+  // caller does `owned.delete(residentAgent)` to enforce "a live resident wrapper owns this triad,
+  // never reap any artifact for that agent". Delete a truncated name and the delete misses, so the
+  // agent's gateway and daemon artifacts stay reapable while its operator session is live — the
+  // guarantee this file's header records an incident for.
+  const m = s.match(/--aify-agent[=\s]+([A-Za-z0-9][A-Za-z0-9._-]*)/);
   return m ? m[1] : null;
 }
 

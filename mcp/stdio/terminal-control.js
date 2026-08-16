@@ -41,7 +41,11 @@ export function orphanPidReapAllowed(pid, control, { getCmdline } = {}) {
     return true; // cmdline unreadable → don't block a legitimate Stop
   }
   if (!cmdline) return true;
-  const m = cmdline.match(/--aify-agent[=\s]+([A-Za-z0-9_-]+)/);
+  // Charset mirrors the service's `SAFE_NAME_RE` (service/api_core/validation.py). Without the DOT
+  // this compared a TRUNCATED id against the full one: for `team.coder` it extracted `team`, took
+  // the `!==` branch, and reported "positively a different agent" about the agent's OWN process —
+  // so Stop was permanently refused for any agent whose id contains a dot, which the API accepts.
+  const m = cmdline.match(/--aify-agent[=\s]+([A-Za-z0-9][A-Za-z0-9._-]*)/);
   if (m && m[1] && m[1] !== wantAgent) return false; // POSITIVELY a different agent → recycled pid, skip
   return true;
 }
