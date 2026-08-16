@@ -77,8 +77,6 @@ const UNTESTED_EXPORT_BACKLOG = [
   "mcp/stdio/runtimes.js#defaultPiCommand",
   "mcp/stdio/runtimes.js#discoverCodexLiveBinding",
   "mcp/stdio/runtimes.js#spawnProcess",
-  "mcp/stdio/terminal-manager.mjs#CONSOLE_WORKING_TURN_WINDOW_MS",
-  "mcp/stdio/terminal-manager.mjs#TERMINAL_TURN_BUSY_REMIT_MS",
   "mcp/stdio/terminal-text.js#OSC_NOISE_RE",
   "mcp/stdio/usage-collector.js#readAgentConsumption",
   "mcp/stdio/virtual-terminals.mjs#updateTerminalControl",
