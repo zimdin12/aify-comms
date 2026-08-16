@@ -303,11 +303,27 @@ export async function defaultResolveListenerPids(port) {
   }
 }
 
+// IS THIS A PID WE MAY SIGNAL? Its own predicate, so the rule can fail a test instead of only
+// failing in production — the `doctor-predicates.js` pattern.
+//
+// It was inline in `defaultKillOnePid` and could not be proved ON THIS HOST: with the check removed,
+// Windows `Stop-Process -Id 0` simply errors and the helper still returns false, so every mutation
+// weakening the guard survived. The rule it encodes only bites on POSIX, where `process.kill(0,
+// SIGTERM)` signals THE ENTIRE PROCESS GROUP — the wrapper, the bridge and every sibling the
+// operator's shell started — and a negative pid signals a process group by number. A guard whose
+// whole purpose is a platform this machine is not can still be tested as a predicate.
+//
+// STRINGS ARE REFUSED even when they parse: a pid arriving as text came from a marker file or a
+// command's output, and the caller has not established it is still the process it thinks it is.
+export function isKillablePid(value) {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
 // Kill one pid (no tree). Platform-aware: Windows Stop-Process -Force; POSIX
 // SIGTERM. Never throws → false on failure. Injectable.
 export async function defaultKillOnePid(pid) {
-  const n = Number(pid);
-  if (!Number.isInteger(n) || n <= 0) return false;
+  if (!isKillablePid(pid)) return false;
+  const n = pid;
   try {
     if (process.platform === "win32") {
       await execFile("powershell.exe", [
