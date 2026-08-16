@@ -22,8 +22,37 @@ from __future__ import annotations
 _TERMINAL_ACTIVE_STATUSES = {"starting", "attached", "running", "active", "idle"}
 _TERMINAL_MONOTONIC_STATUSES = {"stopping", "stopped", "failed", "lost", "ended", "completed", "cancelled"}
 
+#: EVERY status a `terminal_sessions.status` column may hold. DERIVED, not retyped — the same rule
+#: `new_dashboard/status.js` states for its live subset, and for the same reason: two hand-typed
+#: copies of one vocabulary drift.
+TERMINAL_SESSION_STATUSES = frozenset(_TERMINAL_ACTIVE_STATUSES | _TERMINAL_MONOTONIC_STATUSES)
+
 
 def _terminal_status_transition(current_status: str, next_status: str) -> str:
+    """Decide the status a terminal row moves to, or "" for "leave it alone".
+
+    DELIBERATELY NOT A VOCABULARY CHECK, and the reason is `test_terminal_status_transition.py`'s
+    own words: "rejecting an unrecognised target would silently drop writes from a newer writer."
+    That cost is real — the writer is the BRIDGE, which runs on the host and is routinely NEWER than
+    the service.
+
+    THE OTHER COST IS EQUALLY REAL, and is recorded here so nobody has to rediscover it. This
+    function is the only gate between an HTTP body and `terminal_sessions.status`: its single caller
+    is `terminal_output.py`, fed by `POST /terminals/{id}/output`, whose `status` field is
+    `Optional[str]` with no validation anywhere. So an unrecognised value is STORED, and it is then
+    invisible to every allowlist at once — not in `_TERMINAL_ACTIVE_STATUSES` (the status engine does
+    not count the terminal live), not in `_TERMINAL_END_STATUSES` (`_close_out_terminal_on_end_status`
+    never closes it, and `agent_terminal_ops.py` reads it as "still running"), not in
+    `_TERMINAL_MONOTONIC_STATUSES` (the guard below cannot protect it). Every read puts it on the
+    live side; every cleanup skips it. That is the `lost` incident's shape, where a gate spelled as
+    `status NOT IN (...)` treated an unlisted status as live and left four sessions permanently
+    unstartable.
+
+    WHICH COST TO PAY IS AN OPEN OPERATOR QUESTION and is not settled here — I changed this to refuse
+    unknown statuses, found the ruling above, and reverted. What IS settled:
+    `test_terminal_status_vocabulary.py` enumerates both writers and fails if either starts sending a
+    status the service does not know, so while the question is open the drift cannot arrive unseen.
+    """
     current = str(current_status or "").strip().lower()
     next_value = str(next_status or "").strip().lower()
     if not next_value:
