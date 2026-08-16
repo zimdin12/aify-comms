@@ -93,6 +93,31 @@ const sourceOf = (rel) => readFileSync(path.join(STDIO, rel), "utf-8").replace(/
   );
 }
 
+// ── and nothing DOWNSTREAM refuses either, which is what sets the severity ───────────────────
+{
+  // The open question is "what should non-pi input do", and its cost depends on what
+  // `acquirePiSession` does when handed a hermes agent. It does not refuse: no runtime check, and
+  // it goes on to resolve the PI launcher and call `ensureStarted`, which is what starts the
+  // `omp --mode rpc` child. So the consequence is a pi RUNTIME PROCESS started in a hermes agent's
+  // cwd — not merely a bookkeeping entry. Asserted rather than described, so the basis for the
+  // decision is checkable and so that a guard added here shows up as a changed exposure.
+  const pool = sourceOf("pi-session-pool.mjs");
+  const start = pool.indexOf("export async function acquirePiSession");
+  assert.ok(start > 0, "acquirePiSession moved; repoint this test");
+  const body = pool.slice(start, pool.indexOf("\nexport ", start + 10));
+
+  // Look for a GUARD, not for the word: the body legitimately calls `getRuntimeConfig(agentInfo)`
+  // to read pi's model/thinking config, and a bare /runtime/i matches that. This is the second
+  // over-loose assertion of mine in this file — the first matched `agentInfo?.runtimeState`.
+  assert.doesNotMatch(
+    body, /normalizeRuntime|[!=]==\s*["'`]pi["'`]|["'`]pi["'`]\s*[!=]==/,
+    "acquirePiSession now compares a runtime. If it refuses non-pi agents, the virtual-terminal "
+      + "input exposure is smaller than this file describes — re-measure before relying on it.",
+  );
+  assert.match(body, /resolvePiLauncher\(\)/, "it resolves the PI launcher unconditionally");
+  assert.match(body, /ensureStarted\(/, "...and starts the session, i.e. spawns the runtime child");
+}
+
 // ── nothing between the router and the dispatcher checks the runtime ─────────────────────────
 {
   const loop = sourceOf("terminal-control-loop.mjs");
