@@ -80,11 +80,19 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
                     warnings=coldstart_warnings,
                 )
                 if not coldstarted and not await _has_claimable_spawn_request(db, agent_id):
+                    # The refusal REASON is already in `coldstart_warnings` — the helper records
+                    # which of its five causes fired. This raise used to discard it and assert one
+                    # instead ("no online environment can host managed X"), which is the N8 shape:
+                    # true only for the environment-resolution causes, false for a runtime that
+                    # cannot be cold-started or a corrupt environment row. The success path reports
+                    # these warnings (session_control.py), so the reason was being dropped on the
+                    # ONE path where the operator needs it.
                     raise HTTPException(
                         409,
                         (
-                            f'Session "{session_id}" has no stored spawn spec and no online '
-                            f'environment can host managed {session["runtime"] or "runtime"}.'
+                            f'Session "{session_id}" has no stored spawn spec. '
+                            + _coldstart_refusal_message(
+                                coldstart_warnings, str(session["runtime"] or ""))
                         ),
                     )
                 spawn_request_row = await (await db.execute(
