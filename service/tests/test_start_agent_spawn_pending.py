@@ -67,9 +67,11 @@ class StartAgentSpawnPendingTests(FastApiTestCase):
         self.assertTrue(body.get("spawnPending"), f"expected spawnPending, got {body}")
 
     def test_no_bridge_and_no_pending_still_409(self):
-        # No pending spawn and no environment bridge → coldstart returns False → the
-        # genuine "no environment bridge" 409 is preserved.
+        # No pending spawn and no resolvable environment → coldstart returns False → the genuine
+        # 409 is preserved. The message now names the RECORDED cause instead of asserting one:
+        # this agent has no environment to resolve, which is not the same failure as a runtime that
+        # cannot be cold-started or an agent that is resident.
         self._register_managed("sc-hermes2")
         r = self._start("sc-hermes2")
         self.assertEqual(r.status_code, 409, r.text)
-        self.assertIn("no environment bridge", r.text.lower())
+        self.assertIn("environment bound to this agent could not be resolved", r.text.lower())

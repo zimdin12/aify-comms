@@ -62,16 +62,20 @@ class StartAgentLiveSessionGateTests(FastApiTestCase):
         """The invariant is "the gate did not short-circuit as alreadyRunning".
 
         These tests seed no online environment, so once the gate lets the request past, the
-        cold-start legitimately fails with 409 "no environment bridge is available". That 409 is
-        PROOF the gate allowed a start attempt — the bug being fixed never got that far, it
-        returned 200 + alreadyRunning and created nothing.
+        cold-start legitimately refuses. That 409 is PROOF the gate allowed a start attempt — the
+        bug being fixed never got that far, it returned 200 + alreadyRunning and created nothing.
+
+        Keyed on the CAUSE-INDEPENDENT prefix that `_coldstart_refusal_message` always renders, not
+        on one cause's wording. This used to look for "environment bridge", which was the single
+        sentence the router emitted for all five refusal causes; that made the assertion pass just
+        as happily when the reported cause was wrong as when it was right.
         """
         if r.status_code == 200:
             self.assertNotEqual(r.json().get("alreadyRunning"), True, f"{why}: {r.json()}")
             return
         self.assertEqual(r.status_code, 409, f"{why}: unexpected status {r.status_code} {r.text}")
         self.assertIn(
-            "environment bridge", r.json().get("detail", "").lower(),
+            "cannot start managed", r.json().get("detail", "").lower(),
             f"{why}: expected the cold-start path to be reached, got {r.text}",
         )
 

@@ -75,12 +75,29 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
                 # Already running — starting again would spawn a duplicate worker.
                 return {"ok": True, "agentId": agent_id, "action": "start", "alreadyRunning": True}
             settings = await _load_settings(db)
+            start_runtime = _normalize_runtime(agent["runtime"] or "")
+            # N8 applied to the DASHBOARD START BUTTON. `_coldstart_spawn_request_for_dispatch`
+            # refuses for FIVE distinct causes and records which one in `warnings`; this call site
+            # passed no list, so the reason was discarded and every cause rendered the same
+            # sentence — "no environment bridge is available to run it. Start one on its host with
+            # `aify-comms`." That sentence NAMES a cause. Measured, three of the five causes reach
+            # this branch, and for two of them the claim is false: a non-cold-startable runtime and
+            # a corrupt environment row both reported a missing bridge. (The resident refusal is
+            # guarded EARLIER with its own accurate message, and an in-flight spawn returns 200
+            # below, so neither was ever part of this defect.)
+            #
+            # The advice made it worse than a vague message would have been: a bare `aify-comms` on
+            # a host that already runs one SUPERSEDES the live bridge and reaps its managed workers
+            # (2026-08-11, nine agents). So a wrong diagnosis here steers the operator into an
+            # outage. Read the recorded reason instead of asserting one.
+            coldstart_warnings: list[str] = []
             started = await _coldstart_spawn_request_for_dispatch(
                 db,
                 agent_id,
-                runtime=_normalize_runtime(agent["runtime"] or ""),
+                runtime=start_runtime,
                 settings=settings,
                 requested_by=req.from_agent or "dashboard",
+                warnings=coldstart_warnings,
             )
             await db.commit()
             if not started:
@@ -91,8 +108,7 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
                     return {"ok": True, "agentId": agent_id, "action": "start", "spawnPending": True}
                 raise HTTPException(
                     409,
-                    f'Could not start "{agent_id}" — no environment bridge is available to run it. '
-                    "Start one on its host with `aify-comms`.",
+                    _coldstart_refusal_message(coldstart_warnings, start_runtime),
                 )
             await _invalidate_agent_live_state(db, agent_id)
             return {"ok": True, "agentId": agent_id, "action": "start", "spawnRequested": True}
