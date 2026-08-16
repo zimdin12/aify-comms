@@ -600,7 +600,8 @@ async function pollLoop() {
           // sidecar for BOTH resident and managed claude agents — the loop above does not
           // branch on session_mode. The old wording claimed a resident session, and the
           // controls API surfaces `response_text` back to callers verbatim
-          // (api_v2.py ~18935/19037), so a MANAGED agent's control read back as
+          // (verified in api_v2.py when this was written; that file is now 53 lines and the controls
+          // surface lives in service/routers/dispatch_messages/controls.py), so a MANAGED agent's control read back as
           // "Delivered to Claude resident session".
           //
           // That is not cosmetic: it cost a real diagnosis. It was read as evidence that

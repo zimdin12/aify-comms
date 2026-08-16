@@ -9,7 +9,7 @@
 // `notify.test.mjs` and `app.js` keeps only the wiring.
 //
 // NO SERVER CHANGE IS NEEDED. The dashboard already holds a `/ws` socket, and the service already
-// broadcasts `message_sent` with {id, from, to, subject} (api_v2.py:17040) and `channel_message`.
+// broadcasts `message_sent` with {id, from, to, subject} and `channel_message`.
 //
 // NO TLS IS NEEDED EITHER, on desktop: `localhost` is a secure context, so the Notification API
 // works at http://localhost:8801 with zero infrastructure. (An earlier claim that HTTPS was

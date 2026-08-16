@@ -188,7 +188,7 @@ export async function handleVirtualTerminalControl(agentId, terminalId, control)
 // would hand a PTY terminal's input to an agent that never had one.
 // Bridge-side runtimes that own a synthesized virtual rpc
 // terminal_session. Must stay aligned with the service-side
-// VIRTUAL_RPC_COMMANDS_BY_RUNTIME in api_v2.py — when a new runtime
+// VIRTUAL_RPC_COMMANDS_BY_RUNTIME in service/api_core/virtual_rpc.py — when a new runtime
 // is added there, add it here too so the bridge's terminal-control
 // router routes synth-terminal controls (input/resize/stop) through
 // handleVirtualTerminalControl instead of the legacy node-pty path

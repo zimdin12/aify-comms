@@ -121,7 +121,7 @@ def _contract_reminder_body(row, *, full: bool = True) -> str:
         else f'comms_run_status(runId="{row["id"]}")'
     )
     # The snippet MUST be a valid comms_send call: `body` is a REQUIRED zod field
-    # (mcp/stdio/server.js:4472 `body: z.string()`), so it cannot be omitted. An earlier attempt
+    # (mcp/stdio/server.js declares `body: z.string()`), so it cannot be omitted. An earlier attempt
     # here moved the body out of the call and described it in prose — that produced a snippet an
     # agent could not run at all, which is strictly worse than a conventional placeholder. Keep the
     # placeholder inside the call.

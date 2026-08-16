@@ -286,8 +286,11 @@ function checkRuntimes() {
 // the one check that is supposed to prove managed spawns can run. The server already derives
 // liveness per row, so trust ITS `status` and name the dead ones instead of hiding them.
 // The REAL environments.status vocabulary, read off the service rather than guessed:
-//   online | degraded | offline   — accepted from a bridge registration (api_v2.py:10105)
-//   forgotten | disabled          — set server-side (api_v2.py:10496 / :10529)
+//   online | degraded | offline   — accepted from a bridge registration
+//   forgotten | disabled          — set server-side
+// (Both were cited by line into api_v2.py when this was written. That file is now 53 lines of
+// include_router calls, so those citations resolve to nothing; the live readers of this vocabulary
+// are service/env_status.py and the `{"online", "degraded"}` gates across service/api_core/.)
 // `degraded` still heartbeats and can host spawns, so it counts as connected; the other three
 // cannot. An unknown/absent value is treated as NOT connected — this check exists to fail loudly,
 // so the unknown case must never be the optimistic one.

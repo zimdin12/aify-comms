@@ -289,7 +289,7 @@ async def stop_agent_worker(agent_id: str, request: Request):
                 requested_by=requested_by,
             )
             # 'stopping', NOT 'stopped' — the TRANSITIONAL state, matching the shared
-            # session-control path (api_v2.py:12407). The stop is only QUEUED here; the host has
+            # session-control path. The stop is only QUEUED here; the host has
             # not acknowledged it yet, so claiming 'stopped' asserts a process death that has not
             # happened — the same "state that lies" defect this release exists to remove. A wedged
             # 'stopping' row is caught by the STUCK_STOPPING_GRACE_SECONDS reaper.

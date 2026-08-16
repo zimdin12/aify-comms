@@ -80,9 +80,10 @@ export class CodexLegacyController extends BaseController {
     const sandboxMode = managedCodexSandboxMode(config, executionMode);
     const residentThreadId = String(agentInfo.sessionHandle || "").trim();
     // Plan 5 (2026-05-25): channel-mode is the new server-side route for
-    // wrapper-backed managed dispatches (api_v2.py:1047). When the in-
+    // wrapper-backed managed dispatches (then api_v2.py; the route domains have since moved
+    // out of it). When the in-
     // process bridge inside codex-aify delivers a channel-mode run for its
-    // own agent, runtimeConfig.appServerUrl is set by server.js:835-837
+    // own agent, runtimeConfig.appServerUrl is set by server.js
     // (read from AIFY_CODEX_APP_SERVER_URL env). Without 'channel' here,
     // appServerUrl is dropped and CodexLegacyController falls back to
     // spawning a fresh codex app-server — defeating the wrapper-backed

@@ -30,7 +30,7 @@ from service.clock import now as _now
 # N7 (reviewer finding, 2026-07-26): the sweeps below asked `environments.status = 'online'` while
 # api_v2's stop-request path asks
 #     _environment_effective_status(env_row, offline_seconds=max(30, setting)) in {"online","degraded"}
-# (`api_v2.py:12391-12405`, `bridge_can_claim`). Two halves of one feature, two different answers to
+# (`bridge_can_claim`, then in api_v2.py). Two halves of one feature, two different answers to
 # the same question, so a degraded environment's stop was left PENDING by the request path and then
 # FAILED by the sweep — the PTY survived, the session was already 'ended', and Start was free to
 # spawn a second worker. Same chain v0.1 fixed for a changed `bridge_id`, reached via `degraded`.
@@ -157,7 +157,7 @@ async def _reconcile_terminal_controls(db: aiosqlite.Connection):
     # whatever that bridge now owns. Only an idempotent kill may be re-pointed.
     #
     # The CLAIM MUST BE RELEASED TOO (review finding on `530ee71` — re-pointing alone was a no-op for
-    # the commonest case). A bridge only ever claims PENDING work: api_v2.py:12675 is
+    # the commonest case). A bridge only ever claims PENDING work — the claim is
     # `SET status='claimed' ... WHERE id = ? AND status = 'pending'`. So a stop the dying bridge had
     # already claimed kept `status='claimed'`, got re-pointed at the new bridge, and the new bridge
     # never looked at it — stranded forever, which is precisely the state most likely to exist when a
