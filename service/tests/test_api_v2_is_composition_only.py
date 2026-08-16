@@ -66,7 +66,13 @@ def test_every_top_level_statement_is_composition():
             continue
         if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
             continue  # the module docstring
+        # `router = domain_router(...)` in either binding form. An annotated
+        # `router: APIRouter = domain_router()` is the same composition and must not read as a
+        # non-composition statement — the inverse of the `__all__` hole below, and the same
+        # Assign-only blind spot.
         if isinstance(node, ast.Assign) and [t.id for t in node.targets if isinstance(t, ast.Name)] == ["router"]:
+            continue
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == "router":
             continue
         if (
             isinstance(node, ast.Expr)
@@ -82,9 +88,16 @@ def test_it_exports_no_helper_under_any_name():
     """`__all__` would re-export by declaration rather than by import — the same restoration of the
     stale paths, spelled differently."""
     for node in _tree().body:
+        # BOTH forms. `__all__: list[str] = [...]` is the idiomatic annotated spelling and would have
+        # sailed past an Assign-only check — the same blind spot found in the singleton and
+        # coincidence gates, which is why it is worth naming rather than quietly widening.
         if isinstance(node, ast.Assign):
             names = [t.id for t in node.targets if isinstance(t, ast.Name)]
-            assert "__all__" not in names, "api_v2.py declares __all__ — it publishes nothing but `router`"
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names = [node.target.id]
+        else:
+            continue
+        assert "__all__" not in names, "api_v2.py declares __all__ — it publishes nothing but `router`"
 
 
 def test_a_relocated_helper_still_fails_loudly_when_imported_from_here():

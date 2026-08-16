@@ -121,14 +121,25 @@ def constant_groups() -> dict[frozenset, list[tuple[str, str, int]]]:
             continue
         relative = path.relative_to(REPO).as_posix()
         for node in tree.body:
-            if not isinstance(node, ast.Assign):
+            # BOTH binding forms. Walking `ast.Assign` alone missed `X: frozenset[str] = {...}`, and
+            # the annotated form is not rare here — twelve module-level collection constants use it,
+            # including most of the process-global caches. A forked constant written that way was
+            # invisible to a gate whose entire subject is finding forked constants. Adding it
+            # surfaced ZERO new groups, so this is preventive rather than a backlog: it costs nothing
+            # today and stops the next annotated declaration from hiding.
+            if isinstance(node, ast.Assign):
+                targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
+                value_node = node.value
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value:
+                targets = [node.target.id]
+                value_node = node.value
+            else:
                 continue
-            value = _literal(node.value)
+            value = _literal(value_node)
             if value is None or len(value) < MIN_ELEMENTS:
                 continue
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    groups[value].append((relative, target.id, node.lineno))
+            for name in targets:
+                groups[value].append((relative, name, node.lineno))
     return groups
 
 
@@ -227,6 +238,38 @@ class NoUnruledConstantCoincidencesTests(unittest.TestCase):
         self.assertEqual(values[0], values[1], "order must not affect the grouping")
         self.assertIsNone(_literal(ast.parse("C = compute()\n").body[0].value),
                           "a computed value is not a literal and must not be grouped")
+
+    def test_an_ANNOTATED_declaration_is_collected(self):
+        """The blind spot this gate had, proved on a fixture because production has no annotated
+        COLLISION to demonstrate it — adding the form surfaced zero new groups, so a clean-tree run
+        cannot tell a fixed detector from the broken one.
+
+        The annotated form is not exotic here: twelve module-level collection constants use it,
+        including most of the process-global caches. A fork written that way was invisible to the one
+        gate whose subject is finding forks.
+        """
+        annotated = ast.parse("A: frozenset[str] = {'x', 'y', 'z'}\n").body[0]
+        plain = ast.parse("B = {'x', 'y', 'z'}\n").body[0]
+        self.assertIsInstance(annotated, ast.AnnAssign)
+        self.assertEqual(_literal(annotated.value), _literal(plain.value))
+
+        # A bare annotation with no value binds nothing and must not be collected as an empty set.
+        declaration_only = ast.parse("C: frozenset[str]\n").body[0]
+        self.assertIsInstance(declaration_only, ast.AnnAssign)
+        self.assertIsNone(declaration_only.value)
+
+    def test_including_annotated_declarations_did_not_change_the_reported_groups(self):
+        """Recorded as a fact, not an assumption: the widening is preventive. If a future annotated
+        constant DOES collide, this gate reports it and the group needs a ruling like any other —
+        which is the intended behaviour, not a regression in this test."""
+        reported = {
+            value for value, places in constant_groups().items() if len(holders(places)) > 1
+        }
+        self.assertEqual(
+            len(reported), 2,
+            "the cross-module group count moved; both were already present before annotated "
+            "declarations were collected, so a change here is a real new coincidence",
+        )
 
     def test_small_sets_are_not_reported(self):
         """`{0, 1}` coinciding says nothing, and reporting it would train people to ignore this."""
