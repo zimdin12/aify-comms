@@ -133,11 +133,15 @@ class SessionModeSwitchRefusalTests(FastApiTestCase):
                 self._register(agent_id, runtime)
                 response = self._switch(agent_id, "resident")
                 self.assertEqual(response.status_code, 409, response.text)
+                # The static tail contiguous — see the note beside PHRASE_PREFIX in
+                # `test_every_refusal_is_exercised.py`. Wrapping after "Keep this " split the
+                # message's longest chunk inside the 40 characters the coverage gate matches, so
+                # this refusal stayed counted as untested while this line asserted all of it.
                 self.assertEqual(
                     response.json()["detail"],
-                    f"resident mode is not supported for {runtime}; it is managed-only. Keep this "
-                    "agent managed, or pass force=true to change metadata only (it will be "
-                    "undeliverable).",
+                    f"resident mode is not supported for {runtime}"
+                    + "; it is managed-only. Keep this agent managed, or pass force=true to change "
+                    "metadata only (it will be undeliverable).",
                 )
                 self.assertEqual(
                     self._read(
