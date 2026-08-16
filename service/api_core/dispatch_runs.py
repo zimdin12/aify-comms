@@ -56,13 +56,34 @@ from service.clock import now as _now
 from service.terminal_write_queue import TERMINAL_OUTPUT_WRITES
 
 #: Ordering for merge decisions: a merged run keeps the STRONGER of the two priorities.
-_PRIORITY_ORDER = {"normal": 0, "high": 1, "urgent": 2}
+_PRIORITY_ORDER = {"low": -1, "normal": 0, "high": 1, "urgent": 2}
+#: An unrecognised label is not an escalation, and ranks below every recognised one INCLUDING `low`
+#: — otherwise `low` and a typo tie, and the tie-break by argument order reintroduces the asymmetry
+#: this constant exists to remove. It used to default to the rank of `normal`, which made
+#: `_stronger_priority` non-commutative: with both sides unranked-or-normal the `>=` returned
+#: whichever argument was on the LEFT, so `("low", "normal")` answered "low" while `("normal", "low")`
+#: answered "normal". The buffer merge calls it as (existing, new), so a run that once carried an
+#: unranked priority -- `low`, or a typo like `urgnet` -- kept it through every later `normal` merge
+#: and showed the recipient a priority no message in the buffer had.
+_UNRANKED_PRIORITY = -2
 
 
 def _stronger_priority(left: str, right: str) -> str:
+    """The higher of two priorities, order-independently.
+
+    Ties keep the LEFT argument, which at the only call site is the buffer's existing priority --
+    stability, not preference. Two DIFFERENT unranked labels tie, so the existing one survives; there
+    is no basis for ranking one unrecognised string above another.
+
+    Priority drives no routing here (nothing orders by it); it is the `Priority:` line the recipient
+    reads and a field in the claim payload. So the cost of getting this wrong is a run labelled with
+    an urgency none of its messages carried.
+    """
     left_key = str(left or "normal").strip().lower() or "normal"
     right_key = str(right or "normal").strip().lower() or "normal"
-    return left_key if _PRIORITY_ORDER.get(left_key, 0) >= _PRIORITY_ORDER.get(right_key, 0) else right_key
+    left_rank = _PRIORITY_ORDER.get(left_key, _UNRANKED_PRIORITY)
+    right_rank = _PRIORITY_ORDER.get(right_key, _UNRANKED_PRIORITY)
+    return left_key if left_rank >= right_rank else right_key
 
 
 
