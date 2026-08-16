@@ -28,7 +28,10 @@
 import assert from "node:assert/strict";
 
 import { claudeSessionStorePath } from "../claude-session-store.js";
-import { sanitizeAgentId as hermesSanitize } from "../hermes-endpoint.js";
+import { sessionKeyFor } from "../hermes-active-session.mjs";
+import { agentPort, sanitizeAgentId as hermesSanitize } from "../hermes-endpoint.js";
+import { loopReadyFile } from "../hermes-loop-ready.js";
+import { pinnedSessionId } from "../hermes-session-id.js";
 
 /** Mirrors service/api_core/validation.py::SAFE_NAME_RE — duplicated on purpose. */
 const SERVICE_ACCEPTS = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
@@ -76,6 +79,39 @@ function groupBy(ids, keyOf) {
     "the claude session store now collides too. It keeps dots precisely so it does not, and it is "
       + "the reason the hermes fold is a CHOICE rather than something filenames force.",
   );
+}
+
+// ── how far the fold reaches: measured, not inferred from the marker names ───────────────────
+{
+  // The first version of this pin listed the five TEMP markers keyed by the sanitised name and
+  // said the colliding agents therefore "share the session they resume". That was an inference
+  // from a filename. Sweeping every exported agent-id derivation for injectivity showed the
+  // SESSION KEY ITSELF folds — `sessionKeyFor` and `pinnedSessionId` both answer `aify-team-coder`
+  // for two different agents — so the sharing is direct, not merely via a marker file.
+  for (const derive of [sessionKeyFor, pinnedSessionId, loopReadyFile]) {
+    assert.equal(
+      derive("team.coder"), derive("team-coder"),
+      `${derive.name} still folds two distinct agents together — pinned as a fact; if this now `
+        + `differs, the sanitiser was changed and that is the migration both modules' notes describe`,
+    );
+    assert.notEqual(
+      derive("team_coder"), derive("team-coder"),
+      `${derive.name}: underscores must stay distinct, or the collision set is wider than pinned`,
+    );
+  }
+}
+
+// ── the port is a SEPARATE axis, and it is designed for ──────────────────────────────────────
+{
+  // `agentPort` is `PORT_BASE + fnv1a(id) % PORT_SPAN` over a 1000-port range, so two agents can
+  // collide by HASH regardless of any sanitiser — at ~17% for a 20-agent fleet on the birthday
+  // bound. That is handled: `resolveGatewayPort` probes forward for a port that is free AND not
+  // claimed by another agent's persist file, then persists the choice. Recorded as examined so it
+  // is not re-derived as a finding: the hash colliding is expected, not a defect.
+  assert.notEqual(agentPort("team.coder"), agentPort("team-coder"),
+    "the port hash reads the RAW id, so the sanitiser fold does not reach it");
+  const port = agentPort("lc-coder");
+  assert.ok(Number.isInteger(port) && port >= 8642 && port <= 9641, `port ${port} outside the range`);
 }
 
 // ── what the fold actually does, so the pin is readable ──────────────────────────────────────
