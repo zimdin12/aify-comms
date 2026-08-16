@@ -33,6 +33,56 @@ async def close_client():
         _client = None
 
 
+# Strip hop-by-hop AND the hub's OWN credentials before forwarding (bughunt 2026-07-03): relaying
+# X-API-Key/Authorization/Cookie verbatim to an operator-defined sub-container image would leak the
+# master API key to that container (a logging/compromised image → full API incl. console keystroke
+# injection). The sub-container authenticates with its own creds, not the hub's.
+#
+# CASE-INSENSITIVE BY CONSTRUCTION, not by enumerating spellings. The filter used to pop each name
+# three times — `h`, `h.title()`, `h.upper()` — which covers `x-api-key`, `X-Api-Key` and
+# `X-API-KEY` but NOT `X-API-Key`, the spelling clients most often send. It was safe only because
+# uvicorn lowercases header names before they reach ASGI, so the two extra pops were dead code and
+# the guarantee lived in the SERVER rather than in this module. A credential filter must not be one
+# deployment change away from leaking.
+#
+# The set also covers the full hop-by-hop list from RFC 9110 §7.6.1: `proxy-authorization` is another
+# credential, and `te`/`trailer`/`upgrade`/`keep-alive` are per-connection headers that must not
+# cross a proxy hop.
+_STRIPPED_REQUEST_HEADERS = frozenset({
+    "host", "connection", "keep-alive", "transfer-encoding", "te", "trailer", "upgrade",
+    "proxy-authenticate", "proxy-authorization",
+    "x-api-key", "authorization", "cookie",
+})
+
+# `aiter_bytes()` DECODES the body, so both of these become lies on the way back: `content-encoding`
+# no longer describes the stream, and `content-length` is the COMPRESSED size. Bughunt 2026-07-03:
+# the old code popped content-encoding but streamed still-encoded bytes while KEEPING content-length,
+# so clients decoded garbage for any compressed upstream response.
+_DROPPED_RESPONSE_HEADERS = frozenset({
+    "transfer-encoding", "connection", "content-encoding", "content-length",
+})
+
+
+def _safe_request_headers(headers) -> dict[str, str]:
+    """What may be forwarded to a sub-container. Extracted so it can be tested by CALLING it."""
+    return {
+        name: value for name, value in headers.items()
+        if name.lower() not in _STRIPPED_REQUEST_HEADERS
+    }
+
+
+def _safe_query_params(params) -> dict[str, str]:
+    """The same credential arrives by URL — `?api_key=` — so it is dropped there too."""
+    return {name: value for name, value in params.items() if name.lower() != "api_key"}
+
+
+def _safe_response_headers(headers) -> dict[str, str]:
+    return {
+        name: value for name, value in headers.items()
+        if name.lower() not in _DROPPED_RESPONSE_HEADERS
+    }
+
+
 async def proxy_request(request: Request, target_url: str) -> StreamingResponse:
     """
     Forward an HTTP request to a target URL, streaming the response back.
@@ -40,19 +90,8 @@ async def proxy_request(request: Request, target_url: str) -> StreamingResponse:
     """
     client = get_client()
 
-    headers = dict(request.headers)
-    # Strip hop-by-hop AND the hub's OWN credentials before forwarding (bughunt
-    # 2026-07-03): relaying X-API-Key/Authorization/Cookie verbatim to an operator-defined
-    # sub-container image would leak the master API key to that container (a
-    # logging/compromised image → full API incl. console keystroke injection). The
-    # sub-container authenticates with its own creds, not the hub's.
-    for h in ["host", "transfer-encoding", "connection", "x-api-key", "authorization", "cookie"]:
-        headers.pop(h, None)
-        headers.pop(h.title(), None)
-        headers.pop(h.upper(), None)
-
-    # Drop the ?api_key= query param too (same leak via the URL).
-    query_params = {k: v for k, v in request.query_params.items() if k.lower() != "api_key"}
+    headers = _safe_request_headers(request.headers)
+    query_params = _safe_query_params(request.query_params)
 
     body = await request.body()
 
@@ -66,15 +105,10 @@ async def proxy_request(request: Request, target_url: str) -> StreamingResponse:
 
     response = await client.send(req, stream=True)
 
-    resp_headers = dict(response.headers)
-    # aiter_bytes() DECODES the body (gzip/br), so we must drop BOTH content-encoding
-    # AND content-length (the latter is the COMPRESSED size and would be wrong for the
-    # decoded stream). Bughunt 2026-07-03: the old code popped content-encoding but
-    # streamed aiter_raw() (still-encoded) while KEEPING content-length → the client
-    # decoded garbage for any compressed upstream response.
-    for h in ["transfer-encoding", "connection", "content-encoding", "content-length"]:
-        resp_headers.pop(h, None)
-        resp_headers.pop(h.title(), None)
+    # Case-insensitive on the way back too, and for a sharper reason than on the way out: these
+    # headers came from an operator-defined sub-container, which is the side whose casing this hub
+    # controls least. httpx normalises to lowercase today; the filter no longer depends on that.
+    resp_headers = _safe_response_headers(response.headers)
 
     async def stream_body():
         try:
