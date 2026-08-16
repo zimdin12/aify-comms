@@ -140,27 +140,73 @@ function shellTokenFromMatch(match) {
   return unquoteShellToken(match?.[1] || match?.[2] || match?.[3] || "");
 }
 
-function resumeRegexForRuntime(runtime, flags = "") {
+// WHICH RESUME FLAGS EACH RUNTIME'S LAUNCH COMMAND CAN CARRY, per the wrapper that parses them.
+//
+// This was an inline `key === "pi" || key === "hermes" || key === "claude-code"` alternation, and
+// the two runtimes it left out are the point. Each adapter declares a `resumeCommand(id)` — the
+// command that resumes that runtime — and `adapter-contract-symmetry.test.js` gates every adapter
+// for having one. NOTHING connected those declarations to the regex that has to UNDO them:
+//
+//   codex     adapters/codex.js    -> `codex-aify --resume <id>`
+//   opencode  adapters/opencode.js -> `opencode-aify --resume <id>`
+//
+// Neither form was recognised. `runtimeCommandWithoutResume` returned both UNCHANGED, so the
+// "start a fresh session without --resume" heal in `terminal-runtime.js` — which only proceeds when
+// the stripped command DIFFERS — could never fire for either, and
+// `extractRuntimeSessionHandleFromCommand` reported no handle where one was plainly present, so
+// `terminalChildEnv` would hand the worker an empty `CODEX_THREAD_ID`/`AIFY_SESSION_HANDLE`.
+//
+// The flag sets are not guessed. codex-aify parses exactly `--resume` and `--session-id` (both
+// space- and `=`-separated) and NOT `-r`; see the codex branch of install.sh. opencode's adapter
+// declares `--resume`. The three runtimes that already worked keep their existing set unchanged.
+const RESUME_FLAGS_BY_RUNTIME = Object.freeze({
+  "claude-code": ["--resume", "--session-id", "-r"],
+  codex: ["--resume", "--session-id"],
+  hermes: ["--resume", "--session-id", "-r"],
+  opencode: ["--resume"],
+  pi: ["--resume", "--session-id", "-r"],
+});
+
+const escapeForRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// A LIST, because codex has TWO resume syntaxes and one regex cannot carry both.
+//
+// `shellTokenFromMatch` reads capture groups 1-3, so folding a second alternative into one pattern
+// would push its groups to 4-6 and silently yield "" for every match on that half — a wider regex
+// that reports nothing. Separate patterns, tried in order, keep each one's groups at 1-3.
+//
+// Codex's SUBCOMMAND form is tried first so it keeps deciding the case it already decided: the
+// dashboard renders `codex --no-alt-screen resume --include-non-interactive <handle>`, where the
+// load-bearing part is the POSITIONAL id. The flag form is the wrapper/operator spelling.
+function resumeRegexesForRuntime(runtime, flags = "") {
   const key = normalizeRuntime(runtime);
+  const patterns = [];
   if (key === "codex") {
-    return new RegExp(String.raw`(?:^|\s)resume(?:\s+--include-non-interactive)?\s+${SHELL_TOKEN_PATTERN}`, flags);
+    patterns.push(new RegExp(String.raw`(?:^|\s)resume(?:\s+--include-non-interactive)?\s+${SHELL_TOKEN_PATTERN}`, flags));
   }
-  if (key === "pi" || key === "hermes" || key === "claude-code") {
-    return new RegExp(String.raw`(?:^|\s)(?:--resume|--session-id|-r)(?:=|\s+)${SHELL_TOKEN_PATTERN}`, flags);
+  const flagNames = RESUME_FLAGS_BY_RUNTIME[key] || [];
+  if (flagNames.length) {
+    const alternation = flagNames.map(escapeForRegex).join("|");
+    patterns.push(new RegExp(String.raw`(?:^|\s)(?:${alternation})(?:=|\s+)${SHELL_TOKEN_PATTERN}`, flags));
   }
-  return null;
+  return patterns;
 }
 
 export function extractRuntimeSessionHandleFromCommand(runtime = "", command = "") {
-  const regex = resumeRegexForRuntime(runtime);
-  if (!regex) return "";
-  return shellTokenFromMatch(String(command || "").match(regex));
+  const text = String(command || "");
+  for (const regex of resumeRegexesForRuntime(runtime)) {
+    const handle = shellTokenFromMatch(text.match(regex));
+    if (handle) return handle;
+  }
+  return "";
 }
 
 export function runtimeCommandWithoutResume(runtime = "", command = "") {
-  const regex = resumeRegexForRuntime(runtime, "g");
-  if (!regex) return String(command || "").trim();
-  return String(command || "").trim().replace(regex, " ").replace(/\s+/g, " ").trim();
+  let text = String(command || "").trim();
+  const regexes = resumeRegexesForRuntime(runtime, "g");
+  if (!regexes.length) return text;
+  for (const regex of regexes) text = text.replace(regex, " ");
+  return text.replace(/\s+/g, " ").trim();
 }
 
 export function runtimeLaunchAvailability(runtime) {

@@ -152,8 +152,38 @@ for (const [name, value] of ORIGINAL) {
     }
   }
 
+  // CODEX ALSO ANSWERS THE FLAG FORM, which is the spelling its WRAPPER takes. install.sh's codex
+  // branch parses `--resume`/`--session-id` (space- or `=`-separated, never `-r`) and rewrites them
+  // into the positional subcommand above; `adapters/codex.js` hands the operator exactly that form
+  // as the takeover command. Only the subcommand spelling was recognised here, so the command the
+  // adapter itself produces read as having no session id at all.
+  for (const flag of ["--resume", "--session-id"]) {
+    for (const sep of [" ", "="]) {
+      assert.equal(
+        extractRuntimeSessionHandleFromCommand("codex", `codex-aify ${flag}${sep}019abc --model gpt`),
+        "019abc",
+        `codex ${flag}${sep}`,
+      );
+    }
+  }
+  assert.equal(
+    extractRuntimeSessionHandleFromCommand("codex", "codex-aify -r 019abc"), "",
+    "codex-aify does not parse -r — reading it as a handle would claim one that codex never got",
+  );
+
+  // OPENCODE WAS LISTED BELOW AS HAVING "no resume convention". IT HAS ONE.
+  // `adapters/opencode.js` declares `sessionIdSource === "resume"` and
+  // `resumeCommand(id) => "opencode-aify --resume <id>"`. The grouping froze an omission as if it
+  // were a decision: the runtime whose own adapter names the flag was pinned as recognising none.
+  // Its flag set is just `--resume`, which is the only one that adapter declares.
+  assert.equal(
+    extractRuntimeSessionHandleFromCommand("opencode", "opencode-aify --resume sess-42 --model z"),
+    "sess-42",
+    "opencode's adapter declares --resume; the extractor must read the command it produces",
+  );
+
   // A runtime with no resume convention yields nothing rather than a wrong guess.
-  for (const runtime of ["opencode", "generic", "", null, "some-future-runtime"]) {
+  for (const runtime of ["generic", "", null, "some-future-runtime"]) {
     assert.equal(
       extractRuntimeSessionHandleFromCommand(runtime, "run --resume sess-42"),
       "",
