@@ -75,7 +75,26 @@ GLOBALS = {
     # Found by scanning `service/` for module-level mutable state absent from this table: of
     # everything not already here, `_waiters` was the only real omission.
     "_waiters": "service/longpoll.py",
+    # THE QUOTA CACHES. `usage_cache.py`'s own docstring names the single-worker constraint, but
+    # neither of its two structures had a line here. `_USAGE_CACHE` holds the per-pool snapshots the
+    # dashboard and `comms_usage` read; two copies give two caches and the only symptom is usage
+    # readings that disagree depending which path served them — which is verbatim the reason already
+    # written beside `_OPENAI_POOL_CACHE` above, for the same kind of state one layer along.
+    "_USAGE_CACHE": "service/usage_cache.py",
+    # Its sibling, and the one nothing named at all. Token rows accumulate here and
+    # `summarize_consumption` folds them; two copies split the accumulation, so every total is short
+    # by whatever the other copy collected. Under-reporting, never an error.
+    "_CONSUMPTION_ROWS": "service/usage_cache.py",
 }
+
+# NOT LISTED, and the gate itself is why: `service/ntfy.py::_RELAY`. It is process-global state of
+# the same kind — "one relay per process", says that module — but it is `None` at import and only
+# becomes an object on first use. This file's runtime half asserts the SAME object survives a
+# re-import, and its own guard refuses immutable scalars because identity across re-import proves
+# nothing for them. Adding `_RELAY` here made that guard fire, which is the guard working. Weakening
+# it to accept a None would have bought one entry at the cost of every entry's meaning, so the relay
+# is left for a mechanism that can actually check it (the singleton gate covers this shape for
+# `TERMINAL_OUTPUT_WRITES`).
 
 # AST, NOT REGEX — and that distinction is the whole gate.
 #
