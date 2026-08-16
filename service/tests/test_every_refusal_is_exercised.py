@@ -128,7 +128,7 @@ def _unexercised() -> list[str]:
 #: MAY ONLY SHRINK. The test below fails if the real number is higher (a new untested refusal landed)
 #: AND if it is lower (some were covered — lower the ceiling in the same commit). That second half is
 #: what stops the number rotting upward into a target nobody meets.
-UNEXERCISED_REFUSAL_CEILING = 18
+UNEXERCISED_REFUSAL_CEILING = 15
 
 
 class EveryRefusalIsExercisedTests(unittest.TestCase):

@@ -95,7 +95,18 @@ async def request_dispatch_control(run_id: str, req: DispatchControlRequest, req
 
 @router.patch("/dispatch/controls/{control_id}")
 async def update_dispatch_control(control_id: str, req: DispatchControlUpdate, request: Request):
-    if req.status not in {"completed", "failed"}:
+    # NORMALISED, like `action` twelve lines up and like the sibling that does this exact job for
+    # environment controls (`update_environment_control` does `str(req.status or "").strip().lower()`
+    # before the same {completed, failed} allowlist). This one compared `req.status` RAW, so two
+    # endpoints with the same field name, the same values and the same purpose disagreed about
+    # whether "Completed" is one of them.
+    #
+    # Latent rather than live: the bridge writes lowercase literals at both of its call sites
+    # (`run-controls.mjs`, `claude-channel.js`). It matters because the writer is the BRIDGE, which
+    # is routinely a different build from the service — and a refused control update leaves the
+    # control `pending` forever, which strands the run it was meant to close.
+    status = str(req.status or "").strip().lower()
+    if status not in {"completed", "failed"}:
         raise HTTPException(400, "Unsupported control status")
 
     db = await get_db()
@@ -108,9 +119,9 @@ async def update_dispatch_control(control_id: str, req: DispatchControlUpdate, r
         handled_at = _now()
         await db.execute(
             "UPDATE dispatch_controls SET status = ?, response_text = ?, handled_at = ? WHERE id = ?",
-            (req.status, req.response or "", handled_at, control_id)
+            (status, req.response or "", handled_at, control_id)
         )
-        if req.status == "completed" and (control["source_message_id"] or "").strip():
+        if status == "completed" and (control["source_message_id"] or "").strip():
             run_cursor = await db.execute(
                 "SELECT target_agent FROM dispatch_runs WHERE id = ?",
                 (control["run_id"],),
@@ -129,13 +140,13 @@ async def update_dispatch_control(control_id: str, req: DispatchControlUpdate, r
         await _append_dispatch_event(
             db,
             control["run_id"],
-            f"control:{control['action']}:{req.status}",
+            f"control:{control['action']}:{status}",
             req.response or "",
         )
         await db.commit()
         ws = await _get_ws(request)
         if ws:
-            await ws.broadcast("dispatch_control_updated", {"controlId": control_id, "status": req.status})
-        return {"ok": True, "controlId": control_id, "status": req.status}
+            await ws.broadcast("dispatch_control_updated", {"controlId": control_id, "status": status})
+        return {"ok": True, "controlId": control_id, "status": status}
     finally:
         await db.close()
