@@ -85,6 +85,36 @@ class VersionSingleSourceTests(unittest.TestCase):
             self.skipTest("stamp predates the version field")
         self.assertEqual(stamp["version"], _canonical_version())
 
+    def test_env_example_never_ships_an_ACTIVE_service_version(self):
+        """`.env.example` is what every fresh install copies, and env WINS over the build stamp.
+
+        The file documents the hazard well and keeps the line commented — but nothing kept it that
+        way. Uncommenting it (or letting a future edit set it live) pins the version reported by
+        `/`, `/docs` and `/openapi.json` to whatever is typed there, for every new install. That is
+        precisely how the API kept announcing 0.1.0 across the v0.1, v0.1.1 and v0.1.2 releases,
+        which is the incident this whole file exists for — reintroduced at the one place a new
+        operator is most likely to copy without reading.
+
+        A COMMENTED example is fine and deliberate: it explains the override that exists. Only an
+        active assignment is forbidden.
+        """
+        text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+        active = [
+            f"line {index}: {line.strip()}"
+            for index, line in enumerate(text.splitlines(), start=1)
+            if re.match(r"\s*SERVICE_VERSION\s*=", line)
+        ]
+        self.assertEqual(
+            active, [],
+            ".env.example sets SERVICE_VERSION as a live assignment. Env overrides the build stamp, "
+            "so every fresh install would report that literal forever. Comment it out.",
+        )
+        self.assertIn(
+            "SERVICE_VERSION", text,
+            "the documented warning about this override disappeared — a new operator setting it by "
+            "hand is exactly what this guards against, and the explanation is half the guard",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
