@@ -157,7 +157,7 @@ def _unexercised() -> list[str]:
 #: functions they were kept to prove inert, so 56 refusals counted as exercised because the code was
 #: DUPLICATED. See FIXTURE_DIR above. Of the 97 distinctive refusals, 27 are genuinely covered — the
 #: number the earlier slices actually earned, against the 82 the gate was reporting.
-UNEXERCISED_REFUSAL_CEILING = 66
+UNEXERCISED_REFUSAL_CEILING = 51
 
 
 class EveryRefusalIsExercisedTests(unittest.TestCase):
