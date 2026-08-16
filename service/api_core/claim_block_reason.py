@@ -17,6 +17,7 @@ it returns is read by the bridge and surfaced to the operator.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 from service.api_core.capabilities import _managed_via_wrapper_for_runtime
@@ -42,14 +43,42 @@ async def _active_wrapper_terminal_id(db, agent_id: str, *, settings: dict[str, 
         return str((terminal.get("terminal_id") or terminal.get("id") or "") if isinstance(terminal, dict) else "").strip()
 
 
+#: WORD boundaries, because `already` CONTAINS `ready`.
+#:
+#: This searched for the bare substring `"ready"`, so any output where hermes said "already" after
+#: "resuming" — "resuming session abc: session already exists", "resuming, already up to date" —
+#: reported the console as READY while it was still resuming. `_terminal_text_compact` lowercases,
+#: so `Already` counted too. The guard then returned no reason, the claim was not blocked, and a
+#: channel dispatch went into a Console mid-resume: exactly what the reason string says it is there
+#: to prevent ("waiting for ready/heal before claiming channel work").
+#:
+#: `\bready\b` excludes `already` (the `l` before it is a word character) and `unready`, and still
+#: matches every real form the token appears in — bare, `session ready`, `[ready]`, `ready.`.
+#:
+#: The correction is in the CONSERVATIVE direction: a console that only ever says "already" now reads
+#: as still-resuming, so the run stays queued and retries instead of being delivered into a resuming
+#: session. That is bounded — the bridge's own resume-stall heal (`hermesResumeStallHealMs`,
+#: 30s) restarts a resume that never reaches ready.
+_RESUMING_TOKEN_RE = re.compile(r"\bresuming\b")
+_READY_TOKEN_RE = re.compile(r"\bready\b")
+
+
+def _last_token_index(pattern: "re.Pattern[str]", text: str) -> int:
+    """Index of the LAST whole-word match, or -1. `str.rfind`'s answer without its substring bug."""
+    last = -1
+    for match in pattern.finditer(text):
+        last = match.start()
+    return last
+
+
 def _hermes_terminal_still_resuming(text: str) -> bool:
     compact = _terminal_text_compact(text)
     if not compact:
         return False
-    resume_idx = compact.rfind("resuming")
+    resume_idx = _last_token_index(_RESUMING_TOKEN_RE, compact)
     if resume_idx < 0:
         return False
-    ready_idx = compact.rfind("ready")
+    ready_idx = _last_token_index(_READY_TOKEN_RE, compact)
     return ready_idx < resume_idx
 
 
