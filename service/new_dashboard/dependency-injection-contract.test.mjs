@@ -96,6 +96,31 @@ test("the validation really is a throw, not a log", () => {
   }
 });
 
+test("every init* is actually called by something", () => {
+  // THE CALLER SIDE of the same contract. The checks above guarantee a module REFUSES a partial bag;
+  // none of them notices a module whose init is never invoked at all — every placeholder in it stays
+  // a no-op and the throw that would have caught a bad bag never runs. All eight are wired from
+  // app.js today, which is again true by attention: a ninth module is one boot-wiring edit away from
+  // exporting an init nobody calls, and the symptom would be a whole feature quietly doing nothing.
+  const sources = fs
+    .readdirSync(HERE)
+    .filter((name) => /\.(mjs|js)$/.test(name) && !/\.test\./.test(name))
+    .map((name) => [name, fs.readFileSync(path.join(HERE, name), "utf8")]);
+
+  const exported = sources.flatMap(([file, src]) =>
+    [...src.matchAll(/^export function (init[A-Za-z_$][\w$]*)/gm)].map((m) => ({ name: m[1], file })));
+  assert.ok(exported.length >= 8, `only ${exported.length} init* exports found — the scan is too narrow`);
+
+  const uncalled = exported.filter(({ name, file }) => {
+    const call = new RegExp(String.raw`\b${name}\s*\(`);
+    return !sources.some(([other, src]) => other !== file && call.test(src));
+  });
+  assert.deepEqual(
+    uncalled.map((e) => `${e.file}:${e.name}`), [],
+    "these init functions are exported but never called, so their modules run entirely on placeholders",
+  );
+});
+
 test("the detector notices an unvalidated dependency", () => {
   // Anti-vacuity on a fixture: all eight modules pass today, so a clean run proves nothing about
   // whether the comparison works.
