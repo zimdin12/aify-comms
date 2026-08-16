@@ -104,14 +104,20 @@ async def clear_direct_conversation(req: ConversationClearRequest, request: Requ
 
 
 
-@router.post("/messages/cleanup/orphan-unread")
-async def cleanup_orphan_unread_messages(request: Request):
-    """Delete unread inbox messages addressed to removed agents."""
-    db = await get_db()
-    try:
-        deleted = await _delete_messages_where(
-            db,
-            """
+#: The clause that decides which messages this endpoint DELETES, named so a test can run the real
+#: one rather than a copy of it. It was a string literal inside the handler, reachable only by
+#: calling the route — and this is the one route in the service that deletes rows nobody asked it
+#: about, so "a mock would agree with whatever I believed" applies with force.
+#:
+#: THREE CONDITIONS, EACH LOAD-BEARING, and the tests are written one per condition:
+#:   * `m.to_agent IS NOT NULL` — a CHANNEL BROADCAST row has no recipient (`channel_send.py` inserts
+#:     one row with no `to_agent` plus one fan-out row per member WITH it). Drop this and every
+#:     unread broadcast in the database matches, because `a.id IS NULL` is trivially true for them.
+#:   * `a.id IS NULL` — the agent is GONE. Removal really does `DELETE FROM agents` (plus a
+#:     tombstone), so this is what "orphan" means here.
+#:   * `r.message_id IS NULL` — nobody read it. A message the operator already read is history, not
+#:     an orphan.
+_ORPHAN_UNREAD_WHERE = """
             id IN (
                 SELECT m.id
                 FROM messages m
@@ -119,8 +125,15 @@ async def cleanup_orphan_unread_messages(request: Request):
                 LEFT JOIN read_receipts r ON r.message_id = m.id AND r.agent_id = m.to_agent
                 WHERE m.to_agent IS NOT NULL AND a.id IS NULL AND r.message_id IS NULL
             )
-            """,
-        )
+            """
+
+
+@router.post("/messages/cleanup/orphan-unread")
+async def cleanup_orphan_unread_messages(request: Request):
+    """Delete unread inbox messages addressed to removed agents."""
+    db = await get_db()
+    try:
+        deleted = await _delete_messages_where(db, _ORPHAN_UNREAD_WHERE)
         await db.commit()
         ws = await _get_ws(request)
         if ws and deleted:
