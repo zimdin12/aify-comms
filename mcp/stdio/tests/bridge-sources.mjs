@@ -37,7 +37,16 @@ export const STDIO_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url
 // Nested files keep their relative path (`controllers/x.js`) so a failure names something findable, and
 // top-level files keep their bare name so the callers that look one up by `=== "hermes-managed-host.js"`
 // keep working.
-const SKIP_DIRS = new Set(["node_modules", "tests", "fixtures", "scripts", "__pycache__"]);
+// `scripts/` WAS EXCLUDED HERE WITHOUT A REASON, and is now included. The two exclusions above earn
+// their place in writing — `tests/` is a different subject, `fixtures/` holds pre-extraction copies
+// whose presence would let an absence assertion pass off the OLD file. `scripts/` had no such note,
+// and `install.sh` copies `mcp/stdio` wholesale into `~/.aify-comms`, so `dump-capabilities.mjs`
+// ships to every host exactly like the rest. An exemption nobody wrote a reason for is the shape
+// this repo keeps finding behind ungoverned populations.
+//
+// Measured before widening, not after: the file carries no dead imports, no missing sibling imports,
+// and all 273 bridge suites pass with it in scope.
+const SKIP_DIRS = new Set(["node_modules", "tests", "fixtures", "__pycache__"]);
 
 function collect(dir, prefix) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {

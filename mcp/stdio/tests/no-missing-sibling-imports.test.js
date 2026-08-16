@@ -48,38 +48,17 @@ import {
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-function bridgeExportsByFile() {
-  const map = new Map();
-  for (const [file, source] of bridgeSources()) {
-    map.set(path.posix.join("mcp/stdio", file).replace(/\\/g, "/"), exportedNames(source));
-  }
-  // `bridgeSources()` yields top-level names; the adapters/controllers subdirectories are reached
-  // through their own paths, so add them explicitly rather than assuming the walk covered them.
-  for (const sub of ["adapters", "controllers"]) {
-    const dir = path.join(STDIO, sub);
-    if (!fs.existsSync(dir)) continue;
-    for (const name of fs.readdirSync(dir)) {
-      if (!/\.(mjs|js)$/.test(name) || name.includes(".test.")) continue;
-      map.set(`mcp/stdio/${sub}/${name}`, exportedNames(fs.readFileSync(path.join(dir, name), "utf-8")));
-    }
-  }
-  return map;
+// ONE OWNER FOR "WHAT IS THE BRIDGE". These used to call `bridgeSources()` and then ADD
+// `adapters/` and `controllers/` by hand — a second, hand-listed walk beside the real one. It was
+// redundant the moment `bridgeSources()` learned to recurse, and worse than redundant: the hand list
+// could not know about `scripts/`, so a whole directory sat outside this gate while looking covered.
+// Hand-listed roots are the exact shape that left fifteen Python files ungoverned by the size gate.
+function bridgeModules() {
+  return bridgeSources().map(([file, source]) => [`mcp/stdio/${file}`, source]);
 }
 
-function bridgeModules() {
-  const out = [];
-  for (const [file, source] of bridgeSources()) {
-    out.push([path.posix.join("mcp/stdio", file).replace(/\\/g, "/"), source]);
-  }
-  for (const sub of ["adapters", "controllers"]) {
-    const dir = path.join(STDIO, sub);
-    if (!fs.existsSync(dir)) continue;
-    for (const name of fs.readdirSync(dir)) {
-      if (!/\.(mjs|js)$/.test(name) || name.includes(".test.")) continue;
-      out.push([`mcp/stdio/${sub}/${name}`, fs.readFileSync(path.join(dir, name), "utf-8")]);
-    }
-  }
-  return out;
+function bridgeExportsByFile() {
+  return new Map(bridgeModules().map(([file, source]) => [file, exportedNames(source)]));
 }
 
 test("no bridge module uses a sibling's export without importing it", () => {

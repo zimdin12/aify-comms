@@ -8,8 +8,8 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { classify } from "./turn-end-detector.js";
-import { summarizeTranscriptTail } from "./adapters/claude.js";
+import { classify } from "../turn-end-detector.js";
+import { summarizeTranscriptTail } from "../adapters/claude.js";
 
 const decision = (tail) => classify(summarizeTranscriptTail(tail)); // what the gate computes
 const jl = (obj) => JSON.stringify(obj) + "\n";

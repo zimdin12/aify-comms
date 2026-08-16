@@ -26,10 +26,12 @@ import { fileURLToPath } from "node:url";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const MODULE_DIRS = ["mcp/stdio", "service/new_dashboard"];
-// Test files live in BOTH shapes: a `tests/` directory under mcp/stdio, and `*.test.mjs` sitting beside
-// the module in mcp/stdio and service/new_dashboard. Collecting only the directory made this gate report
-// `claude-stop-gate.js` as untested when `mcp/stdio/claude-stop-gate.test.mjs` sits right next to it — a
-// blind spot in the gate written to catch blind spots, found on its first run.
+// Test files live in two shapes: a `tests/` directory under mcp/stdio, and `*.test.mjs` beside the module
+// in service/new_dashboard. `mcp/stdio` itself is listed because this gate once counted top-level
+// `*.test.mjs` files there — see `isRunByTheSuite`, which now refuses them. That widening was made to
+// stop `claude-stop-gate.js` reporting as untested, and it worked by crediting two files that NO runner
+// executed. Keeping the directory in the list with the runner check beside it is what makes the
+// distinction visible rather than re-litigated.
 const TEST_DIRS = ["mcp/stdio/tests", "mcp/stdio", "service/new_dashboard"];
 
 //: MEASURED 2026-08-14, and now down to the two that CANNOT be import-tested. Both have ZERO exports:
@@ -56,6 +58,19 @@ function modules() {
 
 const SELF = path.basename(fileURLToPath(import.meta.url));
 
+//: WHICH TEST FILES THE SUITES ACTUALLY EXECUTE, encoded from the two runners rather than assumed.
+//: `mcp/stdio/tests/run-all.mjs` reads `tests`, `tests/adapters` and `tests/controllers` and filters
+//: `*.test.js`; the dashboard suite is `node --test *.test.mjs` in `service/new_dashboard`. The two
+//: use OPPOSITE extensions, which is precisely how a file can look like a test, sit beside its
+//: module, and never run.
+function isRunByTheSuite(dir, name) {
+  if (dir === "mcp/stdio/tests") return name.endsWith(".test.js");
+  if (dir === "service/new_dashboard") return name.endsWith(".test.mjs");
+  // `mcp/stdio` itself is not a test directory for either runner: a `*.test.*` file sitting beside a
+  // module there is discovered by nothing.
+  return false;
+}
+
 function testSources() {
   const out = [];
   for (const dir of TEST_DIRS) {
@@ -66,6 +81,15 @@ function testSources() {
       // the gate silently exonerating exactly the modules it exists to track. Test 3 caught it: entry-is-
       // still-untested disagreed with no-unexpected-untested, and only one of them could be right.
       if (name === SELF) continue;
+      // A TEST FILE ONLY COUNTS IF SOMETHING RUNS IT. `mcp/stdio/claude-stop-gate.test.mjs` and its
+      // e2e sibling sat at the TOP LEVEL as `*.test.mjs`, and `run-all.mjs` reads `tests/`,
+      // `tests/adapters/` and `tests/controllers/` for `*.test.js` — so neither had EVER executed.
+      // This gate counted them anyway and reported `claude-stop-gate.js` as covered; the comment
+      // above TEST_DIRS records widening the collection to reach them, without anyone checking that
+      // the runner could. Both files have since moved into `tests/` and both passed on their first
+      // real run, but the rule is the point: crediting coverage to a file nothing executes is the
+      // same false green this gate exists to prevent, one level up.
+      if (!isRunByTheSuite(dir, name)) continue;
       if (dir.endsWith("/tests") || /\.test\.(js|mjs)$/.test(name)) {
         out.push(readFileSync(path.join(REPO, dir, name), "utf-8"));
       }
@@ -133,5 +157,46 @@ test("the modules this series created are NOT in the backlog", () => {
   ]) {
     assert.ok(!UNTESTED_BACKLOG.includes(recent), `${recent} is new work and must carry its own tests`);
     assert.ok(!untestedModules().includes(recent), `${recent} must be imported by a test`);
+  }
+});
+
+test("a test file only counts if a runner would actually execute it", () => {
+  // ASSERTED DIRECTLY, because its EFFECT is currently a no-op: the two orphans that motivated it
+  // have moved into `tests/`, so deleting the check changes no verdict today. A guard whose only
+  // evidence is "the suite still passes" is indistinguishable from one that does nothing, and this
+  // one exists for the next file that lands in the wrong place.
+  assert.equal(isRunByTheSuite("mcp/stdio/tests", "x.test.js"), true, "run-all reads tests/*.test.js");
+  assert.equal(
+    isRunByTheSuite("mcp/stdio/tests", "x.test.mjs"), false,
+    "run-all filters on .test.js — an .mjs in tests/ would sit there unrun",
+  );
+  assert.equal(
+    isRunByTheSuite("mcp/stdio", "claude-stop-gate.test.mjs"), false,
+    "THE ORPHAN SHAPE: a test beside its module in mcp/stdio is discovered by nothing",
+  );
+  assert.equal(isRunByTheSuite("mcp/stdio", "claude-stop-gate.test.js"), false, "…either extension");
+  assert.equal(
+    isRunByTheSuite("service/new_dashboard", "x.test.mjs"), true,
+    "the dashboard suite is `node --test *.test.mjs`",
+  );
+  assert.equal(
+    isRunByTheSuite("service/new_dashboard", "x.test.js"), false,
+    "…and the two runners use OPPOSITE extensions, which is how a file can look like a test and "
+    + "never run",
+  );
+});
+
+test("the runner rule matches what run-all.mjs actually does", () => {
+  // Read from the runner rather than trusted: if `run-all.mjs` changes its directories or its
+  // filter, this rule is stale and the gate starts crediting files nothing executes again.
+  const runner = readFileSync(path.join(REPO, "mcp/stdio/tests/run-all.mjs"), "utf-8");
+  assert.match(runner, /\.endsWith\("\.test\.js"\)/, "run-all still filters on .test.js");
+  assert.match(runner, /testDirs\s*=\s*\[\s*"tests"/, "run-all still reads tests/ first");
+  for (const name of readdirSync(path.join(REPO, "mcp/stdio/tests"))) {
+    if (!/\.test\.(js|mjs)$/.test(name)) continue;
+    assert.ok(
+      isRunByTheSuite("mcp/stdio/tests", name),
+      `${name} is in tests/ but this rule says the runner skips it — it would never run`,
+    );
   }
 });

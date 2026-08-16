@@ -16,7 +16,12 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const GATE = join(dirname(fileURLToPath(import.meta.url)), "claude-stop-gate.js");
+// `..`, because this test moved into `tests/` in 2026-08-16. It and its unit sibling sat at the
+// TOP LEVEL of mcp/stdio as `*.test.mjs`, where `run-all.mjs` — which reads `tests/` for
+// `*.test.js` — could not see them, so neither had ever run in a suite. Both passed on their
+// first execution; the coverage gate had been crediting `claude-stop-gate.js` as tested on the
+// strength of files nothing executed.
+const GATE = join(dirname(fileURLToPath(import.meta.url)), "..", "claude-stop-gate.js");
 const jl = (obj) => JSON.stringify(obj) + "\n";
 const ENDED = jl({ type: "assistant", message: { role: "assistant", stop_reason: "end_turn", content: [{ type: "text", text: "done" }] } });
 const INFLIGHT = jl({ type: "assistant", message: { role: "assistant", stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "Bash" }] } });
