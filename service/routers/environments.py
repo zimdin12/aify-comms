@@ -30,7 +30,7 @@ from service.api_core.environment_registration import _record_environment_regist
 from service.api_core.superseded_bridge_stops import _queue_stop_for_superseded_bridge
 from service.api_core.routing import domain_router
 from service.api_core.records import _environment_record_to_dict
-from service.api_core.serialization import _json_loads_or, _timestamp_sort_key
+from service.api_core.serialization import _json_loads_or, _parsed_timestamp, _timestamp_sort_key
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.settings import _load_settings
 from service.api_core.ws import _get_ws
@@ -60,7 +60,11 @@ router = domain_router()
 
 def _bridge_started_at(metadata: Any) -> str:
     if isinstance(metadata, dict):
-        return _timestamp_sort_key(metadata.get("bridgeStartedAt"))
+        # `_parsed_timestamp`: this value comes from the registering bridge and decides whether a
+        # FORGOTTEN environment may come back. A sort key keeps an unparseable string as itself and
+        # letters sort above digits, so "now" beat every real `forgottenAt`. Same hole as the agent
+        # tombstone gate, in the guard that explicitly says it "mirrors" it -- both fixed together.
+        return _parsed_timestamp(metadata.get("bridgeStartedAt"))
     return ""
 
 

@@ -61,6 +61,13 @@ def _dedupe_preserve(values: list[str]) -> list[str]:
 
 
 def _timestamp_sort_key(value: Any) -> str:
+    """A stable ORDERING key. Falls back to the raw string, which is why it is not a trust boundary.
+
+    Keeping an unparseable value means a list still sorts deterministically instead of throwing, and
+    for display ordering that is right. It is WRONG for a decision: letters sort above digits, so a
+    non-ISO string compares GREATER than every real ISO timestamp. Use `_parsed_timestamp` where the
+    comparison decides something.
+    """
     try:
         raw = str(value or "").strip()
         if not raw:
@@ -69,6 +76,31 @@ def _timestamp_sort_key(value: Any) -> str:
         return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(timezone.utc).isoformat()
     except Exception:
         return str(value or "")
+
+
+def _parsed_timestamp(value: Any) -> str:
+    """The same normalisation, but "" when the value is not a real timestamp.
+
+    THE TOMBSTONE GATES NEEDED THIS. Both the agent tombstone and the environment forget-tombstone
+    decide "may this registration resurrect a deliberately-removed row?" by comparing an incoming,
+    CALLER-SUPPLIED `bridgeStartedAt` against the server's `removed_at`/`forgottenAt`:
+
+        relaunched = bool(incoming) and (not removed_at or incoming > removed_at)
+
+    With `_timestamp_sort_key` an unparseable incoming value survives as itself, and `"now"`,
+    `"garbage"` or `"Sat Aug 16 2026"` all compare GREATER than any `2026-…` — letters outrank
+    digits. So any bridge sending a non-ISO `bridgeStartedAt` read as a genuine fresh relaunch and
+    cleared the tombstone, which is the exact thing both gates exist to prevent: the agent gate's own
+    comment says the bridge "sets restoreDeleted=true UNCONDITIONALLY on every auto/comms_register".
+
+    Returning "" makes an unparseable value NO EVIDENCE, and `bool(incoming)` then refuses — the
+    repo's standing rule that a check which could not gather evidence must not report a pass.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    normalized = _timestamp_sort_key(raw)
+    return "" if normalized == raw and not _iso_to_epoch(raw) else normalized
 
 
 def _normalize_machine_id(machine_id: Any) -> str:

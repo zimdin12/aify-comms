@@ -53,7 +53,7 @@ from service.api_core.capabilities import (
 from service.api_core.live_process_probes import _has_live_terminal_session
 from service.api_core.managed_env import _managed_owning_environment_row
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
-from service.api_core.serialization import _timestamp_sort_key
+from service.api_core.serialization import _parsed_timestamp, _timestamp_sort_key
 from service.api_core.resume_command import _resume_command_for
 from service.clock import now as _now
 from service.env_status import environment_effective_status as _environment_effective_status
@@ -300,7 +300,12 @@ async def _enforce_tombstone_resurrection_gate(db, req, tombstone) -> None:
         # autoRegister=false — not a passive bridge beat) is preserved: a
         # deliberate operator bring-back still clears the tombstone.
         removed_at = _timestamp_sort_key(tombstone["removed_at"] if "removed_at" in tombstone.keys() else "")
-        incoming_started = _timestamp_sort_key(req.bridgeStartedAt)
+        # `_parsed_timestamp`, NOT `_timestamp_sort_key`: `bridgeStartedAt` is CALLER-SUPPLIED, and a
+        # sort key keeps an unparseable value as itself, where letters outrank digits. "now" or
+        # "Sat Aug 16 2026" compared GREATER than any real `removed_at` and read as a fresh
+        # relaunch, so any bridge sending a non-ISO timestamp cleared the tombstone -- the exact
+        # resurrection this guard was written to stop. Unparseable is now NO EVIDENCE.
+        incoming_started = _parsed_timestamp(req.bridgeStartedAt)
         relaunched = bool(incoming_started) and (not removed_at or incoming_started > removed_at)
         if req.autoRegister and not relaunched:
             raise HTTPException(

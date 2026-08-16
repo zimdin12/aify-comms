@@ -12,6 +12,14 @@ touched. The gate caught it. If this file is ever regenerated, decode the bytes 
 NOT AN IMPORTABLE MODULE. This is a function lifted out of its module, so it reads names that were in
 scope THERE and are not here. `scripts/undefined_name_sweep.py` skips `service/tests/data/` for exactly
 that reason. Nothing should import this file; the test reads it as text.
+
+EDITED ONCE SINCE CAPTURE, and the rule is the same one `environment_heartbeat_before_split.py`
+records. The round trip proves the split was a pure block-lift OF THE CODE AS IT STANDS, so a later
+change to a line the split did not move must be applied here IDENTICALLY, or the proof forbids ever
+editing the function again. The one change: `incoming_started = _timestamp_sort_key(...)` became
+`_parsed_timestamp(...)` when the tombstone gates stopped treating an unparseable, caller-supplied
+`bridgeStartedAt` as newer than every real timestamp. Same statement, same position, a stricter
+builder. Anything larger belongs in a reviewed re-capture, not a fixture nudge to go green.
 """
 
 async def register_agent(req: AgentRegister, request: Request):
@@ -64,7 +72,7 @@ async def register_agent(req: AgentRegister, request: Request):
             # autoRegister=false — not a passive bridge beat) is preserved: a
             # deliberate operator bring-back still clears the tombstone.
             removed_at = _timestamp_sort_key(tombstone["removed_at"] if "removed_at" in tombstone.keys() else "")
-            incoming_started = _timestamp_sort_key(req.bridgeStartedAt)
+            incoming_started = _parsed_timestamp(req.bridgeStartedAt)
             relaunched = bool(incoming_started) and (not removed_at or incoming_started > removed_at)
             if req.autoRegister and not relaunched:
                 raise HTTPException(
