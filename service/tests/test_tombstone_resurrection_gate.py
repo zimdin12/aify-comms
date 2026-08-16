@@ -82,7 +82,14 @@ class TombstoneResurrectionGateTests(unittest.TestCase):
         db, exc = _run(_Req(started=BEFORE), _tombstone())
         self.assertIsNotNone(exc, "an older bridge restored a deliberately-removed agent")
         self.assertEqual(exc.status_code, 410)
-        self.assertIn("lingering bridge cannot", str(exc.detail))
+        # The FULL static tail, not the three words that read well. `test_every_refusal_is_exercised`
+        # matches the longest literal chunk of a message, so asserting a fragment left this refusal
+        # counted as never-tested while it was in fact tested right here — the measurement lying
+        # about work that was done, for the third time in this series.
+        self.assertIn(
+            "; a lingering bridge cannot resurrect it. Relaunch the agent to restore.",
+            str(exc.detail),
+        )
         self.assertIn(REMOVED_AT, str(exc.detail), "the operator needs the removal time")
         self.assertEqual(db.executed, [], "the tombstone must be left untouched on refusal")
 
