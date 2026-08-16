@@ -53,7 +53,21 @@ function codeBeforeComment(line) {
 
 export function declarationSpan(source, name) {
   const lines = source.split(NL);
-  const fnHead = new RegExp(`^(?:export\\s+)?(?:async\\s+)?function\\s+${name}\\s*\\(`);
+  // WHICH SPELLINGS THIS MATCHES, stated because the ones it does NOT are invisible from a caller's
+  // point of view: a miss returns null, and null reads as "no such declaration" rather than "this
+  // parser cannot see that form". Until 2026-08-16 `class` was such a form, and this is the parser
+  // the repo mandates for every JS measurement — so the five session classes in the bridge
+  // (codex-session, hermes-session, hermes-managed-gateway-session, pi-session, terminal-runtime)
+  // measured as absent. I recorded "declarationSpan presumably cannot span the big class
+  // declarations" while measuring those files and moved on; that guess was right and should have
+  // been this fix.
+  //
+  // `default` and `*` are accepted too. Neither appears in the tree today, and both are one token
+  // wide — the cost of covering them is smaller than the cost of the next person meeting a null.
+  const fnHead = new RegExp(
+    `^(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?function(?:\\s+|\\s*\\*\\s*)${name}\\s*\\(`,
+  );
+  const classHead = new RegExp(`^(?:export\\s+)?(?:default\\s+)?class\\s+${name}\\b`);
   const varHead = new RegExp(`^(?:export\\s+)?(?:const|let|var)\\s+${name}\\b`);
   for (let i = 0; i < lines.length; i += 1) {
     if (varHead.test(lines[i])) {
@@ -81,7 +95,9 @@ export function declarationSpan(source, name) {
       }
       return null;
     }
-    if (!fnHead.test(lines[i])) continue;
+    // A class body terminates on brace balance exactly as a function body does — the head differs,
+    // the span logic does not — so the two share this branch rather than growing a second copy.
+    if (!fnHead.test(lines[i]) && !classHead.test(lines[i])) continue;
     let depth = 0;
     for (let j = i; j < lines.length; j += 1) {
       for (const ch of lines[j]) {

@@ -2441,3 +2441,61 @@ test("an item with NO leading is unaffected — the field is opt-in", () => {
   assert.equal(reconstruct({ after: WRAPPED.after, modules: { "hit.mjs": WRAPPED.module }, extractions: plan }),
     WRAPPED.pristine);
 });
+
+// ── the declaration FORMS this parser can see ────────────────────────────────────────────────
+//
+// A form it does not match returns null, and null reads as "no such declaration" rather than "this
+// parser cannot see that shape". `class` was such a form until 2026-08-16 — in the parser the repo
+// mandates for every JS measurement — so the five session classes in the bridge measured as absent,
+// and a size scan over those files reported almost nothing. These fixtures are what make the set of
+// covered spellings a checked fact instead of whatever the regex happened to allow.
+
+test("declarationSpan spans a CLASS, in every spelling", () => {
+  const body = '{\n  method() {\n    return { nested: 1 };\n  }\n}\n';
+  for (const head of ["class Foo ", "export class Foo ", "export default class Foo "]) {
+    const span = declarationSpan(head + body, "Foo");
+    assert.ok(span, `${head.trim()} was not found`);
+    assert.equal(span.start, 0);
+    assert.equal(span.end, 4, "the span ends on the class's closing brace, not the first inner one");
+  }
+});
+
+test("declarationSpan spans generator and default-export functions", () => {
+  for (const head of [
+    "function* gen() ", "export function* gen() ", "export async function* gen() ",
+    "async function *gen() ", "export default function gen() ",
+  ]) {
+    const span = declarationSpan(`${head}{\n  return 1;\n}\n`, "gen");
+    assert.ok(span, `${head.trim()} was not found`);
+    assert.equal(span.end, 2);
+  }
+});
+
+test("widening the head patterns did not make them match a bare identifier", () => {
+  // `function(?:\s+|\s*\*\s*)NAME` must not collapse to `functionNAME`, and `class` must not match a
+  // word merely containing it. A false POSITIVE here is worse than the null it replaced: it would
+  // hand a caller a span belonging to something else entirely.
+  assert.equal(declarationSpan("export const x = functionok();\n", "ok"), null);
+  assert.equal(declarationSpan("const classFoo = 1;\n", "Foo"), null);
+  assert.equal(declarationSpan("// class Foo is coming next slice\n", "Foo"), null);
+  assert.equal(declarationSpan("const gen = 1;\n", "gen").end, 0, "a real const still wins");
+});
+
+test("the five bridge classes are measurable, and the sizes are cross-checked", () => {
+  // Not a synthetic case: these are the declarations the old parser was blind to. `PiSession` at 960
+  // lines matches the figure recorded independently while measuring that file by other means, which
+  // is what makes this a correctness check rather than merely a non-null one.
+  const read = (rel) =>
+    fs.readFileSync(path.join(HERE, "..", "..", rel), "utf8").replace(/\r\n/g, "\n");
+  const cases = [
+    ["mcp/stdio/pi-session.js", "PiSession", 960],
+    ["mcp/stdio/codex-session.js", "CodexSession", 684],
+    ["mcp/stdio/hermes-session.js", "HermesSession", 529],
+    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 626],
+  ];
+  for (const [rel, name, expected] of cases) {
+    const span = declarationSpan(read(rel), name);
+    assert.ok(span, `${name} in ${rel} is still invisible`);
+    assert.equal(span.end - span.start + 1, expected, `${name} span moved; re-measure before editing`);
+  }
+});
