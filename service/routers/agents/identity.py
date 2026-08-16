@@ -17,8 +17,6 @@ import time
 
 from fastapi import HTTPException, Request
 
-from service.api_core.agent_rename_writes import _rewrite_agent_references_for_rename
-from service.api_core.status_events import _apply_status_event
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.identity")
@@ -27,40 +25,20 @@ logger = logging.getLogger("aify_comms.routers.agents.identity")
 # missing one does not fail import -- FastAPI demotes the body to a query parameter and
 # the endpoint 422s at request time. The route annotation gate caught 17 of these here.
 
-from service.api_core.agent_registration_writes import (
-    _adopt_console_terminal_on_register,
-    _record_registered_session_handle,
-    _register_via_adopted_console_terminal,
-    _upsert_registered_agent_row,
-)
-from service.api_core.resident_takeover_writes import (
-    _register_via_manual_resident_takeover,
-    _stage_manual_resident_takeover,
-    _supersede_stale_resident_terminals,
-)
-from service.api_core.same_mode_bridge_gate import _enforce_same_mode_bridge_gate
-from service.api_core.registration_gates import (
-    _enforce_driving_mode_switch_gate,
-    _enforce_tombstone_registration_gate,
-    _enforce_tombstone_resurrection_gate,
-)
 from service.api_core.message_store import _get_unread_count_map
 from service.db_errors import _is_lock_error
 from service.api_core.outbound_activity import _get_outbound_activity_map
 from service.api_core.agent_sessions import _agent_tombstone
 from service.api_core.dispatch_state import _get_dispatch_state_map
 from service.api_core.records import _agent_record_to_dict
-from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
-from service.api_core.serialization import _json_loads_or
+from service.api_core.runtime import _normalize_session_mode
 from service.api_core.settings import _load_settings
-from service.api_core.status_inputs import _compute_live_status_cache
 from service.api_core.status_refresh import _refresh_expired_agent_live_states
 from service.api_core.ws import _get_ws
 from service.db import get_db
 from service.reconcilers.managed_workers import _repair_unusable_active_runs
 from service.reconcilers.status_cache import _live_state_get
 from service.clock import now as _now
-from service.terminal_snapshot import render_live_screen as _render_live_terminal_screen
 import sqlite3
 from service.routers.agents.shared import (
     _borrowed_list_agents_refresh_limit,
