@@ -2,8 +2,15 @@
 //
 // Extracted from `reap-managed-survivors.js` in v0.5.4. Those five helpers were already the most
 // widely imported part of that file — `defaultListProcesses` and `defaultKillTree` by the teardown
-// sweeps and the single-agent teardown, `parseProcLines` by `reap-managed-claude.js` — so they were
-// a shared surface living inside a module named for one of its consumers.
+// sweeps and the single-agent teardown — so they were a shared surface living inside a module named
+// for one of its consumers.
+//
+// CORRECTED 2026-08-16: this note also claimed `parseProcLines` was used here "by
+// `reap-managed-claude.js`". That file does not import this module at all — it declares and EXPORTS
+// its own byte-identical copy, and has its own test for it. So the extraction did not consolidate
+// that helper; it created a second home for it. `parseProcLines-agreement.test.js` pins the two
+// against each other until someone rules on which should own it. The claim was the kind that reads
+// as a fact and was never checked, which is why the correction is recorded rather than just deleted.
 //
 // THEY ARE THE READ SIDE OF REAPING, and the split is on that line: enumerate and identify here,
 // decide what to kill next door. A reaper that gets identification wrong kills the wrong process
