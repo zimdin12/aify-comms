@@ -33,7 +33,11 @@ import {
 } from "./launch-identity.mjs";
 import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
 import { writeAgentBindingFile } from "./binding-file.js";
-import { REMOTE_AGENT_STATE } from "./bridge-agent-state.mjs";
+// `forgetRemoteAgent` is called on the 410 path below and was never imported — `node --check` parses
+// an undefined name happily, and nothing exercises that branch, so it would have thrown
+// ReferenceError the first time a tombstoned agent's bridge tried to auto-re-register. Same class as
+// the `SERVICE_RUNTIME_PATHS` crash in doctor.js, found by the gate written after it.
+import { REMOTE_AGENT_STATE, forgetRemoteAgent } from "./bridge-agent-state.mjs";
 import { BRIDGE_INSTANCE_ID, BRIDGE_STARTED_AT } from "./bridge-instance.mjs";
 import { writeSessionIdMarker } from "./hermes-endpoint.js";
 import {

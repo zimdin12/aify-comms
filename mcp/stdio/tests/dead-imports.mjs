@@ -20,8 +20,17 @@
 // The bias is otherwise one-directional: a false POSITIVE would fail the suite on working code, so
 // anything ambiguous is treated as used.
 
+// LINE COMMENTS FIRST, THEN BLOCK COMMENTS, and the order is a bug fix rather than a preference.
+//
+// The other way round, a `/*` written INSIDE a `//` comment opens a phantom block-comment span. It
+// is not hypothetical prose: `doctor-predicates.js` says "an AST scan of non-test `service/**`" in a
+// line comment, and that glob's `/*` swallowed the next 2,023 characters — including the real
+// `export const SERVICE_RUNTIME_PATHS`. So this module could not see an export that was plainly
+// there, and the file it was hiding is the one whose missing import crashed `aify-comms doctor`.
+// Two bridge modules are affected today (`claude-turn-end-detector.js` loses 1,198 chars, this one
+// 200); both hold analysis-relevant code inside the swallowed span.
 function strip(text) {
-  return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^.*?\/\/.*$/gm, (line) => line.split("//")[0]);
+  return text.replace(/^.*?\/\/.*$/gm, (line) => line.split("//")[0]).replace(/\/\*[\s\S]*?\*\//g, "");
 }
 
 export function deadImportsIn(text) {

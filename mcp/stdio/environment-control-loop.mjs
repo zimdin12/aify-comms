@@ -10,7 +10,11 @@
 
 import { httpCall } from "./aify-service-endpoint.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
-import { noteControlClaimSuccess } from "./claim-failure-tracker.mjs";
+// `noteControlClaimFailure` is called in the catch below and was never imported: the sibling
+// name was, and the failure path is the one no test runs. It would have thrown
+// ReferenceError from inside an error handler — turning a recoverable claim failure into
+// an unhandled one, and leaving the failure tracker blind to it.
+import { noteControlClaimFailure, noteControlClaimSuccess } from "./claim-failure-tracker.mjs";
 import { IS_ENVIRONMENT_BRIDGE } from "./launch-identity.mjs";
 import { IS_REMOTE } from "./aify-service-endpoint.mjs";
 import { shouldSkipLoop } from "./loop-gate.mjs";
