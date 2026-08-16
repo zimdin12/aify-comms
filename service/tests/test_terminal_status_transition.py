@@ -103,10 +103,35 @@ def test_an_unknown_current_status_does_not_block_anything():
         assert _terminal_status_transition(unknown, "stopped") == "stopped"
 
 
-def test_an_unknown_next_status_is_passed_through():
-    """Only the resurrection case is refused; this function is a guard, not a vocabulary check, and
-    rejecting an unrecognised target would silently drop writes from a newer writer."""
-    assert _terminal_status_transition("running", "brand-new-status") == "brand-new-status"
-    assert _terminal_status_transition("stopped", "brand-new-status") == "brand-new-status", (
-        "not in the ACTIVE set, so the guard does not fire — recorded so the boundary is explicit"
+def test_an_unknown_next_status_is_REFUSED():
+    """REVERSED 2026-08-16. This asserted the opposite, and the reason did not survive a trace.
+
+    It said: "this function is a guard, not a vocabulary check, and rejecting an unrecognised target
+    would silently drop writes from a newer writer." The bridge IS host-side and routinely a
+    different build, so the concern was real — but it assumes the dropped write carries information
+    this service could use, and it cannot: a service that does not recognise a status has no code
+    that acts on it.
+
+    WHAT THE TRACE FOUND. Every terminal reaper selects `WHERE status IN (...)` — `managed_workers`,
+    `terminals` (both the active and the end query), `terminal_consistency`. Not one keys on age. So
+    a row holding an undeclared status matches NO reaper, is not counted live by the status engine,
+    and is never closed out — while `agent_terminal_ops.py` reads it as "still running". It is on the
+    live side of every read and the invisible side of every cleanup.
+
+    Both concrete futures favour refusing. A bridge that INVENTS a status: keeping it strands the row
+    forever, dropping it leaves the last known status, which the reapers still act on. A bridge that
+    RENAMES one (`stopped` -> `exited`): keeping it hides the row from both the active and end lists,
+    dropping it leaves the row `running` and `managed_workers.py` reaps it as a ghost when the worker
+    dies.
+
+    A no-op today — `test_terminal_status_vocabulary.py` enumerates both writers and every literal
+    either side sends is already a member.
+    """
+    assert _terminal_status_transition("running", "brand-new-status") == ""
+    assert _terminal_status_transition("stopped", "brand-new-status") == ""
+    assert _terminal_status_transition("running", "exited") == "", (
+        "the rename case: `exited` is not a declared terminal status, so the row keeps `running` "
+        "and stays reapable instead of becoming invisible to every sweep"
     )
+    # …and the refusal reuses the existing "no change" channel rather than inventing a signal.
+    assert _terminal_status_transition("running", "") == ""

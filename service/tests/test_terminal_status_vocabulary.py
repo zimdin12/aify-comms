@@ -22,18 +22,22 @@ AND THE WRITER IS THE BRIDGE, which runs on the HOST and can be older or newer t
 the mismatch `aify-comms doctor`'s `bridge-current` check exists to catch. A status renamed on one
 side of that gap writes limbo rows in silence.
 
-WHAT THIS DOES NOT DO IS CLOSE IT. I made `_terminal_status_transition` refuse a status outside the
-vocabulary, then found `test_terminal_status_transition.py` ruling the opposite ON PURPOSE, with an
-argument: "this function is a guard, not a vocabulary check, and rejecting an unrecognised target
-would silently drop writes from a newer writer." That cost is real too — the bridge is host-side and
-routinely NEWER than the service. Two real costs, no way to have both: it is an operator's call, so
-the change was reverted and the trade is stated here instead of settled by one test overwriting
-another.
+CLOSED 2026-08-16, by tracing rather than by preference. `test_terminal_status_transition.py` ruled
+pass-through deliberate: "rejecting an unrecognised target would silently drop writes from a newer
+writer." The bridge IS host-side and routinely a different build, so the concern was real — but it
+assumes the dropped write carries information this service could use, and it cannot: a service that
+does not recognise a status has no code that acts on it.
 
-WHAT IT DOES DO is make the drift impossible to miss while the question is open. Both writers are
-enumerated — the bridge's four literals and the routers' six — and either sending a status the
-service does not recognise fails here by file and value. The stored-limbo consequence is pinned as
-assertions rather than prose, so it cannot quietly stop being true.
+WHAT DECIDED IT was reading the reapers. Every one selects `WHERE status IN (...)` —
+`managed_workers`, `terminals` (both its active and its end query), `terminal_consistency` — and not
+one keys on age. So the row an unknown status strands is invisible to all of them, while
+`agent_terminal_ops.py` still reads it as "still running". Refusing loses a string nothing could have
+used; keeping it loses the row. Both concrete futures agree: a bridge that INVENTS a status, and one
+that RENAMES `stopped` to `exited`, are each better served by keeping the last known status.
+
+THE ENUMERATION IS WHY THE CHANGE IS SAFE, and it stays. Both writers are counted here — the bridge's
+four literals and the routers' six — so if either ever needs a new status, this fails by file and
+value BEFORE the refusal could drop it silently.
 
 NO LIVE DEFECT EXISTS. Every literal the bridge sends (`attached`, `failed`, `running`, `stopped`)
 and every one the routers write (those plus `starting`, `stopping`) is already a member.
@@ -208,29 +212,28 @@ class TerminalStatusVocabularyTests(unittest.TestCase):
             "terminal sink — a scan that only reads direct POSTs misses four files",
         )
 
-    def test_an_unrecognised_status_is_STORED_today_and_lands_on_the_live_side_of_everything(self):
-        """THE OPEN QUESTION, pinned as behaviour rather than argued in prose.
+    def test_an_unrecognised_status_is_refused_and_the_reason_is_what_it_would_have_cost(self):
+        """RESOLVED 2026-08-16 — the open question this file used to pin is closed.
 
-        `test_terminal_status_transition.py` rules this deliberate: "this function is a guard, not a
-        vocabulary check, and rejecting an unrecognised target would silently drop writes from a
-        newer writer." I changed it to refuse, found that ruling, and reverted — an operator picks
-        between dropping a newer bridge's write and storing a row nothing can clean up.
-
-        What this test adds is the second half of the trade, stated in assertions instead of prose:
-        the stored value really is outside every allowlist, so the consequence is not hypothetical.
+        It pinned the OPPOSITE, because `test_terminal_status_transition.py` ruled pass-through
+        deliberate. Tracing the reapers decided it: every one selects `WHERE status IN (...)` and not
+        one keys on age, so a row holding an undeclared status matches none of them. The assertions
+        below are what makes that concrete rather than a claim — the value really is outside all
+        three sets, so "invisible to every sweep" is a fact about this code, not a worry.
         """
-        for unknown in ["stoppped", "paused", "resumed", "crashed"]:
-            self.assertEqual(
-                _terminal_status_transition("running", unknown), unknown,
-                "today an unrecognised status is stored as-is",
-            )
-            self.assertNotIn(unknown, _TERMINAL_ACTIVE_STATUSES, "…so the status engine sees no live terminal")
-            self.assertNotIn(unknown, _TERMINAL_END_STATUSES, "…so no close-out path ever fires")
-            self.assertNotIn(unknown, _TERMINAL_MONOTONIC_STATUSES, "…so the resurrection guard is off")
-        # And the guard genuinely cannot protect such a row: a finished terminal can be moved to an
-        # unknown status and then back to `running`, which the vocabulary path would have refused.
-        self.assertEqual(_terminal_status_transition("stopped", "paused"), "paused")
-        self.assertEqual(_terminal_status_transition("paused", "running"), "running")
+        for unknown in ["stoppped", "paused", "resumed", "crashed", "exited"]:
+            with self.subTest(unknown=unknown):
+                self.assertEqual(
+                    _terminal_status_transition("running", unknown), "",
+                    "an undeclared status must not reach the column",
+                )
+                self.assertNotIn(unknown, _TERMINAL_ACTIVE_STATUSES, "…the status engine sees no live terminal")
+                self.assertNotIn(unknown, _TERMINAL_END_STATUSES, "…no close-out path ever fires")
+                self.assertNotIn(unknown, _TERMINAL_MONOTONIC_STATUSES, "…the resurrection guard is off")
+        # The rescue this buys: refusing leaves the LAST KNOWN status in place, and that status is
+        # one the reapers still act on. Keeping the unknown one is what stranded the row.
+        self.assertEqual(_terminal_status_transition("stopped", "paused"), "")
+        self.assertEqual(_terminal_status_transition("running", "stopped"), "stopped")
 
     def test_every_real_transition_is_unchanged(self):
         """The full ordered matrix, so a future change to this rule has to face every pair."""

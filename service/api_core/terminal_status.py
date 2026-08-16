@@ -31,22 +31,40 @@ TERMINAL_SESSION_STATUSES = frozenset(_TERMINAL_ACTIVE_STATUSES | _TERMINAL_MONO
 def _terminal_status_transition(current_status: str, next_status: str) -> str:
     """Decide the status a terminal row moves to, or "" for "leave it alone".
 
-    DELIBERATELY NOT A VOCABULARY CHECK, and the reason is `test_terminal_status_transition.py`'s
-    own words: "rejecting an unrecognised target would silently drop writes from a newer writer."
-    That cost is real — the writer is the BRIDGE, which runs on the host and is routinely NEWER than
-    the service.
+    AN ALLOWLIST, decided 2026-08-16 after tracing what the alternative actually costs. This is the
+    only gate between an HTTP body and `terminal_sessions.status`: its single caller is
+    `terminal_output.py`, fed by `POST /terminals/{id}/output`, whose `status` field is
+    `Optional[str]` with no validation anywhere.
 
-    THE OTHER COST IS EQUALLY REAL, and is recorded here so nobody has to rediscover it. This
-    function is the only gate between an HTTP body and `terminal_sessions.status`: its single caller
-    is `terminal_output.py`, fed by `POST /terminals/{id}/output`, whose `status` field is
-    `Optional[str]` with no validation anywhere. So an unrecognised value is STORED, and it is then
-    invisible to every allowlist at once — not in `_TERMINAL_ACTIVE_STATUSES` (the status engine does
-    not count the terminal live), not in `_TERMINAL_END_STATUSES` (`_close_out_terminal_on_end_status`
-    never closes it, and `agent_terminal_ops.py` reads it as "still running"), not in
-    `_TERMINAL_MONOTONIC_STATUSES` (the guard below cannot protect it). Every read puts it on the
-    live side; every cleanup skips it. That is the `lost` incident's shape, where a gate spelled as
-    `status NOT IN (...)` treated an unlisted status as live and left four sessions permanently
-    unstartable.
+    AN UNRECOGNISED VALUE IS INVISIBLE TO EVERY REAPER. Not one of them keys on age — every single
+    selection is `WHERE status IN (...)`:
+
+        reconcilers/managed_workers.py       IN ('starting','attached','running','active','idle',…)
+        reconcilers/terminals.py             IN ('stopped','failed')   and the active list
+        reconcilers/terminal_consistency.py  IN (<active list>)
+
+    So a row holding a status nobody declared matches no reaper's WHERE, is not counted live by the
+    status engine, is never closed out by `_close_out_terminal_on_end_status`, and reads as "still
+    running" to `agent_terminal_ops.py`. Every read puts it on the live side and every cleanup skips
+    it — the `lost` incident's shape, where a gate spelled `status NOT IN (...)` treated an unlisted
+    status as live and left four sessions permanently unstartable.
+
+    THE ARGUMENT FOR PASSING IT THROUGH DID NOT SURVIVE THE TRACE. It was
+    `test_terminal_status_transition.py`'s: "rejecting an unrecognised target would silently drop
+    writes from a newer writer" — the bridge is host-side and routinely a different build. But that
+    assumes the dropped write carries information this service could use, and it cannot: a service
+    that does not recognise the status has no code that acts on it. Both concrete cases favour
+    refusing:
+
+      * a bridge invents a status — keeping it strands the row forever; dropping it leaves the last
+        KNOWN status, which the reapers still act on.
+      * a bridge RENAMES one (`stopped` -> `exited`) — keeping it makes the row invisible to both the
+        active and end lists; dropping it leaves the row `running`, and `managed_workers.py` reaps it
+        as a ghost once the worker dies.
+
+    So refusing loses a string nothing could have used, and keeping it loses the row. It is a no-op
+    today: `test_terminal_status_vocabulary.py` enumerates both writers and every literal either side
+    sends is already a member.
 
     WHICH COST TO PAY IS AN OPEN OPERATOR QUESTION and is not settled here — I changed this to refuse
     unknown statuses, found the ruling above, and reverted. What IS settled:
@@ -56,6 +74,8 @@ def _terminal_status_transition(current_status: str, next_status: str) -> str:
     current = str(current_status or "").strip().lower()
     next_value = str(next_status or "").strip().lower()
     if not next_value:
+        return ""
+    if next_value not in TERMINAL_SESSION_STATUSES:
         return ""
     if current in _TERMINAL_MONOTONIC_STATUSES and next_value in _TERMINAL_ACTIVE_STATUSES:
         return ""
