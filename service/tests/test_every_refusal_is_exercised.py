@@ -1,10 +1,12 @@
 """Operator-facing refusals, and which of them any test has ever seen.
 
-A refusal is `raise HTTPException(code, message)`. There are 97 with a distinctive message, and most
-of them had never been touched by a test — a surface where FOUR live defects were found by reading,
-each the same shape: a 4xx NAMING a cause the branch never established. The Start button's "no
-environment bridge", the restart 409's "no online environment", the console gate's two-way split, the
-cold-start family.
+A refusal is `raise HTTPException(code, message)`. There are 96 with a distinctive message and every
+one is now exercised — a surface where FOUR live defects were found by reading, each the same shape:
+a 4xx NAMING a cause the branch never established. The Start button's "no environment bridge", the
+restart 409's "no online environment", the console gate's two-way split, the cold-start family.
+Covering the rest found more of the same kind: a heartbeat that answered "ok" for an agent that did
+not exist, a model default that made an endpoint's own fallback dead, and a pi-console guard written
+twice with one copy unreachable.
 
 THE FIRST THING THIS GATE CAUGHT WAS ITSELF. It scanned the whole test tree, including
 `service/tests/data/` — 36 verbatim pre-split COPIES of product functions — so 56 refusals read as
@@ -162,9 +164,14 @@ def _unexercised() -> list[str]:
 #: IT WENT UP ONCE, 15 -> 70, AND THAT IS A CORRECTION RATHER THAN A REGRESSION. Nothing lost a test:
 #: the scan was reading `service/tests/data/`, whose 36 files are verbatim copies of the product
 #: functions they were kept to prove inert, so 56 refusals counted as exercised because the code was
-#: DUPLICATED. See FIXTURE_DIR above. Of the 97 distinctive refusals, 27 are genuinely covered — the
-#: number the earlier slices actually earned, against the 82 the gate was reporting.
-UNEXERCISED_REFUSAL_CEILING = 7
+#: DUPLICATED. See FIXTURE_DIR above.
+#:
+#: IT IS NOW ZERO, and that is the end state rather than a gap: every distinctive refusal in the
+#: service is exercised by a test that asserts its TEXT. Zero is also the strictest the ratchet can
+#: be — the equality test below means the next untested refusal fails the suite on the commit that
+#: adds it, with no slack to absorb it. Do NOT raise this to make a change land; the number went from
+#: 70 to 0 in eleven slices, and any one of them is the size of the work a new refusal implies.
+UNEXERCISED_REFUSAL_CEILING = 0
 
 
 class EveryRefusalIsExercisedTests(unittest.TestCase):

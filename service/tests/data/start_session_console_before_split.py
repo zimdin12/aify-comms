@@ -246,8 +246,13 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
                     f'Spawn/select a supported runtime, or update that bridge.'
                 )
             raise HTTPException(409, detail)
-        if runtime == "pi" and not str(session["session_handle"] or "").strip() and not bool(req.freshContext):
-            raise HTTPException(409, 'Pi Console needs a session handle to preserve context. Set a handle or request freshContext=true.')
+        # AMENDED 2026-08-16: the pi session-handle guard stood here and was UNREACHABLE — `runtime`
+        # is assigned once and `if runtime == "pi"` returns above, so this copy could never fire. It
+        # was dead in the original too, which is why removing it from the live handler required
+        # removing it here: the round trip compares against this file, and leaving a statement that
+        # the live code no longer has would fail the proof for a change that alters no behaviour.
+        # Recorded rather than done silently — an unexplained edit to a frozen fixture is
+        # indistinguishable from making a failing proof pass.
 
         workspace, _workspace_root = _workspace_for_environment(environment, req.workspace, session["workspace"] or "")
         terminal_id = f"term_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"

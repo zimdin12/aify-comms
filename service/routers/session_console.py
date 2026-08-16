@@ -148,8 +148,13 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
         if str(environment.get("status") or "").lower() != "online":
             raise HTTPException(409, f'Environment "{environment.get("id")}" is {environment.get("status") or "unknown"}')
         _refuse_console_without_terminal_capability(environment, session)
-        if runtime == "pi" and not str(session["session_handle"] or "").strip() and not bool(req.freshContext):
-            raise HTTPException(409, 'Pi Console needs a session handle to preserve context. Set a handle or request freshContext=true.')
+        # The pi session-handle guard USED TO BE REPEATED HERE and could never fire: `runtime` is
+        # assigned once, twelve lines up, and `if runtime == "pi"` returns before this point. The
+        # live copy is the one inside `_start_virtual_pi_console`, which is where a pi console is
+        # actually built; this one was dead before the v0.5.4 split too (it is in the pre-split
+        # fixture at the same relative place). Removed rather than left as a second opinion: an
+        # unreachable copy of a guard is worse than no copy, because the next person to change the
+        # rule can edit it, see a green suite, and ship nothing.
 
         workspace, _workspace_root = _workspace_for_environment(environment, req.workspace, session["workspace"] or "")
         terminal_id = f"term_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
