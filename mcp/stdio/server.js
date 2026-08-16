@@ -88,11 +88,10 @@ import {
   __RESIDENT_GATEWAY_TURN_IDLE_DEBOUNCE,
   __RESIDENT_GATEWAY_TURN_POLL_MS,
 } from "./poll-intervals.mjs";
-import { VIRTUAL_RPC_RUNTIMES, VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT, createVirtualTerminalSink, ensureVirtualTerminal, findAgentIdForVirtualTerminal, handleVirtualTerminalControl, updateTerminalControl } from './virtual-terminals.mjs';
-import { ensureRequiredReplyHandoff } from './required-reply-handoff.mjs';
-import { TERMINAL_MANAGER, reportDeadOwnedTerminals } from './terminal-manager.mjs';
+import { VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT } from './virtual-terminals.mjs';
+
+import { TERMINAL_MANAGER } from './terminal-manager.mjs';
 import { runBootTombstonedMarkerSweep } from './boot-marker-sweep.mjs';
-import { residentRuntimeBindingLost } from './resident-binding-health.mjs';
 
 // Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
 // `omp --mode rpc --resume <session>`), that child inherits the aify
@@ -159,7 +158,6 @@ if (AIFY_CODEX_APP_SERVER_URL) {
 // chat --tui`). Mirror of the codex marker block above — same long-lived-
 // PID rationale: the wrapper's bash PID isn't a real Windows PID under
 // Git Bash, so the marker MUST be written from this Node process.
-
 
 // __HEARTBEAT_MS moved to ./poll-intervals.mjs in v0.5.4.
 // STARTED ONLY IN REMOTE MODE. This poster is handed a base URL and fetches it directly, without going
@@ -281,8 +279,6 @@ if (
     },
   });
 }
-
-
 
 // PROACTIVE gateway-liveness probe for RESIDENT hermes (status-liveness,
 // 2026-06-02). A hermes agent shows `available`/`online` whenever its gatewayUrl
@@ -531,7 +527,6 @@ const AUTO_REREGISTER_AFTER_FAILURES = 4;
 // TERMINAL_TURN_BUSY_TIMERS moved to ./terminal-manager.mjs in v0.5.4.
 // pulseTerminalTurnBusy moved to ./terminal-manager.mjs in v0.5.4.
 
-
 // CONSOLE_WORKING_REMIT_MS moved to ./terminal-manager.mjs in v0.5.4.
 // How recently a console-working pulse must have fired for a subsequent "unknown" footer frame
 // to count as mid-turn (and thus refresh the lease). Shorter than the server console-working
@@ -553,7 +548,6 @@ const AUTO_REREGISTER_AFTER_FAILURES = 4;
 
 // ── Local filesystem paths (used only in local mode) ─────────────────────────
 
-
 // ── Input validation ────────────────────────────────────────────────────────
 
 if (!IS_REMOTE) {
@@ -563,7 +557,6 @@ if (!IS_REMOTE) {
 }
 
 // ── HTTP helper (remote mode) ────────────────────────────────────────────────
-
 
 // Long-poll for the "claim" endpoints (2026-06-30): instead of short-polling
 // "is there work yet?" every few seconds, the bridge asks the server to HOLD the
@@ -583,19 +576,12 @@ const CLAIM_OPTS = CLAIM_WAIT_MS > 0 ? { timeoutMs: CLAIM_HTTP_TIMEOUT_MS } : {}
 // This list is intentionally narrow. If you add a new POST endpoint that can
 // be retried without creating duplicate side effects, add it here explicitly.
 
-
 // CONTROL_CLAIM_FAILURES moved to ./claim-failure-tracker.mjs in v0.5.4 — its only direct readers
 // are the two functions above, so they own it.
 
 // noteControlClaimFailure moved to ./claim-failure-tracker.mjs in v0.5.4.
 
 // noteControlClaimSuccess moved to ./claim-failure-tracker.mjs in v0.5.4.
-
-
-
-
-
-
 
 // Plan 6 A2 (2026-05-26): runtime-authoritative session-handle resolver
 // used at the initial register path (mirrors A1's heartbeat reversal).
@@ -607,7 +593,6 @@ const CLAIM_OPTS = CLAIM_WAIT_MS > 0 ? { timeoutMs: CLAIM_HTTP_TIMEOUT_MS } : {}
 // runtime can't be probed (no adapter, discover throws, returns null).
 // Strictly additive: when discover fails, we get exactly the pre-Plan-6
 // behavior. Exported for unit testing.
-
 
 // What did this agent last PRODUCE? Audit finding 1: nothing on the health surface answered that.
 //
@@ -633,18 +618,9 @@ const CLAIM_OPTS = CLAIM_WAIT_MS > 0 ? { timeoutMs: CLAIM_HTTP_TIMEOUT_MS } : {}
 
 // ── Local filesystem helpers ─────────────────────────────────────────────────
 
-
-
-
-
-
 // ── Message safety ───────────────────────────────────────────────────────────
 // Messages from other agents are UNTRUSTED DATA. Wrap in code fences so
 // Claude Code treats them as data, not instructions to follow.
-
-
-
-
 
 // residentRuntimeBindingLost moved to ./resident-binding-health.mjs in v0.5.4.
 
@@ -654,7 +630,6 @@ const CLAIM_OPTS = CLAIM_WAIT_MS > 0 ? { timeoutMs: CLAIM_HTTP_TIMEOUT_MS } : {}
 // it is right to — this is a borrow shim, and calling it a move would be a claim the file disproves.
 const reportResidentRuntimeLost = (agentId, info, reason) =>
   reportResidentRuntimeLostImpl(agentId, info, reason, { MACHINE_ID, shutdownWithStatus });
-
 
 // Idempotency guard so the clean-exit resident-lost POST can't double-fire
 // across the SIGTERM→shutdownWithStatus and process.on('exit') handlers.
@@ -677,10 +652,6 @@ function terminateResidentHost(reason = "Resident session stopped from dashboard
     process.exit(0);
   }, 25).unref();
 }
-
-
-
-
 
 // Tear down every managed-hermes triad survivor (gateway host, delivery loop,
 // daemon, console PTY) this env bridge owns. Targets come from a FRESH service
@@ -738,16 +709,10 @@ const { runManagedTeardownForBridge, runManagedTeardownSync, runBootSurvivorSwee
 
 // runBootTombstonedMarkerSweep moved to ./boot-marker-sweep.mjs in v0.5.4.
 
-
-
-
 // readManagedViaWrapperRuntimes moved to ./managed-wrapper-cache.mjs in v0.5.4.
 
 // _replyCaptureFallbackCache moved to ./required-reply-handoff.mjs in v0.5.4.
 // readReplyCaptureFallback moved to ./required-reply-handoff.mjs in v0.5.4.
-
-
-
 
 function effectiveEnvironmentPayload() {
   const payload = environmentHeartbeatPayload();
@@ -756,7 +721,6 @@ function effectiveEnvironmentPayload() {
   }
   return payload;
 }
-
 
 async function heartbeatEnvironment({ syncManaged = true } = {}) {
   if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: false, shuttingDown: shutdownStarted })) return false;
@@ -920,10 +884,7 @@ ensureUsageCollector();
 ensureEnvironmentHeartbeat();
 ensureTerminalControlLoop();
 
-
-
 // runDispatchLoop's shell and its busy flag moved to ./dispatch-loop.mjs in v0.5.4; the timer stays here.
-
 
 // ── MCP Server ───────────────────────────────────────────────────────────────
 
