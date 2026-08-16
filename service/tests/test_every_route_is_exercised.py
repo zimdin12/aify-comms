@@ -11,12 +11,17 @@ THE ROUTE IS THE RIGHT UNIT HERE. It is what the app actually serves, it is what
 already counts (124, gated elsewhere), and a route nothing calls is the same shape of hole: a handler
 that could 500 on its first real request with every suite green.
 
-MEASURED FIRST: 127 method+path routes, 7 with no test naming their path. Five are FastAPI/static
-(`favicon.*`, `/docs/oauth2-redirect`). The two real ones were both DATA-REPAIR endpoints — the kind
-that runs rarely, mutates rows, and is exactly where nobody looks:
+MEASURED FIRST: 127 method+path routes, 15 with no test naming their path once the match was
+tightened to per-file. Five are FastAPI/static (`favicon.*`, `/docs/oauth2-redirect`). The other ten
+are all now covered:
 
-    POST /api/v1/messages/cleanup/orphan-unread          now tested by test_orphan_unread_cleanup_query
-    POST /api/v1/contracts/hygiene/repair-read-receipts  now tested below
+    POST /api/v1/messages/cleanup/orphan-unread          test_orphan_unread_cleanup_query
+    POST /api/v1/contracts/hygiene/repair-read-receipts  test_repair_read_receipts_marks_the_right_messages
+    the eight container/GPU routes                       test_container_routes
+
+The first two were DATA-REPAIR endpoints — rarely run, mutating, and exactly where nobody looks. The
+container eight were recorded as a backlog for one commit on the reasoning that they need a container
+MANAGER; they do, and not Docker, which writing the backlog down is what made obvious.
 
 WHAT THIS PROVES AND WHAT IT DOES NOT. Matching a path's literal segments against the test tree shows
 a test MENTIONS the route, not that it asserts anything useful about it. It is a floor, exactly as
@@ -45,27 +50,20 @@ FRAMEWORK_ROUTES = {
 }
 
 #: OURS, AND OWED — a different thing from the framework list above, kept separate so the two are
-#: not confused. Every route here is a handler this repo owns with no test calling it.
+#: not confused. Every route here would be a handler this repo owns with no test calling it.
 #:
-#: THE WHOLE CONTAINER/GPU ROUTER, which is consistent with what its module already shows: 6 of its
-#: 10 functions have no test either, and `service/containers/proxy.py` had none until the header
-#: filter got one on 2026-08-16. Testing these needs a container MANAGER — they start, stop, pull and
-#: proxy to real Docker containers — so it is a fixture-building job rather than a line of assertion,
-#: which is exactly why the debt is recorded instead of quietly widened into FRAMEWORK_ROUTES.
+#: EMPTY, AND THAT IS THE END STATE rather than a gap — the same shape `oversized-allowlist.json`
+#: reached. It held eight entries for exactly one commit: the whole container/GPU router, recorded on
+#: the reasoning that exercising it "needs a container MANAGER". It does, and it turned out not to
+#: need DOCKER: every handler is a thin wrapper that reads `app.state.container_manager` and calls
+#: one method, so a dumb fake reaches all eight routes and every refusal they raise. Writing the
+#: backlog is what made that obvious enough to act on.
 #:
-#: MAY ONLY SHRINK, on the same ratchet as the JS side's `UNTESTED_BACKLOG`: the test below fails if
-#: an entry here is now exercised, so paying one off forces its removal instead of leaving slack a
-#: later route could inherit.
-UNTESTED_ROUTE_BACKLOG = {
-    "GET /api/v1/containers",
-    "GET /api/v1/containers/{name}",
-    "GET /api/v1/containers/{name}/logs",
-    "GET /api/v1/gpu",
-    "POST /api/v1/containers/{name}/pull",
-    "POST /api/v1/containers/{name}/restart",
-    "POST /api/v1/containers/{name}/start",
-    "POST /api/v1/containers/{name}/stop",
-}
+#: MAY ONLY SHRINK, on the same ratchet as the JS side's `UNTESTED_BACKLOG`, and that ratchet is what
+#: emptied it: the moment `test_container_routes.py` landed, the test below FAILED and named all
+#: eight entries as now-tested. An entry left here after its route is covered is slack a later route
+#: could inherit.
+UNTESTED_ROUTE_BACKLOG: set[str] = set()
 
 
 def _routes() -> list[tuple[str, str]]:
