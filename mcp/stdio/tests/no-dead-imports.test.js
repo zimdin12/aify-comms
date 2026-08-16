@@ -56,13 +56,28 @@ export function deadImportsIn(text) {
   // Blanking the spread operator keeps the member-access exclusion intact and makes the call visible.
   const src = withSpecifiers.replace(/(\bfrom\s*)"[^"]*"/g, '$1""').replace(/\.\.\./g, " ");
   const names = new Set();
-  for (const m of withSpecifiers.matchAll(/^import\s*\{([^}]*)\}\s*from\s*"[^"]+";/gm)) {
-    for (const raw of m[1].split(",")) {
+  const addNamed = (block) => {
+    for (const raw of block.split(",")) {
       const name = raw.trim().split(" as ").pop();
       if (name && /^\w+$/.test(name)) names.add(name);
     }
+  };
+  // Named block, optionally preceded by a default binding. The `(?:(\w+)\s*,\s*)?` is the form the
+  // detector used to be blind to: `import def, { named } from "x"` matched NEITHER this pattern (it
+  // required `import` to be followed directly by `{`) nor the default pattern below (it required
+  // `from` directly after the name), so BOTH bindings were invisible and a dead one could never be
+  // reported. Neither form is used in the bridge today — this is preventive, and the fixtures at the
+  // bottom are what prove it works, since a clean tree cannot.
+  for (const m of withSpecifiers.matchAll(/^import\s+(?:(\w+)\s*,\s*)?\{([^}]*)\}\s*from\s*"[^"]+";/gm)) {
+    if (m[1]) names.add(m[1]);
+    addNamed(m[2]);
   }
   for (const m of withSpecifiers.matchAll(/^import\s+(\w+)\s+from\s+"/gm)) names.add(m[1]);
+  // Namespace import. `import * as ns from "x"` was never collected at all, so an unused namespace
+  // was permanently unreportable. A USED one appears again as `ns.member`, and the member-access
+  // exclusion does not apply to the namespace itself — only to what follows the dot — so the
+  // occurrence count works unchanged.
+  for (const m of withSpecifiers.matchAll(/^import\s*\*\s*as\s+(\w+)\s+from\s+"/gm)) names.add(m[1]);
   return [...names].filter(
     (n) => (src.match(new RegExp(`(?<![\\w$.])${n}(?![\\w])`, "g")) || []).length < 2,
   ).sort();
@@ -111,4 +126,43 @@ test("the detector really detects — it finds a dead import in a synthetic modu
   // …and the member-access exclusion the dot rule exists for still holds.
   const member = `import { a } from "./x.mjs";\nexport const y = obj.a;\n`;
   assert.deepEqual(deadImportsIn(member), ["a"], "`obj.a` is not a use of the imported `a`");
+});
+
+test("the two import forms the detector used to be blind to", () => {
+  // NEITHER FORM APPEARS IN THE BRIDGE TODAY, which is exactly why these are fixtures. A clean tree
+  // cannot tell a fixed detector from the broken one — the old version reported [] for all four
+  // cases below and looked just as green as this one does.
+
+  // 1. NAMESPACE IMPORT. Never collected at all, so an unused namespace was permanently
+  //    unreportable: no amount of dead `import * as x` would ever fail this gate.
+  const namespaceDead = `import * as ns from "./x.mjs";\nexport const y = 1;\n`;
+  assert.deepEqual(deadImportsIn(namespaceDead), ["ns"], "an unused namespace import is dead");
+
+  const namespaceUsed = `import * as ns from "./x.mjs";\nexport const y = ns.a();\n`;
+  assert.deepEqual(deadImportsIn(namespaceUsed), [], "`ns.a()` is a use of the namespace itself");
+
+  // The member-access exclusion must not swallow the namespace: `ns` in `ns.a` is BEFORE the dot,
+  // not after it, so the rule that kills `obj.a` leaves this alone.
+  const namespaceOnlyMember = `import * as ns from "./x.mjs";\nexport const y = ns.deep.thing;\n`;
+  assert.deepEqual(deadImportsIn(namespaceOnlyMember), [], "a nested member read still uses `ns`");
+
+  // 2. DEFAULT + NAMED COMBINED. Matched neither pattern before — the named pattern wanted `import`
+  //    followed directly by `{`, the default pattern wanted `from` directly after the name — so BOTH
+  //    bindings vanished and either could rot unreported.
+  const combinedDead = `import def, { named } from "./x.mjs";\nexport const y = 1;\n`;
+  assert.deepEqual(deadImportsIn(combinedDead), ["def", "named"], "both bindings are reported");
+
+  const combinedPartlyUsed = `import def, { named } from "./x.mjs";\nexport const y = named(1);\n`;
+  assert.deepEqual(deadImportsIn(combinedPartlyUsed), ["def"], "only the unused half is reported");
+
+  const combinedUsed = `import def, { named } from "./x.mjs";\nexport const y = def(named);\n`;
+  assert.deepEqual(deadImportsIn(combinedUsed), [], "neither is dead when both are called");
+
+  // The plain forms must keep working — widening a regex is how the OTHER cases get lost.
+  assert.deepEqual(deadImportsIn(`import { a } from "./x.mjs";\nexport const y = 1;\n`), ["a"]);
+  assert.deepEqual(deadImportsIn(`import fs from "node:fs";\nexport const y = 1;\n`), ["fs"]);
+  assert.deepEqual(
+    deadImportsIn(`import {\n  a,\n  b,\n} from "./x.mjs";\nexport const y = a(b);\n`), [],
+    "a multi-line named block still resolves both names",
+  );
 });
