@@ -25,10 +25,32 @@ export const STDIO_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url
 // pre-extraction snapshots there contain the very code a slice removed, so including them would let an
 // absence assertion pass off a copy of the OLD file. That exclusion is load-bearing and is the reason this
 // takes filenames rather than globbing everything.
+// SUBDIRECTORIES ARE INCLUDED, and were not until 2026-08-16. `readdirSync` without recursion read the
+// top level only, so `adapters/` (7 modules) and `controllers/` (11) — 18 files the bridge genuinely
+// ships — sat outside every gate built on this: the dead-import sweep, the one-owner check, the
+// used-anywhere probe. That is the same ungoverned-population failure CLAUDE.md records on the Python
+// side, where the size gate read `service/**` only and left fifteen files unchecked, `mcp/sse_server.py`
+// among them. An unguarded population reports green exactly like a guarded one.
+//
+// Widening cost nothing: the subdirectories carry zero dead imports, measured before the change.
+//
+// Nested files keep their relative path (`controllers/x.js`) so a failure names something findable, and
+// top-level files keep their bare name so the callers that look one up by `=== "hermes-managed-host.js"`
+// keep working.
+const SKIP_DIRS = new Set(["node_modules", "tests", "fixtures", "scripts", "__pycache__"]);
+
+function collect(dir, prefix) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isDirectory()) {
+      return SKIP_DIRS.has(entry.name) ? [] : collect(path.join(dir, entry.name), `${prefix}${entry.name}/`);
+    }
+    if (!entry.isFile() || !/\.(js|mjs)$/.test(entry.name)) return [];
+    return [[`${prefix}${entry.name}`, readFileSync(path.join(dir, entry.name), "utf-8")]];
+  });
+}
+
 export function bridgeSources() {
-  return readdirSync(STDIO_DIR, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && /\.(js|mjs)$/.test(entry.name))
-    .map((entry) => [entry.name, readFileSync(path.join(STDIO_DIR, entry.name), "utf-8")]);
+  return collect(STDIO_DIR, "");
 }
 
 // All of it concatenated, for "does this appear anywhere / nowhere" questions.
@@ -46,9 +68,14 @@ export function toolSources() {
 // Which module DECLARES a name, as a `{file, kind}` or null. Use this instead of asserting a declaration
 // lives in a particular file: it answers "exactly one owner" without caring which module that is.
 export function declaringModules(name) {
+  // `class` was missing until 2026-08-16, the same omission the shared `declarationSpan` parser had.
+  // Five bridge modules declare a class, and none of them could be checked for a single owner — which
+  // is how `DelegatedManagedController` came to exist twice, byte-identical, in `codex-controller.js`
+  // and `hermes-controller.js` with neither importing the other.
   const patterns = [
     ["function", new RegExp(`^(?:export\\s+)?(?:async\\s+)?function\\s+${name}\\b`, "m")],
     ["binding", new RegExp(`^(?:export\\s+)?(?:const|let|var)\\s+${name}\\b`, "m")],
+    ["class", new RegExp(`^(?:export\\s+)?(?:default\\s+)?class\\s+${name}\\b`, "m")],
   ];
   return bridgeSources().flatMap(([file, src]) =>
     patterns.filter(([, re]) => re.test(src)).map(([kind]) => ({ file, kind })),
