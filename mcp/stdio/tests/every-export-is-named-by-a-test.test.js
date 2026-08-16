@@ -54,10 +54,6 @@ const WORD_BOUNDARY = String.raw`\b`;
 //: here is now named by a test, so paying one down means deleting its line in the same commit.
 //: Nothing was chosen for this list — it is the whole of what the scan found.
 const UNTESTED_EXPORT_BACKLOG = [
-  "mcp/stdio/aify-console-markers.js#AIFY_COMMS_RECEIPT_TEXT",
-  "mcp/stdio/aify-console-markers.js#claudeAifyReceiptLine",
-  "mcp/stdio/claim-failure-tracker.mjs#spawnClaimFailureCount",
-  "mcp/stdio/claim-failure-tracker.mjs#spawnClaimLastLogAt",
   "mcp/stdio/console-tools.mjs#registerConsoleTools",
   "mcp/stdio/hermes-daemon.js#defaultKillOnePid",
   "mcp/stdio/hermes-daemon.js#defaultResolveListenerPids",
