@@ -49,6 +49,13 @@ MIN_PHRASE = 12
 
 #: How much of the phrase is searched. The whole thing would fail on a message a test asserts in
 #: two pieces or wraps across lines; 40 characters is distinctive without being brittle.
+#:
+#: IF A REFUSAL YOU JUST TESTED STILL READS AS UNTESTED, this is why: your assertion wrapped the
+#: message across two adjacent literals somewhere inside these 40 characters, so the contiguous text
+#: is not in the file even though Python builds the right string. It has happened four times in this
+#: series. Fix the SHAPE — wrap outside the static chunk, or join with `+` on a quote boundary — not
+#: this constant. Measured 2026-08-16: with implicit concatenation spliced out of the test text the
+#: count is identical, so no OTHER test in the tree is currently hidden this way.
 PHRASE_PREFIX = 40
 
 SELF = pathlib.Path(__file__).name
@@ -157,7 +164,7 @@ def _unexercised() -> list[str]:
 #: functions they were kept to prove inert, so 56 refusals counted as exercised because the code was
 #: DUPLICATED. See FIXTURE_DIR above. Of the 97 distinctive refusals, 27 are genuinely covered — the
 #: number the earlier slices actually earned, against the 82 the gate was reporting.
-UNEXERCISED_REFUSAL_CEILING = 51
+UNEXERCISED_REFUSAL_CEILING = 49
 
 
 class EveryRefusalIsExercisedTests(unittest.TestCase):

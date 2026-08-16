@@ -197,10 +197,14 @@ class VirtualTerminalRefusalTests(FastApiTestCase):
     def test_no_active_session_names_the_agent_the_environment_and_the_remedy(self):
         response = self._ensure()
         self.assertEqual(response.status_code, 409, response.text)
+        # ONE CONTIGUOUS TAIL. Wrapping this after `". ` split the message's longest static chunk
+        # across two literals, and `test_every_refusal_is_exercised.py` matches the first 40
+        # characters of that chunk — so the refusal stayed counted as untested while this test
+        # asserted it in full. Fourth time in this series; the assertion is right, the SHAPE was not.
         self.assertEqual(
             response.json()["detail"],
-            f'No active agent_session for "{AGENT_ID}" on environment "{ENVIRONMENT_ID}". '
-            "The bridge should dispatch at least once before requesting a virtual terminal.",
+            f'No active agent_session for "{AGENT_ID}" on environment "{ENVIRONMENT_ID}'
+            + '". The bridge should dispatch at least once before requesting a virtual terminal.',
         )
 
     def test_every_ACTIVE_session_status_gets_past_the_session_gate(self):

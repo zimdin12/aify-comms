@@ -339,10 +339,13 @@ class SpawnRequestRefusalTests(FastApiTestCase):
             module._settle_running_spawn = original
 
         self.assertEqual(response.status_code, 409, response.text)
+        # ONE CONTIGUOUS TAIL — see the note in `test_virtual_terminal_refusals.py`. Wrapping after
+        # `update was ` splits the message's longest static chunk, which is what the coverage gate
+        # matches on, leaving a refusal this test fully asserts counted as untested.
         self.assertEqual(
             response.json()["detail"],
-            f'Spawn request "{request_id}" was concurrently cancelled; the "running" update was '
-            "dropped to avoid resurrecting a stopped worker.",
+            f'Spawn request "{request_id}" was concurrently cancelled; the "running'
+            + '" update was dropped to avoid resurrecting a stopped worker.',
         )
         self.assertEqual(
             self._row(request_id)["status"], "cancelled",
