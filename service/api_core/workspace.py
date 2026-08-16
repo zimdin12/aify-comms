@@ -22,11 +22,39 @@ DB ACCESS: none. These are pure path functions over an environment dict.
 
 from __future__ import annotations
 
+import posixpath
 from typing import Any, Optional
 
 from fastapi import HTTPException
 
 from service.api_core.capabilities import _environment_uses_windows_paths
+
+
+def _lexical_key(value: str) -> str:
+    """Collapse `.` and `..` segments, WITHOUT touching the filesystem.
+
+    `_workspace_root_for` compared raw strings, so `/srv/repo/../../etc` started with `/srv/repo`
+    and was admitted as being inside that root — by the check whose refusal message promises the
+    workspace is "outside the roots advertised by environment". `C:/Docker/../Windows/System32`
+    passed the same way. The advertised roots are the whole containment boundary for a spawn's cwd,
+    and both sides of it (this and the bridge's `workspaceWithinRoots`) were pure prefix tests, so
+    there was no second guard behind the first.
+
+    LEXICAL, NOT RESOLVED, and the distinction is load-bearing: this service runs in a container and
+    the workspace is a path on the HOST, so `realpath` would resolve against the wrong filesystem and
+    answer confidently about a directory that is not the one being asked about. That means SYMLINKS
+    are not followed — a link inside a root pointing out of it still passes. Saying so is better than
+    a guarantee this cannot make; closing that needs the check to move to the side that owns the
+    filesystem.
+
+    `posixpath` on purpose, for Windows paths too: backslashes are folded to `/` before this runs, and
+    a drive letter behaves as an ordinary leading segment (`C:/Docker/..` -> `C:`), which is what the
+    comparison wants.
+    """
+    text = str(value or "")
+    if not text:
+        return text
+    return posixpath.normpath(text)
 
 
 def _normalize_workspace_for_environment(environment: dict[str, Any], workspace: str) -> str:
@@ -50,10 +78,15 @@ def _workspace_root_for(environment: dict[str, Any], workspace: str) -> str:
     # POSIX must stay case-SENSITIVE: there `/srv/Repo` and `/srv/repo` are genuinely two
     # directories, and folding case would admit a workspace outside the advertised root.
     fold = _environment_uses_windows_paths(environment)
-    normalized_workspace = workspace_value.replace("\\", "/").rstrip("/")
+    # `..` IS COLLAPSED BEFORE COMPARING — see `_lexical_key`. Note the order: normalise separators,
+    # then collapse, then strip a trailing separator. `normpath` already drops trailing separators
+    # except on the bare root `/`, which the strip turns into "" so that a `/` root keeps matching
+    # every absolute path through the `startswith(root_key + "/")` arm below. That match-all is
+    # existing behaviour and the bridge advertises `/` by default, so it must survive this change.
+    normalized_workspace = _lexical_key(workspace_value.replace("\\", "/")).rstrip("/")
     workspace_key = normalized_workspace.lower() if fold else normalized_workspace
     for root in roots:
-        normalized_root = root.replace("\\", "/").rstrip("/")
+        normalized_root = _lexical_key(root.replace("\\", "/")).rstrip("/")
         root_key = normalized_root.lower() if fold else normalized_root
         if workspace_key == root_key or workspace_key.startswith(root_key + "/"):
             return root

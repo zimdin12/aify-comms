@@ -244,6 +244,36 @@ test("separators and trailing slashes are normalised on BOTH sides", () => {
   assert.equal(withinIn("  /srv/data/app  ", ["  /srv/data  "]), true, "surrounding whitespace is trimmed");
 });
 
+test("`..` DOES NOT ESCAPE THE ROOT — the prefix test admitted it for months", () => {
+  // The sibling test above is the same class caught one step earlier: `startsWith(root)` alone would
+  // put `/srv/data-evil` inside `/srv/data`, so the check appends a separator. `..` walks straight
+  // through that fix — `/srv/data/../../etc` DOES start with `/srv/data/`, and it resolves to `/etc`.
+  // A pure string prefix test cannot see it, and this one was a pure string prefix test.
+  //
+  // Nothing else caught it: the service-side twin `_workspace_root_for` had the identical hole, so
+  // the two guards on this boundary failed the same way and there was no defence in depth.
+  assert.equal(withinIn("/srv/data/../../etc", ["/srv/data"]), false, "`..` must not escape the root");
+  assert.equal(withinIn("/srv/data/..", ["/srv/data"]), false, "…not even one level");
+  assert.equal(withinIn("/srv/data/../data-evil", ["/srv/data"]), false, "…nor sideways into a sibling");
+  assert.equal(withinIn("C:/Docker/../Windows/System32", ["C:/Docker"]), false, "drive letters too");
+  assert.equal(withinIn("C:\\Docker\\..\\Windows", ["C:/Docker"]), false, "…written with backslashes");
+
+  // A `..` that stays INSIDE is still legitimate and must keep working — the fix collapses the path,
+  // it does not ban a character.
+  assert.equal(withinIn("/srv/data/sub/../other", ["/srv/data"]), true, "`..` inside the root is fine");
+  assert.equal(withinIn("/srv/data/./app", ["/srv/data"]), true, "`.` is collapsed too");
+  assert.equal(withinIn("/srv/data//app", ["/srv/data"]), true, "…as are doubled separators");
+
+  // A root written with `..` is collapsed on its own side as well, so both spellings meet normalised.
+  assert.equal(withinIn("/srv/data/app", ["/srv/other/../data"]), true, "the ROOT is normalised too");
+
+  // The match-all root still matches, `..` or not: "/" means anywhere by design.
+  assert.equal(withinIn("/x/../../y", ["/"]), true, "match-all is unaffected");
+
+  // SYMLINKS ARE NOT FOLLOWED and cannot be: this runs before the cwd is used, so the path need not
+  // exist yet, and resolving it would need the filesystem. Stated so the guarantee is not overread.
+});
+
 test("IT FAILS OPEN when there is nothing to check against, and that is deliberate", () => {
   // Current behaviour, pinned because it is a permission check that answers YES on absent input. An
   // environment that advertises no usable roots does not restrict anything — the alternative would block

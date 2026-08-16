@@ -149,11 +149,39 @@ export function workspaceWithinRoots(workspace, roots = []) {
     else if (s.startsWith("~/")) s = `${home}/${s.slice(2)}`;
     return s.replace(/\/+$/, "");
   };
+  // `..` MUST BE COLLAPSED BEFORE COMPARING. This was a pure prefix test, so
+  // `/srv/repo/../../etc` starts with `/srv/repo` and passed as "inside" the root — by the check
+  // that turns advertised roots "from a description into a permission". The service-side twin
+  // (`_workspace_root_for`) had the identical hole, so there was no second guard behind the first.
+  //
+  // LEXICAL, NOT RESOLVED: no `fs.realpath`, because this runs before the cwd is used and must not
+  // depend on the path existing. SYMLINKS ARE THEREFORE NOT FOLLOWED — a link inside a root that
+  // points out of it still passes. That limit is stated rather than implied.
+  //
+  // Drive letters need no special case: `C:/Docker/..` has no leading `/`, so `C:` is an ordinary
+  // first segment and pops to `C:`, which is what the comparison wants.
+  const collapse = (p) => {
+    const absolute = p.startsWith("/");
+    const out = [];
+    for (const segment of p.split("/")) {
+      if (!segment || segment === ".") continue;
+      if (segment === "..") {
+        // Above an absolute root there is nowhere to go, which is what `/..` === `/` means. A
+        // RELATIVE path keeps its leading `..` so it cannot be mistaken for something inside.
+        if (out.length && out[out.length - 1] !== "..") out.pop();
+        else if (!absolute) out.push("..");
+        continue;
+      }
+      out.push(segment);
+    }
+    return `${absolute ? "/" : ""}${out.join("/")}`;
+  };
+  const normalize = (p) => collapse(expand(p)).replace(/\/+$/, "");
   const rawRoots = (roots || []).map((r) => String(r || "").trim()).filter(Boolean);
   // "/" is the match-all root.
   if (rawRoots.some((r) => r === "/")) return true;
-  const value = expand(workspace);
-  const normalizedRoots = rawRoots.map(expand).filter(Boolean);
+  const value = normalize(workspace);
+  const normalizedRoots = rawRoots.map(normalize).filter(Boolean);
   if (!value || !normalizedRoots.length) return true;
   return normalizedRoots.some((root) => value === root || value.startsWith(`${root}/`));
 }

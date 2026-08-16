@@ -101,3 +101,61 @@ class WorkspaceRootMatchingTests(unittest.TestCase):
                                 "C:/Docker/proj"),
             "C:/Docker/",
         )
+
+    # ── `..` must not walk out of the root ───────────────────────────────────────────────────
+    #
+    # The sibling case above is this class caught one step earlier: a bare `startswith(root)` puts
+    # `C:/Dockerfoo` inside `C:/Docker`, so the comparison appends a separator. `..` walks straight
+    # through that fix — `/srv/Repo/../../etc` DOES start with `/srv/Repo/`, and it resolves to
+    # `/etc`. A string prefix test cannot see it, and this was a string prefix test.
+    #
+    # There was no second guard behind it: the bridge's `workspaceWithinRoots` is the same check on
+    # the other side of the wire and had the identical hole, so both ends of the boundary admitted
+    # the same escape. Fixed together.
+
+    def test_dot_dot_cannot_escape_the_root(self):
+        for workspace in (
+            "/srv/Repo/../../etc",
+            "/srv/Repo/..",
+            "/srv/Repo/../Repo-evil",
+        ):
+            with self.subTest(workspace=workspace):
+                self.assertIn("outside the roots", _refusal(POSIX_ENV, workspace))
+        for workspace in (
+            "C:/Docker/../Windows/System32",
+            "C:/Docker/..",
+            # A RAW string. Written as an ordinary literal this is `\D`, `\.`, `\W` — invalid escapes
+            # that Python currently leaves alone with a SyntaxWarning and will one day reject. The
+            # value happened to be right, which is why it would have survived review.
+            r"C:\Docker\..\Windows",
+        ):
+            with self.subTest(workspace=workspace):
+                self.assertIn("outside the roots", _refusal(WINDOWS_ENV, workspace))
+
+    def test_a_dot_dot_that_stays_inside_is_still_accepted(self):
+        """The fix collapses the path; it does not ban a character."""
+        self.assertEqual(_workspace_root_for(POSIX_ENV, "/srv/Repo/sub/../other"), "/srv/Repo")
+        self.assertEqual(_workspace_root_for(POSIX_ENV, "/srv/Repo/./a"), "/srv/Repo")
+        self.assertEqual(_workspace_root_for(POSIX_ENV, "/srv//Repo//a"), "/srv/Repo")
+        self.assertEqual(_workspace_root_for(WINDOWS_ENV, "C:/Docker/sub/../other"), "C:/Docker")
+
+    def test_a_root_written_with_dot_dot_is_normalised_on_its_own_side_too(self):
+        environment = {"id": "e", "machineId": "linux:b", "cwdRoots": ["/srv/other/../Repo"]}
+        self.assertEqual(_workspace_root_for(environment, "/srv/Repo/app"), "/srv/other/../Repo")
+        self.assertIn("outside the roots", _refusal(environment, "/srv/other/app"))
+
+    def test_the_match_all_root_still_matches_everything(self):
+        """`/` means anywhere, and the bridge advertises it by default — the normalisation must not
+        turn the 2026-06-03 regression back on, where a `/`-rooted environment matched NOTHING."""
+        environment = {"id": "e", "machineId": "linux:b", "cwdRoots": ["/"]}
+        self.assertEqual(_workspace_root_for(environment, "/anywhere/at/all"), "/")
+        self.assertEqual(_workspace_root_for(environment, "/x/../../y"), "/")
+
+    def test_the_containment_is_LEXICAL_and_says_so(self):
+        """A symlink inside a root that points out of it still passes, and cannot be caught here.
+
+        The service runs in a container; the workspace is a path on the HOST. Resolving it would
+        answer about the wrong filesystem — confidently, which is worse than not answering. Pinned so
+        the limit is a recorded decision rather than something inferred from the code later.
+        """
+        self.assertEqual(_workspace_root_for(POSIX_ENV, "/srv/Repo/link-to-etc"), "/srv/Repo")
