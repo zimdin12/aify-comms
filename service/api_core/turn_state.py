@@ -161,8 +161,15 @@ async def _status_turn_signals(db, agent_row):
     """
     # Authoritative mid-turn signal pushed by the bridge (contract). Fresh
     # turn_busy=1 means the runtime is executing a turn right now → working,
-    # even when the dispatch row is delivered/ambiguous. Stale (no refresh
-    # within TURN_BUSY_STALE_SECONDS) is treated as not-busy.
+    # even when the dispatch row is delivered/ambiguous. Stale is treated as
+    # not-busy, and the bound is TURN_BUSY_BACKSTOP_SECONDS — see below, and see
+    # the docstring above on why it is NOT TURN_BUSY_STALE_SECONDS. This comment
+    # named the short bound until 2026-08-16: it travelled here with the block
+    # when `_status_turn_signals` was extracted from `_compute_live_status_cache`,
+    # where the surrounding prose was about `_turn_busy_state`. Naming the wrong
+    # one of the pair, four lines under a docstring warning they are not
+    # interchangeable, points the next reader at exactly the swap the suite
+    # rejects (test_status_is_pure_event_long_ceiling_not_short_window).
     turn_busy = False
     turn_runtime = ""
     turn_updated_at = ""
