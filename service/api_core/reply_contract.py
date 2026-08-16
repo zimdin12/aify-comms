@@ -36,6 +36,65 @@ _COMPLETION_INFO_RE = re.compile(
     re.I,
 )
 
+#: Words that INVERT a completion keyword that follows them, or push it into the future. A bare
+#: keyword search treats "not done yet" and "will report when done" as claims of completion; both
+#: were verified closing a reply contract before this guard existed. See `_signals_completion`.
+_COMPLETION_NEGATORS = re.compile(
+    r"\b(?:not|no|never|nothing|none|isn|aren|wasn|weren|don|doesn|didn|haven|hasn|hadn|won|wouldn"
+    r"|can|cannot|couldn|shouldn|yet|still|pending|blocked|unable|fail(?:ed|ing)?"
+    r"|will|shall|when|once|until|after|before|if|unless|need|needs|needed|going|plan|plans"
+    r"|almost|nearly|partially)\b",
+    re.I,
+)
+#: How much text before a keyword is inspected for one of the above. Four words is enough for
+#: "have not yet been done" and short enough that an unrelated earlier sentence does not veto.
+_COMPLETION_LOOKBEHIND_WORDS = 4
+
+
+def _signals_completion(text: str) -> bool:
+    """Does this `info` message CLAIM the work is done — as opposed to merely mentioning it?
+
+    Until 2026-08-16 this was a bare `_COMPLETION_INFO_RE.search`, and the keyword list is ordinary
+    English (done, finished, fixed, ready, ...). Verified by calling the real function, EIGHT of nine
+    realistic progress updates closed the reply contract, including every negation:
+
+        "Not done yet - still investigating."          -> closed
+        "I haven't finished; blocked on the DB lock."  -> closed
+        "This is not fixed. Reopening."                -> closed
+        "Still working on it, will report when done."  -> closed
+        "Are you ready for the handoff?"               -> closed
+
+    The declared rule directly above is that `info` closes a run ONLY when it signals completion, so
+    these are failures against the stated intent, not a policy change. Their cost is asymmetric: a
+    contract that closes too LATE gets a reply reminder, which is the system's designed recovery; one
+    that closes too EARLY strands the sender believing an answer arrived, with nothing left to nudge.
+    So this guard is deliberately eager to keep a contract OPEN.
+
+    A keyword counts only when the few words before it neither negate it nor put it in the future,
+    and only outside a question. One clean keyword anywhere is still enough — "Blocked on X. Fixed
+    the parser though." should close nothing on the first clause and does close on the second.
+    """
+    haystack = str(text or "")
+    for match in _COMPLETION_INFO_RE.finditer(haystack):
+        before = haystack[: match.start()]
+        # A question is asking about completion, not reporting it. Scope to the clause containing
+        # the keyword: the text from the previous sentence break to the next one.
+        tail = haystack[match.end():]
+        clause_end = min(
+            (i for i in (tail.find(c) for c in ".!?\n") if i >= 0), default=len(tail)
+        )
+        if "?" in tail[:clause_end + 1]:
+            continue
+        # Look back only within the SAME clause. Crossing a sentence boundary lets an unrelated
+        # earlier statement veto a real claim — "Blocked on X earlier. Fixed the parser though."
+        # reported nothing done, because `blocked` sat four words behind `Fixed`.
+        clause_start = max(before.rfind(c) for c in ".!?\n;") + 1
+        window = " ".join(re.split(r"\s+", before[clause_start:].strip())[-_COMPLETION_LOOKBEHIND_WORDS:])
+        if _COMPLETION_NEGATORS.search(window):
+            continue
+        return True
+    return False
+
 
 def _is_operator_closed_contract(row) -> bool:
     if not row:
@@ -60,7 +119,7 @@ def _message_satisfies_reply_contract(reply_type: str, subject: str = "", body: 
     # 2026-05-31 (holistic review "F4"): this is deliberate, NOT a stuck-run bug —
     # the operator-observed "Pending updates (N)" pile-up was QUEUED (never
     # claimed) runs, fixed by the release + channel-sidecar self-heal fixes.
-    if msg_type == "info" and _COMPLETION_INFO_RE.search(f"{subject or ''}\n{body or ''}"):
+    if msg_type == "info" and _signals_completion(f"{subject or ''}\n{body or ''}"):
         return True
     return False
 
