@@ -35,8 +35,41 @@ from pathlib import Path
 SERVICE = Path(__file__).resolve().parent.parent
 REPO = SERVICE.parent
 
-#: singleton binding -> its class. Add a row when a new process-global instance appears.
+#: EAGER singleton binding -> its class. Constructed AT the declaration, so exactly one of each.
+#: Add a row when a new process-global instance appears.
 PRODUCTION_SINGLETONS = {"TERMINAL_OUTPUT_WRITES": "TerminalOutputWriteQueue"}
+
+#: LAZY singleton binding -> (class, owning module). Declared `None` and constructed on demand, so
+#: neither count above fits: at the declaration the construction count is ZERO, and the module
+#: legitimately constructs more than once (first use, and an explicit reconfigure).
+#:
+#: The invariant that still holds, and is what actually matters, is CONFINEMENT: one module-level
+#: declaration repo-wide, and the class constructed nowhere in production but its owning module. A
+#: second `NtfyRelay` built elsewhere would carry its own queue and its own dedup window, so operator
+#: pushes would be deduplicated against the wrong history and rate-limited independently — and it
+#: would read its own URL from the environment, which for ntfy is a credential.
+LAZY_SINGLETONS = {"_RELAY": ("NtfyRelay", "service/ntfy.py")}
+
+
+def _module_level_bindings(tree: ast.Module, name: str) -> list[int]:
+    """Line numbers of module-level assignments to `name`, BOTH plain and ANNOTATED.
+
+    `ast.Assign` alone misses `X: T = ...`, and the real declaration this gate had to cover —
+    `_RELAY: Optional[NtfyRelay] = None` — is exactly that form. A second binding written with an
+    annotation would have sailed past an Assign-only count, which is the same undercount this file's
+    docstring is otherwise about.
+    """
+    lines = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target.id] if isinstance(node.target, ast.Name) else []
+        else:
+            continue
+        if name in targets:
+            lines.append(node.lineno)
+    return lines
 
 
 def _sources(include_tests: bool):
@@ -76,12 +109,8 @@ class SingleProductionSingletonTests(unittest.TestCase):
                 tree = _tree(path)
                 if tree is None:
                     continue
-                for node in ast.walk(tree):
-                    if not isinstance(node, ast.Assign):
-                        continue
-                    if not any(isinstance(t, ast.Name) and t.id == binding for t in node.targets):
-                        continue
-                    declarations.append(f"{path.relative_to(REPO).as_posix()}:{node.lineno}")
+                for lineno in _module_level_bindings(tree, binding):
+                    declarations.append(f"{path.relative_to(REPO).as_posix()}:{lineno}")
             self.assertEqual(
                 len(declarations), 1,
                 f"{binding} must have exactly ONE production declaration; a second one splits the "
@@ -166,3 +195,73 @@ class SingleProductionSingletonTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LazySingletonConfinementTests(unittest.TestCase):
+    """A lazily-built singleton cannot be counted at its declaration, so confinement is the invariant.
+
+    `_RELAY` is `None` at import and becomes an `NtfyRelay` on first use. The eager tests above do not
+    apply — its declaration constructs nothing, and its module constructs more than once by design
+    (first use, plus an explicit reconfigure with a new URL). What must still hold is that the state
+    has ONE home: one module-level declaration repo-wide, and no production code outside the owning
+    module building the class at all.
+    """
+
+    def test_exactly_one_module_level_declaration(self):
+        for binding, (_cls, owner) in LAZY_SINGLETONS.items():
+            declarations = []
+            for path in _sources(include_tests=False):
+                tree = _tree(path)
+                if tree is None:
+                    continue
+                for lineno in _module_level_bindings(tree, binding):
+                    declarations.append(f"{path.relative_to(REPO).as_posix()}:{lineno}")
+            self.assertEqual(
+                len(declarations), 1,
+                f"{binding} must be declared at module level exactly once; a second declaration gives "
+                f"each importer its own slot and one of them stays permanently None. Found: {declarations}",
+            )
+            self.assertTrue(
+                declarations[0].startswith(owner),
+                f"{binding} is declared in {declarations[0]}, not in its owner {owner}",
+            )
+
+    def test_production_constructions_are_confined_to_the_owning_module(self):
+        for binding, (cls, owner) in LAZY_SINGLETONS.items():
+            inside, outside = [], []
+            for path in _sources(include_tests=False):
+                tree = _tree(path)
+                if tree is None:
+                    continue
+                rel = path.relative_to(REPO).as_posix()
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Call) and _called_name(node) == cls:
+                        (inside if rel == owner else outside).append(f"{rel}:{node.lineno}")
+            self.assertEqual(
+                outside, [],
+                f"{cls} is constructed outside {owner}. A second relay carries its own queue and dedup "
+                f"window, so pushes are deduplicated against the wrong history and rate-limited "
+                f"independently — and it reads its own URL from the environment.",
+            )
+            self.assertGreaterEqual(
+                len(inside), 1,
+                f"no production construction of {cls} found at all — the confinement check above would "
+                f"pass over an empty set, which proves nothing",
+            )
+
+    def test_the_annotated_declaration_form_is_detected(self):
+        """Non-vacuity for the declaration count, on a fixture rather than on production code.
+
+        The real `_RELAY` line is annotated, and an `ast.Assign`-only walk cannot see it — so a gate
+        built that way would report ZERO declarations and pass while guarding nothing.
+        """
+        annotated = ast.parse("_RELAY: object = None\n")
+        plain = ast.parse("_RELAY = None\n")
+        nested = ast.parse("def f():\n    _RELAY = None\n")
+        self.assertEqual(_module_level_bindings(annotated, "_RELAY"), [1])
+        self.assertEqual(_module_level_bindings(plain, "_RELAY"), [1])
+        self.assertEqual(
+            _module_level_bindings(nested, "_RELAY"), [],
+            "a function-scope assignment is not a module-level declaration and must not be counted — "
+            "the owning module reassigns under `global` on every lazy init",
+        )
