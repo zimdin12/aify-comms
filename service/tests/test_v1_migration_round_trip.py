@@ -1,8 +1,16 @@
 """The v1 -> v2 migration, which nothing had ever run.
 
-`service/export_v1.py` and `service/import_v2.py` were the ONLY two of the service's 214 modules
-with no function executed by the suite — measured by tracing call events through a full pytest run,
-because coverage.py is not installed here and adding a dependency is a reviewer's call, not mine.
+`service/export_v1.py` and `service/import_v2.py` were the ONLY two of the service's 214 modules the
+suite never even IMPORTED — measured by tracing call events through a full pytest run, because
+coverage.py is not installed here and adding a dependency is a reviewer's call, not mine.
+
+THAT SENTENCE IS NARROWER THAN THE ONE I FIRST WROTE, which said "no function executed". A module
+body is itself a frame, so an imported-but-unused module registers a call event and the scan cannot
+tell it from a busy one. The claim that survives is the one above — and it is still the reason this
+file exists, because a module nothing imports is a module nothing has ever run. (The finer question,
+which FUNCTIONS are never entered, needs `threading.settrace` as well: Starlette's TestClient drives
+the app on an anyio worker thread, and a main-thread-only tracer reports every API-only path as
+dead.)
 
 They are a one-shot pair: `scripts/migrate-v1-to-v2.sh` reads the v1 JSON volume into a bundle and
 writes it into a fresh SQLite database. Being one-shot is exactly the argument FOR testing them
