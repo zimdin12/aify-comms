@@ -3,8 +3,8 @@
 // with read/unread + wake-vs-stored badges; and a composer with an "expects reply" toggle,
 // queue option, and the delivery-truthfulness toast ladder. Pure rail/timeline builders are
 // exported for unit testing; the page wires app state + send via createChatController().
-import { esc, relTime } from './util.js';
-import { renderStatusChip, resolveStatus, LIVE_AGENT_STATUSES } from './status.js';
+import { esc } from './util.js';
+
 import { toast } from './ui.js';
 import { fleetPulseHtml } from './analytics.js';
 // The conversation-list builders left for `chat-select.mjs` in v0.5.4, with the HTML builders that

@@ -14,12 +14,11 @@
 // indentation, which the reconstruction proof strips before comparing. The run contains no multi-line
 // template literal, so that re-indentation cannot alter a string.
 
-import { chatLoadConversation, chatSendMessage } from './message-transport.mjs';
-import { addChannelMember, chatChannelAction, markConversationRead, markMessageRead, mountChatConsole, openMessageThread, removeChannelMember, toggleFavorite, unsendMessage } from './message-actions.mjs';
+import { toggleFavorite } from './message-actions.mjs';
 import { api } from './api-client.mjs';
 import { applyCachedTheme, applyTheme } from './theme.js';
 import { attachChatFile, uploadPastedImage, uploadSharedFile } from './shared-files.mjs';
-import { closeStatusWhy } from './status-why-popover.mjs';
+
 import { codexConsoleSendTurn } from './codex-console.mjs';
 import { createSpawnRequest, renderEnvironmentSpawnOptions } from './environments-panels.mjs';
 import { disposeActiveXterm } from './xterm-lifecycle.mjs';
