@@ -44,7 +44,6 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     from service.reconcilers.orphaned_managed_runs import _close_orphaned_managed_runs
     from service.reconcilers.dispatch_lifecycle import (
         _clear_turn_busy_for_dead_bridges,
-        _close_steered_contracts_for_parent_run,
         _fail_stranded_delivered_reply_runs,
         _prune_orphaned_dispatch_runs,
         _sweep_unmirrored_failed_handoffs,
@@ -55,18 +54,12 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _requeue_orphaned_claimed_runs,
         _reroute_orphaned_managed_channel_runs,
     )
-    from service.reconcilers.terminal_runs import (
-        _close_active_terminal_runs_for_terminal,
-        _close_idle_claude_terminal_run_without_reply,
-        _close_idle_pi_terminal_run_without_reply,
-        _reconcile_stuck_terminal_and_session_rows,
-    )
+    from service.reconcilers.terminal_runs import _reconcile_stuck_terminal_and_session_rows
     from service.reconcilers.terminals import (
         _close_idle_virtual_rpc_workers,
         _reconcile_resurrected_managed_consoles,
         _reconcile_stale_managed_terminals_for_resident_agents,
     )
-    from service.reconcilers.terminal_consistency import _repair_terminal_session_consistency
     from service.reconcilers.dead_session_status import _reconcile_dead_session_status
     from service.reconcilers.sessions import (
         _reconcile_duplicate_resident_sessions,
