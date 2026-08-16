@@ -24,7 +24,7 @@ from service.api_core.dispatch_state import (
     _DISPATCH_TERMINAL_STATUSES,
     _is_delivery_only_claude_run,
 )
-from service.api_core.serialization import _row_require_reply
+from service.api_core.serialization import _quote_untrusted_subject, _row_require_reply
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.api_core.settings import DEFAULT_SETTINGS
 
@@ -115,6 +115,15 @@ def _contract_reminder_body(row, *, full: bool = True) -> str:
     target = str(row["target_agent"] or "").strip()
     sender = str(row["from_agent"] or "").strip()
     subject = str(row["subject"] or "").strip() or "(no subject)"
+    # QUOTED with the shared quoter, not with hand-typed `"` characters. Every line below already
+    # MEANT to quote this subject — it is another agent's free text arriving in the reader's context,
+    # and the whole reason `_quote_untrusted_subject` exists is that a bare imperative there reads as
+    # a command (operator-reported 2026-08-11). But `"{subject}"` written by hand is escapable: a
+    # subject that itself contains a double quote closes the quotation, and the rest of it lands as
+    # unquoted prose — the exact failure, re-entered through the punctuation. The shared function
+    # neutralises embedded quotes and clips, which matters here because a subject is UNBOUNDED on
+    # input (no `max_length` on the model, no zod max on the tool).
+    quoted_subject = _quote_untrusted_subject(subject, 240)
     read_hint = (
         f'comms_inbox(agentId="{target}", messageId="{message_id}")'
         if message_id
@@ -137,11 +146,11 @@ def _contract_reminder_body(row, *, full: bool = True) -> str:
     # not by threading. Say so plainly rather than implying an anchor exists.
     reply_hint = (
         f'comms_send(from="{target}", to="{sender}", type="response", inReplyTo="{message_id}", '
-        f'subject="Re: {subject}", body="<answer, blocker, or result>")'
+        f'subject={_quote_untrusted_subject(f"Re: {subject}", 240)}, body="<answer, blocker, or result>")'
         if message_id and sender
         else (
             f'comms_send(from="{target}", to="{sender or "dashboard"}", type="response", '
-            f'subject="Re: {subject}", body="<answer, blocker, or result>") '
+            f'subject={_quote_untrusted_subject(f"Re: {subject}", 240)}, body="<answer, blocker, or result>") '
             f'(operator-initiated — no source message to thread to)'
         )
     )
@@ -151,12 +160,12 @@ def _contract_reminder_body(row, *, full: bool = True) -> str:
         # format uses, so the recipient can still reply to the right message.
         # No original body, no boilerplate. The message row itself still
         # carries in_reply_to, so threading is identical to a full reminder.
-        return f'Reply owed to {message_id or row["id"]}: "{subject}" — {reply_hint}'
+        return f'Reply owed to {message_id or row["id"]}: {quoted_subject} — {reply_hint}'
     # Terse on purpose (2026-06-18): efficacy comes from the reply ANCHOR, not prose. The
     # sender/subject/ids are already in the agent's inbox, so we don't restate them at length —
     # that was ~210 tokens of context burn per reminder (the system already reminds rarely).
     return (
-        f'aify-comms reminder: "{subject}" from {sender} still needs an explicit reply (run {row["id"]}).\n'
+        f'aify-comms reminder: {quoted_subject} from {sender} still needs an explicit reply (run {row["id"]}).\n'
         f"Reply to the ORIGINAL, not this nudge: {reply_hint}\n"
         f"Read it first if needed: {read_hint}\n"
         "If blocked, reply with the blocker, what you checked, and your next action."
