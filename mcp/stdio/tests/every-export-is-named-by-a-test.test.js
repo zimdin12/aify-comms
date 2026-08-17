@@ -8,7 +8,10 @@
 //
 // MEASURED FIRST, like every other ratchet here: 220 modules, 990 exports, 42 named by no test.
 // Thin and spread out — mostly one or two per module — which is what makes them easy to leave. The
-// backlog below is those 42 and MAY ONLY SHRINK.
+// backlog below started as those 42 and MAY ONLY SHRINK: 42 -> 24 -> 14, the last step being the
+// eight dashboard entries paid down together in `exported-vocabularies.test.mjs` on 2026-08-17.
+// Seven of those eight were exported CONSTANTS, which is the shape worth noticing: a vocabulary or
+// a bound that some other module reads, with nothing asserting the two still agree.
 //
 // WHAT THIS PROVES AND WHAT IT DOES NOT. "A test names it" is not "a test asserts anything useful
 // about it": a name mentioned in a docstring counts, and a name that happens to appear in an
@@ -68,14 +71,6 @@ const UNTESTED_EXPORT_BACKLOG = [
   "mcp/stdio/usage-collector.js#readAgentConsumption",
   "mcp/stdio/virtual-terminals.mjs#updateTerminalControl",
   "mcp/stdio/wrapper-pool.js#disposeAll",
-  "service/new_dashboard/analytics.js#ANALYTICS_RANGES",
-  "service/new_dashboard/chat-render.mjs#DERIVED_SUBJECT_MAX",
-  "service/new_dashboard/cli-resume.mjs#MANAGED_CODEX_HOME",
-  "service/new_dashboard/extraction-proof.mjs#BROWSER_GLOBALS",
-  "service/new_dashboard/notify.mjs#NOTIFIABLE_EVENTS",
-  "service/new_dashboard/sessions-list.mjs#LIVE_SESSION_ROW_STATUSES",
-  "service/new_dashboard/status.js#NON_LIVE_AGENT_STATUSES",
-  "service/new_dashboard/theme.js#applyCachedTheme",
 ];
 
 function moduleFiles() {
