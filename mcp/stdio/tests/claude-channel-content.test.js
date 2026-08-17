@@ -64,7 +64,34 @@ test("Claude channel non-require_reply dispatch does NOT force a same-turn reply
     "delivery-only dispatch should not carry the same-turn-reply warning");
 });
 
-test("a stopped resident can recover delivery without restarting Claude", { timeout: 10_000 }, async (t) => {
+// How long the dormant-recovery path COSTS, taken from the product rather than guessed.
+//
+// `claude-channel.js` resolves its recheck interval as `Math.max(5000, ...)` — a FLOOR, so the env
+// var below cannot buy a faster test, and this path spends five real seconds no matter what. The
+// bound used to be 8s: five of them already spoken for, leaving three for a node child to boot and
+// two HTTP round trips to complete. That held when this file ran alone (measured ~6.9s) and lost the
+// race under a full 16-way `node --test`, where it failed in a reviewer's environment and passed on
+// rerun — the shape that reads as "flaky test" and is actually a bound set below its own cost.
+//
+// The budget is now the floor plus generous room for everything that is NOT the sleep, because
+// overshooting costs nothing on the happy path (the promise resolves as soon as the second claim
+// lands) and only decides how patient the failure is.
+const DORMANT_RECHECK_FLOOR_MS = 5_000;
+const RECOVERY_BOUND_MS = DORMANT_RECHECK_FLOOR_MS + 25_000;
+
+test("the dormant recheck FLOOR this test budgets for is still the product's", async () => {
+  // A drift gate, not a location pin: if the floor moves, the budget above is silently wrong again,
+  // and the symptom would be an intermittent failure in someone else's suite rather than here.
+  const source = await import("node:fs").then((fs) => fs.readFileSync(
+    fileURLToPath(new URL("../claude-channel.js", import.meta.url)), "utf-8"));
+  const declared = source.match(/RELEASE_RECHECK_MS\s*=\s*Math\.max\((\d+)/);
+  assert.ok(declared, "RELEASE_RECHECK_MS is no longer floored with Math.max — re-derive the budget below");
+  assert.equal(Number(declared[1]), DORMANT_RECHECK_FLOOR_MS,
+    "the product's dormant-recheck floor changed; the recovery test's time budget must be re-derived from it");
+});
+
+test("a stopped resident can recover delivery without restarting Claude",
+  { timeout: RECOVERY_BOUND_MS + 10_000 }, async (t) => {
   const stoppedTmp = tmpDir("aify-stopped-channel-");
   writeAgentBindingFile({ pid: process.pid, agentId: "stopped-channel-test", dir: stoppedTmp });
 
@@ -92,7 +119,7 @@ test("a stopped resident can recover delivery without restarting Claude", { time
       AIFY_SERVER_URL: `http://127.0.0.2:${api.address().port}`,
       CLAUDE_MCP_SERVER_URL: `http://127.0.0.2:${api.address().port}`,
       AIFY_COMMS_CHANNEL_POLL_MS: "10",
-      AIFY_CHANNEL_RELEASE_RECHECK_MS: "5000",
+      AIFY_CHANNEL_RELEASE_RECHECK_MS: "5000",   // the FLOOR — a smaller value here buys nothing
       AIFY_CHANNEL_PARENT_GUARD_MS: "60000",
       AIFY_CHANNEL_LIVENESS_MS: "60000",
     },
@@ -109,7 +136,9 @@ test("a stopped resident can recover delivery without restarting Claude", { time
   await Promise.race([
     secondClaim,
     new Promise((_, reject) => {
-      const timer = setTimeout(() => reject(new Error(`channel never reclaimed after stopped; stderr=${stderr}`)), 8000);
+      const timer = setTimeout(() => reject(new Error(
+        `channel never reclaimed after ${RECOVERY_BOUND_MS}ms (floor is ${DORMANT_RECHECK_FLOOR_MS}ms); stderr=${stderr}`,
+      )), RECOVERY_BOUND_MS);
       timer.unref();
     }),
   ]);

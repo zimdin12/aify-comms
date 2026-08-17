@@ -24,72 +24,93 @@ const TOOL_USE = { lastRole: "assistant", lastStopReason: "tool_use", pendingToo
 const END_TURN = { lastRole: "assistant", lastStopReason: "end_turn", pendingToolUse: false };
 const USER_PENDING = { lastRole: "user", lastStopReason: null, pendingToolUse: false };
 
-// Drive the loop over a fixed sequence of tail summaries (one per tick), then
-// resolve with the number of /turn-start and /turn-end POSTs. The loop reads the
-// LAST element repeatedly after the sequence is exhausted, so pick durations that
-// consume the sequence (intervalMs small).
-// SPEED: the detector polls on a real setInterval, so each test must wait long
-// enough to consume `seq` (one tail summary per tick). intervalMs and the
-// per-test waits are sized together so the loop still gets seq.length ticks with
-// ~2x margin — the assertions only count transitions, never timing — at roughly
-// half the wall-clock of the original 10ms / 90-160ms pairs.
+// Drive the loop over a fixed sequence of tail summaries (one per tick), then resolve with the
+// number of /turn-start and /turn-end POSTs. The loop reads the LAST element repeatedly once the
+// sequence is exhausted, so extra ticks can never add a transition — which is what makes the
+// counts exact rather than timing-dependent.
+//
+// DRIVEN BY THE SEQUENCE, NOT BY THE CLOCK (2026-08-17). Each test used to wait a fixed number of
+// milliseconds and assume that bought `seq.length` ticks. It did not: `TICK_MS` is 5, and this
+// file's own KEEP-FRESH tests record the ~15ms Windows setInterval floor 70 lines below. A 6-entry
+// sequence therefore needs ~90ms of real ticks and was given 80 — the margin the old comment
+// claimed was "~2x" was actually NEGATIVE, and the shortfall showed up as a reviewer's full-suite
+// failure ("two distinct ended turns -> two /turn-end; got 1") that passed when the file ran alone.
+// Waiting for the READS to happen removes the assumption entirely: under any scheduler, on any
+// platform, the assertions now see the whole sequence or fail saying how much of it they saw.
 const TICK_MS = 5;
-async function runLoop(seq, ms) {
+const SETTLE_TICKS = 3;      // ticks past the last entry, so its transition has certainly posted
+const CONSUME_BOUND_MS = 20_000;
+
+async function runLoop(seq) {
   const starts = [];
   const ends = [];
-  let i = 0;
+  let reads = 0;
   const stop = startClaudeTurnEndDetector({
     intervalMs: TICK_MS,
-    readTranscript: async () => seq[Math.min(i++, seq.length - 1)],
+    readTranscript: async () => {
+      const tail = seq[Math.min(reads, seq.length - 1)];
+      reads += 1;
+      return tail;
+    },
     postTurnStart: async () => { starts.push(Date.now()); },
     postTurnEnd: async () => { ends.push(Date.now()); },
   });
-  await new Promise((r) => setTimeout(r, ms));
-  stop();
+  const wanted = seq.length + SETTLE_TICKS;
+  const deadline = Date.now() + CONSUME_BOUND_MS;
+  try {
+    while (reads < wanted) {
+      if (Date.now() > deadline) {
+        throw new Error(`the detector read ${reads} of ${wanted} tails in ${CONSUME_BOUND_MS}ms — it is not ticking`);
+      }
+      await new Promise((r) => setTimeout(r, TICK_MS));
+    }
+  } finally {
+    stop();
+  }
   return { starts: starts.length, ends: ends.length };
 }
 
 test("long build / pending tool_use POSTs /turn-start once, never /turn-end (no false-clear)", async () => {
-  const { starts, ends } = await runLoop([TOOL_USE, TOOL_USE, TOOL_USE, TOOL_USE, TOOL_USE], 60);
+  const { starts, ends } = await runLoop([TOOL_USE, TOOL_USE, TOOL_USE, TOOL_USE, TOOL_USE]);
   assert.strictEqual(ends, 0, `pending tool_use must never fire turn-end; got ${ends}`);
   assert.strictEqual(starts, 1, `in-flight sets working exactly once (no spam); got ${starts}`);
 });
 
 test("sub-agent dispatch (parent static, tool_use pending) STARTs once, never ENDs", async () => {
   const seq = Array(8).fill(TOOL_USE);
-  const { starts, ends } = await runLoop(seq, 70);
+  const { starts, ends } = await runLoop(seq);
   assert.strictEqual(ends, 0, `a Task sub-agent dispatch must never fire turn-end; got ${ends}`);
   assert.strictEqual(starts, 1, `sub-agent dispatch sets working once; got ${starts}`);
 });
 
 test("in-flight -> ended -> new-in-flight: /turn-start, /turn-end, /turn-start (re-arm both directions)", async () => {
   const seq = [TOOL_USE, END_TURN, END_TURN, TOOL_USE, END_TURN, END_TURN];
-  const { starts, ends } = await runLoop(seq, 80);
+  const { starts, ends } = await runLoop(seq);
   assert.strictEqual(starts, 2, `two distinct in-flight turns -> two /turn-start; got ${starts}`);
   assert.strictEqual(ends, 2, `two distinct ended turns -> two /turn-end; got ${ends}`);
 });
 
 test("null / unreadable tail never POSTs either way (false-clear / false-set safety)", async () => {
-  const { starts, ends } = await runLoop([null, null, undefined, null], 50);
+  const { starts, ends } = await runLoop([null, null, undefined, null]);
   assert.strictEqual(starts, 0, `null/unreadable tail must never fire turn-start; got ${starts}`);
   assert.strictEqual(ends, 0, `null/unreadable tail must never fire turn-end; got ${ends}`);
 });
 
 test("between-tool-calls (trailing user/tool_result) stays working: one START, no END", async () => {
-  const { starts, ends } = await runLoop([TOOL_USE, USER_PENDING, TOOL_USE, USER_PENDING], 55);
+  const { starts, ends } = await runLoop([TOOL_USE, USER_PENDING, TOOL_USE, USER_PENDING]);
   assert.strictEqual(starts, 1, `one in-flight turn -> one /turn-start; got ${starts}`);
   assert.strictEqual(ends, 0, `a trailing user/tool_result is in-flight, not ended; got ${ends}`);
 });
 
 test("an unreadable tick mid-turn does not lose state; START once, the eventual end_turn ENDs once", async () => {
-  const { starts, ends } = await runLoop([TOOL_USE, null, END_TURN, END_TURN], 55);
+  const { starts, ends } = await runLoop([TOOL_USE, null, END_TURN, END_TURN]);
   assert.strictEqual(starts, 1, `in-flight -> one /turn-start; got ${starts}`);
   assert.strictEqual(ends, 1, `ended after a transient unreadable tick -> one /turn-end; got ${ends}`);
 });
 
 test("RESIDENT channel-woken turn (first observation already mid-tool, no hook) POSTs /turn-start", async () => {
   // The under-report repro: the turn's only start signal would be the detector.
-  const { starts, ends } = await runLoop([TOOL_USE, TOOL_USE, END_TURN, END_TURN], 55);
+  const { starts, ends } = await runLoop([TOOL_USE, TOOL_USE, END_TURN, END_TURN]);
   assert.strictEqual(starts, 1, `channel-woken in-flight turn sets working; got ${starts}`);
   assert.strictEqual(ends, 1, `then yields -> one /turn-end; got ${ends}`);
 });
