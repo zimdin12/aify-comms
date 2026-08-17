@@ -41,11 +41,14 @@ REPO = pathlib.Path(__file__).resolve().parents[2]
 
 #: Routes FastAPI or the static mount provides, which no handler in this repo owns. Listed rather
 #: than pattern-matched so a real route can never hide behind a loose rule.
+#:
+#: THE FOUR FAVICON ROUTES LEFT THIS LIST on 2026-08-17, and they were never framework routes: each
+#: is a handler in this repo, declared in `routers/meta.py` and `main.py`, resolving a path relative
+#: to its own module. They were listed here because they LOOK like plumbing. `test_service_meta_
+#: routes.py` now drives all four, asserts they serve the same bytes and the SVG media type, and
+#: pins that they are reachable without an API key — and the ratchet below is what forced the
+#: cleanup, by failing the moment they became exercised.
 FRAMEWORK_ROUTES = {
-    "GET /favicon.ico",
-    "GET /favicon.svg",
-    "GET /api/v1/favicon.ico",
-    "GET /api/v1/favicon.svg",
     "GET /docs/oauth2-redirect",
 }
 

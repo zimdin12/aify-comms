@@ -21,6 +21,11 @@ def dashboard_url(request: Request) -> str:
         return configured.rstrip("/") + "/"
 
     host = request.url.hostname or "localhost"
+    # `url.hostname` STRIPS the brackets from an IPv6 authority (`[::1]:8800` -> `::1`), so they
+    # have to go back on or the reassembled URL reads as `http://::1:8801/`, which no browser will
+    # follow. The `startswith("[")` half is DEFENSIVE ONLY and is unreachable from this caller for
+    # the same reason — kept as one condition standing between a changed Starlette contract and a
+    # broken link. `test_dashboard_redirect.py` records that a mutation removing it survives.
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
     port = os.environ.get("AIFY_DASHBOARD_PORT", "8801").strip() or "8801"

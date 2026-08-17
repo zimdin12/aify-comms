@@ -51,7 +51,8 @@ import time
 # owned the other waiter registry, and the identity gate names it as the sole owner.
 
 from service.api_core.status_decision import StatusFacts, _decide_effective_status
-from service.config import get_config
+# v0.5.4: `from service.config import get_config` removed — dead. The orphaned-import gate had been
+# counting an unrelated `"get_config"` string literal in a test as a reference to it.
 # v0.5.2a: the shared route class lives with the domain-router factory so no domain can build a
 # router without the SQLite lock-retry. See service/api_core/routing.py.
 from service.api_core.validation import SAFE_NAME_RE, validate_name  # v0.5.1f: one owner

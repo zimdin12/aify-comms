@@ -189,8 +189,17 @@ class ApiKeyMiddlewareTests(unittest.TestCase):
         framework_paths = {entry.split(" ", 1)[1] for entry in FRAMEWORK_ROUTES}
         # The docs trio is FastAPI's, and unauthenticated on purpose: it exposes the API SHAPE and
         # no data. Named here rather than assumed, so switching them off later is a deliberate edit.
+        #
+        # THE FOUR FAVICONS ARE NAMED HERE ON THEIR OWN MERIT since 2026-08-17. They used to arrive
+        # through `framework_paths` above, which was borrowing a list about TEST COVERAGE to answer
+        # a question about AUTH — and the moment they gained tests and left that list, this gate
+        # reported them as newly unauthenticated. They are not new and they are not framework
+        # routes: they are handlers in this repo that must answer without a key, because a browser
+        # requesting a favicon sends none and a 401 is a permanently broken tab icon.
         public_endpoints = {"/health", "/ready", "/version", "/ws",
-                            "/docs", "/redoc", "/openapi.json"}
+                            "/docs", "/redoc", "/openapi.json",
+                            "/favicon.svg", "/favicon.ico",
+                            "/api/v1/favicon.svg", "/api/v1/favicon.ico"}
 
         unexpected = sorted(
             route.path for route in app.routes
