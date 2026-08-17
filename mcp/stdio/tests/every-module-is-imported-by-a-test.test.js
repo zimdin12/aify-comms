@@ -34,15 +34,19 @@ const MODULE_DIRS = ["mcp/stdio", "service/new_dashboard"];
 // distinction visible rather than re-litigated.
 const TEST_DIRS = ["mcp/stdio/tests", "mcp/stdio", "service/new_dashboard"];
 
-//: MEASURED 2026-08-14, and now down to the two that CANNOT be import-tested. Both have ZERO exports:
-//: they are scripts whose top level does the work, so importing one RUNS it — `hermes-daemon-cli.js`
-//: drives a daemon and `usage-preflight.js` performs a quota check. "Write it a unit test" is not the
-//: right answer for either; they need either an exported entry point or an end-to-end harness, which
-//: is a change to the module rather than to this list. Recorded so the remaining two do not read as
-//: the same kind of debt as the eight that were paid down.
+//: MEASURED 2026-08-14. ONE LEFT, and the note that stood here said why the last two could not be
+//: import-tested: both were scripts whose top level did the work, so importing one RAN it. It also
+//: said the answer was "an exported entry point or an end-to-end harness — a change to the module
+//: rather than to this list", and on 2026-08-17 `usage-preflight.js` got exactly that: its rendering
+//: and its entry point are now separate functions, and the script tail runs only when the file is the
+//: process entry point. Importing it prints nothing and reaches no network, which is asserted from a
+//: CHILD process in `usage-preflight.test.js` because nothing in-process can witness its own import.
+//:
+//: `hermes-daemon-cli.js` is the remaining one and is the harder case: it DRIVES a daemon, so the
+//: same split needs an end-to-end harness rather than an injected logger. Left recorded rather than
+//: rushed.
 const UNTESTED_BACKLOG = [
   "mcp/stdio/hermes-daemon-cli.js",
-  "mcp/stdio/usage-preflight.js",
 ];
 
 function modules() {

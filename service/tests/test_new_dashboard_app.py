@@ -39,6 +39,42 @@ class NewDashboardAppTest(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
 
+    def test_health_is_the_containers_own_healthcheck(self):
+        """`docker-compose.yml` line 87: `curl -f http://localhost:8801/health`. These two handlers were
+        the LAST two functions under `service/` the suite never entered — 760 declared, 2 uncovered —
+        and this is the one whose failure Docker acts on: a non-200 restarts the dashboard container,
+        and a 200 for the wrong reason keeps a broken one running.
+
+        It is deliberately NOT the service's `/health`: this app serves static files and nothing else,
+        so it has no database or relay to report on, and inventing a richer body here would make the
+        healthcheck depend on things this process does not own."""
+        response = self.client.get("/health")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"status": "healthy"})
+
+    def test_the_compose_healthcheck_targets_the_path_that_exists(self):
+        """The pair that matters: an endpoint nobody checks and a check pointing at nothing look
+        identical from either side alone."""
+        compose_path = ROOT / "docker-compose.yml"
+        if not compose_path.exists():
+            self.skipTest("docker-compose.yml is not copied into the service image")
+        self.assertIn("http://localhost:8801/health", compose_path.read_text(encoding="utf-8"))
+
+    def test_the_legacy_dashboard_path_redirects_to_the_root(self):
+        """`/dashboard` is where the API service sends an operator, and older bookmarks point at it.
+        On THIS app the SPA is served from `/`, so the path has to resolve rather than 404 — a dead
+        link from the service's own redirect chain is the worst place for one."""
+        response = self.client.get("/dashboard", follow_redirects=False)
+        self.assertIn(response.status_code, (302, 307), response.text)
+        self.assertEqual(response.headers["location"], "/")
+
+    def test_the_redirect_lands_on_the_SPA(self):
+        """Followed, not just inspected: a redirect to a path that itself 404s is still a broken
+        link, and the two halves are owned by different handlers."""
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("AIFY Comms Dashboard Next", response.text)
+
     def test_serves_preview_shell_and_assets(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200, response.text)
