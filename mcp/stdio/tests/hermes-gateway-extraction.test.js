@@ -7,11 +7,18 @@
 // each new one appends.
 //
 // Two obligations, and they are different. The reconstruction below proves nothing MOVED that was not
-// declared — put the 23 extracted spans back, undo the import edits, and require byte-identity with a
-// tracked pre-slice fixture. The unit tests after it prove the moved code still answers correctly, and they
-// deliberately assert things `hermes-managed-host.test.js` does not: 26 of the 27 host exports already had
-// executing importers, so a new file full of assertions the old suite already makes would add a file and no
-// evidence.
+// declared — put EVERY span the `EXTRACTIONS` table declares back, undo the import edits, and require
+// byte-identity with a tracked pre-slice fixture. The unit tests after it prove the moved code still
+// answers correctly, and they deliberately assert things `hermes-managed-host.test.js` does not: nearly
+// every host export already had executing importers, so a new file full of assertions the old suite
+// already makes would add a file and no evidence.
+//
+// NO COUNTS IN THIS HEADER, deliberately (2026-08-18). It used to say "the 23 extracted spans" and "26 of
+// the 27 host exports". Every slice appends to `EXTRACTIONS`, so both numbers were stale within days and
+// were well past wrong when a reviewer on another instance flagged them — while the gate itself was green,
+// because nothing asserts prose. A number in a comment is a claim with no test behind it; the invariant
+// ("every declared span") is true after every future slice without anyone maintaining it. Same class as
+// the suite counts corrected in CLAUDE.md, and as `3f1e043`.
 //
 // The prover lives in service/new_dashboard/extraction-proof.mjs because that is where it was built for the
 // app.js lane. It is imported across trees rather than copied — a second copy of a proof is how two proofs
