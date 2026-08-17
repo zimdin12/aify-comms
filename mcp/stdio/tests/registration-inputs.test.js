@@ -30,6 +30,7 @@ import {
   resolvedRuntimeMarker,
 } from "../registration-inputs.mjs";
 import { bridgeSources, declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEAF = pathToFileURL(path.join(STDIO, "registration-inputs.mjs")).href;
@@ -54,7 +55,7 @@ function sealedEnv(extra = {}) {
   return {
     home,
     env: {
-      ...process.env,
+      ...sealedChildEnv(),
       TEMP: home, TMP: home, XDG_STATE_HOME: path.join(home, "state"),
       AIFY_AGENT_ID: "hermetic-test-agent",
       AIFY_HERMES_GATEWAY_URL: "",

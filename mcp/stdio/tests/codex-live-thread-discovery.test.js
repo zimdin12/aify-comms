@@ -5,6 +5,7 @@ import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { discoverCodexLiveThreadId } from "../runtimes.js";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fakeServer = resolve(__dirname, "fixtures/fake-codex-app-server.mjs");
@@ -27,7 +28,7 @@ async function withFakeCodexAppServer(fn) {
   const child = spawn(process.execPath, [fakeServer, "--listen", url], {
     cwd: process.cwd(),
     env: {
-      ...process.env,
+      ...sealedChildEnv(),
       FAKE_CODEX_RESIDENT_THREAD: "resident-thread-data-shape",
       FAKE_CODEX_THREAD_LIST_KEY: "data",
     },

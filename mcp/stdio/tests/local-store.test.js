@@ -13,6 +13,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { AGENTS_FILE, INBOX_DIR, MESSAGES_DIR, SHARED_DIR } from "../local-store.mjs";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const STDIO = path.resolve(HERE, "..");
@@ -49,7 +50,7 @@ test("the default store sits beside the bridge, not beside the caller's cwd", ()
     ["--input-type=module", "-e",
       "import { MESSAGES_DIR } from " + JSON.stringify(pathToFileURL(LEAF).href)
       + "; process.stdout.write(MESSAGES_DIR);"],
-    { cwd: elsewhere, env: { ...process.env, CLAUDE_MCP_MESSAGES_DIR: "" }, encoding: "utf-8" },
+    { cwd: elsewhere, env: { ...sealedChildEnv(), CLAUDE_MCP_MESSAGES_DIR: "" }, encoding: "utf-8" },
   );
   assert.notEqual(path.resolve(elsewhere), path.resolve(STDIO), "the two directories must really differ");
   assert.equal(
@@ -76,7 +77,7 @@ test("CLAUDE_MCP_MESSAGES_DIR relocates the whole store, sub-paths included", ()
       "import { MESSAGES_DIR, AGENTS_FILE, INBOX_DIR, SHARED_DIR } from "
       + JSON.stringify(pathToFileURL(LEAF).href)
       + "; process.stdout.write(JSON.stringify({ MESSAGES_DIR, AGENTS_FILE, INBOX_DIR, SHARED_DIR }));"],
-    { env: { ...process.env, CLAUDE_MCP_MESSAGES_DIR: "", ...env }, encoding: "utf-8" },
+    { env: { ...sealedChildEnv(), CLAUDE_MCP_MESSAGES_DIR: "", ...env }, encoding: "utf-8" },
   ));
 
   const custom = path.join(path.resolve(STDIO, ".."), "custom-store-for-test");
@@ -121,7 +122,7 @@ test("importing this module touches the filesystem NOT AT ALL", () => {
     ["--input-type=module", "-e",
       "const m = await import(" + JSON.stringify(pathToFileURL(LEAF).href) + ");"
       + " if (typeof m.readAgents !== 'function') { throw new Error('module did not load'); }"],
-    { env: { ...process.env, CLAUDE_MCP_MESSAGES_DIR: ghost }, encoding: "utf-8" },
+    { env: { ...sealedChildEnv(), CLAUDE_MCP_MESSAGES_DIR: ghost }, encoding: "utf-8" },
   );
 
   assert.equal(
@@ -146,7 +147,7 @@ test("the agents registry round-trips, and a missing or corrupt file reads as em
       "const { readAgents, writeAgents, AGENTS_FILE } = await import("
       + JSON.stringify(pathToFileURL(LEAF).href) + ");"
       + "const fs = await import('node:fs');" + script],
-    { env: { ...process.env, CLAUDE_MCP_MESSAGES_DIR: dir }, encoding: "utf-8" },
+    { env: { ...sealedChildEnv(), CLAUDE_MCP_MESSAGES_DIR: dir }, encoding: "utf-8" },
   );
   try {
     // Absent file: the normal first-run case, not a fault.
@@ -184,7 +185,7 @@ test("a delivered message lands unread, reads back, and marking it read is not a
       + "  afterAll: readInbox('agent-b', 'all').length,"
       + "  emptyForStranger: readInbox('nobody').length,"
       + "}));"],
-    { env: { ...process.env, CLAUDE_MCP_MESSAGES_DIR: dir }, encoding: "utf-8" },
+    { env: { ...sealedChildEnv(), CLAUDE_MCP_MESSAGES_DIR: dir }, encoding: "utf-8" },
   );
   try {
     const r = JSON.parse(out);

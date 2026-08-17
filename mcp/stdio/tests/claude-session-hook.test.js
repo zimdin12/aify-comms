@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process";
 import { handleClaudeSessionHook } from "../claude-session-hook.js";
 import { readClaudeSessionId } from "../claude-session-store.js";
 import { tmpDir } from "./_tmpdir.js";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const HOOK = fileURLToPath(new URL("../claude-session-hook.js", import.meta.url));
 
@@ -69,7 +70,7 @@ test("spawning the hook with piped stdin writes the store file and exits 0", () 
   try {
     const res = spawnSync(process.execPath, [HOOK], {
       input: JSON.stringify({ session_id: "spawned-sid-999" }),
-      env: { ...process.env, TEMP: dir, TMP: dir, AIFY_AGENT_ID: "spawned-agent" },
+      env: { ...sealedChildEnv(), TEMP: dir, TMP: dir, AIFY_AGENT_ID: "spawned-agent" },
       encoding: "utf-8",
     });
     assert.strictEqual(res.status, 0, "hook must exit 0");
@@ -84,7 +85,7 @@ test("spawning the hook with empty stdin exits 0 and writes nothing", () => {
   try {
     const res = spawnSync(process.execPath, [HOOK], {
       input: "",
-      env: { ...process.env, TEMP: dir, TMP: dir, AIFY_AGENT_ID: "spawned-agent" },
+      env: { ...sealedChildEnv(), TEMP: dir, TMP: dir, AIFY_AGENT_ID: "spawned-agent" },
       encoding: "utf-8",
     });
     assert.strictEqual(res.status, 0, "hook must exit 0 on empty stdin");
@@ -97,7 +98,7 @@ test("spawning the hook with empty stdin exits 0 and writes nothing", () => {
 test("spawning the hook without an agentId exits 0 and writes nothing", () => {
   const dir = tmpDir("aify-claude-hook-");
   try {
-    const env = { ...process.env, TEMP: dir, TMP: dir };
+    const env = { ...sealedChildEnv(), TEMP: dir, TMP: dir };
     delete env.AIFY_AGENT_ID;
     delete env.AIFY_COMMS_AGENT_ID;
     const res = spawnSync(process.execPath, [HOOK], {

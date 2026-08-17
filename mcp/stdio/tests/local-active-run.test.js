@@ -19,6 +19,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEAF = pathToFileURL(path.join(STDIO, "local-active-run.mjs")).href;
@@ -61,7 +62,7 @@ function reconcileWith({ status = 200, run = null, active = { runId: "run-1", ru
     }));
   `;
   return JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script],
-    { env: { ...process.env, AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "" },
+    { env: { ...sealedChildEnv(), AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "" },
       encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }));
 }
 

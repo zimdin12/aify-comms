@@ -10,6 +10,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { writeAgentBindingFile } from "../binding-file.js";
 import { tmpDir } from "./_tmpdir.js";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 test("Claude channel dispatch content starts with a native aify-comms receipt marker", async () => {
   const { dispatchContent } = await import("../claude-channel-content.js");
@@ -85,7 +86,7 @@ test("a stopped resident can recover delivery without restarting Claude", { time
 
   const child = spawn(process.execPath, [fileURLToPath(new URL("../claude-channel.js", import.meta.url))], {
     env: {
-      ...process.env,
+      ...sealedChildEnv(),
       TMP: stoppedTmp,
       TEMP: stoppedTmp,
       AIFY_SERVER_URL: `http://127.0.0.2:${api.address().port}`,

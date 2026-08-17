@@ -22,6 +22,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { declaringModules } from "./bridge-sources.mjs";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEAF = pathToFileURL(path.join(STDIO, "runtime-adapter.mjs")).href;
@@ -39,7 +40,7 @@ function resolveAdapter(runtime) {
       + "   name: a && a.name ? a.name : null,"
       + "   hasTranscriptTail: !!(a && typeof a.transcriptTail === 'function'),"
       + " }));"],
-    { env: { ...process.env, AIFY_RUNTIME: runtime }, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
+    { env: { ...sealedChildEnv(), AIFY_RUNTIME: runtime }, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
   );
   return JSON.parse(out);
 }

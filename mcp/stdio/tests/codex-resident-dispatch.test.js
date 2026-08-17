@@ -15,6 +15,7 @@ import path from "node:path";
 import net from "node:net";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FAKE = path.join(__dirname, "fixtures", "fake-codex-app-server.mjs");
@@ -36,7 +37,7 @@ async function startFakeAppServer(t, { threadId, script = "hello" } = {}) {
   const url = `ws://127.0.0.2:${port}`;
   const proc = spawn(process.execPath, [FAKE, "--listen", url], {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, FAKE_CODEX_RESIDENT_THREAD: threadId || "", FAKE_CODEX_SCRIPT: script },
+    env: { ...sealedChildEnv(), FAKE_CODEX_RESIDENT_THREAD: threadId || "", FAKE_CODEX_SCRIPT: script },
   });
   t.after(() => { try { proc.kill("SIGTERM"); } catch {} });
   await new Promise((resolve, reject) => {

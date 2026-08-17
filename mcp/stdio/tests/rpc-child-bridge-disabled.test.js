@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER = path.join(__dirname, "..", "server.js");
@@ -15,7 +16,7 @@ const SERVER = path.join(__dirname, "..", "server.js");
 function runServer(env) {
   return new Promise((resolve, reject) => {
     const proc = spawn(process.execPath, [SERVER], {
-      env: { ...process.env, ...env },
+      env: { ...sealedChildEnv(), ...env },
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     });

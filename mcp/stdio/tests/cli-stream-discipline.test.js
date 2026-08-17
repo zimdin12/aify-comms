@@ -33,20 +33,28 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 
 import { tmpDir } from "./_tmpdir.js";
+import { leakedCarriers, sealedChildEnv } from "./_child-env.mjs";
 
 const HERE = new URL(".", import.meta.url);
 const moduleUrl = (name) => JSON.stringify(new URL(`../${name}`, HERE).href);
 
 // Runs a snippet in a fresh node process and returns its streams SEPARATELY. Nothing is merged: the whole
 // question here is which stream a byte landed on.
-async function runChild(source, { env = {} } = {}) {
+async function runChild(source, extra = {}) {
   const dir = tmpDir("aify-cli-stream-");
   const file = path.join(dir, "case.mjs");
   await fs.writeFile(file, source, "utf8");
+  // TAKES THE ENV MAP DIRECTLY. It used to take `{ env }`, and the resolve-session case below passed the map
+  // itself — so the destructure found no `env` key, overrode nothing, and the child inherited a live wrapper's
+  // gateway URL and active-session file. It passed here (those are unset on this machine) and failed in a
+  // reviewer's live environment. The shape that allowed the mistake is gone, and the seal is now asserted.
+  const env = sealedChildEnv(extra);
+  const leaked = leakedCarriers(env).filter((name) => !(name in extra));
+  assert.deepEqual(leaked, [], `these live carriers would reach the child: ${leaked.join(", ")}`);
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [file], {
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, ...env },
+      env,
     });
     let stdout = "";
     let stderr = "";

@@ -33,6 +33,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FAKE = path.resolve(HERE, "fixtures/fake-codex-app-server.mjs");
@@ -73,7 +74,7 @@ async function withFakeAppServers(count, thread, fn) {
       const url = `ws://127.0.0.2:${await pickPort()}`;
       const child = spawn(process.execPath, [FAKE, "--listen", url], {
         cwd: process.cwd(),
-        env: { ...process.env, FAKE_CODEX_RESIDENT_THREAD: thread, FAKE_CODEX_THREAD_LIST_KEY: "data" },
+        env: { ...sealedChildEnv(), FAKE_CODEX_RESIDENT_THREAD: thread, FAKE_CODEX_THREAD_LIST_KEY: "data" },
         stdio: ["ignore", "pipe", "pipe"],
       });
       await once(child.stdout, "data");

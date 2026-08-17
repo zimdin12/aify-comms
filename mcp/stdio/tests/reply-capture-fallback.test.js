@@ -28,6 +28,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MODULE = pathToFileURL(path.join(HERE, "..", "required-reply-handoff.mjs")).href;
@@ -65,7 +66,7 @@ function readPolicy({ bodies = ['{}'], calls = 1, failAfter = null, sleepMs = 0 
     "process.stdout.write(JSON.stringify({ answers, requests: seen }));",
   ].join("\n");
   return JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
-    env: { ...process.env, AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "", AIFY_API_KEY: "" },
+    env: { ...sealedChildEnv(), AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "", AIFY_API_KEY: "" },
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
   }));

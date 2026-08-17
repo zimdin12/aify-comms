@@ -22,6 +22,7 @@ import {
 } from "../agent-heartbeat.mjs";
 import { BRIDGE_INSTANCE_ID } from "../bridge-instance.mjs";
 import { declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEAF = pathToFileURL(path.join(STDIO, "agent-heartbeat.mjs")).href;
@@ -111,7 +112,7 @@ function beatVia(argsJs) {
     process.stdout.write(JSON.stringify(received));
   `;
   return JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script],
-    { env: { ...process.env, AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "" },
+    { env: { ...sealedChildEnv(), AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "" },
       encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }));
 }
 
@@ -216,7 +217,7 @@ function beatVia2(argsJs) {
     process.stdout.write(JSON.stringify(received));
   `;
   return JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script],
-    { env: { ...process.env, AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "" },
+    { env: { ...sealedChildEnv(), AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "" },
       encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }));
 }
 

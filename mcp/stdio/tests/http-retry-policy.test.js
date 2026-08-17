@@ -23,6 +23,7 @@ import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { HTTP_RETRY_ATTEMPTS, HTTP_RETRY_BASE_MS } from "../aify-service-endpoint.mjs";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // A file:// URL, not a Windows path: `import("C:/...")` is rejected by the ESM loader
@@ -67,7 +68,7 @@ function callAgainstFlakyService({ method, endpoint, body = null, failures, stat
   return JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
     // The env is SEALED: the child must not inherit a server URL from the operator's shell, or the
     // fake service is bypassed and the calls land somewhere real.
-    env: { ...process.env, AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "", AIFY_API_KEY: "" },
+    env: { ...sealedChildEnv(), AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "", AIFY_API_KEY: "" },
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
   }));

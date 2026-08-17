@@ -43,6 +43,17 @@ function listOf(rows) {
 }
 
 // Records everything the CLI did, and answers the two frames it sends in order.
+// SEALED AT MODULE SCOPE, because `gatewayUrl: ""` cannot express "no gateway" on its own. The module reads
+// `deps.gatewayUrl || process.env.AIFY_HERMES_GATEWAY_URL || process.env.HERMES_TUI_GATEWAY_URL`, so an empty
+// dep falls THROUGH to the ambient value — and a live hermes wrapper exports one. Two tests here assert the
+// no-gateway branch; both passed on this machine and failed in a reviewer's live environment, which is the
+// third instance of this shape in as many review rounds. Every test in this file supplies its own gatewayUrl,
+// so deleting the ambient pair costs nothing and removes the fall-through.
+const GATEWAY_CARRIERS = ["AIFY_HERMES_GATEWAY_URL", "HERMES_TUI_GATEWAY_URL"];
+for (const name of GATEWAY_CARRIERS) delete process.env[name];
+assert.deepEqual(GATEWAY_CARRIERS.filter((n) => process.env[n] !== undefined), [],
+  "the gateway env seal did not take — the no-gateway tests below would read a live gateway");
+
 function harness({ active = [], db = null, dbThrows = false, openThrows = false, ...rest } = {}) {
   const calls = { markerWrites: [], markerClears: [], activeFiles: [], out: [], err: [], closed: 0 };
   const deps = {

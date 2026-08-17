@@ -25,6 +25,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEAF = pathToFileURL(path.join(STDIO, "hermes-gateway-config.mjs")).href;
@@ -58,7 +59,7 @@ function resolve({ env = {}, marker = null } = {}) {
         + " }));"],
       {
         env: {
-          ...process.env,
+          ...sealedChildEnv(),
           TEMP: tmp, TMP: tmp,
           AIFY_HERMES_GATEWAY_URL: "", AIFY_AGENT_ID: "",
           ...env,

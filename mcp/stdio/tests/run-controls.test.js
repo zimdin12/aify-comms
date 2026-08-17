@@ -19,6 +19,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEAF = pathToFileURL(path.join(STDIO, "run-controls.mjs")).href;
@@ -68,7 +69,7 @@ function apply({ controls, capabilities = { steer: true, interrupt: true }, stee
   try {
     return JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
       env: {
-        ...process.env, AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "",
+        ...sealedChildEnv(), AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "",
         TEMP: home, TMP: home, XDG_STATE_HOME: path.join(home, "state"),
         AIFY_AGENT_ID: "rc-test-agent", AIFY_HERMES_GATEWAY_URL: "",
       },

@@ -18,6 +18,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { AIFY_AGENT_ID, AIFY_AGENT_ROLE, cleanEnvPlaceholder } from "../launch-identity.mjs";
 import { declaringModules } from "./bridge-sources.mjs";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEAF = pathToFileURL(path.join(STDIO, "launch-identity.mjs")).href;
@@ -65,7 +66,7 @@ function readIdentity(env) {
       + "; process.stdout.write(JSON.stringify({ id: AIFY_AGENT_ID, role: AIFY_AGENT_ROLE }));"],
     {
       env: {
-        ...process.env,
+        ...sealedChildEnv(),
         AIFY_AGENT_ID: "", AIFY_COMMS_AGENT_ID: "",
         AIFY_AGENT_ROLE: "", AIFY_COMMS_AGENT_ROLE: "",
         ...env,
@@ -133,7 +134,7 @@ test("managed-dispatch mode is a launch fact, read from the environment at start
     ["--input-type=module", "-e",
       "import { IS_MANAGED_DISPATCH } from " + JSON.stringify(LEAF)
       + "; process.stdout.write(String(IS_MANAGED_DISPATCH));"],
-    { env: { ...process.env, AIFY_MANAGED_DISPATCH: value }, encoding: "utf-8" },
+    { env: { ...sealedChildEnv(), AIFY_MANAGED_DISPATCH: value }, encoding: "utf-8" },
   ).trim();
 
   for (const truthy of ["1", "true", "yes", "TRUE", "Yes"]) {
@@ -160,7 +161,7 @@ test("IS_ENVIRONMENT_BRIDGE is set by EITHER the flag or the env var", () => {
       // `--` first: without it node parses `--environment-bridge` as one of ITS options and exits
       // "bad option". The separator is what makes it reach `process.argv`, which is what the flag path reads.
       "--", ...argv],
-    { env: { ...process.env, AIFY_ENVIRONMENT_BRIDGE: env }, encoding: "utf-8" },
+    { env: { ...sealedChildEnv(), AIFY_ENVIRONMENT_BRIDGE: env }, encoding: "utf-8" },
   ).trim();
 
   assert.equal(read("", ["--environment-bridge"]), "true", "the flag alone must be enough");

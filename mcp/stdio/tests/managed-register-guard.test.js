@@ -30,6 +30,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEAF = pathToFileURL(path.join(STDIO, "registration-tool.mjs")).href;
@@ -78,7 +79,7 @@ function register({ managed, args }) {
   try {
     return JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
       env: {
-        ...process.env,
+        ...sealedChildEnv(),
         AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "",
         CLAUDE_MCP_MESSAGES_DIR: store,
         AIFY_AGENT_ID: "mrg-agent", AIFY_RUNTIME: "",

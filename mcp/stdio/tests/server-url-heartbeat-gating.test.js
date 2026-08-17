@@ -26,6 +26,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { bridgeSources, declaringModules } from "./bridge-sources.mjs";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SERVER = readFileSync(path.join(STDIO, "server.js"), "utf-8");
@@ -39,7 +40,7 @@ function resolveEndpoint(env) {
       "const m = await import(" + JSON.stringify(ENDPOINT) + ");"
       + " process.stdout.write(JSON.stringify({ url: m.SERVER_URL, isRemote: m.IS_REMOTE }));"],
     {
-      env: { ...process.env, AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "", ...env },
+      env: { ...sealedChildEnv(), AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "", ...env },
       encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"],
     },
   ));

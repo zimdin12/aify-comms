@@ -15,6 +15,7 @@ import { writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 // `..`, because this test moved into `tests/` in 2026-08-16. It and its unit sibling sat at the
 // TOP LEVEL of mcp/stdio as `*.test.mjs`, where `run-all.mjs` — which reads `tests/` for
@@ -47,7 +48,7 @@ function runGate({ transcript, badPath = false, noPath = false }) {
         writeFileSync(transcriptPath, transcript);
       }
       const child = spawn(process.execPath, [GATE], {
-        env: { ...process.env, AIFY_AGENT_ID: "gate-test", AIFY_COMMS_URL: `http://127.0.0.1:${port}` },
+        env: { ...sealedChildEnv(), AIFY_AGENT_ID: "gate-test", AIFY_COMMS_URL: `http://127.0.0.1:${port}` },
         stdio: ["pipe", "ignore", "ignore"],
       });
       child.stdin.end(JSON.stringify(noPath ? {} : { transcript_path: transcriptPath }));
