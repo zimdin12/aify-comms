@@ -17,6 +17,11 @@
 // `wrapper-pool.js#disposeAll` came off the same day and is why this ratchet earns its keep: the
 // export it had recorded as untested DISPOSED NOTHING — it cleared the pool and then looked its keys
 // up in the map it had just emptied. Six of the nine tests written for it fail against the old body.
+// `terminal-text.js#OSC_NOISE_RE` came off by DELETION rather than by test: it had one reader, in its
+// own file, and it is a GLOBAL regex — a public `/g` constant carries a mutable lastIndex, so an
+// importer calling `.test()` on it gets alternating answers. Un-exporting is the fix; paying an entry
+// down that way is legitimate and this gate enforces it, because an export that no longer exists stops
+// being untested and the third test below then demands the row go.
 // Seven of those eight were exported CONSTANTS, which is the shape worth noticing: a vocabulary or
 // a bound that some other module reads, with nothing asserting the two still agree.
 //
@@ -67,9 +72,7 @@ const UNTESTED_EXPORT_BACKLOG = [
   "mcp/stdio/console-tools.mjs#registerConsoleTools",
   "mcp/stdio/runtimes-codex.js#discoverCodexLiveBinding",
   "mcp/stdio/runtimes.js#discoverCodexLiveBinding",
-  "mcp/stdio/terminal-text.js#OSC_NOISE_RE",
   "mcp/stdio/usage-collector.js#readAgentConsumption",
-  "mcp/stdio/virtual-terminals.mjs#updateTerminalControl",
 ];
 
 function moduleFiles() {

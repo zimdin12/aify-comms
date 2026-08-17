@@ -28,7 +28,14 @@ import { normalizeRuntime, runtimeCommandWithoutResume, sessionEnvVarsForRuntime
 // the prompt was gone. Two changes, both needed: drop the OSC title sequences (they carry no
 // screen text, only noise), and keep a window big enough to survive the flood. A fixed regex
 // alone would not have helped — it would have been matching a buffer the dialog had already left.
-export const OSC_NOISE_RE = /\x1b\][^\x07]*(?:\x07|\x1b\\)/g;
+// UN-EXPORTED 2026-08-17. It had exactly one reader — `appendTail`, three lines below — and nothing
+// outside this module ever imported it, so the `export` bought nothing and cost a hazard: this is a
+// GLOBAL regex held at module scope, and a global regex carries a mutable `lastIndex`. `String.replace`
+// resets it, which is why `appendTail` is correct; `.test()` does not. Measured on this exact object:
+// two consecutive `.test()` calls on the same string answer true, then false. An importer reaching for
+// the "is there OSC noise here?" question would get alternating answers from a shared object with no
+// indication why. Anything that needs the behaviour should call `appendTail`.
+const OSC_NOISE_RE = /\x1b\][^\x07]*(?:\x07|\x1b\\)/g;
 
 export function appendTail(current = "", chunk = "", limit = 65536) {
   const next = `${current || ""}${String(chunk || "").replace(OSC_NOISE_RE, "")}`;
