@@ -189,4 +189,3 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int) -> 
     if failed:
         await db.commit()
     return failed
-

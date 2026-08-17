@@ -40,7 +40,7 @@ def test_managed_agent_no_worker_returns_available(monkeypatch):
     child registration, status must be `available` not `online`."""
     import asyncio
     from unittest import mock
-    
+
 
     row = {
         "id": "test-managed-no-worker",
@@ -114,7 +114,7 @@ def test_a_RESIDENT_agent_is_not_degraded_by_the_managed_gate():
 
 def test_cached_ready_status_serializes_as_online():
     """`ready` is an internal bridge signal, not a public agent status."""
-    
+
 
     class Row(dict):
         def keys(self):

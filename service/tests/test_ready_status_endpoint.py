@@ -139,7 +139,7 @@ class ReadyStatusEndpointTests(FastApiTestCase):
         dashboard can keep showing a future cached ready/online status after
         the bridge has explicitly changed readiness."""
         from service.reconcilers.status_cache import _LIVE_STATE_CACHE
-        
+
         self._register("ready-cache", runtime="codex", sessionMode="managed")
         _LIVE_STATE_CACHE["ready-cache"] = {
             "status": "ready", "reason": "future-cache", "environment_id": "",

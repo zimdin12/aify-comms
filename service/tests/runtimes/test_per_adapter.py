@@ -155,24 +155,31 @@ def test_hermes_adapter_discover_prefers_active_session_file(monkeypatch, tmp_pa
     assert asyncio.run(HermesAdapter().discover_session_id()) == "visible-session"
 
 
-def test_hermes_adapter_discover_uses_env_before_gateway(monkeypatch):
+def test_hermes_adapter_discover_uses_env_before_gateway(monkeypatch, tmp_path):
+    # SEALED VIA THE SHARED HELPER, not by hand. This test deleted ONE variable and set two; it passed here
+    # and FAILED in a reviewer's live hermes environment, resolving the operator's real session id, because
+    # `HERMES_TUI_ACTIVE_SESSION_FILE` — added to the adapter on 2026-08-17 and exported by hermes' own TUI —
+    # was never deleted. `_read_active_session_file` runs BEFORE the env handle, so a live TUI file wins.
     import asyncio
     from service.runtimes.hermes import HermesAdapter
+    from service.tests.runtimes.hermes_carriers import seal_hermes_session_carriers
 
-    monkeypatch.delenv("AIFY_HERMES_ACTIVE_SESSION_FILE", raising=False)
+    seal_hermes_session_carriers(monkeypatch, tmp_path)
     monkeypatch.setenv("HERMES_SESSION_ID", "env-session")
     monkeypatch.setenv("AIFY_HERMES_GATEWAY_URL", "ws://127.0.0.1:9999/api/ws?token=x")
 
     assert asyncio.run(HermesAdapter().discover_session_id()) == "env-session"
 
 
-def test_hermes_adapter_discover_returns_none_when_only_gateway_is_present(monkeypatch):
+def test_hermes_adapter_discover_returns_none_when_only_gateway_is_present(monkeypatch, tmp_path):
+    # Same leak, and here it inverted the assertion outright: with a live TUI file present the adapter returns
+    # that id, so "None when only a gateway is configured" read as a failure in a live environment and as a
+    # pass on a machine with no hermes running.
     import asyncio
     from service.runtimes.hermes import HermesAdapter
+    from service.tests.runtimes.hermes_carriers import seal_hermes_session_carriers
 
-    monkeypatch.delenv("AIFY_HERMES_ACTIVE_SESSION_FILE", raising=False)
-    monkeypatch.delenv("HERMES_SESSION_ID", raising=False)
-    monkeypatch.delenv("HERMES_SESSION", raising=False)
+    seal_hermes_session_carriers(monkeypatch, tmp_path)
     monkeypatch.setenv("AIFY_HERMES_GATEWAY_URL", "ws://127.0.0.1:9999/api/ws?token=x")
 
     assert asyncio.run(HermesAdapter().discover_session_id()) is None

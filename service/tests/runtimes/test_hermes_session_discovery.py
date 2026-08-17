@@ -29,13 +29,17 @@ import pytest
 
 from service.runtimes.hermes import HermesAdapter
 
-HERMES_ENV_VARS = (
-    "AIFY_HERMES_ACTIVE_SESSION_FILE",
-    "HERMES_TUI_ACTIVE_SESSION_FILE",
-    "HERMES_SESSION_ID",
-    "HERMES_SESSION",
-    "AIFY_HERMES_GATEWAY_URL",
+from service.tests.runtimes.hermes_carriers import (  # noqa: E402  (after the module docstring)
+    HERMES_SESSION_CARRIER_ENV,
+    carrier_env_names_in_adapter_source,
+    seal_hermes_session_carriers,
 )
+
+# ONE OWNER for the carrier list, moved to `hermes_carriers.py` on 2026-08-17. It was duplicated here and
+# UNDER-duplicated in `test_per_adapter.py`, which sealed one variable of the five — those two tests passed
+# here and failed in a reviewer's live hermes environment. A list that two files maintain separately is a list
+# that drifts, and this is the drift that reached a reviewer.
+HERMES_ENV_VARS = HERMES_SESSION_CARRIER_ENV
 
 GATEWAY = "ws://127.0.0.1:9999/api/ws?token=x"
 
@@ -297,3 +301,43 @@ class TestTheRetiredGatewayQuery:
         front of them, rather than a plausible-looking helper reappearing next to a comment two
         methods up saying don't."""
         assert not hasattr(HermesAdapter, "_query_gateway_most_recent")
+
+
+class TestTheSealCannotDriftFromTheAdapter:
+    """The gate that would have caught the leak a reviewer found.
+
+    Two test files sealed the same function's environment and disagreed about how many variables it
+    reads, because a carrier (`HERMES_TUI_ACTIVE_SESSION_FILE`) was added to the adapter and only one
+    file learned about it. The tests that missed it passed on a machine with no hermes running and
+    resolved the OPERATOR'S live session id in a live environment.
+
+    So the seal list is now derived-checked: every env name the adapter's SOURCE reads must be in it.
+    Adding a sixth carrier fails here until the list catches up.
+    """
+
+    def test_carrier_list_matches_the_adapter(self):
+        in_source = carrier_env_names_in_adapter_source()
+        assert in_source, "the source scan found no env reads at all — the scanner is broken, not the adapter"
+        unsealed = in_source - set(HERMES_SESSION_CARRIER_ENV)
+        assert not unsealed, (
+            f"the adapter reads {sorted(unsealed)}, which no test seals. Add them to "
+            "HERMES_SESSION_CARRIER_ENV in service/tests/runtimes/hermes_carriers.py, and check every "
+            "test that assumes they are absent."
+        )
+
+    def test_the_list_carries_nothing_the_adapter_stopped_reading(self):
+        """The other direction. A name left in the seal after the adapter stopped reading it is
+        harmless at runtime but makes the list a worse description of the product every time it is
+        read — and the list is what the next author trusts."""
+        stale = set(HERMES_SESSION_CARRIER_ENV) - carrier_env_names_in_adapter_source()
+        assert not stale, f"the seal list names carriers the adapter no longer reads: {sorted(stale)}"
+
+    def test_the_shared_seal_actually_deletes_every_carrier(self, monkeypatch, tmp_path):
+        """Anti-vacuity: the helper is only worth having if it clears values that are really set."""
+        import os
+
+        for name in HERMES_SESSION_CARRIER_ENV:
+            monkeypatch.setenv(name, f"live-value-for-{name}")
+        seal_hermes_session_carriers(monkeypatch, tmp_path)
+        for name in HERMES_SESSION_CARRIER_ENV:
+            assert os.environ.get(name) is None, f"{name} survived the seal"

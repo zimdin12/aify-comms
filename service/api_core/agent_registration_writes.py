@@ -300,4 +300,3 @@ async def _register_via_adopted_console_terminal(
         "sessionMode": existing_mode,
         "ownershipTransition": "console_terminal_attached",
     }
-

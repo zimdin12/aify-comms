@@ -225,4 +225,3 @@ Land the code; do not hold it for a reinstall. The receipt must say: **`mcp/stdi
 `install.sh` is re-run and wrappers relaunch — the tests prove repo code, not live bridge state.** Wrappers
 will not be relaunched as part of a structural slice while managed agents are live; live activation is a
 separate operator action with its own `doctor` readback (`bridge-installed` / `bridge-current`).
-

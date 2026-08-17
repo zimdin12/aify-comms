@@ -2172,7 +2172,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # currently registered as resident, those terminal_sessions
         # rows must be cleared so the dashboard doesn't render ghost
         # consoles.
-        
+
         # Set up: a managed terminal_session for an agent that is now resident.
         session_id = self._create_running_session(
             terminal=True,
@@ -14465,7 +14465,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
 
     def _run_reconcile_duplicate_resident_sessions(self):
-        
+
 
         async def _run():
             db = await get_db()
@@ -14574,7 +14574,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
 
     def _run_reroute_orphaned_managed_channel_runs(self):
-        
+
 
         async def _run():
             db = await get_db()
