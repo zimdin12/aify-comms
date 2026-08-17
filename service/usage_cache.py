@@ -78,9 +78,11 @@ def _age_seconds(updated_at: Any) -> Optional[float]:
     return (datetime.now(timezone.utc) - ts).total_seconds()
 
 
-def _is_stale(updated_at: Any) -> bool:
-    age = _age_seconds(updated_at)
-    return age is None or age > STALE_AFTER_SECONDS
+# `_is_stale(updated_at)` stood here and was DEAD — no caller anywhere in the repo, while `usage_get`
+# below computes the same rule inline from an `age` it already has. Two spellings of one rule with
+# one of them unreachable is the shape this series keeps finding: an edit to the named helper (the
+# one that reads canonical) would have changed nothing at all. Removed rather than wired in, because
+# calling it from `usage_get` would re-parse the timestamp the caller has already parsed.
 
 
 def _blank_expired_pool(out: dict[str, Any]) -> dict[str, Any]:
