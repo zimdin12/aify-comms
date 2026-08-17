@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from service.api_core.capabilities import _row_capabilities
+from service.api_core.dispatch_text import _MERGED_DISPATCH_HEADER
 from service.api_core.events import _append_terminal_event
 from service.api_core.liveness import TURN_BUSY_BACKSTOP_SECONDS
 from service.api_core.runtime import _normalize_runtime
@@ -71,10 +72,26 @@ def _dispatch_source_message_ids(row) -> list[str]:
     # Anchored to line-start with the exact spelling both producers emit, which keeps merged-buffer
     # recovery working and stops an id mentioned in a sentence from counting. Bodies that forge the
     # whole structural line are handled at render time — see `_neutralise_buffer_markers`.
-    ids.extend(
-        match.group(1).strip()
-        for match in re.finditer(r"^MessageId:[ \t]*(\S+)[ \t]*$", body, re.MULTILINE)
-    )
+    #
+    # …AND THE ANCHOR ALONE WAS NOT ENOUGH, reported by a reviewer on another instance 2026-08-18.
+    # The two halves named above are the anchored parser and render-time neutralisation, and the
+    # note "neither is sufficient alone" was exactly right — but the neutralising half only ran on
+    # the MERGED render path. A fresh SINGLE dispatch stores the sender's body verbatim, and this
+    # scan then ran on it unconditionally, so a body with a line-leading `MessageId: <victim-id>`
+    # minted a receipt for the claiming agent against a message it never read, and that message
+    # vanished from `comms_listen`. The anchor cannot save this: a sender can put the line at
+    # column 0 as easily as anywhere else.
+    #
+    # Two changes close it, and the storage-side one is the load-bearing half (see
+    # `dispatch_runs.py`: sender bodies are neutralised when the row is created, so no STORED body
+    # carries a structural marker unless the service wrote it). This gate is the structural half:
+    # only a body that IS a merged buffer can contain ids to recover, and `startswith(HEADER)` is
+    # already the predicate `_append_pending_dispatch_body` trusts for exactly that question.
+    if body.startswith(_MERGED_DISPATCH_HEADER):
+        ids.extend(
+            match.group(1).strip()
+            for match in re.finditer(r"^MessageId:[ \t]*(\S+)[ \t]*$", body, re.MULTILINE)
+        )
     return _dedupe_preserve([message_id for message_id in ids if message_id])
 
 

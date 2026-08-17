@@ -31,6 +31,7 @@ import unittest
 import aiosqlite
 
 from service.api_core.claim_gating import _mark_dispatch_source_messages_read
+from service.api_core.dispatch_text import _MERGED_DISPATCH_FOOTER, _MERGED_DISPATCH_HEADER
 
 SCHEMA = """
 CREATE TABLE messages (id TEXT PRIMARY KEY, from_agent TEXT, to_agent TEXT, subject TEXT);
@@ -116,9 +117,18 @@ class RepairReadReceiptsTests(unittest.TestCase):
         `_render_pending_dispatch_item` writes. A test built on the field I imagined would have
         passed against a helper that ignored it.
         """
+        # Header-led, because after 2026-08-18 that is the only body this scan reads ids out of: a
+        # raw sender body no longer counts, since an ordinary single dispatch's sender could type the
+        # same structural line and mint a receipt against a message they never sent. Production has
+        # always composed buffers header-first, so this fixture is now the production shape rather
+        # than the items alone.
         row = _Row(
             message_id="m1",
-            body="=== ITEM 1 ===\nMessageId: m2\nsome text\n=== ITEM 2 ===\nMessageId: m3\n",
+            body=(
+                f"{_MERGED_DISPATCH_HEADER}\n"
+                "=== ITEM 1 ===\nMessageId: m2\nsome text\n=== ITEM 2 ===\nMessageId: m3\n"
+                f"{_MERGED_DISPATCH_FOOTER}"
+            ),
         )
         marked, receipts = _run(_receipts_after(row, messages=["m1", "m2"]))
         self.assertEqual(marked, 2, "m3 no longer exists and must not produce a receipt")
@@ -136,9 +146,14 @@ class RepairReadReceiptsTests(unittest.TestCase):
         self.assertEqual(marked, 0, "a mid-sentence mention is prose, not a structural line")
         self.assertEqual(receipts, [])
 
-        # …and the structural spelling of the same id still works, so the guard is not just refusing
-        # everything.
-        structural = _Row(message_id="", body="MessageId: m1\n")
+        # …and the structural spelling of the same id still works INSIDE A REAL BUFFER, so the guard
+        # is not just refusing everything. The wrapper is the 2026-08-18 tightening: the same line in
+        # a raw sender body is now refused, because that is a body the SENDER wrote — which is the
+        # whole injection. Only a buffer the service composed can carry ids worth recovering.
+        structural = _Row(
+            message_id="",
+            body=f"{_MERGED_DISPATCH_HEADER}\nMessageId: m1\n{_MERGED_DISPATCH_FOOTER}",
+        )
         marked_ok, receipts_ok = _run(_receipts_after(structural, messages=["m1"]))
         self.assertEqual(marked_ok, 1)
         self.assertEqual(receipts_ok, [("m1", "target")])

@@ -40,7 +40,12 @@ from service.api_core.claim_gating import (
     _dispatch_source_message_ids,
     _mark_dispatch_source_messages_read,
 )
-from service.api_core.dispatch_text import _neutralise_buffer_markers, _render_pending_dispatch_item
+from service.api_core.dispatch_text import (
+    _MERGED_DISPATCH_FOOTER,
+    _MERGED_DISPATCH_HEADER,
+    _neutralise_buffer_markers,
+    _render_pending_dispatch_item,
+)
 from service.db import get_db
 from service.tests._base import FastApiTestCase
 
@@ -59,6 +64,20 @@ def _item(body: str, *, message_id: str = "") -> str:
     )
 
 
+def _buffer(*items: str) -> str:
+    """Items wrapped as a REAL merged buffer — header first, footer last.
+
+    These fixtures used to be bare items, and after 2026-08-18 that is no longer a body the scan will
+    read ids out of: a raw sender body is now refused, because the anchored `MessageId:` line alone
+    could be typed by the sender of an ordinary single dispatch, minting a receipt against somebody
+    else's message. Production has always composed buffers header-first
+    (`_append_pending_dispatch_body`, and its own merge test is `startswith(HEADER)`), so wrapping
+    them here makes the fixture match the only shape that reaches this function in production
+    instead of a shape a test invented.
+    """
+    return "\n".join([_MERGED_DISPATCH_HEADER, "", *items, _MERGED_DISPATCH_FOOTER])
+
+
 class SourceMessageIdsAreStructuralTests(FastApiTestCase):
     DB_NAME = "aify-source-message-ids-test.db"
 
@@ -67,14 +86,14 @@ class SourceMessageIdsAreStructuralTests(FastApiTestCase):
     def test_a_real_buffer_item_still_yields_its_source_id(self):
         """The reason the body scan exists. If this breaks, merged buffers stop marking their
         sources read and the fix has cost more than it bought."""
-        row = Row(message_id="run-primary", body=_item("body text", message_id="buffered-1"))
+        row = Row(message_id="run-primary", body=_buffer(_item("body text", message_id="buffered-1")))
         self.assertEqual(_dispatch_source_message_ids(row), ["run-primary", "buffered-1"])
 
     def test_several_buffered_items_all_yield_their_ids(self):
-        body = "\n".join([
+        body = _buffer(
             _item("first", message_id="buffered-1"),
             _item("second", message_id="buffered-2"),
-        ])
+        )
         self.assertEqual(
             _dispatch_source_message_ids(Row(message_id="run-primary", body=body)),
             ["run-primary", "buffered-1", "buffered-2"],

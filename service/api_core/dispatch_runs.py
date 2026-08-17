@@ -44,6 +44,7 @@ from service.api_core.dispatch_run_state import _append_dispatch_control
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.dispatch_text import (
     _build_pending_dispatch_subject,
+    _neutralise_buffer_markers,
     _pending_dispatch_count,
 )
 from service.api_core.events import _append_dispatch_event
@@ -324,6 +325,22 @@ async def _create_dispatch_runs(
             # else: claimed mid-merge — fall through to the fresh-insert path below.
 
         run_id = f"run_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+        # NEUTRALISE THE SENDER'S BODY AT THE STORAGE BOUNDARY, not only when it is rendered into a
+        # merged buffer. Reported by a reviewer on another instance 2026-08-18, and it is the half of
+        # `44986616` that was missing: that fix anchored the claim-time `MessageId:` parser AND
+        # neutralised bodies at render time, noting the two were "the two halves of the same fix and
+        # neither is sufficient alone" — but only the MERGED render path neutralised anything. A fresh
+        # single dispatch stored the body verbatim, so a line-leading `MessageId: <victim-id>` was
+        # read back at claim time and minted a read receipt for the claiming agent against a message
+        # it never saw. Unread is the ABSENCE of a receipt, so that message silently disappeared from
+        # the recipient's `comms_listen` — the exact suppression 44986616 set out to close, reachable
+        # by another road, and by accident as easily as on purpose (agents quote buffer excerpts).
+        #
+        # Doing it HERE makes the parser's assumption true instead of hoping for it: no stored
+        # dispatch body carries a structural marker unless the service wrote it. The transformation is
+        # the one the merged path already applies — brackets substituted, `MessageId:` prefixed off
+        # column 0 — so the text stays readable and becomes structurally inert.
+        stored_body = _neutralise_buffer_markers(body)
         await db.execute(
             """
             INSERT INTO dispatch_runs (
@@ -334,7 +351,7 @@ async def _create_dispatch_runs(
             """,
             (
                 run_id, source_message_id or None, from_agent, recipient_id, dispatch_mode, execution_mode, requested_runtime or "",
-                message_type, subject, body, priority, in_reply_to, "queued", 1 if require_reply else 0,
+                message_type, subject, stored_body, priority, in_reply_to, "queued", 1 if require_reply else 0,
                 1 if queue_if_busy else 0, 1 if steer else 0, requested_at
             )
         )
