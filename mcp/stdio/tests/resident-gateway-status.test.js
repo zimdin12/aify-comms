@@ -24,6 +24,7 @@ import {
   shouldArmResidentHermesTurnDetector,
 } from "../resident-gateway-status.mjs";
 import { declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
+import { tmpDir } from "./_tmpdir.js";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -200,6 +201,163 @@ test("exactly one module declares each, and the bridge still uses them", () => {
   const server = fs.readFileSync(path.join(STDIO, "server.js"), "utf-8");
   assert.doesNotMatch(server, /^export function (makeResidentGatewayStatusReader|shouldArmResidentHermesTurnDetector)/m,
     "server.js must no longer export them — the test that used to import them from there now uses the owner");
+});
+
+// ── the DEFAULT session-id reader ───────────────────────────────────────────
+//
+// Twenty-second cluster off the V8-coverage census: the `readSessionId` default parameter. Every test above
+// injects it — including the two that cover what happens when it answers and when it throws — so the default,
+// which is what runs in production, had a zero call count. What it does is read the agent's on-disk session
+// marker; if that read were broken the reader would silently fall through to the most-recent row, which for a
+// PER-AGENT gateway is usually the same answer. The bug would be invisible until the day it was not.
+//
+// TEMP/TMP ARE SEALED, because `defaultMarkerTmpDir()` is `process.env.TEMP || process.env.TMP || os.tmpdir()`
+// read at call time. Unsealed, these tests would read (and the marker write would land in) the operator's real
+// temp directory alongside live agents' markers.
+//
+// THREE THINGS SURVIVE MUTATION HERE, all defence-in-depth rather than gaps, and each measured:
+//
+//   * The default reader's `try/catch` around `readSessionIdMarker`, and `readSessionIdMarker`'s own `catch`.
+//     Either alone is absorbed by the other (and by the reader's outer catch, which turns anything thrown into
+//     ""). Removing BOTH — in both files — IS caught, which is what proves the property is tested at all.
+//   * The trailing-newline case below is PINNED BEHAVIOUR, not a discriminating test: four independent trims
+//     stand between a shell-written marker and an id comparison — this read, `isUsableSessionId`'s own internal
+//     trim, the reader's arrow, and `pickSessionStatusById`'s `wanted`. Removing two of the four changes
+//     nothing observable, so the case documents the guarantee rather than guarding any one trim.
+//   * Reducing `defaultMarkerTmpDir()` to `os.tmpdir()`. On win32 `os.tmpdir()` reads process.env.TEMP itself,
+//     so with TEMP sealed the two are the same function. On Linux it reads TMPDIR, where the mutation WOULD
+//     matter — a platform equivalence, not a covered case.
+
+// The marker path is written out by hand rather than through `writeSessionIdMarker`, so this does not become an
+// assertion that the writer agrees with itself: the convention is `aify-hermes-session-<agentId>` holding the
+// bare id. The agreement with the writer is asserted separately, below.
+const MARKER_AGENT = "rgs-marker-agent";
+const markerPath = (dir, agentId = MARKER_AGENT) => path.join(dir, `aify-hermes-session-${agentId}`);
+
+// ASYNC, and it AWAITS `run`. The first version returned the promise from a synchronous `try`, so the `finally`
+// restored TEMP/TMP before the awaited body had read anything — the seal was already gone by the time the reader
+// looked for a marker, and the test failed while the product was correct.
+async function withSealedTemp(run) {
+  const dir = tmpDir("aify-rgs-marker-");
+  const saved = { TEMP: process.env.TEMP, TMP: process.env.TMP };
+  process.env.TEMP = dir;
+  process.env.TMP = dir;
+  assert.equal(process.env.TEMP, dir, "the TEMP seal did not take");
+  try {
+    return await run(dir);
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+// A reader with NO readSessionId injected — the whole point of these cases.
+const defaultReader = (openWs, agentId = MARKER_AGENT) =>
+  makeResidentGatewayStatusReader({ agentId, gatewayUrl: "ws://127.0.0.2:1/gw", openWs });
+
+// The most-recent fallback stamps rows from `last_active` / `started_at` / `created_at` — NOT `updated_at`,
+// which was my first guess and left every decoy row stamped 0, so "most recent" silently meant "first in the
+// list". These helpers make the decoy genuinely newer, so the marker path and the fallback cannot agree by
+// accident.
+const OLDER = "2026-08-17T12:00:00.000Z";
+const NEWER = "2026-08-17T18:00:00.000Z";
+
+test("THE DEFAULT READER finds the agent's real session id on disk", async () => {
+  await withSealedTemp(async (dir) => {
+    fs.writeFileSync(markerPath(dir), "20260817_120000_abc123", "utf8");
+    const { openWs } = fakeGateway({
+      behaviour: () => rows([
+        { id: "20260817_120000_abc123", status: "running", last_active: OLDER },
+        // Newer, so the most-recent fallback would pick THIS one — the assertion below only holds if the
+        // marker was read.
+        { id: "someone-elses-session", status: "idle", last_active: NEWER },
+      ]),
+    });
+
+    assert.equal(await defaultReader(openWs)(), "running",
+      "the status came from the most-recent row instead of the agent's own marked session");
+  });
+});
+
+test("no marker on disk falls through to the fallbacks rather than throwing", async () => {
+  await withSealedTemp(async () => {
+    const { openWs } = fakeGateway({ behaviour: () => rows([{ id: "whatever", status: "idle", last_active: NEWER }]) });
+    assert.equal(await defaultReader(openWs)(), "idle");
+  });
+});
+
+test("a POISONED marker is treated as absent, never resumed", async () => {
+  // An unexpanded `${HERMES_SESSION_ID}` written by a pre-fix launcher. `isUsableSessionId` rejects it, and the
+  // reader must fall through — resolving status for a garbage id would report on a session that cannot exist.
+  await withSealedTemp(async (dir) => {
+    fs.writeFileSync(markerPath(dir), "${HERMES_SESSION_ID}", "utf8");
+    const { openWs } = fakeGateway({
+      behaviour: () => rows([
+        // The poison row is stamped OLDER and listed FIRST, so "the marker was used" and "the fallback picked
+        // row zero" give different answers. Without that, both hypotheses returned `running` and this test
+        // passed against a marker that HAD been accepted.
+        { id: "${HERMES_SESSION_ID}", status: "running", last_active: OLDER },
+        { id: "real-row", status: "idle", last_active: NEWER },
+      ]),
+    });
+    assert.equal(await defaultReader(openWs)(), "idle", "a placeholder marker was used as a session id");
+  });
+});
+
+test("an unreadable marker directory reads as no marker", async () => {
+  // The default wraps its read in a try/catch. A missing temp dir must not turn a status poll into an
+  // exception the detector never expected.
+  await withSealedTemp(async (dir) => {
+    process.env.TEMP = path.join(dir, "does", "not", "exist");
+    process.env.TMP = process.env.TEMP;
+    const { openWs } = fakeGateway({ behaviour: () => rows([{ id: "x", status: "idle", last_active: NEWER }]) });
+    assert.equal(await defaultReader(openWs)(), "idle");
+  });
+});
+
+test("a marker written with a trailing newline still resolves", async () => {
+  // Markers are also produced by shell wrappers, and `echo id > marker` appends a newline. Without the trim the
+  // id would carry it, fail `isUsableSessionId`, and read as absent — an agent whose session is on disk resuming
+  // fresh instead. (This is the case the trim mutation exposed: my first fixture wrote no newline at all.)
+  await withSealedTemp(async (dir) => {
+    fs.writeFileSync(markerPath(dir), "20260817_120000_abc123\r\n", "utf8");
+    const { openWs } = fakeGateway({
+      behaviour: () => rows([
+        { id: "20260817_120000_abc123", status: "running", last_active: OLDER },
+        { id: "decoy", status: "idle", last_active: NEWER },
+      ]),
+    });
+    assert.equal(await defaultReader(openWs)(), "running", "a trailing newline made the marker unreadable");
+  });
+});
+
+test("the WRITER refuses to persist a placeholder id", async () => {
+  // The other end of the poison guard. Refusing at write time is what stops a bad id recurring on every
+  // launch; the read-time check is the belt for markers written before that guard existed.
+  const { writeSessionIdMarker } = await import("../hermes-endpoint.js");
+  await withSealedTemp(async (dir) => {
+    for (const bad of ["${HERMES_SESSION_ID}", "", "   ", "has spaces", "semi;colon"]) {
+      assert.equal(writeSessionIdMarker(MARKER_AGENT, bad), false, `${JSON.stringify(bad)} was accepted`);
+      assert.equal(fs.existsSync(markerPath(dir)), false, `${JSON.stringify(bad)} was written to disk`);
+    }
+    assert.equal(writeSessionIdMarker(MARKER_AGENT, "20260817_120000_abc123"), true,
+      "a valid id was refused — the guard is now rejecting everything");
+  });
+});
+
+test("the marker convention this test writes by hand is the one the WRITER uses", async () => {
+  // Guards the fixture above from drifting away from the product: if the filename or the file's contents change,
+  // the hand-written path stops being a valid marker and the default-reader tests would pass for the wrong
+  // reason (falling through to the fallback, which several of them assert anyway).
+  const { writeSessionIdMarker } = await import("../hermes-endpoint.js");
+  await withSealedTemp(async (dir) => {
+    writeSessionIdMarker(MARKER_AGENT, "20260817_120000_abc123");
+    assert.ok(fs.existsSync(markerPath(dir)),
+      `the writer did not produce ${markerPath(dir)} — the hand-written fixture path is stale`);
+    assert.equal(fs.readFileSync(markerPath(dir), "utf8").trim(), "20260817_120000_abc123");
+  });
 });
 
 test("the owner holds no module state and reaches only owned leaves", () => {
