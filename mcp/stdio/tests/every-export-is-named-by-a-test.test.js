@@ -69,7 +69,6 @@ const WORD_BOUNDARY = String.raw`\b`;
 //: here is now named by a test, so paying one down means deleting its line in the same commit.
 //: Nothing was chosen for this list — it is the whole of what the scan found.
 const UNTESTED_EXPORT_BACKLOG = [
-  "mcp/stdio/console-tools.mjs#registerConsoleTools",
   "mcp/stdio/runtimes-codex.js#discoverCodexLiveBinding",
   "mcp/stdio/runtimes.js#discoverCodexLiveBinding",
 ];
