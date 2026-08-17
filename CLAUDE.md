@@ -33,6 +33,16 @@ The MCP stdio bridges under `mcp/stdio/` run on the **host**, not in the contain
 
 **Why this exists:** until 2026-08-03 four components each carried their own version and none tracked a release. The service reported `0.1.0` (a stale `SERVICE_VERSION` in `.env`, which overrides the stamp), `config.py`'s default said `4.0.0`, Dashboard Next hardcoded `0.1.0`, and the bridge said `4.0.0` in **eight** hand-copied places — while the project actually shipped v0.1, v0.1.1 and v0.1.2. No single edit could have corrected it. **Do not set `SERVICE_VERSION` in `.env`**; env wins over the stamp and re-creates exactly that bug.
 
+`config/service.json` was a SECOND way in, closed 2026-08-18 (`8d7d7c24`) after another instance's
+service announced `3.6.6` while running `0.5.4`. `ServiceConfig.load()` applied that file with a
+generic loop that set any key naming a config attribute, and it ran after the stamp — so a stale
+`version` key silently won. The version was the mild half: the same loop reached `build_sha`, which
+is the value `aify-comms doctor`'s `service` check compares against repo HEAD, so a hand-edited
+service.json could make the one stale-deploy instrument agree with a sha nothing was ever built from.
+All five stamp-owned fields (`version`, `build_sha`, `build_short`, `build_branch`, `built_at`) are
+now refused from that file — they are observations of a build, not configuration, and no hand-edit
+could make one of them true.
+
 ## Repo layout (what matters)
 
 | Path | What |

@@ -29,6 +29,61 @@ than the defect. OPEN = should be fixed, not yet done.
 | 13 | **HIGH** | Read-receipt injection: a sender's body could mint receipts and silence another agent's messages | **FIXED** — both halves | `81487d0b` |
 | 14 | LOW | Allowlist `_comment` still quoted a ruling naming five files, all cleared | **FIXED** | `816b71fb` |
 
+## Round 4 — the exhaustive pass (8 reviewers on the actual diffs)
+
+Their method note is the finding behind the findings: **the fidelity gates audit MOVES, not logic.**
+The ~450 pure-move commits check out; every bug below is in new logic or in moved-but-already-buggy
+code, which no byte-identity gate examines. Common root pattern, in their words: *an artifact written
+or read at the wrong time or without scoping.*
+
+| # | Sev | Finding | Status | Where |
+|---|-----|---------|--------|-------|
+| H1 | HIGH | Read receipt written at CLAIM and never deleted on failure → **permanent** message loss | **RULED, NOT YET FIXED** — do (b) now | `dispatch_claim.py:422` |
+| H2 | HIGH | Failure mirror sets `result_message_id` on a failed require_reply run → falsely closes the contract | **RULED, NOT YET FIXED** | `dispatch_sweeps.py:101` |
+| H3 | HIGH | Receipt injection via a raw single-dispatch body | **FIXED before the report arrived** — accepted in shape | `81487d0b` |
+| H4 | HIGH | `unsend_message` deletes any message; no actor, no ownership check | **RULED, NOT YET FIXED** — deploy-coupled | `message_removal.py:39` |
+| H5 | HIGH | SSE transport fails open into a confident false "empty" | **FIXED** — accepted in shape | `39f9f27f` |
+| M1 | MED→**the big one** | A newline escaped `_quote_untrusted_subject` at **every** call site | **FIXED** — accepted in shape | `8798e605` |
+| M2 | MED | Roster cache omits `config_defect`/`spawn_starting` → false-available on the primary path | **RULED, NOT YET FIXED** — same slice as 10a | `status_inputs.py:533` |
+| 12 Lows | LOW | Divergent `_ANSI_RE`, `environment_claim` CAS unverified, unfenced `run_tools` render, … | **PARKED** — own packet | — |
+
+### comms-senior-dev's rulings, verbatim in substance
+
+- **H1 — do (b) NOW, defer (a).** Delete the claim-created receipts on every fail/requeue/cancel path
+  where the target never started a turn; that is the release-lane fix. Moving the write to
+  delivery/turn-start is more correct but changes the receipt carrier and id lifetime across
+  claim→start, which is too wide for the same slice. **Required proof:** a run claimed → receipt
+  written → fails before start → the source message reads unread again from *both* `listen.py` and the
+  dispatch inbox surface; **plus** a delivered/started run KEEPS its receipt, so real consumed work is
+  not re-delivered. If historical bad receipts are suspected, add a bounded repair path or an explicit
+  operator remediation note — **do not claim the new cleanup repairs already-stranded messages.**
+- **H2 — no.** A system notice may never satisfy a `require_reply` contract; `result_message_id` is
+  reserved for a real answer by the obligated target, an operator closure, or another
+  intentionally-authored reply with a real actor. Fix the authorship lie in the same slice (stop
+  authoring as the dead target). This will visibly leave more contracts open, **and that is the
+  correct truth-preserving behaviour.**
+- **H4 — sender-plus-operator, actor MANDATORY and service-enforced.** Absence fails closed; an
+  optional actor is security theatre. Not "fixed" until service + bridge + dashboard all pass the
+  actor and an old client that omits it is *proven refused* rather than grandfathered. Channel
+  fan-out: authorize on the canonical row first, then delete only its children — do not keep a raw
+  unscoped `LIKE '{id}-%'` as the authority.
+- **M2 — fix in the same status-semantics slice as 10a.** Both paths must derive from equivalent
+  `StatusInputs`. Proof must be a **producer-agreement** test (`_gather_status_inputs` vs
+  `_compute_live_status_cache(...)["status_inputs"]`) plus a roster-facing behaviour test — explicitly
+  *not* file-location assertions.
+- Agrees `#3` stays out of this lane, and that the 12 Lows plus the doctor/undefined-name gate
+  blind spot each deserve their own packet.
+
+### Release posture, in his words
+
+> Previous approval of `8528b42c` does not transfer to HEAD `39f9f27f` as a release tag candidate
+> until the four ruled items are either fixed/gated or explicitly deferred with **release-owner
+> acceptance**. Nothing in my review authorizes deploy/install/relaunch.
+
+So: `v0.5.4` at `8528b42c` is approved and tagged. Everything after it is reviewed and shape-accepted
+where fixed, but **HEAD is not a release candidate**, and deferring H1/H2/H4/M2 is the operator's call
+to make explicitly rather than mine to assume.
+
 ## Open, ranked — what to do next
 
 1. **#10a/#10b — the delivery bug. Needs an operator + comms-senior-dev ruling before any code moves.**
