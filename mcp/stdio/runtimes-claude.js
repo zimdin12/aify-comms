@@ -5,7 +5,6 @@
 import fs from "fs";
 import path from "path";
 import { userHomeDir } from "./runtimes-process.js";
-import { resolveExecutable, inspectShebang, bashShebangFallback } from "./runtimes-exec.js";
 
 
 const DEFAULT_CLAUDE_MAX_TURNS = 50;
@@ -124,31 +123,15 @@ export function managedClaudeMaxTurns(config = {}) {
   return Math.floor(value);
 }
 
-function defaultClaudeCommand() {
-  const configured = String(process.env.AIFY_CLAUDE_COMMAND || process.env.CLAUDE_COMMAND || "").trim();
-  if (process.platform === "win32") {
-    const comspec = process.env.ComSpec || process.env.COMSPEC || "cmd.exe";
-    return { command: comspec, args: ["/d", "/s", "/c", configured || "claude"] };
-  }
-  // On POSIX, resolve to an absolute path so Node's spawn doesn't depend on the
-  // bridge process inheriting an interactive shell's PATH (npm-global, nvm shims
-  // etc. only appear after .profile/.bashrc sources them). Falls back to the
-  // bare name if resolution fails — runtimeLaunchAvailability will then surface
-  // an actionable message before the spawn is attempted.
-  const target = configured || "claude";
-  const resolved = resolveExecutable(target);
-  if (resolved) {
-    // If the resolved script has a broken shebang (its #! interpreter isn't
-    // reachable from the bridge's PATH), run it through bash -lc so the
-    // login shell can re-resolve the interpreter via nvm/asdf/etc.
-    const shebang = inspectShebang(resolved);
-    if (shebang && !shebang.valid) {
-      return bashShebangFallback(resolved);
-    }
-    return { command: resolved, args: [] };
-  }
-  return { command: target, args: [] };
-}
+// `defaultClaudeCommand()` lived here until 2026-08-17 and was DEAD: defined once, exported never, called by
+// nothing in the repo. It built the spawn command for `claude -p`, which this bridge stopped launching when
+// delivery moved to the claude-channel.js sidecar inside claude-aify — the reason ClaudeController is a safety
+// belt that refuses every verb. The V8-coverage census is what surfaced it (zero calls), and its removal took
+// this file's only uses of resolveExecutable / inspectShebang / bashShebangFallback with it.
+//
+// Nothing was lost: the win32 half (ComSpec + `/d /s /c`) still lives in `runtimes-exec.js`'s `where` probe and
+// in `terminal-runtime.js`'s PTY command wrapping, and the POSIX absolute-path rationale it documented is
+// carried at its remaining reader in `runtimes-codex.js`.
 
 export function staleClaudeAifyWrapperReason(resolved) {
   const value = String(resolved || "").trim();

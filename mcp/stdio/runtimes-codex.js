@@ -352,8 +352,11 @@ export function defaultCodexCommand() {
     const systemRoot = process.env.SystemRoot || "C:\\Windows";
     return { command: `${systemRoot}\\System32\\wsl.exe`, args: ["-e", "codex", "app-server"] };
   }
-  // Resolve to absolute path so spawn doesn't depend on the bridge process
-  // inheriting an interactive shell's PATH (see defaultClaudeCommand notes).
+  // Resolve to an absolute path so spawn doesn't depend on the bridge process inheriting an interactive
+  // shell's PATH: npm-global, nvm and asdf shims only appear after .profile/.bashrc have been sourced, which
+  // a bridge started by a launcher never does. Falls back to the bare name so runtimeLaunchAvailability can
+  // surface an actionable message before the spawn is attempted. (This note used to point at
+  // `defaultClaudeCommand`, deleted as dead code on 2026-08-17.)
   const resolved = resolveExecutable("codex");
   return { command: resolved || "codex", args: ["app-server"] };
 }
