@@ -564,6 +564,44 @@ def _start(req, db, logger):
             conditionally_bound_argument_violations(funcs["handler"], funcs["_start"], split),
             "a module-level name is bound before any call and must never be flagged")
 
+    def test_a_module_level_name_the_CALLER_SHADOWS_is_not_safe(self):
+        """THE FOURTEENTH HOLE — the exact opposite of the test above, and the pair is the point.
+
+        Reported by a reviewer on another instance as the sibling of the thirteenth (which lived in
+        `live_in_violations`), and confirmed BY EXECUTION rather than by reading, because that is how
+        the thirteenth was settled: for the source below, `flag=False` returns 0 before the split and
+        raises `UnboundLocalError` after it, while this check returned NO VIOLATIONS.
+
+        Why module scope cannot rescue it: a name assigned ANYWHERE in a function is local for that
+        function's whole body, so the module-level `LIMIT` is unreachable from inside `handler`. The
+        conditional binding is the only binding there is.
+
+        The two tests must stay adjacent. The rule is not "module names are safe" and not "module
+        names are unsafe" — it is "a module name is safe UNLESS this caller also binds it", and either
+        half alone reads as the other rule.
+        """
+        split = ast.parse('''
+LIMIT = 1
+
+
+def handler(flag):
+    if flag:
+        LIMIT = 2
+    return _tail(flag, LIMIT)
+
+
+def _tail(flag, LIMIT):
+    if flag:
+        return LIMIT + 10
+    return 0
+''')
+        funcs = {n.name: n for n in split.body if isinstance(n, ast.FunctionDef)}
+        violations = conditionally_bound_argument_violations(funcs["handler"], funcs["_tail"], split)
+        self.assertTrue(
+            any("LIMIT" in v for v in violations),
+            "a caller-shadowed global was treated as always-available: the split raises "
+            f"UnboundLocalError on the branch that skips the binding, and the gate blessed it. {violations}")
+
     def test_a_with_body_binding_is_safe_but_a_for_body_binding_is_not(self):
         """`with` always runs its body; a `for` over an empty sequence binds nothing.
 

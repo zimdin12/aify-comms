@@ -847,7 +847,30 @@ def conditionally_bound_argument_violations(
             bound |= _assigned_names([stmt])
         return bound
 
-    safe = set(parameters) | _module_level_names(module) | set(dir(builtins))
+    # THE FOURTEENTH HOLE, and the SECOND false pass — the thirteenth's sibling, in the check right
+    # next to it. Reported by a reviewer on another instance as "the same shape at ~L850", and
+    # CONFIRMED BY EXECUTION rather than by reading, the same way the thirteenth was:
+    #
+    #     LIMIT = 1                          # module scope
+    #     def caller(flag):
+    #         if flag:
+    #             LIMIT = 2                  # ...so LIMIT is LOCAL for the whole function
+    #         if flag:                       # <- extracted block, guard included
+    #             return LIMIT + 10
+    #         return 0
+    #
+    # Split it and the call sits at the caller's top level, evaluating LIMIT unconditionally.
+    # Measured: flag=False returns 0 before and raises UnboundLocalError after, and this check
+    # returned NO VIOLATIONS. The module-level `LIMIT` made a caller-local look always-available —
+    # but a name assigned anywhere in a function is local for that function's ENTIRE body, so module
+    # scope is unreachable from inside it and cannot make the read safe.
+    #
+    # The subtraction is deliberately the caller's OWN bindings minus the helper's parameters, which
+    # is what keeps the documented `logger` case working: a module global no caller ever binds is
+    # still always safe, so the three correct proofs that the first version of this check refused
+    # stay green. Verified by the full suite, not by argument.
+    caller_bound = (_assigned_names(split_fn.body) | _helper_params(split_fn)) - set(parameters)
+    safe = (set(parameters) | _module_level_names(module) | set(dir(builtins))) - caller_bound
     for stmts, position in dominating:
         # Only statements BEFORE the call (or the enclosing statement) in each block have run.
         safe |= _unconditionally_assigned(stmts[:position])
