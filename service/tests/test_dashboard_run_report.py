@@ -72,7 +72,10 @@ class DashboardReportTestCase(FastApiTestCase):
                   require_reply: int = 0, subject: str = "check the build",
                   message_id: str = "", runtime: str = "hermes",
                   result_message_id: str = "",
-                  started_at: str = "2026-08-17T09:00:00Z") -> None:
+                  started_at: str = "2020-01-01T00:00:00Z") -> None:
+        # A date FIRMLY IN THE PAST, not the current one. The suppression windows these tests
+        # exercise open at `started_at`, so a fixture dated today makes every window depend on the
+        # wall clock — which is how the separation test above passed at 08:00Z and failed at 10:00Z.
         self._write(
             "INSERT INTO dispatch_runs (id, message_id, from_agent, target_agent, dispatch_mode,"
             " runtime, subject, body, status, summary, require_reply, result_message_id,"
@@ -379,9 +382,18 @@ class SeparationTests(DashboardReportTestCase):
     def test_the_two_functions_never_both_fire_for_one_run(self):
         """They split on the sender and nothing else, so every run is exactly one of the two cases.
         If both could fire, a completed run would produce two dashboard messages saying the same
-        thing in different voices."""
-        self._seed_run("run-dash", sender="dashboard")
-        self._seed_run("run-manager", sender="manager-bot")
+        thing in different voices.
+
+        THE TWO RUNS TARGET DIFFERENT AGENTS, and my first version did not — which made this test
+        TIME-DEPENDENT and it began failing hours after it was committed. Both runs targeted the
+        manager, so the message the MIRROR wrote for the first run landed inside the second run's
+        suppression window and the report was correctly skipped. The window opens at the run's
+        `started_at`, which these fixtures seed at 09:00Z on the current date, so the test passed
+        only while the wall clock was still before that time. Different targets remove the
+        interaction entirely, and are the truer statement of separation: each function fires for its
+        own run."""
+        self._seed_run("run-dash", sender="dashboard", target=CODER)
+        self._seed_run("run-manager", sender="manager-bot", target=MANAGER)
 
         self.assertIsNone(self._report("run-dash"))
         self.assertTrue(self._mirror("run-dash"))

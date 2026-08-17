@@ -51,8 +51,12 @@ test("comms_spawn's name guard sits BEHIND its remote-mode guard, so local mode 
   assert.ok(spawn.schema.agentId, "an agent id is required to spawn one");
 
   // What IS true from here: the ordering. Asserted on source because it is an ordering fact, and it is
-  // what makes the guard untestable without a service — recorded so the gap is visible rather than
-  // implied by a missing test.
+  // what makes the guard untestable FROM THIS FILE — which needs local mode, and `IS_REMOTE` resolves
+  // once per process.
+  //
+  // THE GAP THIS NOTE RECORDED IS CLOSED (2026-08-17): `environment-tools-remote.test.js` runs the same
+  // handlers against a real service, where the mode guard passes and the name guard is the next thing to
+  // execute. Removing the `validateName` call now fails a test there — checked by doing it.
   const src = readFileSync(path.join(STDIO, "environment-tools.mjs"), "utf-8");
   const spawnBody = src.slice(src.indexOf('"comms_spawn"'));
   const remoteAt = spawnBody.indexOf("if (!IS_REMOTE)");
