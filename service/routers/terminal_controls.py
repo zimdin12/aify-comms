@@ -22,6 +22,7 @@ import json
 from fastapi import HTTPException, Request
 
 from service import longpoll
+from service.api_core.claim_emptiness import terminal_controls_is_empty
 from service.api_core.events import _append_terminal_event
 from service.api_core.records import _terminal_session_to_dict
 from service.api_core.routing import domain_router
@@ -55,7 +56,7 @@ async def claim_terminal_controls(req: TerminalControlClaim):
     return await longpoll.longpoll(
         getattr(req, "waitMs", 0),
         lambda: _claim_terminal_controls_once(req),
-        lambda r: r.get("controls") == [],
+        terminal_controls_is_empty,
         scope="terminal-control",
         fallback_s=1.0,
         lock_result={"ok": True, "controls": []},

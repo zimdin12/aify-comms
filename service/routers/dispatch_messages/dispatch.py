@@ -20,6 +20,7 @@ import uuid
 from fastapi import HTTPException, Request
 
 from service import longpoll
+from service.api_core.claim_emptiness import dispatch_claim_is_empty
 from service.api_core.events import _append_dispatch_event
 from service.api_core.dispatch_run_settlement import _settle_terminated_dispatch_run
 from service.api_core.reply_expectation import (
@@ -102,20 +103,13 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
     # single-attempt behaviour (old bridges keep working unchanged). The per-iteration
     # fallback (3s = the legacy poll interval) bounds latency even if a notify() is missed.
     # See service/longpoll.py + DECISIONS.md "claim endpoints are long-poll".
-    def _is_empty(result: dict) -> bool:
-        # Keep waiting ONLY for a pure "nothing to do" result. Any actionable signal
-        # (a claimed run, or a stopped/release/blockedBy directive) returns immediately.
-        return (
-            result.get("run") is None
-            and not result.get("stopped")
-            and not result.get("release")
-            and not result.get("blockedBy")
-        )
-
+    # The emptiness predicate moved to service/api_core/claim_emptiness.py in v0.5.4. It was a
+    # nested `def` here, so nothing could import it and nothing ever ran it: `longpoll` reads
+    # `if wait_ms <= 0 or not is_empty(result)`, and every test used the default waitMs=0.
     return await longpoll.longpoll(
         getattr(req, "waitMs", 0),
         lambda: _claim_dispatch_once(req, request),
-        _is_empty,
+        dispatch_claim_is_empty,
         scope="dispatch",
         fallback_s=3.0,
         is_disconnected=request.is_disconnected,

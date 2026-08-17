@@ -42,6 +42,7 @@ from typing import Any, Optional
 from fastapi import HTTPException, Query, Request
 
 from service import longpoll
+from service.api_core.claim_emptiness import spawn_request_is_empty
 from service.api_core.running_spawn import _settle_running_spawn
 from service.api_core.routing import domain_router
 from service.api_core.runtime import (
@@ -261,7 +262,7 @@ async def claim_spawn_request(req: SpawnRequestClaim, request: Request):
     return await longpoll.longpoll(
         getattr(req, "waitMs", 0),
         lambda: _claim_spawn_request_once(req, request),
-        lambda r: r.get("spawnRequest") is None and not r.get("blockedBy") and "spawnRequest" in r,
+        spawn_request_is_empty,
         scope="spawn",
         fallback_s=3.0,
         is_disconnected=request.is_disconnected,

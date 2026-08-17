@@ -25,6 +25,7 @@ from typing import Any, Optional
 from fastapi import HTTPException, Request
 
 from service import longpoll
+from service.api_core.claim_emptiness import environment_control_is_empty
 from service.environment_claim import _claim_environment_control_once
 from service.api_core.environment_registration import _record_environment_registration
 from service.api_core.superseded_bridge_stops import _queue_stop_for_superseded_bridge
@@ -360,7 +361,7 @@ async def claim_environment_control(req: EnvironmentControlClaim):
     return await longpoll.longpoll(
         getattr(req, "waitMs", 0),
         lambda: _claim_environment_control_once(req),
-        lambda r: r.get("control") is None and "controlId" not in r,
+        environment_control_is_empty,
         scope="env-control",
         fallback_s=3.0,
         lock_result={"ok": True, "control": None},

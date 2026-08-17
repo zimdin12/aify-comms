@@ -25,6 +25,7 @@ from __future__ import annotations
 from fastapi import HTTPException, Request
 
 from service import longpoll
+from service.api_core.claim_emptiness import dispatch_controls_is_empty
 from service.api_core.dispatch_controls_io import _claim_dispatch_controls_once
 from service.api_core.dispatch_run_state import _append_dispatch_control
 from service.api_core.events import _append_dispatch_event
@@ -52,7 +53,7 @@ async def claim_dispatch_controls(req: DispatchControlClaimRequest, request: Req
     return await longpoll.longpoll(
         getattr(req, "waitMs", 0),
         lambda: _claim_dispatch_controls_once(req, request),
-        lambda r: r.get("controls") == [],
+        dispatch_controls_is_empty,
         scope="control",
         fallback_s=3.0,
         is_disconnected=request.is_disconnected,
