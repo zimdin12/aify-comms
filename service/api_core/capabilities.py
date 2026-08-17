@@ -226,7 +226,11 @@ def _row_capabilities(row) -> list[str]:
     capabilities = _json_loads_or(row["capabilities"], [])
     runtime = _normalize_runtime((row["runtime"] if "runtime" in row.keys() else "") or "generic")
     session_mode = _normalize_session_mode((row["session_mode"] if "session_mode" in row.keys() else "") or "resident")
-    session_handle = str((row["session_handle"] if "session_handle" in row.keys() else "") or "").strip()
+    # NO `session_handle` here. It was read into a local and never used by any branch below — the
+    # correction this function makes is decided by runtime, session_mode and runtime_config alone.
+    # Reading it cost a column that narrow SELECTs do not always carry, and, worse, it read as
+    # though a missing handle could withdraw `resident-run`; it cannot, which is the confusion
+    # `test_resident_hermes_missing_handle_status.py` was written to settle.
     runtime_config = _json_loads_or(row["runtime_config"], {}) if "runtime_config" in row.keys() else {}
     if runtime == "pi":
         if session_mode == "resident":
