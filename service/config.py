@@ -14,6 +14,11 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any
 
+# What the build stamp OWNS, and which `service.json` therefore may not set. Named as one set so the
+# rule is a single readable fact rather than five conditions, and so a test can assert the set is
+# complete against the stamp's own keys.
+_STAMP_OWNED_KEYS = frozenset({"version", "build_sha", "build_short", "build_branch", "built_at"})
+
 
 @dataclass
 class ServiceConfig:
@@ -103,6 +108,23 @@ class ServiceConfig:
                     raise ValueError("service.json is not a JSON object")
                 config.custom = data.get("custom", {})
                 for key, value in data.items():
+                    if key in _STAMP_OWNED_KEYS:
+                        # A SECOND override hole of exactly the .env SERVICE_VERSION class, reported
+                        # from another instance 2026-08-17: this loop set ANY attribute that happened
+                        # to exist on the config, so a `version` key left in a hand-edited or stale
+                        # service.json silently beat the build stamp — that instance's service
+                        # reported 3.6.6 while running 0.5.4.
+                        #
+                        # The version was the mild half. The same loop also reached `build_sha`, and
+                        # that value is what `aify-comms doctor`'s `service` check compares against
+                        # repo HEAD to answer "is the container serving my code". A service.json
+                        # could therefore make the one instrument this project has for detecting a
+                        # stale deploy agree with a sha nothing was ever built from — a false green
+                        # in the exact place the tool exists to prevent one.
+                        #
+                        # These five fields are OBSERVATIONS of the build, not configuration. There is
+                        # no operator intent a hand-edit could express here that would be true.
+                        continue
                     if key not in ("custom", "containers") and hasattr(config, key):
                         setattr(config, key, value)
             except (json.JSONDecodeError, ValueError, AttributeError) as e:
