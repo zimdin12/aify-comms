@@ -68,9 +68,15 @@ const WORD_BOUNDARY = String.raw`\b`;
 //: MEASURED 2026-08-16, `module#export`. MAY ONLY SHRINK: the second test below fails if an entry
 //: here is now named by a test, so paying one down means deleting its line in the same commit.
 //: Nothing was chosen for this list — it is the whole of what the scan found.
+//:
+//: EMPTY as of 2026-08-17, and that is the end state rather than a gap. 42 -> 0 over five slices.
+//: The last pair, `discoverCodexLiveBinding`, was left until last because testing it needs
+//: `XDG_STATE_HOME` sealed: `listRuntimeMarkers` DELETES markers whose pid is not alive, so an
+//: unsealed test would have unlinked live agents' markers on the developer's own machine. Two of the
+//: entries paid down along the way turned out to be broken rather than merely untested
+//: (`wrapper-pool.js#disposeAll`, and the `data`/`threads` shape read behind this last pair), which is
+//: the argument for the ratchet: an export nothing names is an export nothing checks.
 const UNTESTED_EXPORT_BACKLOG = [
-  "mcp/stdio/runtimes-codex.js#discoverCodexLiveBinding",
-  "mcp/stdio/runtimes.js#discoverCodexLiveBinding",
 ];
 
 function moduleFiles() {

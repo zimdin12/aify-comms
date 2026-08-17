@@ -33,10 +33,25 @@ export function normalizePathForCompare(value) {
 }
 
 
+// `thread/list` answers under EITHER key depending on the app-server build — `threads` on some,
+// `data` on others — which is why the fixture carries `FAKE_CODEX_THREAD_LIST_KEY` and defaults to
+// `data`. This accessor is the one place that knows it.
+//
+// EXTRACTED 2026-08-17 BECAUSE THE TOLERANCE WAS NOT SHARED. `pickNewestCodexThreadId` accepted both
+// shapes; `inspectCodexLiveMarker` in `runtimes-codex.js` read `listResult.threads` only. Against a
+// server answering `data`, its thread array was therefore always empty, and two things silently did
+// not happen: a session handle never matched a server that held it (the agent was bound by cwd guess
+// instead), and — worse — the AMBIGUITY REFUSAL never fired, so two app servers holding the same
+// session were not detected as ambiguous and one was picked by cwd. That refusal exists to stop an
+// agent being driven through another agent's app server.
+export function codexThreadListItems(listResult) {
+  if (Array.isArray(listResult?.threads)) return listResult.threads;
+  if (Array.isArray(listResult?.data)) return listResult.data;
+  return [];
+}
+
 export function pickNewestCodexThreadId(listResult, cwd) {
-  const threads = Array.isArray(listResult?.threads)
-    ? listResult.threads
-    : (Array.isArray(listResult?.data) ? listResult.data : []);
+  const threads = codexThreadListItems(listResult);
   if (!threads.length) return "";
 
   // Normalize both sides: Codex stores Windows thread cwds with backslashes,

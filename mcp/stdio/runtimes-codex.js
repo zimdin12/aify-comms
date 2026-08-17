@@ -6,7 +6,7 @@ import fs from "fs";
 import path from "path";
 // Thread selection left for `codex-thread-selection.js` in v0.5.4 — which conversation to resume is
 // a decision worth being able to test without a codex install.
-import { pickNewestCodexThreadId } from "./codex-thread-selection.js";
+import { codexThreadListItems, pickNewestCodexThreadId } from "./codex-thread-selection.js";
 import { fileURLToPath } from "url";
 import { listRuntimeMarkers } from "./runtime-markers.js";
 import { resolveCodexRequestCwdFor } from "./codex-errors.js";
@@ -448,7 +448,10 @@ async function inspectCodexLiveMarker(marker, cwd = process.cwd()) {
     rpc.notify("initialized", {});
 
     const listResult = await fetchCodexThreadList(rpc);
-    const threads = Array.isArray(listResult?.threads) ? listResult.threads : [];
+    // Through the shared accessor since 2026-08-17: this read `listResult.threads` only, so against
+    // an app server answering under `data` the array was always empty — the session-handle match
+    // never fired and the ambiguity refusal never fired with it.
+    const threads = codexThreadListItems(listResult);
     return {
       marker,
       runtimeConfig,
