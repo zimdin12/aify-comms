@@ -9,7 +9,11 @@
 // MEASURED FIRST, like every other ratchet here: 220 modules, 990 exports, 42 named by no test.
 // Thin and spread out — mostly one or two per module — which is what makes them easy to leave. The
 // backlog below started as those 42 and MAY ONLY SHRINK: 42 -> 24 -> 14, the last step being the
-// eight dashboard entries paid down together in `exported-vocabularies.test.mjs` on 2026-08-17.
+// eight dashboard entries paid down together in `exported-vocabularies.test.mjs` and then the seven
+// launch helpers in `runtime-launch-helpers.test.js`, both on 2026-08-17. Seven entries for four
+// functions: `spawnProcess` and `defaultPiCommand` are re-exported, so one test clears several rows
+// — and the re-export chain is itself asserted there, because a controller importing a DIFFERENT
+// function of the same name is what that chain exists to prevent.
 // Seven of those eight were exported CONSTANTS, which is the shape worth noticing: a vocabulary or
 // a bound that some other module reads, with nothing asserting the two still agree.
 //
@@ -59,14 +63,7 @@ const WORD_BOUNDARY = String.raw`\b`;
 const UNTESTED_EXPORT_BACKLOG = [
   "mcp/stdio/console-tools.mjs#registerConsoleTools",
   "mcp/stdio/runtimes-codex.js#discoverCodexLiveBinding",
-  "mcp/stdio/runtimes-exec.js#bashShebangFallback",
-  "mcp/stdio/runtimes-helpers.js#spawnProcess",
-  "mcp/stdio/runtimes-pi.js#defaultPiCommand",
-  "mcp/stdio/runtimes-process.js#spawnProcess",
-  "mcp/stdio/runtimes-process.js#userHomeDir",
-  "mcp/stdio/runtimes.js#defaultPiCommand",
   "mcp/stdio/runtimes.js#discoverCodexLiveBinding",
-  "mcp/stdio/runtimes.js#spawnProcess",
   "mcp/stdio/terminal-text.js#OSC_NOISE_RE",
   "mcp/stdio/usage-collector.js#readAgentConsumption",
   "mcp/stdio/virtual-terminals.mjs#updateTerminalControl",
