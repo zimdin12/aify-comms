@@ -88,12 +88,27 @@ export function listPooledAgents() {
   }));
 }
 
+// FIXED 2026-08-17: this DISPOSED NOTHING. It collected the KEYS, called `POOL.clear()`, and then
+// looked each key up again — in a map it had just emptied — so every `POOL.get(key)` returned
+// undefined and `entry?.handle?.dispose?.()` short-circuited on the optional chain. The pool was
+// emptied and not one wrapper was told to shut down: every pooled child process (omp --mode rpc,
+// codex app-server, the opencode SDK, a hermes runtime) was left running, orphaned from the map that
+// tracked it.
+//
+// Clearing FIRST is right and is kept — it closes the window where a concurrent `ensureWrapper` could
+// hand out a handle that is already disposing. Only the lookup was wrong: the ENTRIES are captured
+// before the clear now, which is exactly what the sibling `disposeWrapper` above already does.
+//
+// It has NO CALLERS, so today's behaviour is unchanged either way — and that absence is its own
+// finding: the module header lists "teardown coordination" as one of this pool's three
+// responsibilities, and nothing invokes the whole-pool form of it. Wiring it into bridge shutdown is
+// a separate change with its own risk (a teardown step added to an async shutdown is a window), not
+// something to smuggle in beside a correctness fix.
 export async function disposeAll() {
-  const keys = Array.from(POOL.keys());
+  const entries = Array.from(POOL.values());
   POOL.clear();
   await Promise.all(
-    keys.map(async (key) => {
-      const entry = POOL.get(key);
+    entries.map(async (entry) => {
       try {
         await entry?.handle?.dispose?.();
       } catch {

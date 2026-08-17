@@ -14,6 +14,9 @@
 // functions: `spawnProcess` and `defaultPiCommand` are re-exported, so one test clears several rows
 // — and the re-export chain is itself asserted there, because a controller importing a DIFFERENT
 // function of the same name is what that chain exists to prevent.
+// `wrapper-pool.js#disposeAll` came off the same day and is why this ratchet earns its keep: the
+// export it had recorded as untested DISPOSED NOTHING — it cleared the pool and then looked its keys
+// up in the map it had just emptied. Six of the nine tests written for it fail against the old body.
 // Seven of those eight were exported CONSTANTS, which is the shape worth noticing: a vocabulary or
 // a bound that some other module reads, with nothing asserting the two still agree.
 //
@@ -67,7 +70,6 @@ const UNTESTED_EXPORT_BACKLOG = [
   "mcp/stdio/terminal-text.js#OSC_NOISE_RE",
   "mcp/stdio/usage-collector.js#readAgentConsumption",
   "mcp/stdio/virtual-terminals.mjs#updateTerminalControl",
-  "mcp/stdio/wrapper-pool.js#disposeAll",
 ];
 
 function moduleFiles() {
