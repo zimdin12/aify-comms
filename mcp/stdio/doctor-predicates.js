@@ -1,5 +1,15 @@
 // Pure predicates behind aify-doctor's `env-bridge` check.
 //
+// NOT ALL PURE SINCE v0.5.4: the two process-inspection readers at the bottom read files, which is why
+// they take an injectable reader and a `/proc` root. They are here because the reason the env-bridge
+// predicates moved applies to them identically — doctor.js cannot be imported by a test at all. The
+// two imports below are the file's FIRST: it had none, and appending a body that used `readFileSync`
+// without them left a module that `node --check` parses happily and that throws `ReferenceError` on its
+// first real call. That exact failure is recorded in doctor.js's own import block, from the last time
+// it happened.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+//
 // Extracted from doctor.js (v0.2 item B2, done in v0.1) for ONE reason: doctor.js is a top-level
 // script that runs every check at import and ends in `process.exit()`, so it cannot be imported by
 // a test. That structural fact is why the check with the worst track record in this repo had zero
@@ -580,4 +590,51 @@ export function skillsInstallVerdict({ missing = [], differing = [], total = 0, 
     fix: "Re-run `bash install.sh --client <runtime>`, THEN restart the agents — a skill is read at "
       + "session start, so a running agent keeps the text it already loaded.",
   };
+}
+
+// ── process inspection: the two readers behind the `agent-identity` check ─────────────────────────
+//
+// MOVED HERE from doctor.js in v0.5.4, byte-identical apart from an injectable `/proc` root. Same
+// reason the env-bridge predicates came first: doctor.js runs every check at import and ends in
+// `process.exit()`, so nothing declared there can be reached by a test. A V8-coverage census of the
+// bridge suite found both with a ZERO call count.
+//
+// WHAT THEY DECIDE. `agent-identity` is the check that catches an agent which registered but whose
+// PROCESS has no `AIFY_AGENT_ID` — invisible from the database, because it messages and heartbeats
+// perfectly while its status latches forever. The check has to separate that from a plain
+// claude+comms session that never registered and is legitimately id-less, and `readBoundAgentId` IS
+// that separation: `comms_register` writes a binding file keyed by the CLIENT pid, so a binding
+// means "this session registered". Get it wrong in one direction and the check cries wolf on every
+// plain session; in the other it reports green over exactly the agents it exists to find.
+//
+// THE ROOT IS A PARAMETER so a test can stage a fake /proc tree. It defaults to "/proc" and the
+// callers pass nothing, so behaviour on a real host is unchanged — and the check is Linux-gated
+// anyway.
+
+// The agent binding comms_register writes, keyed by the CLAUDE pid (the bridge's parent).
+export function readBoundAgentId(bridgePid, { procRoot = "/proc", readFile = readFileSync, tmpDir = null } = {}) {
+  let ppid = "";
+  try { ppid = (readFile(`${procRoot}/${bridgePid}/stat`, "utf8").split(" ")[3] || "").trim(); } catch { return ""; }
+  const tmp = tmpDir || process.env.TMPDIR || process.env.TEMP || "/tmp";
+  for (const pid of [ppid, String(bridgePid)]) {
+    if (!pid) continue;
+    try {
+      const raw = readFile(join(tmp, `aify-agent-${pid}`), "utf8").trim();
+      if (!raw) continue;
+      const id = raw.startsWith("{") ? String(JSON.parse(raw).agentId || "") : raw;
+      if (id) return id;
+    } catch { /* no binding for this pid */ }
+  }
+  return "";
+}
+
+export function readProcEnv(pid, { procRoot = "/proc", readFile = readFileSync } = {}) {
+  const out = {};
+  try {
+    for (const kv of readFile(`${procRoot}/${pid}/environ`, "utf8").split("\0")) {
+      const i = kv.indexOf("=");
+      if (i > 0) out[kv.slice(0, i)] = kv.slice(i + 1);
+    }
+  } catch { /* process gone / not ours */ }
+  return out;
 }

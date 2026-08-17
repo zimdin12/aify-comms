@@ -47,6 +47,9 @@ import {
   // defined` on its FIRST line of real work — found only by running it against a real deploy.
   SERVICE_RUNTIME_PATHS,
   SERVICE_RUNTIME_EXCLUDE_PATHS,
+  // Moved out of THIS file in v0.5.4 so they could be tested — see the note where they used to sit.
+  readBoundAgentId,
+  readProcEnv,
 } from "./doctor-predicates.js";
 
 const args = process.argv.slice(2);
@@ -208,33 +211,12 @@ function checkRunningBridges() {
     "Restart those sessions/agents — installing does not reload a running bridge.");
 }
 
-// The agent binding comms_register writes, keyed by the CLAUDE pid (the bridge's parent).
-function readBoundAgentId(bridgePid) {
-  let ppid = "";
-  try { ppid = (readFileSync(`/proc/${bridgePid}/stat`, "utf8").split(" ")[3] || "").trim(); } catch { return ""; }
-  const tmp = process.env.TMPDIR || process.env.TEMP || "/tmp";
-  for (const pid of [ppid, String(bridgePid)]) {
-    if (!pid) continue;
-    try {
-      const raw = readFileSync(join(tmp, `aify-agent-${pid}`), "utf8").trim();
-      if (!raw) continue;
-      const id = raw.startsWith("{") ? String(JSON.parse(raw).agentId || "") : raw;
-      if (id) return id;
-    } catch { /* no binding for this pid */ }
-  }
-  return "";
-}
-
-function readProcEnv(pid) {
-  const out = {};
-  try {
-    for (const kv of readFileSync(`/proc/${pid}/environ`, "utf8").split("\0")) {
-      const i = kv.indexOf("=");
-      if (i > 0) out[kv.slice(0, i)] = kv.slice(i + 1);
-    }
-  } catch { /* process gone / not ours */ }
-  return out;
-}
+// `readBoundAgentId` and `readProcEnv` moved to ./doctor-predicates.js in v0.5.4, byte-identical apart
+// from an injectable `/proc` root. Same reason the env-bridge predicates went first: this file runs
+// every check at import and ends in `process.exit()`, so nothing declared here can be reached by a
+// test. A V8-coverage census of the bridge suite found both with a zero call count, which for the two
+// readers behind the `agent-identity` check is the same shape as the false greens that moved the
+// others.
 
 // ── 4. anonymous agent sessions: registered, but with no identity in the process ─────
 // An agent launched without --aify-agent has NO AIFY_AGENT_ID, which silently disables every
