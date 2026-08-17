@@ -6,6 +6,9 @@ import assert from "node:assert/strict";
 // IS_REMOTE is derived from a server URL env var at import time; set one so the
 // handlers take the remote path.
 process.env.AIFY_SERVER_URL = process.env.AIFY_SERVER_URL || "http://127.0.0.1:8800";
+// The modules read `CLAUDE_MCP_SERVER_URL || AIFY_SERVER_URL` — the LEGACY name WINS, and a
+// live wrapper environment exports it. Setting only the new name left the fake below unused.
+process.env.CLAUDE_MCP_SERVER_URL = process.env.AIFY_SERVER_URL || "http://127.0.0.1:8800";
 process.env.AIFY_AGENT_ID = "manager-bot";
 
 // The console surface moved to `console-tools.mjs` in v0.5.4; these three follow their owner.

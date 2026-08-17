@@ -41,6 +41,12 @@ const PORT = await new Promise((resolve) => {
 });
 
 process.env.AIFY_SERVER_URL = `http://127.0.0.2:${PORT}`;
+
+// The modules read `CLAUDE_MCP_SERVER_URL || AIFY_SERVER_URL` — the LEGACY name WINS, and a
+
+// live wrapper environment exports it. Setting only the new name left the fake below unused.
+
+process.env.CLAUDE_MCP_SERVER_URL = `http://127.0.0.2:${PORT}`;
 process.env.AIFY_AGENT_ID = "registration-test-agent";
 
 const { CONSOLE_INPUT_TOOL_DESCRIPTION, registerConsoleTools } =

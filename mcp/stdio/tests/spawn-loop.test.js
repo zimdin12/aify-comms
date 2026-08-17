@@ -35,7 +35,16 @@ const SERVER = http.createServer((req, res) => {
 const PORT = await new Promise((r) => SERVER.listen(0, "127.0.0.2", () => r(SERVER.address().port)));
 
 process.env.AIFY_SERVER_URL = `http://127.0.0.2:${PORT}`;
+
+// The modules read `CLAUDE_MCP_SERVER_URL || AIFY_SERVER_URL` — the LEGACY name WINS, and a
+
+// live wrapper environment exports it. Setting only the new name left the fake below unused.
+
+process.env.CLAUDE_MCP_SERVER_URL = `http://127.0.0.2:${PORT}`;
 process.env.AIFY_API_KEY = "test-key";
+// Paired with the LEGACY name, which the modules read FIRST: a wrapper environment exports it,
+// and leaving it set means the module sends the operator's real key instead of this one.
+process.env.CLAUDE_MCP_API_KEY = "test-key";
 const { runSpawnPass } = await import("../spawn-loop.mjs");
 const { BRIDGE_INSTANCE_ID } = await import("../bridge-instance.mjs");
 

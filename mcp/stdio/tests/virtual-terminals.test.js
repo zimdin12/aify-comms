@@ -43,7 +43,13 @@ const PORT = await new Promise((resolve) => {
 
 // Set BEFORE the import: aify-service-endpoint.mjs reads it at module load, once per process.
 process.env.AIFY_SERVER_URL = `http://127.0.0.2:${PORT}`;
+// The modules read `CLAUDE_MCP_SERVER_URL || AIFY_SERVER_URL` — the LEGACY name WINS, and a
+// live wrapper environment exports it. Setting only the new name left the fake below unused.
+process.env.CLAUDE_MCP_SERVER_URL = `http://127.0.0.2:${PORT}`;
 process.env.AIFY_API_KEY = "test-key";
+// Paired with the LEGACY name, which the modules read FIRST: a wrapper environment exports it,
+// and leaving it set means the module sends the operator's real key instead of this one.
+process.env.CLAUDE_MCP_API_KEY = "test-key";
 const m = await import("../virtual-terminals.mjs");
 
 function scenario(handler) {

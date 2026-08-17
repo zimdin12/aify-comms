@@ -47,7 +47,9 @@ const PORT = await new Promise((resolve) => {
   SERVER.listen(0, "127.0.0.2", () => resolve(SERVER.address().port));
 });
 process.env.AIFY_SERVER_URL = `http://127.0.0.2:${PORT}`;
-
+// The modules read `CLAUDE_MCP_SERVER_URL || AIFY_SERVER_URL` — the LEGACY name WINS, and a
+// live wrapper environment exports it. Setting only the new name left the fake below unused.
+process.env.CLAUDE_MCP_SERVER_URL = `http://127.0.0.2:${PORT}`;
 const { registerEnvironmentTools } = await import("../environment-tools.mjs");
 
 test.after(() => SERVER.close());
