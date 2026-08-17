@@ -28,6 +28,16 @@ function homeDir() { return process.env.HOME || process.env.USERPROFILE || ""; }
 // Sum a claude transcript's per-message token usage into session totals. Each assistant
 // message's `usage` is ONE API request's billed tokens, so summing across messages =
 // total tokens consumed this session (input + output + cache creation/read).
+// `Number(value || 0)` is NOT enough, which a property test found on 2026-08-17: `|| 0` only rescues
+// FALSY values, so a missing count becomes 0 but a non-numeric one — `"x"` is truthy — becomes NaN.
+// One NaN poisons the running total for the whole session, and NaN survives every later addition; it
+// serialises as null and reads downstream as "usage unknown" for an agent whose usage IS known, which
+// is the one outcome this collector is written to avoid ("never a fake 0%", and never a fake unknown).
+function tokenCount(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export function readClaudeConsumption(content) {
   const out = { input_tokens: 0, output_tokens: 0, cache_tokens: 0 };
   for (const line of String(content || "").split("\n")) {
@@ -37,9 +47,9 @@ export function readClaudeConsumption(content) {
     try { o = JSON.parse(t); } catch { continue; }
     const u = o && o.message && o.message.usage;
     if (!u) continue;
-    out.input_tokens += Number(u.input_tokens || 0);
-    out.output_tokens += Number(u.output_tokens || 0);
-    out.cache_tokens += Number(u.cache_creation_input_tokens || 0) + Number(u.cache_read_input_tokens || 0);
+    out.input_tokens += tokenCount(u.input_tokens);
+    out.output_tokens += tokenCount(u.output_tokens);
+    out.cache_tokens += tokenCount(u.cache_creation_input_tokens) + tokenCount(u.cache_read_input_tokens);
   }
   return out;
 }

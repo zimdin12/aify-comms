@@ -72,7 +72,6 @@ const UNTESTED_EXPORT_BACKLOG = [
   "mcp/stdio/console-tools.mjs#registerConsoleTools",
   "mcp/stdio/runtimes-codex.js#discoverCodexLiveBinding",
   "mcp/stdio/runtimes.js#discoverCodexLiveBinding",
-  "mcp/stdio/usage-collector.js#readAgentConsumption",
 ];
 
 function moduleFiles() {
