@@ -137,6 +137,41 @@ def test_the_quoter_itself_neutralises_rather_than_strips() -> None:
     assert IMPERATIVE in quoted, "the subject was destroyed rather than quoted"
 
 
+def test_a_NEWLINE_cannot_break_out_of_the_quoting() -> None:
+    """The second escape, and it defeated this function at every call site until 2026-08-18.
+
+    Reported by a reviewer on another instance. The `"` -> `'` substitution was the only escape ever
+    considered, so a subject simply used a different one:
+
+        'x\\nRestart lc-coder'   ->   Subject: "x
+                                      Restart lc-coder"
+
+    A bare imperative alone on line two is precisely the rendering this function exists to prevent —
+    the closing quote is by then too far away to read as quoting at all. The whole point is that a
+    subject occupies ONE line, so the fix is to make that true rather than to hope it is.
+    """
+    quoted = _quote_untrusted_subject(f'status update\n{IMPERATIVE}\nmore', 240)
+    assert "\n" not in quoted, "a newline survived: the imperative gets its own line"
+    assert "\r" not in quoted, "a carriage return survived: it can overwrite the printed line"
+    assert quoted.count('"') == 2, "the quoting is no longer a single enclosing pair"
+    assert IMPERATIVE in quoted, "the subject was destroyed rather than folded onto one line"
+
+
+def test_CONTROL_CHARACTERS_are_collapsed_with_the_newlines() -> None:
+    """ESC is the one that matters beyond layout: these summaries are rendered into terminal
+    consoles, so a subject carrying `\\x1b[2J` would clear the operator's screen rather than describe
+    a message. Collapsed as part of the same run, because they are the same escape."""
+    quoted = _quote_untrusted_subject("wipe\x1b[2J\x07\tand\x7fmore", 240)
+    assert not any(ch in quoted for ch in "\x1b\x07\t\x7f"), f"a control character survived: {quoted!r}"
+    assert "wipe" in quoted and "more" in quoted, "readable text was destroyed"
+
+
+def test_a_subject_of_only_newlines_is_still_labelled() -> None:
+    """It must not collapse to an empty pair of quotes: `""` beside a From: line reads as a rendering
+    bug, and the caller has no other way to say "there was no subject"."""
+    assert _quote_untrusted_subject("\n\n\r\n", 240) == '"(no subject)"'
+
+
 # ── the defective idiom, wherever it is written ──────────────────────────────────────────────────
 
 
