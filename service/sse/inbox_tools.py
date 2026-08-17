@@ -22,6 +22,7 @@ intercept nothing and the tests would reach for the network instead.
 from __future__ import annotations
 
 from service.sse.api_client import api as _api
+from service.api_core.serialization import _quote_untrusted_subject
 from service.sse.rendering import SAFETY_HEADER, fence as _fence
 
 
@@ -57,7 +58,8 @@ async def comms_inbox(
             preview = str(m.get("preview", "")).strip()
             parts = [
                 f"--- {m['id']} ---",
-                f"From: {m['from']} | Type: {m['type']} | Subject: {m.get('subject', '')}",
+                f"From: {m['from']} | Type: {m['type']} | "
+                f"Subject: {_quote_untrusted_subject(m.get('subject', ''), 240)}",
             ]
             if m.get("inReplyTo"):
                 parts.append(f"Reply to: {m['inReplyTo']}")
@@ -68,7 +70,8 @@ async def comms_inbox(
             safe_body = _fence(m.get("body", ""))
             lines.append(
                 f"--- {m['id']} ---\n"
-                f"From: {m['from']} | Type: {m['type']} | Subject: {m.get('subject', '')}\n"
+                f"From: {m['from']} | Type: {m['type']} | "
+                f"Subject: {_quote_untrusted_subject(m.get('subject', ''), 240)}\n"
                 f"{safe_body}"
             )
     trunc = f"\n\n(Showing {r['showing']} of {r['total']})" if r.get("total", 0) > r.get("showing", 0) else ""

@@ -22,7 +22,47 @@ later has a test to fail against.
 
 from __future__ import annotations
 
+import ast
+import re
 import unittest
+
+
+def _unquoted_subject_echoes(source: str) -> list[tuple[int, str]]:
+    """Every f-string in `source` that interpolates a subject straight after a `Subject:`/`latest:`
+    label without routing it through `_quote_untrusted_subject`.
+
+    Returns `(line, "Subject: {expr}")` pairs. AST-based ON PURPOSE — see the long comment in the rule
+    test below: the regex this replaces required the label to sit at the very start of the f-string,
+    which is how the steer delivery site echoed a raw subject for as long as the rule has existed.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []          # not importable Python; nothing to guard
+    label = re.compile(r"(?:^|[\s\[(])(Subject|latest):\s*$")
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.JoinedStr):
+            continue
+        for index, part in enumerate(node.values[:-1]):
+            if not (isinstance(part, ast.Constant) and isinstance(part.value, str)):
+                continue
+            tag = label.search(part.value)
+            if not tag:
+                continue
+            nxt = node.values[index + 1]
+            if not isinstance(nxt, ast.FormattedValue):
+                continue
+            expr = nxt.value
+            # The quoter may wrap anything (`_neutralise_buffer_markers(subject)`, an f-string
+            # "Re: …"); what matters is that it is the OUTERMOST call.
+            if isinstance(expr, ast.Call) and getattr(expr.func, "id", "") == "_quote_untrusted_subject":
+                continue
+            rendered = ast.unparse(expr)
+            if "subject" not in rendered.lower():
+                continue      # a `latest:` label followed by something that is not a subject
+            found.append((getattr(nxt, "lineno", 0), f"{tag.group(1)}: {{{rendered}}}"))
+    return found
 
 from service.api_core.dispatch_text import (
     _build_pending_dispatch_subject,
@@ -132,6 +172,21 @@ class RuleTests(unittest.TestCase):
         # Same shape as the size gate and the container-staleness check, both widened for the same
         # reason in this series: a scan rooted at one directory reports green over everything outside
         # it, and the result looks identical either way.
+        # …AND IT MUST NOT BE ANCHORED TO THE START OF THE F-STRING. Reported from another instance
+        # 2026-08-17, and it is the third way this same probe has been defanged. The pattern was
+        # `f"(?:Subject|latest): \{...`, which requires `Subject:` to sit IMMEDIATELY after the
+        # opening `f"`. The steer delivery site reads
+        #
+        #     steer_body = f"[Message from {from_agent}]\nSubject: {subject}\n\n{body}"
+        #
+        # so its `Subject:` is MID-STRING and the regex walked straight past it — a foreign subject
+        # interpolated raw into text delivered between an agent's tool calls, with the gate green the
+        # whole time. A regex is the wrong instrument for "is this an f-string interpolation": it can
+        # only pattern-match the SHAPE of the source, and every miss looks exactly like a pass.
+        #
+        # So this now asks Python. `ast` parses each module and reports the f-strings themselves, which
+        # removes the anchoring question entirely and handles triple-quoted and multi-line f-strings
+        # that no version of the regex could see.
         repo_root = Path(__file__).resolve().parents[2]
         roots = [repo_root / "service", repo_root / "mcp"]
         offenders = []
@@ -140,12 +195,26 @@ class RuleTests(unittest.TestCase):
             if {"__pycache__", "tests", "node_modules"} & set(path.parts):
                 continue
             scanned += 1
-            src = code_only(path.read_text(encoding="utf-8", errors="replace"))
-            for hit in re.findall(
-                r'f"(?:Subject|latest): \{(?!_quote_untrusted_subject)[^}]*subject[^}]*\}', src
-            ):
-                offenders.append(f"{path.relative_to(repo_root).as_posix()}: {hit}")
+            src = path.read_text(encoding="utf-8", errors="replace")
+            offenders.extend(
+                f"{path.relative_to(repo_root).as_posix()}:{line} {hit}"
+                for line, hit in _unquoted_subject_echoes(src)
+            )
         self.assertGreater(scanned, 20, "the sweep found almost no modules; the walk is broken")
+        # ANTI-VACUITY: the scanner must still be able to FIND one. A probe that reports zero because
+        # it stopped working is the failure this file keeps having, so the instrument is tested on a
+        # known-bad snippet every run — including the mid-string shape that got past the regex.
+        planted = _unquoted_subject_echoes(
+            'x = f"[Message from {who}]\\nSubject: {subject}\\n\\n{body}"\n'
+            'y = f"Subject: {_quote_untrusted_subject(subject, 240)}"\n'
+            'z = f"""\n    latest: {latest_subject}\n    """\n'
+        )
+        self.assertEqual(
+            [hit for _, hit in planted],
+            ["Subject: {subject}", "latest: {latest_subject}"],
+            "the subject-echo scanner no longer detects a raw echo (mid-string and triple-quoted "
+            "shapes included), or it now flags a correctly quoted one",
+        )
         self.assertEqual(
             offenders, [],
             "a foreign subject is echoed without quoting: " + str(offenders)

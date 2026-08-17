@@ -49,7 +49,7 @@ from service.api_core.dispatch_text import (
 from service.api_core.events import _append_dispatch_event
 from service.api_core.records import _status_with_dispatch
 from service.api_core.runtime import _normalize_runtime
-from service.api_core.serialization import _json_loads_or
+from service.api_core.serialization import _json_loads_or, _quote_untrusted_subject
 from service.api_core.settings import _load_settings
 from service.api_core.status_refresh import _compute_agent_status
 from service.clock import now as _now
@@ -144,7 +144,15 @@ async def _create_dispatch_runs(
             # route channel/resident steer through its claim loop and native session.steer.
             steer_via_claim = recipient_runtime == "hermes" and active_execution_mode in {"channel", "resident"}
             if steer and active_run and "steer" in capabilities and not steer_via_claim:
-                steer_body = f"[Message from {from_agent}]\nSubject: {subject}\n\n{body}"
+                # The subject is quoted for the same reason every sibling echo quotes it: it is free
+                # text written by ANOTHER agent, and this text is injected between the recipient's
+                # tool calls, where a bare imperative line reads as an instruction. This site was the
+                # one the rule test could not see, because its `Subject:` is mid-string — reported
+                # from another instance 2026-08-17.
+                steer_body = (
+                    f"[Message from {from_agent}]\n"
+                    f"Subject: {_quote_untrusted_subject(subject, 240)}\n\n{body}"
+                )
                 control_id = await _append_dispatch_control(
                     db,
                     active_run["runId"],

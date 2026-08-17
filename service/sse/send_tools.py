@@ -20,6 +20,7 @@ Patch `_api` HERE, not on the transport: these resolve it from this module.
 
 from __future__ import annotations
 
+from service.api_core.serialization import _quote_untrusted_subject
 from service.sse.api_client import api as _api
 
 
@@ -74,7 +75,14 @@ async def comms_send(
             note += f" Not started: {'; '.join(skipped)}."
         note += " Use comms_run_status(...) to inspect progress. Request-type sends expect an explicit reply by default, and the bridge mirrors the result if none is sent."
         return note
-    return f"Sent ({r['messageId']}) to {', '.join(r['recipients'])}. Subject: {subject}"
+    # The sender's OWN subject, read back to the sender — not the foreign-text case the quoter was
+    # built for. Quoted anyway so the rule has no exceptions: an echo site that is safe "because of
+    # who wrote the text" is one refactor away from being reached by text somebody else wrote, and a
+    # gate with a carve-out is a gate somebody has to re-justify.
+    return (
+        f"Sent ({r['messageId']}) to {', '.join(r['recipients'])}. "
+        f"Subject: {_quote_untrusted_subject(subject, 240)}"
+    )
 
 
 async def comms_dispatch(
