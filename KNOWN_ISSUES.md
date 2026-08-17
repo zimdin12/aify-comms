@@ -4,6 +4,24 @@ Living list of known limitations, deferred work, and things to watch. Complement
 
 > **v0.2 backlog moved out of this file.** Non-urgent findings from the v0.1 release review now live in **[docs/V0.2_PLAN.md](docs/V0.2_PLAN.md)** with their traces attached — including two behaviour changes awaiting an operator decision (the compaction dialog now spends usage limits by design; managed codex auto-approves all command/file approvals). This file stays the list of *known limitations*; that file is the *work queue*. What actually shipped in v0.2, and the findings that were **disproven or dropped**, are in **[docs/V0.2_SPEC.md](docs/V0.2_SPEC.md)**.
 
+## `undefined` is not a placeholder session handle, and JavaScript writes it (2026-08-17)
+
+**Measured, not ruled on.** `HANDLE_PLACEHOLDERS` filters the strings a shell writes when a variable
+was set from an empty expansion, so they never get registered as a session id. Both mirrors carry the
+identical set — `service/runtimes/base.py` and `mcp/stdio/adapters/base.js`: `unknown`, `default`,
+`none`, `null`. So this is **not** a divergence to fix on one side.
+
+What is missing from both is `undefined`, which is exactly what `String(undefined)` produces — and
+every bridge in this fleet is Node. An unset value interpolated into `HERMES_SESSION_ID`,
+`CODEX_THREAD_ID` or `CLAUDE_SESSION_ID` arrives as the literal text `undefined`, passes
+normalisation, and is registered as the agent's `sessionHandle`. The symptom is a resume that cannot
+resolve, against a session named `undefined`.
+
+**Left unfixed and deliberately unasserted.** Widening the set changes handle normalisation for every
+runtime on both sides of the mirror, which is a reviewer's call rather than a test-slice fix.
+`service/tests/runtimes/test_hermes_session_discovery.py` pins the four that ARE filtered and states
+this gap in prose, so adding `undefined` later does not fail a test.
+
 ## The managed-hermes gateway session buffers terminal frames differently from the other three (2026-08-13)
 
 **Measured, not ruled on.** Four session classes carry a `_terminalSink` / `_terminalFlushChain` pair.

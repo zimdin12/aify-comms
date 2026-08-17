@@ -10,7 +10,10 @@ FIVE such sets written out in two or more modules:
     {"claude-code","codex","hermes","opencode","pi"}          x5  — equals LAUNCHABLE_RUNTIMES in the
                                                                     vocabulary contract, read from it
                                                                     at none of the five sites
-    {"id","sessionId","session_id"}                           x4  — a handle-field fallback chain
+    {"id","sessionId","session_id"}                           x3  — a handle-field fallback chain
+                                                                    (was x4 until 2026-08-17, when the
+                                                                    fourth site went with the dead
+                                                                    `_query_gateway_most_recent`)
     {"active","attached","idle","running","starting"}         x3  — the live-terminal set
     {"active","attached","idle","recovering","running","starting"} x2
     {"active","idle","recovering","running","starting"}       x2  — and note those last two differ
@@ -53,8 +56,11 @@ FROZEN: dict[frozenset[str], int] = {
     # console_input_queue.py:66 + :104, dispatch_start.py:97, managed_pty_for_dispatch.py:72,
     # reconcilers/undeliverable_queued_runs.py:232
     frozenset({"claude-code", "codex", "hermes", "opencode", "pi"}): 5,
-    # runtimes/hermes.py:92 + :132 + :172, runtimes/pi.py:77
-    frozenset({"id", "sessionId", "session_id"}): 4,
+    # runtimes/hermes.py (the active-session file + the sessions-dir scan), runtimes/pi.py.
+    # 4 -> 3 on 2026-08-17: the fourth site was `_query_gateway_most_recent`, deleted as dead code
+    # (nothing called it, and `discover_session_id` deliberately refuses to). This gate caught the
+    # drop, which is what it is for — the ledger shrinks when the duplication does, and only then.
+    frozenset({"id", "sessionId", "session_id"}): 3,
     # api_core/claim_gating.py:181, api_core/terminal_ownership.py:100, reconcilers/sessions.py:97
     frozenset({"active", "attached", "idle", "running", "starting"}): 3,
     # api_core/channel_delivery.py:257, routers/session_console.py:87

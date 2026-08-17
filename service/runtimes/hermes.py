@@ -13,7 +13,6 @@ _UUID_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
     re.IGNORECASE,
 )
-_HERMES_GATEWAY_TIMEOUT_S = 3.0
 
 
 class HermesAdapter(RuntimeAdapter):
@@ -77,7 +76,27 @@ class HermesAdapter(RuntimeAdapter):
         return self._scan_hermes_sessions_dir()
 
     def _read_active_session_file(self) -> str | None:
-        file = os.environ.get("AIFY_HERMES_ACTIVE_SESSION_FILE", "").strip()
+        """The live visible session, as written by the TUI / the hermes-aify wrapper.
+
+        MIRRORS `mcp/stdio/adapters/hermes.js::_readActiveSessionFile`, and two divergences from it
+        were fixed here on 2026-08-17:
+
+        * it read only `AIFY_HERMES_ACTIVE_SESSION_FILE`. The JS reads
+          `HERMES_TUI_ACTIVE_SESSION_FILE` as well — that is the variable hermes' own TUI exports,
+          and the debug skill names both. A host that set only the TUI one had a live active-session
+          file that this side could not see, and discovery fell through to the env handle.
+        * a JSON OBJECT with no recognized id key fell through to `return raw`, handing back the
+          whole JSON document as a session handle. The JS returns "" for exactly that case with the
+          comment "JSON object with no recognized id key". A shape we do not understand is not a
+          session id, and registering one produces a `--resume {"…"}` that cannot resolve.
+
+        The non-object fallback stays: a bare hermes timestamp id like `20260603120000` IS valid
+        JSON (a number), so anything that is not an object must return the raw text unchanged.
+        """
+        file = (
+            os.environ.get("AIFY_HERMES_ACTIVE_SESSION_FILE", "").strip()
+            or os.environ.get("HERMES_TUI_ACTIVE_SESSION_FILE", "").strip()
+        )
         if not file:
             return None
         try:
@@ -93,50 +112,22 @@ class HermesAdapter(RuntimeAdapter):
                     val = parsed.get(key)
                     if isinstance(val, str) and val.strip():
                         return val.strip()
+                return None
         except json.JSONDecodeError:
             pass
         return raw
 
-    async def _query_gateway_most_recent(self, gateway_url: str) -> str | None:
-        """Best-effort WebSocket query against hermes tui_gateway. If the
-        websockets package isn't available we silently return None — the
-        filesystem fallback still works.
-        """
-        try:
-            import asyncio  # noqa: PLC0415
-
-            import websockets  # noqa: PLC0415
-        except ImportError:
-            return None
-        try:
-            async with asyncio.timeout(_HERMES_GATEWAY_TIMEOUT_S):
-                async with websockets.connect(gateway_url) as ws:
-                    await ws.send(json.dumps({
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "session.most_recent",
-                        "params": {},
-                    }))
-                    while True:
-                        raw = await ws.recv()
-                        try:
-                            msg = json.loads(raw)
-                        except (TypeError, json.JSONDecodeError):
-                            continue
-                        if msg.get("id") != 1:
-                            continue
-                        result = msg.get("result")
-                        if isinstance(result, str):
-                            return result
-                        if isinstance(result, dict):
-                            for key in ("session_id", "sessionId", "id"):
-                                val = result.get(key)
-                                if isinstance(val, str) and val:
-                                    return val
-                        return None
-        except (TimeoutError, OSError, websockets.exceptions.WebSocketException):
-            return None
-        return None
+    # REMOVED 2026-08-17: `_query_gateway_most_recent`, a 38-line WebSocket client that asked the
+    # gateway for `session.most_recent`. Nothing called it, and nothing may: `discover_session_id`
+    # above returns None instead ("rather than querying historical gateway state and binding to a
+    # hidden/non-visible session"), both debug skills say in as many words not to use
+    # `session.most_recent` as the current visible session because it can be historical DB state,
+    # and the JS original it mirrors has no counterpart — the tui_gateway path it spoke to was
+    # retired in `11ba0cd`.
+    #
+    # It was deleted rather than tested. An untested implementation of the thing the docs forbid is
+    # worse than no implementation: the next person extending discovery finds a ready-made helper
+    # for it and a comment two methods up saying don't.
 
     def _scan_hermes_sessions_dir(self) -> str | None:
         sessions_dir = Path.home() / ".hermes" / "sessions"

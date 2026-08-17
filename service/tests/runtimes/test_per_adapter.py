@@ -26,12 +26,16 @@ def test_claude_adapter_overrides_discover_session_id():
     )
 
 
-def test_claude_adapter_discover_session_id_returns_str_or_none():
+def test_claude_adapter_discovery_is_UNCONDITIONALLY_none():
+    """Was an `isinstance(result, str) or None` assertion, which no implementation can fail.
+
+    The real contract is stronger and is the point of the method: claude session discovery is
+    bridge-side ONLY, because the JS adapter scopes it to the agent's own cwd. Re-implementing a
+    machine-global transcript scan here is what would cross-contaminate agents — so this returns
+    None with a live session sitting in the environment, not just on an empty machine."""
     import asyncio
     from service.runtimes.claude import ClaudeAdapter
-    result = asyncio.run(ClaudeAdapter().discover_session_id())
-    if result is not None:
-        assert isinstance(result, str) and len(result) > 0
+    assert asyncio.run(ClaudeAdapter().discover_session_id()) is None
 
 
 def test_codex_adapter():
@@ -73,12 +77,24 @@ def test_codex_adapter_overrides_discover_session_id():
     )
 
 
-def test_codex_adapter_discover_session_id_returns_str_or_none():
+def test_codex_adapter_discovers_nothing_in_a_SEALED_environment(monkeypatch, tmp_path):
+    """Was an `isinstance(result, str) or None` assertion that read the developer's REAL
+    `~/.codex/sessions` and their real `CODEX_THREAD_ID` — it passed against a live codex session
+    and would have passed just as well against a discovery that had been deleted.
+
+    Sealed: `Path.home()` points at an empty temp directory and the thread variable is unset, so
+    "nothing to find" is an input this test controls rather than a fact about the machine."""
     import asyncio
+    from pathlib import Path
     from service.runtimes.codex import CodexAdapter
-    result = asyncio.run(CodexAdapter().discover_session_id())
-    if result is not None:
-        assert isinstance(result, str) and len(result) > 0
+
+    monkeypatch.delenv("CODEX_THREAD_ID", raising=False)
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    assert Path.home() == home, "the home seal did not take"
+
+    assert asyncio.run(CodexAdapter().discover_session_id()) is None
 
 
 def test_hermes_adapter():
@@ -118,13 +134,12 @@ def test_hermes_adapter_overrides_discover_session_id():
     )
 
 
-def test_hermes_adapter_discover_session_id_returns_str_or_none(monkeypatch):
-    import asyncio
-    from service.runtimes.hermes import HermesAdapter
-    monkeypatch.delenv("AIFY_HERMES_GATEWAY_URL", raising=False)
-    result = asyncio.run(HermesAdapter().discover_session_id())
-    if result is not None:
-        assert isinstance(result, str) and len(result) > 0
+# REMOVED: `test_hermes_adapter_discover_session_id_returns_str_or_none`. It unset one variable,
+# left the other four and `~/.hermes/sessions` reading the developer's live machine, and asserted
+# only that the answer was a string or None — which no implementation can fail. The whole discovery
+# chain is now covered against a sealed env and a sealed home in
+# `test_hermes_session_discovery.py`; the three ordering tests below stay because they assert the
+# ordering itself.
 
 
 def test_hermes_adapter_discover_prefers_active_session_file(monkeypatch, tmp_path):
