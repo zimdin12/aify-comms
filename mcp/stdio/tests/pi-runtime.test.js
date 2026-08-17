@@ -46,7 +46,14 @@ const fakeOmp = path.join(runtimeTmp, "fake-omp.mjs");
 const argvCapturePath = path.join(runtimeTmp, "fake-omp-argv.jsonl");
 const stdinCapturePath = path.join(runtimeTmp, "fake-omp-stdin.jsonl");
 
-async function waitFor(predicate, label, timeoutMs = 2000) {
+// 15s, not 2s, and the number is measured rather than picked. This file spawns a fake `omp` child that writes
+// up to 300KB in one case, and it takes ~14 SECONDS on its own — so a 2s bound on waiting for that child was
+// seven times smaller than the file's own runtime. Under `node --test`, which runs ~16 files concurrently, it
+// flaked: one full-suite run reported `pi-runtime.test.js` failed at 10.7s while the same file passed alone and
+// two subsequent full runs were green. A flaky gate is worse than a slow one — it is what a reviewer hits and
+// cannot reproduce. Nothing here asserts 2s as a contract; the bound only exists so a genuine hang ends with
+// waitFor's label instead of the runner's timeout.
+async function waitFor(predicate, label, timeoutMs = 15000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
     if (predicate()) return;
