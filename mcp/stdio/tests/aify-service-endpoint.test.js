@@ -23,10 +23,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   RETRIABLE_POST_PATHS,
+  SERVER_URL,
   activeServerUrl,
   coerceLoopbackToIPv4,
   isRetriableRequest,
   isTransientHttpError,
+  logTransientOrError,
   uniqueServerUrls,
 } from "../aify-service-endpoint.mjs";
 
@@ -204,4 +206,81 @@ test("server.js no longer declares IS_REMOTE — exactly one owner", () => {
   const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
   assert.doesNotMatch(src, /^(?:const|let|var)\s+IS_REMOTE\b/m, "IS_REMOTE must be imported, not redeclared");
   assert.match(src, /(?<![\w.])IS_REMOTE(?![\w])/, "server.js is still expected to READ it");
+});
+
+// ── how a failed call is REPORTED ────────────────────────────────────────────
+//
+// Ninth cluster off the V8-coverage census: `logTransientOrError` had a zero call count. It is the module's
+// only side-effecting export and the one an operator actually reads.
+//
+// THE DISTINCTION IS THE PRODUCT. A container rebuild resets the connection, every bridge in the fleet fails
+// its next call, and each one logs. If that reads as an error, an ordinary `docker compose up -d --build`
+// looks like a fault in as many places as there are agents — and the operator goes looking for a fault that
+// is not there. If a REAL error reads as transient, the opposite: a permanent break announces that it is
+// retrying, and nobody investigates.
+
+function captureErrors(run) {
+  const original = console.error;
+  const lines = [];
+  console.error = (...args) => { lines.push(args); };
+  try {
+    run();
+  } finally {
+    console.error = original;
+  }
+  return lines;
+}
+
+test("a transient failure says which server it was talking to, and that it will retry", () => {
+  const err = Object.assign(new Error("fetch failed"), { serverUrl: "http://127.0.0.2:8801" });
+  const lines = captureErrors(() => logTransientOrError("[aify] heartbeat", err));
+
+  assert.equal(lines.length, 1, "a transient failure must be ONE line, not a stack dump per agent");
+  const [line] = lines[0];
+  assert.match(line, /^\[aify\] heartbeat: /, "the caller's prefix is what tells the operator WHICH call");
+  assert.match(line, /transient/);
+  assert.match(line, /http:\/\/127\.0\.0\.2:8801/, "the failing server must be named — the fleet has several");
+  assert.match(line, /retrying/, "without this the operator cannot tell whether to act");
+  assert.match(line, /fetch failed/, "the underlying reason is still the diagnostic");
+});
+
+test("the error's OWN serverUrl beats the latch", () => {
+  // `httpCall` stamps `serverUrl` on the error for the url that actually failed, which during failover is
+  // NOT the latched one. Naming the latch instead would point the operator at a server that answered fine.
+  const err = Object.assign(new Error("ECONNREFUSED"), { serverUrl: "http://127.0.0.2:9999" });
+  const [[line]] = captureErrors(() => logTransientOrError("[aify] claim", err));
+  assert.match(line, /http:\/\/127\.0\.0\.2:9999/);
+  const latched = activeServerUrl();
+  if (latched && latched !== "http://127.0.0.2:9999") {
+    assert.doesNotMatch(line, new RegExp(latched.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+});
+
+test("a transient failure with no stamped url falls back to the server this module resolved", () => {
+  const [[line]] = captureErrors(() => logTransientOrError("[aify] poll", new Error("socket hang up")));
+  const expected = activeServerUrl() || SERVER_URL;
+  // Local-filesystem mode resolves no URL at all; there is nothing to name and nothing to assert.
+  if (expected) assert.ok(line.includes(expected), `expected the line to name ${expected}: ${line}`);
+  assert.match(line, /transient/);
+});
+
+test("a REAL error is not dressed up as a retry, and keeps its Error object", () => {
+  // Passing the object (not a string) is what preserves the stack in the operator's terminal. It is also
+  // the whole difference between "this will fix itself" and "look at this".
+  const err = new Error("HTTP 422: agent not registered");
+  const lines = captureErrors(() => logTransientOrError("[aify] register", err));
+
+  assert.equal(lines.length, 1);
+  const [prefix, passed] = lines[0];
+  assert.equal(prefix, "[aify] register:");
+  assert.equal(passed, err, "the Error object itself must reach the console, not a flattened string");
+  assert.doesNotMatch(String(prefix), /transient|retrying/);
+});
+
+test("a null or non-Error failure is reported rather than thrown from the logger", () => {
+  // The logger runs on the failure path. Throwing there replaces a diagnostic with a crash.
+  for (const value of [null, undefined, "just a string", 0, { code: "nope" }]) {
+    const lines = captureErrors(() => logTransientOrError("[aify] odd", value));
+    assert.equal(lines.length, 1, `nothing was logged for ${JSON.stringify(value) ?? "undefined"}`);
+  }
 });
