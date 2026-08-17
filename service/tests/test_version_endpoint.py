@@ -8,6 +8,15 @@ The behind-count comes from a module-level cached `_check_update()` that hits
 the GitHub compare API. The comparer is INJECTABLE so the test never touches
 the network; a network failure must yield `update.behind_by = null` and must
 NEVER raise / 500.
+
+THE NETWORK CALL ITSELF IS NOT TESTED HERE, and injecting past it is why
+`_github_compare` was never once entered by the suite. It is covered in
+`test_github_compare_update_check.py`, which runs the real function against a
+local HTTP server. This file had a third test named
+`test_update_block_present_with_default_comparer` that injected a stub which
+raised — it exercised the injected path under a name that promised the default
+one, and duplicated the test above it. Removed rather than renamed: the
+behaviour it claimed now has a test that actually performs it.
 """
 
 import unittest
@@ -24,6 +33,10 @@ class VersionEndpointTests(unittest.TestCase):
         # Fresh app per test; reset the module cache so injected comparers
         # don't bleed across tests.
         health._reset_update_cache()
+        # `set_update_comparer` installs a MODULE-GLOBAL. Every test below injects one and none of
+        # them used to take it back out, so whichever ran last left its stub answering `/version`
+        # for the rest of the pytest process — including for files that never asked for a stub.
+        self._saved_comparer = health._update_comparer
         # The update check short-circuits when build_sha is "unknown" (can't
         # compare an unknown sha). Pin a known sha so the injected comparer is
         # actually consulted; restore in tearDown.
@@ -35,6 +48,7 @@ class VersionEndpointTests(unittest.TestCase):
         self.client = TestClient(self.app)
 
     def tearDown(self):
+        health._update_comparer = self._saved_comparer
         health._reset_update_cache()
         self._cfg.build_sha = self._saved_sha
 
@@ -64,17 +78,6 @@ class VersionEndpointTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         data = resp.json()
         self.assertIsNone(data["update"]["behind_by"])
-
-    def test_update_block_present_with_default_comparer(self):
-        # With no injected comparer the default path still must not raise.
-        # We force the network function to fail to keep the test offline-safe.
-        def boom(sha):
-            raise RuntimeError("offline")
-
-        health.set_update_comparer(boom)
-        resp = self.client.get("/version")
-        self.assertEqual(resp.status_code, 200, resp.text)
-        self.assertIn("update", resp.json())
 
 
 if __name__ == "__main__":
