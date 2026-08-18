@@ -200,14 +200,21 @@ export function registerInboxTools(server, z) {
 
   server.tool(
     "comms_unsend",
-    "Delete a sent message by its ID.",
+    "Take back a message YOU sent, by its ID. Only the sender (or the operator) may unsend.",
     {
       messageId: z.string().describe("The message ID to delete"),
+      from: z.string().describe("Your agent ID — the sender taking its own message back"),
     },
-    async ({ messageId }) => {
+    async ({ messageId, from }) => {
       if (IS_REMOTE) {
         try {
-          const r = await httpCall("DELETE", `/messages/${encodeURIComponent(messageId)}`);
+          // H4 (2026-08-18): the service now REQUIRES an actor and refuses a mismatch. It used to
+          // delete any message by id with no ownership check at all, which this tool exposed to
+          // every agent.
+          const r = await httpCall(
+            "DELETE",
+            `/messages/${encodeURIComponent(messageId)}?requestedBy=${encodeURIComponent(from || "")}`,
+          );
           return { content: [{ type: "text", text: `Deleted message ${messageId}.` }] };
         } catch (e) {
           return { content: [{ type: "text", text: `Failed to delete: ${e.message}` }], isError: true };

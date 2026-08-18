@@ -191,7 +191,11 @@ test("UNSEND IS CONFIRMED — it removes the message for the recipient", async (
   const yes = withMessages({ confirm: true });
   try {
     await unsendMessage("m1");
-    assert.deepEqual(mutating(yes), ["DELETE /messages/m1"]);
+    // The ACTOR is part of the request, not decoration: since H4 (2026-08-18) the endpoint refuses
+    // an actor-less delete outright, so a dashboard that stopped sending `requestedBy` would have
+    // every unsend rejected. Asserting the full path is what makes that a test failure here rather
+    // than a 400 an operator discovers by clicking.
+    assert.deepEqual(mutating(yes), ["DELETE /messages/m1?requestedBy=dashboard"]);
     assert.deepEqual(state.messages.map((m) => m.id), ["m2"], "only the unsent message goes");
   } finally { yes.restore(); }
 });

@@ -47,7 +47,9 @@ export async function markMessageRead(msgId, read) {
 export async function unsendMessage(messageId) {
   if (!await uiConfirm('Unsend this message? It will be removed for the recipient.')) return;
   try {
-    await api(`/messages/${encodeURIComponent(messageId)}`, { method: 'DELETE' });
+    // `requestedBy` is mandatory since H4 (2026-08-18) — the endpoint refuses an actor-less
+    // delete. The dashboard is an operator surface, so it may unsend a message it did not write.
+    await api(`/messages/${encodeURIComponent(messageId)}?requestedBy=dashboard`, { method: 'DELETE' });
     state.messages = state.messages.filter((m) => messageIdOf(m) !== messageId);
     toast('Message unsent', 'ok');
     chatController.render();

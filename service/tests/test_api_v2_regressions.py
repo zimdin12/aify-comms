@@ -9039,7 +9039,8 @@ class ApiV2RegressionTests(FastApiTestCase):
         rows_before = self._fetchall("SELECT id FROM messages WHERE id = ? OR id LIKE ? ORDER BY id", (canonical_id, f"{canonical_id}-%"))
         self.assertEqual(len(rows_before), 2)
 
-        deleted = self.client.delete(f"/api/v1/messages/{canonical_id}")
+        # H4 (2026-08-18): unsend requires the acting agent; "alice" wrote this channel post.
+        deleted = self.client.delete(f"/api/v1/messages/{canonical_id}?requestedBy=alice")
         self.assertEqual(deleted.status_code, 200, deleted.text)
         self.assertEqual(deleted.json()["deleted"], 2)
         rows_after = self._fetchall("SELECT id FROM messages WHERE id = ? OR id LIKE ?", (canonical_id, f"{canonical_id}-%"))
@@ -9086,7 +9087,8 @@ class ApiV2RegressionTests(FastApiTestCase):
         queued_run_id = sent["dispatchRuns"][0]["runId"]
         self.assertEqual(sent["dispatchRuns"][0]["status"], "queued")
 
-        deleted = self.client.delete(f"/api/v1/messages/{message_id}")
+        # H4 (2026-08-18): unsend requires the acting agent; "lead" sent this message.
+        deleted = self.client.delete(f"/api/v1/messages/{message_id}?requestedBy=lead")
         self.assertEqual(deleted.status_code, 200, deleted.text)
         self.assertEqual(deleted.json()["deleted"], 1)
         self.assertEqual(deleted.json()["cancelledDispatchRuns"], 1)

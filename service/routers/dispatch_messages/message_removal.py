@@ -35,22 +35,89 @@ router = domain_router()
 
 
 
+#: Identities allowed to unsend a message they did not write. The operator's own surfaces — nothing
+#: agent-facing — because an unsend is destructive and reaches other agents' inboxes.
+_UNSEND_OPERATOR_ACTORS = frozenset({"dashboard", "operator"})
+
+
 @router.delete("/messages/{message_id}")
-async def unsend_message(message_id: str, request: Request):
-    """Delete a message by ID. Also removes associated read receipts."""
+async def unsend_message(message_id: str, request: Request, requestedBy: str = ""):
+    """Delete a message by ID, on behalf of its SENDER or the operator.
+
+    H4 (external review 2026-08-18): this took an id and nothing else. No acting agent, no ownership
+    check, and `comms_unsend` exposes it to every agent — so agent B could delete an A->C message by
+    id, and a channel row triggered a `LIKE '{id}-%'` fan-out delete of every recipient copy. Message
+    ids are not secret: they appear in inbox listings and in dispatch text.
+
+    Ruled by comms-senior-dev: sender-plus-operator, actor MANDATORY and service-enforced, absence
+    FAILS CLOSED. An optional actor would be theatre — an attacker simply omits it.
+
+    HONEST LIMIT, stated because the fix should not be read as more than it is: the actor is
+    self-asserted. Every agent shares one API key, so the service cannot cryptographically distinguish
+    them, and a determined agent can name somebody else. What this stops is the accident and the
+    casual cross-delete, and it makes the actor auditable. Real authentication is a separate,
+    larger question about per-agent credentials.
+    """
+    actor = str(requestedBy or "").strip()
+    if not actor:
+        raise HTTPException(
+            400,
+            "unsend requires `requestedBy` (the agent unsending its own message, or an operator "
+            "surface). Refused rather than defaulted: a missing actor used to mean 'anyone may "
+            "delete anything'.",
+        )
     db = await get_db()
     try:
         cursor = await db.execute("SELECT * FROM messages WHERE id = ?", (message_id,))
         row = await cursor.fetchone()
         if not row:
             raise HTTPException(404, f"Message '{message_id}' not found")
+        author = str(row["from_agent"] or "").strip()
+        if actor not in _UNSEND_OPERATOR_ACTORS and actor != author:
+            # 403, not 404: the row exists and the caller may well know it does. Pretending it is
+            # absent would send an agent hunting for a message it can see in its own inbox.
+            raise HTTPException(
+                403,
+                f"'{actor}' cannot unsend a message written by '{author or '(unknown)'}'. "
+                f"Only the sender or an operator surface may take a message back.",
+            )
         message_ids = [message_id]
         if (row["source"] or "") == "channel" and not (row["to_agent"] or ""):
+            # The CANONICAL channel post (no to_agent) owns its per-recipient copies, and removing it
+            # must remove them — a post half-deleted is worse than either outcome. The ruling's
+            # constraint is that authorization happens on THIS row first, which it now has: the
+            # sender check above ran against the canonical post before we got here, so the `LIKE`
+            # below is scoped by a row we are already permitted to delete rather than being the
+            # authority itself.
             fanout_cursor = await db.execute(
                 "SELECT id FROM messages WHERE id LIKE ? AND channel = ? AND source = 'channel'",
                 (f"{message_id}-%", row["channel"] or ""),
             )
             message_ids.extend([fanout["id"] for fanout in await fanout_cursor.fetchall()])
+        elif (row["source"] or "") == "channel" and (row["to_agent"] or ""):
+            # A RECIPIENT COPY was named. Resolve back to the canonical post and authorize on that,
+            # rather than letting one recipient's copy be deleted out from under a channel — the
+            # copies are not independently ownable, and the id shape (`<canonical>-<recipient>`) is
+            # the only link between them.
+            canonical_id = message_id.rsplit("-", 1)[0] if "-" in message_id else ""
+            canonical = None
+            if canonical_id:
+                canonical = await (await db.execute(
+                    "SELECT * FROM messages WHERE id = ? AND source = 'channel'", (canonical_id,)
+                )).fetchone()
+            if canonical is None:
+                raise HTTPException(
+                    409,
+                    f"'{message_id}' is a per-recipient channel copy whose canonical post could not "
+                    f"be resolved; unsend the canonical post instead.",
+                )
+            canonical_author = str(canonical["from_agent"] or "").strip()
+            if actor not in _UNSEND_OPERATOR_ACTORS and actor != canonical_author:
+                raise HTTPException(
+                    403,
+                    f"'{actor}' cannot unsend a channel post written by "
+                    f"'{canonical_author or '(unknown)'}'.",
+                )
         cancelled_dispatch_run_ids = await _cancel_queued_dispatch_runs_for_message_ids(db, message_ids)
         deleted = await _delete_messages_by_ids(db, message_ids)
         await db.commit()

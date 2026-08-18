@@ -1410,6 +1410,19 @@ const EXTRACTIONS = [
         name: "unsendMessage",
         at: 191,
         marker: "// unsendMessage moved to ./message-actions.mjs in v0.5.4.",
+        // H4 (2026-08-18): `DELETE /messages/{id}` now REQUIRES an acting agent and refuses an
+        // actor-less delete, because it used to remove any message by id with no ownership check at
+        // all. The dashboard is an operator surface, so it names itself. This changes a body the
+        // proof reconstructs, so it is written down here rather than silently tolerated — the same
+        // reason the clipboard fix above carries one.
+        editedSince: [{
+          was: "    await api(`/messages/${encodeURIComponent(messageId)}`, { method: 'DELETE' });",
+          now: [
+            "    // `requestedBy` is mandatory since H4 (2026-08-18) — the endpoint refuses an actor-less",
+            "    // delete. The dashboard is an operator surface, so it may unsend a message it did not write.",
+            "    await api(`/messages/${encodeURIComponent(messageId)}?requestedBy=dashboard`, { method: 'DELETE' });",
+          ],
+        }],
       },
       {
         name: "markConversationRead",
