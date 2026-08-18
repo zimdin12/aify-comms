@@ -100,11 +100,25 @@ async def _claim_environment_control_once(req: EnvironmentControlClaim):
             row = candidate
             break
         now = _now()
-        await db.execute(
+        claimed = await db.execute(
             "UPDATE environment_controls SET status = 'claimed', machine_id = ?, claimed_at = ? WHERE id = ? AND status = 'pending'",
             (req.machineId or "", now, row["id"]),
         )
         await db.commit()
+        # READ THE ROWCOUNT. The UPDATE is already a compare-and-swap — `AND status = 'pending'` is
+        # what makes it one — but nothing looked at whether it WON. Two bridges long-polling the same
+        # environment both run this; one updates a row and the other updates none, and both used to
+        # return `{"ok": True, "control": {...}}` for the SAME control. Both then act on it: two
+        # bridges honouring one stop, or two starting one worker.
+        #
+        # Reported by an external reviewer 2026-08-18 as "CAS not verified (two claimers win)". The
+        # swap was correct; only its result was ignored, which is the shape that makes a race look
+        # like working code in every single-caller test.
+        #
+        # The loser is told there is nothing to claim, which is true — it lost the race, and the
+        # long-poll's own contract is that an empty answer means "come back later".
+        if int(getattr(claimed, "rowcount", 0) or 0) == 0:
+            return {"ok": True, "control": None}
         return {
             "ok": True,
             "control": {
