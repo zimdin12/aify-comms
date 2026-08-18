@@ -61,13 +61,39 @@ const registeredTools = new Set(
   ),
 );
 assert.ok(registeredTools.size >= 25, `tool inventory looks wrong: ${registeredTools.size}`);
+// FENCED BLOCKS ARE STRIPPED FIRST, and that is not tidiness. The inline-code scan below pairs
+// single backticks; a ``` fence makes the pairing walk off, so everything after the first fenced
+// example was effectively unchecked. Measured on `.agents/skills/aify-comms/SKILL.md` before this
+// fix: 144 "spans" yielded 9 tool names out of the ~30 the file actually names — including the whole
+// Tool Map. A gate that inspects a fraction of its input reports green exactly like one that
+// inspects all of it.
+const withoutFences = (text) => text.replace(/```[\s\S]*?```/g, "");
+
+const documentedTools = new Set();
 for (const path of markdownFiles) {
-  const inlineCode = [...readFileSync(path, "utf8").matchAll(/`([^`]+)`/g)].map((match) => match[1]).join("\n");
+  const text = readFileSync(path, "utf8");
+  const inlineCode = [...withoutFences(text).matchAll(/`([^`]+)`/g)].map((match) => match[1]).join("\n");
   for (const match of inlineCode.matchAll(/\b(comms_[a-z0-9_]+)\b/g)) {
     const tool = match[1];
     assert.ok(registeredTools.has(tool), `${relative(repo, path)} documents unknown tool ${tool}`);
   }
+  // The REVERSE direction reads the whole document, fences included: a tool shown in a worked
+  // example is documented, whatever the prose does.
+  for (const match of text.matchAll(/\b(comms_[a-z0-9_]+)\b/g)) documentedTools.add(match[1]);
 }
+
+// EVERY REGISTERED TOOL MUST BE DOCUMENTED SOMEWHERE. The check above catches a doc that outlives
+// its tool; this catches the opposite, which is what actually happened: `comms_unshare` and
+// `comms_channel_delete` were added on 2026-08-18 and reached agents with no mention in any skill.
+// An agent cannot use a tool it has never been told about, so an undocumented tool is a tool that
+// does not exist for most of the fleet.
+const undocumented = [...registeredTools].filter((tool) => !documentedTools.has(tool)).sort();
+assert.deepEqual(
+  undocumented, [],
+  `these tools are registered on the bridge but named in no skill file, so agents will never learn `
+  + `they exist: ${undocumented.join(", ")}. Add them to the Tool Map in .agents/skills (the mirror `
+  + `check above keeps .claude in step).`,
+);
 
 const main = readFileSync(join(agentRoot, "aify-comms/SKILL.md"), "utf8");
 assert.match(main, /comms_interrupt/, "main skill must distinguish agent-native interrupt from run interrupt");

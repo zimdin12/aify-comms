@@ -193,11 +193,11 @@ Runs/work: `comms_contracts`, `comms_run_status`, `comms_run_interrupt`, `comms_
 
 Consoles (managed only): `comms_console_tail` reads the live console **or, when the worker is gone, its last recorded output, fatal line first** — so a failed spawn is diagnosable without the operator. `comms_console_input` is audited recovery input after a read proves an interactive blocker. **Its success response is not proof it worked** — bytes reached the PTY, not that the runtime acted. One attempt, re-read the tail, then escalate rather than retrying.
 
-Channels/files: `comms_channel_create`, `comms_channel_join`, `comms_channel_send`, `comms_channel_read`, `comms_channel_list`, `comms_share`, `comms_read`, `comms_files`.
+Channels/files: `comms_channel_create`, `comms_channel_join`, `comms_channel_send`, `comms_channel_read`, `comms_channel_list`, `comms_channel_delete`, `comms_share`, `comms_read`, `comms_files`, `comms_unshare`. The two deletes are owner-only and need your id; `comms_files` is bounded — narrow it, don't dump it.
 
 Dashboard: `comms_dashboard`.
 
-Usage/quota: `comms_usage` shows each source pool's remaining subscription quota % (Anthropic Claude Max; OpenAI ChatGPT — shared by codex + hermes) plus your own pool + consumed tokens. Advisory only — a pool near 0% means agents on it should hand work to a pool with headroom (it never gates sends). `comms_agent_info` also carries `usageSource` + `poolWeeklyPctLeft` + `quotaCritical`. The OpenAI pool % is live + account-level (hermes usage included), read with no waste from ChatGPT's usage endpoint using the fresh token hermes keeps; it falls back to the codex rollout (which can read `stale`) only when that token is unavailable.
+Usage/quota: `comms_usage` shows each source pool's remaining subscription quota % (Anthropic Claude Max; OpenAI ChatGPT — shared by codex + hermes) plus your own pool + consumed tokens. Advisory only — a pool near 0% means agents on it should hand work to a pool with headroom (it never gates sends). `comms_agent_info` also carries `usageSource` + `poolWeeklyPctLeft` + `quotaCritical`. (How the % is sourced: DECISIONS.md.)
 
 Deprecated: `comms_listen` remains for compatibility/debug long-poll experiments only. Do not use it in normal teamwork or managed delivered runs.
 
