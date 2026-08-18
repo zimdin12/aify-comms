@@ -54,6 +54,20 @@ CASES: dict[str, dict] = {
     "managed-worker-live":   dict(mode="managed", session=True, terminal=True),
     "managed-worker-live-env-offline": dict(
         mode="managed", session=True, terminal=True, env_online=False),
+    # M2 (external review 2026-08-18). These two cases are why the file exists and why it did not
+    # earn its keep for two months: the comparison below is over EVERY field, but no case produced a
+    # `config_defect` or a `spawn_starting`, so those two agreed at their defaults while the cheap
+    # path did not compute them AT ALL. It served `available` where the authoritative path said
+    # `misconfigured` — false-available on the primary roster path, which is a routing bug because
+    # `available` is documented as deliverable and promises a cold start.
+    #
+    # A field that is never non-default in any case is a field this file does not check.
+    "managed-unlaunchable-runtime": dict(mode="managed", session=True, runtime="generic"),
+    # …and the other three fields the cheap producer was silently defaulting. Each of these caused a
+    # mutation to SURVIVE until it was added, which is the only proof that a case exercises anything.
+    "managed-spawn-starting": dict(mode="managed", session=True, spawn_starting=True),
+
+    "managed-unlaunchable-no-session": dict(mode="managed", runtime="generic"),
     "managed-in-turn":       dict(mode="managed", session=True, in_turn=1),
     "managed-awaiting":      dict(mode="managed", session=True, in_turn=1, awaiting=1),
     # WS-5 parity: in_turn set, awaiting_input NOT set in agent_status_state, and a console tail
@@ -67,6 +81,24 @@ CASES: dict[str, dict] = {
         terminal_output="Apply this change? (y/n)"),
     "managed-wake-none":     dict(mode="managed", session=True, wake_none=True),
 }
+#: KNOWN DIVERGENCE, pinned rather than hidden (M2, 2026-08-18). `_gather_status_inputs` sets
+#: `config_defect` for a resident whose wake mode ends in `-missing-handle`; the cheap producer does
+#: not, so the authoritative path derives `misconfigured` and the served one derives `offline`.
+#:
+#: Making them agree is one line and is deliberately NOT done here: it moves every
+#: resident-without-a-wake-handle out of the unreachable family, and
+#: `test_resident_hermes_missing_handle_status` asserts the dashboard dot and the label agree within
+#: that family — so a whole class of agents changes badge colour. comms-senior-dev ruled M2 belongs
+#: in the same slice as the 10a `available` semantics, which awaits an operator ruling.
+#:
+#: The test below asserts these cases DO diverge, on exactly this field. When 10a is settled and the
+#: producers are unified, that assertion fails and tells you to delete this list — which is the
+#: opposite of a skip, and the reason it is written this way.
+DIVERGENT_CASES: dict[str, dict] = {
+    "resident-codex-missing-handle": dict(mode="resident", runtime="codex"),
+    "resident-hermes-missing-handle": dict(mode="resident", runtime="hermes"),
+}
+
 #: Excluded by the manual-status short-circuit, asserted below so the exclusion stays honest.
 MANUAL_CASES: dict[str, dict] = {
     "resident-stopped": dict(mode="resident", stopped=True),
@@ -88,6 +120,18 @@ class StatusInputsProducersAgreeTests(FastApiTestCase):
                 conn.execute("UPDATE agents SET status='stopped' WHERE id=?", (agent_id,))
             if kw.get("wake_none"):
                 conn.execute("UPDATE agents SET launch_mode='none' WHERE id=?", (agent_id,))
+            if kw.get("spawn_starting"):
+                # `_managed_spawn_is_starting` requires a CLAIMED spawn (status running + started_at)
+                # inside its window — a queued-but-unclaimed one deliberately does not count, which is
+                # the distinction that made the stuck-spawn deadlock visible as `available`.
+                import datetime as _dt
+                _fresh = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                conn.execute(
+                    "INSERT INTO spawn_requests (id, spawn_spec_id, created_by, environment_id,"
+                    " agent_id, role, runtime, status, created_at, updated_at, claimed_at, started_at)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (f"spawn_{agent_id}", f"spec_{agent_id}", "tester", f"e_{agent_id}", agent_id,
+                     "coder", runtime, "running", _fresh, _fresh, _fresh, _fresh))
             if "in_turn" in kw or "awaiting" in kw:
                 conn.execute(
                     "INSERT INTO agent_status_state (agent_id, in_turn, awaiting_input, last_event_at)"
@@ -143,6 +187,30 @@ class StatusInputsProducersAgreeTests(FastApiTestCase):
         return asyncio.run(_run())
 
     # ── the contract ─────────────────────────────────────────────────────────────────────────
+
+    def test_the_KNOWN_DIVERGENCE_is_still_exactly_where_it_is_documented(self):
+        """A pin, not a skip. If this fails, the producers were unified — delete DIVERGENT_CASES and
+        move these into CASES. If it fails the OTHER way (a new field diverges too), the pin has
+        stopped describing reality and the divergence has spread."""
+        for name, kw in DIVERGENT_CASES.items():
+            with self.subTest(case=name):
+                agent_id = f"sid-{name}"
+                self._seed(agent_id, **kw)
+                auth, cheap = self._both(agent_id)
+                self.assertIsNotNone(cheap, f"{name}: the cheap path short-circuited unexpectedly")
+                diff = {k for k in auth if auth[k] != cheap[k]}
+                self.assertEqual(
+                    diff, {"config_defect"},
+                    f"{name}: the documented divergence is config_defect ALONE. Got {sorted(diff)}. "
+                    f"If it is now empty the producers agree — delete DIVERGENT_CASES and move these "
+                    f"cases into CASES. If it grew, a second field started diverging and the M2 class "
+                    f"is back.",
+                )
+                self.assertTrue(
+                    auth["config_defect"] and not cheap["config_defect"],
+                    f"{name}: expected the AUTHORITATIVE producer to carry the defect and the served "
+                    f"one to miss it; got auth={auth['config_defect']!r} cheap={cheap['config_defect']!r}",
+                )
 
     def test_both_producers_build_the_same_status_inputs(self):
         for name, kw in CASES.items():

@@ -530,12 +530,32 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             not has_live_worker and _si_env_reachable
             and await _managed_console_is_booting(db, agent_row["id"])
         )
+        # M2 (external review 2026-08-18): these two were MISSING here while `_gather_status_inputs`
+        # set both, so the cheap path — which is the SERVED one for GET /agents — derived `available`
+        # for an agent the authoritative path called `misconfigured` or `starting`. False-available on
+        # the primary roster path is a routing bug, not a cosmetic mismatch: `available` is documented
+        # as deliverable and promises a cold start, so a send was accepted for an agent that could not
+        # take it. The producer-agreement test did not catch it because no case produced either state
+        # — the fields agreed at their defaults.
+        #
+        # Computed under the same guards as the authoritative builder, in the same order, so the two
+        # cannot disagree by construction rather than by luck.
+        _si_config_defect = ""
+        if not has_live_worker and _si_env_reachable and not _si_console_booting:
+            _si_config_defect = await _agent_config_defect(db, agent_row, agent_session_mode)
+        _si_spawn_starting = (
+            not has_live_worker and _si_env_reachable and not _si_console_booting
+            and not _si_config_defect
+            and await _managed_spawn_is_starting(db, agent_row["id"])
+        )
         status_inputs = StatusInputs(
             mode=agent_session_mode, alive=has_live_worker, in_turn=_si_in_turn,
             awaiting_input=_si_awaiting, worker_present=has_live_worker,
             env_reachable=_si_env_reachable, disabled=_si_disabled,
             bridge_stale=False, has_live_session=has_live_worker,
             console_booting=_si_console_booting,
+            config_defect=_si_config_defect,
+            spawn_starting=_si_spawn_starting,
         )
     else:
         _si_fresh = bool(resident_bridge_fresh)
@@ -547,6 +567,21 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             env_reachable=True, disabled=_si_disabled,
             bridge_stale=(not _si_fresh) or _si_missing_handle, has_live_session=_si_fresh,
             console_booting=False,
+            # config_defect is DELIBERATELY NOT SET on the resident side, and this is a pinned open
+            # question rather than an oversight. `_gather_status_inputs` DOES set it for a
+            # `*-missing-handle` resident, so the two producers genuinely disagree here: the
+            # authoritative path derives `misconfigured`, this one derives `offline`.
+            #
+            # Making them agree is a one-line change and I have not made it, because it moves every
+            # resident-without-a-wake-handle from the unreachable family into `misconfigured`, and
+            # `test_resident_hermes_missing_handle_status` asserts the dashboard DOT and the label
+            # agree within that family — so the badge for a whole class of agents changes colour.
+            # comms-senior-dev ruled M2 belongs in the same slice as the 10a `available` semantics,
+            # which is still awaiting an operator ruling; this is that slice's work, not a fix to
+            # slip in behind it.
+            #
+            # `test_status_inputs_producers_agree` pins the divergence explicitly so it cannot be
+            # forgotten, and so whoever settles 10a is told to delete the pin.
         )
     # Subagents mini-tag (2026-06-11): surfaced through the reason string (the dashboard
     # already derives nuances like awaiting-reply from it) so no payload-shape change.
