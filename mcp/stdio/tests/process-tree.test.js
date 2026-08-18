@@ -38,7 +38,14 @@ async function runCase(name, childOptions) {
       console.log(child.pid);
       setInterval(() => {}, 1000);
     `,
-  ], { stdio: ["ignore", "pipe", "ignore"] });
+    // `windowsHide` on BOTH the parent here and the child below (see the call sites). A detached
+    // Windows child without it gets its own console, and when Windows Terminal is the default console
+    // host that surfaces as a VISIBLE TAB — the operator watched one appear mid-suite, carrying a
+    // launch error, and reasonably asked what was spawning it. The sibling
+    // `hermes-daemon-default-killtree.test.js` already passes windowsHide on its detached spawns; this
+    // file did not, which is the whole difference. It changes nothing the test asserts: the process
+    // tree is the subject, not the window.
+  ], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
 
   const chunks = [];
   parent.stdout.on("data", (chunk) => chunks.push(chunk));
@@ -56,7 +63,7 @@ async function runCase(name, childOptions) {
   assert.equal(isAlive(childPid), false, `${name}: child process should be terminated with parent tree`);
 }
 
-await runCase("same process group child", '{ stdio: "ignore" }');
-await runCase("detached child", '{ detached: true, stdio: "ignore" }');
+await runCase("same process group child", '{ stdio: "ignore", windowsHide: true }');
+await runCase("detached child", '{ detached: true, stdio: "ignore", windowsHide: true }');
 
 console.log("process-tree.test.js: all assertions passed");

@@ -48,13 +48,32 @@ test("the control receipt names the channel and marks itself a control", () => {
   assert.match(receipt, /control/i, `the receipt must say it is a control, not a delivery — got ${JSON.stringify(receipt)}`);
 });
 
-test("run delivery and control completion do not share a receipt string", () => {
+test("run delivery and control completion do not share a receipt string", async () => {
   // A control receipt that reads like a run delivery receipt is how the two got conflated.
+  //
+  // THIS COMPARISON IS NOW BEHAVIOURAL, and the change is the point. It used to regex this file for
+  // `appendEvent: "...Delivered..."` literals — which broke the moment the delivery writers moved to
+  // `channel-dispatch-receipts.mjs` in v0.6 Phase 1, because a regex over one file can only see the
+  // file it was pointed at. Worse, it would have passed if the literals had moved AND changed: no
+  // literals found, `deliveryLiterals.length > 0` fails loudly here, but the shape "assert something
+  // about every match" silently checks nothing whenever the match set empties.
+  //
+  // The delivery receipts are callable now, so the real strings come from CALLING them. A regex
+  // asserts where a line lives; this asserts what the product produces.
   const controlReceipt = controlReceiptLiteral();
 
-  const deliveryLiterals = [...SOURCE.matchAll(/appendEvent:[\s\S]{0,200}?"([^"]*Delivered[^"]*)"/g)].map((m) => m[1]);
-  assert.ok(deliveryLiterals.length > 0, "run-delivery event literals must be findable");
-  for (const literal of deliveryLiterals) {
+  const { makeDispatchReceipts } = await import("../channel-dispatch-receipts.mjs");
+  const produced = [];
+  const receipts = makeDispatchReceipts({
+    httpCall: async (_method, _endpoint, body) => { produced.push(body.appendEvent); return {}; },
+  });
+  for (const executionMode of ["channel", "resident"]) {
+    await receipts.markDispatchDelivered({ id: "r", requireReply: true, executionMode });
+  }
+
+  assert.ok(produced.length >= 2, "the delivery writer produced no receipts to compare against");
+  for (const literal of produced) {
+    assert.ok(/Delivered/.test(literal), `a delivery receipt stopped saying it delivered: ${literal}`);
     assert.notEqual(controlReceipt, literal, "control receipt must be distinct from run-delivery text");
   }
 });

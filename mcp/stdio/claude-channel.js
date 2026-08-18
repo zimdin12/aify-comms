@@ -5,6 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { makeDispatchReceipts } from "./channel-dispatch-receipts.mjs";
 import { loadSettingsEnv } from "./load-env.js";
 import { defaultMachineId } from "./runtimes.js";
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
@@ -189,9 +190,6 @@ async function emitChannel(content, meta = {}) {
   });
 }
 
-function isChannelRun(run) {
-  return String(run?.executionMode || "").trim().toLowerCase() === "channel";
-}
 
 async function reportTurnBusy(agentId, { busy, runId = "" } = {}) {
   await httpCall("POST", `/agents/${encodeURIComponent(agentId)}/heartbeat`, {
@@ -202,41 +200,11 @@ async function reportTurnBusy(agentId, { busy, runId = "" } = {}) {
   });
 }
 
-async function markDispatchDelivered(run) {
-  // Any dispatch with require_reply=true stays in 'delivered' status until
-  // the agent's explicit reply (via comms_send with inReplyTo) closes it.
-  // This applies symmetrically to channel-route and resident-execution_mode
-  // dispatches — both pass through this delivery path. Without it, resident
-  // require_reply runs auto-completed on delivery and the dashboard had no
-  // signal that the agent still owed a reply. Server-side derivation
-  // (_current_channel_awaiting_reply_run_row) lights up "working" while
-  // any such run is 'delivered'.
-  const channelRun = isChannelRun(run);
-  const requireReply = !!run?.requireReply;
-  const runId = String(run?.id || "");
-  const awaitingReply = requireReply;
-  // D2 (#162): a routine require_reply delivery is normal-path, not noteworthy —
-  // emit NO summary so the Runs audit view stays clean. The audit signal is the
-  // 'delivered' event we append below; meaningful summaries are reserved for
-  // failures/requeues (see markDispatchDeliveryFailed).
-  await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(runId)}`, {
-    status: awaitingReply ? "delivered" : "completed",
-    summary: "",
-    runtime: "claude-code",    appendEvent: channelRun
-      ? "Delivered to Claude channel bridge"
-      : "Delivered and completed by channel bridge",
-    eventType: "delivered",
-  });
-}
+// isChannelRun + the two receipt writers moved to ./channel-dispatch-receipts.mjs in v0.6 Phase 1.
+// They were three of the eleven functions in this file no test had ever called. The transport is
+// injected because this module has its OWN httpCall — see that file's header.
+const { markDispatchDelivered, markDispatchDeliveryFailed } = makeDispatchReceipts({ httpCall });
 
-async function markDispatchDeliveryFailed(runId, error) {
-  await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(runId)}`, {
-    status: "failed",
-    error: error?.message || String(error),
-    runtime: "claude-code",    appendEvent: `Claude channel delivery failed: ${error?.message || String(error)}`,
-    eventType: "failed",
-  });
-}
 
 // Per-agent "I delivered work recently — assistant is probably still
 // running" timestamp. While set and within TURN_REFRESH_MAX_AGE_MS, we

@@ -23,10 +23,10 @@ import { reconcileLocalActiveRun } from "./local-active-run.mjs";
 import { readManagedViaWrapperRuntimes } from "./managed-wrapper-cache.mjs";
 import { ensureRequiredReplyHandoff } from "./required-reply-handoff.mjs";
 import { residentRuntimeBindingLost } from "./resident-binding-health.mjs";
+import { buildRunCallbacks } from "./run-callbacks.mjs";
 import { processRunControls } from "./run-controls.mjs";
-import { canLaunchRuntime, launchRuntimeRun, normalizeRuntime, runtimeStateWithoutSessionHandle } from "./runtimes.js";
+import { canLaunchRuntime, launchRuntimeRun, normalizeRuntime } from "./runtimes.js";
 import { normalizeLaunchMode, normalizeSessionMode } from "./session-mode.mjs";
-import { createVirtualTerminalSink, ensureVirtualTerminal } from "./virtual-terminals.mjs";
 import { IS_REMOTE } from "./aify-service-endpoint.mjs";
 import { shouldSkipLoop } from "./loop-gate.mjs";
 
@@ -261,119 +261,11 @@ export async function runDispatchPass({
       run,
       runtimeState,
       managedViaWrapper: _isManagedViaWrapper,
-      callbacks: {
-        // Plan 4 Task 13 (2026-05-25): controllers fire this when their
-        // initial handshake completes (WS app-server initialize, gateway
-        // connect, pi agent_ready, etc.). Maps to PATCH /agents/{id}/ready
-        // so operators can see "ready" as a distinct state from "online".
-        onReady: () => {
-          httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/ready`, {
-            ready: true,
-            requestedBy: "controller-handshake",
-          }).catch(() => { /* best-effort */ });
-        },
-        onEvent: async (eventType, text) => {
-          try {
-            await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(run.id)}`, {
-              appendEvent: text,
-              eventType,
-            });
-          } catch {
-            // best effort
-          }
-        },
-        onRuntimeState: async (nextState) => {
-          try {
-            state.info.runtimeState = { ...(state.info.runtimeState || {}), ...nextState };
-            await httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/runtime-state`, {
-              runtimeState: state.info.runtimeState,
-            });
-          } catch {
-            // best effort
-          }
-        },
-        onRefs: async (refs) => {
-          try {
-            const body = {};
-            if (refs.threadId) body.externalThreadId = refs.threadId;
-            if (refs.turnId) body.externalTurnId = refs.turnId;
-            if (Object.keys(body).length > 0) {
-              await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(run.id)}`, body);
-            }
-          } catch {
-            // best effort
-          }
-        },
-        // TERTIARY pure-event (2026-06-19): wire codex's native app-server turn events to the
-        // turn-state poster — turn/started → working, turn/completed → cleared — so managed
-        // codex status is event-EXACT instead of leaning on the 5s rollout-tail poll. Both are
-        // idempotent (reportTurnBusy is ownership-guarded) and additive to the existing
-        // dispatch-boundary + rollout-detector signals, so they only sharpen, never conflict.
-        onTurnStart: async () => {
-          try { await reportTurnBusy(agentId, state, { busy: true, runId: run.id, runtime: "codex" }); } catch { /* best-effort */ }
-        },
-        onTurnEnd: async () => {
-          try { await reportTurnBusy(agentId, state, { busy: false, runId: run.id, runtime: "codex" }); } catch { /* best-effort */ }
-        },
-        // Fired when the runtime controller had to discard an unloadable
-        // thread/session and start a fresh one. Non-empty handles are
-        // persisted through re-registration; explicit clears use the
-        // lightweight session-handle endpoint so a poisoned handle is gone
-        // even if the fresh run fails before discovering its replacement.
-        onSessionHandleChange: async (newHandle, meta = {}) => {
-          const nextHandle = String(newHandle || "").trim();
-          const metaLabel = meta?.reason ? ` (reason: ${meta.reason}, previous: ${meta.previous || ""})` : "";
-          try {
-            if (!nextHandle && meta?.reason) {
-              state.info.sessionHandle = "";
-              state.info.runtimeState = runtimeStateWithoutSessionHandle(
-                state.info.runtime || "",
-                state.info.runtimeState || {},
-              );
-              await httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/session-handle`, {
-                sessionHandle: "",
-                requestedBy: "pi-rpc-heal",
-              });
-              await httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/runtime-state`, {
-                runtimeState: state.info.runtimeState,
-              });
-              console.error(`[aify] cleared stale sessionHandle for "${agentId}"${metaLabel}`);
-              return;
-            }
-            if (!nextHandle) return;
-            state.info.sessionHandle = nextHandle;
-            await reregisterAgentFromState(agentId, state);
-            console.error(`[aify] healed sessionHandle for "${agentId}" → ${nextHandle}${metaLabel}`);
-          } catch (error) {
-            console.error(`[aify] failed to persist healed sessionHandle for "${agentId}": ${error?.message || error}`);
-          }
-        },
-        // Synthesized terminal_session row backing the bridge's native
-        // RPC controller. Pi (Phase 2): persistent omp --mode rpc child
-        // streams its event feed through this sink. Hermes: per-dispatch
-        // `hermes chat -q -Q` controller pushes request/response frames.
-        // PiController (managed mode only post-Plan-2 flip) wires this
-        // sink via session.attachTerminalSink. Other runtimes return null
-        // and stay on their existing visibility surface.
-        terminalSinkProvider: async ({ agentId: provId, agentInfo }) => {
-          const rt = normalizeRuntime(agentInfo?.runtime || "");
-          // Phases 2 + 7 + 5/6: pi (persistent), hermes (per-dispatch
-          // with synth feed), codex (per-dispatch with synth feed),
-          // opencode (per-dispatch with synth feed). Codex/opencode
-          // still use per-dispatch controllers; the synth terminal
-          // gives operators visible Console activity even before the
-          // full Phase 5/6 persistent-worker pool refactor.
-          if (rt !== "pi" && rt !== "hermes" && rt !== "codex" && rt !== "opencode") return null;
-          try {
-            const entry = await ensureVirtualTerminal(provId, agentInfo, rt);
-            if (!entry?.terminalId) return null;
-            return createVirtualTerminalSink(entry.terminalId);
-          } catch (error) {
-            console.error(`[aify] virtual-terminal/ensure failed for "${provId}" (runtime=${rt}): ${error?.message || error}`);
-            return null;
-          }
-        },
-      },
+      // The ten callbacks a launched runtime fires back moved to ./run-callbacks.mjs in v0.6
+      // Phase 1. They were unreachable by construction — created here, invoked only by a real
+      // runtime — so no test had ever called one. Bodies byte-identical; the five values they
+      // close over are the parameters.
+      callbacks: buildRunCallbacks({ agentId, state, run, runtime, runtimeState }),
     });
 
     ACTIVE_RUNS.set(agentId, { runId: run.id, runtime, controller });
