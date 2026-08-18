@@ -78,9 +78,38 @@ class SendTests(unittest.TestCase):
         self.assertEqual("target is offline", out)
 
     def test_a_failed_send_with_no_error_still_does_not_claim_delivery(self):
+        """It also must not INVENT one. The fallback used to be "No recipients found.", which was a
+        specific claim about why — asserted for every failure, including the ones that had a reason
+        and the ones that had nothing to do with recipients."""
         out, _ = _with_api(st, st.comms_send, {"ok": False},
                            from_agent="me", type="info", subject="s", body="b", to="ghost")
-        self.assertEqual("No recipients found.", out)
+        self.assertIn("failed", out.lower())
+        self.assertNotIn("Sent", out)
+        self.assertNotIn("No recipients found", out,
+                         "an unexplained failure was reported as a specific diagnosis")
+
+    def test_a_failed_send_REPORTS_THE_SERVICE_S_OWN_REASON(self):
+        """Reported by an external reviewer as a Low: every failure came back as "No recipients
+        found." — a stopped target, a validation error naming the bad field, and a genuinely empty
+        recipient list all read identically, and only one of them was true. Same family as a
+        transport turning a 500 into a confident empty: the agent believes it knows why and stops
+        looking."""
+        out, _ = _with_api(st, st.comms_send, {"ok": False, "error": 'target "ghost" is stopped'},
+                           from_agent="me", type="info", subject="s", body="b", to="ghost")
+        self.assertIn("is stopped", out)
+
+        detail, _ = _with_api(st, st.comms_send, {"ok": False, "detail": "agent not registered"},
+                              from_agent="me", type="info", subject="s", body="b", to="ghost")
+        self.assertIn("agent not registered", detail, "FastAPI's own error shape was dropped")
+
+        validation, _ = _with_api(
+            st, st.comms_send,
+            {"ok": False, "detail": [{"msg": "field required"}, {"msg": "bad type"}]},
+            from_agent="me", type="info", subject="s", body="b", to="ghost")
+        self.assertIn("field required", validation)
+        self.assertIn("bad type", validation)
+        self.assertNotIn("[object", validation)
+        self.assertNotIn("{'msg'", validation, "a validation list reached the agent as raw dicts")
 
     def test_queueIfBusy_forces_steer_off_even_when_steer_was_asked_for(self):
         """Opposite delivery choices. Sending both would leave the server to guess."""

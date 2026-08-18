@@ -62,7 +62,19 @@ async def comms_send(
         data["inReplyTo"] = inReplyTo
     r = await _api("POST", "/messages/send", data)
     if not r.get("ok"):
-        return r.get("error", "No recipients found.")
+        # SAY WHAT THE SERVICE SAID. This fell back to "No recipients found." for EVERY failure,
+        # so a 400 explaining that the target is stopped, a validation error naming the bad field,
+        # and a genuine empty recipient list all reached the agent as the same sentence — and only
+        # one of them was true. Reported by an external reviewer 2026-08-18 as a Low; it is the same
+        # family as the transport returning a confident empty on a 500, and it misleads in the same
+        # direction: the agent believes it knows why and stops looking.
+        #
+        # `detail` is FastAPI's shape and `error` is this API's; both are the service explaining
+        # itself, and the fallback is only for the case where it said nothing at all.
+        detail = r.get("error") or r.get("detail")
+        if isinstance(detail, list):  # FastAPI validation errors arrive as a list of dicts
+            detail = "; ".join(str(d.get("msg", d)) if isinstance(d, dict) else str(d) for d in detail)
+        return str(detail) if detail else "Send failed, and the service gave no reason."
     if should_trigger and r.get("recipients"):
         queued = [
             f"{run.get('targetAgentId', '?')} [{run.get('status', 'queued')}]"
