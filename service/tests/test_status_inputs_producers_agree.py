@@ -88,12 +88,22 @@ CASES: dict[str, dict] = {
 #: Making them agree is one line and is deliberately NOT done here: it moves every
 #: resident-without-a-wake-handle out of the unreachable family, and
 #: `test_resident_hermes_missing_handle_status` asserts the dashboard dot and the label agree within
-#: that family — so a whole class of agents changes badge colour. comms-senior-dev ruled M2 belongs
-#: in the same slice as the 10a `available` semantics, which awaits an operator ruling.
+#: that family — so a whole class of agents changes badge colour.
 #:
-#: The test below asserts these cases DO diverge, on exactly this field. When 10a is settled and the
-#: producers are unified, that assertion fails and tells you to delete this list — which is the
-#: opposite of a skip, and the reason it is written this way.
+#: RULED 2026-08-18 by comms-senior-dev, and the ruling is what keeps this list here rather than
+#: closing it: "ship the pin for now; do not converge resident in this release slice. The managed
+#: false-available defect had a reported routing surface. The resident side has no reported defect
+#: and no `spawn_starting` analogue... If a resident missing-handle/misconfigured public-status
+#: defect is observed, converge in a separate resident-status packet." The same response settled the
+#: 10a `available` semantics this note previously said were pending — do NOT split the status; public
+#: `online` is the idle-live worker and public `available` is the no-live-worker cold-startable
+#: managed state. So convergence is no longer waiting on 10a; it is waiting on an observed defect.
+#:
+#: The ruling also set the shape of this pin explicitly — "keep `DIVERGENT_CASES` narrow and loud:
+#: divergence may be only the documented resident `config_defect` case, not an open-ended skip" —
+#: which is what the assertion below enforces in both directions: these cases DO diverge, on exactly
+#: that one field. If it goes empty the producers were unified and the list must be deleted; if it
+#: grows, a second field started diverging and the M2 class is back.
 DIVERGENT_CASES: dict[str, dict] = {
     "resident-codex-missing-handle": dict(mode="resident", runtime="codex"),
     "resident-hermes-missing-handle": dict(mode="resident", runtime="hermes"),
