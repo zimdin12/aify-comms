@@ -59,6 +59,26 @@ FROZEN: dict[str, dict] = {
             "service/routers/agents/session_ops.py",
         ],
     },
+    # DECLARED 2026-08-18 when the value set got its FIRST NAME. `("pending", "claimed")` — a queued
+    # instruction that has not been settled — was spelled out in eight SQL statements across three
+    # modules and named nowhere, so this gate had nothing to attribute them to. Writing
+    # `_UNSETTLED_CONTROL_STATUSES` in the new stuck-control reconciler made the set bindable, and the
+    # gate demanded the declaration on the same run.
+    #
+    # ONE VOCABULARY, TWO TABLES. `dispatch_controls` and `terminal_controls` both use pending/claimed
+    # for "queued, not yet settled". They are different tables and the queries below are not
+    # interchangeable, but the STATUS WORDS are one vocabulary: adding a third unsettled state (say
+    # `applying`) would have to reach every site here or each would silently keep the old meaning —
+    # which is exactly the `lost` incident this file was written from, in eight more places.
+    "_UNSETTLED_CONTROL_STATUSES": {
+        "owner": "service/reconcilers/stuck_controls.py",
+        "values": ["claimed", "pending"],
+        "hardcoded_in": [
+            "service/api_core/active_run_discard.py",
+            "service/api_core/superseded_bridge_stops.py",
+            "service/reconcilers/terminal_controls.py",
+        ],
+    },
     "_DISPATCH_TERMINAL_STATUSES": {
         "owner": "service/api_core/dispatch_state.py",
         "values": ["cancelled", "completed", "failed"],

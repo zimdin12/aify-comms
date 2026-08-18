@@ -35,13 +35,20 @@ consequence is a lost instruction and a permanent row, not a stranded run.
 
 from __future__ import annotations
 
-from typing import Optional
-
+from service.api_core.dispatch_state import _DISPATCH_TERMINAL_STATUSES
 from service.api_core.events import _append_dispatch_event
 from service.clock import now as _now
 
 #: Terminal run statuses. A control cannot be applied to a run in any of these states.
-_ENDED_RUN_STATUSES = ("completed", "failed", "cancelled")
+#:
+#: DERIVED FROM THE EXISTING OWNER, not spelled out again. `_no_unruled_constant_coincidences` caught
+#: my first version declaring `{"completed", "failed", "cancelled"}` here while
+#: `api_core/dispatch_state._DISPATCH_TERMINAL_STATUSES` already held exactly that set — one concept
+#: with two owners, which is the forked-constant class this repo has spent the whole v0.5.x series
+#: removing. If a fourth terminal status is ever added, this sweep must see it, and a hand-copied tuple
+#: would not. Sorted into a tuple because the SQL below builds positional placeholders and needs a
+#: deterministic order; same pattern as `claim_receipts._UNSTARTED_TERMINAL_STATUSES`.
+_ENDED_RUN_STATUSES = tuple(sorted(_DISPATCH_TERMINAL_STATUSES))
 
 #: Control statuses that are still awaiting settlement.
 _UNSETTLED_CONTROL_STATUSES = ("pending", "claimed")
