@@ -71,7 +71,20 @@ class DispatchControlRefusalTests(FastApiTestCase):
         return self.client.post(f"/api/v1/dispatch/runs/{run_id}/control", json=body)
 
     def _update(self, control_id: str, body: dict):
-        return self.client.patch(f"/api/v1/dispatch/controls/{control_id}", json=body)
+        """Settle a control, supplying the ACTOR unless the caller states one.
+
+        The endpoint has required `handledBy` since 2026-08-18 (comms-senior-dev's ruling: the actor
+        is mandatory and service-enforced, and actor-absent callers fail closed). Every test in this
+        file is about the STATUS allowlist and its normalisation, so each one supplies a valid actor
+        by default rather than repeating it — otherwise they would all be measuring the new refusal
+        instead of the thing they were written for.
+
+        A default could in principle mask a regression where the endpoint stops requiring the actor.
+        It cannot here: `test_dispatch_control_settlement_names_its_actor.py` asserts the refusal
+        directly, and this helper lets a caller override `handledBy` to exercise it.
+        """
+        payload = {"handledBy": "ctl-test-actor", **body}
+        return self.client.patch(f"/api/v1/dispatch/controls/{control_id}", json=payload)
 
     # ── the action allowlist ─────────────────────────────────────────────────────────────────
 

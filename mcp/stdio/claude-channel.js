@@ -611,6 +611,11 @@ async function pollLoop() {
           // "Delivered to Claude channel bridge" with an empty summary. A receipt that
           // names the wrong session mode is a trap for the next reader.
           response: "Control emitted into the Claude channel session",
+          // The service refuses an actor-less settlement (2026-08-18) and a refused control stays
+          // pending forever, stranding its run — so these two fields are not optional metadata, they
+          // are what keeps this receipt working. Both are already in scope from the claim above.
+          handledBy: agentId,
+          machineId: MACHINE_ID,
         });
       }
     } catch (error) {

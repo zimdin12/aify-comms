@@ -80,6 +80,31 @@ function apply({ controls, capabilities = { steer: true, interrupt: true }, stee
   }
 }
 
+// EVERY SETTLEMENT MUST NAME ITS ACTOR (2026-08-18). The service refuses a PATCH that does not carry
+// `handledBy`, and a refused control stays `pending` forever — which strands the run it was meant to
+// close. So these two fields are not metadata this bridge may drop; they are what keeps the receipt
+// working, and a test that ignored them would pass while every control settlement 400'd in production.
+//
+// The machine id is asserted as PRESENT rather than compared to a literal: it is derived from the host
+// inside the child process, so pinning the value would make this test's result depend on where it runs.
+function assertNamesItsActor(patches) {
+  for (const patch of patches) {
+    assert.equal(patch.handledBy, "agent-a",
+      `a control settlement did not name the acting agent: ${JSON.stringify(patch)}. The service `
+      + "refuses it, the control stays pending, and the run strands.");
+    assert.ok(typeof patch.machineId === "string" && patch.machineId.length > 0,
+      `a control settlement carried no machineId: ${JSON.stringify(patch)}. The service compares it `
+      + "against the claim's claim_machine_id, and an absent value is treated as a mismatch.");
+  }
+}
+
+// Strips the actor fields so the payload assertions below stay about the payload. Deliberately paired
+// with assertNamesItsActor at every call site — dropping them here without asserting them elsewhere
+// would silently un-test the thing production depends on.
+function actorless(patches) {
+  return patches.map(({ handledBy, machineId, ...rest }) => rest);
+}
+
 const steer = (id, body) => ({ id, action: "steer", body });
 
 test("FOUR QUEUED STEERS BECOME ONE INTERRUPTION, not four", () => {
@@ -100,6 +125,7 @@ test("FOUR QUEUED STEERS BECOME ONE INTERRUPTION, not four", () => {
   assert.ok(body.indexOf("three") < body.indexOf("four"));
   // …and each one is individually answered, or the queue never drains.
   assert.deepEqual(r.patches.map((p) => p.id).sort(), ["c1", "c2", "c3", "c4"]);
+  assertNamesItsActor(r.patches);  // each batched steer is settled individually
   assert.ok(r.patches.every((p) => p.status === "completed"), "all four must be marked completed");
 });
 
@@ -108,7 +134,8 @@ test("A SINGLE STEER IS NOT WRAPPED — the envelope is overhead it has not earn
   // agent a header explaining a batch of one.
   const r = apply({ controls: [steer("c1", "just this")] });
   assert.deepEqual(r.steers, ["just this"], "a lone steer must reach the controller verbatim");
-  assert.deepEqual(r.patches, [{ id: "c1", status: "completed", response: "steer accepted" }]);
+  assert.deepEqual(actorless(r.patches), [{ id: "c1", status: "completed", response: "steer accepted" }]);
+  assertNamesItsActor(r.patches);
 });
 
 test("EVERY CONTROL IS ANSWERED even when applying it fails", () => {
@@ -118,7 +145,8 @@ test("EVERY CONTROL IS ANSWERED even when applying it fails", () => {
     interruptThrows: "runtime exploded",
   });
   assert.equal(r.threw, null, "a failing control must not throw into the dispatch loop");
-  assert.deepEqual(r.patches, [{ id: "c1", status: "failed", response: "runtime exploded" }]);
+  assert.deepEqual(actorless(r.patches), [{ id: "c1", status: "failed", response: "runtime exploded" }]);
+  assertNamesItsActor(r.patches);
 });
 
 test("one bad control does not abandon the ones behind it", () => {
@@ -186,6 +214,7 @@ test("steers and non-steers in one claim are both handled", () => {
   assert.equal(r.steers.length, 1, "the two steers batch together despite the interrupt between them");
   assert.match(r.steers[0], /2 messages arrived/);
   assert.deepEqual(r.patches.map((p) => p.id).sort(), ["i1", "s1", "s2"]);
+  assertNamesItsActor(r.patches);  // mixed interrupt + steer: every settlement, both branches
   assert.ok(r.patches.every((p) => p.status === "completed"));
 });
 

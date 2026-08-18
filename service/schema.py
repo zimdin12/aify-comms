@@ -168,6 +168,8 @@ CREATE TABLE IF NOT EXISTS dispatch_controls (
     body TEXT DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending',
     response_text TEXT DEFAULT '',
+    -- Who settled it. Mandatory at the endpoint; empty only for rows predating the column.
+    handled_by TEXT DEFAULT '',
     claim_machine_id TEXT DEFAULT '',
     requested_at TEXT NOT NULL,
     claimed_at TEXT,

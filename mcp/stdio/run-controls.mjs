@@ -58,11 +58,15 @@ export async function processRunControls(agentId, activeRun) {
       await httpCall("PATCH", `/dispatch/controls/${encodeURIComponent(control.id)}`, {
         status: "completed",
         response: `${control.action} accepted`,
+        handledBy: agentId,
+        machineId: MACHINE_ID,
       });
     } catch (error) {
       await httpCall("PATCH", `/dispatch/controls/${encodeURIComponent(control.id)}`, {
         status: "failed",
         response: error?.message || String(error),
+        handledBy: agentId,
+        machineId: MACHINE_ID,
       });
     }
   }
@@ -88,6 +92,8 @@ export async function processRunControls(agentId, activeRun) {
         await httpCall("PATCH", `/dispatch/controls/${encodeURIComponent(control.id)}`, {
           status: "completed",
           response: steerControls.length === 1 ? "steer accepted" : `batched steer accepted (${steerControls.length})`,
+          handledBy: agentId,
+          machineId: MACHINE_ID,
         });
       }
     } catch (error) {
@@ -95,6 +101,8 @@ export async function processRunControls(agentId, activeRun) {
         await httpCall("PATCH", `/dispatch/controls/${encodeURIComponent(control.id)}`, {
           status: "failed",
           response: error?.message || String(error),
+          handledBy: agentId,
+          machineId: MACHINE_ID,
         });
       }
     }

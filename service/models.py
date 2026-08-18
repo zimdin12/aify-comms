@@ -326,9 +326,25 @@ class DispatchControlClaimRequest(_MachineIdNormalizingModel):
     waitMs: Optional[int] = 0  # long-poll budget (0 = legacy immediate return)
 
 
-class DispatchControlUpdate(BaseModel):
+class DispatchControlUpdate(_MachineIdNormalizingModel):
+    # NORMALIZING BASE, because this model's machineId is COMPARED, not just recorded: the settlement
+    # is refused unless it matches the `claim_machine_id` stamped at claim time, and that value went
+    # through the same normalisation. A plain BaseModel here would let a case or separator difference
+    # between two derivations of the same machine id read as "a different machine claimed this" — a
+    # 409 on every settlement, which leaves the control pending and strands the run.
+    #
+    # I wrote it as `BaseModel` first. `test_machine_id_normalisation.py` caught it by sweeping every
+    # model that carries the field, which is the only reason it is not a live bug: nothing in the
+    # happy path would have differed on the machine that wrote both values.
     status: str
     response: Optional[str] = None
+    # WHO SETTLED THIS CONTROL, and from where. Mandatory in EFFECT but Optional in the schema, on
+    # purpose: a missing field must produce the handler's own 400 — which names the cause and says
+    # "relaunch" — rather than FastAPI's generic 422. This endpoint's refusal leaves the control
+    # `pending` forever and strands the run, so the error text is the only place an operator learns
+    # that a pre-actor bridge is the reason. See test_dispatch_control_settlement_names_its_actor.py.
+    handledBy: Optional[str] = None
+    machineId: Optional[str] = None
 
 
 class EnvironmentHeartbeat(_MachineIdNormalizingModel):

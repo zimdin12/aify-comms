@@ -110,6 +110,29 @@ async def update_dispatch_control(control_id: str, req: DispatchControlUpdate, r
     if status not in {"completed", "failed"}:
         raise HTTPException(400, "Unsupported control status")
 
+    # WHO IS SETTLING THIS. Mandatory and service-enforced (comms-senior-dev, 2026-08-18): "the actor
+    # must be mandatory and service-enforced; actor-absent old callers must fail closed". Settling a
+    # control is what closes it, so an unattributed settlement means an interrupt can be marked
+    # `completed` by something that never interrupted anything, and the run continues as though the
+    # operator's instruction was carried out.
+    #
+    # An OPTIONAL actor would have been theatre: every old caller keeps working, every new caller is
+    # trusted to opt in, and the trail is complete only for callers that chose to be audited.
+    #
+    # THE MESSAGE IS PART OF THE FIX. A refused control stays `pending` forever and strands its run
+    # (see the note above), so a bare 400 would turn a stale bridge into an unexplained outage. The
+    # likeliest cause of a missing actor is a bridge running pre-actor code, which is why the text says
+    # so — `aify-comms doctor`'s `bridge-current` names those bridges.
+    handled_by = str(req.handledBy or "").strip()
+    if not handled_by:
+        raise HTTPException(
+            400,
+            "Control settlement requires an actor: send handledBy=<your agent id> (and machineId). "
+            "A bridge running pre-actor code is the likeliest cause — re-run install.sh and RELAUNCH "
+            "the wrapper, then retry. Until then this control stays pending and its run will strand.",
+        )
+    actor_machine = str(req.machineId or "").strip()
+
     db = await get_db()
     try:
         cursor = await db.execute("SELECT * FROM dispatch_controls WHERE id = ?", (control_id,))
@@ -117,10 +140,31 @@ async def update_dispatch_control(control_id: str, req: DispatchControlUpdate, r
         if not control:
             raise HTTPException(404, f"Control '{control_id}' not found")
 
+        # ONLY THE CLAIMER MAY SETTLE IT. `claim_machine_id` is stamped at claim time, so the service
+        # always had an owner to compare against and simply never looked — the same shape as the
+        # unsend and artifact-delete endpoints before their owner checks landed.
+        #
+        # The check applies only when a claim was actually recorded. A control with no claimer has no
+        # owner to violate, so the actor requirement above is the whole gate for it; that asymmetry is
+        # deliberate and pinned by a test, not an accident of the ordering here.
+        # An ABSENT machineId is treated as a mismatch, not as a reason to skip the check. Requiring
+        # `actor_machine` to be non-empty before comparing would have let any caller bypass the owner
+        # check by simply omitting the field — a guard that only guards callers who identify
+        # themselves. Every bridge caller already has MACHINE_ID in scope at the claim.
+        claimed_machine = str((control["claim_machine_id"] or "")).strip()
+        if claimed_machine and claimed_machine != actor_machine:
+            raise HTTPException(
+                409,
+                f"Control '{control_id}' was claimed by {claimed_machine}; "
+                f"{actor_machine or '(no machineId sent)'} cannot settle it. The claiming bridge is "
+                "the one that ran the control.",
+            )
+
         handled_at = _now()
         await db.execute(
-            "UPDATE dispatch_controls SET status = ?, response_text = ?, handled_at = ? WHERE id = ?",
-            (status, req.response or "", handled_at, control_id)
+            "UPDATE dispatch_controls SET status = ?, response_text = ?, handled_at = ?,"
+            " handled_by = ? WHERE id = ?",
+            (status, req.response or "", handled_at, handled_by, control_id)
         )
         if status == "completed" and (control["source_message_id"] or "").strip():
             run_cursor = await db.execute(
@@ -138,11 +182,14 @@ async def update_dispatch_control(control_id: str, req: DispatchControlUpdate, r
                         "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
                         ((control["source_message_id"] or "").strip(), run["target_agent"], handled_at),
                     )
+        # THE ACTOR GOES IN THE AUDIT TRAIL, not only in the control row. The run's event list is
+        # where a stranded or wrongly-closed run is actually investigated, and a settlement whose
+        # actor is only discoverable by joining another table is a settlement nobody will attribute.
         await _append_dispatch_event(
             db,
             control["run_id"],
             f"control:{control['action']}:{status}",
-            req.response or "",
+            f"[{handled_by}] {req.response or ''}".strip(),
         )
         await db.commit()
         ws = await _get_ws(request)

@@ -89,6 +89,11 @@ MESSAGE_MIGRATIONS = {
 
 DISPATCH_CONTROL_MIGRATIONS = {
     "source_message_id": "ALTER TABLE dispatch_controls ADD COLUMN source_message_id TEXT DEFAULT ''",
+    # WHO settled the control (2026-08-18). Settling one is what closes a run, and until now the row
+    # recorded only that it happened — so an interrupt marked `completed` was unattributable. Defaults
+    # empty for rows that predate the column, which is honest: those settlements have no known actor
+    # and must not be back-filled with a guess.
+    "handled_by": "ALTER TABLE dispatch_controls ADD COLUMN handled_by TEXT DEFAULT ''",
 }
 
 ENVIRONMENT_MIGRATIONS = {
