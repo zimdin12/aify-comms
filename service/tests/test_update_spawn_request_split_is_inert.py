@@ -75,6 +75,23 @@ def _helper() -> ast.AST:
     )
 
 
+
+#: DECLARED EDIT SINCE THE SPLIT (2026-08-18). `_hand_settled_spawn_to_dispatch` used to create the
+#: initial-message run with `message_id=None`, so a spawned agent's inbox was EMPTY while the
+#: dispatch text told it to read the brief there, and the dispatch event carried no id for the agent
+#: to put in `inReplyTo`. An end-to-end probe reported both in its first reply.
+#:
+#: The fix stores a real message for the brief, which changes a body this proof reconstructs. The
+#: change is written down here with BOTH texts rather than the fixture being re-captured: re-capturing
+#: would erase the baseline, after which this gate proves only that the split is inert relative to
+#: whatever the code is today — not a claim about the extraction at all.
+EDITED_SINCE = [
+    (
+        '                settings_for_runs = await _load_settings(db)\n                sender = row["created_by"] or "dashboard"\n                subject = row["subject"] or f"Spawn {row[\'agent_id\']}"\n                body = row["initial_message"]\n                priority = row["priority"] or "normal"\n\n                # A REAL MESSAGE BEHIND THE BRIEF, added 2026-08-18 after an end-to-end probe caught\n                # its absence. This run used to be created with `message_id=None`, so:\n                #   * the spawned agent\'s `comms_inbox` was EMPTY while the dispatch text it received\n                #     said "Full details are in the inbox. Read them there if you need the complete\n                #     context" — an instruction that could not be followed;\n                #   * the dispatch event carried `message_id=""`, so the agent had no id to put in\n                #     `inReplyTo` and could not thread its reply to the brief it was answering.\n                # The probe reported both in its first reply, which is exactly what a probe is for.\n                #\n                # The brief IS a message — one agent asking another to do something — so it gets a row\n                # like any other rather than a special case downstream.\n                message_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"\n                await db.execute(\n                    """\n                    INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body,\n                                          priority, dispatch_requested, in_reply_to, timestamp)\n                    VALUES (?,?,?,?,?,?,?,?,?,?,?)\n                    """,\n                    (message_id, sender, row["agent_id"], "direct", "request", subject, body,\n                     priority, 1, None, int(time.time() * 1000)),\n                )\n                runs = await _create_dispatch_runs(\n                    db,\n                    [row["agent_id"]],\n                    from_agent=sender,\n                    message_type="request",\n                    subject=subject,\n                    body=body,\n                    priority=priority,\n                    in_reply_to=None,\n                    dispatch_mode="start_if_possible",\n                    execution_mode=(\n                        "channel"\n                        if _managed_via_wrapper_for_runtime(settings_for_runs, row["runtime"] or "")\n                        else "managed"\n                    ),\n                    requested_runtime=row["runtime"],\n                    message_id=message_id,',
+        '                settings_for_runs = await _load_settings(db)\n                runs = await _create_dispatch_runs(\n                    db,\n                    [row["agent_id"]],\n                    from_agent=row["created_by"] or "dashboard",\n                    message_type="request",\n                    subject=row["subject"] or f"Spawn {row[\'agent_id\']}",\n                    body=row["initial_message"],\n                    priority=row["priority"] or "normal",\n                    in_reply_to=None,\n                    dispatch_mode="start_if_possible",\n                    execution_mode=(\n                        "channel"\n                        if _managed_via_wrapper_for_runtime(settings_for_runs, row["runtime"] or "")\n                        else "managed"\n                    ),\n                    requested_runtime=row["runtime"],\n                    message_id=None,',
+    ),
+]
+
 class UpdateSpawnRequestSplitIsInertTests(unittest.TestCase):
     def test_the_extraction_inlines_back_to_the_original(self):
         fixture_src = FIXTURE.read_text(encoding="utf-8")
@@ -83,7 +100,7 @@ class UpdateSpawnRequestSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS, EDITED_SINCE)
 
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""

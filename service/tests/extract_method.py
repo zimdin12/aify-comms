@@ -1415,7 +1415,8 @@ def assert_extraction_preserves_behaviour(original_src: str, split_src: str, hel
 
 
 def assert_extractions_preserve_behaviour(
-    original_src: str, split_src: str, helper_names: "list[str]"
+    original_src: str, split_src: str, helper_names: "list[str]",
+    edited_since: "list[tuple[str, str]] | None" = None,
 ) -> None:
     """The same proof for a function that has had SEVERAL blocks extracted.
 
@@ -1447,6 +1448,28 @@ def assert_extractions_preserve_behaviour(
     preconditions, call signature, live-ins and live-outs. Those examine the SPLIT, which is the
     artifact that can be wrong, and none of them is weakened by there being more than one helper.
     """
+    # DECLARED EDITS SINCE THE SPLIT, undone before the comparison.
+    #
+    # This proof exists to show an extraction was a pure MOVE, so it compares against a captured
+    # pre-split fixture. A later behavioural change inside an extracted helper therefore breaks it —
+    # correctly: the code has legitimately diverged from the fixture. Re-capturing the fixture would
+    # "fix" that by erasing the baseline, after which the gate proves only that the split is inert
+    # relative to whatever the code is today, which is not a claim about the extraction at all.
+    #
+    # `extraction-proof.mjs` met this first on the dashboard side and answered it with `editedSince`:
+    # declare the change with BOTH texts and undo it before comparing. The historical proof survives
+    # and the deliberate divergence is written down rather than tolerated. Same mechanism, same
+    # reason, same verbatim verification — an edit that no longer matches is an error, not a skip.
+    for now_text, was_text in (edited_since or []):
+        occurrences = split_src.count(now_text)
+        if occurrences != 1:
+            raise AssertionError(
+                f"edited_since entry does not appear exactly once in the split source "
+                f"({occurrences} occurrences). It is verified verbatim so a stale declaration cannot "
+                f"silently stop undoing anything:\n{now_text}"
+            )
+        split_src = split_src.replace(now_text, was_text, 1)
+
     original = ast.parse(original_src).body[0]
     module = ast.parse(split_src)
     funcs = {n.name: n for n in module.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}

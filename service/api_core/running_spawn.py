@@ -275,14 +275,40 @@ async def _hand_settled_spawn_to_dispatch(db, row):
                 Guarded on the row having only just reached `running`, so a re-run does not double-dispatch.
                 """
                 settings_for_runs = await _load_settings(db)
+                sender = row["created_by"] or "dashboard"
+                subject = row["subject"] or f"Spawn {row['agent_id']}"
+                body = row["initial_message"]
+                priority = row["priority"] or "normal"
+
+                # A REAL MESSAGE BEHIND THE BRIEF, added 2026-08-18 after an end-to-end probe caught
+                # its absence. This run used to be created with `message_id=None`, so:
+                #   * the spawned agent's `comms_inbox` was EMPTY while the dispatch text it received
+                #     said "Full details are in the inbox. Read them there if you need the complete
+                #     context" — an instruction that could not be followed;
+                #   * the dispatch event carried `message_id=""`, so the agent had no id to put in
+                #     `inReplyTo` and could not thread its reply to the brief it was answering.
+                # The probe reported both in its first reply, which is exactly what a probe is for.
+                #
+                # The brief IS a message — one agent asking another to do something — so it gets a row
+                # like any other rather than a special case downstream.
+                message_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
+                await db.execute(
+                    """
+                    INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body,
+                                          priority, dispatch_requested, in_reply_to, timestamp)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (message_id, sender, row["agent_id"], "direct", "request", subject, body,
+                     priority, 1, None, int(time.time() * 1000)),
+                )
                 runs = await _create_dispatch_runs(
                     db,
                     [row["agent_id"]],
-                    from_agent=row["created_by"] or "dashboard",
+                    from_agent=sender,
                     message_type="request",
-                    subject=row["subject"] or f"Spawn {row['agent_id']}",
-                    body=row["initial_message"],
-                    priority=row["priority"] or "normal",
+                    subject=subject,
+                    body=body,
+                    priority=priority,
                     in_reply_to=None,
                     dispatch_mode="start_if_possible",
                     execution_mode=(
@@ -291,7 +317,7 @@ async def _hand_settled_spawn_to_dispatch(db, row):
                         else "managed"
                     ),
                     requested_runtime=row["runtime"],
-                    message_id=None,
+                    message_id=message_id,
                     require_reply=True,
                 )
                 # Spawn-time initial-message dispatches for managed claude
