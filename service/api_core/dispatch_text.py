@@ -93,7 +93,18 @@ def _render_pending_dispatch_item(
         lines.append(f"At: {requested_at}")
     if message_id:
         lines.append(f"MessageId: {message_id}")
-        lines.append("Full details are in the inbox. Read them there if you need the complete context.")
+        # NAME THE CALL, because the obvious one returns NOTHING. A dispatched message is marked read
+        # at CLAIM time, and `comms_inbox` defaults to unread-only — so an agent that follows "read it
+        # in the inbox" with a bare `comms_inbox(agentId=...)` gets an empty list and concludes the
+        # message does not exist. Two separate probe agents reported exactly that, unprompted, in the
+        # first message they sent (2026-08-18): "comms_inbox(filter=all) is empty" and "inbox had 0
+        # message(s)". The text was not merely unhelpful, it was false.
+        #
+        # Fetching by id works regardless of read state, which is what makes the instruction true.
+        lines.append(
+            f"Full text: comms_inbox(agentId=\"<you>\", messageId=\"{message_id}\") — a dispatched "
+            "message is already marked read, so a plain comms_inbox will NOT list it."
+        )
         preview = _clip_text(_neutralise_buffer_markers(body), 240)
         if preview:
             lines.extend(["Body preview:", preview])
