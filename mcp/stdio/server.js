@@ -751,7 +751,20 @@ async function bootstrapEnvironmentBridge() {
     registerEnvironment: () => heartbeatEnvironment({ syncManaged: false }),
     sweepSurvivors: runBootSurvivorSweep,
     sweepTombstones: runBootTombstonedMarkerSweep,
-    syncManagedAgents: syncManagedEnvironmentAgents,
+    // A CLOSURE, not the bare reference. `syncManagedEnvironmentAgents` destructures its
+    // dependency bag with no default, so handing the bootstrap the function itself made it
+    // invoke it with NO arguments: "Cannot destructure property 'MACHINE_ID' of 'undefined'",
+    // thrown inside the bootstrap's catch, which fails closed -- so the environment bridge
+    // reaped its boot survivors and then never came up. Reported live 2026-08-18.
+    //
+    // The v0.5.4 extraction gave this function injected dependencies and updated the direct
+    // caller (the heartbeat above) but not this callback. No fidelity gate can see that: the
+    // body is byte-identical, and what changed is that it now REQUIRES arguments. Every
+    // sibling here is either zero-arg or already a closure -- `registerEnvironment` is the
+    // pattern this now matches.
+    syncManagedAgents: () => syncManagedEnvironmentAgents({
+      MACHINE_ID, effectiveEnvironmentPayload, ensureDispatchLoop, shutdownStarted,
+    }),
     startSpawnLoop: ensureSpawnLoop,
   })
     .then((result) => {
