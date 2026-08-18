@@ -92,7 +92,7 @@ export function registerSendTools(server, z) {
             content: [{
               type: "text",
               text:
-                `Sent. Live handling: ${queued.join(", ") || "started"}. Use comms_run_status(...) only when you need operational progress details. Requests, reviews, and errors should receive an explicit reply.` +
+                `Sent. Dispatch: ${queued.join(", ") || "started"}. This ack reports what was CREATED, not what was delivered -- confirm with comms_run_status(...) before reporting delivery to anyone. Requests, reviews, and errors should receive an explicit reply.` +
                 (skipped.length ? `\nNot started: ${skipped.join("; ")}` : ""),
             }],
           };
@@ -216,7 +216,7 @@ export function registerSendTools(server, z) {
             content: [{
               type: "text",
               text:
-                `Sent to #${channel}. Live handling: ${queued.join(", ") || "started"}. Use comms_run_status(...) to inspect progress.` +
+                `Sent to #${channel}. Dispatch: ${queued.join(", ") || "started"}. This ack reports what was CREATED, not what was delivered -- confirm with comms_run_status(...) before reporting delivery.` +
                 (skipped.length ? `\nNot started: ${skipped.join("; ")}` : ""),
             }],
           };

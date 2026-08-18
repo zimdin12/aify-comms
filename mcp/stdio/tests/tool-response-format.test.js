@@ -178,3 +178,44 @@ test("the safety banner names the content as DATA, and is one shared string", ()
   const users = sources.filter(([, src]) => /(?<![\w.])SAFETY_HEADER(?![\w])/.test(src));
   assert.ok(users.length >= 2, `the banner should still be in use across the bridge, found ${users.length}`);
 });
+
+// ── the ack must not claim a rung it did not observe ──────────────────────────────────────────────
+
+test("a fresh run says QUEUED, not delivered — the send API returns before anything claims", () => {
+  // sc-manager, 2026-08-18: two sends in one session, same tool. One to an online agent (claimed a
+  // second later), one to an offline managed agent whose cold-start spawn never produced a worker and
+  // which the 180s backstop then failed. BOTH produced the identical optimistic ack, so the text could
+  // not discriminate at the moment it was printed — and they reported "Delivered" to the operator on
+  // the strength of it, then had to retract.
+  //
+  // Every fresh run in the send response carries `status: "queued"`; nothing has claimed it yet. The
+  // ack may therefore only report creation.
+  const fresh = formatQueuedRun({ targetAgentId: "sc-architect", runId: "run-1" });
+  assert.match(fresh, /queued, not yet claimed/,
+    "the ack still implies the run is being handled when nothing has claimed it");
+  assert.doesNotMatch(fresh, /delivered|live handling/i,
+    "the ack asserts a stage the send API cannot have observed");
+});
+
+test("a STEER is the one case that IS observed, and keeps its confident wording", () => {
+  // A steer goes into an ALREADY RUNNING turn, so unlike a queued run there is a live consumer by
+  // construction. Flattening both into "queued" would lose a true distinction and make the honest
+  // wording useless — the point is that the text tracks what is known, in both directions.
+  const steered = formatQueuedRun({
+    targetAgentId: "agent-b", runId: "run-1", steered: true,
+    steeredIntoActiveRun: { runId: "run-9", subject: "deploy" },
+  });
+  assert.match(steered, /steered into active run run-9/);
+  assert.doesNotMatch(steered, /not yet claimed/,
+    "a steer into a live turn was downgraded to 'queued' — that is a different false statement");
+});
+
+test("a run queued BEHIND an active run says so and is not double-labelled", () => {
+  const behind = formatQueuedRun({
+    targetAgentId: "agent-b", runId: "run-1",
+    queuedBehindActiveRun: { runId: "run-7", subject: "build" },
+  });
+  assert.match(behind, /queued behind active run run-7/);
+  assert.doesNotMatch(behind, /queued, not yet claimed/,
+    "two queue explanations in one line reads as a bug rather than as detail");
+});

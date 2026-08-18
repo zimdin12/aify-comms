@@ -39,6 +39,21 @@ export function formatDispatchState(info = {}) {
   return lines.join("\n");
 }
 
+// REPORTED BY sc-manager, 2026-08-18, with a counterexample that made it a phrasing defect rather
+// than a spawn one. Two sends, same session, same tool: one to an ONLINE agent that was claimed a
+// second later, one to an OFFLINE managed agent whose cold-start spawn never produced a worker and
+// which the 180s backstop failed. BOTH produced the identical optimistic ack, so the string could
+// not discriminate at the moment it was printed -- and sc-manager reported "Delivered" to the
+// operator on the strength of it, then had to retract.
+//
+// The send API returns BEFORE anything claims: every fresh run in that response carries
+// `status: "queued"`. So "live handling" was never an observation, it was a hope. The one case that
+// IS observed is a STEER, which goes into an already-running turn -- that difference is now the
+// difference the text draws.
+//
+// Naming the rung honestly is the whole fix. An agent that reads "queued, not yet claimed" waits
+// and verifies; an agent that reads "live handling" reports delivery, which is exactly what
+// happened.
 export function formatQueuedRun(run = {}) {
   let text = `${run.targetAgentId} (${run.runId})`;
   if (run.steered || run.status === "steered") {
@@ -57,8 +72,11 @@ export function formatQueuedRun(run = {}) {
     if (run.queuedBehindActiveRun.subject) {
       text += ` (${run.queuedBehindActiveRun.subject})`;
     }
+    return text;
   }
-  return text;
+  // Nothing observed beyond creation. Say so, rather than letting the caller's prefix imply a claim
+  // that has not happened and may never happen.
+  return `${text} queued, not yet claimed`;
 }
 
 export function formatOutboundActivity(info = {}) {
