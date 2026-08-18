@@ -28,6 +28,7 @@ Patch `_api` HERE, not on the transport: these resolve it from this module.
 from __future__ import annotations
 
 from service.api_core.serialization import _quote_untrusted_subject
+from service.sse.rendering import fence as _fence
 from service.sse.api_client import api as _api
 
 
@@ -53,15 +54,26 @@ async def comms_run_status(runId: str) -> str:
         f"Subject: {_quote_untrusted_subject(run.get('subject', ''))}",
         f"Requested: {run.get('requestedAt', '')}",
     ]
+    # FENCED, like the inbox fences a message body. A run's summary and error are written by the
+    # TARGET's runtime — free text from another agent — and this renders them into the reader's
+    # context. Bare, a summary that happens to contain an instruction reads as one, which is the
+    # operator-reported incident this transport already quotes subjects for. Reported by an external
+    # reviewer 2026-08-18 as "run_tools renders summary/body unfenced".
     if run.get("summary"):
-        lines.extend(["", "Summary:", run["summary"]])
+        lines.extend(["", "Summary:", _fence(run["summary"])])
     if run.get("error"):
-        lines.extend(["", "Error:", run["error"]])
+        lines.extend(["", "Error:", _fence(run["error"])])
     events = run.get("events", [])[-10:]
     if events:
         lines.append("")
         lines.append("Recent events:")
-        lines.extend([f"- {event['createdAt']} [{event['type']}] {event.get('body', '')}" for event in events])
+        # Event bodies stay INLINE — they belong to a bulleted list and a fence would break it — but
+        # they are clipped to one line each. A multi-line body silently destroyed the list structure,
+        # and an unbounded one turned a status check into a wall of somebody else's output.
+        lines.extend([
+            f"- {event['createdAt']} [{event['type']}] {_one_line(event.get('body', ''), 200)}"
+            for event in events
+        ])
     controls = run.get("controls", [])[-10:]
     if controls:
         lines.append("")
@@ -89,6 +101,12 @@ async def comms_run_interrupt(runId: str, from_agent: str = "") -> str:
 #: out of `globals()`, so a future helper that happens to be a coroutine cannot become an
 #: agent-callable tool by accident.
 TOOLS = (comms_run_status, comms_run_interrupt)
+
+
+def _one_line(text: str, limit: int) -> str:
+    """Foreign text folded onto a single clipped line, for the bulleted lists below."""
+    flat = " ".join(str(text or "").split())
+    return flat if len(flat) <= limit else flat[: max(limit - 1, 0)].rstrip() + "…"
 
 
 def register(mcp_server) -> None:
