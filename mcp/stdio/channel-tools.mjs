@@ -197,4 +197,31 @@ export function registerChannelTools(server, z) {
       return { content: [{ type: "text", text: lines.join("\n") }] };
     }
   );
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // 14. comms_channel_delete -- Delete a channel you created, with its messages
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "comms_channel_delete",
+    "Delete a channel YOU created, along with every message in it. To simply stop receiving it, leave instead.",
+    {
+      channel: z.string().describe("Channel name to delete"),
+      from: z.string().describe("Your agent ID — must be the channel's creator"),
+    },
+    async ({ channel, from }) => {
+      // THE MOST DESTRUCTIVE DELETE AN AGENT CAN REACH: channel, membership and every message ever
+      // posted to it — shared history for every member, not just the caller's. Added 2026-08-18
+      // together with the endpoint's ownership check; the tool without the check would have opened
+      // the hole rather than closed it.
+      if (!IS_REMOTE) {
+        return { content: [{ type: "text", text: "Channel delete requires the remote service." }], isError: true };
+      }
+      try {
+        await httpCall("DELETE", `/channels/${encodeURIComponent(channel)}?requestedBy=${encodeURIComponent(from || "")}`);
+        return { content: [{ type: "text", text: `Deleted channel #${channel} and its messages.` }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: `Failed to delete channel: ${e.message}` }], isError: true };
+      }
+    }
+  );
 }

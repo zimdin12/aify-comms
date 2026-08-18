@@ -152,11 +152,47 @@ async def read_shared(name: str, request: Request):
         await db.close()
 
 
+#: Identities allowed to delete an artifact they did not share. Operator surfaces only.
+_SHARED_OPERATOR_ACTORS = frozenset({"dashboard", "operator"})
+
+
 @router.delete("/shared/{name}")
-async def delete_shared(name: str, request: Request):
+async def delete_shared(name: str, request: Request, requestedBy: str = ""):
+    """Delete a shared artifact, on behalf of the agent that SHARED it or the operator.
+
+    Same defect and same fix as H4's unsend (2026-08-18): this took a name and deleted, with no
+    acting agent and no ownership check, so any agent could remove another's artifact. Found while
+    sweeping the tool surface — there was no MCP tool for it at all, so the hole had never been
+    reachable from an agent; adding the tool without the check would have opened it.
+
+    Actor is MANDATORY and absence fails closed, for the reason the H4 ruling gives: an optional
+    actor is theatre, since an attacker simply omits it. Self-asserted, like every actor in this API.
+    """
     validate_name(name, "artifact name")
+    actor = str(requestedBy or "").strip()
+    if not actor:
+        raise HTTPException(
+            400,
+            "deleting a shared artifact requires `requestedBy` (the agent that shared it, or an "
+            "operator surface). Refused rather than defaulted.",
+        )
     db = await get_db()
     try:
+        owner_cursor = await db.execute("SELECT from_agent FROM shared_artifacts WHERE name = ?", (name,))
+        owner_row = await owner_cursor.fetchone()
+        if owner_row is None:
+            # IDEMPOTENT, as it has always been: deleting something already gone is a success, not an
+            # error. A test pins that, and it is the right contract — a caller retrying a delete
+            # should not have to distinguish "I removed it" from "it was already removed". The
+            # ownership check below applies to rows that EXIST; there is no owner to check here.
+            return {"ok": True}
+        owner = str(owner_row["from_agent"] or "").strip()
+        if actor not in _SHARED_OPERATOR_ACTORS and actor != owner:
+            raise HTTPException(
+                403,
+                f"'{actor}' cannot delete an artifact shared by '{owner or '(unknown)'}'. "
+                f"Only the sharer or an operator surface may remove it.",
+            )
         # Delete file if binary
         cursor = await db.execute("SELECT file_path FROM shared_artifacts WHERE name = ? AND is_binary = 1", (name,))
         row = await cursor.fetchone()

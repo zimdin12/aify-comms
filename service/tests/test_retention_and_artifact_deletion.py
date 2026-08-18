@@ -194,7 +194,7 @@ class RetentionAndDeletionTests(FastApiTestCase):
     def test_deleting_an_artifact_removes_exactly_that_one(self):
         self._share("keep-me.md")
         self._share("delete-me.md")
-        response = self.client.delete("/api/v1/shared/delete-me.md")
+        response = self.client.delete(f"/api/v1/shared/delete-me.md?requestedBy={AGENT}")
         self.assertEqual(response.status_code, 200, response.text)
         names = [r["name"] for r in self._rows("SELECT name FROM shared_artifacts")]
         self.assertEqual(names, ["keep-me.md"])
@@ -204,7 +204,7 @@ class RetentionAndDeletionTests(FastApiTestCase):
         and the assertion below is what stops that reading as "delete succeeds silently on a typo"
         for a name that DOES exist."""
         self._share("keep-me.md")
-        response = self.client.delete("/api/v1/shared/never-existed.md")
+        response = self.client.delete(f"/api/v1/shared/never-existed.md?requestedBy={AGENT}")
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(len(self._rows("SELECT name FROM shared_artifacts")), 1)
 
@@ -218,7 +218,7 @@ class RetentionAndDeletionTests(FastApiTestCase):
         `validate_name` survived. A name with a space does reach it.
         """
         self._share("keep-me.md")
-        response = self.client.delete("/api/v1/shared/bad name")
+        response = self.client.delete(f"/api/v1/shared/bad name?requestedBy={AGENT}")
         self.assertEqual(response.status_code, 400, response.text)
         self.assertIn("Invalid artifact name", response.json()["detail"])
         self.assertEqual(len(self._rows("SELECT name FROM shared_artifacts")), 1)
@@ -243,7 +243,7 @@ class RetentionAndDeletionTests(FastApiTestCase):
             ("blob.bin", AGENT, "d", "", 7, 1, str(blob), "2026-08-16T00:00:00Z"),
         )
         self.assertTrue(blob.exists())
-        self.assertEqual(self.client.delete("/api/v1/shared/blob.bin").status_code, 200)
+        self.assertEqual(self.client.delete(f"/api/v1/shared/blob.bin?requestedBy={AGENT}").status_code, 200)
         self.assertFalse(blob.exists(), "the artifact row went but its file stayed")
         self.assertEqual(self._rows("SELECT name FROM shared_artifacts"), [])
 
@@ -256,5 +256,5 @@ class RetentionAndDeletionTests(FastApiTestCase):
             " is_binary, file_path, shared_at) VALUES (?,?,?,?,?,?,?,?)",
             ("not-there.bin", AGENT, "d", "", 7, 1, str(missing), "2026-08-16T00:00:00Z"),
         )
-        self.assertEqual(self.client.delete("/api/v1/shared/not-there.bin").status_code, 200)
+        self.assertEqual(self.client.delete(f"/api/v1/shared/not-there.bin?requestedBy={AGENT}").status_code, 200)
         self.assertEqual(self._rows("SELECT name FROM shared_artifacts"), [])

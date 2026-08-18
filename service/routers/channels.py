@@ -228,10 +228,43 @@ async def get_channel(
         await db.close()
 
 
+#: Identities allowed to delete a channel they did not create. Operator surfaces only.
+_CHANNEL_OPERATOR_ACTORS = frozenset({"dashboard", "operator"})
+
+
 @router.delete("/channels/{name}")
-async def delete_channel(name: str, request: Request):
+async def delete_channel(name: str, request: Request, requestedBy: str = ""):
+    """Delete a channel, on behalf of its CREATOR or the operator.
+
+    This is the most destructive delete in the API: it removes the channel, its membership, and
+    EVERY MESSAGE ever posted to it — shared history for every member, not just the caller's own.
+    It took a name and nothing else.
+
+    Same fix as H4's unsend and the shared-artifact delete (2026-08-18): actor MANDATORY, verified
+    against the stored row, absence fails closed. A member is deliberately NOT enough — leaving a
+    channel is `comms_channel_leave`; deleting one ends it for everybody.
+    """
+    actor = str(requestedBy or "").strip()
+    if not actor:
+        raise HTTPException(
+            400,
+            "deleting a channel requires `requestedBy` (its creator, or an operator surface). "
+            "Refused rather than defaulted: this removes every message in the channel for every "
+            "member.",
+        )
     db = await get_db()
     try:
+        owner_row = await (await db.execute(
+            "SELECT created_by FROM channels WHERE name = ?", (name,))).fetchone()
+        if owner_row is None:
+            raise HTTPException(404, f"Channel '{name}' not found")
+        owner = str(owner_row["created_by"] or "").strip()
+        if actor not in _CHANNEL_OPERATOR_ACTORS and actor != owner:
+            raise HTTPException(
+                403,
+                f"'{actor}' cannot delete a channel created by '{owner or '(unknown)'}'. Deleting a "
+                f"channel destroys its history for every member; leave it instead.",
+            )
         await db.execute("DELETE FROM channel_members WHERE channel_name = ?", (name,))
         await _delete_messages_where(db, "channel = ?", (name,))
         cursor = await db.execute("DELETE FROM channels WHERE name = ?", (name,))

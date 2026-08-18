@@ -278,4 +278,29 @@ export function registerArtifactTools(server, z) {
       }
     }
   );
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // 9. comms_unshare -- Delete one shared artifact you shared
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "comms_unshare",
+    "Delete a shared artifact YOU shared, by name.",
+    {
+      name: z.string().describe("Artifact name to delete"),
+      from: z.string().describe("Your agent ID — must be the agent that shared it"),
+    },
+    async ({ name, from }) => {
+      // Until 2026-08-18 the only agent-reachable way to remove an artifact was
+      // comms_clear(target="shared"), which wipes every artifact on the hub for every team.
+      if (!IS_REMOTE) {
+        return { content: [{ type: "text", text: "Unshare requires the remote service." }], isError: true };
+      }
+      try {
+        await httpCall("DELETE", `/shared/${encodeURIComponent(name)}?requestedBy=${encodeURIComponent(from || "")}`);
+        return { content: [{ type: "text", text: `Deleted shared artifact "${name}".` }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: `Failed to delete artifact: ${e.message}` }], isError: true };
+      }
+    }
+  );
 }

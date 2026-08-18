@@ -104,10 +104,26 @@ async def comms_files(query: str = "", fromAgent: str = "", limit: int = 50) -> 
     return "\n".join(lines) + footer
 
 
+async def comms_unshare(name: str, requestedBy: str) -> str:
+    """Delete a shared artifact you shared.
+
+    There was NO tool for this until 2026-08-18 — the endpoint existed, but the only agent-reachable
+    way to remove an artifact was `comms_clear(target="shared")`, which wipes every artifact on the
+    hub for every team. A per-item delete missing while a fleet-wide wipe is one call away is how an
+    agent tidying up destroys somebody else's work.
+
+    Only the sharer or an operator surface may delete; the service enforces it.
+    """
+    r = await _api("DELETE", f"/shared/{name}", params={"requestedBy": requestedBy})
+    if "detail" in r:
+        return f"Error: {r['detail']}"
+    return f'Deleted shared artifact "{name}".'
+
+
 #: Registered in the order they were declared in the transport. Named explicitly rather than swept
 #: out of `globals()`, so a future helper that happens to be a coroutine cannot become an
 #: agent-callable tool by accident.
-TOOLS = (comms_share, comms_read, comms_files)
+TOOLS = (comms_share, comms_read, comms_files, comms_unshare)
 
 
 def register(mcp_server) -> None:

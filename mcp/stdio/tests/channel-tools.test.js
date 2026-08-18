@@ -40,10 +40,15 @@ test("the scratch store is really in use", () => {
   assert.ok(MESSAGES_DIR.startsWith(STORE), `expected the scratch store, got ${MESSAGES_DIR}`);
 });
 
-test("the wrapper registers exactly the four membership/read tools and exports only itself", () => {
+test("the wrapper registers exactly the five channel tools and exports only itself", () => {
+  // `comms_channel_delete` joined them 2026-08-18. It is the most destructive delete an agent can
+  // reach — channel, membership and every message ever posted, for every member — so the endpoint
+  // gained a creator-or-operator check in the same change. Membership is deliberately not enough:
+  // to stop receiving a channel you LEAVE it.
   assert.deepEqual(
     [...tools.keys()].sort(),
-    ["comms_channel_create", "comms_channel_join", "comms_channel_list", "comms_channel_read"],
+    ["comms_channel_create", "comms_channel_delete", "comms_channel_join", "comms_channel_list",
+     "comms_channel_read"],
   );
   assert.deepEqual(Object.keys(channels).sort(), ["registerChannelTools"]);
 });

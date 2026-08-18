@@ -9254,7 +9254,9 @@ class ApiV2RegressionTests(FastApiTestCase):
             inReplyTo=channel_message["id"],
         )
 
-        deleted = self.client.delete("/api/v1/channels/ops")
+        # H4-class fix 2026-08-18: deleting a channel destroys its history for every member, so
+        # it now requires the acting agent and only the CREATOR (alice, above) or an operator may.
+        deleted = self.client.delete("/api/v1/channels/ops?requestedBy=alice")
         self.assertEqual(deleted.status_code, 200, deleted.text)
 
         reply_row = self._fetchone("SELECT in_reply_to FROM messages WHERE subject = 'ack'")

@@ -42,8 +42,13 @@ mkdirSync(SHARED_DIR, { recursive: true });
 
 const text = (res) => res.content[0].text;
 
-test("the wrapper registers exactly the three artifact tools", () => {
-  assert.deepEqual([...tools.keys()].sort(), ["comms_files", "comms_read", "comms_share"]);
+test("the wrapper registers exactly the four artifact tools", () => {
+  // `comms_unshare` joined them 2026-08-18. Until then there was NO per-item delete, so an agent
+  // wanting to remove one artifact had only `comms_clear(target="shared")` — which wipes every
+  // artifact on the hub for every team. The endpoint existed and had no ownership check either;
+  // both were fixed together, because adding the tool alone would have opened the hole.
+  assert.deepEqual([...tools.keys()].sort(),
+    ["comms_files", "comms_read", "comms_share", "comms_unshare"]);
   for (const [name, tool] of tools) {
     assert.equal(typeof tool.handler, "function", `${name} must have a handler`);
     assert.ok(tool.description.length > 10, `${name} must describe itself`);

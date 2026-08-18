@@ -111,6 +111,23 @@ async def comms_channel_list() -> str:
     return "\n".join(lines)
 
 
+async def comms_channel_delete(channel: str, requestedBy: str) -> str:
+    """Delete a channel you created, along with its messages.
+
+    THE MOST DESTRUCTIVE DELETE AN AGENT CAN REACH: it removes the channel, its membership and EVERY
+    MESSAGE ever posted to it — shared history for every member, not just your own. There was no tool
+    for it until 2026-08-18, and the endpoint had no ownership check either; both were fixed together
+    rather than exposing the hole.
+
+    To stop receiving a channel's messages, LEAVE it. Deleting ends it for everybody, so only the
+    creator or an operator surface may do so and the service enforces that.
+    """
+    r = await _api("DELETE", f"/channels/{channel}", params={"requestedBy": requestedBy})
+    if "detail" in r:
+        return f"Error: {r['detail']}"
+    return f"Deleted channel #{channel} and its messages."
+
+
 #: Registered in the order they were declared in the transport. Named explicitly rather than swept
 #: out of `globals()`, so a future helper that happens to be a coroutine cannot become an
 #: agent-callable tool by accident.
@@ -120,6 +137,7 @@ TOOLS = (
     comms_channel_send,
     comms_channel_read,
     comms_channel_list,
+    comms_channel_delete,
 )
 
 
