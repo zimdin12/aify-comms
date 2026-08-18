@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from service.config import get_config
@@ -45,9 +45,38 @@ async def health():
     return {"status": "healthy"}
 
 
+# THE OPERATOR KEY REACHES THE BROWSER FROM HERE, and only from here.
+#
+# Since R5-H1 (2026-08-18) an actor naming itself "operator" proves nothing — the service requires
+# `X-Aify-Operator-Key` before it will let a caller act on another agent's rows. This dashboard is a
+# legitimate operator surface, so it is given the key server-side; it is never written into a file that
+# git tracks and never logged.
+#
+# WHY INJECTION AND NOT A CONFIG ENDPOINT: an endpoint that hands out the key would hand it to anything
+# that asks, which is the hole being closed. Injecting it into the served HTML at least ties possession
+# to fetching this page.
+#
+# The honest limit, so nobody reads more into it: anything that can GET this page, or read `.env` on the
+# host, can obtain the key. This raises the bar from "type an English word" to "hold a secret"; it is not
+# a boundary against an agent with filesystem access. That boundary is authenticating the service itself
+# (`API_KEY` is unset on this deployment) and is an operator decision, recorded in docs/V0.6_PLAN.md.
+def _index_html() -> str:
+    html = (APP_DIR / "index.html").read_text(encoding="utf-8")
+    key = str(getattr(get_config(), "operator_key", "") or "")
+    if not key:
+        return html  # no key configured: the dashboard simply cannot claim operator privilege
+    # JSON-encoded so a key containing a quote or backslash cannot break out of the script literal.
+    import json as _json
+    seed = f"<script>window.__AIFY_OPERATOR_KEY__ = {_json.dumps(key)};</script>"
+    marker = "</head>"
+    if marker in html:
+        return html.replace(marker, f"  {seed}{chr(10)}{marker}", 1)
+    return seed + html
+
+
 @app.get("/", include_in_schema=False)
 async def index():
-    return FileResponse(APP_DIR / "index.html", media_type="text/html")
+    return HTMLResponse(_index_html())
 
 
 @app.get("/dashboard", include_in_schema=False)

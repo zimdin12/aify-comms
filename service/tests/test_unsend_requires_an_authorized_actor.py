@@ -52,11 +52,19 @@ class UnsendRequiresAnAuthorizedActor(FastApiTestCase):
         self.assertEqual(r.status_code, 200, r.text)
         return r.json()["messageId"]
 
-    def _delete(self, message_id: str, actor: str | None):
+    #: Since R5-H1 (2026-08-18) an operator CLAIM must be proven with a key. Tests here are about the
+    #: sender-vs-other rule, so the operator surface is given a real key rather than each test
+    #: rediscovering the new 403. `test_operator_privilege_must_be_proven.py` owns the credential
+    #: behaviour itself, including that an unkeyed claim is refused.
+    OPERATOR_KEY = "unsend-suite-operator-key"
+
+    def _delete(self, message_id: str, actor: str | None, *, with_key: bool = True):
         path = f"/api/v1/messages/{message_id}"
         if actor is not None:
             path += f"?requestedBy={actor}"
-        return self.client.delete(path)
+        self.client.app.state.config.operator_key = self.OPERATOR_KEY
+        headers = {"X-Aify-Operator-Key": self.OPERATOR_KEY} if with_key else {}
+        return self.client.delete(path, headers=headers)
 
     def _exists(self, message_id: str) -> bool:
         r = self.client.get("/api/v1/messages", params={"agentId": "carol", "limit": 200})
@@ -110,10 +118,23 @@ class UnsendRequiresAnAuthorizedActor(FastApiTestCase):
         self.assertGreaterEqual(int(response.json().get("deleted", 0)), 1)
 
     def test_the_OPERATOR_surface_may_unsend_a_message_it_did_not_write(self):
-        # The dashboard is an operator surface; the ruling is sender-PLUS-operator.
+        # The dashboard is an operator surface; the ruling is sender-PLUS-operator. It must now PROVE
+        # the claim (R5-H1) — the string alone used to be enough, which let any caller delete anything.
         message_id = self._send("alice", "carol")
         response = self._delete(message_id, "dashboard")
         self.assertEqual(response.status_code, 200, response.text)
+
+    def test_the_operator_surface_WITHOUT_the_key_is_refused(self):
+        """The regression guard, here as well as in the dedicated suite, because this is the file a
+        future reader will open when they change the sender-vs-operator rule."""
+        message_id = self._send("alice", "carol")
+        response = self._delete(message_id, "dashboard", with_key=False)
+        self.assertEqual(
+            response.status_code, 403,
+            "naming the operator surface without the operator key deleted another agent's message",
+        )
+        self.assertEqual(self._delete(message_id, "alice").status_code, 200,
+                         "the refused delete had already removed the row")
 
     def test_a_refused_delete_leaves_the_message_INTACT(self):
         """A 403 that still deleted would be the worst of both. Asserted through a second delete

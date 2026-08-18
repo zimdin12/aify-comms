@@ -55,6 +55,11 @@ async def comms_read(name: str) -> str:
     return f'"{name}" -- binary file on server.'
 
 
+#: Hard ceiling on how many artifacts one `comms_files` reply may list, whatever the caller asks.
+#: A reply is read into an agent's context; an unbounded one is a context flood, not a listing.
+MAX_FILES_LIMIT = 200
+
+
 async def comms_files(query: str = "", fromAgent: str = "", limit: int = 50) -> str:
     """List shared artifacts.
 
@@ -82,8 +87,12 @@ async def comms_files(query: str = "", fromAgent: str = "", limit: int = 50) -> 
             if needle in str(f.get("name", "")).lower() or needle in str(f.get("description", "")).lower()
         ]
     matched = len(files)
+    # BOUNDED AT BOTH ENDS. `max(1, ...)` alone left the upper end open, so `limit=100000` dumped the
+    # whole table into an agent's context — which defeats the reason this tool takes a limit at all.
+    # Reported 2026-08-18 as a Low. The footer already tells the caller how many matched, so a clipped
+    # answer is visibly clipped rather than silently partial.
     try:
-        capped = max(1, int(limit))
+        capped = min(MAX_FILES_LIMIT, max(1, int(limit)))
     except (TypeError, ValueError):
         capped = 50
     shown = files[:capped]

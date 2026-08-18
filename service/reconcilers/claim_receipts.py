@@ -91,7 +91,26 @@ async def _release_receipts_from_unstarted_runs(db, *, limit: int = 200) -> int:
           -- `started_at` is written on almost nothing, so it cannot carry this on its own.
           AND (result_message_id IS NULL OR result_message_id = '')
           AND (summary IS NULL OR summary = '')
-        ORDER BY finished_at DESC, rowid DESC
+          -- THERE MUST STILL BE A RECEIPT TO RELEASE, or the LIMIT is spent on rows with no work
+          -- left. Without this the sweep re-selects the same already-drained head every pass and a
+          -- backlog larger than one batch never finishes — which is the real defect behind the
+          -- ordering report of 2026-08-18. Ordering alone could not fix it: DESC re-selected the
+          -- newest rows forever, and ASC re-selected the oldest, already-released ones forever.
+          AND EXISTS (
+            SELECT 1 FROM read_receipts rr
+            WHERE rr.agent_id = dispatch_runs.target_agent
+              AND rr.read_at = dispatch_runs.claimed_at
+              -- CORRELATED TO THIS RUN'S OWN MESSAGE. Matching on agent+timestamp alone was true for
+              -- an already-drained run whenever ANY sibling still held a receipt stamped at the same
+              -- claim time — which is every run in a batch claimed together, so the head never left
+              -- the selection. A merged dispatch carries its ids in the body rather than in
+              -- `message_id`, so those rows stay permissive: the body-derived path below is what
+              -- resolves them, and narrowing them here would silently stop releasing them.
+              AND (rr.message_id = dispatch_runs.message_id
+                   OR (dispatch_runs.body IS NOT NULL AND dispatch_runs.body != ''))
+          )
+        -- OLDEST FIRST: the rows most in need of release are the ones that have waited longest.
+        ORDER BY finished_at ASC, rowid ASC
         LIMIT ?
         """,
         (*_UNSTARTED_TERMINAL_STATUSES, max(1, int(limit or 200))),

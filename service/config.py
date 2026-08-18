@@ -59,6 +59,11 @@ class ServiceConfig:
 
     # Security
     api_key: str = ""
+    # Proves a caller may act on ANOTHER agent's behalf (unsend/channel-delete/artifact-unshare).
+    # SEPARATE from api_key on purpose: every bridge holds the api key, so it can never
+    # distinguish the dashboard from an agent. Empty means no caller can claim operator
+    # privilege at all — see service/api_core/operator_authz.py for why that fails closed.
+    operator_key: str = ""
     cors_origins: list[str] = field(default_factory=lambda: ["*"])
 
     # Logging
@@ -149,6 +154,7 @@ class ServiceConfig:
             "MCP_USER_ID": "mcp_user_id",
             "MCP_APP_NAME": "mcp_app_name",
             "API_KEY": "api_key",
+            "OPERATOR_KEY": "operator_key",
             "CORS_ORIGINS": ("cors_origins", lambda v: [s.strip() for s in v.split(",")]),
             "LOG_LEVEL": "log_level",
             "LOG_FORMAT": "log_format",

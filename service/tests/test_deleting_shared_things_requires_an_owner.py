@@ -73,8 +73,23 @@ class DeletingSharedThingsRequiresAnOwner(FastApiTestCase):
         self.assertEqual(self.client.delete("/api/v1/shared/a.txt?requestedBy=owner").status_code, 200)
 
     def test_an_operator_surface_can_delete_any_artifact(self):
+        """…once it PROVES the claim. Until R5-H1 (2026-08-18) the string `dashboard` was enough on its
+        own, which meant any caller could delete any artifact by naming it."""
         self._share("a.txt")
-        self.assertEqual(self.client.delete("/api/v1/shared/a.txt?requestedBy=dashboard").status_code, 200)
+        self.client.app.state.config.operator_key = "shared-suite-operator-key"
+        self.assertEqual(
+            self.client.delete("/api/v1/shared/a.txt?requestedBy=dashboard",
+                               headers={"X-Aify-Operator-Key": "shared-suite-operator-key"}).status_code,
+            200)
+
+    def test_an_operator_CLAIM_without_the_key_cannot_delete_an_artifact(self):
+        self._share("a.txt")
+        self.client.app.state.config.operator_key = "shared-suite-operator-key"
+        self.assertEqual(
+            self.client.delete("/api/v1/shared/a.txt?requestedBy=dashboard").status_code, 403,
+            "naming an operator surface without the key deleted another agent's artifact")
+        self.assertEqual(self.client.get("/api/v1/shared/a.txt").status_code, 200,
+                         "the refused delete removed it anyway")
 
     def test_a_refused_artifact_delete_leaves_it_in_place(self):
         self._share("a.txt")

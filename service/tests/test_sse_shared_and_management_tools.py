@@ -101,6 +101,22 @@ class SharedFileToolTests(unittest.TestCase):
         capped, _ = _with_api(sf, sf.comms_files, {"files": files}, limit=1)
         self.assertEqual(len([l for l in capped.splitlines() if l.startswith("- ")]), 1)
 
+    def test_files_limit_is_capped_at_the_ceiling_however_much_the_caller_asks(self):
+        """An UPPER bound, not just a lower one. `max(1, int(limit))` left `limit=100000` free to dump
+        the whole table into an agent's context — which defeats the reason this tool takes a limit.
+        Reported 2026-08-18 as a Low. The footer still reports the true total, so a clipped answer is
+        visibly clipped rather than silently partial."""
+        files = [{"name": f"f{i}.py", "size": 1, "from": "coder", "sharedAt": "t"}
+                 for i in range(sf.MAX_FILES_LIMIT + 25)]
+        out, _ = _with_api(sf, sf.comms_files, {"files": files}, limit=100_000)
+        listed = len([l for l in out.splitlines() if l.startswith("- ")])
+        self.assertEqual(
+            listed, sf.MAX_FILES_LIMIT,
+            f"comms_files listed {listed} artifacts for limit=100000; the ceiling is "
+            f"{sf.MAX_FILES_LIMIT}. An unbounded reply is a context flood, not a listing.",
+        )
+        self.assertIn(str(len(files)), out, "the reply must still say how many exist in total")
+
     def test_files_says_how_many_exist_when_a_FILTER_matched_nothing(self):
         """"No results" and "no results here" are different facts — the second one needs the total."""
         files = [{"name": "a.py", "size": 1, "from": "coder", "sharedAt": "t"}]

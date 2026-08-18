@@ -47,12 +47,37 @@ CREATE TABLE environment_controls (
 #: so "recent" and "stale" mean what they say whenever the suite runs. Not fixed in the production
 #: function — making it honour its own `now` argument would be a behaviour change, and in production
 #: the caller passes `_now()` so the two agree.
-_REAL_NOW = datetime.now(timezone.utc)
-NOW = _REAL_NOW.strftime("%Y-%m-%dT%H:%M:%SZ")
-#: Comfortably outside the TTL, and written in the same lexical format the drain compares against.
-LONG_AGO = (_REAL_NOW - timedelta(seconds=SUPERSEDE_STOP_STALE_SECONDS * 4)).strftime("%Y-%m-%dT%H:%M:%SZ")
-#: Comfortably inside it: a fraction of the TTL before now, so a slow suite cannot age it out.
-JUST_NOW = (_REAL_NOW - timedelta(seconds=max(1, SUPERSEDE_STOP_STALE_SECONDS // 10))).strftime("%Y-%m-%dT%H:%M:%SZ")
+#: DERIVED PER TEST, not at import. The previous version captured `datetime.now()` once when the
+#: module was imported and built JUST_NOW as "a tenth of the TTL ago" from it — which is only "just
+#: now" if the test RUNS soon after the import. It does not: pytest imports every module first, then
+#: executes. With a 300s TTL and a tenth of it (30s) of slack, the fixture stops being recent once
+#: ~270s elapse between import and this test, and the full suite crossed that as it grew — the two
+#: tests below then failed in full runs and passed in isolation, twice, which reads as a flake and is
+#: not one. The file already warned about exactly this ("a slow suite cannot age it out"); the
+#: mechanism was right and the anchor point was wrong.
+#:
+#: Same rule as everywhere else here: derive the fixture from the clock the CODE reads, at the moment
+#: the code reads it.
+def _now_dt():
+    return datetime.now(timezone.utc)
+
+
+def _stamp(dt):
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _now_stamp():
+    return _stamp(_now_dt())
+
+
+def _long_ago():
+    """Comfortably outside the TTL, in the same lexical format the drain compares against."""
+    return _stamp(_now_dt() - timedelta(seconds=SUPERSEDE_STOP_STALE_SECONDS * 4))
+
+
+def _just_now():
+    """Comfortably inside it, measured from NOW rather than from import time."""
+    return _stamp(_now_dt() - timedelta(seconds=max(1, SUPERSEDE_STOP_STALE_SECONDS // 10)))
 
 SERVER = "server:superseded-bridge"
 
@@ -66,19 +91,22 @@ class SupersededBridgeStopTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.db = await aiosqlite.connect(":memory:")
         self.db.row_factory = aiosqlite.Row
+        self._now = _now_stamp()
         await self.db.executescript(SCHEMA)
 
     async def asyncTearDown(self):
         await self.db.close()
 
     async def _control(self, cid, *, env="env-1", bridge="b-old", action="stop", status="pending",
-                       requested_by=SERVER, requested_at=LONG_AGO):
+                       requested_by=SERVER, requested_at=None):
+        # Resolved HERE so the default ages from the moment the test runs, not from import.
+        requested_at = _long_ago() if requested_at is None else requested_at
         await self.db.execute(
             "INSERT INTO environment_controls VALUES (?,?,?,?,?,?,?,?,NULL,'')",
             (cid, env, bridge, "m1", action, status, requested_by, requested_at))
 
     async def _run(self, *, env="env-1", bridge="b-old"):
-        await _queue_stop_for_superseded_bridge(self.db, env, bridge, _Req(), NOW)
+        await _queue_stop_for_superseded_bridge(self.db, env, bridge, _Req(), self._now)
 
     async def _rows(self, **where):
         clause = " AND ".join(f"{k} = ?" for k in where) or "1=1"
@@ -99,26 +127,26 @@ class SupersededBridgeStopTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(rows[0]["id"].startswith("envctl-"))
 
     async def test_no_bridge_id_means_no_work_at_all(self):
-        await self._control("c1", requested_at=LONG_AGO)
+        await self._control("c1", requested_at=_long_ago())
         await self._run(bridge="")
         rows = await self._rows()
         self.assertEqual(1, len(rows), "no stop may be queued without a target")
         self.assertEqual("pending", rows[0]["status"], "and the drain must not run either")
 
     async def test_a_bridge_with_a_PENDING_stop_does_not_get_a_second_one(self):
-        await self._control("c1", requested_at=JUST_NOW)
+        await self._control("c1", requested_at=_just_now())
         await self._run()
         self.assertEqual(1, len(await self._rows()))
 
     async def test_a_bridge_with_a_CLAIMED_stop_does_not_get_a_second_one(self):
         """The old bridge picked it up and is acting on it; a duplicate would stop its successor."""
-        await self._control("c1", status="claimed", requested_at=JUST_NOW)
+        await self._control("c1", status="claimed", requested_at=_just_now())
         await self._run()
         self.assertEqual(1, len(await self._rows()))
 
     async def test_a_bridge_whose_only_stop_was_DRAINED_gets_a_fresh_one(self):
         """The two halves in sequence, which is the actual per-heartbeat behaviour."""
-        await self._control("c1", requested_at=LONG_AGO)
+        await self._control("c1", requested_at=_long_ago())
         await self._run()
         rows = await self._rows()
         self.assertEqual(2, len(rows))
@@ -127,38 +155,38 @@ class SupersededBridgeStopTests(unittest.IsolatedAsyncioTestCase):
     # ---- draining -----------------------------------------------------------
 
     async def test_a_stale_server_stop_is_drained_with_a_reason(self):
-        await self._control("c1", requested_at=LONG_AGO)
+        await self._control("c1", requested_at=_long_ago())
         await self._run()
         drained = (await self._rows(id="c1"))[0]
         self.assertEqual("failed", drained["status"])
-        self.assertEqual(NOW, drained["handled_at"])
+        self.assertEqual(self._now, drained["handled_at"])
         self.assertIn("never claimed", drained["error"])
 
     async def test_a_RECENT_stop_is_left_alone(self):
         """Too eager a drain silently cancels a stop a live bridge was about to claim."""
-        await self._control("c1", requested_at=JUST_NOW)
+        await self._control("c1", requested_at=_just_now())
         await self._run()
         self.assertEqual("pending", (await self._rows(id="c1"))[0]["status"])
 
     async def test_only_SERVER_issued_stops_are_drained(self):
         """An operator's own stop is not this drain's business, however old it is."""
-        await self._control("c1", requested_by="dashboard", requested_at=LONG_AGO)
+        await self._control("c1", requested_by="dashboard", requested_at=_long_ago())
         await self._run()
         self.assertEqual("pending", (await self._rows(id="c1"))[0]["status"])
 
     async def test_only_PENDING_stops_are_drained(self):
         """A claimed stop is being acted on; failing it would lie about what happened."""
-        await self._control("c1", status="claimed", requested_at=LONG_AGO)
+        await self._control("c1", status="claimed", requested_at=_long_ago())
         await self._run()
         self.assertEqual("claimed", (await self._rows(id="c1"))[0]["status"])
 
     async def test_only_the_STOP_action_is_drained(self):
-        await self._control("c1", action="restart", requested_at=LONG_AGO)
+        await self._control("c1", action="restart", requested_at=_long_ago())
         await self._run()
         self.assertEqual("pending", (await self._rows(id="c1"))[0]["status"])
 
     async def test_another_environments_stops_are_never_drained(self):
-        await self._control("c1", env="env-other", requested_at=LONG_AGO)
+        await self._control("c1", env="env-other", requested_at=_long_ago())
         await self._run(env="env-1")
         self.assertEqual("pending", (await self._rows(id="c1"))[0]["status"])
 
@@ -167,7 +195,7 @@ class SupersededBridgeStopTests(unittest.IsolatedAsyncioTestCase):
         BRIDGES, one per restart, so a drain that only looked at the current bridge would never
         reach the ninety-eight left by its predecessors."""
         for i in range(3):
-            await self._control(f"c{i}", bridge=f"b-dead-{i}", requested_at=LONG_AGO)
+            await self._control(f"c{i}", bridge=f"b-dead-{i}", requested_at=_long_ago())
         await self._run(bridge="b-new")
         self.assertEqual(
             3, len([r for r in await self._rows() if r["status"] == "failed"]),

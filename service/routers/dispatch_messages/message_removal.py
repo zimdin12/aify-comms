@@ -30,6 +30,7 @@ from service.db import get_db
 # Imported for ANNOTATIONS as well as calls: under postponed evaluation a missing model does not fail
 # import, it silently demotes the request body to a query parameter and the endpoint 422s.
 from service.models import ConversationClearRequest
+from service.api_core.operator_authz import authorize_operator, operator_key_from
 
 router = domain_router()
 
@@ -37,7 +38,8 @@ router = domain_router()
 
 #: Identities allowed to unsend a message they did not write. The operator's own surfaces — nothing
 #: agent-facing — because an unsend is destructive and reaches other agents' inboxes.
-_UNSEND_OPERATOR_ACTORS = frozenset({"dashboard", "operator"})
+# RETIRED: the actor vocabulary moved to service/api_core/operator_authz.py (OPERATOR_ACTORS),
+# because naming an operator no longer grants anything on its own — see that module.
 
 
 @router.delete("/messages/{message_id}")
@@ -52,11 +54,16 @@ async def unsend_message(message_id: str, request: Request, requestedBy: str = "
     Ruled by comms-senior-dev: sender-plus-operator, actor MANDATORY and service-enforced, absence
     FAILS CLOSED. An optional actor would be theatre — an attacker simply omits it.
 
-    HONEST LIMIT, stated because the fix should not be read as more than it is: the actor is
-    self-asserted. Every agent shares one API key, so the service cannot cryptographically distinguish
-    them, and a determined agent can name somebody else. What this stops is the accident and the
-    casual cross-delete, and it makes the actor auditable. Real authentication is a separate,
-    larger question about per-agent credentials.
+    R5-H1 (2026-08-18): the operator exemption used to be granted on the ACTOR STRING alone, so any
+    caller could pass requestedBy="operator" and delete any message — and the audit trail then named
+    the operator as the one who did it. Operator privilege is now VERIFIED against a configured key
+    (`service/api_core/operator_authz.py`); the string records who acted and grants nothing.
+
+    HONEST LIMIT, stated because the fix should not be read as more than it is: an ordinary agent
+    actor is still self-asserted. Every agent shares one API key, so the service cannot
+    cryptographically distinguish agents from each other, and one can still name another as the
+    sender. What the actor check stops is the accident and the casual cross-delete; what the operator
+    key stops is the universal one. Per-agent credentials remain a separate, larger question.
     """
     actor = str(requestedBy or "").strip()
     if not actor:
@@ -73,7 +80,8 @@ async def unsend_message(message_id: str, request: Request, requestedBy: str = "
         if not row:
             raise HTTPException(404, f"Message '{message_id}' not found")
         author = str(row["from_agent"] or "").strip()
-        if actor not in _UNSEND_OPERATOR_ACTORS and actor != author:
+        may_override = authorize_operator(actor, request, operator_key_from(request), action="unsend")
+        if not may_override and actor != author:
             # 403, not 404: the row exists and the caller may well know it does. Pretending it is
             # absent would send an agent hunting for a message it can see in its own inbox.
             raise HTTPException(
@@ -112,7 +120,12 @@ async def unsend_message(message_id: str, request: Request, requestedBy: str = "
                     f"be resolved; unsend the canonical post instead.",
                 )
             canonical_author = str(canonical["from_agent"] or "").strip()
-            if actor not in _UNSEND_OPERATOR_ACTORS and actor != canonical_author:
+            # THE SECOND EXEMPTION ON THIS ENDPOINT, and it had to be found separately. Retiring the
+            # constant above left this one referencing a name that no longer existed — it would have
+            # raised NameError on the channel-recipient-copy path, and before that it was the same
+            # R5-H1 bypass a second time. A guard behind a guard: fixing the first one is not fixing
+            # the endpoint.
+            if not may_override and actor != canonical_author:
                 raise HTTPException(
                     403,
                     f"'{actor}' cannot unsend a channel post written by "

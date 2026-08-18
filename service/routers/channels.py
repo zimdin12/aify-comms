@@ -50,6 +50,7 @@ from service.db import get_db
 # comment is here so the next person does not "tidy away" an import that looks unused.
 from service.models import ChannelCreate
 from service.api_core.channel_coldstart import _coldstart_cold_channel_members
+from service.api_core.operator_authz import authorize_operator, operator_key_from
 
 logger = logging.getLogger("aify_comms.routers.channels")
 
@@ -229,7 +230,8 @@ async def get_channel(
 
 
 #: Identities allowed to delete a channel they did not create. Operator surfaces only.
-_CHANNEL_OPERATOR_ACTORS = frozenset({"dashboard", "operator"})
+# RETIRED: the actor vocabulary moved to service/api_core/operator_authz.py (OPERATOR_ACTORS),
+# because naming an operator no longer grants anything on its own — see that module.
 
 
 @router.delete("/channels/{name}")
@@ -259,7 +261,8 @@ async def delete_channel(name: str, request: Request, requestedBy: str = ""):
         if owner_row is None:
             raise HTTPException(404, f"Channel '{name}' not found")
         owner = str(owner_row["created_by"] or "").strip()
-        if actor not in _CHANNEL_OPERATOR_ACTORS and actor != owner:
+        if not authorize_operator(actor, request, operator_key_from(request),
+                                  action="deleting a channel") and actor != owner:
             raise HTTPException(
                 403,
                 f"'{actor}' cannot delete a channel created by '{owner or '(unknown)'}'. Deleting a "

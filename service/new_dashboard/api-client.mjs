@@ -35,11 +35,34 @@ export function currentApiBase() {
   return apiBase;
 }
 
+// The OPERATOR KEY, if this dashboard was served with one. It proves that a request naming
+// `requestedBy=operator` really comes from an operator surface — since R5-H1 (2026-08-18) the actor
+// string alone grants nothing, because any caller could type it. Never logged, never rendered.
+let operatorKey = '';
+
+// Read at module load from what the dashboard server injected into the page. Done HERE rather than
+// wired from app.js: app.js is reconstructed byte-identically by `extraction-proof`, so new lines there
+// are a gate failure, and the repo's own rule is that new behaviour goes in a module.
+if (typeof globalThis !== 'undefined' && globalThis.__AIFY_OPERATOR_KEY__) {
+  operatorKey = String(globalThis.__AIFY_OPERATOR_KEY__);
+}
+
+/** Seeded once at boot from the value the dashboard server injected. Exported for tests. */
+export function setOperatorKey(key) {
+  operatorKey = String(key || '');
+}
+
 export async function api(path, options = {}) {
-  const response = await fetch(`${apiBase}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
+  // A CALLER'S HEADERS REPLACE THE DEFAULT — deliberately, and two tests pin it: `headers: {}` is how
+  // file upload drops the JSON content-type, and a multipart POST carrying `application/json` does not
+  // upload. My first version merged them and broke exactly that; the tests said so.
+  //
+  // The operator key is attached AFTER, so it survives either shape without changing which
+  // content-type a caller ends up with.
+  const { headers: callerHeaders, ...rest } = options;
+  const headers = callerHeaders ? { ...callerHeaders } : { 'Content-Type': 'application/json' };
+  if (operatorKey) headers['X-Aify-Operator-Key'] = operatorKey;
+  const response = await fetch(`${apiBase}${path}`, { headers, ...rest });
   const text = await response.text();
   const data = text ? JSON.parse(text) : {};
   if (!response.ok) {

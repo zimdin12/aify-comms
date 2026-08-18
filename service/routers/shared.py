@@ -27,6 +27,7 @@ from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
 from service.db import get_db
+from service.api_core.operator_authz import authorize_operator, operator_key_from
 
 logger = logging.getLogger("aify_comms.routers.shared")
 
@@ -153,7 +154,8 @@ async def read_shared(name: str, request: Request):
 
 
 #: Identities allowed to delete an artifact they did not share. Operator surfaces only.
-_SHARED_OPERATOR_ACTORS = frozenset({"dashboard", "operator"})
+# RETIRED: the actor vocabulary moved to service/api_core/operator_authz.py (OPERATOR_ACTORS),
+# because naming an operator no longer grants anything on its own — see that module.
 
 
 @router.delete("/shared/{name}")
@@ -187,7 +189,8 @@ async def delete_shared(name: str, request: Request, requestedBy: str = ""):
             # ownership check below applies to rows that EXIST; there is no owner to check here.
             return {"ok": True}
         owner = str(owner_row["from_agent"] or "").strip()
-        if actor not in _SHARED_OPERATOR_ACTORS and actor != owner:
+        if not authorize_operator(actor, request, operator_key_from(request),
+                                  action="deleting a shared artifact") and actor != owner:
             raise HTTPException(
                 403,
                 f"'{actor}' cannot delete an artifact shared by '{owner or '(unknown)'}'. "

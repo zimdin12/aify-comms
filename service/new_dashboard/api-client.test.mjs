@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import test from "node:test";
 
-import { api, currentApiBase, setApiBase } from "./api-client.mjs";
+import { api, currentApiBase, setApiBase, setOperatorKey } from "./api-client.mjs";
 
 let HANDLER = (_req, res) => { res.writeHead(200); res.end("{}"); };
 const SEEN = [];
@@ -156,4 +156,38 @@ test("a 2xx is never treated as an error even when it carries an `error` key", a
 test("the module imports with no browser globals and no load-time request", async () => {
   const again = await import("./api-client.mjs");
   assert.equal(again.api, api, "one module instance, no load-time side effects");
+});
+
+test("setOperatorKey attaches the operator key to every request", async () => {
+  // R5-H1 (2026-08-18): naming yourself "operator" no longer grants anything — the service verifies
+  // this header. If the dashboard stops sending it, its delete controls 403 with no other symptom.
+  const seen = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    seen.push(options?.headers || {});
+    return { ok: true, status: 200, text: async () => "{}" };
+  };
+  try {
+    setApiBase("http://127.0.0.2:1/api/v1", "http://127.0.0.2:1");
+    setOperatorKey("k-123");
+    await api("/whatever");
+    assert.equal(seen[0]["X-Aify-Operator-Key"], "k-123",
+      "the operator key was not sent, so every operator-only action will 403");
+
+    // …and a caller supplying its OWN headers still gets it. That path is how file upload drops the
+    // JSON content-type, so it must not be the path that loses the credential.
+    await api("/upload", { method: "POST", headers: {} });
+    assert.equal(seen[1]["X-Aify-Operator-Key"], "k-123",
+      "a caller-supplied headers object dropped the operator key");
+    assert.equal(seen[1]["Content-Type"], undefined,
+      "the caller's empty headers must still REPLACE the JSON content-type — multipart upload "
+      + "depends on it");
+
+    setOperatorKey("");
+    await api("/none");
+    assert.equal(seen[2]["X-Aify-Operator-Key"], undefined,
+      "an unset key must not send an empty header");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });

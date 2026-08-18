@@ -271,5 +271,107 @@ class TheSweepIsIdempotent(unittest.TestCase):
         run(scenario())
 
 
+
+class TheSweepDrainsTheOldestBacklogFirst(unittest.TestCase):
+    """A backlog LARGER than one batch must actually drain.
+
+    Reported 2026-08-18 as a Low: the query ordered `finished_at DESC` under a LIMIT, so every pass
+    re-selected the newest rows and a backlog older than one batch was never reached. The rows most in
+    need of release are the ones that have waited longest, which is the exact opposite of what DESC
+    selects. One-line fix, but invisible without a backlog bigger than the limit — which no existing
+    test had.
+    """
+
+    def test_two_bounded_passes_reach_the_OLDEST_rows(self):
+        """EACH RUN GETS ITS OWN MESSAGE AND RECEIPT, and that is what makes this test able to fail.
+
+        My first version pointed all four runs at one message with one receipt, so releasing ANY of
+        them unhid it and the assertion passed under DESC as happily as under ASC — proven by mutation,
+        which is the only reason I know. The ordering property is only observable when the oldest rows
+        have something of their own to release.
+        """
+        async def scenario():
+            db = await _db()
+            try:
+                for i in range(4):
+                    await db.execute(
+                        "INSERT INTO messages (id, from_agent, to_agent, subject, body, timestamp) "
+                        "VALUES (?,?,?,?,?,?)", (f"m{i}", "sender", "target", "s", "b", i))
+                    await db.execute(
+                        "INSERT INTO dispatch_runs (id, status, target_agent, message_id, body, "
+                        "claimed_at, started_at, finished_at, result_message_id, summary) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (f"run-{i}", "failed", "target", f"m{i}", "", CLAIMED_AT, "",
+                         f"2026-08-18T0{i}:05:00Z", "", ""),
+                    )
+                    await db.execute(
+                        "INSERT INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
+                        (f"m{i}", "target", CLAIMED_AT))
+                await db.commit()
+
+                first = await _release_receipts_from_unstarted_runs(db, limit=2)
+                await db.commit()
+                second = await _release_receipts_from_unstarted_runs(db, limit=2)
+                await db.commit()
+
+                unread = sorted(await _unread_for(db, "target"))
+                self.assertEqual(
+                    unread, ["m0", "m1", "m2", "m3"],
+                    "two bounded passes over a four-row backlog did not release every message. "
+                    "Ordering newest-first under a LIMIT re-selects the same head each pass, so the "
+                    f"oldest rows are never reached (released {first} then {second}, unread {unread}).",
+                )
+            finally:
+                await db.close()
+        run(scenario())
+
+
+
+class TheOldestWaitingRowsAreReleasedFirst(unittest.TestCase):
+    """Ordering is FAIRNESS here, not correctness — and the difference is worth stating.
+
+    The 2026-08-18 report proposed a one-line `DESC -> ASC` fix for a backlog that never drained. That
+    would NOT have fixed it: measured by mutation, with the releasable-receipt filter in place the
+    backlog drains under either direction, and without that filter it drains under NEITHER — DESC
+    re-selected the newest rows forever and ASC the oldest, already-released ones.
+
+    So the filter is the fix, and the ordering decides only WHO WAITS LONGEST. That is still worth
+    pinning: an agent whose message has been invisible for hours should not keep losing its place to
+    messages that arrived since. Without this test the ORDER BY is unmeasured, which is how it becomes
+    decoration.
+    """
+
+    def test_a_bounded_pass_releases_the_two_oldest_not_the_two_newest(self):
+        async def scenario():
+            db = await _db()
+            try:
+                for i in range(4):
+                    await db.execute(
+                        "INSERT INTO messages (id, from_agent, to_agent, subject, body, timestamp) "
+                        "VALUES (?,?,?,?,?,?)", (f"m{i}", "sender", "target", "s", "b", i))
+                    await db.execute(
+                        "INSERT INTO dispatch_runs (id, status, target_agent, message_id, body, "
+                        "claimed_at, started_at, finished_at, result_message_id, summary) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (f"run-{i}", "failed", "target", f"m{i}", "", CLAIMED_AT, "",
+                         f"2026-08-18T0{i}:05:00Z", "", ""),
+                    )
+                    await db.execute(
+                        "INSERT INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
+                        (f"m{i}", "target", CLAIMED_AT))
+                await db.commit()
+
+                await _release_receipts_from_unstarted_runs(db, limit=2)
+                await db.commit()
+                self.assertEqual(
+                    sorted(await _unread_for(db, "target")), ["m0", "m1"],
+                    "the first bounded pass released the NEWEST two. The oldest waiting messages must "
+                    "go first — they are the ones that have been invisible longest.",
+                )
+            finally:
+                await db.close()
+        run(scenario())
+
+
 if __name__ == "__main__":
     unittest.main()

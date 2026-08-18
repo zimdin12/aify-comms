@@ -208,6 +208,37 @@ const EXTRACTIONS = [
           "// api moved to ./api-client.mjs in v0.5.4.",
           "setApiBase(apiBase, apiOrigin);",
         ],
+        // R5-H1 (2026-08-18): `api()` now attaches the operator key. Declared here because the proof
+        // reconstructs app.js from this declaration byte-for-byte, so an undeclared edit to an
+        // extracted body reads as "a slice changed something outside its spans" — which is exactly
+        // what the gate is for. The `was` text is what app.js carried before the extraction; it is a
+        // permanent record of the divergence, not a way around the check.
+        //
+        // The header is attached AFTER the caller's headers are resolved rather than merged into them:
+        // two tests pin that a caller's `headers` REPLACE the default, because `headers: {}` is how a
+        // multipart upload drops the JSON content-type. My first attempt merged them and broke upload.
+        editedSince: [
+          {
+            was: [
+              "  const response = await fetch(`${apiBase}${path}`, {",
+              "    headers: { 'Content-Type': 'application/json' },",
+              "    ...options,",
+              "  });",
+            ],
+            now: [
+              "  // A CALLER'S HEADERS REPLACE THE DEFAULT \u2014 deliberately, and two tests pin it: `headers: {}` is how",
+              "  // file upload drops the JSON content-type, and a multipart POST carrying `application/json` does not",
+              "  // upload. My first version merged them and broke exactly that; the tests said so.",
+              "  //",
+              "  // The operator key is attached AFTER, so it survives either shape without changing which",
+              "  // content-type a caller ends up with.",
+              "  const { headers: callerHeaders, ...rest } = options;",
+              "  const headers = callerHeaders ? { ...callerHeaders } : { 'Content-Type': 'application/json' };",
+              "  if (operatorKey) headers['X-Aify-Operator-Key'] = operatorKey;",
+              "  const response = await fetch(`${apiBase}${path}`, { headers, ...rest });",
+            ],
+          },
+        ],
       },
     ],
   },
