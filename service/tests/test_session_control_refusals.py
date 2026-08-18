@@ -48,6 +48,13 @@ ACCEPTED_ACTIONS = {
 REFUSED_ACTIONS = ("recover", "resume", "start", "kill", "", "restart-now")
 
 
+def _recent_iso(seconds_ago: int = 5) -> str:
+    """A timestamp that is unambiguously recent, for spawns that are meant to look in-flight."""
+    import datetime
+    return (datetime.datetime.now(datetime.timezone.utc)
+            - datetime.timedelta(seconds=seconds_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 class SessionControlRefusalTests(FastApiTestCase):
     def setUp(self):
         super().setUp()
@@ -180,6 +187,31 @@ class SessionControlRefusalTests(FastApiTestCase):
 
     # ── restart: a spawn already in flight ───────────────────────────────────────────────────
 
+    def test_an_ABANDONED_spawn_does_not_block_the_restart_that_would_fix_it(self):
+        """The sc-manager deadlock, 2026-08-18. A spawn stuck `queued` for ~30 minutes — surviving an
+        operator bridge+wrapper restart — refused `comms_restart`, which is the exact action the
+        undeliverable backstop's own message prescribes. No worker, so the spawn stayed queued; a
+        spawn pending, so the restart 409'd. From inside a session there was no way out.
+
+        The guard stays (two concurrent spawns race for one terminal), but it is no longer fail-safe
+        in one direction only: a spawn that has made NO progress for the whole window is superseded
+        rather than honoured, and the superseding is recorded on the row it cancels."""
+        self._seed_spec()
+        self._seed_session(spawn_spec_id=SPEC_ID)
+        self._write(
+            "INSERT INTO spawn_requests (id, spawn_spec_id, environment_id, agent_id,"
+            " runtime, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+            ("spawn-stuck", SPEC_ID, ENVIRONMENT_ID, AGENT_ID, "codex", "queued",
+             "2026-08-16T00:00:00Z", "2026-08-16T00:00:00Z"),
+        )
+        response = self._control("restart")
+        self.assertEqual(response.status_code, 200, response.text)
+
+        row = self._read("SELECT status, error FROM spawn_requests WHERE id = ?", ("spawn-stuck",))
+        self.assertEqual(row["status"], "cancelled", "the stuck spawn was left pending")
+        self.assertIn("superseded", str(row["error"] or ""),
+                      "the cancellation does not say why, so an operator cannot tell it from a real failure")
+
     def test_a_restart_is_refused_while_a_spawn_is_already_in_flight(self):
         """Every in-flight status, not one. A second spawn request for the same agent is how two
         workers end up racing for one session — and `starting` is the one a reader drops, because
@@ -192,16 +224,28 @@ class SessionControlRefusalTests(FastApiTestCase):
                     self._write(
                         "INSERT INTO spawn_requests (id, spawn_spec_id, environment_id, agent_id,"
                         " runtime, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                        # RECENT on purpose: "in flight" means a spawn that is still progressing.
+                        # These rows used to be dated two days back, which was incidental to what the
+                        # test asserts and became load-bearing when an abandoned spawn stopped
+                        # blocking the restart (the sc-manager deadlock, 2026-08-18). A fixture whose
+                        # staleness was never the point should not decide the verdict.
                         (f"spawn-{status}", SPEC_ID, ENVIRONMENT_ID, AGENT_ID, "codex", status,
-                         "2026-08-16T00:00:00Z", "2026-08-16T00:00:00Z"),
+                         _recent_iso(), _recent_iso()),
                     )
                     response = self._control(action)
                     self.assertEqual(response.status_code, 409, response.text)
-                    self.assertEqual(
-                        response.json()["detail"],
+                    detail = response.json()["detail"]
+                    self.assertIn(
                         f'Agent "{AGENT_ID}" already has pending spawn request "spawn-{status}"'
                         f" ({status}).",
+                        detail,
                     )
+                    # The refusal now also says what to do about it. sc-manager hit this 409 with no
+                    # way forward — the spawn it named was never going to produce a worker — so the
+                    # message names the escape rather than leaving the caller to discover there
+                    # isn't one.
+                    self.assertIn("superseded automatically", detail,
+                                  "the refusal does not tell the caller how it resolves")
                     self._write("DELETE FROM spawn_requests WHERE id = ?", (f"spawn-{status}",))
 
     def test_a_FINISHED_spawn_request_does_not_block_a_restart(self):

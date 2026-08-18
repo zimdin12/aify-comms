@@ -21,6 +21,10 @@ from __future__ import annotations
 
 from fastapi import HTTPException, Request
 
+from service.api_core.abandoned_spawn import (
+    ABANDONED_SPAWN_SECONDS,
+    _spawn_request_is_abandoned,
+)
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.agent_sessions import _settle_agent_for_session_control
 from service.api_core.dispatch_run_state import _append_dispatch_control
@@ -88,10 +92,39 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
                 (agent_id,),
             )
             pending_spawn = await pending_cursor.fetchone()
+            if pending_spawn and _spawn_request_is_abandoned(pending_spawn):
+                # ABANDONED, so it does not get to block the remedy. Reported by sc-manager
+                # 2026-08-18 as a deadlock, with the timeline: a spawn stuck `queued` for ~30
+                # minutes, surviving an operator bridge+wrapper restart, while `comms_restart` —
+                # the exact action the backstop's own message prescribes — refused BECAUSE that
+                # spawn was pending. No worker, so the spawn stayed queued; spawn pending, so the
+                # restart 409'd. From inside a session there was no way out.
+                #
+                # The guard is right to exist: two concurrent spawns for one agent is worse than a
+                # slow one. It was simply fail-safe in ONE direction, protecting against
+                # double-spawn at the cost of making a stuck spawn permanent.
+                #
+                # A TTL rather than a `force` flag, which was the other option offered. A flag needs
+                # a caller to know the situation and choose correctly under pressure, and can be
+                # passed by habit; a TTL needs nobody to know anything, and cannot be misused. The
+                # window is generous — a spawn that is genuinely progressing updates its row, so
+                # only one that has not moved AT ALL for the whole window is superseded here.
+                await db.execute(
+                    "UPDATE spawn_requests SET status = 'cancelled', error = ?, finished_at = ? WHERE id = ?",
+                    (
+                        f"superseded by a {action} after {ABANDONED_SPAWN_SECONDS}s with no progress "
+                        f"— the spawn never produced a worker and was blocking the documented remedy",
+                        now,
+                        pending_spawn["id"],
+                    ),
+                )
+                pending_spawn = None
             if pending_spawn:
                 raise HTTPException(
                     409,
-                    f'Agent "{agent_id}" already has pending spawn request "{pending_spawn["id"]}" ({pending_spawn["status"]}).',
+                    f'Agent "{agent_id}" already has pending spawn request "{pending_spawn["id"]}" ({pending_spawn["status"]}). '
+                    f'If it never produces a worker it is superseded automatically after '
+                    f'{ABANDONED_SPAWN_SECONDS}s with no progress; retry then.',
                 )
 
         spawn_request_row, spawn_spec_row = await _prepare_restart_spawn(

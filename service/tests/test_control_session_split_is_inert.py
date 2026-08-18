@@ -56,6 +56,19 @@ def _combined_split_source() -> str:
     return "\n\n".join(p.read_text(encoding="utf-8") for p in MODULES)
 
 
+#: DECLARED EDIT SINCE THE SPLIT (2026-08-18). A pending spawn that has made no progress for the
+#: whole window no longer blocks a restart — the sc-manager deadlock, where the spawn a 409 named
+#: was never going to produce a worker and the restart it refused was the documented remedy.
+#: Written down with BOTH texts rather than re-capturing the fixture, which would erase the
+#: baseline and leave this gate proving only that the split is inert against today's code.
+EDITED_SINCE = [
+    (
+        '            pending_spawn = await pending_cursor.fetchone()\n            if pending_spawn and _spawn_request_is_abandoned(pending_spawn):\n                # ABANDONED, so it does not get to block the remedy. Reported by sc-manager\n                # 2026-08-18 as a deadlock, with the timeline: a spawn stuck `queued` for ~30\n                # minutes, surviving an operator bridge+wrapper restart, while `comms_restart` —\n                # the exact action the backstop\'s own message prescribes — refused BECAUSE that\n                # spawn was pending. No worker, so the spawn stayed queued; spawn pending, so the\n                # restart 409\'d. From inside a session there was no way out.\n                #\n                # The guard is right to exist: two concurrent spawns for one agent is worse than a\n                # slow one. It was simply fail-safe in ONE direction, protecting against\n                # double-spawn at the cost of making a stuck spawn permanent.\n                #\n                # A TTL rather than a `force` flag, which was the other option offered. A flag needs\n                # a caller to know the situation and choose correctly under pressure, and can be\n                # passed by habit; a TTL needs nobody to know anything, and cannot be misused. The\n                # window is generous — a spawn that is genuinely progressing updates its row, so\n                # only one that has not moved AT ALL for the whole window is superseded here.\n                await db.execute(\n                    "UPDATE spawn_requests SET status = \'cancelled\', error = ?, finished_at = ? WHERE id = ?",\n                    (\n                        f"superseded by a {action} after {ABANDONED_SPAWN_SECONDS}s with no progress "\n                        f"— the spawn never produced a worker and was blocking the documented remedy",\n                        now,\n                        pending_spawn["id"],\n                    ),\n                )\n                pending_spawn = None\n            if pending_spawn:\n                raise HTTPException(\n                    409,\n                    f\'Agent "{agent_id}" already has pending spawn request "{pending_spawn["id"]}" ({pending_spawn["status"]}). \'\n                    f\'If it never produces a worker it is superseded automatically after \'\n                    f\'{ABANDONED_SPAWN_SECONDS}s with no progress; retry then.\',\n                )',
+        '            pending_spawn = await pending_cursor.fetchone()\n            if pending_spawn:\n                raise HTTPException(\n                    409,\n                    f\'Agent "{agent_id}" already has pending spawn request "{pending_spawn["id"]}" ({pending_spawn["status"]}).\',\n                )',
+    ),
+]
+
+
 class ControlSessionSplitIsInertTests(unittest.TestCase):
     def test_the_extraction_inlines_back_to_the_original(self):
         fixture_src = FIXTURE.read_text(encoding="utf-8")
@@ -64,7 +77,7 @@ class ControlSessionSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS, EDITED_SINCE)
 
     def test_the_source_function_is_still_where_this_proof_looks(self):
         """`CALLER` is a location pin, and a relocation is what breaks it.
