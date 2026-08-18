@@ -1330,3 +1330,31 @@ was fixed in the tool and never in the surface the operator actually watches. Th
 **any surface asserting reachability derives it through `_environment_effective_status`.** The stored
 column is a registration record, not a liveness signal.
 
+
+## The service is unauthenticated on the local network, and the operator key is not a substitute (2026-08-18)
+
+**Decision: leave `API_KEY` unset for now; keep `OPERATOR_KEY` as the privilege credential. Revisit in
+v0.6 as one change, not two.**
+
+**What is true today, measured rather than assumed.** `API_KEY` is not configured on this deployment,
+so `APIKeyMiddleware` is never installed (`service/main.py` adds it only `if config.api_key`), and
+`cors_origins` is `*`. Every bridge sends the same shared key when one IS configured
+(`mcp/stdio/aify-service-endpoint.mjs`), so that key proves "inside the trust boundary" and can never
+distinguish the dashboard from an agent. The browser sends no key at all — `api-client.mjs` sets only
+`Content-Type`.
+
+**Why not simply set it.** Enabling `API_KEY` today would 401 the entire dashboard, because nothing in
+the browser sends one. That is not a hardening step, it is an outage. Making it work needs the
+dashboard to hold a credential — either injected server-side as `OPERATOR_KEY` now is, or a real proxy
+in `new_dashboard_app.py` so the browser never holds one. Both are v0.6-scale and belong together with
+per-agent identity, not bolted on separately.
+
+**What `OPERATOR_KEY` does and does not do.** Added for R5-H1: until 2026-08-18 an actor string of
+`operator` or `dashboard` was enough to unsend any message, delete any channel and unshare any
+artifact. It now requires `X-Aify-Operator-Key`. That raises the bar from "type an English word" to
+"hold a secret" — which stops the casual, the confused and the prompt-injected case. It is NOT a
+boundary against an agent with filesystem access: `.env` is readable on the host, and the dashboard
+page carries the key to the browser. Anyone reading this should not treat it as one.
+
+**The honest summary:** authorization is now *auditable and non-trivial* rather than *absent*. It is
+not authentication. The deployment's real perimeter is that the host is the operator's own machine.
