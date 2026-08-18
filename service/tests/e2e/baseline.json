@@ -1,0 +1,20 @@
+{
+  "recorded": "2026-08-19",
+  "phase": "v0.6 Phase 0",
+  "why": "The pass set Phase 5 compares against. A test passing here that does not pass at the end of v0.6 is a behaviour change and must be named as one in the release notes \u2014 not quietly edited until it passes again.",
+  "tests": [
+    "service/tests/e2e/test_baseline_is_honest.py::test_every_baselined_test_file_still_exists",
+    "service/tests/e2e/test_baseline_is_honest.py::test_the_baseline_exists_and_is_not_a_stub",
+    "service/tests/e2e/test_baseline_is_honest.py::test_the_suite_has_not_SHRUNK_below_the_baseline",
+    "service/tests/e2e/test_harness_starts_and_stops.py::test_a_boot_failure_raises_WITH_the_reason",
+    "service/tests/e2e/test_harness_starts_and_stops.py::test_the_stack_serves_health_and_then_stops_listening",
+    "service/tests/e2e/test_harness_starts_and_stops.py::test_the_stack_uses_its_own_database_not_a_shared_one",
+    "service/tests/e2e/test_harness_starts_and_stops.py::test_two_stacks_do_not_collide",
+    "service/tests/e2e/test_message_to_work.py::test_a_message_is_STORED_before_anything_tries_to_deliver_it",
+    "service/tests/e2e/test_message_to_work.py::test_a_reply_is_THREADED_to_the_message_it_answers",
+    "service/tests/e2e/test_message_to_work.py::test_both_agents_register_and_appear_in_the_roster",
+    "service/tests/e2e/test_message_to_work.py::test_the_service_SURVIVES_the_round_trip_and_is_still_healthy"
+  ],
+  "passing": 11,
+  "summary": "8 passed in 16.33s"
+}
