@@ -25,13 +25,15 @@
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND wrappers relaunch.
 
+import { quoteUntrustedSubject } from "./quote-subject.mjs";
+
 export function formatDispatchState(info = {}) {
   const state = info.dispatchState || {};
   const active = state.activeRun;
   const lines = [];
   if (active?.runId) {
     lines.push(`  Active run: ${active.runId} [${active.status || "running"}]`);
-    if (active.subject) lines.push(`    Subject: ${active.subject}`);
+    if (active.subject) lines.push(`    Subject: ${quoteUntrustedSubject(active.subject, 240)}`);
   }
   if (Number(state.queuedRuns || 0) > 0) {
     lines.push(`  Queued runs: ${state.queuedRuns}`);
@@ -60,7 +62,7 @@ export function formatQueuedRun(run = {}) {
     const target = run.steeredIntoActiveRun || {};
     text += ` steered into active run ${target.runId || run.runId}`;
     if (target.subject) {
-      text += ` (${target.subject})`;
+      text += ` (${quoteUntrustedSubject(target.subject, 120)})`;
     }
     return text;
   }
@@ -70,7 +72,7 @@ export function formatQueuedRun(run = {}) {
   if (run.queuedBehindActiveRun?.runId) {
     text += ` queued behind active run ${run.queuedBehindActiveRun.runId}`;
     if (run.queuedBehindActiveRun.subject) {
-      text += ` (${run.queuedBehindActiveRun.subject})`;
+      text += ` (${quoteUntrustedSubject(run.queuedBehindActiveRun.subject, 120)})`;
     }
     return text;
   }

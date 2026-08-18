@@ -109,15 +109,45 @@ test("no formatter leaks a placeholder for the shapes production actually passes
   }
 });
 
-test("the module is pure: no imports, no module state", () => {
+test("the module is pure: its imports are pure too, and it holds no state", () => {
   // The property the rest of this file depends on, asserted rather than assumed. If a future edit needs
   // a database read or a module-level `let`, it does not belong here — and these tests would quietly
   // stop being deterministic.
-  const src = readFileSync(new URL("../tool-response-format.mjs", import.meta.url), "utf-8");
-  assert.ok(!/^import\s/m.test(src), "a pure formatter module should need no imports");
-  assert.ok(!/^let\s/m.test(src), "no module-level mutable state");
-  assert.ok(!/await/.test(src), "no async work belongs here");
-  assert.ok(!/httpCall|fetch\(|fs\./.test(src), "no I/O belongs here");
+  //
+  // "NO IMPORTS" WAS THE WRONG SPELLING OF IT, corrected 2026-08-18. The rule exists to keep I/O
+  // and state out, and it was written as a ban on the `import` keyword because at the time this
+  // module needed none. Then the subject quoter arrived: a pure, dependency-free sibling that every
+  // foreign subject rendered here must go through, and the alternatives to importing it were
+  // duplicating the implementation — creating exactly the two-renderers-disagree defect the
+  // cross-language test exists to prevent — or leaving subjects unquoted, which is the
+  // operator-reported incident itself.
+  //
+  // So the invariant now says what it means: an import is allowed only if the module it names is
+  // ITSELF pure by these same rules, verified rather than trusted.
+  const here = new URL("../", import.meta.url);
+  const src = readFileSync(new URL("tool-response-format.mjs", here), "utf-8");
+
+  const importLines = src.match(/^import\s.*$/gm) || [];
+  const relative = [...src.matchAll(/^import\s[^;]*?from\s+["'](\.[^"']+)["'];/gm)].map((m) => m[1]);
+  assert.equal(
+    importLines.length, relative.length,
+    `every import must be a relative sibling this test can verify; got ${JSON.stringify(importLines)}`,
+  );
+
+  const assertPure = (text, label) => {
+    assert.ok(!/^let\s/m.test(text), `${label}: no module-level mutable state`);
+    assert.ok(!/\bawait\b/.test(text), `${label}: no async work belongs here`);
+    assert.ok(!/httpCall|fetch\(|fs\./.test(text), `${label}: no I/O belongs here`);
+  };
+  assertPure(src, "tool-response-format.mjs");
+  for (const specifier of relative) {
+    const dep = readFileSync(new URL(specifier, here), "utf-8");
+    assertPure(dep, specifier);
+    assert.ok(
+      !/^import\s/m.test(dep),
+      `${specifier} is imported by a pure formatter, so it must have no imports of its own`,
+    );
+  }
 });
 
 test("formatQueuedRun names the target and run, and explains any queueing", () => {

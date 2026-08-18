@@ -117,8 +117,14 @@ async def comms_search(
             # always "MSG NEW" — including for messages the agent sent itself. A marker that is
             # always on carries no information and quietly misleads.
             to = f" → {x['to']}" if x.get("to") else ""
+            # QUOTED, like every other echo of somebody else's subject. A search result strips the
+            # addressing off a message written BY one agent FOR another and renders it into a third
+            # agent's context — the exact shape that made an agent act on a request aimed elsewhere.
+            # This site was missed when the rule was written because the scan keys on a `Subject:`
+            # LABEL and this line has none.
             lines.append(
-                f"[MSG] {x['id']} | from: {x['from']}{to} | {x.get('subject', '')}\n  {x.get('preview', '')}"
+                f"[MSG] {x['id']} | from: {x['from']}{to} | "
+                f"{_quote_untrusted_subject(x.get('subject', ''), 120)}\n  {x.get('preview', '')}"
             )
         else:
             lines.append(f"[FILE] {x['name']} | from: {x.get('from', '?')} | {x.get('description', '')}")

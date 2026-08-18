@@ -27,6 +27,7 @@ import path from "path";
 
 import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
 import { SHARED_DIR, readInbox } from "./local-store.mjs";
+import { quoteUntrustedSubject } from "./quote-subject.mjs";
 
 // Registers the search tool on an MCP server. A function rather than a module-scope side effect, so a
 // fake server can capture the registration and a test can call the handler without an MCP transport.
@@ -78,7 +79,10 @@ export function registerSearchTool(server, z) {
             // always undefined and EVERY hit rendered as "NEW" — including messages the agent sent
             // itself, where unread is not a meaningful property at all. Reviewer's catch. A marker
             // that is always on carries no information and quietly misleads.
-            ? `[MSG] ${x.id} | from: ${x.from}${x.to ? ` → ${x.to}` : ""} | ${x.subject}\n  ${x.preview}`
+            // QUOTED: a search result is somebody else's subject rendered into the reader's context
+            // with the addressing stripped off — the exact shape that made an agent restart itself.
+            // The service side has quoted its echoes since 2026-08-11; this transport never did.
+            ? `[MSG] ${x.id} | from: ${x.from}${x.to ? ` → ${x.to}` : ""} | ${quoteUntrustedSubject(x.subject, 120)}\n  ${x.preview}`
             : `[FILE] ${x.name} | from: ${x.from} | ${x.description}`
         );
         return { content: [{ type: "text", text: `${lines.join("\n\n")}\n\n(${scopeNote})${warn}` }] };
