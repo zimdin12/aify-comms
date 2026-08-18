@@ -26,8 +26,17 @@ import {
 
 let HANDLER = (_req, res) => { res.writeHead(200); res.end("{}"); };
 const SEEN = [];
+
+// IN-FLIGHT REQUESTS, so the harness can tell "the action has started work" from "the action has
+// FINISHED". Without this, `withDialog` restored the DOM as soon as its `until` predicate saw the
+// first request — while the action was still running — and the rest of the continuation then touched
+// a `document` that no longer existed. See the drain in `withDialog` for the failure that caused.
+let INFLIGHT = 0;
 const SERVER = http.createServer((req, res) => {
   let body = "";
+  INFLIGHT += 1;
+  res.on("finish", () => { INFLIGHT -= 1; });
+  res.on("close", () => { if (!res.writableFinished) INFLIGHT -= 1; });
   req.on("data", (c) => { body += c; });
   req.on("end", () => {
     SEEN.push({ url: req.url, method: req.method, headers: req.headers, body });
@@ -152,6 +161,36 @@ async function withDialog(elements, answer, run, until = null) {
         await new Promise((resolve) => dom.realSetTimeout(resolve, 10));
       }
       assert.ok(until(), "the fire-and-forget action never reached the service");
+      // THEN DRAIN, and this is the whole fix for a red release gate.
+      //
+      // `until` answers "has the action reached the service YET", which is the first request. The
+      // action is not finished there: `deleteSharedFile` does `await api(DELETE)` and then
+      // `await loadFiles()` — a SECOND request — and then `renderFiles()` and `toast()`, both of which
+      // touch `document`. Returning here restored the DOM mid-flight, so the continuation hit
+      // `ReferenceError: document is not defined` AFTER the test had ended, surfacing as an
+      // unhandledRejection rather than a normal failure.
+      //
+      // It is timing, not logic, which is why it is not reliably visible: whether the continuation's
+      // next turn lands before or after `dom.restore()` depends on the machine. It passed here twice
+      // and failed in comms-senior-dev's detached worktree, which is what blocked the v0.5.6 tag.
+      //
+      // So the DOM stays installed until the action is QUIESCENT: no request in flight, and no new
+      // request appearing across two further turns. Driven by the work (the request count and the
+      // in-flight counter), not by a fixed sleep — a sleep long enough today is a flake tomorrow.
+      const drainDeadline = Date.now() + 5000;
+      let settledTurns = 0;
+      let lastCount = SEEN.length;
+      while (Date.now() < drainDeadline && settledTurns < 2) {
+        await new Promise((resolve) => dom.realSetTimeout(resolve, 5));
+        const quiet = INFLIGHT === 0 && SEEN.length === lastCount;
+        settledTurns = quiet ? settledTurns + 1 : 0;
+        lastCount = SEEN.length;
+      }
+      assert.ok(
+        INFLIGHT === 0,
+        `the action still had ${INFLIGHT} request(s) in flight after draining — restoring the DOM now `
+        + "would reproduce the document-is-not-defined unhandledRejection this drain exists to stop",
+      );
     }
     return result;
   } finally {
