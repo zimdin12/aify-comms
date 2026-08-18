@@ -169,7 +169,11 @@ Important starting docs:
 - [docs/ROADMAP.md](docs/ROADMAP.md) — **the current work queue.** What shipped, what is carried, and what is next.
 - [docs/V0.2_PLAN.md](docs/V0.2_PLAN.md) — *historical.* Backlog from the v0.1 release review; kept as evidence, no longer the queue.
 - [docs/PRODUCT_BRIEF.md](docs/PRODUCT_BRIEF.md) — product goals and non-goals.
-- [docs/ARCHITECTURE_PLAN.md](docs/ARCHITECTURE_PLAN.md) — proposed control-plane architecture.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — **how the service is actually built**: the three
+  processes and what reloads each, the service layering, how a message becomes work, and the layer
+  rules paired with the test that enforces each. Start here before changing anything.
+- [docs/ARCHITECTURE_PLAN.md](docs/ARCHITECTURE_PLAN.md) — the original *proposal*, kept for its
+  reasoning. Where it and ARCHITECTURE.md disagree, the latter describes what exists.
 - [docs/SESSION_MODEL.md](docs/SESSION_MODEL.md) — backed warm sessions, native resume, bridge-emulated resume, and CLI attach rules.
 - [docs/DASHBOARD_SPEC.md](docs/DASHBOARD_SPEC.md) — first dashboard UX spec.
 - [docs/WEB_APP_DESIGN.md](docs/WEB_APP_DESIGN.md) — web application UX/architecture principles.

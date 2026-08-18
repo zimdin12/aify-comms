@@ -4,6 +4,10 @@ Inter-agent communication hub: messaging, channels, file sharing, active dispatc
 
 ## Primary entry points
 
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — **how it is built.** The three processes and what
+  reloads each, the service layering and why it is flat, the message-to-work path, and every layer
+  rule paired with the test that fails when it is broken. Read before your first change; the rules
+  below assume it.
 - [README.md](README.md) — what the service is, setup, day-to-day usage.
 - [install.claude.md](install.claude.md) / [install.codex.md](install.codex.md) / [install.hermes.md](install.hermes.md) / [install.opencode.md](install.opencode.md) / [install.pi.md](install.pi.md) — per-runtime install guides (wrappers, hooks, verification).
 - [DECISIONS.md](DECISIONS.md) — rationale for non-obvious design choices and current runtime limits.
