@@ -86,7 +86,18 @@ class StrandedReplyFailTests(FastApiTestCase):
         self.assertEqual(len(out), 1, f"the stale stranded run should be failed: {out}")
         r = self._fetchone("SELECT status, summary, error_text FROM dispatch_runs WHERE id='run_stale'")
         self.assertEqual(r["status"], "failed")
-        self.assertIn("presumed dead", (r["summary"] or "").lower())
+        # THE CAUSE MUST BE STATED AS UNDETERMINED, not asserted. This read "presumed dead" until
+        # 2026-08-18, when a confirmed incident showed why the wording is load-bearing: the reason
+        # listed "model 429" among three guesses, the notification layer's throttle classifier matched
+        # that token, and a sender was told as fact that their target's provider was rate-limiting.
+        # The real cause was a provider safety refusal. See
+        # test_authored_failure_text_is_not_provider_evidence.py for the mechanism.
+        summary = (r["summary"] or "").lower()
+        self.assertIn("not determined", summary,
+                      f"the reaper's reason no longer says the cause is undetermined: {summary!r}")
+        self.assertIn("refusal", summary,
+                      "the reason must enumerate a provider refusal — the branch the original "
+                      "three-way list missed, and the only one where retrying makes things worse")
         # Idempotent: a second pass fails nothing new.
         self.assertEqual(self._run_reaper(), [])
 

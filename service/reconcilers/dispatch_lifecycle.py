@@ -30,6 +30,7 @@ from typing import Optional
 
 from service.api_core.orphaned_runs_query import _select_orphaned_managed_runs
 from service.api_core.dispatch_run_state import _mark_dispatch_run_answered
+from service.api_core.authored_failures import TURN_ENDED_WITHOUT_REPLY
 from service.api_core.settings import _load_settings, DEFAULT_SETTINGS  # v0.5.1g: the leaf owner
 from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
 from service.api_core.live_process_probes import ACTIVE_RUN_BRIDGE_STALE_SECONDS
@@ -95,10 +96,13 @@ async def _fail_stranded_delivered_reply_runs(db, *, stale_minutes: Optional[int
     )).fetchall()
     failed: list[dict[str, str]] = []
     now = _now()
-    reason = (
-        "Turn ended without a reply — the worker turn is presumed dead (model 429, mid-turn "
-        "interrupt, or stall). Failed by reconcile so the run isn't stranded as 'delivered'."
-    )
+    # THE REASON TEXT LIVES IN `api_core/authored_failures.py`, not here, and that is the fix for a
+    # confirmed incident (2026-08-18): this string used to say "presumed dead (model 429, mid-turn
+    # interrupt, or stall)", and the notification layer's throttle classifier matched the literal
+    # "429" inside our own list of GUESSES and told the sender their target was being rate-limited as
+    # a determined fact. The real cause was a provider safety refusal — a branch this list did not
+    # even name. One source, so the writer and the consumer that must recognise it cannot drift.
+    reason = TURN_ENDED_WITHOUT_REPLY
     for row in (rows or []):
         run_id = str(row["id"] or "").strip()
         target = str(row["target_agent"] or "").strip()

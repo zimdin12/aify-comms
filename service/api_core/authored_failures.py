@@ -1,0 +1,90 @@
+"""Failure text aify-comms wrote about itself. Never evidence about a provider.
+
+THE INCIDENT (2026-08-18, reported by graph-tech-lead, confirmed). A sender was told, in the present
+indicative:
+
+    "graph-senior-dev-hermes couldn't respond — its model provider is rate-limiting / at a usage
+     limit right now (a provider-side throttle, not your request). Please retry shortly."
+
+The run record said something else entirely — that the cause was PRESUMED, and offered three
+alternatives. The real cause was a fourth thing nobody had enumerated: the provider refused the turn
+on safety grounds. The wrong cause propagated through a tech lead into a human-facing status report.
+
+NOTHING CHOSE THAT WORDING FOR THAT RUN. `_is_provider_rate_limit_error` in `dispatch_text.py` ends
+with `re.search(r"\\b(429|529)\\b", text)`, and the reconciler's own reason string contains the literal
+"model 429" — as one item in a list of GUESSES. So the classifier matched our own speculation and
+reported it as a determined fact.
+
+The word boundary in that regex was added deliberately, so `529 tokens` and `code 4290` would not
+false-positive. It was written carefully, for the right input: PROVIDER error text. It was then handed
+service-authored prose, and no amount of care inside a predicate protects it from being asked the
+wrong question. Rewording the reconciler would have fixed the one incident and left the mechanism
+armed for the next string that happens to mention a status code.
+
+WHAT THIS MODULE IS. The registry of reason strings the SERVICE writes when it fails a run on its own
+initiative — no provider said any of it. Consumers that classify failure text ask
+`is_service_authored()` first and skip provider inference when the answer is yes, because a cause we
+invented cannot be evidence for a cause we are trying to infer.
+
+WHY IDENTITY AND NOT KEYWORDS. The check compares against the actual constants, which each writer
+imports from here. It does not try to detect hedging language ("presumed", "possible") — that would be
+a second fragile predicate on top of the first, and the failure mode would again be silent. A string
+is service-authored because it IS one of ours, which is a fact about provenance, not about wording.
+
+A measured note on scope: at the time of writing, exactly ONE live service-authored reason was
+misclassified by the throttle predicate (`dispatch_lifecycle`'s presumed-dead reason). It was enough
+to reach a human as a false certainty.
+"""
+
+from __future__ import annotations
+
+#: Failed by the reconcile sweep because a `require_reply` run's turn ended with no reply.
+#:
+#: THE CAUSE IS UNDETERMINED AND THIS STRING SAYS SO. It used to read "presumed dead (model 429,
+#: mid-turn interrupt, or stall)" — a disjunction of three, stated as a parenthetical, which a
+#: downstream classifier resolved into one. The rewrite is not cosmetic:
+#:
+#:   * it does not lead with a status code, because the code was never observed here;
+#:   * it enumerates a PROVIDER REFUSAL, the branch the original list missed and the only one where
+#:     "retry shortly" makes things actively worse — it re-triggers the refusal, spends quota, and
+#:     delays the human intervention that is the only fix;
+#:   * it says "not determined" in words, so a reader who sees only this string is not misled even if
+#:     every consumer downstream is rewritten by someone who never read this file.
+#:
+#: 429 still appears, because naming the branch is useful and hiding it would be a different kind of
+#: dishonesty. Safety comes from `is_service_authored()`, not from avoiding the token.
+TURN_ENDED_WITHOUT_REPLY = (
+    "Turn ended without a reply — the worker turn did not finish. Cause NOT DETERMINED; possible: a "
+    "model-provider throttle (429/529), a provider safety or policy refusal, a mid-turn interrupt, or "
+    "a stall. Failed by reconcile so the run isn't stranded as 'delivered'."
+)
+
+#: Every reason in this tuple was written by aify-comms about its own reconciliation. Add a string here
+#: when the SERVICE authors a run failure; do not add text a runtime or provider produced, because the
+#: whole point of the registry is to tell those two apart.
+SERVICE_AUTHORED_FAILURE_REASONS: tuple[str, ...] = (
+    TURN_ENDED_WITHOUT_REPLY,
+)
+
+#: Enough of a reason to recognise it after a caller has wrapped or truncated it. Matching on a
+#: distinctive fragment rather than the whole string keeps the check working when a consumer prefixes
+#: a run id or clips for display — both of which happen on the notification path.
+_FRAGMENTS: tuple[str, ...] = (
+    "Failed by reconcile so the run isn't stranded",
+)
+
+
+def is_service_authored(text: str) -> bool:
+    """Did aify-comms write this failure text about itself?
+
+    True means: do NOT infer a provider-side cause from it. The text is our own account of what we
+    observed (a turn that produced no reply), including any hypotheses we listed — and a hypothesis is
+    not an observation, however confidently a later layer restates it.
+    """
+    candidate = str(text or "").strip()
+    if not candidate:
+        return False
+    for reason in SERVICE_AUTHORED_FAILURE_REASONS:
+        if reason in candidate or candidate in reason:
+            return True
+    return any(fragment in candidate for fragment in _FRAGMENTS)

@@ -24,6 +24,7 @@ import re
 from typing import Any, Optional
 
 from service.api_core.serialization import _clip_text, _quote_untrusted_subject
+from service.api_core.authored_failures import is_service_authored
 
 
 COLDSTART_REFUSED_PREFIX = "coldstart-refused: "
@@ -158,9 +159,22 @@ def _is_provider_rate_limit_error(text: str) -> bool:
         )
     ):
         return True
-    # Bare HTTP status codes only count as a throttle when they appear as a standalone token
-    # (word-bounded) — so "code 429"/"429 Too Many Requests" match but "exited with code 4290"
-    # or a token count like "529 tokens" do not.
+    # Bare HTTP status codes count as a throttle when they appear as a standalone token
+    # (word-bounded), so "code 429" and "429 Too Many Requests" match while "exited with code 4290"
+    # does not — the boundary excludes DIGIT-ADJACENT runs only.
+    #
+    # CORRECTED 2026-08-18: this comment used to claim "a token count like '529 tokens'" was also
+    # excluded. It is not — `\b529\b` matches it, because a space is a word boundary. Measured, not
+    # reasoned about. So text mentioning exactly 429 or 529 of anything ("429 tokens remaining") is
+    # still read as a throttle. Left as-is deliberately: there is no observed specimen, and narrowing
+    # by guessing at surrounding words would trade a hypothetical false positive for a real false
+    # negative on provider text nobody has enumerated. The comment is the part that was wrong — it
+    # described an intention the code never implemented, which is how the next reader inherits a
+    # guarantee that does not exist.
+    #
+    # The failure this predicate DID cause was on its input, not its pattern: it was handed
+    # service-authored text listing "model 429" as a guess. That is guarded at the call site in
+    # `_auto_handoff_body_for_run` via `is_service_authored`, not here.
     return bool(re.search(r"\b(429|529)\b", t))
 
 
@@ -233,7 +247,19 @@ def _auto_handoff_body_for_run(row) -> str:
     from_agent = str((row["from_agent"] if row else "") or "").strip()
     if status == "failed":
         detail = str((row["error_text"] if row else "") or (row["summary"] if row else "") or "Run failed.").strip()
-        if _is_provider_rate_limit_error(detail):
+        # A CAUSE WE INVENTED IS NOT EVIDENCE FOR A CAUSE WE ARE INFERRING.
+        #
+        # Confirmed incident, 2026-08-18: the reconcile sweep's own reason text listed "model 429" as
+        # one of three GUESSES, `_is_provider_rate_limit_error` matched the token, and a sender was
+        # told in the indicative that their target's provider was throttling — "a provider-side
+        # throttle, not your request". The actual cause was a provider safety refusal, a fourth branch
+        # nothing had enumerated, and "retry shortly" was the worst possible advice for it: it
+        # re-triggers the refusal, spends quota, and delays the only fix, which is a human.
+        #
+        # The classifier is correct for the input it was designed for — text a PROVIDER produced. This
+        # guard is about provenance, not wording: service-authored failure text is skipped here so the
+        # sender gets the record's own undetermined account instead of a manufactured certainty.
+        if _is_provider_rate_limit_error(detail) and not is_service_authored(detail):
             # Sender-facing notice (2026-06-07): a provider rate/usage limit is transient and
             # NOT the sender's fault — say so plainly so they retry instead of assuming the
             # recipient ignored them. Flows through the existing auto-handoff delivery.
