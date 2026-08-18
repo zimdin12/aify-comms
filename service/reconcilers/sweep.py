@@ -43,6 +43,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     )
     from service.reconcilers.orphaned_managed_runs import _close_orphaned_managed_runs
     from service.reconcilers.claim_receipts import _release_receipts_from_unstarted_runs
+    from service.reconcilers.stuck_controls import _close_controls_for_ended_runs
     from service.reconcilers.dispatch_lifecycle import (
         _clear_turn_busy_for_dead_bridges,
         _fail_stranded_delivered_reply_runs,
@@ -220,6 +221,15 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # their terminal state, so one pass releases what this pass failed. Keys on the STATE
         # rather than on each of the fourteen failure writers, for the reason 590e995 taught.
         released_receipts = await _commit_step(await _release_receipts_from_unstarted_runs(db, limit=200))
+        # A control whose RUN has ended can never be applied — there is no turn left to interrupt or
+        # steer. NOTHING had ever reaped `dispatch_controls`: measured on the live database
+        # 2026-08-18, 56 sat `pending`, the oldest for seventy-three days, and all 56 belonged to runs
+        # that had already reached a terminal status. Runs AFTER every reaper above for the same reason
+        # the receipt release does — one pass then closes the controls of the runs this pass ended.
+        # Keys on the run's STATE, not on any of the ways a settlement can fail to arrive, which is
+        # also what bounds the pre-actor-bridge window: a settlement refused for a missing actor is
+        # closed here with a named cause instead of sitting unsettled forever.
+        closed_ended_controls = await _commit_step(await _close_controls_for_ended_runs(db, limit=200))
         # Managed console↔worker lifetime coupling (Workstream B): reap ghost
         # console rows (dead worker, terminal still 'attached') and detect
         # headless orphan workers (live sidecar, no console PTY) so a managed
@@ -306,6 +316,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "undeliverable_queued_runs_failed": len(reaped_queued),
             "stranded_reply_runs_failed": len(failed_stranded_replies),
             "claim_receipts_released": released_receipts,
+            "ended_run_controls_closed": len(closed_ended_controls),
             "managed_ghost_rows_reaped": managed_hygiene.get("managed_ghost_rows_reaped", 0),
             "orphan_workers_reaped": managed_hygiene.get("orphan_workers_reaped", 0),
             "resurrected_consoles": resurrected_consoles,

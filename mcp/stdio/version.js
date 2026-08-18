@@ -13,4 +13,4 @@
 // nothing to import. `tests/version-consistency.test.js` is what keeps it honest — it fails
 // the suite if this drifts from VERSION or package.json, so the duplication is enforced
 // rather than merely intended.
-export const AIFY_VERSION = "0.5.5";
+export const AIFY_VERSION = "0.5.6";
