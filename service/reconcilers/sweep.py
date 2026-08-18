@@ -42,6 +42,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _repair_unusable_active_runs,
     )
     from service.reconcilers.orphaned_managed_runs import _close_orphaned_managed_runs
+    from service.reconcilers.claim_receipts import _release_receipts_from_unstarted_runs
     from service.reconcilers.dispatch_lifecycle import (
         _clear_turn_busy_for_dead_bridges,
         _fail_stranded_delivered_reply_runs,
@@ -212,6 +213,13 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # inline): without this sweep a require_reply run failed by the orphan-closer /
         # claim auto-heal never told the sender (review, 2026-06-10). Idempotent.
         mirrored_failed_handoffs = await _commit_step(await _sweep_unmirrored_failed_handoffs(db))
+        # H1 (external review 2026-08-18): the claim writes a read receipt for every source
+        # message BEFORE any turn starts, and unread is the ABSENCE of a receipt -- so a run
+        # claimed and then FAILED without starting left its message invisible to that agent
+        # forever. Runs LAST in the failure block, after every reaper above has moved runs into
+        # their terminal state, so one pass releases what this pass failed. Keys on the STATE
+        # rather than on each of the fourteen failure writers, for the reason 590e995 taught.
+        released_receipts = await _commit_step(await _release_receipts_from_unstarted_runs(db, limit=200))
         # Managed console↔worker lifetime coupling (Workstream B): reap ghost
         # console rows (dead worker, terminal still 'attached') and detect
         # headless orphan workers (live sidecar, no console PTY) so a managed
@@ -297,6 +305,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "dead_bridge_turn_busy_cleared": len(cleared_dead_turn_busy),
             "undeliverable_queued_runs_failed": len(reaped_queued),
             "stranded_reply_runs_failed": len(failed_stranded_replies),
+            "claim_receipts_released": released_receipts,
             "managed_ghost_rows_reaped": managed_hygiene.get("managed_ghost_rows_reaped", 0),
             "orphan_workers_reaped": managed_hygiene.get("orphan_workers_reaped", 0),
             "resurrected_consoles": resurrected_consoles,
