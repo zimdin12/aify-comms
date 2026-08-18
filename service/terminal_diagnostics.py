@@ -26,7 +26,26 @@ from __future__ import annotations
 import re
 
 # Same shape as api_v2's console cleaner: CSI/OSC escapes, then stray control bytes.
-_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-Za-z]|\x1b[=>]")
+# WIDENED 2026-08-18 to match `service/api_core/terminal_text.py` exactly.
+#
+# The old pattern handled CSI, OSC, charset and keypad — and left DCS, APC, PM and SOS payloads
+# completely intact. This module produces the one-line explanation of why a terminal died, text an
+# operator and other agents read, so an unstripped APC payload is raw escape bytes in a diagnostic.
+#
+# `terminal_text.py` claimed in prose that THIS pattern was "broader", and a reviewer ruling not to
+# unify them was recorded on that sentence. Running both over real sequences measured the opposite.
+# The ruling's premise was that unifying would cost something; it does not.
+#
+# Kept as a COPY rather than an import: a service-level leaf may not import api_core. The two are
+# pinned equal by `service/tests/test_ansi_strippers_agree.py`, which is this repo's answer to two
+# copies that must agree — an agreement test, not a refactor.
+_ANSI_RE = re.compile(
+    r"\x1b\][\s\S]*?(?:\x07|\x1b\\)|"
+    r"\x1b\[[0-?]*[ -/]*[@-~]|"
+    r"\x1b[PX^_][\s\S]*?\x1b\\|"
+    r"\x1b[()][A-Za-z0-9]|"
+    r"\x1b[=>]"
+)
 _CTRL_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]")
 
 # Substring markers, matched case-insensitively against each cleaned line. Ordered

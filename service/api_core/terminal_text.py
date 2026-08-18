@@ -9,9 +9,17 @@ a live spinner footer must never be read as a prompt — that misread is what ma
 stalled.
 
 `_ANSI_RE` came with them, and had to: both carrier readers are here, and a leaf may not import the
-carrier. NOTE `service/terminal_diagnostics.py` keeps its OWN `_ANSI_RE` with a broader pattern — the
-reviewer ruled that a separate module with its own contract, so unifying them would be a behaviour
-change rather than a move.
+carrier. `service/terminal_diagnostics.py` keeps its OWN copy for the same layering reason.
+
+THIS PARAGRAPH USED TO SAY that copy had "a broader pattern", and a reviewer ruling not to unify them
+was recorded on the strength of that sentence. It was FALSE, measured 2026-08-18: the diagnostics copy
+was NARROWER and left DCS, APC, PM and SOS payloads completely intact — in the one-line explanation of
+why a terminal died, which an operator reads. An external reviewer reported exactly that and it was
+filed as a Low, because the prose said otherwise and nothing in the suite compared them.
+
+Both copies now carry this pattern, and `service/tests/test_ansi_strippers_agree.py` keeps them equal
+— an agreement test rather than a shared import, since the layering forbids one. A claim about two
+copies is worth exactly as much as the test that checks it.
 
 `_terminal_prompt_hint_from_raw` was PULLED OUT of that first slice and arrived in v0.5.4, which is
 the slice its deferral asked for. It calls `_terminal_awaiting_input_hint`, so the call graph made it
