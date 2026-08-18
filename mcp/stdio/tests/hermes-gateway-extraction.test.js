@@ -189,7 +189,63 @@ const EXTRACTIONS = [
       { name: "GATEWAY_PROBE_THRESHOLD", at: 209, marker: null },
       { name: "NO_TUI_TEARDOWN_CYCLES", at: 226, marker: null },
       { name: "NO_TUI_GRACE_MS", at: 240, marker: null },
-      { name: "runDeliveryLoop", at: 2084, marker: null, pristineExported: true },
+      {
+        name: "runDeliveryLoop",
+        at: 2084,
+        marker: null,
+        pristineExported: true,
+        // v0.6 Phase 1: the three gateway turn-detector callbacks moved OUT of this already-extracted
+        // module into ./hermes-turn-detector-callbacks.mjs. Declared here because the reconstruction
+        // puts this span back byte-for-byte, so an undeclared edit to an extracted body reads as "a
+        // slice changed something it did not declare" — which is exactly what the gate is for.
+        //
+        // `now` is the WHOLE replaced block, comments included. Declaring only the code line left the
+        // comment lines undeclared when I did this on the app.js side, and the reconstruction still
+        // differed until the comments were part of the entry.
+        editedSince: [
+          {
+            was: [
+              "    // SET working on a gateway-running turn (edge-triggered). Thread the OPEN run",
+              "    // id: shouldFireTurnStart gates this to dispatchTurnOpen===true, in which state",
+              "    // inFlight.runId IS the open run \u2014 so the detector's busy beat can no longer",
+              "    // overwrite agent_turn_state.turn_run_id with '' (the server does turn_run_id =",
+              "    // excluded.turn_run_id on every busy beat), which had raced the makeInFlightPulse",
+              "    // beat and dropped the run linkage \u2192 the reply-reminder deadlock (2026-07-10 review).",
+              "    postTurnStart: () => {",
+              "      inFlight.observedWorking = true;",
+              "      return reportTurnBusy(httpCall, id, { busy: true, runId: inFlight.runId || \"\" }).catch(() => {});",
+              "    },",
+              "    // CLEAR on sustained idle \u2014 authoritative /turn-end, only ever clears. Also",
+              "    // REVOKES the dispatched-turn credit AND closes the re-pulse probe window: this",
+              "    // turn is over, so (a) a subsequent gateway `working` (hermes POST-TURN background",
+              "    // self-improvement/memory) must not re-fire /turn-start (the flap), and (b) the",
+              "    // SEPARATE makeInFlightProbe/makeInFlightPulse beat \u2014 which keeps re-pulsing a",
+              "    // `delivered`+require_reply=1 run whose reply STRANDED, at its slow 45s\u00d73=135s idle",
+              "    // cadence \u2014 must stop re-asserting turn_busy on this fast (\u22489s) detector turn-end.",
+              "    // Setting inFlight.completed makes shouldManagedHostRepulse skip; a new delivery",
+              "    // re-arms completed=false, so the next turn tracks normally (2026-07-10 review F1).",
+              "    postTurnEnd: () => {",
+              "      if (!shouldApplyGatewayTurnEnd(inFlight)) return;",
+              "      inFlight.dispatchTurnOpen = false;",
+              "      inFlight.completed = true;",
+              "      return clearTurn(httpCall, id).catch(() => {});",
+              "    },",
+              "    // GATE the detector's /turn-start (edge + keep-alive): fire only while a dispatched",
+              "    // turn is open. The instant delivery pulse (makeInFlightPulse) remains the primary",
+              "    // setter for a real turn; this detector start is the continuous backstop, now scoped",
+              "    // to dispatched turns so post-turn background gateway \"running\" can't flap `working`.",
+              "    shouldFireTurnStart: () => inFlight.dispatchTurnOpen === true,",
+            ],
+            now: [
+              "    // postTurnStart / postTurnEnd / shouldFireTurnStart moved to",
+              "    // ./hermes-turn-detector-callbacks.mjs in v0.6 Phase 1. Each is the fix for a named 2026-07-10",
+              "    // incident \u2014 the turn_run_id race that deadlocked reply reminders, and the post-turn status",
+              "    // flap \u2014 and none of them had a test, because firing one needed a live gateway.",
+              "    ...buildGatewayTurnCallbacks({ inFlight, httpCall, id }),",
+            ],
+          },
+        ],
+      },
     ],
   },
 ];

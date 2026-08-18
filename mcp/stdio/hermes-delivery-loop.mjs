@@ -28,6 +28,7 @@ import {
   DEFAULT_IDLE_DEBOUNCE_TICKS,
   startHermesGatewayTurnDetector,
 } from "./hermes-gateway-turn-detector.js";
+import { buildGatewayTurnCallbacks } from "./hermes-turn-detector-callbacks.mjs";
 import {
   MAX_REENSURE_WITHOUT_RECOVERY,
   ensureGatewayHost,
@@ -41,7 +42,6 @@ import {
   nextReEnsureBudget,
   openGatewayWsClient,
   reportGatewayDead,
-  shouldApplyGatewayTurnEnd,
   sleep,
 } from "./hermes-gateway.mjs";
 import {
@@ -58,7 +58,6 @@ import {
   channelBridgeId,
   clearTurn,
   markRunFailed,
-  reportTurnBusy,
 } from "./hermes-run-reporting.mjs";
 import { startInFlightRepulse } from "./hermes-turn-repulse.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
@@ -475,36 +474,11 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     intervalMs: GATEWAY_TURN_POLL_MS,
     idleDebounce: GATEWAY_TURN_IDLE_DEBOUNCE,
     readGatewayStatus: readManagedSessionStatus,
-    // SET working on a gateway-running turn (edge-triggered). Thread the OPEN run
-    // id: shouldFireTurnStart gates this to dispatchTurnOpen===true, in which state
-    // inFlight.runId IS the open run — so the detector's busy beat can no longer
-    // overwrite agent_turn_state.turn_run_id with '' (the server does turn_run_id =
-    // excluded.turn_run_id on every busy beat), which had raced the makeInFlightPulse
-    // beat and dropped the run linkage → the reply-reminder deadlock (2026-07-10 review).
-    postTurnStart: () => {
-      inFlight.observedWorking = true;
-      return reportTurnBusy(httpCall, id, { busy: true, runId: inFlight.runId || "" }).catch(() => {});
-    },
-    // CLEAR on sustained idle — authoritative /turn-end, only ever clears. Also
-    // REVOKES the dispatched-turn credit AND closes the re-pulse probe window: this
-    // turn is over, so (a) a subsequent gateway `working` (hermes POST-TURN background
-    // self-improvement/memory) must not re-fire /turn-start (the flap), and (b) the
-    // SEPARATE makeInFlightProbe/makeInFlightPulse beat — which keeps re-pulsing a
-    // `delivered`+require_reply=1 run whose reply STRANDED, at its slow 45s×3=135s idle
-    // cadence — must stop re-asserting turn_busy on this fast (≈9s) detector turn-end.
-    // Setting inFlight.completed makes shouldManagedHostRepulse skip; a new delivery
-    // re-arms completed=false, so the next turn tracks normally (2026-07-10 review F1).
-    postTurnEnd: () => {
-      if (!shouldApplyGatewayTurnEnd(inFlight)) return;
-      inFlight.dispatchTurnOpen = false;
-      inFlight.completed = true;
-      return clearTurn(httpCall, id).catch(() => {});
-    },
-    // GATE the detector's /turn-start (edge + keep-alive): fire only while a dispatched
-    // turn is open. The instant delivery pulse (makeInFlightPulse) remains the primary
-    // setter for a real turn; this detector start is the continuous backstop, now scoped
-    // to dispatched turns so post-turn background gateway "running" can't flap `working`.
-    shouldFireTurnStart: () => inFlight.dispatchTurnOpen === true,
+    // postTurnStart / postTurnEnd / shouldFireTurnStart moved to
+    // ./hermes-turn-detector-callbacks.mjs in v0.6 Phase 1. Each is the fix for a named 2026-07-10
+    // incident — the turn_run_id race that deadlocked reply reminders, and the post-turn status
+    // flap — and none of them had a test, because firing one needed a live gateway.
+    ...buildGatewayTurnCallbacks({ inFlight, httpCall, id }),
     // Re-stamp turn-busy while the gateway stays WORKING so a turn longer than the
     // dispatch re-pulse window (~15min) never expires turn_busy → `online` while working.
     // Mirrors the re-pulse cadence (45s), comfortably under the 120s server stale window.
