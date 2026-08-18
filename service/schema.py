@@ -133,6 +133,10 @@ CREATE TABLE IF NOT EXISTS dispatch_runs (
     summary TEXT DEFAULT '',
     error_text TEXT DEFAULT '',
     result_message_id TEXT DEFAULT '',
+    -- The sender was TOLD the run ended; NOT the same fact as result_message_id, which means
+    -- the obligated answer arrived. Conflating them let a system-authored failure notice close
+    -- a require_reply contract the target never answered (external review H2, 2026-08-18).
+    handoff_message_id TEXT DEFAULT '',
     require_reply INTEGER NOT NULL DEFAULT 0,
     queue_if_busy INTEGER NOT NULL DEFAULT 0,
     steer_if_busy INTEGER NOT NULL DEFAULT 0,

@@ -346,14 +346,21 @@ async def _sweep_unmirrored_failed_handoffs(db, *, window_hours: int = 6, limit:
     reporting) and the manual repair endpoint — runs failed by the reapers (orphan close,
     claim-path auto-heal, stale-active fail) never notified the sender; the contract just
     read `failed` if they happened to poll (review must-fix, 2026-06-10). Sweep recent
-    terminal rr=1 runs with no result message and mirror them. Idempotent: the mirror sets
-    result_message_id, so a swept run is never re-mirrored. Bounded by window + limit.
+    terminal rr=1 runs the sender was never told about and mirror them. Idempotent: the mirror sets
+    handoff_message_id, so a swept run is never re-mirrored. The CONTRACT itself stays open — a
+    system notice is evidence of non-delivery, not an answer (H2). Bounded by window + limit.
     """
     rows = await (await db.execute(
         """
         SELECT * FROM dispatch_runs
         WHERE require_reply = 1
           AND status IN ('failed', 'cancelled')
+          -- The already-TOLD marker, not the answer-arrived one (H2, 2026-08-18): a failure notice
+          -- no longer closes the contract, so keying on result_message_id here would re-mirror
+          -- every swept run on every reconcile pass — a notice storm to the sender.
+          AND COALESCE(handoff_message_id, '') = ''
+          -- ...and still nothing to say when the target ANSWERED before being reaped:
+          -- apologising for non-delivery would be false.
           AND COALESCE(result_message_id, '') = ''
           AND COALESCE(finished_at, '') != ''
           AND datetime(finished_at) > datetime('now', ?)

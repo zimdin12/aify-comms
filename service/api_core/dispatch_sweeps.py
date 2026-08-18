@@ -49,8 +49,32 @@ from service.api_core.turn_state import _turn_busy_state
 from service.api_core.ws import _get_ws
 
 
+def _already_mirrored(row) -> bool:
+    """Has the sender already been told about this run?
+
+    Split from "did the obligated answer arrive?" in 2026-08-18's H2 fix. For a FAILED or CANCELLED
+    run the two are different questions and only one of them may close a contract, so the
+    already-told marker moved to its own column and this predicate has to ask the right one per
+    status. Reading `result_message_id` for a failed run would make the mirror re-fire forever once
+    it stopped writing there.
+    """
+    def _has(field):
+        value = row[field] if field in row.keys() else ""
+        return bool(str(value or "").strip())
+
+    status = str(row["status"] or "").strip().lower()
+    if status in ("failed", "cancelled"):
+        # EITHER marker means there is nothing more to say. `handoff_message_id` is "we already told
+        # them"; `result_message_id` on a failed run means the target ANSWERED before the run was
+        # reaped, so apologising for non-delivery would be false. Checking only the handoff marker
+        # sent a failure notice to senders whose question had in fact been answered — caught by this
+        # file's anti-vacuity test while the H2 fix was being written.
+        return _has("handoff_message_id") or _has("result_message_id")
+    return _has("result_message_id")
+
+
 async def _mirror_missing_dispatch_handoff(db, row) -> Optional[str]:
-    if not row or not _row_require_reply(row) or str(row["result_message_id"] or "").strip():
+    if not row or not _row_require_reply(row) or _already_mirrored(row):
         return None
     if _is_delivery_only_claude_run(row):
         return None
@@ -98,10 +122,31 @@ async def _mirror_missing_dispatch_handoff(db, row) -> Optional[str]:
             ts,
         ),
     )
-    await db.execute(
-        "UPDATE dispatch_runs SET result_message_id = ? WHERE id = ?",
-        (message_id, row["id"]),
-    )
+    # H2 (external review 2026-08-18), ruled by comms-senior-dev: "an auto-mirrored/system failure
+    # notice may NOT satisfy a require_reply contract. result_message_id is reserved for an actual
+    # answer by the obligated target, an explicit operator closure, or another intentionally-authored
+    # reply with a real actor. A synthetic notice that says the target never ran is evidence of
+    # NON-delivery, not fulfilment."
+    #
+    # So a failed/cancelled run records that the sender was TOLD, and leaves the contract open. This
+    # visibly leaves more contracts open than before, and that is the correct truth-preserving
+    # behaviour rather than a regression.
+    #
+    # It needs its own column because `result_message_id` was doubling as the already-mirrored marker
+    # (`_sweep_unmirrored_failed_handoffs` selects on it being empty). Simply not writing it would
+    # have re-mirrored every swept run on every reconcile pass — a notice storm to the sender, which
+    # is worse than the bug being fixed.
+    if status in ("failed", "cancelled"):
+        await db.execute(
+            "UPDATE dispatch_runs SET handoff_message_id = ? WHERE id = ?",
+            (message_id, row["id"]),
+        )
+    else:
+        # A COMPLETED run's handoff carries the target's own result, so it does close the contract.
+        await db.execute(
+            "UPDATE dispatch_runs SET result_message_id = ?, handoff_message_id = ? WHERE id = ?",
+            (message_id, message_id, row["id"]),
+        )
     await _append_dispatch_event(
         db,
         row["id"],

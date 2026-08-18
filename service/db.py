@@ -79,6 +79,7 @@ DISPATCH_RUN_MIGRATIONS = {
     "require_reply": "ALTER TABLE dispatch_runs ADD COLUMN require_reply INTEGER NOT NULL DEFAULT 0",
     "queue_if_busy": "ALTER TABLE dispatch_runs ADD COLUMN queue_if_busy INTEGER NOT NULL DEFAULT 0",
     "steer_if_busy": "ALTER TABLE dispatch_runs ADD COLUMN steer_if_busy INTEGER NOT NULL DEFAULT 0",
+    "handoff_message_id": "ALTER TABLE dispatch_runs ADD COLUMN handoff_message_id TEXT DEFAULT ''",
 }
 
 MESSAGE_MIGRATIONS = {
