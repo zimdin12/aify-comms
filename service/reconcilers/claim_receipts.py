@@ -17,6 +17,19 @@ a spawn sat `running` for 97 minutes because `report_terminal_dead` was one of ~
 and simply was not called (`590e995`). Cleanup that must hold for EVERY path keys on the STATE. A
 fifteenth failure path added next month is covered by this without anyone remembering it exists.
 
+WHAT "NEVER STARTED" ACTUALLY MEANS HERE — corrected 2026-08-18 by live measurement, hours after the
+first version shipped. I originally keyed this on `started_at IS NULL`, and my test passed because the
+fixture set that column. Production does not: `started_at` is populated on ONE row out of ~18,700, so
+the guard was very nearly vacuous, and 53 runs qualified. Of those, 38 carried a `result_message_id`
+— the target had REPLIED — and others carried a `summary`. Releasing those would have resurfaced mail
+an agent demonstrably read and answered, which is a new bug traded for the old one.
+
+So the real discriminator is EVIDENCE OF CONSUMPTION, not a timestamp nobody writes: a run that
+produced a reply or a summary was delivered, whatever its status column says afterwards. With that
+added the set drops from 53 to 11, and those 11 are the genuine shape — "claimed without ever
+starting a turn", no reply, no output. `started_at` is kept because it is correct when present, but it
+is belt-and-braces and this file no longer pretends otherwise.
+
 WHAT MAKES IT SAFE TO DELETE — the timestamp, which is exact rather than approximate. The claim
 inserts the receipt with `read_at = claimed_at`, and it uses `INSERT OR IGNORE`, so a receipt the
 agent had ALREADY earned by genuinely reading the message is left untouched with its own `read_at`.
@@ -74,6 +87,10 @@ async def _release_receipts_from_unstarted_runs(db, *, limit: int = 200) -> int:
         WHERE status IN ({placeholders})
           AND claimed_at IS NOT NULL AND claimed_at != ''
           AND (started_at IS NULL OR started_at = '')
+          -- EVIDENCE OF CONSUMPTION, and this is the load-bearing half. See the module docstring:
+          -- `started_at` is written on almost nothing, so it cannot carry this on its own.
+          AND (result_message_id IS NULL OR result_message_id = '')
+          AND (summary IS NULL OR summary = '')
         ORDER BY finished_at DESC, rowid DESC
         LIMIT ?
         """,

@@ -41,7 +41,8 @@ CREATE TABLE read_receipts (
 );
 CREATE TABLE dispatch_runs (
     id TEXT PRIMARY KEY, status TEXT, target_agent TEXT, message_id TEXT, body TEXT DEFAULT '',
-    claimed_at TEXT, started_at TEXT, finished_at TEXT
+    claimed_at TEXT, started_at TEXT, finished_at TEXT,
+    result_message_id TEXT DEFAULT '', summary TEXT DEFAULT ''
 );
 """
 
@@ -54,13 +55,14 @@ async def _db():
 
 
 async def _seed(db, *, run_id="run-1", status="failed", claimed_at=CLAIMED_AT, started_at="",
-                receipt_at=CLAIMED_AT, body=""):
+                receipt_at=CLAIMED_AT, body="", result_message_id="", summary=""):
     await db.execute("INSERT INTO messages (id, from_agent, to_agent, subject, body, timestamp) "
                      "VALUES ('m1','sender','target','Do the thing','please', 1)")
     await db.execute(
-        "INSERT INTO dispatch_runs (id, status, target_agent, message_id, body, claimed_at, started_at, finished_at) "
-        "VALUES (?,?,?,?,?,?,?,?)",
-        (run_id, status, "target", "m1", body, claimed_at, started_at, "2026-08-18T01:05:00Z"),
+        "INSERT INTO dispatch_runs (id, status, target_agent, message_id, body, claimed_at, started_at, "
+        "finished_at, result_message_id, summary) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (run_id, status, "target", "m1", body, claimed_at, started_at, "2026-08-18T01:05:00Z",
+         result_message_id, summary),
     )
     if receipt_at is not None:
         await db.execute("INSERT INTO read_receipts (message_id, agent_id, read_at) VALUES ('m1','target',?)",
@@ -154,6 +156,44 @@ class WhatMustNotBeTouched(unittest.TestCase):
                 self.assertEqual(await _release_receipts_from_unstarted_runs(db), 0)
                 self.assertEqual(await _unread_for(db, "target"), [],
                                  "a message the agent actually received came back as unread")
+            finally:
+                await db.close()
+        run(scenario())
+
+    def test_a_run_that_produced_a_REPLY_keeps_its_receipt(self):
+        """THE CASE THAT MATTERED, and my first version got it wrong.
+
+        Measured on the live database hours after shipping: `started_at` is populated on ONE row out
+        of ~18,700, so keying "never started" on it was very nearly vacuous. 53 runs qualified — and
+        38 of them carried a `result_message_id`, meaning the target had REPLIED. Releasing those
+        would have resurfaced mail an agent demonstrably read and answered.
+
+        A reply is unambiguous evidence of consumption whatever the status column says afterwards
+        ("Turn ended without a reply — the worker turn is presumed dead" is a real error_text on runs
+        that had in fact delivered). With this gate the set drops from 53 to 11, and those 11 are the
+        genuine shape.
+        """
+        async def scenario():
+            db = await _db()
+            try:
+                await _seed(db, status="failed", result_message_id="reply-msg-1")
+                self.assertEqual(await _release_receipts_from_unstarted_runs(db), 0,
+                                 "a run whose target REPLIED had its receipt released")
+                self.assertEqual(await _unread_for(db, "target"), [],
+                                 "a message the agent read and answered came back as unread")
+            finally:
+                await db.close()
+        run(scenario())
+
+    def test_a_run_that_produced_a_SUMMARY_keeps_its_receipt(self):
+        # The other consumption signal on the same rows: output was produced, so the content reached
+        # the worker even though the run later failed.
+        async def scenario():
+            db = await _db()
+            try:
+                await _seed(db, status="failed", summary="did the thing, then the turn died")
+                self.assertEqual(await _release_receipts_from_unstarted_runs(db), 0,
+                                 "a run that produced output had its receipt released")
             finally:
                 await db.close()
         run(scenario())
