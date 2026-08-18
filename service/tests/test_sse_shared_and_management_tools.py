@@ -67,6 +67,46 @@ class SharedFileToolTests(unittest.TestCase):
         out, _ = _with_api(sf, sf.comms_read, {"content": "raw", "meta": {}}, name="x")
         self.assertEqual("raw", out)
 
+    def test_files_is_BOUNDED_and_admits_what_it_withheld(self):
+        """Measured live 2026-08-18: this tool took no parameters and returned all 333 shared
+        artifacts — 87,014 characters, which the caller's harness refused to inline. An unbounded
+        list is a claim on the agent's own context, and a truncated one that does not admit it is
+        truncated reads as "that is everything"."""
+        many = [{"name": f"f{i}.py", "size": i, "from": "coder", "sharedAt": "t"} for i in range(120)]
+        out, _ = _with_api(sf, sf.comms_files, {"files": many})
+        listed = [line for line in out.splitlines() if line.startswith("- ")]
+        self.assertEqual(len(listed), 50, "the default cap did not apply")
+        self.assertIn("showing 50 of 120", out, "the reply did not say what it withheld")
+        self.assertIn("limit=", out, "the reply did not say how to see more")
+
+    def test_files_limit_query_and_fromAgent_narrow_the_list(self):
+        files = [
+            {"name": "alpha.py", "size": 1, "from": "coder", "sharedAt": "t", "description": "parser notes"},
+            {"name": "beta.py", "size": 2, "from": "tester", "sharedAt": "t"},
+            {"name": "gamma.md", "size": 3, "from": "coder", "sharedAt": "t"},
+        ]
+        by_agent, _ = _with_api(sf, sf.comms_files, {"files": files}, fromAgent="coder")
+        self.assertIn("alpha.py", by_agent)
+        self.assertIn("gamma.md", by_agent)
+        self.assertNotIn("beta.py", by_agent)
+
+        by_name, _ = _with_api(sf, sf.comms_files, {"files": files}, query="beta")
+        self.assertIn("beta.py", by_name)
+        self.assertNotIn("alpha.py", by_name)
+
+        # description matches too — the useful case when a name is a hash
+        by_desc, _ = _with_api(sf, sf.comms_files, {"files": files}, query="parser")
+        self.assertIn("alpha.py", by_desc)
+
+        capped, _ = _with_api(sf, sf.comms_files, {"files": files}, limit=1)
+        self.assertEqual(len([l for l in capped.splitlines() if l.startswith("- ")]), 1)
+
+    def test_files_says_how_many_exist_when_a_FILTER_matched_nothing(self):
+        """"No results" and "no results here" are different facts — the second one needs the total."""
+        files = [{"name": "a.py", "size": 1, "from": "coder", "sharedAt": "t"}]
+        out, _ = _with_api(sf, sf.comms_files, {"files": files}, query="nothing-matches-this")
+        self.assertIn("1 shared in total", out)
+
     def test_files_empty_says_empty(self):
         out, _ = _with_api(sf, sf.comms_files, {"files": []})
         self.assertEqual("No shared artifacts.", out)

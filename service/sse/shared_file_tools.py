@@ -55,18 +55,53 @@ async def comms_read(name: str) -> str:
     return f'"{name}" -- binary file on server.'
 
 
-async def comms_files() -> str:
-    """List all shared artifacts."""
+async def comms_files(query: str = "", fromAgent: str = "", limit: int = 50) -> str:
+    """List shared artifacts.
+
+    BOUNDED, and it did not used to be. This tool took NO parameters and returned every artifact the
+    fleet had ever shared — measured live on 2026-08-18 at 333 files / 87,014 characters, which the
+    caller's harness refused to inline. An unbounded list is not a listing, it is a claim on the
+    agent's own context: the reply crowds out the work it was supposed to inform.
+
+    `limit` caps it, `query` matches name or description, `fromAgent` filters by sharer. The reply
+    always says how many were withheld, for the same reason `comms_search` says what it searched — a
+    truncated list that does not admit it is truncated reads as "that is everything".
+    """
     r = await _api("GET", "/shared")
+    if "detail" in r:
+        return f"Error: {r['detail']}"
     files = r.get("files", [])
-    if not files:
+    total = len(files)
+    needle = (query or "").strip().lower()
+    sharer = (fromAgent or "").strip().lower()
+    if sharer:
+        files = [f for f in files if str(f.get("from", "")).strip().lower() == sharer]
+    if needle:
+        files = [
+            f for f in files
+            if needle in str(f.get("name", "")).lower() or needle in str(f.get("description", "")).lower()
+        ]
+    matched = len(files)
+    try:
+        capped = max(1, int(limit))
+    except (TypeError, ValueError):
+        capped = 50
+    shown = files[:capped]
+    if not shown:
+        # The total is only worth saying when a FILTER hid things — "0 matched, 333 exist" is the
+        # useful sentence. On a genuinely empty store it is noise, and an existing test says so.
+        if needle or sharer:
+            return f"No shared artifacts matching that filter. ({total} shared in total.)"
         return "No shared artifacts."
     lines = [
         f"- {f['name']} ({f.get('size', 0)}B, from: {f.get('from', '?')}, {f.get('sharedAt', '')})"
         + (f" -- {f['description']}" if f.get("description") else "")
-        for f in files
+        for f in shown
     ]
-    return "\n".join(lines)
+    footer = f"\n\n(showing {len(shown)} of {matched} matched; {total} shared in total)"
+    if matched > len(shown):
+        footer += " — narrow with query=/fromAgent= or raise limit="
+    return "\n".join(lines) + footer
 
 
 #: Registered in the order they were declared in the transport. Named explicitly rather than swept

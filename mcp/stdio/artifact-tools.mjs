@@ -213,31 +213,66 @@ export function registerArtifactTools(server, z) {
 
   server.tool(
     "comms_files",
-    "List all shared artifacts.",
-    {},
-    async () => {
-      if (IS_REMOTE) {
-        const r = await httpCall("GET", "/shared");
-        if (!r.files.length) return { content: [{ type: "text", text: "No shared artifacts." }] };
-        const lines = r.files.map((f) =>
+    "List shared artifacts. Bounded — pass query/fromAgent to narrow, limit to see more.",
+    {
+      query: z.string().optional().describe("Match against artifact name or description"),
+      fromAgent: z.string().optional().describe("Only artifacts shared by this agent"),
+      limit: z.number().optional().describe("Max artifacts to list (default 50)"),
+    },
+    async ({ query, fromAgent, limit } = {}) => {
+      // BOUNDED, and it did not used to be. This tool took NO parameters and returned every artifact
+      // the fleet had ever shared — measured live 2026-08-18 at 333 files / 87,014 characters, which
+      // the caller's harness refused to inline. An unbounded list is a claim on the agent's own
+      // context: the reply crowds out the work it was supposed to inform. The footer always says how
+      // many were withheld, for the same reason comms_search says what it searched.
+      const cap = Math.max(1, Number.isFinite(Number(limit)) ? Number(limit) : 50);
+      const render = (all) => {
+        const needle = String(query || "").trim().toLowerCase();
+        const sharer = String(fromAgent || "").trim().toLowerCase();
+        let matched = all;
+        if (sharer) matched = matched.filter((f) => String(f.from || "").trim().toLowerCase() === sharer);
+        if (needle) {
+          matched = matched.filter((f) => String(f.name || "").toLowerCase().includes(needle)
+            || String(f.description || "").toLowerCase().includes(needle));
+        }
+        const shown = matched.slice(0, cap);
+        if (!shown.length) {
+          // The total is only worth saying when a FILTER hid things — "0 matched, 333 exist" is the
+          // useful sentence. On a genuinely empty store it is noise.
+          return (query || fromAgent)
+            ? `No shared artifacts matching that filter. (${all.length} shared in total.)`
+            : "No shared artifacts.";
+        }
+        const lines = shown.map((f) =>
           `- ${f.name} (${f.size}B, from: ${f.from}, ${f.sharedAt})${f.description ? ` -- ${f.description}` : ""}`
         );
-        return { content: [{ type: "text", text: lines.join("\n") }] };
+        const more = matched.length > shown.length
+          ? " — narrow with query=/fromAgent= or raise limit="
+          : "";
+        return `${lines.join("\n")}\n\n(showing ${shown.length} of ${matched.length} matched; `
+          + `${all.length} shared in total)${more}`;
+      };
+      if (IS_REMOTE) {
+        const r = await httpCall("GET", "/shared");
+        return { content: [{ type: "text", text: render(r.files || []) }] };
       }
 
       try {
-        const files = fs.readdirSync(SHARED_DIR).filter((f) => !f.endsWith(".meta.json"));
-        if (!files.length) return { content: [{ type: "text", text: "No shared artifacts." }] };
-        const lines = files.map((f) => {
-          try {
-            const meta = JSON.parse(fs.readFileSync(path.join(SHARED_DIR, f + ".meta.json"), "utf-8"));
-            return `- ${f} (${meta.size}B, from: ${meta.from}, ${meta.sharedAt})${meta.description ? ` -- ${meta.description}` : ""}`;
-          } catch {
-            const stat = fs.statSync(path.join(SHARED_DIR, f));
-            return `- ${f} (${stat.size}B)`;
-          }
-        });
-        return { content: [{ type: "text", text: lines.join("\n") }] };
+        // Local mode goes through the SAME renderer: the bound, the filters and the "showing N of M"
+        // footer are properties of the TOOL, not of the remote transport. Two modes that answer the
+        // same question differently is how a caller learns one set of habits and has them fail in the
+        // other deployment.
+        const entries = fs.readdirSync(SHARED_DIR)
+          .filter((f) => !f.endsWith(".meta.json"))
+          .map((f) => {
+            try {
+              const meta = JSON.parse(fs.readFileSync(path.join(SHARED_DIR, f + ".meta.json"), "utf-8"));
+              return { name: f, size: meta.size, from: meta.from, sharedAt: meta.sharedAt, description: meta.description };
+            } catch {
+              return { name: f, size: fs.statSync(path.join(SHARED_DIR, f)).size, from: "?", sharedAt: "" };
+            }
+          });
+        return { content: [{ type: "text", text: render(entries) }] };
       } catch {
         return { content: [{ type: "text", text: "No shared artifacts." }] };
       }
