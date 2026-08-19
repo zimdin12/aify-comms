@@ -64,7 +64,7 @@ could make one of them true.
 | `.claude/skills/aify-comms/` | Usage skill — tool reference, workflow, status table, multi-instance matrix. |
 | `.claude/skills/aify-comms-debug/` | Troubleshooting skill — known issues and fixes. |
 | `.agents/skills/aify-comms*/` | Mirrors of the two skills for Codex agents. Keep in sync. |
-| `wrappers/*.sh.in` | **v0.6 Phase 2.** The launcher bodies for claude, codex and pi, as real files. `install.sh` renders them with `render_wrapper_template`, substituting `@@TOKEN@@` placeholders and stripping `#|` template-only comments. They lived in unquoted heredocs where every runtime `$` had to be written `\$`; as files they are diffable, reviewable and `bash -n`-able. Each move was proven BYTE-IDENTICAL before any behaviour changed. Hermes is sequenced last and is still a heredoc. |
+| `wrappers/*.sh.in` | **v0.6 Phase 2.** All four launcher bodies — claude, codex, pi, hermes — as real files. `install.sh` renders them with `render_wrapper_template`, substituting `@@TOKEN@@` placeholders and stripping `#|` template-only comments; hermes also passes `KEY=VALUE` extras for the three values only an install can compute. They lived in unquoted heredocs where every runtime `$` had to be written `\$` — hermes carried 90 escaped backticks — and as files they are diffable, reviewable and `bash -n`-able. Every move was proven BYTE-IDENTICAL before any behaviour changed, which is how the extraction caught an escaped backtick bug that had been silently blanking a comment in every installed hermes-aify. **install.sh 4,371 → 2,934.** |
 | `install.sh` | Client installer. Targets Claude, Codex, or Hermes via `--client` (OpenCode/Pi installs are intentionally disabled). `--emit-wrappers <dir>` renders a wrapper and EXITS before npm, MCP registration or any env mutation — which is what lets the suite render and run the real launchers on a machine with a live fleet. |
 | `examples/team-setup/` | Example team definition (manager, coder, tester, etc.) showing how to register a multi-role team. |
 
@@ -178,7 +178,7 @@ not a fix**: appending an entry to make a red test green is the exact move the g
 which ships in the container — and the JS half's two hand-listed roots covered everything only by
 coincidence. Neither hole was visible from the result: an unguarded population reports green exactly like a
 guarded one. **Shell and CSS are deliberately OUT of scope** and each gate says so in a test, because
-`install.sh` (~3,570 lines, down from 4,371 as the wrapper bodies moved to `wrappers/`) and `service/new_dashboard/styles.css` (1,844) are non-test source over the
+`install.sh` (2,934 lines, down from 4,371 once all four wrapper bodies moved to `wrappers/`) and `service/new_dashboard/styles.css` (1,844) are non-test source over the
 limit and bringing them in is an open reviewer question, not a widening to do quietly.
 
 The failure this gate was built from: a v0.5.4 relocation moved a 6-line helper into `service/db.py` — the

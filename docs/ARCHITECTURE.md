@@ -33,10 +33,17 @@ reload differently: a bridge is a running process, so new code on disk means not
 re-run (`wrapper-current`). The two doctor checks say opposite things on purpose — one says RESTART,
 the other says REINSTALL.
 
-Since v0.6 the bodies for claude, codex and pi live in [`wrappers/`](../wrappers) as `*.sh.in`
-templates rather than inside `install.sh` heredocs, and each reads six `HARNESS_*` inputs a host
-supplies rather than knowing it belongs to aify-comms. Hermes is sequenced last and is still a
-heredoc. See [the wrapper contract](superpowers/specs/2026-08-19-harness-wrapper-contract.md).
+Since v0.6 all four bodies live in [`wrappers/`](../wrappers) as `*.sh.in` templates rather than
+inside `install.sh` heredocs, and each reads six `HARNESS_*` inputs a host supplies rather than
+knowing it belongs to aify-comms. See
+[the wrapper contract](superpowers/specs/2026-08-19-harness-wrapper-contract.md).
+
+**Only three of the four can be tested by running them.** claude, codex and pi each have a harness
+that renders the wrapper, puts a stub on PATH under the runtime's name and executes it. Hermes does
+not: before it execs anything it reaps by agent id, and one of those reaps kills whatever holds the
+port derived from that id — so a test id colliding with a live agent's port would kill the
+operator's gateway host. Hermes is guarded by rendered-text assertions instead, and that asymmetry
+is deliberate rather than unfinished.
 
 **A bridge is not a client of the service; it is a peer.** It long-polls for work, claims it, runs
 it, and reports back. This is why an agent can be *registered* and completely unable to receive
