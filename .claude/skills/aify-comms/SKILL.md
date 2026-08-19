@@ -165,7 +165,7 @@ Dashboard is a special store-only recipient for human-visible updates. Use `comm
 ## Channels
 
 - Use DMs for owned handoffs; use channels for shared decisions/status.
-- In channels, reply when named, responsible, asked a question, or holding useful evidence. Avoid broad automatic acknowledgement loops.
+- In channels, reply when named, responsible, asked a question, or holding useful evidence. Otherwise PASS: read it and stay quiet.
 - `comms_channel_send` creates one canonical channel post plus member fan-out; do not duplicate the same handoff in DM and channel unless both surfaces are needed.
 - `comms_channel_read` reads canonical channel history; use narrow limits.
 

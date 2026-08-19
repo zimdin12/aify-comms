@@ -18,7 +18,7 @@ apply the general form. If a rule only makes sense for code, it is written wrong
 - `operator`: manages environments, sessions, runtime settings, compaction, recovery.
 - `driver`/owner: owns the integrated result end-to-end and the seams between lanes; personally exercises the whole thing before "done." Distinct from per-lane ownership — tracking status is not the same as owning that it works. Usually the lead also drives. (See `references/building-software.md`.)
 
-Roles are operating modes, not rigid permissions. The owner of a contract acts; others avoid broad unsolicited acknowledgements.
+Roles are operating modes, not rigid permissions. The owner of a contract acts; everyone else passes.
 
 ## Work Contract Shape
 
@@ -111,7 +111,11 @@ avoid both missing inputs and repeated context.
   instead of nesting `Re: … Re: … latest: …`. (Measured here: 2,021 subjects over 200 characters, worst case 1,834 — a whole report in the
   subject line, so read by nobody and searched by nobody.)
 - **Keep intent inline.** Put the owner, decision, ask, and completion condition in the message. Point to a shared path or `comms_share` artifact for bulky detail.
-- **No courtesy loop.** A terminal `APPROVE`, result, or thanks ends the thread unless it creates new work.
+- **PASS is a move. Make it.** When a message carries no decision, evidence or ask for you, PASS:
+  read it, mark it, let the thread settle. A terminal `APPROVE`, result or thanks is where a
+  thread is meant to stop. Written as an action rather than a ban, because a ban puts the banned
+  behaviour in front of you. (Hermes Bot Mode: bots "reply briefly or pass"; a room settles when
+  a full round stays silent.)
 - **Promises need a wake.** Before ending a turn with future work, create the follow-up contract or self-wake. Written `Next:` text is not scheduling.
 - **DM owners; channel shared state.** Post a settled decision once on the team channel. Send a DM only to the person who must act. The same text to several people belongs on a channel.
 - **Delegate inside your lane; route across lanes.** Native subagents can help an owner; they must not shadow another teammate's role.

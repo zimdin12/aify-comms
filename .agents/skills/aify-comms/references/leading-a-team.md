@@ -135,6 +135,34 @@ creates them at kickoff; "we'll remember" is not a plan.
 - **Stuck? Peek before you re-spawn or remind.** When an agent looks stalled or owes an overdue reply, read what it is actually doing first — `comms_console_tail(agentId="...")` for a managed agent, or a focused `[STATUS]` probe for a resident — BEFORE you re-spawn it or fire a reminder. The console reveals mid-build vs waiting-at-a-prompt vs looping vs errored; reach for it as the reflex, not the filesystem.
 - **Right-size the rigor.** Scale review depth and teammate count to task complexity and risk. Do not run the full multi-reviewer gauntlet on trivial/low-risk work — more agents and more review rounds are a COST, not a virtue; spend them where they buy something. (See `references/building-software.md`.)
 - **Scope the context you hand down.** When you delegate, give each agent only the inputs that subtask needs — the specific file, the one prior result, the exact decision — not the whole thread. Broadcasting full history burns the delegate's context and tokens for no benefit, and a focused brief gets a sharper answer. If two agents don't need each other's output, don't cross-pollinate it; if one does, name the exact artifact (`comms_share` + a one-line pointer) rather than pasting it. Put shared DECISIONS everyone needs (frozen contracts, API shapes, integration order) on a team CHANNEL via `comms_channel_send`, not scattered across DMs — DMs are for owned 1:1 handoffs. (Context-scoping discipline — cf. the "Conductor" access-list idea, arXiv:2512.04388.)
+- **Say what blocks what, in the brief itself.** A split into parallel lanes usually has an order
+  hiding inside it: lane B cannot start until lane A's interface exists. If that order lives only in
+  your head it dies when your context does, and the worker who reaches the dependency has to guess
+  between waiting, improvising and asking. Give each lane the lanes that BLOCK it, by name, in its
+  own brief — then work the FRONTIER: the lanes whose blockers have all closed. A lane with no
+  blockers starts immediately. This is also the honest answer to "what can I parallelise?", which
+  is a different question from "what is independent?": most work is neither fully independent nor
+  fully serial, and writing the edges down is what separates the two. (Blocking edges + frontier —
+  cf. Matt Pocock's `to-tickets` skill.)
+- **Hand down CAPABILITY, not just context.** Scoping the inputs is half a brief; the other half is
+  saying what to LOAD. A fresh teammate does not know this repo has an `aify-comms-debug` skill, or
+  which reference answers the question you just handed them — and discovering that costs a
+  round-trip you could have spent on the work. Name it: *"read `references/operations.md` (Send
+  Gating) first"*, *"call the Skill tool for aify-comms-debug"*. A delegate that starts from the
+  right document gives a different answer, not merely a faster one. (cf. Matt Pocock's `handoff`
+  skill, which ends every handoff with the skills the next agent should invoke.)
+- **Word the pointer so it gets opened.** `comms_share` moves bulk out of a message, but an
+  artifact nobody opens has been hidden rather than shared, and it is the POINTER that decides
+  which — not the artifact. Say what the thing is and what the reader will find in it: *"the
+  40-line failing diff; the assertion that fires is at the bottom"*, not *"see attached"*. A
+  must-read artifact behind a weak pointer is not a failure of the reader's diligence.
+- **Give the review cycle a round budget.** The loop in [teamwork.md](teamwork.md) cycles
+  implement → review → revise "until a reviewer returns `APPROVE`" — a termination condition with
+  nothing bounding when it arrives. Decide the budget when you open the lane, and say it in the
+  brief. If a third round has not converged, the rounds are no longer the instrument: the brief is
+  wrong, the reviewer and worker disagree about the standard, or the slice is too big. Escalate or
+  re-cut it rather than spending a fourth. (Hermes Bot Mode caps a room at three serial rounds for
+  the same reason.)
 - **Some evidence is PERISHABLE — order the work around it.** Before authorising a change, ask what
   becomes impossible to observe once it lands, and collect that FIRST: the "before" measurement, the
   current state of the thing being replaced, the reproduction of the fault being fixed, the
