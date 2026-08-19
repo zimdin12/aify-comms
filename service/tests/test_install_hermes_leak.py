@@ -14,6 +14,13 @@ Covers:
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+import tempfile
+from functools import lru_cache
+
+import pytest
+
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -24,6 +31,30 @@ def _read_install_sh() -> str:
     return INSTALL_SH.read_text(encoding="utf-8")
 
 
+# ── the RENDERED hermes-aify wrapper ────────────────────────────────────────────────────────────
+#
+# Added 2026-08-19 (v0.6 Phase 2), when the wrapper body moved out of install.sh into
+# wrappers/hermes-aify.sh.in. Tests that assert on the WRAPPER read this; tests that assert on the
+# INSTALLER (the .ps1 shim, plugin patches, config rewrites) keep reading install.sh, because that is
+# still where those live. A location pin breaks on a move and stays green on a defect — asking the
+# artifact an operator installs is immune to both.
+@lru_cache(maxsize=1)
+def _read_hermes_wrapper() -> str:
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash not on PATH — hermes wrapper render skipped")
+    with tempfile.TemporaryDirectory(prefix="aify-hermes-render-") as tmp:
+        subprocess.run(
+            [bash, str(INSTALL_SH), "--client", "hermes", "http://127.0.0.1:8899",
+             "--emit-wrappers", tmp],
+            check=True,
+            capture_output=True,
+        )
+        wrapper = Path(tmp) / "hermes-aify"
+        assert wrapper.exists(), "--emit-wrappers must produce hermes-aify"
+        return wrapper.read_text(encoding="utf-8")
+
+
 # --- P1: kill-prior reaps the prior resume-TUI -----------------------------
 
 
@@ -31,7 +62,7 @@ def test_bash_kill_prior_reaps_prior_resume_tui_pre_spawn_only():
     """bash aify_hermes_kill_prior must reap a prior `hermes --tui --resume
     <pinnedSession>` matched on the EXACT pinned handle, gated to the pre-spawn
     call (exclude_pid empty)."""
-    text = _read_install_sh()
+    text = _read_hermes_wrapper()
     fn_idx = text.find("aify_hermes_kill_prior() {")
     assert fn_idx > 0, "aify_hermes_kill_prior helper not found"
     # Bound by the sentinel comment that follows the function, not a fixed char window
@@ -48,7 +79,7 @@ def test_bash_kill_prior_reaps_prior_resume_tui_pre_spawn_only():
     assert "--tui --resume" in fn, "kill-prior must match `--tui --resume <realId>`"
     # PRE-spawn only: the resume-TUI reap is gated behind the empty-exclude_pid
     # guard so the post-spawn call never kills the TUI we just exec'd.
-    assert 'if [ -z "\\$exclude_pid" ]' in fn, (
+    assert 'if [ -z "$exclude_pid" ]' in fn, (
         "the resume-TUI reap must be gated to the pre-spawn call (exclude_pid empty)"
     )
     # Scoped: never a blanket `pkill -f 'hermes --tui'` with no handle.
@@ -96,10 +127,10 @@ def test_bash_resident_branch_tears_down_daemon_on_tui_exit():
     as a CHILD (not `exec`) so the trap can fire. Preserve the intent: the branch
     reaps its background process on TUI exit and never bare-execs the TUI.
     """
-    text = _read_install_sh()
+    text = _read_hermes_wrapper()
     # Locate the unified gateway-host branch (agent id present, no passthrough args).
     idx = text.find(
-        'if [ -n "\\$HERMES_AIFY_AGENT_ID" ] && [ \\${#HERMES_ARGS[@]} -eq 0 ]; then'
+        'if [ -n "$HERMES_AIFY_AGENT_ID" ] && [ ${#HERMES_ARGS[@]} -eq 0 ]; then'
     )
     assert idx > 0, "bash gateway-host (resident/managed) branch not found"
     # Bound the branch by the stable sentinel comment that immediately follows its closing
@@ -111,14 +142,14 @@ def test_bash_resident_branch_tears_down_daemon_on_tui_exit():
     assert end > idx, "could not bound the bash gateway-host branch (sentinel comment missing)"
     branch = text[idx:end]
     # It must NOT bare-exec the TUI (exec replaces the shell and skips teardown).
-    assert 'exec "\\$HERMES_RUNTIME_COMMAND" --tui' not in branch, (
+    assert 'exec "$HERMES_RUNTIME_COMMAND" --tui' not in branch, (
         "resident branch must not bare-exec the TUI; it must reap the loop on exit"
     )
     # It captures the detached delivery-loop PID and installs an exit trap.
-    assert 'HERMES_LOOP_PID="\\$!"' in branch, (
+    assert 'HERMES_LOOP_PID="$!"' in branch, (
         "resident branch must capture the detached delivery-loop PID to reap it"
     )
-    assert '_aify_hermes_on_exit() { kill "\\$HERMES_LOOP_PID"' in branch, (
+    assert '_aify_hermes_on_exit() { kill "$HERMES_LOOP_PID"' in branch, (
         "resident branch must define a teardown that kills the delivery loop"
     )
     assert "trap _aify_hermes_on_exit EXIT INT TERM" in branch, (
@@ -126,7 +157,7 @@ def test_bash_resident_branch_tears_down_daemon_on_tui_exit():
     )
     # And it must invoke that teardown after the (child) TUI returns (the TUI
     # runs as a child, then the wrapper calls _aify_hermes_on_exit + exits).
-    assert "_aify_hermes_on_exit\n    exit \\$?" in branch or "_aify_hermes_on_exit\n  exit \\$?" in branch, (
+    assert "_aify_hermes_on_exit\n    exit $?" in branch or "_aify_hermes_on_exit\n  exit $?" in branch, (
         "resident branch must reap the loop (its gateway host) after the TUI exits"
     )
 

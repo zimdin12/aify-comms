@@ -42,7 +42,18 @@ function placeholdersInTemplates() {
   return found;
 }
 
-/** Placeholders install.sh's renderer knows how to substitute. */
+/**
+ * Placeholders install.sh can actually substitute: the fixed set written into the renderer, plus the
+ * `KEY=VALUE` extras its call sites pass.
+ *
+ * The extras exist for hermes, whose generator computes three values that cannot be derived from the
+ * checkout — a Windows-converted plugin path, a node-openable bridge dir, and a prebuilt TUI bundle
+ * baked only when it exists. The renderer applies them through `@@${_pair%%=*}@@`, so no literal name
+ * appears in its body and scanning the body alone would report every hermes placeholder as unknown.
+ *
+ * Both halves are still derived from install.sh and NEITHER from the templates, which is what keeps
+ * the comparison below a real one rather than an assertion importing its own expected value.
+ */
 function placeholdersInRenderer() {
   const text = fs.readFileSync(INSTALL_SH, "utf8");
   const start = text.indexOf("render_wrapper_template() {");
@@ -50,7 +61,25 @@ function placeholdersInRenderer() {
   const end = text.indexOf("\n}\n", start);
   assert.ok(end > start, "render_wrapper_template must be a closed function");
   const body = text.slice(start, end);
-  return new Set([...body.matchAll(/@@([A-Z0-9_]+)@@/g)].map((m) => m[1]));
+  const fixed = [...body.matchAll(/@@([A-Z0-9_]+)@@/g)].map((m) => m[1]);
+
+  // Extras, read off every `render_wrapper_template … "NAME=$value"` argument. A call may be
+  // continued across lines with a trailing backslash, so the invocation is reassembled by joining
+  // continued lines rather than matched with one expression — a regex that has to model line
+  // continuation is a regex that quietly matches nothing when the continuation moves.
+  const extras = [];
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!lines[i].includes("render_wrapper_template ")) continue;
+    let invocation = lines[i];
+    let j = i;
+    while (invocation.trimEnd().endsWith("\\") && j + 1 < lines.length) {
+      j += 1;
+      invocation = `${invocation.trimEnd().slice(0, -1)} ${lines[j].trim()}`;
+    }
+    for (const arg of invocation.matchAll(/"([A-Z0-9_]+)=\$/g)) extras.push(arg[1]);
+  }
+  return new Set([...fixed, ...extras]);
 }
 
 test("wrappers/ holds at least one template — the scan is not silently empty", () => {

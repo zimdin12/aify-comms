@@ -15,6 +15,13 @@ shape; the failure path is non-fatal and exercised live by the operator.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+import tempfile
+from functools import lru_cache
+
+import pytest
+
 import re
 from pathlib import Path
 
@@ -36,6 +43,49 @@ HERMES_PLUGIN_DIR = REPO / "integrations" / "hermes-aify-plugin" / "aify_hermes_
 
 def _read_install_sh() -> str:
     return INSTALL_SH.read_text(encoding="utf-8")
+
+
+# ── the RENDERED hermes-aify wrapper ────────────────────────────────────────────────────────────
+#
+# Added 2026-08-19 (v0.6 Phase 2), when the wrapper body moved out of install.sh into
+# wrappers/hermes-aify.sh.in. Tests that assert on the WRAPPER read this; tests that assert on the
+# INSTALLER (the .ps1 shim, plugin patches, config rewrites) keep reading install.sh, because that is
+# still where those live. A location pin breaks on a move and stays green on a defect — asking the
+# artifact an operator installs is immune to both.
+@lru_cache(maxsize=1)
+def _read_hermes_wrapper() -> str:
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash not on PATH — hermes wrapper render skipped")
+    with tempfile.TemporaryDirectory(prefix="aify-hermes-render-") as tmp:
+        subprocess.run(
+            [bash, str(INSTALL_SH), "--client", "hermes", "http://127.0.0.1:8899",
+             "--emit-wrappers", tmp],
+            check=True,
+            capture_output=True,
+        )
+        wrapper = Path(tmp) / "hermes-aify"
+        assert wrapper.exists(), "--emit-wrappers must produce hermes-aify"
+        return wrapper.read_text(encoding="utf-8")
+
+
+# The rendered PowerShell TUI shim. Hermes is the only runtime needing a `.ps1` at all — it carries
+# the visible-TUI requirement on Windows — and `--emit-wrappers` writes it beside the bash wrapper.
+@lru_cache(maxsize=1)
+def _read_hermes_ps1() -> str:
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash not on PATH — hermes shim render skipped")
+    with tempfile.TemporaryDirectory(prefix="aify-hermes-ps1-") as tmp:
+        subprocess.run(
+            [bash, str(INSTALL_SH), "--client", "hermes", "http://127.0.0.1:8899",
+             "--emit-wrappers", tmp],
+            check=True,
+            capture_output=True,
+        )
+        shim = Path(tmp) / "hermes-aify.ps1"
+        assert shim.exists(), "--emit-wrappers must produce hermes-aify.ps1"
+        return shim.read_text(encoding="utf-8")
 
 
 def _defines(text: str, name: str) -> bool:
@@ -73,13 +123,13 @@ def test_hermes_wrapper_does_not_rediscover_from_gateway_history():
 
 def test_hermes_wrapper_exports_only_explicit_resume_handle_before_launch():
     """Only explicit --resume/--session-id should seed HERMES_SESSION_ID."""
-    text = _read_install_sh()
+    text = _read_hermes_wrapper()
     assert 'HERMES_EXPLICIT_SESSION_HANDLE="false"' in text
-    idx = text.find('if [ "\\$HERMES_EXPLICIT_SESSION_HANDLE" = "true" ]')
+    idx = text.find('if [ "$HERMES_EXPLICIT_SESSION_HANDLE" = "true" ]')
     assert idx > 0
     window = text[idx : idx + 350]
-    assert 'export HERMES_SESSION_ID="\\$HERMES_SESSION_HANDLE"' in window
-    assert 'export AIFY_SESSION_HANDLE="\\$HERMES_SESSION_HANDLE"' in window
+    assert 'export HERMES_SESSION_ID="$HERMES_SESSION_HANDLE"' in window
+    assert 'export AIFY_SESSION_HANDLE="$HERMES_SESSION_HANDLE"' in window
     assert 'export AIFY_EXPLICIT_SESSION_HANDLE="true"' in window
     assert 'if [ -n "$HERMES_SESSION_HANDLE" ]; then' not in text
 
@@ -93,10 +143,10 @@ def test_hermes_wrapper_consumes_resume_args_for_tui_default():
     `HERMES_PERMISSION_FLAGS` between `--tui` and `--resume`. The old
     `aify_hermes_run_foreground` helper no longer exists.
     """
-    text = _read_install_sh()
-    assert 'if [ "\\$PREV_ARG" = "--resume" ] || [ "\\$PREV_ARG" = "--session-id" ] || [ "\\$PREV_ARG" = "-r" ]; then' in text
-    assert 'HERMES_ARGS+=("\\$ARG")\n  if [ "\\$PREV_ARG" = "--resume" ]' not in text
-    assert 'exec "\\$HERMES_RUNTIME_COMMAND" --tui "\\${HERMES_PERMISSION_FLAGS[@]}" --resume "\\$HERMES_SESSION_HANDLE"' in text
+    text = _read_hermes_wrapper()
+    assert 'if [ "$PREV_ARG" = "--resume" ] || [ "$PREV_ARG" = "--session-id" ] || [ "$PREV_ARG" = "-r" ]; then' in text
+    assert 'HERMES_ARGS+=("$ARG")\n  if [ "$PREV_ARG" = "--resume" ]' not in text
+    assert 'exec "$HERMES_RUNTIME_COMMAND" --tui "${HERMES_PERMISSION_FLAGS[@]}" --resume "$HERMES_SESSION_HANDLE"' in text
 
 
 def test_hermes_wrapper_fallback_preserves_explicit_resume_handle():
@@ -110,15 +160,15 @@ def test_hermes_wrapper_fallback_preserves_explicit_resume_handle():
     only execs the raw `${HERMES_ARGS[@]}` passthrough when the operator
     actually supplied subcommand args.
     """
-    text = _read_install_sh()
+    text = _read_hermes_wrapper()
     helper_idx = text.find("aify_hermes_exec_plain_or_tui()")
     assert helper_idx > 0
     helper = text[helper_idx : helper_idx + 750]
     # Explicit --resume handle is preserved in the default-TUI branch.
-    assert 'exec "\\$HERMES_RUNTIME_COMMAND" --tui "\\${HERMES_PERMISSION_FLAGS[@]}" --resume "\\$HERMES_SESSION_HANDLE"' in helper
+    assert 'exec "$HERMES_RUNTIME_COMMAND" --tui "${HERMES_PERMISSION_FLAGS[@]}" --resume "$HERMES_SESSION_HANDLE"' in helper
     # The raw passthrough exec is gated behind a non-empty HERMES_ARGS check, so
     # an explicit handle is never dropped by an unconditional argv passthrough.
-    assert 'if [ \\${#HERMES_ARGS[@]} -eq 0 ]; then' in helper
+    assert 'if [ ${#HERMES_ARGS[@]} -eq 0 ]; then' in helper
 
     # The helper is wired in as the wrapper's terminal launch path.
     assert "\naify_hermes_exec_plain_or_tui\n" in text
@@ -128,9 +178,9 @@ def test_hermes_wrapper_fallback_preserves_explicit_resume_handle():
 
 def test_hermes_wrapper_forces_utf8_python_io():
     """Windows non-UTF-8 consoles must not crash Hermes subprocess readers."""
-    text = _read_install_sh()
-    assert 'export PYTHONUTF8="\\${PYTHONUTF8:-1}"' in text
-    assert 'export PYTHONIOENCODING="\\${PYTHONIOENCODING:-utf-8}"' in text
+    text = _read_hermes_wrapper()
+    assert 'export PYTHONUTF8="${PYTHONUTF8:-1}"' in text
+    assert 'export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"' in text
 
 
 def test_hermes_windows_shim_uses_powershell_not_git_bash_for_tui():
@@ -205,35 +255,36 @@ def test_hermes_wrapper_pins_stable_resume_session():
     way the resume target is deterministic, not discovered, and is honored via an
     explicit `--resume` flag (the env var alone is stripped).
     """
-    text = _read_install_sh()
+    text = _read_hermes_wrapper()
     # Bash: deterministic real-native-session-id resume, resolved up-front.
     assert "HERMES_RESUME_REAL_ID" in text, "bash wrapper must resolve a deterministic real session id up-front"
-    assert 'node "\\$AIFY_HERMES_MANAGED_HOST_JS" resolve-session' in text, (
+    assert 'node "$AIFY_HERMES_MANAGED_HOST_JS" resolve-session' in text, (
         "bash wrapper must converge the resume id against the live gateway (resolve-session)"
     )
-    assert '--tui --resume "\\$HERMES_RESUME_REAL_ID"' in text, (
+    assert '--tui --resume "$HERMES_RESUME_REAL_ID"' in text, (
         "bash wrapper must resume the resolved real session id via an explicit --resume"
     )
+    ps = _read_hermes_ps1()
     # PowerShell: native-session-id model parity (2026-06-03). The synthetic
     # pinned-session pin is GONE; the managed branch resumes the resolved real id.
-    assert '\\$env:HERMES_TUI_RESUME = \\$pinnedSession' not in text, (
+    assert '$env:HERMES_TUI_RESUME = $pinnedSession' not in ps, (
         "PowerShell wrapper must NOT pin a synthetic HERMES_TUI_RESUME session anymore"
     )
-    assert "\\$pinnedSession = 'aify-' +" not in text, (
+    assert "$pinnedSession = 'aify-' +" not in ps, (
         "PowerShell wrapper must NOT build a synthetic 'aify-<agentId>' resume handle anymore"
     )
-    assert "node \\$AifyHermesManagedHostJs resolve-session \\$HermesAifyAgentId" in text, (
+    assert "node $AifyHermesManagedHostJs resolve-session $HermesAifyAgentId" in ps, (
         "PowerShell wrapper must converge the resume id against the live gateway (resolve-session)"
     )
-    assert "Invoke-HermesRuntime (@('--tui', '--resume', \\$hermesResumeRealId) + \\$HermesPermissionFlags)" in text, (
+    assert "Invoke-HermesRuntime (@('--tui', '--resume', $hermesResumeRealId) + $HermesPermissionFlags)" in ps, (
         "PowerShell wrapper must resume the resolved real session id via an explicit --resume"
     )
     # PowerShell: re-export the gateway URL so the MCP child registers a real
     # ws:// gatewayUrl (parity with bash AIFY_HERMES_GATEWAY_URL fix).
-    assert "\\$env:AIFY_HERMES_GATEWAY_URL = \\$hermesHost.wsUrl" in text, (
+    assert "$env:AIFY_HERMES_GATEWAY_URL = $hermesHost.wsUrl" in ps, (
         "PowerShell wrapper must re-export AIFY_HERMES_GATEWAY_URL for resident-run registration"
     )
-    assert "--resume" in text, "wrapper must pass --resume so the session id is honored (env var alone is stripped)"
+    assert "--resume" in ps, "wrapper must pass --resume so the session id is honored (env var alone is stripped)"
 
 
 def test_hermes_installer_preserves_wrapper_active_session_file():
