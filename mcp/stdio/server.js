@@ -88,6 +88,7 @@ import { collectOnce as collectUsageOnce, collectConsumptionOnce } from "./usage
 import { AIFY_VERSION } from "./version.js";
 import { createManagedOwnershipReader } from "./managed-ownership.mjs";
 import { createManagedTeardownSweeps } from "./managed-teardown-sweeps.mjs";
+import { parseEffectiveCwdRoots, withEffectiveCwdRoots } from "./environment-cwd-roots.mjs";
 import { shouldSkipLoop } from "./loop-gate.mjs";
 import { main } from "./bridge-main.mjs";
 import { runDispatchLoop } from "./dispatch-loop.mjs";
@@ -734,21 +735,22 @@ const { runManagedTeardownForBridge, runManagedTeardownSync, runBootSurvivorSwee
 // _replyCaptureFallbackCache moved to ./required-reply-handoff.mjs in v0.5.4.
 // readReplyCaptureFallback moved to ./required-reply-handoff.mjs in v0.5.4.
 
+// The merge moved to ./environment-cwd-roots.mjs in v0.6 Phase 1; the STATE stays here, because
+// `remoteEffectiveCwdRoots` is written by heartbeatEnvironment below and splitting a mutable across two
+// modules leaves it with no owner.
 function effectiveEnvironmentPayload() {
-  const payload = environmentHeartbeatPayload();
-  if (remoteEffectiveCwdRoots && remoteEffectiveCwdRoots.length) {
-    return { ...payload, cwdRoots: remoteEffectiveCwdRoots };
-  }
-  return payload;
+  return withEffectiveCwdRoots(environmentHeartbeatPayload(), remoteEffectiveCwdRoots);
 }
 
 async function heartbeatEnvironment({ syncManaged = true } = {}) {
   if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: false, shuttingDown: shutdownStarted })) return false;
   try {
     const response = await httpCall("POST", "/environments/heartbeat", environmentHeartbeatPayload());
-    const roots = response?.environment?.cwdRoots;
-    if (Array.isArray(roots)) {
-      remoteEffectiveCwdRoots = roots.map((root) => String(root || "").trim()).filter(Boolean);
+    // `null` means the service said nothing about roots — keep what we had. An empty ARRAY means it
+    // said there are none, which is a different fact. See environment-cwd-roots.mjs.
+    const roots = parseEffectiveCwdRoots(response);
+    if (roots !== null) {
+      remoteEffectiveCwdRoots = roots;
     }
     if (syncManaged) await syncManagedEnvironmentAgents({ MACHINE_ID, effectiveEnvironmentPayload, ensureDispatchLoop, shutdownStarted });
     return true;
