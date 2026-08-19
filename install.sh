@@ -453,14 +453,11 @@ render_wrapper_template() {
   # ignored it. Same value unless an operator sets that variable, and honouring it is the correct half.
   text="${text//@@ENDPOINT@@/${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}}"
   text="${text//@@WRAPPER_VERSION@@/$wrapper_version}"
-  # The registry a launcher was built from. aify-comms does not read one yet — that arrives when
-  # it consumes the aify-wrapper package instead of rendering its own copies — so the honest value
-  # is "unknown" rather than a blank, which would read as "built from an empty registry" and is a
-  # different claim. See the wrapper package for what a real fingerprint is for.
+  # "unknown", not blank: aify-comms reads no registry yet, and blank would claim "built from an
+  # empty registry", which is a different thing from nobody having looked.
   text="${text//@@REGISTRY_FINGERPRINT@@/${AIFY_REGISTRY_FINGERPRINT:-unknown}}"
-  # Services that opted into strict mode, base64. Empty here: aify-comms reads no registry yet, so no
-  # service has opted in, and empty is the accurate answer rather than a placeholder. Unlike the
-  # fingerprint above, "unknown" would be wrong — the launcher branches on this being non-empty.
+  # Empty is accurate here, and unlike the fingerprint "unknown" would be WRONG: the launcher
+  # branches on this being non-empty and would try to base64-decode it.
   text="${text//@@STRICT_EXTRA_MCP_B64@@/}"
   text="${text//@@BRIDGE_DIR@@/$AIFY_BRIDGE_DIR}"
   text="${text//@@NATIVE_BASE@@/$AIFY_NATIVE_BASE}"
@@ -2871,6 +2868,16 @@ DOCTOR_PATH="$DOCTOR_BIN_DIR/aify-doctor"
 chmod +x "$DOCTOR_PATH" 2>/dev/null || true
 echo "Verifier installed: aify-comms doctor   (\`aify-comms doctor --json\` for scripted/agent checks)"
 echo "                    aify-doctor         (same thing, kept as an alias)"
+
+# Register this SERVICE so launchers learn it exists (see mcp/stdio/register-service-cli.mjs).
+# Non-fatal: a registry we cannot safely rewrite means launchers do not learn about aify-comms, which
+# is not the same as aify-comms being broken.
+AIFY_SERVICE_REGISTRY="${AIFY_SERVICE_REGISTRY:-$HOME/.aify/services.json}"
+if command -v node >/dev/null 2>&1; then
+  node "$AIFY_BRIDGE_DIR/register-service-cli.mjs" "$AIFY_SERVICE_REGISTRY" \
+    "${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}" "$AIFY_BRIDGE_DIR" \
+    || echo "warning: aify-comms was not registered in $AIFY_SERVICE_REGISTRY (see above)." >&2
+fi
 
 echo ""
 echo "=== Installation complete ==="

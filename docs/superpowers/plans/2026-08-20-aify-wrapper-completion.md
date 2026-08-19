@@ -268,29 +268,50 @@ input that must keep winning for them. Opted-in extras are baked at install as a
 - [ ] **Step 6:** Re-sync to aify-comms and update the hashes in the same commit.
 - [ ] **Step 7: Commit.**
 
-### Task 6: aify-comms registers itself and consumes the package
+### Task 6a: aify-comms registers itself — DONE
 
-**Files:** Modify `install.sh` (aify-comms). Delete
-`service/tests/test_wrapper_templates_are_published_in_sync.py` and `wrappers/` from aify-comms.
+**Files:** `mcp/stdio/service-registry.mjs` (pure), `mcp/stdio/register-service-cli.mjs` (wiring),
+tests for both, `install.sh`, `mcp/stdio/aify-service-endpoint.mjs`.
 
-Two changes, one direction: aify-comms writes its own `services.json` entry at install, and calls
-aify-wrapper's installer instead of rendering its own copies.
+Installing aify-comms writes its own entry into `~/.aify/services.json`, which is the half the
+operator asked for by name: installing a SERVICE registers it; installing the wrapper package is never
+the goal.
 
-- [ ] **Step 1: Write the failing test.** After a `--render-only` install into a temp `HOME`,
-      `services.json` contains an `aify-comms` entry whose `endpointEnv` names exactly the two keys the
-      bridge reads (`AIFY_SERVER_URL`, `CLAUDE_MCP_SERVER_URL`) — derived from the bridge's own
-      resolution order, not typed by hand.
-- [ ] **Step 2: Run. Expected: FAIL.**
-- [ ] **Step 3: Implement** the registry write.
-- [ ] **Step 4:** Point aify-comms' install at the aify-wrapper package. Prove the rendered launchers
-      are byte-identical to the ones it renders today, on all four, before deleting anything.
-- [ ] **Step 5:** Delete `wrappers/` and the drift gate from aify-comms. The gate's own docstring says
-      to delete it the day the duplication ends.
-- [ ] **Step 6:** Run all three aify-comms suites plus aify-wrapper's. Record the counts observed, not
-      the counts written down anywhere.
-- [ ] **Step 7: Commit.**
+- [x] The endpoint env names are exported from the bridge's own resolver as `ENDPOINT_ENV_NAMES` and
+      imported by the writer, rather than typed twice. A name the bridge reads but the registry does
+      not declare is INHERITED from whatever launched the runtime, because a per-server MCP env block
+      is key-scoped — a failure that looks like everything working until two services disagree.
+- [x] aify-comms owns its key and nothing else. An unreadable or wrong-version registry is REFUSED,
+      not rewritten: overwriting would uninstall another service at the moment somebody reinstalls
+      something unrelated. Mutation-checked.
+- [x] Registration failure is non-fatal and says so. Launchers not learning about this service is not
+      the same as this service being broken.
+- [x] Two runs leave the file byte-identical, so a reinstall does not change the fingerprint baked
+      into every launcher.
+- [x] **Cross-repo contract verified by running it:** the file aify-comms writes parses in
+      aify-wrapper's `lib/registry.mjs`, yielding both MCP entries with the endpoint under both
+      declared keys.
 
----
+### Task 6b: aify-comms consuming the package — NEEDS AN OPERATOR DECISION
+
+**Not done, and not something to decide unilaterally.** The plan said "point aify-comms' install at
+the aify-wrapper package, then delete `wrappers/` and the drift gate". Implementing it means choosing
+how aify-comms LOCATES the package, and every option changes how a user installs this product:
+
+| option | cost |
+|---|---|
+| **git submodule** | every clone needs `--recurse-submodules`; a fresh clone without it fails at install |
+| **npm dependency on the GitHub URL** | install now needs network, and a pinned sha to avoid drift |
+| **prefer an installed `aify-wrapper`, fall back to the bundled copy** | no new dependency, but an OLD installed package would silently produce OLD launchers — the exact version-skew class this repo builds gates against |
+| **keep the copy + the drift gate** (today) | two sources of truth, one test making a change hurt in both places |
+
+The third looks attractive and is the most dangerous: it reintroduces skew invisibly, and the drift
+gate exists precisely because a launcher shipping behaviour that was already corrected elsewhere is
+this project's signature failure.
+
+Until the operator picks one, the templates stay duplicated and
+`test_wrapper_templates_are_published_in_sync.py` stays. Its own docstring already says to delete it
+the day the duplication ends — that day is a decision, not a task.
 
 ## Phase gate
 

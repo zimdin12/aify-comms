@@ -41,8 +41,22 @@ function coerceLoopbackToIPv4(url) {
   );
 }
 
+/**
+ * The environment names this bridge reads to find its service, in precedence order.
+ *
+ * Exported because something outside has to say the same thing and must not say it from memory: the
+ * service registry declares which env names carry a service's endpoint, and a runtime's per-server MCP
+ * env block is KEY-SCOPED — proven on Claude Code 2.1.236, where a per-server AIFY_SERVER_URL beat an
+ * inherited value while an inherited AIFY_COMMS_URL passed through untouched. So a name this bridge
+ * reads but the registry does not declare would be INHERITED from whatever launched the runtime,
+ * quietly and correctly-looking, until two services disagree about where they point.
+ *
+ * One list, read here and declared there. Not a regex over this file, and not a second hand-typed copy.
+ */
+export const ENDPOINT_ENV_NAMES = ["CLAUDE_MCP_SERVER_URL", "AIFY_SERVER_URL"];
+
 const SERVER_URL = coerceLoopbackToIPv4(
-  process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "",
+  ENDPOINT_ENV_NAMES.map((name) => process.env[name]).find(Boolean) || "",
 );
 
 // Whether this bridge talks to a remote service over HTTP or drives the local filesystem store.

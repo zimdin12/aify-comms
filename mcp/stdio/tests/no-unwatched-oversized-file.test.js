@@ -35,7 +35,22 @@ const UNWATCHED_EXTENSIONS = [".sh", ".css", ".in"];
 
 //: MEASURED 2026-08-14, not rounded up. Every entry is pre-existing debt with a pending scope ruling.
 const CEILINGS = {
-  "install.sh": 2934,
+  // 2934 -> 2950 on 2026-08-20. A DECISION, not a repair, and here is what it buys.
+  //
+  // v0.6 Phase 6 made an aify-comms install register the service in the shared registry at
+  // ~/.aify/services.json. That is the operator's stated requirement: installing a SERVICE tells the
+  // launchers it exists, and installing the wrapper package is never the goal. The capability costs 8
+  // lines here; all of its logic lives in mcp/stdio/service-registry.mjs, tested and mutation-checked.
+  //
+  // The obvious payment was extracting install_bridge_launcher's 139-line heredoc, the way v0.6 Phase
+  // 2 extracted the four wrapper bodies. Rejected on purpose: that heredoc produces the aify-comms
+  // COMMAND, which Phase 8 deletes outright. Extracting it now is churn, and it carries byte-identity
+  // risk on the one command whose misbehaviour once superseded a live environment bridge and reaped
+  // nine managed agents. The reduction is real and it belongs to the phase that removes the code.
+  //
+  // So this number goes UP once, with the payoff named: Phase 8 takes roughly 139 lines out of this
+  // file, and this ceiling comes down past 2934 then rather than being left slack.
+  "install.sh": 2950,
   "service/new_dashboard/styles.css": 1844,
 };
 
