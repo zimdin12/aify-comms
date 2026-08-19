@@ -30,13 +30,13 @@ WRAPPERS = REPO / "wrappers"
 
 PACKAGE_URL = "https://github.com/zimdin12/aify-wrapper"
 
-#: sha256 of each template, MEASURED 2026-08-19 at aify-wrapper commit 0317669.
+#: sha256 of each template, MEASURED 2026-08-20 at aify-wrapper commit 4640d1e.
 #: Changing a template means updating the hash here AND re-syncing the package in the same change.
 PUBLISHED = {
-    "claude-aify.sh.in": "8306a2c8be2cfa6f2e65a9a03d7b9b62631f13b7d2da6a783d34925db3ed1ada",
-    "codex-aify.sh.in": "4a303027c7887c78756a2103747d21d3252a4f5972b77e82f497b284413ee7e4",
-    "hermes-aify.sh.in": "c6b893995dd72f81333cb17cad60971ef00e36217a2a4caefccbfef8ec1ab401",
-    "pi-aify.sh.in": "e0e76a9ad138a4d2b2286a607421089ef9ca0548511c47b7c065b34e842df876",
+    "claude-aify.sh.in": "5ff08fa70243cb8535a0fd81fcd2c032a4f4c1ec0d6ca300b3bbe2452dbbd17a",
+    "codex-aify.sh.in": "7e4d0480fbbded52440f0f90b170fc5b24e8648ae9f7c28ab50e72d10f1d25bf",
+    "hermes-aify.sh.in": "aea6fcc2a43d97c72f1c54b093ea2b4df23d5ebc0b3852ad4af69859af87455d",
+    "pi-aify.sh.in": "cdfc2e3789c6e60c363d61b531b25b1ebf3314c8108bff914e6808ca046719f1",
 }
 
 

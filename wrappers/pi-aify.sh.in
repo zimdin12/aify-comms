@@ -24,6 +24,11 @@ set -euo pipefail
 # ever exercise this file. That is a reason to have it, not a reason to skip it.
 HARNESS_WRAPPER_RUNTIME="pi"
 HARNESS_WRAPPER_VERSION="@@WRAPPER_VERSION@@"
+#| Baked at install, never read at launch: parsing the registry on every start would spend the
+#| MCP discovery budget hermes gives us, and a launcher cannot learn about a service that was
+#| registered after it was written anyway. This is how a holder of the CURRENT registry can
+#| tell that it could not - by READING the launcher, without starting the runtime.
+HARNESS_REGISTRY_FINGERPRINT="@@REGISTRY_FINGERPRINT@@"
 HARNESS_ENDPOINT="${HARNESS_ENDPOINT-${AIFY_COMMS_URL:-@@ENDPOINT@@}}"
 HARNESS_IDENTITY="${HARNESS_IDENTITY:-${AIFY_AGENT_ID:-}}"
 HARNESS_ROLE="${HARNESS_ROLE:-${AIFY_AGENT_ROLE:-}}"
@@ -240,6 +245,7 @@ if [ "${HARNESS_CHECK:-false}" = true ]; then
   echo "  role      : $PI_AIFY_ROLE"
   echo "  cwd       : ${HARNESS_CWD:-<inherited>}"
   echo "  mcp       : not used by this wrapper"
+  echo "  registry  : $HARNESS_REGISTRY_FINGERPRINT"
   echo "OK — nothing was started."
   exit 0
 fi

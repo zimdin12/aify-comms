@@ -453,6 +453,11 @@ render_wrapper_template() {
   # ignored it. Same value unless an operator sets that variable, and honouring it is the correct half.
   text="${text//@@ENDPOINT@@/${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}}"
   text="${text//@@WRAPPER_VERSION@@/$wrapper_version}"
+  # The registry a launcher was built from. aify-comms does not read one yet — that arrives when
+  # it consumes the aify-wrapper package instead of rendering its own copies — so the honest value
+  # is "unknown" rather than a blank, which would read as "built from an empty registry" and is a
+  # different claim. See the wrapper package for what a real fingerprint is for.
+  text="${text//@@REGISTRY_FINGERPRINT@@/${AIFY_REGISTRY_FINGERPRINT:-unknown}}"
   text="${text//@@BRIDGE_DIR@@/$AIFY_BRIDGE_DIR}"
   text="${text//@@NATIVE_BASE@@/$AIFY_NATIVE_BASE}"
   text="${text//@@SCRIPT_DIR@@/$SCRIPT_DIR}"

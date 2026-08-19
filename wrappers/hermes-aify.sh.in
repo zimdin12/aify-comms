@@ -22,6 +22,11 @@ set -euo pipefail
 # FOREVER, including immediately after a fresh install. A check that can never go green teaches people
 # to ignore it, which is the failure mode this tool exists to prevent.
 HARNESS_WRAPPER_VERSION="@@WRAPPER_VERSION@@"
+#| Baked at install, never read at launch: parsing the registry on every start would spend the
+#| MCP discovery budget hermes gives us, and a launcher cannot learn about a service that was
+#| registered after it was written anyway. This is how a holder of the CURRENT registry can
+#| tell that it could not - by READING the launcher, without starting the runtime.
+HARNESS_REGISTRY_FINGERPRINT="@@REGISTRY_FINGERPRINT@@"
 
 # ── The harness wrapper contract ────────────────────────────────────────────
 #
@@ -80,6 +85,7 @@ for ARG in "$@"; do
     echo "  role      : ${HARNESS_ROLE:-coder}"
     echo "  cwd       : ${HARNESS_CWD:-<inherited>}"
     echo "  mcp       : not used by this wrapper (hermes config is patched at install time)"
+    echo "  registry  : $HARNESS_REGISTRY_FINGERPRINT"
     echo "OK — nothing was started."
     exit 0
   fi
