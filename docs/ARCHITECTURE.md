@@ -24,7 +24,19 @@ and failures separate. Getting the wrong one is the most common way a change app
 |---|---|---|---|
 | **Service** | container `aify-comms-service`, port 8800 | `bash scripts/stamp.sh && docker compose up -d --build` | FastAPI control plane, SQLite, dispatch, dashboard, SSE MCP transport |
 | **Bridge** | the **host**, one per agent + one per environment | `install.sh` **then relaunch the wrapper** | MCP stdio server, runtime adapters, terminal/PTY ownership, delivery loops |
-| **Runtime** | the host, a child of a bridge | its own process lifecycle | `claude`, `codex`, `hermes`, `pi` — the actual coding agent |
+| **Wrapper** | the host, a shell script on PATH | `install.sh` alone — it is written at install time, so restarting it changes nothing | `claude-aify`, `codex-aify`, `pi-aify`, `hermes-aify`: resolve the runtime CLI, export the identity environment, wire the MCP config, exec the runtime |
+| **Runtime** | the host, a child of a wrapper | its own process lifecycle | `claude`, `codex`, `hermes`, `pi` — the actual coding agent |
+
+**The wrapper is a separate tier from the bridge, and confusing them costs a debugging session.** They
+reload differently: a bridge is a running process, so new code on disk means nothing until it restarts
+(`bridge-current`); a wrapper is generated TEXT, so a restart means nothing until `install.sh` is
+re-run (`wrapper-current`). The two doctor checks say opposite things on purpose — one says RESTART,
+the other says REINSTALL.
+
+Since v0.6 the bodies for claude, codex and pi live in [`wrappers/`](../wrappers) as `*.sh.in`
+templates rather than inside `install.sh` heredocs, and each reads six `HARNESS_*` inputs a host
+supplies rather than knowing it belongs to aify-comms. Hermes is sequenced last and is still a
+heredoc. See [the wrapper contract](superpowers/specs/2026-08-19-harness-wrapper-contract.md).
 
 **A bridge is not a client of the service; it is a peer.** It long-polls for work, claims it, runs
 it, and reports back. This is why an agent can be *registered* and completely unable to receive
