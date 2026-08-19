@@ -94,7 +94,7 @@ export function registerRegistrationTool(server, z, { ensureDispatchLoop }) {
       managedBy: z.string().optional().describe("Owning agent ID for environment-managed sessions"),
     },
     async (args) => {
-      args = fillSessionHandleFromAdapter(args, __runtimeAdapter);
+      args = await fillSessionHandleFromAdapter(args, __runtimeAdapter);
       const { agentId, role, name, cwd, model, description, instructions, runtime, machineId, launchMode, sessionMode, sessionHandle, appServerUrl, managedBy } = args;
       try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
       if (IS_MANAGED_DISPATCH) {
