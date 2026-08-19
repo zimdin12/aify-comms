@@ -16,5 +16,10 @@
     "service/tests/e2e/test_message_to_work.py::test_the_service_SURVIVES_the_round_trip_and_is_still_healthy"
   ],
   "passing": 11,
-  "summary": "8 passed in 16.33s"
+  "summary": "11 passed \u2014 re-verified 2026-08-19 at Phase 5, identical pass set",
+  "phase5_verified": {
+    "date": "2026-08-19",
+    "result": "11/11, identical to the Phase 0 pass set",
+    "note": "The `summary` field previously read '8 passed in 16.33s' while `passing` said 11 and the list held 11 entries. It was written before the last three tests were added and never re-derived. The count the gate reads was right; the prose beside it was not, which is the same class of defect this file exists to prevent."
+  }
 }
