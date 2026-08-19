@@ -94,6 +94,8 @@ exist while its delivery owner is dead; prove both before calling the agent `onl
 
 ## Send Gating & Delivery
 
+**Reply-capture fallback.** `managed_reply_capture_fallback` decides what happens when a reply-owed delivered run ends with no explicit reply: `true` (default) auto-mirrors the run summary back to the sender as a safety net, `false` (strict) leaves the run reply-owed so the gap is surfaced rather than papered over. It is an operator setting, not an agent one — send the explicit `comms_send` either way.
+
 - `available` means an online environment can cold-start the managed worker on send. Do not pre-spawn it.
 - `online` means a live worker is between turns. `working`/`blocked` mean a live worker has an open turn.
 - `offline` has no current wake path. `stopped` is operator-disabled and does not auto-start.
