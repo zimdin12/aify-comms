@@ -39,7 +39,7 @@ repair, or dashboard operator details.
 - Stay on the current ask. One message should carry one request, result, blocker, or status update.
 - Verify before asserting history, files, status, tests, or another agent's state. Say what you checked.
 - When the message owes a reply (requests/reviews/errors, dashboard asks, or an explicit reply contract), answer with `comms_send(type="response", inReplyTo="<message id>", to="<sender|dashboard>")` — that tool call is the reply. A non-reply-owing response/info/approval that adds no question, work, or useful evidence is read context: do **not** send a courtesy acknowledgement. Final plain text, stdout, logs, tool output, and run summaries are your own working output / telemetry, not the delivered reply.
-- Use `comms_send` for the current reply AND for separate out-of-band agent/dashboard updates or future wakes. Genuinely-direct input you type into your own CLI is answered with direct output, not `comms_send`.
+- Use `comms_send` for the current reply AND for separate out-of-band agent/dashboard updates or future wakes.
 - If more work must happen after this turn, create the next wake before finishing. A written `Next action:` is only text.
 - Answer naturally but compactly: result, evidence checked, blocker/uncertainty, next action.
 - If blocked, ask one concrete question or send a precise handoff. Do not guess or wait vaguely.
@@ -180,9 +180,8 @@ Dashboard is a special store-only recipient for human-visible updates. Use `comm
 
 ## Compacting
 
-- `comms_compact(from="you", targetAgentId="...", mode="handoff")` is the reliable path today. It creates a fresh managed backing from a compact handoff packet and defaults to the same agent ID (pass `newAgentId` to split identity). A manager can compact **another** agent this way; it needs a managed backing, so a resident-only agent can't be compacted — switch it to managed first, or `comms_send` a request asking it to `/compact` itself.
-- `mode="internal"` requests native in-place compact and may be unsupported. Current managed runtime adapters do not expose a verified headless native compact API. To trigger a managed PTY runtime's own `/compact` (claude-code/codex/hermes), type it via `comms_console_input(agentId="...", text="/compact")` while the agent is at its prompt.
-- Dashboard **Compact** keeps the same agent identity; **Continue as** intentionally creates a separate identity.
+- `comms_compact(from="you", targetAgentId="...", mode="handoff")` is the reliable path today: a fresh managed backing seeded with a handoff packet, same agent ID unless you pass `newAgentId`.
+- Compacting **another** agent is a manager action — the caveats (managed backing required, `mode="internal"` unsupported, how to reach a runtime's own `/compact`) live in `references/leading-a-team.md`.
 
 ## Tool Map
 

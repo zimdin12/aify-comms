@@ -156,13 +156,16 @@ creates them at kickoff; "we'll remember" is not a plan.
   which — not the artifact. Say what the thing is and what the reader will find in it: *"the
   40-line failing diff; the assertion that fires is at the bottom"*, not *"see attached"*. A
   must-read artifact behind a weak pointer is not a failure of the reader's diligence.
-- **Give the review cycle a round budget.** The loop in [teamwork.md](teamwork.md) cycles
-  implement → review → revise "until a reviewer returns `APPROVE`" — a termination condition with
-  nothing bounding when it arrives. Decide the budget when you open the lane, and say it in the
-  brief. If a third round has not converged, the rounds are no longer the instrument: the brief is
-  wrong, the reviewer and worker disagree about the standard, or the slice is too big. Escalate or
-  re-cut it rather than spending a fourth. (Hermes Bot Mode caps a room at three serial rounds for
-  the same reason.)
+- **Give the review cycle a round budget — it is rare for this to bite, and expensive when it
+  does.** The loop in [teamwork.md](teamwork.md) cycles implement → review → revise "until a
+  reviewer returns `APPROVE`", a termination condition with nothing bounding when it arrives.
+  Measured here across 20 review artifacts carrying explicit round numbers: 18 settled by R3, and
+  one reached **R7** — its own description reading "R1-R6 superseded; no verdict transfer;
+  implementation HOLD", i.e. seven rounds with the build stopped behind them. So do not budget out
+  of fear; budget because the tail is the expensive part. Say the budget in the brief, and treat a
+  third round that has not converged as evidence the rounds are no longer the instrument: the brief
+  is wrong, reviewer and worker disagree about the standard, or the slice is too big. Escalate or
+  re-cut rather than spend a fourth.
 - **Some evidence is PERISHABLE — order the work around it.** Before authorising a change, ask what
   becomes impossible to observe once it lands, and collect that FIRST: the "before" measurement, the
   current state of the thing being replaced, the reproduction of the fault being fixed, the
@@ -180,6 +183,9 @@ creates them at kickoff; "we'll remember" is not a plan.
 - **`comms_console_input` is NOT a reliable submit, and a success response does not mean it worked.** It reports success once the bytes reach the PTY; whether the runtime acted on them is unobservable. Measured 2026-07-26 on a stuck managed-claude draft: two text writes and three bare-Enter retries ALL returned success while the draft never submitted. So: send ONE attempt, re-read with `comms_console_tail`, and if the console did not visibly change **escalate to the operator instead of retrying** — repeated Enter has been measured to change nothing, and an agent that keeps retrying burns critical path (~15 min in the observed case). The lever that reliably woke those agents was an ordinary `comms_send`; try that first.
 - **Console tools are managed-only.** Resident agents have no aify-owned console, so `comms_console_tail`/`comms_console_input` report "no live console." For a resident agent your levers are `comms_send` (ask for a `[STATUS]` with evidence) and the dashboard; **Switch to managed** if you need a console to peek into.
 - If a worker replies with repeated vague status, demand `[REVIEW]` or `[HOLD]` with evidence.
-- If context is noisy, use handoff compact/rebrief: `comms_compact(from="you", targetAgentId="other", mode="handoff")` compacts **another** managed agent by spawning a fresh managed backing seeded with a handoff packet (recent messages + your instructions). It is NOT the runtime's native `/compact`, and it needs a managed backing — a resident-only agent can't be compacted this way. Keep the same agent ID unless intentionally splitting identity (`newAgentId`). To trigger a managed PTY runtime's own in-place `/compact` (claude-code/codex/hermes), type it via `comms_console_input(agentId="...", text="/compact")` while the agent is at its prompt; for a resident agent, `comms_send` a request asking it to `/compact` itself.
+- If context is noisy, use handoff compact/rebrief: `comms_compact(from="you", targetAgentId="other", mode="handoff")` compacts **another** managed agent by spawning a fresh managed backing seeded with a handoff packet (recent messages + your instructions). It is NOT the runtime's native `/compact`, and it needs a managed backing — a resident-only agent can't be compacted this way. Keep the same agent ID unless intentionally splitting identity (`newAgentId`). To trigger a managed PTY runtime's own in-place `/compact` (claude-code/codex/hermes), type it via `comms_console_input(agentId="...", text="/compact")` while the agent is at its prompt; for a resident agent, `comms_send` a request asking it to `/compact` itself. `mode="internal"`
+  requests a native in-place compact and may be unsupported: no current managed runtime adapter
+  exposes a verified headless native compact API. On the dashboard, **Compact** keeps the same
+  agent identity; **Continue as** deliberately creates a separate one.
 - **An identity change is a migration.** Renaming tombstones the old ID, orphans a live session until it re-registers under the new ID, and makes stale sends fail. Notify the agent and its active correspondents of the cutover, or keep the existing ID.
 - Avoid long dashboard updates. Tell the human what changed, what was verified, what remains blocked, and the next owner.
