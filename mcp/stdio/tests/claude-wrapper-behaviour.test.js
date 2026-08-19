@@ -12,6 +12,7 @@
 // HARNESS_* variable is set — which is the only way an operator's live fleet is safe from the refactor.
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 
@@ -105,6 +106,24 @@ test("claude-aify loads the channel server that resident wake depends on", () =>
   assert.equal(r.argv[i + 1], "server:aify-comms-channel", "and it must name the channel server");
 });
 
+test("claude-aify leaves the operator's MCP servers alone unless strict mode is asked for", () => {
+  // Always-strict was the old behaviour and it cost operators their own MCP servers — a
+  // wrapper-launched claude lost the full ~/.claude.json list with no indication why. Two structural
+  // guards assert the gate exists in the text; this asserts the flag's presence on the command line,
+  // which is the thing that actually decides what claude loads.
+  const relaxed = run({});
+  assert.ok(
+    !relaxed.argv.includes("--strict-mcp-config"),
+    `default launch must not be strict: ${JSON.stringify(relaxed.argv)}`,
+  );
+
+  const strict = run({ env: { AIFY_CLAUDE_STRICT_MCP: "1" } });
+  assert.ok(strict.argv.includes("--strict-mcp-config"), "the escape hatch must still work");
+  const i = strict.argv.indexOf("--mcp-config");
+  assert.ok(i >= 0, "strict mode must supply the two-server config it restricts claude to");
+  assert.ok(strict.argv[i + 1], "and name the file");
+});
+
 test("claude-aify installs the session-capture hooks on the launch it performs", () => {
   const r = run({ args: ["--aify-agent", "probe-agent"] });
   const i = r.argv.indexOf("--settings");
@@ -125,6 +144,67 @@ test("claude-aify applies a managed model override only when the caller has not 
     "an explicit --model must not be duplicated by the injection",
   );
   assert.ok(explicit.argv.includes("haiku"), "and the caller's choice must be the one that survives");
+});
+
+// ── Session-handle validation, both branches ────────────────────────────────
+//
+// The five tests that used to guard this greped install.sh for substrings and all went red the day
+// the wrapper body moved to a template, though behaviour was byte-identical. They are rewritten
+// against the rendered artifact in service/tests/test_install_claude_session_validate.py; the two
+// below are the part neither version could do — running it, and covering the branch where the id is
+// GOOD, which nothing tested before.
+
+const SEEDED_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+
+/** Seed a transcript so `validate_claude_session_id` finds one. */
+function seedTranscript(home) {
+  const dir = path.join(home, ".claude", "projects", "C--some-workspace");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${SEEDED_ID}.jsonl`), "{}\n");
+}
+
+test("claude-aify KEEPS a session id that has a transcript behind it", () => {
+  const r = run({ env: { CLAUDE_SESSION_ID: SEEDED_ID }, prepareHome: seedTranscript });
+  assert.equal(r.launched, true, r.stderr);
+  assert.equal(r.env.CLAUDE_SESSION_ID, SEEDED_ID, "a valid id must survive to the runtime");
+  assert.doesNotMatch(r.stderr, /has no transcript/, "and must not be reported stale");
+});
+
+test("claude-aify forwards an explicit --resume only when the id validates", () => {
+  const good = run({ args: ["--resume", SEEDED_ID], prepareHome: seedTranscript });
+  const i = good.argv.indexOf("--resume");
+  assert.ok(i >= 0, `--resume must be forwarded for a valid id: ${JSON.stringify(good.argv)}`);
+  assert.equal(good.argv[i + 1], SEEDED_ID);
+
+  // The stale case is the one that matters: leaving the handle in argv makes claude exit with
+  // "No conversation found" instead of starting a fresh, repairable session.
+  const stale = run({ args: ["--resume", "99999999-9999-9999-9999-999999999999"] });
+  assert.equal(stale.launched, true, stale.stderr);
+  assert.ok(
+    !stale.argv.includes("--resume"),
+    `a stale --resume must be stripped, not forwarded: ${JSON.stringify(stale.argv)}`,
+  );
+  assert.ok(!stale.argv.some((a) => a.startsWith("99999999")), "and neither may the id itself");
+});
+
+test("claude-aify still launches when the identity lookup cannot reach the service", () => {
+  // THE DEFECT THIS FILE WAS BUILT TO FIND (2026-08-19). Resuming without --aify-agent triggers a
+  // lookup that asks the service which agent owns the handle. It ran as
+  // `_aify_rec="$(curl ... | node ...)"` under `set -euo pipefail`, so the assignment inherited the
+  // PIPELINE's status and an unreachable service ENDED THE WRAPPER: no claude, no message, just
+  // curl's exit code. Every other curl in install.sh already ended `|| true`; these three did not.
+  //
+  // It survived every text guard because the line was present and correct-looking, and it survived a
+  // hand probe because that shell had AIFY_AGENT_ID exported, which skips the block entirely. Only a
+  // sealed environment reaches it.
+  const r = run({
+    args: ["--resume", SEEDED_ID],
+    env: { AIFY_COMMS_URL: NOWHERE_URL },
+    prepareHome: seedTranscript,
+  });
+  assert.equal(r.launched, true, `an unreachable service must not stop a launch (exit ${r.status})`);
+  assert.equal(r.env.AIFY_AGENT_ID, undefined, "and recovery legitimately found nothing");
+  assert.match(r.stderr, /NO AGENT ID/, "so the session is anonymous, and says so");
 });
 
 test("claude-aify clears a session id with no transcript behind it", () => {

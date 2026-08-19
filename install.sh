@@ -430,6 +430,26 @@ copy_hermes_assets() {
   refresh_plugin_snapshot "$hermes_home/plugins/aify-comms" "hermes"
 }
 
+# Substitute the install-time placeholders in a wrappers/*.sh.in template and write the result.
+#
+# `sed` is deliberately NOT used: the values are filesystem paths and URLs that can contain the
+# delimiter, and a path with a slash in it silently produces a broken wrapper rather than an error.
+# Bash parameter substitution has no delimiter to collide with.
+render_wrapper_template() {
+  local template="$SCRIPT_DIR/wrappers/$1"
+  local target="$2"
+  [ -f "$template" ] || { echo "missing wrapper template: $template" >&2; exit 1; }
+  local text
+  # `#|` lines are template-only: documentation for the template, never for the installed wrapper.
+  text="$(grep -v "^#|" "$template")"
+  text="${text//@@ENDPOINT@@/${SERVER_URL:-http://127.0.0.1:8800}}"
+  text="${text//@@ENDPOINT_RAW@@/${SERVER_URL:-}}"
+  text="${text//@@BRIDGE_DIR@@/$AIFY_BRIDGE_DIR}"
+  text="${text//@@NATIVE_BASE@@/$AIFY_NATIVE_BASE}"
+  text="${text//@@SCRIPT_DIR@@/$SCRIPT_DIR}"
+  printf '%s\n' "$text" > "$target"
+}
+
 install_claude_wrapper() {
   local wrapper_dir="${EMIT_WRAPPERS_DIR:-$HOME/.local/bin}"
   local wrapper_path="$wrapper_dir/claude-aify"
@@ -440,343 +460,7 @@ install_claude_wrapper() {
   # on Git Bash for Windows is an MSYS shell PID that process.kill() cannot
   # see — isProcessAlive would auto-delete the marker on first read and
   # every claude-aify session on Windows fell back to claude-needs-channel.
-  cat > "$wrapper_path" <<EOF
-#!/bin/bash
-set -euo pipefail
-
-CLAUDE_RESUME_ID="\${CLAUDE_SESSION_ID:-}"
-# Bypass permissions by DEFAULT for every *-aify wrapper (2026-06-02 decision):
-# aify agents run unattended, so they must not stall on approval prompts. Each
-# wrapper uses its harness-native bypass flag (claude --dangerously-skip-
-# permissions, codex --dangerously-bypass-approvals-and-sandbox, hermes --yolo,
-# omp --auto-approve). Opt out per-launch with --safe / --no-auto.
-CLAUDE_AUTO=true
-CLAUDE_AIFY_AGENT_ID="\${AIFY_AGENT_ID:-}"
-CLAUDE_AIFY_ROLE="\${AIFY_AGENT_ROLE:-coder}"
-# Explicit session-mode opt-in. --resident is the default for human
-# invocation; --managed is set by aify-comms when it spawns this wrapper
-# as a backing process. If neither flag is passed and AIFY_SESSION_MODE
-# is unset, auto-detect via TTY presence on stdin: interactive → resident.
-CLAUDE_AIFY_SESSION_MODE="\${AIFY_SESSION_MODE:-}"
-CLAUDE_ARGS=()
-CLAUDE_RESUME_FROM_ARG=false
-CLAUDE_RESUME_FLAG="--resume"
-CLAUDE_HAS_MODEL=false
-CLAUDE_HAS_EFFORT=false
-PREV_ARG=""
-for ARG in "\$@"; do
-  if [ "\$PREV_ARG" = "--resume" ] || [ "\$PREV_ARG" = "--session-id" ] || [ "\$PREV_ARG" = "-r" ]; then
-    CLAUDE_RESUME_ID="\$ARG"
-    CLAUDE_RESUME_FLAG="\$PREV_ARG"
-    CLAUDE_RESUME_FROM_ARG=true
-    PREV_ARG=""
-    continue
-  fi
-  if [ "\$PREV_ARG" = "--aify-agent" ] || [ "\$PREV_ARG" = "--agent-id" ]; then
-    CLAUDE_AIFY_AGENT_ID="\$ARG"
-    PREV_ARG=""
-    continue
-  fi
-  if [ "\$PREV_ARG" = "--aify-role" ]; then
-    CLAUDE_AIFY_ROLE="\$ARG"
-    PREV_ARG=""
-    continue
-  fi
-  if [ "\$ARG" = "-auto" ] || [ "\$ARG" = "--auto" ] || [ "\$ARG" = "--yolo" ]; then
-    CLAUDE_AUTO=true
-    continue
-  fi
-  if [ "\$ARG" = "--safe" ] || [ "\$ARG" = "--no-auto" ]; then
-    CLAUDE_AUTO=false
-    continue
-  fi
-  if [ "\$ARG" = "--resident" ]; then
-    CLAUDE_AIFY_SESSION_MODE="resident"
-    continue
-  fi
-  if [ "\$ARG" = "--managed" ]; then
-    CLAUDE_AIFY_SESSION_MODE="managed"
-    continue
-  fi
-  if [ "\$ARG" = "--aify-agent" ] || [ "\$ARG" = "--agent-id" ] || [ "\$ARG" = "--aify-role" ]; then
-    PREV_ARG="\$ARG"
-    continue
-  fi
-  if [ "\$ARG" = "--model" ]; then
-    CLAUDE_HAS_MODEL=true
-  fi
-  if [ "\$ARG" = "--effort" ]; then
-    CLAUDE_HAS_EFFORT=true
-  fi
-  case "\$ARG" in
-  --aify-agent=*|--agent-id=*)
-    CLAUDE_AIFY_AGENT_ID="\${ARG#*=}"
-    continue
-    ;;
-  --aify-role=*)
-    CLAUDE_AIFY_ROLE="\${ARG#*=}"
-    continue
-    ;;
-  --model=*)
-    CLAUDE_HAS_MODEL=true
-    ;;
-  --effort=*)
-    CLAUDE_HAS_EFFORT=true
-    ;;
-  --resume=*|--session-id=*|-r=*)
-    CLAUDE_RESUME_ID="\${ARG#*=}"
-    CLAUDE_RESUME_FLAG="\${ARG%%=*}"
-    CLAUDE_RESUME_FROM_ARG=true
-    continue
-    ;;
-  esac
-  if [ "\$ARG" = "--resume" ] || [ "\$ARG" = "--session-id" ] || [ "\$ARG" = "-r" ]; then
-    PREV_ARG="\$ARG"
-    continue
-  fi
-  CLAUDE_ARGS+=("\$ARG")
-  PREV_ARG="\$ARG"
-done
-if [ -n "\${AIFY_MANAGED_MODEL:-}" ] && [ "\$CLAUDE_HAS_MODEL" = false ]; then
-  CLAUDE_ARGS+=(--model "\$AIFY_MANAGED_MODEL")
-fi
-if [ -n "\${AIFY_MANAGED_EFFORT:-}" ] && [ "\$CLAUDE_HAS_EFFORT" = false ]; then
-  CLAUDE_ARGS+=(--effort "\$AIFY_MANAGED_EFFORT")
-fi
-
-# Plan 6 B4 (2026-05-26): validate CLAUDE_SESSION_ID against the on-disk
-# transcript. Claude stores transcripts at
-# ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl; if the operator's
-# shell has a stale CLAUDE_SESSION_ID from a prior session that's been
-# GC'd (or from a different cwd), the inner aify-comms MCP bridge would
-# register with that stale id and dispatch would fail with "session not
-# found" until the next heartbeat cycle (Plan 6 A1) corrected it.
-#
-# We don't try to reconstruct the encoded-cwd from bash — Windows-native
-# Claude encodes "C:\Docker\foo" while git-bash sees "/c/Docker/foo", and
-# matching either reliably is brittle. Instead: scan
-# ~/.claude/projects/*/ for ANY <id>.jsonl. If none exists the env value
-# is stale; unset so claude creates a fresh session and the bridge's
-# discover picks it up.
-validate_claude_session_id() {
-  local id="\$1"
-  [ -z "\$id" ] && return 1
-  local root="\$HOME/.claude/projects"
-  [ -d "\$root" ] || return 1
-  # Cheap glob: any project dir containing <id>.jsonl.
-  local hit
-  hit="\$(find "\$root" -maxdepth 2 -type f -name "\${id}.jsonl" 2>/dev/null | head -1)"
-  [ -n "\$hit" ]
-}
-
-if [ -n "\${CLAUDE_RESUME_ID:-}" ] && ! validate_claude_session_id "\$CLAUDE_RESUME_ID"; then
-  echo "[claude-aify] CLAUDE_SESSION_ID '\$CLAUDE_RESUME_ID' has no transcript under ~/.claude/projects/...; clearing (claude will create a fresh session)" >&2
-  unset CLAUDE_RESUME_ID
-  unset CLAUDE_SESSION_ID
-fi
-if [ -n "\${CLAUDE_RESUME_ID:-}" ]; then
-  export CLAUDE_SESSION_ID="\$CLAUDE_RESUME_ID"
-  if [ "\$CLAUDE_RESUME_FROM_ARG" = true ]; then
-    CLAUDE_ARGS+=("\${CLAUDE_RESUME_FLAG:---resume}" "\$CLAUDE_RESUME_ID")
-  fi
-fi
-# IDENTITY RECOVERY (2026-07-14). EVERY turn-state path is gated on AIFY_AGENT_ID: the
-# bridge's turn detector (server.js), the Stop / UserPromptSubmit / PostToolUse hooks, and
-# the session-store capture hook. So a session started WITHOUT an agent id registers,
-# messages and heartbeats normally — but its status LATCHES FOREVER: the channel sidecar
-# (which carries the id in its own config) still SETS \`working\` on an inbound wake, and
-# nothing left alive can ever CLEAR it. That is a silent, total status failure that looks
-# healthy from every other angle; it cost days of "general-manager is always working" before
-# the missing env var was found. Claude's own /resume picker offers a SESSION, never an agent,
-# so an operator naturally resumes by session id — exactly the path that strips the identity.
-#
-# hermes has recovered its agent from a bare \`--resume <handle>\` since 2026-06-03 (see the
-# hermes block below); the comment there claimed "same idea is wired into claude/codex" — it
-# never was. This is that wiring, mirrored: ask the SERVICE which agent owns this session
-# handle (authoritative, and unlike the /tmp store it survives a reboot), then fall back to
-# the local session store (offline-robust when the service is down). If the id is STILL
-# unknown, say so out loud rather than degrade in silence. Anonymous sessions remain legal —
-# a plain claude+comms session is a real use case — they just can't be silent about it.
-if [ -z "\$CLAUDE_AIFY_AGENT_ID" ] && [ -n "\${CLAUDE_RESUME_ID:-}" ]; then
-  if command -v node >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
-    _aify_rec="\$(curl -sS --max-time 2 "\${AIFY_COMMS_URL:-http://localhost:8800}/api/v1/agents" 2>/dev/null | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const a=(JSON.parse(d).agents)||{};const h=process.argv[1];for(const k in a){const v=a[k]||{};const sh=String(v.sessionHandle||v.session_handle||"");if(sh&&sh===h&&String(v.runtime||"")==="claude-code"){process.stdout.write(k);break;}}}catch{}})' "\$CLAUDE_RESUME_ID" 2>/dev/null)"
-    if [ -n "\$_aify_rec" ]; then
-      CLAUDE_AIFY_AGENT_ID="\$_aify_rec"
-      echo "[claude-aify] resolved aify agent '\$CLAUDE_AIFY_AGENT_ID' from session handle '\$CLAUDE_RESUME_ID' (service lookup)." >&2
-    fi
-  fi
-fi
-if [ -z "\$CLAUDE_AIFY_AGENT_ID" ] && [ -n "\${CLAUDE_RESUME_ID:-}" ]; then
-  for _aify_store in "\${TMPDIR:-/tmp}"/aify-claude-session-*.json; do
-    [ -f "\$_aify_store" ] || continue
-    if grep -q "\"sessionId\":\"\$CLAUDE_RESUME_ID\"" "\$_aify_store" 2>/dev/null; then
-      _aify_recovered="\$(basename "\$_aify_store" .json)"
-      CLAUDE_AIFY_AGENT_ID="\${_aify_recovered#aify-claude-session-}"
-      echo "[claude-aify] recovered agent id '\$CLAUDE_AIFY_AGENT_ID' from the session store for --resume \$CLAUDE_RESUME_ID" >&2
-      break
-    fi
-  done
-fi
-if [ -z "\$CLAUDE_AIFY_AGENT_ID" ]; then
-  echo "[claude-aify] NO AGENT ID: aify turn/status detection is DISABLED for this session (status will latch). Pass --aify-agent <id> if this is a registered agent." >&2
-fi
-export AIFY_RUNTIME="claude-code"
-if [ -n "\$CLAUDE_AIFY_AGENT_ID" ]; then
-  export AIFY_AGENT_ID="\$CLAUDE_AIFY_AGENT_ID"
-  export AIFY_AGENT_ROLE="\$CLAUDE_AIFY_ROLE"
-fi
-# Expose the aify service URL to Claude's process tree so the Stop hook
-# (installed by install.sh's install_claude_turn_end_hook) can POST a
-# turn-end signal to the bridge when each assistant turn ends. Without
-# this, the hook no-ops and the working-status pulse waits out the
-# 120s server-side stale window after every reply.
-# Caller env wins — a bridge-spawned managed PTY can override the
-# install-time default by exporting AIFY_COMMS_URL beforehand.
-export AIFY_COMMS_URL="\${AIFY_COMMS_URL:-${SERVER_URL:-http://127.0.0.1:8800}}"
-
-# Agent view / background sessions OFF for aify-driven sessions (2026-08-02).
-#
-# claude >= 2.1.139 can BACKGROUND a session (\`/bg\`, or pressing LEFT-ARROW on an empty prompt)
-# so it "keeps running without a terminal attached". That is directly incompatible with how this
-# project supervises a managed worker: the worker IS its PTY, and the server's orphan reaper acts
-# on exactly that shape —
-#
-#   "live sidecar but no console PTY = headless orphan; worker killed host-side"
-#
-# A backgrounded managed session would keep heartbeating its sidecar while its console went away,
-# which is that rule's premise, and the reaper would kill a HEALTHY worker. The trigger is a single
-# arrow key, and the dashboard console forwards arrow keys straight into the PTY.
-#
-# Scoped to the WRAPPER, deliberately: a plain \`claude\` session started by the operator keeps agent
-# view. Only sessions this project supervises give it up, because only those have a supervisor that
-# would misread the detach. Caller env still wins, so it can be re-enabled per launch for testing.
-export CLAUDE_CODE_DISABLE_AGENT_VIEW="\${CLAUDE_CODE_DISABLE_AGENT_VIEW:-1}"
-
-# Session-mode resolution: explicit flag/env > TTY auto-detect.
-# Resident = a human runs this wrapper in their own terminal (interactive
-# stdin); aify-comms-channel notifications wake the model and chat
-# delivery uses channels. Managed = aify-comms spawned this wrapper as
-# a backing process (no human at the keyboard); same wrapper, same
-# channels, but the service knows there's no operator typing in this
-# session.
-if [ -z "\$CLAUDE_AIFY_SESSION_MODE" ]; then
-  if [ -t 0 ]; then
-    CLAUDE_AIFY_SESSION_MODE="resident"
-  else
-    CLAUDE_AIFY_SESSION_MODE="managed"
-  fi
-fi
-export AIFY_SESSION_MODE="\$CLAUDE_AIFY_SESSION_MODE"
-# claude-aify ALWAYS activates aify-comms-channel as a dev channel below
-# (--dangerously-load-development-channels), so tell the registration path
-# that channels are enabled. This stops the service-side _row_capabilities
-# strip from removing resident-run from this agent's capabilities.
-export AIFY_CHANNELS_ENABLED="1"
-
-CLAUDE_PERMISSION_FLAGS=()
-if [ "\$CLAUDE_AUTO" = true ]; then
-  CLAUDE_PERMISSION_FLAGS+=(--dangerously-skip-permissions)
-fi
-
-# MCP server config: default is "load the operator's full ~/.claude.json
-# mcpServers list" (the install_claude_config function has already merged
-# aify-comms + aify-comms-channel into that file at install time, so the
-# wrapper still gets channel wake — it just also gets aify-project-graph,
-# github, browsermcp, and every other server the operator configured).
-#
-# Escape hatch: set AIFY_CLAUDE_STRICT_MCP=1 in the launching shell to
-# revert to the legacy strict two-server config (aify-comms +
-# aify-comms-channel only, via --strict-mcp-config). Use this when the
-# Claude Code MCP init race (upstream issues #38462, #21341) re-bites and
-# channel notifications stop delivering because slower MCP servers leave
-# aify-comms-channel stuck in "still connecting" state. The legacy
-# strict mode trades operator-visible MCP servers inside the wrapper for
-# guaranteed channel wake.
-CLAUDE_MCP_FLAGS=()
-AIFY_MCP_CONFIG=""
-if [ "\${AIFY_CLAUDE_STRICT_MCP:-0}" = "1" ]; then
-  # Convert install dir to a Windows-native path (C:/Docker/aify-comms)
-  # if cygpath is available, otherwise use SCRIPT_DIR as-is. The MSYS
-  # path /c/Docker/aify-comms is unreadable by native-Windows Claude
-  # spawning the MCP server children — they fail to start with the
-  # MSYS-style path even though bash itself reads it fine.
-  if command -v cygpath >/dev/null 2>&1; then
-    AIFY_SCRIPT_DIR_FWD="\$(cygpath -m "$AIFY_NATIVE_BASE")"
-  else
-    AIFY_SCRIPT_DIR_FWD="$AIFY_NATIVE_BASE"
-  fi
-  AIFY_MCP_CONFIG="\$(mktemp -t aify-mcp.XXXXXX.json 2>/dev/null || mktemp -t aify-mcp)"
-  cat > "\$AIFY_MCP_CONFIG" <<JSON
-{
-  "mcpServers": {
-    "aify-comms": {
-      "command": "node",
-      "args": ["\${AIFY_SCRIPT_DIR_FWD}/mcp/stdio/server.js"],
-      "env": { "AIFY_SERVER_URL": "${SERVER_URL:-}", "CLAUDE_MCP_SERVER_URL": "${SERVER_URL:-}" }
-    },
-    "aify-comms-channel": {
-      "command": "node",
-      "args": ["\${AIFY_SCRIPT_DIR_FWD}/mcp/stdio/claude-channel.js"],
-      "env": { "AIFY_SERVER_URL": "${SERVER_URL:-}", "CLAUDE_MCP_SERVER_URL": "${SERVER_URL:-}" }
-    }
-  }
-}
-JSON
-  # Strict mode (AIFY_CLAUDE_STRICT_MCP=1): only the two-server config
-  # above is visible to this claude process.
-  CLAUDE_MCP_FLAGS+=(--strict-mcp-config --mcp-config "\$AIFY_MCP_CONFIG")
-fi
-
-# Session-id truth capture (2026-05-30, #138): install SessionStart +
-# UserPromptSubmit hooks that record THIS claude session's own id. Claude
-# passes session_id to hooks on stdin; the hook keys it by AIFY_AGENT_ID
-# (inherited from this wrapper's env) so the bridge reads back the agent's
-# OWN session instead of a machine-global filesystem guess (the cause of
-# cross-agent session bleed when a whole team runs in one directory).
-# Always on — both strict and default MCP modes.
-if command -v cygpath >/dev/null 2>&1; then
-  AIFY_SCRIPT_DIR_FWD="\$(cygpath -m "$SCRIPT_DIR")"
-else
-  AIFY_SCRIPT_DIR_FWD="$SCRIPT_DIR"
-fi
-AIFY_HOOK_SETTINGS="\$(mktemp -t aify-hooks.XXXXXX.json 2>/dev/null || mktemp -t aify-hooks)"
-cat > "\$AIFY_HOOK_SETTINGS" <<JSON
-{
-  "hooks": {
-    "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "node \"\${AIFY_SCRIPT_DIR_FWD}/mcp/stdio/claude-session-hook.js\"" } ] }
-    ],
-    "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "node \"\${AIFY_SCRIPT_DIR_FWD}/mcp/stdio/claude-session-hook.js\"" } ] }
-    ]
-  }
-}
-JSON
-CLAUDE_MCP_FLAGS+=(--settings "\$AIFY_HOOK_SETTINGS")
-trap 'rm -f "\$AIFY_MCP_CONFIG" "\$AIFY_HOOK_SETTINGS" 2>/dev/null' EXIT
-
-# Managed kill-prior (2026-05-31): exactly one managed claude per agent. Reap
-# any orphaned claude.exe still bound to this agent's stable --resume handle
-# before launching the new one. Managed claude churns terminals (each
-# dispatch/recover/restart spawns a fresh PTY and marks the prior 'failed');
-# a server-marked-'failed' terminal leaves the bridge with no live handle, so
-# the old native claude.exe is never reaped and N siblings accumulate, each
-# polling /dispatch/claim under the same channel-sidecar bridge id -> a
-# dispatch is delivered to a RANDOM sibling, not the console. Reaping by the
-# per-agent resume handle collapses that to one (mirrors hermes kill-prior).
-# Managed-only: resident is the operator's own visible window.
-if [ "\$AIFY_SESSION_MODE" = "managed" ] && [ -n "\${CLAUDE_RESUME_ID:-}" ] && [ -n "\${CLAUDE_AIFY_AGENT_ID:-}" ]; then
-  # AGENT-SCOPED reap (safety, 2026-05-31): pass the agent id so the reaper only
-  # kills THIS agent's prior managed claude (verified via the candidate's parent
-  # --aify-agent wrapper), never another agent or a resident operator session
-  # that happens to share the same --resume session id (handle collision).
-  node "$AIFY_BRIDGE_DIR/reap-managed-claude.js" "\$CLAUDE_RESUME_ID" "\$CLAUDE_AIFY_AGENT_ID" >/dev/null 2>&1 || true
-fi
-
-claude --dangerously-load-development-channels server:aify-comms-channel "\${CLAUDE_MCP_FLAGS[@]}" "\${CLAUDE_PERMISSION_FLAGS[@]}" "\${CLAUDE_ARGS[@]}"
-STATUS=\$?
-exit "\$STATUS"
-EOF
+  render_wrapper_template "claude-aify.sh.in" "$wrapper_path"
   chmod +x "$wrapper_path"
   install_windows_cmd_shim "claude-aify" "$wrapper_dir"
 }
@@ -998,7 +682,11 @@ export AIFY_RUNTIME="codex"
 # service is unreachable the id stays empty and we say so out loud rather than degrade in silence.
 if [ -z "$CODEX_AIFY_AGENT_ID" ] && [ -n "${CODEX_RESUME_HANDLE:-}" ]; then
   if command -v node >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
-    _aify_codex_rec="$(curl -sS --max-time 2 "${AIFY_COMMS_URL:-__AIFY_INSTALL_TIME_URL__}/api/v1/agents" 2>/dev/null | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const a=(JSON.parse(d).agents)||{};const h=process.argv[1];for(const k in a){const v=a[k]||{};const sh=String(v.sessionHandle||v.session_handle||"");if(sh&&sh===h&&String(v.runtime||"")==="codex"){process.stdout.write(k);break;}}}catch{}})' "$CODEX_RESUME_HANDLE" 2>/dev/null)"
+    # `|| _aify_codex_rec=""` is load-bearing. Under `set -euo pipefail` this assignment inherits the
+    # PIPELINE's status, so an unreachable service ended the wrapper here: no codex, no message, just
+    # curl's exit code. Identity recovery is best-effort by design — the store lookup below and the
+    # explicit warning already cover the failure — so it must never be able to stop a launch.
+    _aify_codex_rec="$(curl -sS --max-time 2 "${AIFY_COMMS_URL:-__AIFY_INSTALL_TIME_URL__}/api/v1/agents" 2>/dev/null | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const a=(JSON.parse(d).agents)||{};const h=process.argv[1];for(const k in a){const v=a[k]||{};const sh=String(v.sessionHandle||v.session_handle||"");if(sh&&sh===h&&String(v.runtime||"")==="codex"){process.stdout.write(k);break;}}}catch{}})' "$CODEX_RESUME_HANDLE" 2>/dev/null)" || _aify_codex_rec=""
     if [ -n "$_aify_codex_rec" ]; then
       CODEX_AIFY_AGENT_ID="$_aify_codex_rec"
       echo "[codex-aify] resolved aify agent '$CODEX_AIFY_AGENT_ID' from thread handle '$CODEX_RESUME_HANDLE' (service lookup)." >&2
@@ -1706,7 +1394,11 @@ if [ -z "\$HERMES_AIFY_AGENT_ID" ] && [ -n "\$HERMES_RECOVER_HANDLE" ]; then
     aify-*) HERMES_AIFY_AGENT_ID="\${HERMES_RECOVER_HANDLE#aify-}" ;;
     *)
       if command -v node >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
-        _aify_rec="\$(curl -sS --max-time 2 "\${AIFY_SERVER_URL%/}/api/v1/agents" 2>/dev/null | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const a=(JSON.parse(d).agents)||{};const h=process.argv[1];for(const k in a){const v=a[k]||{};const sh=String(v.sessionHandle||v.session_handle||"");if(sh&&sh===h&&String(v.runtime||"")==="hermes"){process.stdout.write(k);break;}}}catch{}})' "\$HERMES_RECOVER_HANDLE" 2>/dev/null)"
+        # `|| _aify_rec=""` is load-bearing. Under `set -euo pipefail` this assignment inherits the
+        # PIPELINE's status, so an unreachable service ended the wrapper here: no hermes, no message, just
+        # curl's exit code. Identity recovery is best-effort by design — the store lookup below and the
+        # explicit warning already cover the failure — so it must never be able to stop a launch.
+        _aify_rec="\$(curl -sS --max-time 2 "\${AIFY_SERVER_URL%/}/api/v1/agents" 2>/dev/null | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const a=(JSON.parse(d).agents)||{};const h=process.argv[1];for(const k in a){const v=a[k]||{};const sh=String(v.sessionHandle||v.session_handle||"");if(sh&&sh===h&&String(v.runtime||"")==="hermes"){process.stdout.write(k);break;}}}catch{}})' "\$HERMES_RECOVER_HANDLE" 2>/dev/null)" || _aify_rec=""
         [ -n "\$_aify_rec" ] && HERMES_AIFY_AGENT_ID="\$_aify_rec"
       fi
       ;;

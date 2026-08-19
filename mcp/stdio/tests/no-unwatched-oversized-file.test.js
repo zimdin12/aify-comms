@@ -31,11 +31,11 @@ const LIMIT = 1000;
 
 //: Extensions the two existing size gates do not scan. Kept explicit so adding a new source LANGUAGE to
 //: the repo is a deliberate act rather than something this gate silently starts or stops covering.
-const UNWATCHED_EXTENSIONS = [".sh", ".css"];
+const UNWATCHED_EXTENSIONS = [".sh", ".css", ".in"];
 
 //: MEASURED 2026-08-14, not rounded up. Every entry is pre-existing debt with a pending scope ruling.
 const CEILINGS = {
-  "install.sh": 4361,
+  "install.sh": 4053,
   "service/new_dashboard/styles.css": 1844,
 };
 

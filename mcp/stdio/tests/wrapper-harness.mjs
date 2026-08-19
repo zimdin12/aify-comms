@@ -99,12 +99,17 @@ export function runWrapper(wrapperPath, {
   env = {},
   stubExitCode = 0,
   withStub = true,
+  prepareHome = null,
   timeout = 30_000,
 } = {}) {
   const dir = path.dirname(wrapperPath);
   const binDir = path.join(dir, "stub-bin");
   const home = path.join(dir, "home");
   fs.mkdirSync(home, { recursive: true });
+  // The sealed HOME starts empty, which is what makes "no transcript exists" the default. A caller
+  // that needs the OTHER branch — a session id that validates — seeds it here rather than reaching
+  // for the real ~/.claude, which would make the test depend on the operator's machine.
+  if (typeof prepareHome === "function") prepareHome(home);
   const recordPath = withStub
     ? writeStubRuntime(binDir, runtimeName, { exitCode: stubExitCode })
     : path.join(binDir, `${runtimeName}.record`);
@@ -116,12 +121,19 @@ export function runWrapper(wrapperPath, {
   for (const key of Object.keys(childEnv)) {
     if (/^(AIFY_|HARNESS_|CLAUDE_|CODEX_|HERMES_|PI_|OMP_)/.test(key)) delete childEnv[key];
   }
+  // FORWARD SLASHES, and this is not cosmetic. The wrapper resolves transcripts with
+  // `find "$HOME/.claude/projects" ...`, and Git Bash hands a backslash path straight to a POSIX tool
+  // that reads `\` as an escape — so `find` silently matches nothing. A sealed HOME is empty anyway,
+  // which is why every "no transcript exists" assertion passed regardless; only seeding a transcript
+  // and expecting it to be FOUND exposed it. A test that cannot distinguish "absent" from
+  // "unreadable" is passing for a reason it did not state.
+  const posix = (p) => p.replace(/\\/g, "/");
   Object.assign(childEnv, {
-    HOME: home,
-    USERPROFILE: home,
-    TMPDIR: dir,
-    TEMP: dir,
-    TMP: dir,
+    HOME: posix(home),
+    USERPROFILE: posix(home),
+    TMPDIR: posix(dir),
+    TEMP: posix(dir),
+    TMP: posix(dir),
     PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
     AIFY_COMMS_URL: NOWHERE_URL,
     ...env,

@@ -35,12 +35,18 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..", "..");
 
+import { renderWrapper } from "./wrapper-harness.mjs";
+
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-session-store-"));
 
 try {
   // ── the recovery glob, read off install.sh ─────────────────────────────────────────────────
   {
-    const installer = fs.readFileSync(path.join(REPO, "install.sh"), "utf-8");
+    // The RENDERED wrapper, not install.sh. This read was `path.join(REPO, "install.sh")` until the
+    // wrapper body moved into wrappers/claude-aify.sh.in (v0.6 Phase 2) and the invariant went red
+    // while nothing about it had changed. The glob lives wherever the wrapper text lives; rendering
+    // asks the artifact instead of guessing which file is carrying it this month.
+    const installer = fs.readFileSync(path.join(renderWrapper("claude"), "claude-aify"), "utf-8");
     const matches = [...installer.matchAll(/\/(aify-claude-[a-z-]*\*\.json)/g)].map((m) => m[1]);
     assert.equal(
       matches.length,
