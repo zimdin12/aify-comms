@@ -99,16 +99,10 @@ const main = readFileSync(join(agentRoot, "aify-comms/SKILL.md"), "utf8");
 assert.match(main, /comms_interrupt/, "main skill must distinguish agent-native interrupt from run interrupt");
 assert.match(main, /Delivered ≠ consumer turn started/, "main skill must carry the execution evidence ladder");
 
-const conciseFiles = new Map([
-  ["aify-comms/SKILL.md", 16_000],
-  ["aify-comms/references/operations.md", 20_000],
-  ["aify-comms/references/teamwork.md", 16_000],
-  ["aify-comms-debug/SKILL.md", 3_500],
-]);
-for (const [relativePath, maxBytes] of conciseFiles) {
-  const content = readFileSync(join(agentRoot, relativePath), "utf8");
-  assert.ok(content.length <= maxBytes, `${relativePath} exceeds its ${maxBytes}-byte context budget`);
-}
+// Size now lives in skill-size-ratchet.test.js, which covers ALL 17 skill files at measured ceilings
+// that may only go down. The four round numbers that used to sit here (16,000 / 20,000 / 3,500)
+// governed a quarter of the corpus and left slack an agent could grow into — and a cap with slack is
+// a cap you are allowed to grow into. The replacement is stricter on every file it inherited.
 
 const operations = readFileSync(join(agentRoot, "aify-comms/references/operations.md"), "utf8");
 assert.doesNotMatch(operations, /20\d\d-\d\d-\d\d|\b[0-9a-f]{7,40}\b/, "operations reference contains incident history");
