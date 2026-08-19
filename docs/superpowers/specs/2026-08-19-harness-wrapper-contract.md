@@ -63,13 +63,46 @@ started. They are v0.7 subjects that this edge should not prejudge.
 
 ---
 
-## What a wrapper actually is, measured 2026-08-19
+## What a wrapper actually is — measured, then RE-measured 2026-08-19
 
-Not "~100 lines of shell". That figure appears in `docs/V0.6_PLAN.md` and is wrong; it was written from
-the claude wrapper's shape and never checked against the others.
+| Generator in `install.sh` | Lines | of which comment |
+|---|---|---|
+| `install_claude_wrapper` | 128 | 30 |
+| `install_codex_wrapper` | 10 | 3 |
+| `install_pi_wrapper` | 222 | 76 |
+| `install_hermes_wrapper` | 251 | 86 |
+| **total** | **611** | — |
 
-| Generator in `install.sh` | Lines |
-|---|---|
+**611 lines, ~14% of install.sh's 4,371.** The wrapper generators are small and roughly comparable;
+hermes is barely larger than pi.
+
+**A RETRACTION, kept here because the wrong number was already committed.** An earlier version of this
+spec said claude 358 / codex 321 / pi 417 / hermes **2,847**, totalling 3,943, and concluded "hermes is
+65% of the installer and must be sequenced LAST". That was a measurement bug of mine, not a fact about
+hermes: my script terminated each generator's span at the NEXT WRAPPER INSTALLER, and hermes is the last
+one — so its span ran to end-of-file and swallowed every other function in the script. Terminating at the
+next function of ANY name gives the table above. `docs/V0.6_PLAN.md`'s original "~100 lines of shell" was
+far closer to right than my correction, and the sequencing argument built on 2,847 has no basis.
+
+**Where hermes IS heavy, and it is not the wrapper.** Its total footprint across `install.sh` is ~1,145
+lines, the largest of any runtime, but it lands in shims rather than in the launcher:
+
+| Lines | Function | What it is |
+|---|---|---|
+| 503 | `install_hermes_windows_tui_shim` | the `.ps1` wrapper — 187 of them comments. Handles PowerShell 5.1 decoding a BOM-less `.ps1` as the system codepage, points `HERMES_TUI_DIR` at a prebuilt bundle so a managed `hermes --tui` skips a per-launch `npm run build`, and hides the loop process window |
+| 277 | `aify_hermes_kill_prior` | process-tree cleanup via `Win32_Process` |
+| 251 | `install_hermes_wrapper` | the launcher itself |
+| 114 | `_patch_hermes_config_at` | config patching |
+
+That is the cost of the visible-TUI hard requirement on Windows plus hermes having no clean process
+lifecycle of its own — hermes is the only runtime needing a `.ps1` at all. Whether 503 lines is the
+right price is a fair Phase 2 question; it is not dead code.
+
+**What this means for sequencing:** nothing forces hermes last on size grounds. If it is sequenced last
+it should be for the TUI shim and the process-management coupling, which are real, and not for a line
+count that was never true.
+
+---|---|
 | `install_claude_wrapper` | 358 |
 | `install_codex_wrapper` | 321 |
 | `install_pi_wrapper` | 417 |
