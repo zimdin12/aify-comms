@@ -45,7 +45,7 @@ export function renderWrapper(client, { url = RENDER_URL } = {}) {
  * A stand-in for the runtime CLI. Records argv and the full environment it was launched with, then
  * exits with `exitCode`. Named exactly as the wrapper will invoke it, and placed first on PATH.
  */
-export function writeStubRuntime(binDir, name, { exitCode = 0 } = {}) {
+export function writeStubRuntime(binDir, name, { exitCode = 0, prelude = "" } = {}) {
   fs.mkdirSync(binDir, { recursive: true });
   const recordPath = path.join(binDir, `${name}.record`);
   // The stub also captures the CONTENTS of any config file it is handed. The wrapper writes those to
@@ -55,6 +55,11 @@ export function writeStubRuntime(binDir, name, { exitCode = 0 } = {}) {
   const stub = [
     "#!/bin/bash",
     "# Stub runtime installed by wrapper-harness.mjs. Records how it was launched.",
+    // A prelude runs before recording and may exec away entirely. codex needs this: its wrapper
+    // starts `codex app-server` in the background and refuses to continue until that port accepts a
+    // connection, so the stub has to BE a listener for that one invocation — and must not record it,
+    // or the app-server launch would overwrite the foreground launch the test is asking about.
+    prelude,
     `{`,
     `  echo "ARGV_BEGIN"`,
     `  for a in "$@"; do echo "$a"; done`,
@@ -171,6 +176,7 @@ export function runWrapper(wrapperPath, {
   args = [],
   env = {},
   stubExitCode = 0,
+  stubPrelude = "",
   withStub = true,
   prepareHome = null,
   minimalPath = false,
@@ -185,7 +191,7 @@ export function runWrapper(wrapperPath, {
   // for the real ~/.claude, which would make the test depend on the operator's machine.
   if (typeof prepareHome === "function") prepareHome(home);
   const recordPath = withStub
-    ? writeStubRuntime(binDir, runtimeName, { exitCode: stubExitCode })
+    ? writeStubRuntime(binDir, runtimeName, { exitCode: stubExitCode, prelude: stubPrelude })
     : path.join(binDir, `${runtimeName}.record`);
   if (!withStub) fs.mkdirSync(binDir, { recursive: true });
 

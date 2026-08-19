@@ -8,9 +8,15 @@ import test from "node:test";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { renderWrapper } from "./wrapper-harness.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const INSTALL_SH = path.resolve(__dirname, "../../../install.sh");
+// REPOINTED 2026-08-19 (v0.6 Phase 2): this read install.sh's SOURCE and went red when the
+// codex-aify body moved into wrappers/codex-aify.sh.in, though the render was proven
+// byte-identical. A location pin breaks on a move and stays green on a defect. It now reads the
+// RENDERED wrapper — the artifact an operator installs — which a move cannot break and a broken
+// render cannot hide from.
+const INSTALL_SH = path.join(renderWrapper("codex"), "codex-aify");
 
 test("install.sh codex-aify wrapper contains stale-handle fallback marker", () => {
   const src = fs.readFileSync(INSTALL_SH, "utf8");

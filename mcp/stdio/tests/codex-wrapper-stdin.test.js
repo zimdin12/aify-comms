@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { renderWrapper } from "./wrapper-harness.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const installScript = readFileSync(resolve(__dirname, "../../../install.sh"), "utf8");
+// REPOINTED 2026-08-19 (v0.6 Phase 2): read install.sh's SOURCE until the codex-aify body moved into
+// wrappers/codex-aify.sh.in. Reads the RENDERED wrapper now — the artifact an operator installs.
+const installScript = readFileSync(join(renderWrapper("codex"), "codex-aify"), "utf8");
 
 assert.match(
   installScript,
