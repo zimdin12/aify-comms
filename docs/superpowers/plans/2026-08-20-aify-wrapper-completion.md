@@ -232,25 +232,41 @@ by reading the file, never by running it.
 
 ---
 
-### Task 5: Strict mode emits one entry per registered service
+### Task 5: Strict mode carries the services the operator opted in, not all of them
 
-**Files:** Modify `wrappers/claude-aify.sh.in`, tests.
+**Files:** Modify `wrappers/claude-aify.sh.in`, `lib/registry.mjs`, tests. Re-sync to aify-comms.
 
-`AIFY_CLAUDE_STRICT_MCP=1` currently passes `--strict-mcp-config` with a hand-written two-entry file,
-which **deletes every other MCP server from the session** — the escape hatch for the Claude MCP init
-race is the switch that forbids multi-service. With the registry baked, strict mode emits one entry
-per registered service and stops being single-service by construction.
+**PLAN CORRECTION, made while implementing Task 4.** This task originally read "strict mode emits one
+entry per registered service". That is wrong, and the template says why in its own comment:
 
-- [ ] **Step 1: Write the failing test.** Render a wrapper against a two-service registry, launch it
-      with a stub runtime under `AIFY_CLAUDE_STRICT_MCP=1`, capture the `--mcp-config` file at launch,
-      and assert both services appear with their own endpoints in their own `endpointEnv` keys.
-- [ ] **Step 2: Run. Expected: FAIL** — only aify-comms present.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run. Expected: PASS.** Default (non-strict) mode must still write no MCP config at all.
-- [ ] **Step 5:** Re-sync to aify-comms and update hashes in the same commit.
-- [ ] **Step 6: Commit.**
+> Escape hatch: set `AIFY_CLAUDE_STRICT_MCP=1` ... Use this when the Claude Code MCP init race
+> (upstream issues #38462, #21341) re-bites and channel notifications stop delivering because slower
+> MCP servers leave `aify-comms-channel` stuck in "still connecting" state.
 
----
+Strict mode exists **because** extra MCP servers cause the race. Emitting every registered service
+would reintroduce exactly the failure the flag is the workaround for. The original task would have
+shipped a plausible-looking regression, and the finding that strict mode "forbids multi-service" is
+still true — it is a deliberate trade, not a defect.
+
+**What to build instead.** A service opts in with `"strictMcp": true` in its registry entry. Default
+absent means today's behaviour byte-for-byte: the two aify-comms entries and nothing else. An operator
+who needs a second service inside strict mode says so, service by service, and owns the race risk for
+the ones they named.
+
+The primary two stay built at LAUNCH rather than baked, because `HARNESS_ENDPOINT` is a launch-time
+input that must keep winning for them. Opted-in extras are baked at install as a JSON fragment.
+
+- [ ] **Step 1: Write the failing tests.** A registry with an opted-in second service renders a strict
+      config carrying both, each with its own endpoint in its own `endpointEnv` keys. A registry with
+      no opt-in renders a strict config byte-identical to today's. `strictMcp: true` on a service with
+      no `mcp` entries adds nothing rather than an empty object.
+- [ ] **Step 2: Run. Expected: FAIL.**
+- [ ] **Step 3:** Add `strictMcp` to the schema and a `strictMcpEntriesFor(registry)` selector.
+- [ ] **Step 4: Implement the template change.** Prove the default-path render is byte-identical to
+      the pre-change render before asserting the new behaviour.
+- [ ] **Step 5: Run. Expected: PASS.** Default (non-strict) mode must still write no MCP config at all.
+- [ ] **Step 6:** Re-sync to aify-comms and update the hashes in the same commit.
+- [ ] **Step 7: Commit.**
 
 ### Task 6: aify-comms registers itself and consumes the package
 

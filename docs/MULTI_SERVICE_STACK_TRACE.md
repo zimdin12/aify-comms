@@ -60,6 +60,13 @@ host the user-scope config holds five MCP servers, of which `aify-comms` and `ai
 carry that env pair; the other three are unrelated servers sitting alongside, which is the shape a
 second service would join.
 
+**CORRECTED AGAIN, 2026-08-20.** The paragraph below calls strict mode a breaker to be fixed. It is
+a deliberate trade, and the template says so: the flag exists BECAUSE extra MCP servers cause the
+Claude init race (#38462, #21341) that leaves `aify-comms-channel` stuck connecting. Making it
+carry every registered service would reintroduce the failure it is the workaround for. The
+observation stands — strict mode is single-service — but the remedy is opt-in per service, not
+plurality by default.
+
 **What I missed, and it is the real client-tier breaker:** `AIFY_CLAUDE_STRICT_MCP=1` passes
 `--strict-mcp-config` with the hand-written two-entry file below. That flag DELETES every other MCP
 server from the session. The escape hatch for the Claude MCP init race (upstream #38462, #21341) is
