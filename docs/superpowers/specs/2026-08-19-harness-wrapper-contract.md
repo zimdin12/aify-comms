@@ -46,7 +46,7 @@ ownership for 21 live agents; going there first would put the riskiest tier firs
 
 | Tier | Today | Separable? |
 |---|---|---|
-| Client | 4 wrapper generators in `install.sh`, 3,943 lines | Not yet — 108 `aify-comms` references, 99 `AIFY_AGENT_ID` |
+| Client | 4 wrapper generators in `install.sh`, **611 lines** | Not yet — 108 `aify-comms` references, 99 `AIFY_AGENT_ID` |
 | Environment | `mcp/stdio` in its environment-bridge role: spawn loop, terminal controls, managed workers | Partly — already one npm package, but the role is a flag on the same binary |
 | Server | `service/` — FastAPI, SQLite, dispatch, dashboard | Yes — already a container with an HTTP surface |
 
@@ -101,17 +101,6 @@ right price is a fair Phase 2 question; it is not dead code.
 **What this means for sequencing:** nothing forces hermes last on size grounds. If it is sequenced last
 it should be for the TUI shim and the process-management coupling, which are real, and not for a line
 count that was never true.
-
----|---|
-| `install_claude_wrapper` | 358 |
-| `install_codex_wrapper` | 321 |
-| `install_pi_wrapper` | 417 |
-| `install_hermes_wrapper` | **2,847** |
-| **total** | **3,943 of install.sh's 4,370** |
-
-**Hermes is 65% of the installer on its own.** Any plan that treats "the wrappers" as one small uniform
-thing is planning for a file that does not exist. Whatever Phase 2 does, hermes is the bulk of it and
-should be sequenced last, after the shape is proven on the two small ones.
 
 **They are saturated with this service's concepts**, which is the real work of making them
 independently installable — not moving files:
@@ -183,7 +172,8 @@ nothing changes.
   Under the contract that becomes a host-supplied hook (`HARNESS_IDENTITY_RESOLVER`, a command the
   wrapper may invoke), or it stays behind in aify-comms' own generator. **Open question — needs a
   decision before implementation**, and it is the single largest service assumption in the wrappers.
-- **Anything hermes-specific about gateways.** The 2,847-line hermes generator carries gateway plumbing
+- **Anything hermes-specific about gateways.** Hermes' shims — the 503-line Windows TUI shim and the
+  277-line process-tree cleanup — carry plumbing
   that is not a launcher concern. Sequencing it last is a consequence of this line.
 
 ---
@@ -228,7 +218,8 @@ working hermes and a mute one.**
    host rather than the wrapper.
 3. **Distribution.** npm package, or a copied dotfolder as now? A dotfolder keeps the load-time fix and
    the same-build guarantee; a package gets versioning and reuse. They pull in opposite directions.
-4. **Does hermes come along at all in v0.6?** At 2,847 lines with gateway plumbing inside, it may
+4. **Does hermes come along at all in v0.6?** Its LAUNCHER is 251 lines and unremarkable, but its
+   shims total ~1,145 lines across install.sh, so it may
    deserve its own release rather than riding this one.
 
 ---
