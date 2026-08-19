@@ -105,3 +105,87 @@ test("hermes-aify wrapper: Task 4 — HERMES_AUTO defaults true and the interact
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── The harness wrapper contract (v0.6 Phase 2) ─────────────────────────────
+//
+// TEXT, NOT EXECUTION, and that is a deliberate exception rather than an oversight. claude, codex and
+// pi are each guarded by a harness that RUNS the wrapper against a stub, because text cannot tell you
+// a flag reached the command line. Hermes is not, because running it is unsafe on a machine with a
+// live fleet: before it execs anything the wrapper reaps by agent id, and one of those reaps is
+//
+//     lsof -ti tcp:$(agentPort "$agent_id") | xargs kill
+//
+// — a port derived from the id. A test agent id colliding with a live agent's port would kill the
+// operator's gateway host. This repo already has that incident recorded once, from a test that
+// acquired a role it should not have had.
+//
+// So the assertions below cover the SHAPE of the contract, and `--check` is the one path that could
+// be executed safely later (it exits above every reap and every spawn) if this is ever revisited in a
+// window where nothing is running.
+
+test("hermes-aify wrapper: the contract is resolved before anything is started", () => {
+  const { text, dir } = renderHermesWrapper();
+  try {
+    const contractAt = text.indexOf("HARNESS_ENDPOINT=");
+    assert.ok(contractAt >= 0, "the wrapper must resolve HARNESS_ENDPOINT");
+
+    // Everything this wrapper does that touches the machine must come AFTER the contract block.
+    for (const marker of ["aify_hermes_kill_prior", "ensure-host", "nohup"]) {
+      const at = text.indexOf(marker);
+      if (at < 0) continue;
+      assert.ok(
+        at > contractAt,
+        `${marker} appears before the contract is resolved — a rejected configuration would already `
+          + "have changed the machine",
+      );
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("hermes-aify wrapper: contract inputs fall back to the legacy AIFY_* names", () => {
+  // The whole reason a live fleet survives this change: with no HARNESS_* set, every input resolves
+  // to exactly what the wrapper used before the contract existed.
+  const { text, dir } = renderHermesWrapper();
+  try {
+    assert.match(text, /HARNESS_IDENTITY="\$\{HARNESS_IDENTITY:-\$\{AIFY_AGENT_ID:-\}\}"/);
+    assert.match(text, /HARNESS_ROLE="\$\{HARNESS_ROLE:-\$\{AIFY_AGENT_ROLE:-\}\}"/);
+    assert.match(text, /HERMES_AIFY_AGENT_ID="\$HARNESS_IDENTITY"/, "identity must flow from the contract");
+    assert.match(text, /export AIFY_SERVER_URL="\$HARNESS_ENDPOINT"/, "and so must the endpoint");
+    // `-` not `:-` on the endpoint: an explicitly emptied value is a configuration error, not unset.
+    assert.doesNotMatch(text, /HARNESS_ENDPOINT="\$\{HARNESS_ENDPOINT:-/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("hermes-aify wrapper: --check reports and exits before any side effect", () => {
+  const { text, dir } = renderHermesWrapper();
+  try {
+    const checkAt = text.indexOf('"--check"');
+    assert.ok(checkAt >= 0, "--check must be handled");
+    const exitAt = text.indexOf("OK — nothing was started.", checkAt);
+    assert.ok(exitAt > checkAt, "--check must report that it started nothing");
+    const killAt = text.indexOf("aify_hermes_kill_prior");
+    if (killAt >= 0) {
+      assert.ok(exitAt < killAt, "--check must exit above the process reap");
+    }
+    assert.match(text, /exit "\$HARNESS_EXIT_CONFIG"/, "an invalid configuration must exit 78");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("hermes-aify wrapper: reports its own version for doctor's wrapper-current check", () => {
+  const { text, dir } = renderHermesWrapper();
+  try {
+    assert.match(
+      text,
+      /HARNESS_WRAPPER_VERSION="\d+\.\d+\.\d+"/,
+      "a literal version, substituted at render — not a command the wrapper runs at launch",
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

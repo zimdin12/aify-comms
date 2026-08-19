@@ -23,8 +23,71 @@ set -euo pipefail
 # to ignore it, which is the failure mode this tool exists to prevent.
 HARNESS_WRAPPER_VERSION="@@WRAPPER_VERSION@@"
 
-HERMES_AIFY_AGENT_ID="${AIFY_AGENT_ID:-}"
-HERMES_AIFY_ROLE="${AIFY_AGENT_ROLE:-coder}"
+# ── The harness wrapper contract ────────────────────────────────────────────
+#
+# The same six inputs as the other three wrappers, with the same precedence and the same fallbacks to
+# the legacy AIFY_* names — see docs/superpowers/specs/2026-08-19-harness-wrapper-contract.md and the
+# fuller commentary in wrappers/claude-aify.sh.in.
+#
+# HARNESS_MCP_COMMAND is accepted and reported as unused: hermes loads its MCP servers through its own
+# config, patched at install time, not through anything this launcher writes.
+#
+# WHY THIS BLOCK RUNS FIRST. Everything below it starts something — a gateway host, a delivery loop, a
+# process reap. A configuration rejected after that point would be rejected by a wrapper that had
+# already changed the machine.
+HARNESS_WRAPPER_RUNTIME="hermes"
+HARNESS_ENDPOINT="${HARNESS_ENDPOINT-${AIFY_SERVER_URL:-${AIFY_COMMS_URL:-@@ENDPOINT@@}}}"
+HARNESS_IDENTITY="${HARNESS_IDENTITY:-${AIFY_AGENT_ID:-}}"
+HARNESS_ROLE="${HARNESS_ROLE:-${AIFY_AGENT_ROLE:-}}"
+HARNESS_CWD="${HARNESS_CWD:-${AIFY_AGENT_CWD:-}}"
+HARNESS_MCP_COMMAND="${HARNESS_MCP_COMMAND:-}"
+HARNESS_EXTRA_ENV="${HARNESS_EXTRA_ENV:-}"
+HARNESS_EXIT_CONFIG=78
+HARNESS_EXIT_NO_RUNTIME=127
+
+if [ -n "$HARNESS_EXTRA_ENV" ]; then
+  while IFS= read -r _pair; do
+    case "$_pair" in
+      ""|"#"*) continue ;;
+      *=*) export "${_pair%%=*}=${_pair#*=}" ;;
+    esac
+  done <<HARNESS_ENV_EOF
+$HARNESS_EXTRA_ENV
+HARNESS_ENV_EOF
+fi
+
+# `-` not `:-` above: an explicitly emptied endpoint is a configuration error, not an unset one.
+if [ -z "$HARNESS_ENDPOINT" ]; then
+  echo "[hermes-aify] HARNESS_ENDPOINT is empty. A wrapper will not guess an endpoint." >&2
+  exit "$HARNESS_EXIT_CONFIG"
+fi
+
+# --check: report and start NOTHING. It exits here, above every reap and every spawn, which is the
+# only place in this wrapper where "start nothing" is actually true.
+for ARG in "$@"; do
+  if [ "$ARG" = "--check" ]; then
+    _check_identity="$HARNESS_IDENTITY"
+    _prev=""
+    for A in "$@"; do
+      case "$_prev" in --aify-agent|--agent-id) _check_identity="$A" ;; esac
+      case "$A" in --aify-agent=*|--agent-id=*) _check_identity="${A#*=}" ;; esac
+      _prev="$A"
+    done
+    echo "hermes-aify $HARNESS_WRAPPER_VERSION"
+    echo "  runtime   : $HARNESS_WRAPPER_RUNTIME ($(command -v hermes 2>/dev/null || echo '<not on PATH>'))"
+    echo "  endpoint  : $HARNESS_ENDPOINT"
+    echo "  identity  : ${_check_identity:-<none — this session would be anonymous>}"
+    echo "  role      : ${HARNESS_ROLE:-coder}"
+    echo "  cwd       : ${HARNESS_CWD:-<inherited>}"
+    echo "  mcp       : not used by this wrapper (hermes config is patched at install time)"
+    echo "OK — nothing was started."
+    exit 0
+  fi
+done
+
+
+HERMES_AIFY_AGENT_ID="$HARNESS_IDENTITY"
+HERMES_AIFY_ROLE="${HARNESS_ROLE:-coder}"
 HERMES_AIFY_SESSION_MODE="${AIFY_SESSION_MODE:-}"
 HERMES_INHERITED_SESSION_HANDLE="${HERMES_SESSION_ID:-${HERMES_SESSION:-${AIFY_SESSION_HANDLE:-}}}"
 HERMES_SESSION_HANDLE=""
@@ -111,7 +174,7 @@ for ARG in "$@"; do
 done
 
 export AIFY_RUNTIME="hermes"
-export AIFY_SERVER_URL="${AIFY_SERVER_URL:-@@ENDPOINT@@}"
+export AIFY_SERVER_URL="$HARNESS_ENDPOINT"
 export CLAUDE_MCP_SERVER_URL="${CLAUDE_MCP_SERVER_URL:-$AIFY_SERVER_URL}"
 # Expose AIFY_COMMS_URL too so the pre_llm_call shell hook installed by
 # install_hermes_turn_hooks can POST /turn-start symmetrically with
