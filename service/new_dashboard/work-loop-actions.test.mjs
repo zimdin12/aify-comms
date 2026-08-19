@@ -330,3 +330,82 @@ test("INIT REFUSES A MISSING refresh", () => {
   assert.throws(() => initWorkLoopActions(null), TypeError);
   assert.doesNotThrow(() => initWorkLoopActions({ refresh: async () => {} }));
 });
+
+// --- loadContractsForState ------------------------------------------------
+//
+// The Work Loop's state filter. Uncovered until the v0.6 Phase 3 census, and worth covering because
+// the three branches build DIFFERENT queries and a wrong one is invisible: the page renders a
+// perfectly plausible list of the wrong contracts. "all" matters most, since it is the only branch
+// that asks for closed rows, and its limit is deliberately higher for the same reason.
+//
+// The harness above records only mutating calls, because it was written for the bulk-action tests.
+// This one is a GET, so it needs its own recorder rather than a widened shared one — widening it
+// would put every poll in the other tests' assertions.
+
+async function withContractsApi(fn, { fail = false } = {}) {
+  const savedFetch = globalThis.fetch;
+  const urls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    urls.push(String(url));
+    if (fail) throw new Error("network down");
+    const payload = { ok: true, contracts: [{ id: "loaded" }] };
+    return { ok: true, status: 200, statusText: "OK", json: async () => payload, text: async () => JSON.stringify(payload) };
+  };
+  setApiBase("");
+  try {
+    await fn();
+  } finally {
+    globalThis.fetch = savedFetch;
+  }
+  return urls;
+}
+
+test("the default state asks for open contracts only", async () => {
+  const seen = await withContractsApi(async () => { await loadContractsForState("", false); });
+  assert.equal(seen[0], "/contracts?limit=120");
+  assert.ok(!seen[0].includes("includeClosed"), "the default view must not pull closed rows");
+});
+
+test("'open' is the default rather than a filter of its own", async () => {
+  const seen = await withContractsApi(async () => { await loadContractsForState("open", false); });
+  assert.equal(seen[0], "/contracts?limit=120", "asking for 'open' explicitly must not change the query");
+});
+
+test("'all' is the only branch that includes closed contracts, and raises the limit to match", async () => {
+  const seen = await withContractsApi(async () => { await loadContractsForState("all", false); });
+  assert.match(seen[0], /includeClosed=true/);
+  assert.match(seen[0], /limit=300/, "a view that adds closed rows needs room or it silently truncates");
+});
+
+test("any other state is passed through as a filter, url-encoded", async () => {
+  const seen = await withContractsApi(async () => { await loadContractsForState("needs review", false); });
+  assert.equal(seen[0], "/contracts?state=needs%20review&limit=200");
+});
+
+test("a failed load leaves the previous contracts alone rather than blanking the view", async () => {
+  // Blanking on failure reads as "no open contracts", which is the opposite of what a failure means.
+  state.contracts = [{ id: "c-1" }];
+  const savedDoc = globalThis.document;
+  // toast() caps its stack, so the host needs `children` and `firstElementChild` as well as a body.
+  // A thinner stub throws inside the error handler, which would fail this test for a reason that has
+  // nothing to do with what it is asserting.
+  const node = () => ({
+    className: "", textContent: "", children: [], firstElementChild: null,
+    classList: { add() {}, remove() {} }, style: {},
+    setAttribute() {}, appendChild() {}, addEventListener() {}, remove() {},
+  });
+  const host = node();
+  globalThis.document = {
+    getElementById: () => host, querySelector: () => host, createElement: node,
+    body: { appendChild() {} },
+  };
+  const savedRaf = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = (cb) => cb();
+  try {
+    await withContractsApi(async () => { await loadContractsForState("all", false); }, { fail: true });
+    assert.deepEqual(state.contracts, [{ id: "c-1" }], "an error must not be rendered as an empty list");
+  } finally {
+    globalThis.document = savedDoc;
+    globalThis.requestAnimationFrame = savedRaf;
+  }
+});

@@ -167,3 +167,173 @@ test("a failing mark-read never loses the sent message", () => withStubDocument(
     await controller.send(); // must not throw
     assert.equal(h.sent.length, 1, "the message was still sent");
 }));
+
+// ── open / close / pulse / analytics ────────────────────────────────────────
+//
+// The v0.6 Phase 3 census found these five never called by any test. They are the conversation
+// lifecycle: which chat is open, what happens when it closes, and the two async loaders behind the
+// landing view. Both loaders carry a stale-async guard, which is the interesting part — a guard that
+// is never exercised is a guard nobody knows is there, and both were written after a real incident.
+
+function pulseHarness({ selected = "", analytics = { agent: "", data: null }, loadPulse, loadAgentAnalytics } = {}) {
+  const el = () => ({
+    innerHTML: "", textContent: "", hidden: false, value: "", dataset: {},
+    scrollHeight: 0, scrollTop: 0, clientHeight: 0,
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    querySelector: () => null, addEventListener() {},
+  });
+  const ids = [
+    "chat-rail-list", "chat-conv-title", "chat-timeline", "chat-msg-search", "chat-scroll-bottom",
+    "chat-conv-actions", "chat-composer", "chat-identity", "chat-new-channel-form", "chat-composer-body",
+  ];
+  const els = Object.fromEntries(ids.map((id) => [id, el()]));
+  const state = {
+    loaded: true,
+    agents: [{ id: "alice", status: "online" }, { id: "bob", status: "online" }],
+    messages: [],
+    channels: [],
+    chat: {
+      identity: "dashboard", selected, view: "messenger", drafts: {}, replyTo: null,
+      analytics, channels: [], channelMessages: {}, msgFilter: "",
+      pulse: { window: "24h", data: null, loading: false, lastMs: 0 },
+    },
+  };
+  const loaded = [];
+  const controller = createChatController({
+    state,
+    byId: (id) => els[id] || null,
+    sendMessage: async () => ({ ok: true }),
+    refresh: async () => {},
+    loadConversation: async (name) => { loaded.push(name); },
+    loadPulse,
+    loadAgentAnalytics,
+    persistDrafts: () => {},
+  });
+  return { controller, state, els, loaded };
+}
+
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
+test("open() clears the per-conversation message filter when the conversation changes", () => withStubDocument(async () => {
+  const h = pulseHarness({ selected: "dm:alice" });
+  h.state.chat.msgFilter = "deploy";
+  await h.controller.open("dm:bob");
+  assert.equal(h.state.chat.msgFilter, "", "a search typed in one conversation must not follow you into the next");
+  assert.equal(h.state.chat.selected, "dm:bob");
+}));
+
+test("open() re-selecting the SAME conversation keeps the filter", () => withStubDocument(async () => {
+  const h = pulseHarness({ selected: "dm:alice" });
+  h.state.chat.msgFilter = "deploy";
+  await h.controller.open("dm:alice");
+  assert.equal(h.state.chat.msgFilter, "deploy", "re-opening what is already open is not a change");
+}));
+
+test("open() follows analytics to a different agent, with the rail prefix stripped", () => withStubDocument(async () => {
+  // The bug this encodes: rail keys are `dm:<id>` and openAnalytics wants the RAW id. Passing the
+  // prefixed key through loaded an empty, all-zero analytics panel that looked like real data.
+  const asked = [];
+  const h = pulseHarness({
+    selected: "dm:alice",
+    analytics: { agent: "alice", data: { ok: true } },
+    loadAgentAnalytics: async (id) => { asked.push(id); return { ok: true, id }; },
+  });
+  await h.controller.open("dm:bob");
+  assert.deepEqual(asked, ["bob"], "the raw agent id, never the dm: key");
+  assert.equal(h.state.chat.analytics.agent, "bob");
+}));
+
+test("open() on the agent already under analytics falls back to messages", () => withStubDocument(async () => {
+  // This is the "Back to chat" button: it opens dm:<the agent you are viewing>, and must LEAVE
+  // analytics rather than reloading it.
+  const asked = [];
+  const h = pulseHarness({
+    selected: "dm:alice",
+    analytics: { agent: "alice", data: { ok: true } },
+    loadAgentAnalytics: async (id) => { asked.push(id); return { ok: true }; },
+  });
+  await h.controller.open("dm:alice");
+  assert.deepEqual(asked, [], "re-opening the same agent must not reload analytics");
+  assert.equal(h.state.chat.analytics.agent, "", "it must leave the analytics view");
+}));
+
+test("open() on a channel loads that channel's conversation", () => withStubDocument(async () => {
+  const h = pulseHarness();
+  await h.controller.open("channel:ops");
+  assert.deepEqual(h.loaded, ["ops"], "the channel name, without the key prefix");
+}));
+
+test("close() drops the cached pulse so returning refetches it", () => withStubDocument(async () => {
+  const h = pulseHarness({ selected: "dm:alice" });
+  h.state.chat.pulse.data = { ok: true, stale: true };
+  h.controller.close();
+  assert.equal(h.state.chat.selected, "");
+  assert.equal(h.state.chat.pulse.data, null, "a stale pulse must not be what greets you on return");
+}));
+
+test("loadFleetPulse patches agent statuses from the payload so rail and pulse agree", () => withStubDocument(async () => {
+  // 2026-07-02 screenshot incident: the pulse board carried freshly-derived statuses while the rail
+  // rendered an older /agents poll, so one frame showed a green dot beside "working now".
+  const h = pulseHarness({
+    loadPulse: async () => ({ ok: true, agents: [{ id: "alice", status: "working" }] }),
+  });
+  h.controller.refreshPulse(true);
+  await settle();
+  assert.equal(h.state.agents.find((a) => a.id === "alice").status, "working", "the shared roster must be patched");
+  assert.equal(h.state.agents.find((a) => a.id === "bob").status, "online", "an agent the pulse did not mention is untouched");
+}));
+
+test("loadFleetPulse discards a payload whose window is no longer selected", () => withStubDocument(async () => {
+  // The stale-async guard. Switching window mid-flight must not paint the previous window's numbers.
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const h = pulseHarness({ loadPulse: async () => { await gate; return { ok: true, window: "24h" }; } });
+  h.controller.refreshPulse(true);
+  await settle();
+  h.state.chat.pulse.window = "7d";
+  release();
+  await settle();
+  await settle();
+  assert.equal(h.state.chat.pulse.data, null, "the 24h payload must not land on a 7d view");
+}));
+
+test("loadFleetPulse records a failure rather than leaving the old numbers up", () => withStubDocument(async () => {
+  const h = pulseHarness({ loadPulse: async () => { throw new Error("network"); } });
+  h.controller.refreshPulse(true);
+  await settle();
+  await settle();
+  assert.deepEqual(h.state.chat.pulse.data, { ok: false }, "a failed fetch is a state, not silence");
+}));
+
+test("loadFleetPulse throttles unforced refetches", () => withStubDocument(async () => {
+  let calls = 0;
+  const h = pulseHarness({ loadPulse: async () => { calls += 1; return { ok: true }; } });
+  h.controller.refreshPulse(true);
+  await settle();
+  assert.equal(calls, 1);
+  h.controller.refreshPulse();
+  await settle();
+  assert.equal(calls, 1, "a poll tick moments later must not refetch");
+  h.controller.refreshPulse(true);
+  await settle();
+  assert.equal(calls, 2, "force is what overrides the throttle");
+}));
+
+test("openAnalytics discards a payload for an agent you have already left", () => withStubDocument(async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const h = pulseHarness({
+    loadAgentAnalytics: async (id) => { await gate; return { ok: true, id }; },
+  });
+  const inflight = h.controller.openAnalytics("alice");
+  h.state.chat.analytics.agent = "bob"; // operator clicked away mid-flight
+  release();
+  await inflight;
+  assert.equal(h.state.chat.analytics.data, null, "alice's numbers must not appear under bob's name");
+}));
+
+test("openAnalytics records a failed load instead of an empty panel", () => withStubDocument(async () => {
+  const h = pulseHarness({ loadAgentAnalytics: async () => { throw new Error("boom"); } });
+  await h.controller.openAnalytics("alice");
+  assert.deepEqual(h.state.chat.analytics.data, { ok: false });
+}));

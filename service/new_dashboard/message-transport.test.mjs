@@ -18,7 +18,7 @@ import test from "node:test";
 import { setApiBase } from "./api-client.mjs";
 import { state } from "./state.mjs";
 import {
-  chatLoadChannels, chatLoadConversation, chatSendMessage, sendMessageWithTimeout,
+  chatLoadChannels, chatLoadConversation, chatSendMessage, sendMessageWithTimeout, sendRunFollowup,
 } from "./message-transport.mjs";
 
 let HANDLER = (_req, res) => { res.writeHead(200); res.end("{}"); };
@@ -196,4 +196,83 @@ test("the timeout is CLEARED on success, so a slow-but-fine send is not cancelle
   respond({ ok: true });
   const result = await sendMessageWithTimeout({ from_agent: "me", to: "a1", body: "x" }, 5000);
   assert.deepEqual(result, { ok: true });
+});
+
+// --- run follow-ups -------------------------------------------------------
+//
+// `sendRunFollowup` is the Runs view's two buttons, Retry and Queue-after. The v0.6 Phase 3 census
+// found nothing called it. It is worth testing because it is a message BUILDER whose every field is a
+// promise to the receiving agent: `queueIfBusy` decides whether the follow-up interrupts a working
+// agent or waits, `requireReply` opens a tracked contract, and `inReplyTo` is what threads the answer
+// back to the original message rather than starting an orphan thread.
+
+const followupRun = (over = {}) => ({
+  id: "run-7",
+  agentId: "coder",
+  subject: "build the thing",
+  body: "original brief",
+  messageId: "msg-42",
+  ...over,
+});
+
+test("a follow-up with no resolvable target sends nothing at all", async () => {
+  respond({ ok: true });
+  await sendRunFollowup({ id: "run-orphan" });
+  assert.equal(SEEN.length, 0, "a run with no agent must not produce a message addressed to nobody");
+});
+
+test("a queue-after follow-up waits for the agent rather than interrupting it", async () => {
+  respond({ ok: true });
+  await sendRunFollowup(followupRun());
+  const payload = sent();
+  assert.equal(payload.to, "coder");
+  assert.equal(payload.queueIfBusy, true, "queue-after must not steer into a run already in flight");
+  assert.equal(payload.trigger, true, "it still has to wake an idle agent");
+  assert.equal(payload.requireReply, true, "a follow-up opens a tracked contract");
+  assert.match(payload.subject, /^Queue after run-7$/);
+});
+
+test("a retry names itself a retry, so the thread does not read as a second request", async () => {
+  respond({ ok: true });
+  await sendRunFollowup(followupRun(), { retry: true });
+  assert.equal(sent().subject, "Retry: build the thing");
+});
+
+test("a retry of a run with no subject falls back to the run id", async () => {
+  respond({ ok: true });
+  await sendRunFollowup(followupRun({ subject: "" }), { retry: true });
+  assert.equal(sent().subject, "Retry: run-7");
+});
+
+test("an explicit body wins over the run's own text", async () => {
+  respond({ ok: true });
+  await sendRunFollowup(followupRun(), { body: "do it differently this time" });
+  assert.equal(sent().body, "do it differently this time");
+});
+
+test("without a body the follow-up carries the run's own brief, not an empty message", async () => {
+  respond({ ok: true });
+  await sendRunFollowup(followupRun());
+  assert.equal(sent().body, "original brief");
+});
+
+test("a run with neither body nor summary still says something", async () => {
+  // The last resort matters: an empty body reaches the agent as a wake with no instruction, which is
+  // indistinguishable from a bug on the receiving end.
+  respond({ ok: true });
+  await sendRunFollowup(followupRun({ body: "", summary: "", subject: "" }));
+  assert.equal(sent().body, "Follow-up for run-7");
+});
+
+test("the follow-up threads onto the original message", async () => {
+  respond({ ok: true });
+  await sendRunFollowup(followupRun());
+  assert.equal(sent().inReplyTo, "msg-42", "without this the answer starts an orphan thread");
+});
+
+test("the snake_case message id is accepted too", async () => {
+  // Runs arrive from two shapes depending on the endpoint; reading only one silently drops threading.
+  respond({ ok: true });
+  await sendRunFollowup(followupRun({ messageId: undefined, message_id: "msg-99" }));
+  assert.equal(sent().inReplyTo, "msg-99");
 });
