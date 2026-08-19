@@ -34,17 +34,17 @@ WITH_HOOK=false
 # service/tests/test_install_hermes_prebuild.py to verify the branch's
 # detection logic without touching the operator's environment.
 PREBUILD_DRY_RUN=false
-# Test hook (WS1 Task 1.5): --emit-hermes-wrappers <dir> generates ONLY the
-# hermes-aify bash + PowerShell wrappers into <dir> and exits, touching nothing
-# in the operator's environment and launching no npm/hermes/loop. Used by
-# service/tests/test_install_hermes_loop_gate.py to inspect the generated text.
-EMIT_HERMES_WRAPPERS_DIR=""
-# Test hook (FIX 7, 2026-06-03): --emit-codex-wrappers <dir> mirrors the hermes
-# emit hook — generates ONLY the codex-aify wrapper into <dir> and exits, so the
-# codex bypass flag (CODEX_AUTO / --dangerously-bypass-approvals-and-sandbox) can
-# be asserted deterministically and can't silently drop. Used by
-# mcp/stdio/tests/codex-wrapper-determinism.test.js.
-EMIT_CODEX_WRAPPERS_DIR=""
+# Render-only test hook. `--emit-wrappers <dir>` (and the four per-client spellings, kept because
+# existing suites pass them) writes ONLY the named client's wrapper into <dir> and EXITS — before npm,
+# MCP registration, hook install, or any env mutation. That early exit IS the safety property: it lets
+# a suite render and assert on the real wrapper text while a live fleet is running on the same machine,
+# with no way to overwrite anything in ~/.local/bin.
+#
+# ONE variable, not four. These were the same mechanism written out separately per runtime, and the
+# claude one did not exist at all until v0.6 Phase 2 — which left the runtime the whole fleet runs on
+# as the only wrapper no test could render, guarded instead by greps over THIS FILE's source that
+# prove a line was written and nothing about what gets emitted.
+EMIT_WRAPPERS_DIR=""
 DEFAULT_AIFY_SERVER_URL="${AIFY_DEFAULT_SERVER_URL:-http://127.0.0.1:8800}"
 
 usage() {
@@ -85,12 +85,8 @@ while [ $# -gt 0 ]; do
       PREBUILD_DRY_RUN=true
       shift
       ;;
-    --emit-hermes-wrappers)
-      EMIT_HERMES_WRAPPERS_DIR="${2:-}"
-      shift 2
-      ;;
-    --emit-codex-wrappers)
-      EMIT_CODEX_WRAPPERS_DIR="${2:-}"
+    --emit-wrappers|--emit-claude-wrappers|--emit-codex-wrappers|--emit-hermes-wrappers|--emit-pi-wrappers)
+      EMIT_WRAPPERS_DIR="${2:-}"
       shift 2
       ;;
     --help|-h)
@@ -142,7 +138,12 @@ if [ -z "$SERVER_URL" ]; then
   SERVER_URL="$DEFAULT_AIFY_SERVER_URL"
 fi
 
-if [ "$CLIENT" = "pi" ]; then
+# The `-z "$EMIT_PI_WRAPPERS_DIR"` guard (v0.6 Phase 2) keeps RENDERING the pi wrapper possible while
+# INSTALLING it stays disabled. Those are different acts: emit writes text into a throwaway dir and
+# exits, and the reason pi installs are refused — OMP is single-client, so there is no resident wake to
+# provide — says nothing about whether the wrapper's text may be inspected. Without this the emit hook
+# below would be unreachable, i.e. dead code that reads as coverage.
+if [ "$CLIENT" = "pi" ] && [ -z "$EMIT_WRAPPERS_DIR" ]; then
   echo "Pi/OMP resident wrapper install is disabled."
   echo "Managed Pi remains supported through the environment bridge using plain 'omp --mode rpc'."
   echo "Reason: OMP is single-client, so omp-aify/pi-aify cannot provide live resident wake into an open TUI."
@@ -155,7 +156,10 @@ if [ "$CLIENT" = "opencode" ]; then
   exit 1
 fi
 
-if [ "$CLIENT" != "claude" ] && [ "$CLIENT" != "codex" ] && [ "$CLIENT" != "hermes" ]; then
+# Same carve-out as the pi block above, and for the same reason: `--client pi --emit-pi-wrappers` is a
+# render, not an install. Every other unsupported client still fails here.
+if [ "$CLIENT" != "claude" ] && [ "$CLIENT" != "codex" ] && [ "$CLIENT" != "hermes" ] \
+   && ! { [ "$CLIENT" = "pi" ] && [ -n "$EMIT_WRAPPERS_DIR" ]; }; then
   echo "Unsupported client: $CLIENT"
   usage
   exit 1
@@ -427,7 +431,7 @@ copy_hermes_assets() {
 }
 
 install_claude_wrapper() {
-  local wrapper_dir="$HOME/.local/bin"
+  local wrapper_dir="${EMIT_WRAPPERS_DIR:-$HOME/.local/bin}"
   local wrapper_path="$wrapper_dir/claude-aify"
   mkdir -p "$wrapper_dir"
   # The runtime marker is written by the long-lived aify-comms-channel MCP
@@ -785,9 +789,7 @@ remove_claude_wrapper() {
 }
 
 install_codex_wrapper() {
-  # FIX 7 (2026-06-03): honor EMIT_CODEX_WRAPPERS_DIR so the determinism test can
-  # render the wrapper into a tmp dir (mirrors install_hermes_wrapper's emit dir).
-  local wrapper_dir="${EMIT_CODEX_WRAPPERS_DIR:-$HOME/.local/bin}"
+  local wrapper_dir="${EMIT_WRAPPERS_DIR:-$HOME/.local/bin}"
   local wrapper_path="$wrapper_dir/codex-aify"
   mkdir -p "$wrapper_dir"
   cat > "$wrapper_path" <<'EOF'
@@ -1096,17 +1098,15 @@ EOF
   # wrapper hardcoded 127.0.0.1:8800 regardless of `--client codex <url>`.
   sed -i.bak "s|__AIFY_INSTALL_TIME_URL__|${SERVER_URL:-http://127.0.0.1:8800}|" "$wrapper_path" && rm -f "$wrapper_path.bak"
   chmod +x "$wrapper_path"
-  # FIX 7 (2026-06-03): in emit mode, stop after writing the wrapper text — skip
-  # the Windows shim / MCP-config / launch so the test can inspect the wrapper in
-  # isolation without touching the operator's environment.
-  if [ -n "$EMIT_CODEX_WRAPPERS_DIR" ]; then
+  # In emit mode stop after the wrapper text: no Windows shim, no MCP config, no launch.
+  if [ -n "$EMIT_WRAPPERS_DIR" ]; then
     return 0
   fi
   install_windows_cmd_shim "codex-aify" "$wrapper_dir"
 }
 
 install_pi_wrapper() {
-  local wrapper_dir="$HOME/.local/bin"
+  local wrapper_dir="${EMIT_WRAPPERS_DIR:-$HOME/.local/bin}"
   local wrapper_path="$wrapper_dir/pi-aify"
   local alias_path="$wrapper_dir/omp-aify"
   mkdir -p "$wrapper_dir"
@@ -1523,7 +1523,7 @@ NODE
 }
 
 install_hermes_wrapper() {
-  local wrapper_dir="${EMIT_HERMES_WRAPPERS_DIR:-$HOME/.local/bin}"
+  local wrapper_dir="${EMIT_WRAPPERS_DIR:-$HOME/.local/bin}"
   local wrapper_path="$wrapper_dir/hermes-aify"
   local default_server="${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}"
   local hermes_plugin_path="$SCRIPT_DIR/integrations/hermes-aify-plugin"
@@ -4097,6 +4097,15 @@ echo "Client: $CLIENT"
 echo "Server: ${SERVER_URL:-local mode (no shared server)}"
 echo ""
 
+# Render-only mode: emit this client's wrapper and stop. Ahead of the hermes prebuild and of
+# `require_cmd` ON PURPOSE — rendering wrapper text must not require the runtime CLI to be present,
+# or a wrapper could only be guarded on a machine that already runs it.
+if [ -n "$EMIT_WRAPPERS_DIR" ]; then
+  mkdir -p "$EMIT_WRAPPERS_DIR"
+  "install_${CLIENT}_wrapper"
+  exit 0
+fi
+
 # Plan 5 (2026-05-25): pre-build hermes web_dist BEFORE the heavy install
 # steps so a fresh hermes install doesn't fall through to plain `hermes`
 # (which leaves AIFY_HERMES_GATEWAY_URL unexported and every resident
@@ -4104,14 +4113,6 @@ echo ""
 # --prebuild-dry-run, used by tests to exercise just this branch without
 # mutating the operator's env.
 if [ "$CLIENT" = "hermes" ]; then
-  # Test hook (WS1 Task 1.5): generate ONLY the hermes wrappers into the given
-  # dir and exit. No prebuild, no npm, no MCP registration, no env mutation —
-  # purely so tests can assert on the generated wrapper text.
-  if [ -n "$EMIT_HERMES_WRAPPERS_DIR" ]; then
-    mkdir -p "$EMIT_HERMES_WRAPPERS_DIR"
-    install_hermes_wrapper
-    exit 0
-  fi
   prebuild_hermes_web_dist || true
   if [ "$PREBUILD_DRY_RUN" = true ]; then
     # Dry-run: only the prebuild branch was exercised. Skip wrapper writes,
@@ -4119,16 +4120,6 @@ if [ "$CLIENT" = "hermes" ]; then
     # operator's environment or invoke npm/hermes.
     exit 0
   fi
-fi
-
-# FIX 7 (2026-06-03): codex emit hook — mirror the hermes one. Generate ONLY the
-# codex-aify wrapper into the given dir and exit. No npm, no MCP registration, no
-# env mutation, no codex-presence check — purely so the determinism test can
-# assert on the rendered wrapper text (CODEX_AUTO / bypass flag).
-if [ "$CLIENT" = "codex" ] && [ -n "$EMIT_CODEX_WRAPPERS_DIR" ]; then
-  mkdir -p "$EMIT_CODEX_WRAPPERS_DIR"
-  install_codex_wrapper
-  exit 0
 fi
 
 require_cmd node

@@ -35,7 +35,7 @@ const UNWATCHED_EXTENSIONS = [".sh", ".css"];
 
 //: MEASURED 2026-08-14, not rounded up. Every entry is pre-existing debt with a pending scope ruling.
 const CEILINGS = {
-  "install.sh": 4370,
+  "install.sh": 4361,
   "service/new_dashboard/styles.css": 1844,
 };
 
