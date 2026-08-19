@@ -59,17 +59,22 @@ independent reasons.
 
 A phase is done when its gate is green by measurement, not by assertion.
 
-**Phase 6 — aify-wrapper.** Installing it on a host with N harnesses present produces N launchers and
+**Phase 6 — aify-wrapper. MET, except the last clause.** Installing it on a host with N harnesses present produces N launchers and
 touches nothing else. A wrapper built against a stale registry reports itself stale rather than
-silently launching against one service. `test_wrapper_templates_are_published_in_sync.py` is DELETED,
-because aify-comms consumes the package instead of copying it and the duplication it guarded is gone.
+silently launching against one service. `test_wrapper_templates_are_published_in_sync.py` is NOT deleted:
+how aify-comms locates the package is an operator decision, and every option changes how users install.
+See the plan's Task 6b.
 
-**Phase 7 — aify-env.** A process started through aify-env runs under a PTY, streams to a consumer,
+**Phase 7 — aify-env. MET by measurement (121 tests, nothing skipped).** A process started through aify-env runs under a PTY, streams to a consumer,
 and is reaped when it dies. A file without `HARNESS_WRAPPER_VERSION` is refused. `aify-env doctor`
 reports `passed / failed / unanswered` and a silent registered service reads `unanswered`, never `ok`.
 The TUI shows registered services, owned processes and its own I/O, and claims no agent status.
 
-**Phase 8 — aify-comms.** aify-comms spawns nothing itself; every spawn goes through aify-env. The
+**Phase 8 — aify-comms. BLOCKED before the flag, see docs/PHASE8_STATUS.md.**
+aify-env has no output STREAM, so delegation would carry a spawn and lose every managed console --
+which breaks the operator's hard TUI requirement. The client exists and is off; the seam
+(`TerminalProcessManager.start()`) is deliberately unwired until the protocol grows a stream.
+Original gate, unchanged, for when it resumes: aify-comms spawns nothing itself; every spawn goes through aify-env. The
 `aify-comms` command does not exist. `/health` self-reports build sha, branch and built-at, all from
 the stamp, and the repo ships the tooling that compares that report against a checkout. A live
 two-session round-trip passes: two agents registered, `comms_send` between them, the target wakes or
