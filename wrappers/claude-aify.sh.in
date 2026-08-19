@@ -24,6 +24,54 @@
 #| mcp/stdio/tests/claude-wrapper-template.test.js.
 set -euo pipefail
 
+# ── The harness wrapper contract ────────────────────────────────────────────
+#
+# Six inputs a HOST supplies, named once here and used below. Spec:
+# docs/superpowers/specs/2026-08-19-harness-wrapper-contract.md.
+#
+# HARNESS_MCP_COMMAND is the pivot of the whole thing: it is this launcher saying "point me at an
+# environment" without knowing which one. Everything else the wrapper does — resolve the CLI, export
+# an identity, forward argv — is already host-agnostic in shape; what tied it to one service was
+# knowing where that service's bridge lives.
+#
+# EVERY input falls back to the legacy AIFY_* name, and that is not politeness. A live fleet launches
+# through this wrapper and uses those names for every agent; a contract that required them all to
+# change would be a rewrite wearing a refactor's clothes. With no HARNESS_* set, this block resolves
+# to exactly the values the wrapper used before it existed.
+#
+# Precedence, deliberate and tested: an explicit flag > HARNESS_* > legacy AIFY_* > the value baked in
+# at install time. The contract name beats the legacy one because it is the canonical one; an argument
+# beats both because that is what an operator means by typing it.
+HARNESS_WRAPPER_RUNTIME="claude-code"
+HARNESS_WRAPPER_VERSION="@@WRAPPER_VERSION@@"
+HARNESS_ENDPOINT="${HARNESS_ENDPOINT-${AIFY_COMMS_URL:-@@ENDPOINT@@}}"
+HARNESS_IDENTITY="${HARNESS_IDENTITY:-${AIFY_AGENT_ID:-}}"
+HARNESS_ROLE="${HARNESS_ROLE:-${AIFY_AGENT_ROLE:-}}"
+HARNESS_CWD="${HARNESS_CWD:-${AIFY_AGENT_CWD:-}}"
+HARNESS_MCP_COMMAND="${HARNESS_MCP_COMMAND:-}"
+HARNESS_EXTRA_ENV="${HARNESS_EXTRA_ENV:-}"
+HARNESS_CHECK=false
+
+# `${HARNESS_ENDPOINT-...}` above uses `-`, NOT `:-`, and the difference is the whole point of the
+# check below: `:-` would treat an explicitly EMPTY endpoint as "unset" and silently substitute the
+# baked-in URL. A host that cleared it would get an agent talking to a service it never named. Empty
+# is a configuration error, and the contract gives it exit 78.
+HARNESS_EXIT_CONFIG=78
+HARNESS_EXIT_NO_RUNTIME=127
+
+# Host-supplied environment, exported verbatim before launch. Malformed lines are skipped rather than
+# fatal: a config file with a trailing newline must not stop an agent starting.
+if [ -n "$HARNESS_EXTRA_ENV" ]; then
+  while IFS= read -r _pair; do
+    case "$_pair" in
+      ""|"#"*) continue ;;
+      *=*) export "${_pair%%=*}=${_pair#*=}" ;;
+    esac
+  done <<HARNESS_ENV_EOF
+$HARNESS_EXTRA_ENV
+HARNESS_ENV_EOF
+fi
+
 CLAUDE_RESUME_ID="${CLAUDE_SESSION_ID:-}"
 # Bypass permissions by DEFAULT for every *-aify wrapper (2026-06-02 decision):
 # aify agents run unattended, so they must not stall on approval prompts. Each
@@ -31,8 +79,8 @@ CLAUDE_RESUME_ID="${CLAUDE_SESSION_ID:-}"
 # permissions, codex --dangerously-bypass-approvals-and-sandbox, hermes --yolo,
 # omp --auto-approve). Opt out per-launch with --safe / --no-auto.
 CLAUDE_AUTO=true
-CLAUDE_AIFY_AGENT_ID="${AIFY_AGENT_ID:-}"
-CLAUDE_AIFY_ROLE="${AIFY_AGENT_ROLE:-coder}"
+CLAUDE_AIFY_AGENT_ID="$HARNESS_IDENTITY"
+CLAUDE_AIFY_ROLE="${HARNESS_ROLE:-coder}"
 # Explicit session-mode opt-in. --resident is the default for human
 # invocation; --managed is set by aify-comms when it spawns this wrapper
 # as a backing process. If neither flag is passed and AIFY_SESSION_MODE
@@ -68,6 +116,14 @@ for ARG in "$@"; do
   fi
   if [ "$ARG" = "--safe" ] || [ "$ARG" = "--no-auto" ]; then
     CLAUDE_AUTO=false
+    continue
+  fi
+  # Consumed here, never forwarded. `--check` answers "is this wrapper configured and can it find its
+  # runtime" WITHOUT starting anything — the same distinction `aify-comms --check` exists for, after a
+  # four-second run meant only to confirm a launcher still worked superseded the live environment
+  # bridge and reaped the managed fleet.
+  if [ "$ARG" = "--check" ]; then
+    HARNESS_CHECK=true
     continue
   fi
   if [ "$ARG" = "--resident" ]; then
@@ -122,6 +178,37 @@ if [ -n "${AIFY_MANAGED_MODEL:-}" ] && [ "$CLAUDE_HAS_MODEL" = false ]; then
 fi
 if [ -n "${AIFY_MANAGED_EFFORT:-}" ] && [ "$CLAUDE_HAS_EFFORT" = false ]; then
   CLAUDE_ARGS+=(--effort "$AIFY_MANAGED_EFFORT")
+fi
+
+# ── Contract validation, then the runtime, then --check ─────────────────────
+#
+# Ordered so `--check` reports on a configuration that has ALREADY been validated: a check that says
+# "fine" about something the launch would reject is worse than no check.
+if [ -z "$HARNESS_ENDPOINT" ]; then
+  echo "[claude-aify] HARNESS_ENDPOINT is empty. A wrapper will not guess an endpoint: an agent" >&2
+  echo "              talking to a service nobody named is worse than one that refuses to start." >&2
+  exit "$HARNESS_EXIT_CONFIG"
+fi
+
+# The runtime CLI, resolved before anything is written or launched. Without this the failure is
+# bash's own "command not found" at the very last line, after temp files, hooks and a kill-prior have
+# all run — the contract asks for 127 and a message naming what is missing.
+if ! command -v claude >/dev/null 2>&1; then
+  echo "[claude-aify] runtime CLI 'claude' was not found on PATH." >&2
+  echo "              Install Claude Code, or put it on PATH, then try again." >&2
+  exit "$HARNESS_EXIT_NO_RUNTIME"
+fi
+
+if [ "$HARNESS_CHECK" = true ]; then
+  echo "claude-aify $HARNESS_WRAPPER_VERSION"
+  echo "  runtime   : $HARNESS_WRAPPER_RUNTIME ($(command -v claude))"
+  echo "  endpoint  : $HARNESS_ENDPOINT"
+  echo "  identity  : ${CLAUDE_AIFY_AGENT_ID:-<none — this session would be anonymous>}"
+  echo "  role      : $CLAUDE_AIFY_ROLE"
+  echo "  cwd       : ${HARNESS_CWD:-<inherited>}"
+  echo "  mcp       : ${HARNESS_MCP_COMMAND:-<built-in bridge>}"
+  echo "OK — nothing was started."
+  exit 0
 fi
 
 # Plan 6 B4 (2026-05-26): validate CLAUDE_SESSION_ID against the on-disk
@@ -216,7 +303,7 @@ fi
 # 120s server-side stale window after every reply.
 # Caller env wins — a bridge-spawned managed PTY can override the
 # install-time default by exporting AIFY_COMMS_URL beforehand.
-export AIFY_COMMS_URL="${AIFY_COMMS_URL:-@@ENDPOINT@@}"
+export AIFY_COMMS_URL="$HARNESS_ENDPOINT"
 
 # Agent view / background sessions OFF for aify-driven sessions (2026-08-02).
 #
@@ -289,19 +376,42 @@ if [ "${AIFY_CLAUDE_STRICT_MCP:-0}" = "1" ]; then
   else
     AIFY_SCRIPT_DIR_FWD="@@NATIVE_BASE@@"
   fi
+  # WHICH BRIDGE THIS RUNTIME LOADS — the one thing that tied this launcher to one service.
+  #
+  # Default: the built-in bridge, named as a single quoted path exactly as before, so a HOME with a
+  # space in it still works. Host-supplied: HARNESS_MCP_COMMAND is word-split into command + args.
+  # The two branches are deliberately different rather than one general one — collapsing them would
+  # word-split the built-in path too, and silently break every install under "C:/Program Files".
+  if [ -n "$HARNESS_MCP_COMMAND" ]; then
+    read -r -a _mcp_parts <<< "$HARNESS_MCP_COMMAND"
+    _mcp_cmd="${_mcp_parts[0]}"
+    _mcp_args=""
+    if [ "${#_mcp_parts[@]}" -gt 1 ]; then
+      for _p in "${_mcp_parts[@]:1}"; do
+        [ -n "$_mcp_args" ] && _mcp_args="$_mcp_args, "
+        _mcp_args="$_mcp_args\"$_p\""
+      done
+    fi
+  else
+    _mcp_cmd="node"
+    _mcp_args="\"${AIFY_SCRIPT_DIR_FWD}/mcp/stdio/server.js\""
+  fi
   AIFY_MCP_CONFIG="$(mktemp -t aify-mcp.XXXXXX.json 2>/dev/null || mktemp -t aify-mcp)"
+  # The bridge's endpoint is the RESOLVED one, not the install-time literal this used to bake in. An
+  # explicit `env` block REPLACES the inherited environment for that server, so baking meant a strict
+  # mode session where the wrapper announced one endpoint and its bridge talked to another.
   cat > "$AIFY_MCP_CONFIG" <<JSON
 {
   "mcpServers": {
     "aify-comms": {
-      "command": "node",
-      "args": ["${AIFY_SCRIPT_DIR_FWD}/mcp/stdio/server.js"],
-      "env": { "AIFY_SERVER_URL": "@@ENDPOINT_RAW@@", "CLAUDE_MCP_SERVER_URL": "@@ENDPOINT_RAW@@" }
+      "command": "${_mcp_cmd}",
+      "args": [${_mcp_args}],
+      "env": { "AIFY_SERVER_URL": "$HARNESS_ENDPOINT", "CLAUDE_MCP_SERVER_URL": "$HARNESS_ENDPOINT" }
     },
     "aify-comms-channel": {
       "command": "node",
       "args": ["${AIFY_SCRIPT_DIR_FWD}/mcp/stdio/claude-channel.js"],
-      "env": { "AIFY_SERVER_URL": "@@ENDPOINT_RAW@@", "CLAUDE_MCP_SERVER_URL": "@@ENDPOINT_RAW@@" }
+      "env": { "AIFY_SERVER_URL": "$HARNESS_ENDPOINT", "CLAUDE_MCP_SERVER_URL": "$HARNESS_ENDPOINT" }
     }
   }
 }

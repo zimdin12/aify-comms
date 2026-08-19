@@ -48,6 +48,10 @@ export function renderWrapper(client, { url = RENDER_URL } = {}) {
 export function writeStubRuntime(binDir, name, { exitCode = 0 } = {}) {
   fs.mkdirSync(binDir, { recursive: true });
   const recordPath = path.join(binDir, `${name}.record`);
+  // The stub also captures the CONTENTS of any config file it is handed. The wrapper writes those to
+  // temp files and removes them in an EXIT trap, so by the time a test could read them they are gone —
+  // and a test that cannot see the MCP config cannot tell which bridge the runtime was pointed at.
+  // Reading them here, at the moment of launch, is the only point they exist.
   const stub = [
     "#!/bin/bash",
     "# Stub runtime installed by wrapper-harness.mjs. Records how it was launched.",
@@ -58,6 +62,16 @@ export function writeStubRuntime(binDir, name, { exitCode = 0 } = {}) {
     `  echo "ENV_BEGIN"`,
     `  env`,
     `  echo "ENV_END"`,
+    `  prev=""`,
+    `  for a in "$@"; do`,
+    `    if [ "$prev" = "--mcp-config" ] || [ "$prev" = "--settings" ]; then`,
+    `      echo "FILE_BEGIN $prev"`,
+    `      cat "$a" 2>/dev/null`,
+    `      echo ""`,
+    `      echo "FILE_END"`,
+    `    fi`,
+    `    prev="$a"`,
+    `  done`,
     `} > ${JSON.stringify(recordPath)} 2>&1`,
     `exit ${exitCode}`,
     "",
@@ -68,22 +82,81 @@ export function writeStubRuntime(binDir, name, { exitCode = 0 } = {}) {
   return recordPath;
 }
 
+/**
+ * A PATH with the shell utilities a wrapper needs and NO runtime CLI on it — for asserting what a
+ * wrapper does when the runtime is missing.
+ *
+ * This one is genuinely dangerous to get wrong. The ordinary PATH contains the operator's real
+ * `claude`, so a test that merely omits the stub would LAUNCH IT — an interactive session, from a
+ * suite, on a machine running a live fleet. `runtimeReachable` below exists so such a test skips
+ * loudly rather than doing that.
+ */
+export function reducedPath(binDir) {
+  // POSIX form and `:` separators throughout: this string is read by BASH, not by Node. Node is told
+  // which executable to run explicitly (see `BASH` below), precisely so the two never have to agree
+  // on a path syntax — mixing a Windows `stub-bin` path into a `:`-joined list produced a PATH that
+  // neither could parse, and the spawn failed with a null status rather than any wrapper behaviour.
+  const dirs = [binDir.split("\\").join("/"), "/usr/bin", "/mingw64/bin"];
+  for (const tool of ["node", "curl"]) {
+    const found = spawnSync("bash", ["-lc", `command -v ${tool} || true`], { encoding: "utf8" });
+    const p = (found.stdout || "").trim();
+    if (p) dirs.push(path.posix.dirname(p));
+  }
+  return [...new Set(dirs)].join(":");
+}
+
+// Windows-native path to bash, resolved once. Node resolves a bare "bash" against the PATH it is
+// handed, which the reduced-PATH tests deliberately shrink — so the interpreter is named outright.
+const BASH = (() => {
+  try {
+    const p = execFileSync("bash", ["-lc", "cygpath -w \"$(command -v bash)\" 2>/dev/null || command -v bash"], {
+      encoding: "utf8",
+    }).trim();
+    return p || "bash";
+  } catch {
+    return "bash";
+  }
+})();
+
+/** Whether a runtime CLI resolves under the given PATH. Used to guard the missing-runtime tests. */
+export function runtimeReachable(name, pathValue) {
+  const res = spawnSync(BASH, ["-c", `command -v ${name} >/dev/null 2>&1`], {
+    env: { ...process.env, PATH: pathValue },
+  });
+  return res.status === 0;
+}
+
 function parseRecord(text) {
   const argv = [];
   const env = {};
+  const files = {};
   let mode = "";
+  let fileKey = "";
+  let buffer = [];
   for (const line of text.split(/\r?\n/)) {
     if (line === "ARGV_BEGIN") { mode = "argv"; continue; }
     if (line === "ARGV_END") { mode = ""; continue; }
     if (line === "ENV_BEGIN") { mode = "env"; continue; }
     if (line === "ENV_END") { mode = ""; continue; }
+    if (line.startsWith("FILE_BEGIN ")) {
+      mode = "file";
+      fileKey = line.slice("FILE_BEGIN ".length).trim();
+      buffer = [];
+      continue;
+    }
+    if (line === "FILE_END") {
+      files[fileKey] = buffer.join("\n");
+      mode = "";
+      continue;
+    }
     if (mode === "argv") { argv.push(line); continue; }
+    if (mode === "file") { buffer.push(line); continue; }
     if (mode === "env") {
       const eq = line.indexOf("=");
       if (eq > 0) env[line.slice(0, eq)] = line.slice(eq + 1);
     }
   }
-  return { argv, env };
+  return { argv, env, files };
 }
 
 /**
@@ -100,6 +173,7 @@ export function runWrapper(wrapperPath, {
   stubExitCode = 0,
   withStub = true,
   prepareHome = null,
+  minimalPath = false,
   timeout = 30_000,
 } = {}) {
   const dir = path.dirname(wrapperPath);
@@ -134,7 +208,7 @@ export function runWrapper(wrapperPath, {
     TMPDIR: posix(dir),
     TEMP: posix(dir),
     TMP: posix(dir),
-    PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
+    PATH: minimalPath ? reducedPath(binDir) : `${binDir}${path.delimiter}${process.env.PATH}`,
     AIFY_COMMS_URL: NOWHERE_URL,
     ...env,
   });
@@ -142,7 +216,7 @@ export function runWrapper(wrapperPath, {
     if (v === undefined || v === null) delete childEnv[k];
   }
 
-  const res = spawnSync("bash", [wrapperPath, ...args], {
+  const res = spawnSync(BASH, [wrapperPath, ...args], {
     env: childEnv,
     encoding: "utf8",
     timeout,
@@ -150,7 +224,9 @@ export function runWrapper(wrapperPath, {
   });
 
   const launched = fs.existsSync(recordPath);
-  const parsed = launched ? parseRecord(fs.readFileSync(recordPath, "utf8")) : { argv: [], env: {} };
+  const parsed = launched
+    ? parseRecord(fs.readFileSync(recordPath, "utf8"))
+    : { argv: [], env: {}, files: {} };
   return {
     status: res.status,
     stdout: res.stdout || "",
@@ -158,5 +234,8 @@ export function runWrapper(wrapperPath, {
     launched,
     argv: parsed.argv,
     env: parsed.env,
+    // Contents of any --mcp-config / --settings file, captured at launch: the wrapper removes them
+    // in an EXIT trap, so this is the only moment they can be read.
+    files: parsed.files,
   };
 }

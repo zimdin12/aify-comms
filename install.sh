@@ -442,8 +442,13 @@ render_wrapper_template() {
   local text
   # `#|` lines are template-only: documentation for the template, never for the installed wrapper.
   text="$(grep -v "^#|" "$template")"
+  # The repo-root VERSION file, read here rather than declared: this project has one release version
+  # and a test that fails any file carrying a second. A wrapper that reports its own version is what
+  # replaces install.sh's same-build guarantee once the wrapper ships separately from the bridge.
+  local wrapper_version
+  wrapper_version="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo unknown)"
   text="${text//@@ENDPOINT@@/${SERVER_URL:-http://127.0.0.1:8800}}"
-  text="${text//@@ENDPOINT_RAW@@/${SERVER_URL:-}}"
+  text="${text//@@WRAPPER_VERSION@@/$wrapper_version}"
   text="${text//@@BRIDGE_DIR@@/$AIFY_BRIDGE_DIR}"
   text="${text//@@NATIVE_BASE@@/$AIFY_NATIVE_BASE}"
   text="${text//@@SCRIPT_DIR@@/$SCRIPT_DIR}"

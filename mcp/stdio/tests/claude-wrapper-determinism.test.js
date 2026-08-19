@@ -88,15 +88,29 @@ test("claude-aify wrapper: exports the runtime identity the bridge registers und
   }
 });
 
-test("claude-aify wrapper: the service endpoint is baked in but caller env wins", () => {
-  // `${AIFY_COMMS_URL:-<baked>}` — the turn-end hook POSTs here, so an empty value silently costs
-  // every reply a 120s stale-window wait rather than failing loudly.
+test("claude-aify wrapper: the endpoint resolves through the contract, baked value last", () => {
+  // The turn-end hook POSTs here, so an empty value silently costs every reply a 120s stale-window
+  // wait rather than failing loudly. This asserts the RESOLUTION CHAIN is present in the text;
+  // that the chain produces the right value under each combination of inputs is proven by running
+  // the wrapper in claude-wrapper-behaviour.test.js and claude-wrapper-contract.test.js.
   const { text, dir } = renderClaudeWrapper();
   try {
     assert.match(
       text,
-      /export AIFY_COMMS_URL="\$\{AIFY_COMMS_URL:-http:\/\/127\.0\.0\.1:8899\}"/,
-      "the rendered endpoint must be the one install.sh was given, with caller env taking precedence",
+      /HARNESS_ENDPOINT="\$\{HARNESS_ENDPOINT-\$\{AIFY_COMMS_URL:-http:\/\/127\.0\.0\.1:8899\}\}"/,
+      "contract name first, legacy name second, the URL install.sh was given last",
+    );
+    assert.match(
+      text,
+      /export AIFY_COMMS_URL="\$HARNESS_ENDPOINT"/,
+      "and the runtime must receive the RESOLVED endpoint, not re-derive it",
+    );
+    // `-` not `:-` on the outer default: an explicitly empty endpoint must reach the exit-78 check
+    // rather than being quietly replaced by the baked-in URL.
+    assert.doesNotMatch(
+      text,
+      /HARNESS_ENDPOINT="\$\{HARNESS_ENDPOINT:-/,
+      "an empty HARNESS_ENDPOINT is a configuration error, not an unset one",
     );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
