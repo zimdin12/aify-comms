@@ -87,24 +87,58 @@ Open: whether the marker alone is enough, or whether the installed set should al
 install time so that a hand-written file carrying the marker cannot enrol itself. For a local trust
 boundary the marker is probably enough; for a shared host it is not.
 
-## aify-doctor moves into aify-env, and becomes a plugin host
+## aify-doctor lives in aify-env, and ASKS rather than inspects
 
-Every check has an obvious owner once the tiers exist, and no tier can answer another's:
+An earlier draft of this file had aify-env hosting a doctor that ran every component's checks as
+plugins. The operator rejected it, correctly: that is still centralisation, just with a nicer name. A
+component that inspects another component's internals has taken on that component's concern.
 
-| check | owner |
+**Each component answers only questions about itself.**
+
+| | answers about itself |
 |---|---|
-| `env-bridge`, `bridge-terminal` | **aify-env** — is an environment online, does node-pty load |
-| `wrappers`, `runtimes`, `wrapper-current` | **aify-wrapper** |
-| `service`, `bridge-installed`, `bridge-running`, `bridge-current`, `agent-identity`, `usage-openai` | **aify-comms** |
+| **aify-wrapper** | are the launchers installed, are they current, do the runtime CLIs exist |
+| **aify-env** | am I running, does node-pty load, which services are registered and answering, which processes do I own |
+| **aify-comms** | is my container serving the build I think it is, is my bridge current, do my registered agents carry identity, does my quota token still work |
 
-So doctor cannot stay a monolith across a four-repo split: half its checks would be asking about a
-repo it no longer ships with. aify-env owns the framework, the report shape (`{ok, checks:[{id, ok,
-code, detail, fix}]}`), `--json` and `--strict`; each registered service contributes its own checks,
-discovered through the same `services.json` both other components already read.
+Nothing crosses that line except **reachability**, which is symmetric and honest: aify-env can say
+"aify-comms is registered and answering" or "registered and silent". It cannot say "aify-comms is
+healthy" — it asks, and displays the answer it was given.
 
-This keeps the property that matters most about doctor, which is that it proves claims against the
-running system rather than checking that a file exists — and the rule that no evidence is not a pass.
-A service that is registered but cannot be reached for its checks reports `unknown`, never `ok`.
+So aify-doctor in aify-env is a **collector and a display**, not an inspector. It runs its own
+environment checks, asks each registered service for its self-report, and renders both.
+
+Two constraints make a self-report trustworthy, and both come from failures this project already had:
+
+- **A self-reported build value must be an observation of a build, never configuration.**
+  `config/service.json` was a second way to set `build_sha` until 2026-08-18, which meant a hand-edit
+  could make the one stale-deploy instrument agree with a sha nothing was ever built from. The
+  stamp-owned fields are now refused from that file. Any service self-reporting its build inherits
+  that rule or inherits that bug.
+- **Comparing a reported sha against a checkout is a DEVELOPER action, not a runtime one.** A running
+  service has no repo — that is why the sha is stamped in the first place. So the service reports what
+  it is, and the comparison against HEAD lives in that service's own repo tooling, where a checkout
+  exists.
+
+And the rule that survives everywhere: **unanswered is not a pass.** Today `skip()` pushes
+`ok: true`, and `--strict` exits on `failed.length`, so on Windows a green strict run means ten
+verified and two unanswerable rather than twelve verified. That is survivable at twelve checks on one
+host. Across four components where "service not installed" and "service silent" become ordinary, it
+stops being survivable. **passed / failed / unanswered**, with unanswered visible and carrying its own
+exit status, is a prerequisite of the split rather than a later polish.
+
+## The TUI, and the limit on what it may claim
+
+aify-env is visible, not just a daemon. It can honestly show:
+
+- **Registered services** from `services.json` — reachable or silent, plus whatever each self-reports.
+- **Processes it owns** — pid, wrapper, cwd, uptime. Ground truth, because it started them.
+- **Traffic through itself** — spawn requests, output bytes. Its own I/O, which it genuinely observes,
+  which is what an activity animation may be driven by.
+
+The limit: aify-env knows **processes**, not agents. Alive is not the same as working. A managed-agent
+list may show what aify-env owns, annotated with what aify-comms reports when asked, and must not
+derive status of its own — deriving it in two places is how two answers start disagreeing.
 
 ## Open questions
 
