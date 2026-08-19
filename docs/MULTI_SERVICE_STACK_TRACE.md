@@ -9,7 +9,9 @@ thing that actually blocks a second service is neither: it is that **spawning li
 aify-comms**, so any other service either duplicates PTY ownership on the same host or depends on
 aify-comms to start agents for it.
 
-Traced from the code on 2026-08-19 at `0acf7b14`, not recalled.
+Traced from the code on 2026-08-19 at `0acf7b14`, not recalled. The commit that published this
+file adds nothing but this file, so the tree that was traced and the tree this document ships in are
+the same code — which is the only reason a provenance sha written before the commit is honest.
 
 ---
 
@@ -36,8 +38,9 @@ Traced from the code on 2026-08-19 at `0acf7b14`, not recalled.
 ## Finding 1 — the endpoint reaches a spawned agent by INHERITANCE, not by decision
 
 `terminalChildEnv()` opens with `{ ...baseEnv, ... }` and then sets `AIFY_AGENT_ID`,
-`AIFY_AGENT_ROLE`, `AIFY_AGENT_CWD`, `AIFY_SESSION_HANDLE`, `AIFY_SESSION_MODE`,
-`AIFY_MANAGED_VIA_WRAPPER` explicitly.
+`AIFY_COMMS_AGENT_ID`, `AIFY_AGENT_ROLE`, `AIFY_AGENT_CWD`, `AIFY_SESSION_HANDLE`,
+`AIFY_SESSION_MODE`, `AIFY_MANAGED_VIA_WRAPPER` explicitly. (`AIFY_COMMS_AGENT_ID` is the fallback
+name and carries the SAME value, which is Finding 3 in miniature: two names, one identity.)
 
 **It never sets `AIFY_COMMS_URL`.** The spawned agent gets the endpoint because the bridge process
 inherited it from the launcher that started the bridge, and passes its whole environment down.
@@ -123,3 +126,24 @@ a release of its own.
   bug with a repo boundary in the middle of it.
 - **Bake a second endpoint into the launcher.** That is the current design's failure mode, doubled:
   last installer wins, silently, and re-running either installer flips it back.
+
+---
+
+## Reviewed
+
+comms-senior-dev attacked all four conclusions at the frozen tree and returned **APPROVE**, having read
+`terminal-env.js`, `terminal-control-loop.mjs`, the wrappers, the launcher/template tests and
+`launch-identity.mjs`, and run the focused wrapper suite (39 pass / 0 fail).
+
+Two things worth keeping from the review because they are stronger than what I wrote:
+
+- On Finding 1, `terminal-control-loop.mjs` overrides `AIFY_AGENT_ID` after the env builder runs for
+  wrapper-managed children — and still never touches the endpoint. That is a second site that had the
+  chance to set it explicitly and did not, which makes the inheritance claim firmer, not weaker.
+- On Finding 3, `launch-identity.mjs` COLLAPSES `AIFY_AGENT_ID` and `AIFY_COMMS_AGENT_ID` into one
+  exported id. So the second name is not a spare slot a second service could use; the collapse is
+  where per-service identity would have to be introduced.
+
+Both refusals were upheld. The one change to the plan: items 1 to 3 in the table are plumbing, and
+only items 4 and 5 change a contract or move ownership. That is the line to hold when this is picked
+up — the first three can ship without a decision, the last two cannot.
