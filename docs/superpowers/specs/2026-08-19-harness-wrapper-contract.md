@@ -46,7 +46,7 @@ ownership for 21 live agents; going there first would put the riskiest tier firs
 
 | Tier | Today | Separable? |
 |---|---|---|
-| Client | 4 wrapper generators in `install.sh`, **611 lines** | Not yet — 108 `aify-comms` references, 99 `AIFY_AGENT_ID` |
+| Client | 4 wrapper generators, **1,554 lines** (claude's body now in `wrappers/`) | Started — claude is on the contract; 108 `aify-comms` references remain |
 | Environment | `mcp/stdio` in its environment-bridge role: spawn loop, terminal controls, managed workers | Partly — already one npm package, but the role is a flag on the same binary |
 | Server | `service/` — FastAPI, SQLite, dispatch, dashboard | Yes — already a container with an HTTP surface |
 
@@ -65,42 +65,58 @@ started. They are v0.7 subjects that this edge should not prejudge.
 
 ## What a wrapper actually is — measured, then RE-measured 2026-08-19
 
-| Generator in `install.sh` | Lines | of which comment |
-|---|---|---|
-| `install_claude_wrapper` | 128 | 30 |
-| `install_codex_wrapper` | 10 | 3 |
-| `install_pi_wrapper` | 222 | 76 |
-| `install_hermes_wrapper` | 251 | 86 |
-| **total** | **611** | — |
+| Generator in `install.sh` | Lines |
+|---|---|
+| `install_claude_wrapper` | 349 (now `wrappers/claude-aify.sh.in` + 14 lines of renderer call) |
+| `install_codex_wrapper` | 320 |
+| `install_pi_wrapper` | 199 |
+| `install_hermes_wrapper` | 686 |
+| **total** | **1,554** |
 
-**611 lines, ~14% of install.sh's 4,371.** The wrapper generators are small and roughly comparable;
-hermes is barely larger than pi.
+**~1,554 lines, about a third of install.sh.** Hermes' launcher is the largest by a wide margin —
+more than double pi's — and that is before its shims.
 
-**A RETRACTION, kept here because the wrong number was already committed.** An earlier version of this
-spec said claude 358 / codex 321 / pi 417 / hermes **2,847**, totalling 3,943, and concluded "hermes is
-65% of the installer and must be sequenced LAST". That was a measurement bug of mine, not a fact about
-hermes: my script terminated each generator's span at the NEXT WRAPPER INSTALLER, and hermes is the last
-one — so its span ran to end-of-file and swallowed every other function in the script. Terminating at the
-next function of ANY name gives the table above. `docs/V0.6_PLAN.md`'s original "~100 lines of shell" was
-far closer to right than my correction, and the sequencing argument built on 2,847 has no basis.
+**MEASURED THREE TIMES, WRONG TWICE, so the method is recorded with the answer.** Both wrong answers
+came from terminating the span on something that also occurs INSIDE the generated wrapper:
 
-**Where hermes IS heavy, and it is not the wrapper.** Its total footprint across `install.sh` is ~1,145
-lines, the largest of any runtime, but it lands in shims rather than in the launcher:
+1. *claude 358 / codex 321 / pi 417 / hermes **2,847**.* The span ended at the next WRAPPER installer,
+   and hermes is the last one, so its span ran to end-of-file and swallowed every other function in
+   the script. A "hermes is 65% of the installer" sequencing argument was built on it.
+2. *claude 128 / codex **10** / pi 222 / hermes 251, total 611.* The correction of (1). The span ended
+   at the next `name() {` of ANY name — but a wrapper DEFINES ITS OWN FUNCTIONS, so codex's span ended
+   at `pick_port()`, which is part of the wrapper body. Ten lines for a 320-line generator.
+
+The figures above track heredoc state — `<<TOKEN`, `<<'TOKEN'` and `<<-TOKEN` open, a matching line
+closes — so neither a `}` nor a `name() {` inside a wrapper body can end a generator early. Each
+boundary was then read by eye: all four end with an `install_windows_cmd_shim` call followed by `}`.
+
+**What changes because of this.** The previous version of this section concluded "the wrapper
+generators are small and roughly comparable; hermes is barely larger than pi" and that "nothing forces
+hermes last on size grounds". Both are withdrawn. Hermes' launcher is 686 lines against pi's 199, and
+sequencing it last is supported by size as well as by shim coupling. The ordering decision does not
+change — it was made on coupling — but the reasoning offered for it was wrong.
+
+**Hermes is heavy in the launcher AND beside it.** Total footprint ~1,301 lines, the largest of any
+runtime by far:
 
 | Lines | Function | What it is |
 |---|---|---|
-| 503 | `install_hermes_windows_tui_shim` | the `.ps1` wrapper — 187 of them comments. Handles PowerShell 5.1 decoding a BOM-less `.ps1` as the system codepage, points `HERMES_TUI_DIR` at a prebuilt bundle so a managed `hermes --tui` skips a per-launch `npm run build`, and hides the loop process window |
-| 277 | `aify_hermes_kill_prior` | process-tree cleanup via `Win32_Process` |
-| 251 | `install_hermes_wrapper` | the launcher itself |
-| 114 | `_patch_hermes_config_at` | config patching |
+| 686 | `install_hermes_wrapper` | the launcher itself — the largest of the four, and it CONTAINS `aify_hermes_kill_prior` (67 lines of process-tree cleanup, defined inside the generated wrapper) |
+| 502 | `install_hermes_windows_tui_shim` | the `.ps1` wrapper. Handles PowerShell 5.1 decoding a BOM-less `.ps1` as the system codepage, points `HERMES_TUI_DIR` at a prebuilt bundle so a managed `hermes --tui` skips a per-launch `npm run build`, and hides the loop process window |
+| 113 | `_patch_hermes_config_at` | config patching |
 
-That is the cost of the visible-TUI hard requirement on Windows plus hermes having no clean process
-lifecycle of its own — hermes is the only runtime needing a `.ps1` at all. Whether 503 lines is the
+An earlier version of this table listed `aify_hermes_kill_prior` at 277 lines as a SEPARATE item beside
+a 251-line launcher. It is 67 lines and it is *inside* the launcher — the row was both wrong and double
+counted, which is why the totals never added up against the generator table above.
+
+That size is the cost of the visible-TUI hard requirement on Windows plus hermes having no clean
+process lifecycle of its own — it is the only runtime needing a `.ps1` at all. Whether 502 lines is the
 right price is a fair Phase 2 question; it is not dead code.
 
-**What this means for sequencing:** nothing forces hermes last on size grounds. If it is sequenced last
-it should be for the TUI shim and the process-management coupling, which are real, and not for a line
-count that was never true.
+**What this means for sequencing:** hermes goes last for two reasons that agree. Its launcher is the
+largest of the four at 686 lines, and it is the one coupled to shims — the 503-line Windows TUI shim
+and the 277-line process-tree cleanup — that no other runtime needs. The coupling is the deciding
+reason; the size merely stopped contradicting it once measured correctly.
 
 **They are saturated with this service's concepts**, which is the real work of making them
 independently installable — not moving files:
