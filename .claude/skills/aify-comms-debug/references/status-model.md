@@ -1,15 +1,5 @@
 # aify-comms debug: The status model: labels, derive(), and what each state proves
 
-Split out of `status.md` (2026-08-03) so one symptom does not load the whole catalogue. Sibling files are listed in the skill's routing table.
-
-## Contents
-
-- [Status labels (proof-based 8-state model, 2026-06-18; `starting` + `misconfigured` added later)](#status-labels-proof-based-8-state-model-2026-06-18-starting--misconfigured-added-later)
-- [`derive()` is the SOLE status authority — the `status_engine` flag is GONE (2026-06-18)](#derive-is-the-sole-status-authority-the-status-engine-flag-is-gone-2026-06-18)
-- [`available→online` is prompt now (and unrelated to auto-close); resident clean-exit drops `online` fast](#available-online-is-prompt-now-and-unrelated-to-auto-close-resident-clean-exit-drops-online-fast)
-- [Session status is derived now — no more "Stopped/Stale but running"](#session-status-is-derived-now-no-more-stopped-stale-but-running)
-- [Status semantics: `working` vs `online · awaiting reply` (2026-05-31)](#status-semantics-working-vs-online-awaiting-reply-2026-05-31)
-
 ## Status labels (proof-based 8-state model, 2026-06-18; `starting` + `misconfigured` added later)
 
 **Principle.** Status is **PROVEN, not time-assumed.** The `*-aify` wrapper is the source of

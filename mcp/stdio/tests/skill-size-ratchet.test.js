@@ -39,7 +39,7 @@ const SKILLS = path.join(REPO, ".claude", "skills");
 // The `.agents/` mirror is byte-identical by `test_skill_mirror_parity.py`, so measuring one side
 // measures both. Scanning both would double every number and hide which copy grew.
 
-//: MEASURED 2026-08-19. Not rounded up — see the header. May only go DOWN.
+//: MEASURED 2026-08-19 (re-measured after the debug-reference prune). Not rounded up — see the header. May only go DOWN.
 const CEILINGS = {
   "aify-comms/SKILL.md": 15_361,
   "aify-comms/references/building-software.md": 4_488,
@@ -47,17 +47,17 @@ const CEILINGS = {
   "aify-comms/references/operations.md": 11_555,
   "aify-comms/references/teamwork.md": 15_981,
   "aify-comms-debug/SKILL.md": 3_117,
-  "aify-comms-debug/references/codex.md": 14_853,
+  "aify-comms-debug/references/codex.md": 14_114,
   "aify-comms-debug/references/dashboard-console.md": 18_454,
-  "aify-comms-debug/references/dispatch-bridges.md": 27_032,
-  "aify-comms-debug/references/dispatch-delivery.md": 27_765,
-  "aify-comms-debug/references/dispatch-launch.md": 15_036,
-  "aify-comms-debug/references/hermes-session.md": 29_072,
-  "aify-comms-debug/references/hermes-turns.md": 16_909,
-  "aify-comms-debug/references/lifecycle.md": 6_703,
+  "aify-comms-debug/references/dispatch-bridges.md": 25_923,
+  "aify-comms-debug/references/dispatch-delivery.md": 26_578,
+  "aify-comms-debug/references/dispatch-launch.md": 14_005,
+  "aify-comms-debug/references/hermes-session.md": 27_285,
+  "aify-comms-debug/references/hermes-turns.md": 15_997,
+  "aify-comms-debug/references/lifecycle.md": 6_704,
   "aify-comms-debug/references/pi.md": 7_316,
-  "aify-comms-debug/references/status-model.md": 22_922,
-  "aify-comms-debug/references/status-symptoms.md": 20_760,
+  "aify-comms-debug/references/status-model.md": 21_921,
+  "aify-comms-debug/references/status-symptoms.md": 19_429,
 };
 
 // An ALWAYS-LOADED file enters context whether or not it is needed, so it carries a hard limit on top

@@ -1,18 +1,5 @@
 # aify-comms debug: Status symptoms: when the badge disagrees with reality
 
-Split out of `status.md` (2026-08-03) so one symptom does not load the whole catalogue. Sibling files are listed in the skill's routing table.
-
-## Contents
-
-- [CHECK THIS FIRST — agent latches `working` forever, or never shows `working`: its bridge has NO agent id (2026-07-14)](#check-this-first-agent-latches-working-forever-or-never-shows-working-its-bridge-has-no-agent-id-2026-07-14)
-- [Agent shows `online`, but no live worker exists](#agent-shows-online-but-no-live-worker-exists)
-- [Agent shows `online`/`Console ready` but messages stay queued (status lied)](#agent-shows-online-console-ready-but-messages-stay-queued-status-lied)
-- [Agent reads idle but its queued work NEVER delivers (deaf agent) — 2026-07-26](#agent-reads-idle-but-its-queued-work-never-delivers-deaf-agent-2026-07-26)
-- [Agent shows online without a console (Plan 5 Section C)](#agent-shows-online-without-a-console-plan-5-section-c)
-- [Managed claude shows `online` while it is clearly thinking](#managed-claude-shows-online-while-it-is-clearly-thinking)
-- [Managed claude flaps to `online` while working — but only when the Console is CLOSED](#managed-claude-flaps-to-online-while-working-but-only-when-the-console-is-closed)
-- [Managed claude showed `blocked` mid-generation (2026-06-07)](#managed-claude-showed-blocked-mid-generation-2026-06-07)
-
 ## CHECK THIS FIRST — agent latches `working` forever, or never shows `working`: its bridge has NO agent id (2026-07-14)
 
 **Symptom (either half, or both in sequence).** One agent is permanently `working` while idle and

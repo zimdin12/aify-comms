@@ -1,14 +1,5 @@
 # aify-comms troubleshooting: Codex (resume, app-server, approvals)
 
-## Contents
-
-- [Codex resident keeps prompting for approval despite the bypass flag](#codex-resident-keeps-prompting-for-approval-despite-the-bypass-flag)
-- [Codex: `Invalid request: AbsolutePathBuf deserialized without a base path`](#codex-invalid-request-absolutepathbuf-deserialized-without-a-base-path)
-- [Hard reset: Codex dispatches keep failing after update](#hard-reset-codex-dispatches-keep-failing-after-update)
-- [Not live-bound when you expected `codex-live`](#not-live-bound-when-you-expected-codex-live)
-- [Closed resident Codex still receives dashboard work](#closed-resident-codex-still-receives-dashboard-work)
-- [Codex native fallback persistent app-server session](#codex-native-fallback-persistent-app-server-session)
-
 ## Codex resident keeps prompting for approval despite the bypass flag
 
 **Symptom.** A resident `codex-aify` launched no-prompt (the default

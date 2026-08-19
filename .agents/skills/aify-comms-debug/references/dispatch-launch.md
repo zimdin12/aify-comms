@@ -1,16 +1,5 @@
 # aify-comms debug: Managed launch, workspace, and host/runtime resolution
 
-Split out of `dispatch-bridge.md` (2026-08-03) so one symptom does not load the whole catalogue. Sibling files are listed in the skill's routing table.
-
-## Contents
-
-- [A managed spawn or dispatch failed and you do not know why — read the dead worker's own console](#a-managed-spawn-or-dispatch-failed-and-you-do-not-know-why-read-the-dead-workers-own-console)
-- [Managed worker "launches then dies", stuck `available` — reaped mid-boot during a slow SessionStart hook](#managed-worker-launches-then-dies-stuck-available-reaped-mid-boot-during-a-slow-sessionstart-hook)
-- [Claude managed run fails: `Session ID ... is already in use`](#claude-managed-run-fails-session-id-is-already-in-use)
-- [Managed spawned agent workspace is stored as `\home\dev\...`](#managed-spawned-agent-workspace-is-stored-as-home-dev)
-- [Claude/Pi managed run fails: `spawn "/path/to/claude-or-omp" ENOENT`](#claude-pi-managed-run-fails-spawn-path-to-claude-or-omp-enoent)
-- [Machine ID shows `win32:unknown-host`](#machine-id-shows-win32-unknown-host)
-
 ## A managed spawn or dispatch failed and you do not know why — read the dead worker's own console
 
 **Symptom.** A managed worker never came up, and the failure you were handed names a category

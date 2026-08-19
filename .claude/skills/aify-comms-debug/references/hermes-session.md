@@ -1,21 +1,5 @@
 # aify-comms debug: Hermes sessions, gateway, ports and processes
 
-Split out of `hermes.md` (2026-08-03) so one symptom does not load the whole catalogue. Sibling files are listed in the skill's routing table.
-
-## Contents
-
-- [Resident Hermes wakes, but dashboard shows no session evidence](#resident-hermes-wakes-but-dashboard-shows-no-session-evidence)
-- [Managed Hermes dashboard send fails with `visible session not found`](#managed-hermes-dashboard-send-fails-with-visible-session-not-found)
-- [Resident Hermes send says managed wrapper PTY is unavailable](#resident-hermes-send-says-managed-wrapper-pty-is-unavailable)
-- [Resident Hermes reports live but send fails with `ECONNREFUSED 127.0.0.1:<port>`](#resident-hermes-reports-live-but-send-fails-with-econnrefused-127-0-0-1-port)
-- [Hermes `gateway websocket connection failed` / two agents collide on one port](#hermes-gateway-websocket-connection-failed-two-agents-collide-on-one-port)
-- [Managed hermes TUI shows, then drops with `gateway websocket connection failed`](#managed-hermes-tui-shows-then-drops-with-gateway-websocket-connection-failed)
-- [Many `hermes.exe` processes for a few hermes agents](#many-hermes-exe-processes-for-a-few-hermes-agents)
-- [Hermes-aify wrapper fell through to plain hermes (Plan 5 Section A)](#hermes-aify-wrapper-fell-through-to-plain-hermes-plan-5-section-a)
-- [Hermes dispatch completes but open console does not move](#hermes-dispatch-completes-but-open-console-does-not-move)
-- [Hermes inter-agent delivery: queued forever / fabricated "delegated" reply / never renders in TUI / splits sessions (2026-06-03)](#hermes-inter-agent-delivery-queued-forever-fabricated-delegated-reply-never-renders-in-tui-splits-sessions-2026-06-03)
-- [Hermes starts a FRESH session after an aify-comms restart](#hermes-starts-a-fresh-session-after-an-aify-comms-restart)
-
 ## Resident Hermes wakes, but dashboard shows no session evidence
 
 **Symptom.** Two resident Hermes terminals communicate successfully and show

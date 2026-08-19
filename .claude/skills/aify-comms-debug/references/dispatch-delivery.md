@@ -1,26 +1,5 @@
 # aify-comms debug: Dispatch delivery: claims, steers and stuck runs
 
-Split out of `dispatch-bridge.md` (2026-08-03) so one symptom does not load the whole catalogue.
-
-## Contents
-
-- Managed claude instance proliferation / a managed agent killed my session
-- Dispatches stay `queued`/`delivered`, never claimed (delivery silently stalls)
-- Runs view: routine `delivered` runs show a blank summary (expected)
-- Managed run FAILED with "turn is presumed dead (model 429 / interrupt / stall)"
-- Claude: wake mode stuck at `claude-needs-channel`
-- Run stuck `running`, `comms_run_interrupt` has no effect
-- `comms_send(steer=true)` stayed unread or looked queued behind itself
-- Run summary says `Auto-healed: bridge "<old>" replaced by "<new>"`
-- Queued managed run never claimed (Plan 5 Section B)
-- Team stranded after a restart: runs stuck `claimed`, never delivered
-- Install.sh on Windows / Git Bash
-- Send to resident Claude rejected as "no live wake path"
-- In-flight run cancelled with "bridge X is not the current agent bridge Y"
-- Dashboard chat routes native managed work through the wrong console
-- Managed claude dispatch cancelled with "capabilities do not include managed-run"
-- Spawn-time initial message to managed claude sits queued forever
-
 ## Managed claude instance proliferation / a managed agent killed my session
 
 **Symptom.** Many `claude.exe --resume <same id>` for one agent; or the operator's

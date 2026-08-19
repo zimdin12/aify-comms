@@ -1,16 +1,5 @@
 # aify-comms debug: Hermes turns, tools, status and native fallback
 
-Split out of `hermes.md` (2026-08-03) so one symptom does not load the whole catalogue. Sibling files are listed in the skill's routing table.
-
-## Contents
-
-- [Hermes `mcp test` works, but live turn has no aify tools](#hermes-mcp-test-works-but-live-turn-has-no-aify-tools)
-- [Hermes fails immediately with `'NoneType' object is not iterable`](#hermes-fails-immediately-with-nonetype-object-is-not-iterable)
-- [Managed hermes never shows `working` during a turn](#managed-hermes-never-shows-working-during-a-turn)
-- [Hermes agent shows `online` while working](#hermes-agent-shows-online-while-working)
-- [EVERY managed-hermes dispatch fails "Queued >180s … up-but-deaf" (gateway host died — hermes 0.15.1 `--tui`)](#every-managed-hermes-dispatch-fails-queued-180s-up-but-deaf-gateway-host-died-hermes-0-15-1-tui)
-- [Hermes native fallback ACP persistent session](#hermes-native-fallback-acp-persistent-session)
-
 ## Hermes `mcp test` works, but live turn has no aify tools
 
 **Symptom.** Inside `hermes-aify`, `hermes mcp list` shows `aify-comms`

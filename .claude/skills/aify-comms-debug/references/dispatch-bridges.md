@@ -1,22 +1,5 @@
 # aify-comms debug: Bridges, sidecars, wake modes and session ownership
 
-Split out of `dispatch-bridge.md` (2026-08-03) so one symptom does not load the whole catalogue.
-
-## Contents
-
-- Channel-routed claude dispatches stay queued forever (resident or managed)
-- Channel/resident dispatches silently fail on Windows — bridge can't reach localhost:8800
-- Stale session handle causing prompt.submit failures (Plan 6 A)
-- Fixed check: wrapper-backed channel claim must be delivery-owner-owned
-- Managed claude freezes on boot at a prompt (resume / compaction / permissions)
-- Runtime "not launchable" / up-but-deaf on a Windows host with a non-ASCII profile path
-- Resident relaunch goes offline + deaf (auto-register refused by the race guard)
-- Resident sends say "sent" but the agent never receives them (post mode-switch)
-- Send to an `available` managed claude FAILED after ~180s instead of cold-starting
-- Run failed with a "provider rate-limiting, not your request — retry shortly" notice
-- Bridge log lines: `claim timed out` / `503 database is locked` / `fetch failed` — triage (2026-07-01)
-- Whole managed fleet went down seconds after someone ran `aify-comms` (2026-08-11)
-
 ## Whole managed fleet went down seconds after someone ran `aify-comms` (2026-08-11)
 
 **Symptom.** Nine managed agents went `offline`/`available` at once, with no deploy, no container

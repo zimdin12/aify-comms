@@ -85,7 +85,7 @@ After switching, verify `sessionMode`, native handle, bridge identity, status, a
 | target already has queued work | ordering guard | inspect existing contract; do not duplicate it |
 
 Queued, claimed, and delivered are not execution proof. If delivery details are unclear, move
-to `dispatch-bridge.md`.
+to `dispatch-bridges.md`.
 
 ## Registration and bridge ownership
 
