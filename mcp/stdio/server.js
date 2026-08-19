@@ -42,6 +42,22 @@ import { AIFY_AGENT_ID, IS_ENVIRONMENT_BRIDGE, cleanEnvPlaceholder } from "./lau
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+
+// Plan 6 A2 (2026-05-26), hoisted here in v0.6 Phase 1: is this file the process entrypoint?
+//
+// DECLARED BEFORE ANY SIDE EFFECT, which is the whole reason it moved up. It used to sit ~700 lines
+// lower, just above main(), so the heartbeat starts and the boot block below could not reference it —
+// a `const` in the temporal dead zone throws. Everything that STARTS something now reads this.
+//
+// The guard is safe by its own evidence: real bridge launches invoke server.js directly via the wrapper
+// shebang or `node mcp/stdio/server.js`, and main() has depended on exactly this check since v0.5.4. If
+// it were ever wrong for a real launch, main() would not run and the bridge would already be dead.
+const __isEntrypoint = (() => {
+  try {
+    return process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+  } catch { return true; }
+})();
+
 import { loadSettingsEnv } from "./load-env.js";
 import { removeAgentBindingFile } from "./binding-file.js";
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
@@ -166,7 +182,7 @@ if (AIFY_CODEX_APP_SERVER_URL) {
 // elsewhere were written to prevent exactly this and could not fire. Gating the START is what actually
 // stops it: nothing runs, nothing ticks, and nothing throws. The no-op stopper keeps `cleanupOnExit`
 // calling the same slots in the same order.
-const __stopHandleHeartbeat = IS_REMOTE
+const __stopHandleHeartbeat = IS_REMOTE && __isEntrypoint
   ? startSessionHandleHeartbeat({
       adapter: __runtimeAdapter,
       agentId: AIFY_AGENT_ID,
@@ -207,7 +223,7 @@ const __stopHandleHeartbeat = IS_REMOTE
 // below, and its 'working' status by the pure-event turn_busy.
 // Started only in remote mode, same reasoning as the session-handle heartbeat above: its poster takes a
 // base URL and fetches it directly rather than through `httpCall`.
-const __stopTurnBusyHeartbeat = !IS_REMOTE ? () => {} : startTurnBusyHeartbeat({
+const __stopTurnBusyHeartbeat = (!IS_REMOTE || !__isEntrypoint) ? () => {} : startTurnBusyHeartbeat({
   agentId: AIFY_AGENT_ID,
   intervalMs: 30_000,
   // Active ONLY when a native runtime controller is mid-turn (codex/pi/hermes).
@@ -224,7 +240,11 @@ const __stopTurnBusyHeartbeat = !IS_REMOTE ? () => {} : startTurnBusyHeartbeat({
 // process lives so an idle-but-alive resident worker keeps its
 // bridge_instances.last_seen fresh and is not reaped as dead. Liveness-only
 // (no turnBusy field); the server ignores beats from a superseded bridge.
-const __stopLivenessHeartbeat = startLivenessHeartbeat({
+// Gating the START, not the beat: this file's own comment above the session-handle heartbeat says
+// why — "the `!__serverUrl` guards elsewhere were written to prevent exactly this and could not
+// fire. Gating the START is what actually stops it: nothing runs, nothing ticks." A no-op stopper
+// keeps `cleanupOnExit` calling the same slots in the same order.
+const __stopLivenessHeartbeat = !__isEntrypoint ? () => {} : startLivenessHeartbeat({
   intervalMs: 30_000,
   beat: async () => {
     if (!AIFY_AGENT_ID || !IS_REMOTE) return;
@@ -888,14 +908,27 @@ function ensureDispatchLoop() {
   }, DISPATCH_POLL_MS);
 }
 
-ensureEnvironmentControlLoop();
-ensureUsageCollector();
-// Register the replacement bridge, reap the predecessor's managed survivors,
-// then adopt managed ownership and start spawning. The serialized bootstrap
-// closes the live-old-bridge handover gap and retries on later heartbeats when
-// the service or ownership snapshot is unavailable.
-ensureEnvironmentHeartbeat();
-ensureTerminalControlLoop();
+// THE BOOT BLOCK IS UNDER THE GUARD TOO, since v0.6 Phase 1. It used to run UNCONDITIONALLY at import,
+// which is why nothing in this file has ever been tested: importing it started four loops and — via
+// `ensureEnvironmentHeartbeat` — REGISTERED THIS PROCESS AS THE ENVIRONMENT BRIDGE, superseding the
+// live one and reaping its managed workers. That is the documented reason for the standing rule
+// "never run a bare `aify-comms`", and it is what took the whole managed fleet down on 2026-08-11.
+//
+// Moving these four under the SAME guard that already gates main() is safe by the guard's own
+// evidence: if `__isEntrypoint` were ever wrong for a real launch, main() would not run either and the
+// bridge would already be dead. So the guard is proven correct in production by the thing it already
+// gates — this change does not introduce a new assumption, it stops exempting four calls from an
+// assumption the process already depends on.
+if (__isEntrypoint) {
+  ensureEnvironmentControlLoop();
+  ensureUsageCollector();
+  // Register the replacement bridge, reap the predecessor's managed survivors,
+  // then adopt managed ownership and start spawning. The serialized bootstrap
+  // closes the live-old-bridge handover gap and retries on later heartbeats when
+  // the service or ownership snapshot is unavailable.
+  ensureEnvironmentHeartbeat();
+  ensureTerminalControlLoop();
+}
 
 // runDispatchLoop's shell and its busy flag moved to ./dispatch-loop.mjs in v0.5.4; the timer stays here.
 
@@ -910,17 +943,6 @@ registerAllTools(server, z, { ensureDispatchLoop });
 
 // main() moved to ./bridge-main.mjs in v0.5.4; the five names it needs are server.js's own.
 
-// Plan 6 A2 (2026-05-26): only auto-run main() when this file is the
-// process entrypoint. Tests that import named helpers (e.g.
-// computeInitialSessionHandle) from this module otherwise hang because
-// main() blocks on stdin via StdioServerTransport. The guard is safe —
-// real bridge launches always invoke server.js directly via the wrapper
-// shebang or `node mcp/stdio/server.js`.
-const __isEntrypoint = (() => {
-  try {
-    return process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
-  } catch { return true; }
-})();
 if (__isEntrypoint) main({
   ORIGINAL_PARENT_PID,
   StdioServerTransport,

@@ -116,11 +116,25 @@ test("the two DIRECT posters are started only when IS_REMOTE, and take the owned
     assert.match(call, /\(SERVER_URL,/, `${poster} must be given the owned URL`);
     assert.doesNotMatch(call, /__serverUrl/, `${poster} must not be given the deleted derivation`);
   }
-  // Both start sites gate on IS_REMOTE.
-  assert.match(SERVER, /const __stopHandleHeartbeat = IS_REMOTE\s*\n\s*\? startSessionHandleHeartbeat\(/,
-    "the session-handle heartbeat must not start in local mode");
-  assert.match(SERVER, /const __stopTurnBusyHeartbeat = !IS_REMOTE \? \(\) => \{\} : startTurnBusyHeartbeat\(/,
-    "the turn-busy heartbeat must not start in local mode");
+  // Both start sites gate on IS_REMOTE — AND, since v0.6 Phase 1, on `__isEntrypoint`.
+  //
+  // These name the CONDITIONS rather than pinning the exact expression, which is the lesson this file
+  // already records two tests down ("the ninth time an assertion of mine measured where code lives").
+  // The previous version matched `IS_REMOTE\n  ? startSessionHandleHeartbeat(` verbatim and went red
+  // the moment a second, correct condition was added beside the first.
+  //
+  // Why that second condition exists: importing server.js used to start these heartbeats, along with
+  // four loops and an environment registration that SUPERSEDES the live bridge and reaps its workers.
+  // That is why nothing in this file had ever been imported by a test, and it is the standing rule
+  // "never run a bare aify-comms" in code form. See server-import-does-not-boot-a-bridge.test.js.
+  const handleStart = SERVER.match(/const __stopHandleHeartbeat = ([^\n]*)/)?.[1] || "";
+  assert.match(handleStart, /IS_REMOTE/, "the session-handle heartbeat must not start in local mode");
+  assert.match(handleStart, /__isEntrypoint/,
+    "the session-handle heartbeat must not start on IMPORT");
+
+  const turnStart = SERVER.match(/const __stopTurnBusyHeartbeat = ([^\n]*)/)?.[1] || "";
+  assert.match(turnStart, /IS_REMOTE/, "the turn-busy heartbeat must not start in local mode");
+  assert.match(turnStart, /__isEntrypoint/, "the turn-busy heartbeat must not start on IMPORT");
 });
 
 test("the eight callback guards now ask IS_REMOTE — the question they meant", () => {
