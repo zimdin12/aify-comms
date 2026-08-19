@@ -168,10 +168,13 @@ nothing changes.
 
 - **Registration, heartbeat, status and dispatch.** Those are the BRIDGE's surface, and the bridge is
   staying here. A wrapper never speaks to the service about them.
-- **Session-handle recovery.** The claude wrapper's `--resume` lookup calls the aify service directly.
-  Under the contract that becomes a host-supplied hook (`HARNESS_IDENTITY_RESOLVER`, a command the
-  wrapper may invoke), or it stays behind in aify-comms' own generator. **Open question — needs a
-  decision before implementation**, and it is the single largest service assumption in the wrappers.
+- **Session-handle recovery. DECIDED 2026-08-19: it stays behind in aify-comms' own generator.** The
+  claude wrapper's `--resume` lookup calls the aify service directly, and it remains an aify-comms
+  concern; the generic wrapper ships no resume recovery and the contract defines no
+  `HARNESS_IDENTITY_RESOLVER`. The consequence, stated so nobody rediscovers it: a different host
+  gets working launchers but no `--resume`, and adding one later is a contract addition rather than a
+  change. That is the right trade while the resolver has exactly one implementation — designing a
+  hook against a single caller invents an interface instead of extracting one.
 - **Anything hermes-specific about gateways.** Hermes' shims — the 503-line Windows TUI shim and the
   277-line process-tree cleanup — carry plumbing
   that is not a launcher concern. Sequencing it last is a consequence of this line.
@@ -208,19 +211,67 @@ Any wrapper package must keep pointing at a fast local copy, or the contract mus
 responsible for providing one. **This is not a performance nicety; it is the difference between a
 working hermes and a mute one.**
 
+**Decision 2 below chose an npm package, which is exactly what this constraint pushes against.** The
+reconciliation — publish to npm, install into `~/.aify-comms`, and make the host responsible for a
+fast local path if it installs elsewhere — is recorded there rather than here, because it is a
+consequence of the distribution choice and must not read as an independent rule someone can drop.
+
 ---
 
-## Open questions, to answer before implementation
+## Decisions — operator, 2026-08-19
 
-1. **Session-handle recovery** (above): host hook, or left behind in aify-comms?
-2. **Does the wrapper package own MCP-config writing?** Every client's config format differs
-   (`.mcp.json`, `claude mcp add`, hermes' own). That is per-client knowledge, and it may belong to the
-   host rather than the wrapper.
-3. **Distribution.** npm package, or a copied dotfolder as now? A dotfolder keeps the load-time fix and
-   the same-build guarantee; a package gets versioning and reuse. They pull in opposite directions.
-4. **Does hermes come along at all in v0.6?** Its LAUNCHER is 251 lines and unremarkable, but its
-   shims total ~1,145 lines across install.sh, so it may
-   deserve its own release rather than riding this one.
+All four open questions are answered. They are recorded with their consequences, including the one
+that pulls against a constraint elsewhere in this spec.
+
+### 1. Session-handle recovery stays in aify-comms
+
+See "What is explicitly NOT in the contract" above.
+
+### 2. Distribution: npm package, installed into the native dotfolder
+
+**This is the decision that pulls against the load-time constraint below, and the reconciliation is
+part of the decision, not a workaround.** An npm package that a host `npm install`s onto a 9p/WSL2
+path reintroduces the ~5s bridge load that hermes' hardcoded 0.75s MCP-discovery window cannot
+survive — the failure mode being a hermes that starts fine and silently has no tools.
+
+So: **published to npm, and `install.sh` installs it INTO `~/.aify-comms` (or `$AIFY_HOME`)** rather
+than pointing any wrapper at a repo checkout. The package is the unit of versioning and reuse; the
+dotfolder remains the unit of execution. A host that installs it elsewhere is responsible for putting
+it on a fast local filesystem, and the contract says so.
+
+**What this costs, stated plainly:** `install.sh`'s same-build guarantee — one step generating the
+wrapper and copying the bridge — is broken by construction, because the two now version separately.
+That guarantee is not decoration; `bridge-installed` and `bridge-current` exist because it kept being
+violated silently. It is replaced by two things, both required before the package ships:
+
+- the wrapper reports its own version on `--check`;
+- `doctor` gains a wrapper-version check comparing it against the bridge's expectation.
+
+Without those, this decision trades a guarantee for a package and gets a silent skew class back.
+
+### 3. MCP-config writing: capability in the package, decision with the host
+
+The operator's question was "why is it needed — only for install?", and the answer is **yes, install
+only.** Measured: the wrapper GENERATORS never touch MCP config. It is written by separate
+install-time functions (`install_claude_config` merging `.claude.json`'s `mcpServers`, and
+`codex mcp add` / `claude mcp add --scope user`). No wrapper writes config at launch; a wrapper execs
+the runtime and nothing else.
+
+So the separation already exists in the code, and the operator's framing settles which side owns it:
+*the wrapper is the thing a harness attaches to; aify-comms is the comms service that uses that
+wrapper.* Pointing a client at one particular bridge is the HOST's act of attaching its own service —
+not something a launcher should decide.
+
+**Therefore:** the wrapper package SHIPS the per-client config knowledge as an explicit, separately
+invocable `--configure` step, so no host has to reimplement four config formats. The host decides
+whether and when to call it. The wrapper never calls it implicitly, and never at launch.
+
+### 4. Runtimes in v0.6: claude, codex and pi. Hermes last.
+
+Pi's launcher is 222 lines with no shims, which puts it in the same class as the other two. Hermes is
+deferred **on shim coupling, not on size** — its 503-line Windows TUI shim and 277-line process-tree
+cleanup serve the visible-TUI hard requirement and have no clean process lifecycle to lean on. That
+is its own release. The retracted 2,847-line figure plays no part in this ordering.
 
 ---
 
