@@ -25,13 +25,53 @@ the same code — which is the only reason a provenance sha written before the c
    `AIFY_AGENT_ROLE`, `AIFY_SESSION_MODE`, `AIFY_CHANNELS_ENABLED`, then writes an MCP config and
    execs the runtime.
 
-3. **The MCP config is already plural.** `mcpServers` is a MAP, and the launcher writes TWO entries
-   today (`aify-comms` and `aify-comms-channel`). This is the part that already supports N services.
+3. **The MCP config is already plural, and it is the RUNTIME'S, not the wrapper's.** In the default
+   path the launcher writes no MCP config at all: the runtime reads its own user-scope config, which
+   `install.sh` registered the service into. `mcpServers` is a MAP holding every server the operator
+   has, aify's beside unrelated ones. The launcher writes its own two-entry file ONLY under
+   `AIFY_CLAUDE_STRICT_MCP=1`, and that path excludes everything else. See the correction above.
 
 4. **The runtime loads the bridge**, which registers the agent against the endpoint it was given.
 
 5. **The bridge can spawn more agents.** In its environment role it builds a child environment with
    `terminalChildEnv()` and launches the launcher again as a PTY child.
+
+---
+
+## CORRECTION (2026-08-19, after the review) — Finding 1 was overstated
+
+The operator asked whether the stack works the way he described it, and checking that rather than
+re-reading my own trace found the overstatement. **Finding 1 below is true about the wrapper's export
+chain and about strict mode. It is NOT true of the default path**, and the difference decides most of
+this document's practical answer.
+
+`aify-service-endpoint.mjs`, `aify-http.mjs`, `claude-channel.js` and `hermes-channel.js` all resolve
+the endpoint as `CLAUDE_MCP_SERVER_URL || AIFY_SERVER_URL`. **The bridge never reads
+`AIFY_COMMS_URL`.** That name is read by the stop-gate hook and by doctor, not by the code that
+decides where the bridge connects.
+
+And `register_stdio_server()` in `install.sh` writes the endpoint into the RUNTIME'S OWN MCP config as
+a per-server env block — `claude mcp add --scope user --env AIFY_SERVER_URL=... --env
+CLAUDE_MCP_SERVER_URL=...`, codex's TOML, hermes' config — which is exactly the pair the bridge reads.
+
+So **per-service endpoints already work in the default path.** Each registered service carries its own
+URL in its own entry. The inheritance chain I described is the fallback, not the mechanism. On this
+host the user-scope config holds five MCP servers, of which `aify-comms` and `aify-comms-channel`
+carry that env pair; the other three are unrelated servers sitting alongside, which is the shape a
+second service would join.
+
+**What I missed, and it is the real client-tier breaker:** `AIFY_CLAUDE_STRICT_MCP=1` passes
+`--strict-mcp-config` with the hand-written two-entry file below. That flag DELETES every other MCP
+server from the session. The escape hatch for the Claude MCP init race (upstream #38462, #21341) is
+therefore precisely the switch that forbids multi-service. Anyone running strict mode has one service
+and cannot have two, whatever the registry says.
+
+**One thing this correction does NOT settle.** Whether a runtime's per-server env block beats the
+inherited environment is PROVEN for codex — `install.sh`'s own comment records that the block REPLACES
+inherited env — and ASSUMED for claude. It has never been exercised, because no session has ever had
+two entries carrying DIFFERENT urls. The day a second service exists, that is the first thing to test.
+
+Findings 3 and 4 are untouched by this correction.
 
 ---
 
