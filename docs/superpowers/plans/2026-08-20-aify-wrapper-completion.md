@@ -1,4 +1,4 @@
-# Phase 1 — aify-wrapper completion: implementation plan
+# v0.6 Phase 6 — aify-wrapper completion: implementation plan
 
 > **For agentic workers:** implement task-by-task. Each task ends with an independently testable
 > deliverable and a commit. Steps use `- [ ]` for tracking.
@@ -288,8 +288,8 @@ Done when, by measurement:
 
 ## Deliberately not in this phase
 
-- **aify-env.** Phase 2.
-- **Removing the `aify-comms` command.** Phase 3 — it is the environment bridge and nothing replaces
+- **aify-env.** Phase 7.
+- **Removing the `aify-comms` command.** Phase 8 — it is the environment bridge and nothing replaces
   it until aify-env exists.
 - **Reading the registry at launch.** Rejected above on latency, and reinstall-to-refresh matches how
   every other install-time value in this project already behaves.

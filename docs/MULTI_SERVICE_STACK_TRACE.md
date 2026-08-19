@@ -137,7 +137,7 @@ So when `aify-project-graph` wants to start an agent, there are three possible a
 
 **Nothing has been built for (3).** Phase 2 extracted the CLIENT tier. The environment tier is still
 inside aify-comms, and the wrapper contract deliberately says nothing about the environment↔server
-edge, calling it a v0.7 subject. That was the right scope decision and it is also exactly the gap
+edge, calling it a later subject. That was the right scope decision and it is also exactly the gap
 that a second service walks into.
 
 ---
@@ -154,7 +154,7 @@ that a second service walks into.
 | 2 | The launcher emitting one MCP server entry per registered service | small — the map is already plural |
 | 3 | `AIFY_SERVICE` naming which service a session belongs to, set explicitly by a spawner instead of inherited | small |
 | 4 | Per-service identity, probably `agentId` inside each registry entry, with `HARNESS_IDENTITY` kept as the single-service override | medium — it changes the contract |
-| 5 | The environment tier extracted so any service can request a spawn without owning PTYs | **large — this is the actual v0.7** |
+| 5 | The environment tier extracted so any service can request a spawn without owning PTYs | **large — v0.6 Phase 8** |
 
 1 to 3 are additive and safe. 4 changes a contract that four wrappers and a live fleet depend on. 5 is
 a release of its own.

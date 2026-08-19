@@ -1,9 +1,14 @@
-# Three-repo separation: program roadmap
+# Three-repo separation: v0.6 Phases 6-8
 
 **Goal.** Split one product into four components that each own one concern, so a second and third
 service can exist without duplicating PTY ownership or depending on aify-comms.
 
-**Status.** Roadmap only. Phase 1 has a full plan beside this file. Phases 2 and 3 are sized, gated
+**Version.** This is the REST OF v0.6, not a new release. Phases 0-5 changed only internals: the
+wrapper contract, a bridge census, dashboard tests, a bughunt and an e2e baseline. Useful prework,
+but nothing an operator receives. The separation is the thing v0.6 was for, so it carries the same
+number and the tag waits for it.
+
+**Status.** Roadmap only. Phase 6 has a full plan beside this file. Phases 7 and 8 are sized, gated
 and sequenced here, and get their own plans when the phase before them lands — writing them now would
 be fabricating detail nobody has earned yet.
 
@@ -33,19 +38,19 @@ because a running service has no repo. aify-env's doctor collects and displays; 
 ## Sequencing, and why this order
 
 ```
-Phase 1  aify-wrapper        independent, blocks nothing, defines the registry
+Phase 6  aify-wrapper        independent, blocks nothing, defines the registry
    │                         └─ the registry must land here: the wrapper is its FIRST reader
    ▼
-Phase 2  aify-env            needs the registry; new repo; no live-fleet risk until phase 3
+Phase 7  aify-env            needs the registry; new repo; no live-fleet risk until phase 8
    │
    ▼
-Phase 3  aify-comms          highest risk in the program — it is the live fleet
+Phase 8  aify-comms          highest risk in the program — it is the live fleet
 ```
 
-Phase 1 defines `services.json` because aify-wrapper is its first reader. Deferring the schema to
-phase 2 would mean shipping aify-wrapper twice.
+Phase 6 defines `services.json` because aify-wrapper is its first reader. Deferring the schema to
+phase 7 would mean shipping aify-wrapper twice.
 
-Phase 3 is last and must be reversible. It is the only phase that touches a running fleet, and this
+Phase 8 is last and must be reversible. It is the only phase that touches a running fleet, and this
 project's recorded incidents are almost all in exactly that surface: a spawner colliding with itself,
 a bridge reporting OFFLINE and still claiming work, a restart that produced no worker for three
 independent reasons.
@@ -54,17 +59,17 @@ independent reasons.
 
 A phase is done when its gate is green by measurement, not by assertion.
 
-**Phase 1 — aify-wrapper.** Installing it on a host with N harnesses present produces N launchers and
+**Phase 6 — aify-wrapper.** Installing it on a host with N harnesses present produces N launchers and
 touches nothing else. A wrapper built against a stale registry reports itself stale rather than
 silently launching against one service. `test_wrapper_templates_are_published_in_sync.py` is DELETED,
 because aify-comms consumes the package instead of copying it and the duplication it guarded is gone.
 
-**Phase 2 — aify-env.** A process started through aify-env runs under a PTY, streams to a consumer,
+**Phase 7 — aify-env.** A process started through aify-env runs under a PTY, streams to a consumer,
 and is reaped when it dies. A file without `HARNESS_WRAPPER_VERSION` is refused. `aify-env doctor`
 reports `passed / failed / unanswered` and a silent registered service reads `unanswered`, never `ok`.
 The TUI shows registered services, owned processes and its own I/O, and claims no agent status.
 
-**Phase 3 — aify-comms.** aify-comms spawns nothing itself; every spawn goes through aify-env. The
+**Phase 8 — aify-comms.** aify-comms spawns nothing itself; every spawn goes through aify-env. The
 `aify-comms` command does not exist. `/health` self-reports build sha, branch and built-at, all from
 the stamp, and the repo ships the tooling that compares that report against a checkout. A live
 two-session round-trip passes: two agents registered, `comms_send` between them, the target wakes or
@@ -74,10 +79,10 @@ queues per capability, and the response threads back.
 
 | risk | phase | handling |
 |---|---|---|
-| The 16.9k lines of harness semantics follow `terminal-runtime.js` into aify-env | 2 | The phase gate names what may move. Turn detection, stop gating and steering stay. |
-| A registry read at launch adds latency to every start | 1 | Read at INSTALL, not at launch. Hermes' MCP discovery window is 0.75s and the repo already lost that fight once. |
-| A hand-written file carrying the marker enrols itself | 2 | Acceptable locally. Record the installed set at install time before aify-env is reachable off-host. |
-| **aify-comms losing PTY ownership while a fleet is running** | **3** | **The one that can take the fleet down.** Ship behind a flag defaulting to the current behaviour, flip on an idle fleet, keep the old path until a round-trip passes. |
+| The 16.9k lines of harness semantics follow `terminal-runtime.js` into aify-env | 7 | The phase gate names what may move. Turn detection, stop gating and steering stay. |
+| A registry read at launch adds latency to every start | 6 | Read at INSTALL, not at launch. Hermes' MCP discovery window is 0.75s and the repo already lost that fight once. |
+| A hand-written file carrying the marker enrols itself | 7 | Acceptable locally. Record the installed set at install time before aify-env is reachable off-host. |
+| **aify-comms losing PTY ownership while a fleet is running** | **8** | **The one that can take the fleet down.** Ship behind a flag defaulting to the current behaviour, flip on an idle fleet, keep the old path until a round-trip passes. |
 
 ## What this program deliberately does not do
 
