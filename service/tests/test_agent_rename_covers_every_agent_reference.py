@@ -57,6 +57,9 @@ REPOINTED = {
     ("bridge_instances", "agent_id"),
     ("read_receipts", "agent_id"),
     ("channel_members", "agent_id"),
+    #: v0.6 Phase 4. The last unclassified agent_id. See the note in the rewrite: the table's
+    #: session already belongs to the new agent, so the child moves with its parent.
+    ("terminal_sessions", "agent_id"),
     ("messages", "from_agent"),
     ("messages", "to_agent"),
     ("shared_artifacts", "from_agent"),
@@ -88,15 +91,15 @@ LEFT_BEHIND = {
     ("spawn_requests", "created_by"): "requester audit, not the subject of the rename",
 }
 
-UNRESOLVED = {
-    #: FOUND 2026-08-15 while extracting the rewrite. `terminal_sessions` is the ONLY table with an
-    #: `agent_id` that is neither repointed nor cascaded — it has no foreign key to `agents`, so the
-    #: `DELETE FROM agents` does not reach it. After a rename its rows still name an id that the same
-    #: transaction tombstoned, so `_active_terminal_for_agent(new_id)` finds nothing and the renamed
-    #: agent looks like it has no console, while the stale rows keep a `running` status under a dead
-    #: id. Reported to the operator; NOT fixed here, because adding a repoint is a behaviour change
-    #: and v0.5.x is the refactor line.
-    ("terminal_sessions", "agent_id"): "neither repointed nor cascaded — reported, awaiting a ruling",
+UNRESOLVED: dict[tuple[str, str], str] = {
+    #: RESOLVED 2026-08-19 (v0.6 Phase 4). `terminal_sessions.agent_id` is now repointed with the
+    #: rest, on the schema's own evidence: the table carries
+    #: `FOREIGN KEY (session_id) REFERENCES agent_sessions(id)` and `agent_sessions.agent_id` was
+    #: already repointed, so leaving the child behind split it from its parent inside the one
+    #: transaction meant to move every reference together.
+    #:
+    #: The bucket stays, empty. It is the honest home for the next column somebody finds and
+    #: cannot yet decide about, and deleting it would make the next finder invent it again.
 }
 
 
@@ -211,20 +214,19 @@ class AgentRenameCoversEveryAgentReferenceTests(unittest.TestCase):
                     set(), first & second,
                     f"a column is classified twice: {sorted(first & second)}")
 
-    def test_the_UNRESOLVED_gap_is_still_open_and_still_says_so(self):
-        """Deliberately fails if someone fixes it, so the classification cannot go stale silently.
+    def test_the_UNRESOLVED_bucket_is_empty_and_that_is_the_end_state(self):
+        """The gap it held closed on 2026-08-19; the bucket stays for the next one.
 
-        If `terminal_sessions.agent_id` starts being repointed, this test fails and the entry moves
-        to REPOINTED. That is the intended way for the gap to close — by a decision that updates the
-        record, not by a quiet edit that leaves this file claiming a gap that no longer exists.
+        Its predecessor deliberately FAILED if anyone fixed `terminal_sessions.agent_id`, so the
+        classification could not go stale silently — a gap that quietly stops existing leaves this
+        file claiming one that does not. It said, in words, "if the last gap closed, delete this test
+        with the entry", and that is what happened here.
+
+        What replaces it asserts the other direction: nothing sits in UNRESOLVED while ALSO being
+        repointed, which is the state that would mean a decision was made and never written down.
         """
-        self.assertTrue(UNRESOLVED, "if the last gap closed, delete this test with the entry")
         for (table, column) in UNRESOLVED:
             self.assertNotIn(
                 (table, column), _repointed_by_the_rewrite(),
                 f"{table}.{column} is repointed now — move it from UNRESOLVED to REPOINTED",
             )
-
-
-if __name__ == "__main__":
-    unittest.main()

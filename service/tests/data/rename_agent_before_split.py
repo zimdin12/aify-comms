@@ -56,6 +56,7 @@ async def rename_agent(agent_id: str, req: AgentRenameRequest, request: Request)
             ("bridge_instances", "agent_id"),
             ("read_receipts", "agent_id"),
             ("channel_members", "agent_id"),
+            ("terminal_sessions", "agent_id"),
         ):
             await db.execute(f"UPDATE {table} SET {column} = ? WHERE {column} = ?", (new_agent_id, agent_id))
         await db.execute("UPDATE messages SET from_agent = ? WHERE from_agent = ?", (new_agent_id, agent_id))

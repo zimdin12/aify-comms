@@ -49,6 +49,20 @@ async def _rewrite_agent_references_for_rename(db, agent_id, new_agent_id, now, 
             ("bridge_instances", "agent_id"),
             ("read_receipts", "agent_id"),
             ("channel_members", "agent_id"),
+            # v0.6 Phase 4. `terminal_sessions` was the ONLY agent_id in the schema that was neither
+            # repointed here nor cascaded by the DELETE below — it has no foreign key to `agents`, so
+            # its rows survived naming an id this same transaction tombstones. The renamed agent then
+            # looked consoleless while a dead id owned a terminal that still read `running`.
+            #
+            # REPOINTED rather than stopped, and the schema is what settles it: `terminal_sessions`
+            # has `FOREIGN KEY (session_id) REFERENCES agent_sessions(id)`, and `agent_sessions` is
+            # repointed on the line above. So the terminal's own session already belongs to the new
+            # agent; leaving `agent_id` behind preserved no truth, it split a child from its parent
+            # inside a transaction whose whole job is to move every reference at once.
+            #
+            # It carries the status across untouched. Whether that PTY is still alive is a question
+            # the terminal reconcilers answer from state, and a rename has no opinion to add.
+            ("terminal_sessions", "agent_id"),
         ):
             await db.execute(f"UPDATE {table} SET {column} = ? WHERE {column} = ?", (new_agent_id, agent_id))
         await db.execute("UPDATE messages SET from_agent = ? WHERE from_agent = ?", (new_agent_id, agent_id))
