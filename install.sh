@@ -458,6 +458,10 @@ render_wrapper_template() {
   # is "unknown" rather than a blank, which would read as "built from an empty registry" and is a
   # different claim. See the wrapper package for what a real fingerprint is for.
   text="${text//@@REGISTRY_FINGERPRINT@@/${AIFY_REGISTRY_FINGERPRINT:-unknown}}"
+  # Services that opted into strict mode, base64. Empty here: aify-comms reads no registry yet, so no
+  # service has opted in, and empty is the accurate answer rather than a placeholder. Unlike the
+  # fingerprint above, "unknown" would be wrong — the launcher branches on this being non-empty.
+  text="${text//@@STRICT_EXTRA_MCP_B64@@/}"
   text="${text//@@BRIDGE_DIR@@/$AIFY_BRIDGE_DIR}"
   text="${text//@@NATIVE_BASE@@/$AIFY_NATIVE_BASE}"
   text="${text//@@SCRIPT_DIR@@/$SCRIPT_DIR}"

@@ -402,6 +402,22 @@ if [ "${AIFY_CLAUDE_STRICT_MCP:-0}" = "1" ]; then
     _mcp_cmd="node"
     _mcp_args="\"${AIFY_SCRIPT_DIR_FWD}/mcp/stdio/server.js\""
   fi
+  # Services that opted into strict mode, carried as base64 and decoded here.
+  #
+  # Base64 because the value crosses two hops that both eat backslashes: the installer's parameter
+  # substitution and the unquoted heredoc below. Base64 is [A-Za-z0-9+/=], so it survives both as
+  # itself; decoded into a variable, its expansion inside the heredoc is not re-parsed, so a Windows
+  # path in a service's args cannot be mangled or a backtick executed.
+  AIFY_STRICT_EXTRA=""
+  if [ -n "@@STRICT_EXTRA_MCP_B64@@" ]; then
+    if command -v base64 >/dev/null 2>&1; then
+      AIFY_STRICT_EXTRA="$(printf '%s' "@@STRICT_EXTRA_MCP_B64@@" | base64 -d)"
+    else
+      echo "[claude-aify] strict mode has extra MCP servers configured but 'base64' is not on PATH." >&2
+      echo "              Install coreutils, or clear \"strictMcp\" from the service registry." >&2
+      exit "$HARNESS_EXIT_CONFIG"
+    fi
+  fi
   AIFY_MCP_CONFIG="$(mktemp -t aify-mcp.XXXXXX.json 2>/dev/null || mktemp -t aify-mcp)"
   # The bridge's endpoint is the RESOLVED one, not the install-time literal this used to bake in. An
   # explicit `env` block REPLACES the inherited environment for that server, so baking meant a strict
@@ -418,12 +434,21 @@ if [ "${AIFY_CLAUDE_STRICT_MCP:-0}" = "1" ]; then
       "command": "node",
       "args": ["${AIFY_SCRIPT_DIR_FWD}/mcp/stdio/claude-channel.js"],
       "env": { "AIFY_SERVER_URL": "$HARNESS_ENDPOINT", "CLAUDE_MCP_SERVER_URL": "$HARNESS_ENDPOINT" }
-    }
+    }${AIFY_STRICT_EXTRA}
   }
 }
 JSON
-  # Strict mode (AIFY_CLAUDE_STRICT_MCP=1): only the two-server config
-  # above is visible to this claude process.
+  # Strict mode (AIFY_CLAUDE_STRICT_MCP=1): only the config above is visible
+  # to this claude process.
+#| The STRICT_EXTRA_MCP_B64 placeholder above is empty unless a service set "strictMcp": true in the
+#| registry, in which case it splices that service's servers in after the comms pair. Opt-in per
+#| service on purpose: this flag exists BECAUSE extra MCP servers cause the init race described
+#| above, so carrying everything registered would reintroduce the failure the flag is the workaround
+#| for. An operator who needs a second service in here names it and owns the risk for that one.
+#| (Written at column 0, and spelled without the @@ markers, deliberately: `#|` is stripped by an
+#| anchored `^#|`, so an INDENTED template comment survives into the launcher — and a placeholder
+#| named inside one gets substituted there, which is how a multi-line JSON fragment once landed in
+#| the middle of a comment and broke the rendered bash.)
   CLAUDE_MCP_FLAGS+=(--strict-mcp-config --mcp-config "$AIFY_MCP_CONFIG")
 fi
 
