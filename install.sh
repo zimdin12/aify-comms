@@ -755,6 +755,13 @@ install_hermes_wrapper() {
 #!/bin/bash
 set -euo pipefail
 
+# The version this wrapper was GENERATED from, read by \`aify-comms doctor\`'s wrapper-current check.
+# Hermes has not moved onto the harness contract yet (it is sequenced last), but it still needs to
+# report a version: without the marker, doctor would report hermes-aify as a pre-contract build
+# FOREVER, including immediately after a fresh install. A check that can never go green teaches people
+# to ignore it, which is the failure mode this tool exists to prevent.
+HARNESS_WRAPPER_VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo unknown)"
+
 HERMES_AIFY_AGENT_ID="\${AIFY_AGENT_ID:-}"
 HERMES_AIFY_ROLE="\${AIFY_AGENT_ROLE:-coder}"
 HERMES_AIFY_SESSION_MODE="\${AIFY_SESSION_MODE:-}"

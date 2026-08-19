@@ -50,6 +50,7 @@ import {
   // Moved out of THIS file in v0.5.4 so they could be tested — see the note where they used to sit.
   readBoundAgentId,
   readProcEnv,
+  wrapperVersionVerdict,
 } from "./doctor-predicates.js";
 
 const args = process.argv.slice(2);
@@ -262,6 +263,37 @@ function checkWrappers() {
   add("wrappers", true, "ok", `on PATH: ${found.join(", ")}`);
 }
 
+// ── 6b. wrapper-current: is the launcher on PATH the build this checkout describes? ──
+//
+// The replacement for a guarantee v0.6 gives up. install.sh guarantees wrapper and bridge are the same
+// build by doing both in one step; publishing the wrappers separately ends that by construction, and
+// `bridge-installed` / `bridge-current` exist BECAUSE that guarantee kept being violated silently.
+//
+// READS, NEVER RUNS. `claude-aify --check` would be the obvious way to ask, and it is unsafe here: a
+// wrapper installed before the contract does not know that flag and forwards it to the runtime, so
+// doctor would LAUNCH CLAUDE on a live machine to find out whether claude-aify was current.
+function checkWrapperVersions() {
+  const repoVersion = repo ? (() => {
+    try { return readFileSync(join(repo.dir, "VERSION"), "utf8").trim(); } catch { return ""; }
+  })() : "";
+
+  const wrappers = [];
+  for (const name of ["claude-aify", "codex-aify", "hermes-aify"]) {
+    const resolved = sh("command", ["-v", name]) || sh("which", [name]);
+    if (!resolved) continue;
+    let version = null;
+    try {
+      const text = readFileSync(resolved.trim(), "utf8");
+      const m = text.match(/HARNESS_WRAPPER_VERSION="([^"]*)"/);
+      if (m && m[1]) version = m[1];
+    } catch { /* unreadable — treated as no marker, i.e. stale */ }
+    wrappers.push({ name, version });
+  }
+
+  const verdict = wrapperVersionVerdict({ repoVersion, wrappers });
+  add("wrapper-current", verdict.ok, verdict.code, verdict.detail, verdict.fix);
+}
+
 function checkRuntimes() {
   const rt = ["claude", "codex", "hermes"].filter((r) => sh("which", [r]));
   add("runtimes", true, "ok", rt.length ? `installed: ${rt.join(", ")}` : "none of claude/codex/hermes found on PATH");
@@ -406,6 +438,7 @@ checkSkillsInstalled();
 checkRunningBridges();
 await checkAgentIdentity();
 checkWrappers();
+checkWrapperVersions();
 checkRuntimes();
 await checkEnvBridge();
 await checkUsage();
