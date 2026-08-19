@@ -16,6 +16,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpDir } from "./_tmpdir.js";
+import { runWrapper } from "./wrapper-harness.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..", "..");
@@ -56,6 +57,62 @@ test("pi wrappers: rendered bodies are syntactically valid (bash -n)", () => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── Behaviour and the harness contract ──────────────────────────────────────
+//
+// Pi's resident wrapper is not installed, so nothing else would ever execute this file. That makes
+// running it here the ONLY evidence it works at all — a template nobody renders and nobody runs is
+// indistinguishable from a broken one.
+
+const piWrapper = () => path.join(renderPiWrappers().dir, "pi-aify");
+const run = (opts = {}) => runWrapper(piWrapper(), { runtimeName: "omp", ...opts });
+
+test("pi-aify launches its runtime and forwards argv", () => {
+  const r = run({ args: ["--print", "hello world"] });
+  assert.equal(r.launched, true, `wrapper never reached omp:\n${r.stderr}`);
+  assert.ok(r.argv.includes("--print"));
+  assert.ok(r.argv.includes("hello world"), "an argument with a space must survive as ONE entry");
+  assert.ok(r.argv.includes("--auto-approve"), "the unattended bypass must be on by default");
+});
+
+test("pi-aify exports the identity the bridge registers under", () => {
+  const r = run({ args: ["--aify-agent", "probe-agent", "--aify-role", "tester"] });
+  assert.equal(r.launched, true, r.stderr);
+  assert.equal(r.env.AIFY_AGENT_ID, "probe-agent");
+  assert.equal(r.env.AIFY_AGENT_ROLE, "tester");
+  assert.equal(r.env.AIFY_RUNTIME, "pi");
+});
+
+test("HARNESS_IDENTITY and HARNESS_ENDPOINT drive the wrapper, flag still winning", () => {
+  const r = run({ env: { HARNESS_IDENTITY: "harness-agent", HARNESS_ENDPOINT: "http://127.0.0.2:2/x" } });
+  assert.equal(r.env.AIFY_AGENT_ID, "harness-agent");
+  assert.equal(r.env.AIFY_COMMS_URL, "http://127.0.0.2:2/x");
+
+  const flag = run({ args: ["--aify-agent", "flag-agent"], env: { HARNESS_IDENTITY: "harness-agent" } });
+  assert.equal(flag.env.AIFY_AGENT_ID, "flag-agent");
+});
+
+test("--check reports the resolved configuration and starts nothing", () => {
+  const r = run({ args: ["--check"], env: { HARNESS_IDENTITY: "probe-agent" } });
+  assert.equal(r.launched, false, "--check must not launch the runtime");
+  assert.equal(r.status, 0);
+  const out = `${r.stdout}${r.stderr}`;
+  assert.match(out, /pi-aify \d+\.\d+\.\d+/, "it must report its own version");
+  assert.match(out, /probe-agent/, "and the identity it resolved");
+  assert.match(out, /127\.0\.0\.2:1/, "and the endpoint");
+});
+
+test("an explicitly empty HARNESS_ENDPOINT exits 78 without starting anything", () => {
+  const r = run({ env: { HARNESS_ENDPOINT: "" } });
+  assert.equal(r.launched, false);
+  assert.equal(r.status, 78, `expected 78, got ${r.status}: ${r.stderr}`);
+});
+
+test("HARNESS_EXTRA_ENV exports host-supplied pairs verbatim", () => {
+  const r = run({ env: { HARNESS_EXTRA_ENV: "FOO=bar\nnot-a-pair\n" } });
+  assert.equal(r.launched, true, `malformed entries must not be fatal: ${r.stderr}`);
+  assert.equal(r.env.FOO, "bar");
 });
 
 test("pi INSTALL is still refused without the emit flag", () => {

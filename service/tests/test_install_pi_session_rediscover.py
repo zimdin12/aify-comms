@@ -6,19 +6,50 @@ Reuse that payload to overwrite PI_SESSION_ID / AIFY_SESSION_HANDLE so the
 inner aify-comms MCP bridge registers with the truthful session id — not
 whatever stale value the operator's shell inherited from a prior pi run.
 
-These are static-text smoke checks on install.sh — no bash exec.
+REWRITTEN 2026-08-19 (v0.6 Phase 2). These were "static-text smoke checks on install.sh — no bash
+exec". When the pi-aify body moved into wrappers/pi-aify.sh.in they went red while the render was
+proven byte-identical: a location pin breaks on a move and stays green on a defect. They now read the
+RENDERED wrapper.
+
+That matters more for pi than for the other runtimes. Pi's resident wrapper is deliberately NOT
+installed — OMP is single-client, so it cannot provide resident wake — so nothing else in this repo
+would ever produce the file these assertions describe. Reading the render is the only way they are
+about anything at all.
 """
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+import tempfile
+from functools import lru_cache
 from pathlib import Path
+
+import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 INSTALL_SH = REPO / "install.sh"
 
+# A literal, never the operator's configured endpoint.
+RENDER_URL = "http://127.0.0.1:8899"
 
+
+@lru_cache(maxsize=1)
 def _read_install_sh() -> str:
-    return INSTALL_SH.read_text(encoding="utf-8")
+    """The RENDERED pi-aify wrapper. `--emit-wrappers` writes it and exits before any install step,
+    and pi INSTALLS stay disabled — rendering and installing are different acts."""
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash not on PATH — pi wrapper render skipped")
+    with tempfile.TemporaryDirectory(prefix="aify-pi-render-") as tmp:
+        subprocess.run(
+            [bash, str(INSTALL_SH), "--client", "pi", RENDER_URL, "--emit-wrappers", tmp],
+            check=True,
+            capture_output=True,
+        )
+        wrapper = Path(tmp) / "pi-aify"
+        assert wrapper.exists(), "--emit-wrappers must produce pi-aify"
+        return wrapper.read_text(encoding="utf-8")
 
 
 def test_pi_wrapper_parses_session_id_from_watchdog():
