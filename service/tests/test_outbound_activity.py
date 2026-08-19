@@ -22,8 +22,12 @@ RECEIVED plenty and PRODUCED nothing must look different from one that has produ
 
 from __future__ import annotations
 
+import asyncio
+import time
 import unittest
+import uuid
 
+from service.db import get_db
 from service.tests._base import FastApiTestCase
 
 
@@ -142,3 +146,112 @@ class OutboundActivityTests(FastApiTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SystemAuthoredNoticeTests(FastApiTestCase):
+    """A notice the SERVICE wrote about a dead agent must not count as that agent producing.
+
+    v0.6 Phase 4, item #10b. `_mirror_missing_dispatch_handoff` tells a sender their target never
+    answered, and it authors that message AS THE TARGET — deliberately, because `from_agent` is what
+    threads the notice into the right conversation. The row is otherwise indistinguishable from a
+    real message: same `source='direct'`, same table, same shape.
+
+    `_get_outbound_activity_map` then reads `MAX(messages.timestamp) WHERE from_agent = ?` and calls
+    the answer "last produced". So the system NOTICING that an agent is dead advances that agent's
+    productivity clock, and the roster — which uses `lastSentAt` alone, because runs are off the poll
+    path by a measured decision — reports the corpse as having just produced something.
+
+    That is precisely the failure this field was added to retire. The module's own docstring says
+    "only what it SENDS evidences that it is running"; a message it did not write is not something
+    it sent.
+
+    RULED, not merely fixed. The obvious alternative is a third `messages.source` value, and it was
+    rejected: `source` is binary today and about ten readers treat `'direct'` as "a DM" — analytics,
+    claim gating, run reports, managed-worker sweeps. A new value would silently change all of them
+    to fix one reader that is wrong. The reader is fixed instead.
+
+    A COMPLETED run's notice is deliberately still counted: it carries the target's own result, so
+    the agent really did produce. Only failed and cancelled notices are excluded.
+    """
+
+    DB_NAME = "aify-outbound-system-authored.db"
+
+    def setUp(self):
+        super().setUp()
+        for agent in ("sender", "target"):
+            r = self.client.post("/api/v1/agents", json={
+                "agentId": agent, "name": agent, "role": "coder", "runtime": "claude-code",
+            })
+            self.assertEqual(r.status_code, 200, r.text)
+
+    def _execute(self, q, params=()):
+        async def _run():
+            db = await get_db()
+            try:
+                await db.execute(q, params)
+                await db.commit()
+            finally:
+                await db.close()
+        asyncio.run(_run())
+
+    def _last_sent(self, agent_id):
+        r = self.client.get(f"/api/v1/agents/{agent_id}")
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        agent = body.get("agent", body)
+        return (agent.get("outbound") or {}).get("lastSentAt")
+
+    def _notice(self, run_status):
+        """Write exactly what the sweep writes: a message authored AS the target, marked on the run."""
+        ts = int(time.time() * 1000)
+        message_id = f"{ts}-{uuid.uuid4().hex[:8]}"
+        run_id = f"run-{uuid.uuid4().hex[:8]}"
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority, status, require_reply,
+                result_message_id, handoff_message_id, requested_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (run_id, None, "sender", "target", "start_if_possible", "managed", "request",
+             "do X", "please do X", "normal", run_status, 1, "", message_id,
+             time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())),
+        )
+        self._execute(
+            "INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, "
+            "priority, timestamp) VALUES (?,?,?,?,?,?,?,?,?)",
+            (message_id, "target", "sender", "direct", "error",
+             "no reply", "the target never ran", "normal", ts),
+        )
+        return message_id
+
+    def test_a_failure_notice_does_not_make_a_dead_agent_look_productive(self):
+        self.assertIsNone(self._last_sent("target"), "precondition: the target has produced nothing")
+        self._notice("failed")
+        self.assertIsNone(
+            self._last_sent("target"),
+            "a notice the service wrote ABOUT this agent is not this agent producing",
+        )
+
+    def test_a_cancelled_run_notice_is_excluded_too(self):
+        self._notice("cancelled")
+        self.assertIsNone(self._last_sent("target"))
+
+    def test_a_completed_run_notice_still_counts(self):
+        # It carries the target's own result, so the agent genuinely produced. Excluding this would
+        # under-report on the roster, where `lastSentAt` is the only evidence of production there is.
+        self._notice("completed")
+        self.assertIsNotNone(
+            self._last_sent("target"),
+            "a completed run's handoff carries real output and must keep counting",
+        )
+
+    def test_an_ordinary_message_from_the_agent_still_counts(self):
+        # The anti-vacuity half: the guard must not swallow real production.
+        self._notice("failed")
+        r = self.client.post("/api/v1/messages/send", json={
+            "from_agent": "target", "to": "sender", "type": "info",
+            "subject": "alive", "body": "I did the work",
+        })
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIsNotNone(self._last_sent("target"), "a real send must still register")
