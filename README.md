@@ -189,6 +189,10 @@ Important starting docs:
 
 ## Repo layout
 
+The launchers under `wrappers/` are also published as a standalone package at
+[zimdin12/aify-wrapper](https://github.com/zimdin12/aify-wrapper) — the same four templates, for a
+host that wants launchers without this service. Installing aify-comms needs nothing from it.
+
 | Path | What |
 |------|------|
 | `service/` | FastAPI backend, SQLite persistence, dashboard HTML, dispatch logic. Rebuild container after changes. |

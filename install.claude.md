@@ -10,6 +10,12 @@ cd ~/.claude/plugins/aify-comms
 bash install.sh --client claude http://localhost:8800 --with-hook
 ```
 
+You do **not** need anything else: `install.sh` builds `claude-aify` from the templates in this
+repo. The same four launchers are also published on their own at
+[zimdin12/aify-wrapper](https://github.com/zimdin12/aify-wrapper), for pointing a coding-agent CLI
+at some other coordinating service. Installing that package as well would give you a second copy of
+the same wrapper, not more harnesses.
+
 If you are using local-only mode with no shared server:
 
 ```bash
