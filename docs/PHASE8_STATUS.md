@@ -119,18 +119,34 @@ An adapter's `argv[0]` is a bare **name** — `claude-aify`. So the chain is:
 
 | | | where it lives |
 |---|---|---|
-| 1 | the service produces argv | **done** — `console_argv`, five adapters |
-| 2 | resolve `argv[0]` to an absolute path | **unbuilt** — must be caller-side, and only the host knows its own PATH |
-| 3 | call aify-env with `{launcher: <path>, args: argv[1:]}` | unbuilt, small once 2 exists |
-| 4 | a `term` shim: write, resize, kill, console keepalive | 3b, the real remaining work |
+| 1 | the service can produce argv | **done** - `console_argv`, five adapters |
+| 2 | argv reaches the bridge at all | **unbuilt, and it IS a service-to-bridge contract change** |
+| 3 | resolve `argv[0]` to an absolute path | unbuilt; bridge-local *once 2 exists*, since only the host knows its own PATH |
+| 4 | call aify-env with `{launcher: <path>, args: argv[1:]}` | unbuilt, small once 3 exists |
+| 5 | a `term` shim: write, resize, kill, console keepalive | 3b, the real remaining work |
 
-**Step 2 is bridge-local, not a service-to-bridge contract change.** The bridge runs on the host and can
-resolve a launcher name; the service cannot, and should not try — the same host may not have the same
-PATH. That narrows what the original finding called a change reaching "upstream into how every managed
-command is composed": the upstream half is done, and what is left of steps 2 and 3 does not cross the
-service boundary at all.
+**CORRECTION.** An earlier revision of this section said steps 2 and 3 "do not cross the service
+boundary at all". That was wrong, and it understated the cost. Traced since: the command reaches the
+bridge as ONE STRING - `terminal_sessions.command`, copied into the control payload as `"command"`
+and read as `terminal.command || control.body`. The argv never leaves the service. `console_argv` made
+the value exist; it is still joined before anything stores it, so PRODUCING argv is done and
+TRANSPORTING it is not. Step 3 is bridge-local only if the bridge has an argv, and today it has a
+string.
 
-Step 4 is unchanged and is still the work. None of this is built, and nothing here delegates.
+What survives of the narrowing is smaller but real: the transport can be **additive**. The carrier is
+the TERMINAL OBJECT, not the control payload - `terminal-control-loop.mjs` reads `terminal.command` as
+a property and `control.body` as a plain string, and never parses the payload JSON at all. So
+`terminal.argv` sits beside `terminal.command`: an old bridge reads only `.command` and is undisturbed,
+a new one prefers `.argv`, and every terminal row already queued keeps working because `command` stays.
+A contract change, but a backward-compatible one rather than a rewrite of how every managed command is
+composed.
+
+(That carrier detail is itself a correction. The first version of this paragraph named the control
+payload, on the assumption that a JSON field would be ignored by an old reader. True of JSON, but the
+bridge does not read that JSON - so the claim was right for the wrong reason, which is the kind that
+survives review and fails in practice.)
+
+Step 5 is unchanged and is still the work. None of this is built, and nothing here delegates.
 
 The third option is the right answer, and where this stops. Choosing the
 first two would trade a real safety property for convenience, and doing that quietly is exactly what

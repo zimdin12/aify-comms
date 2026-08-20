@@ -76,6 +76,27 @@ rather than running them. `test_wrapper_templates_are_published_in_sync.py` is N
 how aify-comms locates the package is an operator decision, and every option changes how users install.
 See the plan's Task 6b.
 
+**The fingerprint clause is now PROVEN on the real system, not only in fixtures.** Run against this
+host's actually-installed launchers, `aify-wrapper-check` reports:
+
+```
+  ??    claude-aify  no registry fingerprint - installed before this existed?
+  ??    codex-aify   no registry fingerprint - installed before this existed?
+  ??    hermes-aify  no registry fingerprint - installed before this existed?
+
+0 current, 3 unreadable - reinstall the affected launchers
+```
+
+Three things in that output rather than only the last line. It reports `??` and never "current", so a
+launcher it cannot read is not counted as fine — the rule this program keeps re-learning. It read the
+files rather than running them, which is what makes it safe to point at a pre-contract wrapper at all.
+And `--strict` exits 1, verified separately, so a script can act on the answer instead of only a human
+reading it.
+
+The finding itself is operator-facing: every installed launcher on this host predates the fingerprint,
+so they need a reinstall. That agrees with `aify-comms doctor`, which reports the bridge and the service
+as older than the checkout — the whole install is behind, by design, pending the deploy decision.
+
 **Phase 7 — aify-env. MET by measurement — run the suite for the count rather than trusting one
 written here; it was 171 on 2026-08-20 and every number in prose rots.** A process started through aify-env runs under a PTY, streams to a consumer,
 and is reaped when it dies. A file without `HARNESS_WRAPPER_VERSION` is refused. `aify-env doctor`
