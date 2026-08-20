@@ -46,7 +46,11 @@ fail for reasons unrelated to the branch.
 ## The finding that ends this phase: aify-comms passes a SHELL STRING, aify-env takes a FILE
 
 `TerminalProcessManager` runs `cmd /d /s /c <command>` on Windows and `bash -lc <command>` elsewhere.
-`command` is a shell command STRING that it composes.
+
+**Traced, not assumed:** there is one production caller, `terminal-control-loop.mjs:87`, and the string
+comes from `terminal.command || control.body` — it arrives **from the service**. The bridge does not
+compose it. So passing launcher and args structurally is a change to the service-to-bridge contract,
+not a bridge-local edit, and every terminal row already queued carries a command string.
 
 aify-env takes a `launcher` path and allowlists it by reading `HARNESS_WRAPPER_VERSION` out of the
 file. That is the whole safety model: a host service that runs programs for any caller is remote code
