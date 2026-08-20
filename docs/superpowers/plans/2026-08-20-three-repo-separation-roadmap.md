@@ -114,6 +114,29 @@ the stamp, and the repo ships the tooling that compares that report against a ch
 two-session round-trip passes: two agents registered, `comms_send` between them, the target wakes or
 queues per capability, and the response threads back.
 
+## What is waiting on the operator
+
+Five decisions, scattered across three documents until now, with what each one holds up. Nothing in this
+list is blocked on effort; every one of them is a judgement that is not an agent's to make.
+
+| | decision | what it holds up | where it is argued |
+|---|---|---|---|
+| 1 | **The published git identity in aify-wrapper.** Its history carries two personal addresses, `steven.zimdin@gmail.com` and `zimdin12@msn.com`. aify-env uses the `noreply` form instead. | Nothing technical. Changing it means rewriting published history and force-pushing a public repo. | this table |
+| 2 | **Task 6b — how aify-comms locates the wrapper package.** | Retiring `test_wrapper_templates_are_published_in_sync.py` and ending the two-copy duplication of the four templates. Every option changes how users install. | `2026-08-20-aify-wrapper-completion.md`, Task 6b |
+| 3 | **Shell string versus structural argv.** | Phase 8 item 3b, the `term` shim, and therefore the flip itself. | `docs/PHASE8_STATUS.md` |
+| 4 | **The deploy window.** Nothing from this program is deployed: `aify-comms doctor` reports 4 checks needing attention, all of them "older than the checkout". | Everything reaching the fleet. The service, the bridge, the installed skills and the running wrappers are all behind. | `aify-comms doctor` |
+| 5 | **The `aify-env` name.** | Nothing today. It gets more expensive to change with every installed host. | `docs/AIFY_ENV_BOUNDARY.md` |
+
+**Decision 3 is the one with new evidence since it was framed.** The options table treats "parse the
+shell string" as the risky choice because quoting bugs live there. They live there ALREADY: the bridge
+regex-parses the command to recover `--resume <handle>` and rewrites it to strip the flag, and that
+parsing has shipped a defect — codex's and opencode's forms went unrecognised, so the heal path could
+never fire and workers got a blank `CODEX_THREAD_ID`. Passing argv would delete a parse rather than add
+one.
+
+**Decision 4 is the only one that is time-sensitive**, and only mildly: the gap between checkout and
+fleet grows with every commit, and `bridge-current` cannot verify a wrapper that has not been relaunched.
+
 ## Risk, and the one that is not like the others
 
 | risk | phase | handling |
