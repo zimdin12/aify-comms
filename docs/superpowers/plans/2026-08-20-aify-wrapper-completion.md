@@ -321,9 +321,14 @@ Done when, by measurement:
 2. A launcher built against a stale registry is REPORTED stale by `aify-wrapper-check`, which reads
    the launchers and never runs one. (`--check` prints the fingerprint; printing is not comparing,
    and this clause stood marked met for a while with no consumer anywhere.)
-3. Strict mode carries every registered service with its own endpoint.
+3. Strict mode carries every service that OPTED IN, each with its own endpoint under its own
+   declared env names — and carries nothing else. The original wording said "every registered
+   service"; that was the regression this task was rewritten to avoid, since the flag exists
+   BECAUSE extra MCP servers cause the init race.
 4. `test_wrapper_templates_are_published_in_sync.py` is deleted, because the duplication is gone.
-5. All four suites green, counts recorded from the run.
+5. All four suites green, counts recorded FROM THE RUN rather than from memory. Measured
+   2026-08-20: aify-wrapper 104, aify-env 152, aify-comms 4178 python (+8301 subtests) /
+   337 bridge suites / 1135 dashboard.
 
 ## Deliberately not in this phase
 
