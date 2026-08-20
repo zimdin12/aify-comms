@@ -144,3 +144,45 @@ test("the production wiring reads the environment at CALL time, not at construct
   }
   assert.equal(TERMINAL_MANAGER.envDelegation.isEnabled(), false, "the seal did not restore");
 });
+
+// The refusal has to name the half an operator should actually change.
+//
+// `isEnabled` needs BOTH `AIFY_COMMS_DELEGATE_SPAWNS` and `AIFY_ENV_ENDPOINT`. The refusal was
+// written against the FIRST design, which keyed on the endpoint alone -- the design that was
+// deliberately rejected, because that variable is what aify-env's own doctor and TUI read to find the
+// daemon.
+//
+// So the message told an operator to unset the one variable that is ALSO their diagnostic tooling's
+// only way to find the environment. Following it works, and costs them their doctor.
+
+test("the refusal names the OPT-IN flag, not the endpoint an operator also needs for doctor", async () => {
+  const { TerminalProcessManager } = await import("../terminal-runtime.js");
+  const manager = new TerminalProcessManager({ envDelegation: { isEnabled: () => true } });
+
+  const error = await manager
+    .start({ id: "seam-message", command: "true", cwd: process.cwd() })
+    .then(() => null, (e) => e);
+
+  assert.notEqual(error, null, "delegation was on and the seam did not refuse");
+  assert.match(
+    error.message,
+    /AIFY_COMMS_DELEGATE_SPAWNS/,
+    "the refusal does not name the opt-in flag, so an operator cannot tell what to turn off",
+  );
+});
+
+test("the refusal does not tell an operator to unset the endpoint aify-env's doctor reads", async () => {
+  const { TerminalProcessManager } = await import("../terminal-runtime.js");
+  const manager = new TerminalProcessManager({ envDelegation: { isEnabled: () => true } });
+
+  const error = await manager
+    .start({ id: "seam-remedy", command: "true", cwd: process.cwd() })
+    .then(() => null, (e) => e);
+
+  assert.notEqual(error, null, "delegation was on and the seam did not refuse");
+  assert.doesNotMatch(
+    error.message,
+    /Unset it to spawn locally/,
+    "the remedy points at AIFY_ENV_ENDPOINT, which is also how aify-env's doctor and TUI are found",
+  );
+});

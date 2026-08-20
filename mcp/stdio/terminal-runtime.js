@@ -154,8 +154,13 @@ export class TerminalProcessManager {
     const spec = { id, command, cwd, env, cols, rows, runtime: normalizeRuntime(runtime), sessionHandle, healAttempted, agentId, sessionMode };
     // v0.6 Phase 8: the seam where spawning leaves aify-comms.
     //
-    // OFF unless AIFY_ENV_ENDPOINT is set, which nothing in this repo sets. With it unset this is one
+    // OFF unless an operator BOTH opts in with AIFY_COMMS_DELEGATE_SPAWNS and says where to send the
+    // work with AIFY_ENV_ENDPOINT. Nothing in this repo sets either. With delegation off this is one
     // boolean and the next two lines are the whole of what happens, exactly as before.
+    //
+    // Two variables rather than one, deliberately: AIFY_ENV_ENDPOINT is what aify-env's OWN doctor and
+    // TUI read to find the daemon, so keying on it alone would mean an operator who looked at their
+    // environment had silently turned delegation on.
     //
     // It REFUSES rather than half-delegating. Feeding a delegated process into _handleOutput and
     // _handleExit would inherit the batching, auto-answer and classification for free, which is why
@@ -165,9 +170,10 @@ export class TerminalProcessManager {
     // instead of leaving it in a document.
     if (this.envDelegation?.isEnabled()) {
       throw new Error(
-        "AIFY_ENV_ENDPOINT is set, but delegating terminals to aify-env is not finished: a term shim "
-        + "(write/resize/kill) and the console keepalive still run against a local pty. Unset it to "
-        + "spawn locally. See docs/PHASE8_STATUS.md.",
+        "delegating terminals to aify-env is not finished: a term shim (write/resize/kill) and the "
+        + "console keepalive still run against a local pty. Unset AIFY_COMMS_DELEGATE_SPAWNS to spawn "
+        + "locally -- that is the opt-in, and unsetting it leaves AIFY_ENV_ENDPOINT alone, which "
+        + "aify-env's own doctor and TUI need to find the daemon. See docs/PHASE8_STATUS.md.",
       );
     }
     if (pty) {
