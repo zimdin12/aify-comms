@@ -60,6 +60,19 @@ const writeLauncher = (dir, name, lines) => {
   return file;
 };
 
+test("aify-env is checked out, so THIS proof can actually be exercised", () => {
+  // Failing rather than skipping, matching env-client-against-real-aify-env.test.js. This file is the
+  // standing evidence that Phase 8's seam reaches a real environment tier rather than a fake, and two
+  // skipped tests exit 0 -- so on any machine without the checkout it reported nothing while the
+  // runner said the suite passed. "The cross-repo proof is unverified" must not read as green.
+  assert.equal(
+    available,
+    true,
+    `aify-env not found at ${AIFY_ENV}. Set AIFY_ENV_REPO, or check it out: the seam is otherwise only `
+    + "ever tested against a fake of the thing it delegates to.",
+  );
+});
+
 test("a delegated terminal reaches aify-env, and its output and exit come back through the manager", {
   skip: !available && `aify-env is not checked out at ${AIFY_ENV}; set AIFY_ENV_REPO`,
 }, async () => {
