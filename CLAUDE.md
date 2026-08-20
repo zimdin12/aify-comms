@@ -181,8 +181,8 @@ on a module that referenced an undefined name and threw on its first real call, 
 a test.
 
 ```bash
-python -m pytest service/tests -q                      # 4183 tests (+8400 subtests)
-cd mcp/stdio && node tests/run-all.mjs                 # 342 suites
+python -m pytest service/tests -q                      # 4226 tests (+8535 subtests)
+cd mcp/stdio && node tests/run-all.mjs                 # 349 suites, 1 skipped test (named in its output)
 cd service/new_dashboard && node --test *.test.mjs     # 1135 tests
 ```
 
@@ -193,9 +193,19 @@ passed" is a FILE count, not a test count. Counting `test(` calls to size the su
 empty when they are not. Measured 2026-08-20: all 342 files carry a `test(` or an `assert`, so none is
 vacuous.
 
+**Exit status alone cannot tell a proof from a skip, so the runner reads what each file reported.** A
+file whose tests all SKIPPED exits 0 and used to read as passed — and
+`delegated-terminal-against-real-aify-env.test.js`, the standing evidence that Phase 8's seam reaches a
+real environment tier, skips itself when the aify-env checkout is absent. On any other machine that
+proof ran nothing while the runner said everything passed. Skipped files are now NAMED under "skipped,
+so NOT verified here" and never folded into the pass total; a file with no TAP summary counts as zero
+skips, not as a skip, because 109 of them print none. Its sibling
+`env-client-against-real-aify-env.test.js` goes further and FAILS when the checkout is missing, and the
+delegated one does too now — for a cross-repo proof, "unverified" must not read as green.
+
 Those counts are a **measured snapshot** (2026-08-17), not a target: they are there so a wrong invocation is
 obvious (a `node --test` that reports 200 did not discover the suite). They rot with every slice — the run is
-the authority, never the number written here. They were 3991/318/1097 on 2026-08-17, 4165/332/1109 on 2026-08-19, and are the figures above on 2026-08-20. **Until that last update this file carried TWO different dashboard counts** -- 1097 in the layout table and 1109 here -- which is the failure this paragraph warns about, sitting inside the warning. Before that they read 955/219/541 and 1576 while the real
+the authority, never the number written here. They were 3991/318/1097 on 2026-08-17, 4165/332/1109 on 2026-08-19, 4183/342/1135 earlier on 2026-08-20, and are the figures above later the same day. Four readings, two of them hours apart, is the point. **Until that last update this file carried TWO different dashboard counts** -- 1097 in the layout table and 1109 here -- which is the failure this paragraph warns about, sitting inside the warning. Before that they read 955/219/541 and 1576 while the real
 figures were already these, which is the whole reason for this paragraph.
 
 Editing `service/new_dashboard/app.js` also means updating `extraction-proof.test.mjs` in the SAME change
