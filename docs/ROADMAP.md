@@ -358,23 +358,43 @@ removed, eliminated, "now under N lines" — are assertions about the repo's pre
 the next commit. Prefer wording that stays true: "as of v0.5.3", "measured at <sha>", or a pointer to
 the gate that enforces the claim.
 
-### v0.6 — the decomposition inventory this release makes visible
+### v0.6 — the decomposition inventory, CLEARED; and what v0.6 actually became
 
-Not scheduled, and deliberately not smuggled into v0.5.3 as cleanup. The reviewer's ruling is that
-these are v0.6 scope:
+**This section described a v0.6 that did not happen, and README points here as "the current work
+queue".** Two things are true and neither was written down: the inventory below is finished, and v0.6
+turned into the three-repo separation instead. Re-measured 2026-08-21.
 
-- **12 non-test source files over 1000 lines.** `service/control_plane.py` 6,964 ·
-  `mcp/stdio/server.js` 6,330 · `service/new_dashboard/app.js` 5,081 ·
-  `mcp/stdio/hermes-managed-host.js` 3,016 · `service/routers/dispatch_messages/dispatch.py` 1,715 ·
-  `service/routers/agents/shared.py` 1,460 · `mcp/stdio/pi-session.js` 1,299 ·
-  `service/routers/dispatch_messages/messages.py` 1,223 · `service/routers/agents/identity.py` 1,157 ·
-  `service/routers/dispatch_messages/shared.py` 1,114 · `service/routers/sessions.py` 1,031 ·
-  `service/routers/terminals.py` 1,020.
-- **275 control-plane import lines** across 50 modules. Splitting `control_plane.py` by
-  responsibility is the way that number comes down; retiring shims one at a time is not.
-- **`_compute_live_status_cache` (551 lines)** is the largest single function left and is explicitly
-  OFF-LIMITS until a separate hot-mutator plan exists. It is the process-global, single-worker
-  live-status cache.
+**v0.6 as shipped is the three-repo split** — aify-comms, aify-wrapper and aify-env. Plan of record:
+[docs/superpowers/plans/2026-08-20-three-repo-separation-roadmap.md](superpowers/plans/2026-08-20-three-repo-separation-roadmap.md).
+Phases 6 and 7 are green by measurement; Phase 8 is built and off behind two environment variables.
+
+**The inventory below is CLEARED. All twelve are under the limit**, and the oversized-allowlist is
+empty, so the 1000-line gate now governs them like any other file:
+
+| file | then | now |
+|---|---|---|
+| `service/control_plane.py` | 6,964 | 894 |
+| `mcp/stdio/server.js` | 6,330 | 957 |
+| `service/new_dashboard/app.js` | 5,081 | 987 |
+| `mcp/stdio/hermes-managed-host.js` | 3,016 | 728 |
+| `service/routers/dispatch_messages/dispatch.py` | 1,715 | 340 |
+| `service/routers/agents/shared.py` | 1,460 | 268 |
+| `mcp/stdio/pi-session.js` | 1,299 | 993 |
+| `service/routers/dispatch_messages/messages.py` | 1,223 | 295 |
+| `service/routers/agents/identity.py` | 1,157 | 178 |
+| `service/routers/dispatch_messages/shared.py` | 1,114 | 213 |
+| `service/routers/sessions.py` | 1,031 | 283 |
+| `service/routers/terminals.py` | 1,020 | 304 |
+
+Three of them sit within 45 lines of the limit, so this is cleared rather than comfortable.
+
+- ~~**275 control-plane import lines** across 50 modules.~~ **Zero.** Nothing imports
+  `service.control_plane` by that path any more; nine non-test modules reference the name at all. The
+  route domains moved out and there is deliberately no compatibility re-export, so a stale import fails
+  loudly instead of resolving.
+- **`_compute_live_status_cache` is 424 lines**, not 551, and lives in `service/api_core/status_inputs.py`
+  rather than the control plane. Still the largest single function and still OFF-LIMITS until a separate
+  hot-mutator plan exists: it is the process-global, single-worker live-status cache.
 - **Further `get_analytics` splits** only under the approved loop-only / single-return dialect.
   Eight blocks came out in v0.5.3 (**314 -> 190 lines**): three message-bucket series and five
   list-builders. What is left is the window/filter setup and the response assembly, neither of
