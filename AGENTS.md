@@ -4,6 +4,19 @@ This repo is `aify-comms`. The product is a dashboard-driven headless agent cont
 
 ## Primary Documents
 
+**Three repos, one stack, since v0.6.** This one owns messaging, dispatch and sessions;
+[aify-wrapper](https://github.com/zimdin12/aify-wrapper) owns the launchers and arrives here as a
+pinned npm dependency; [aify-env](https://github.com/zimdin12/aify-env) owns processes and terminals on
+a host. Which concern lives where is [docs/AIFY_ENV_BOUNDARY.md](docs/AIFY_ENV_BOUNDARY.md); the work
+in flight is
+[docs/superpowers/plans/2026-08-20-three-repo-separation-roadmap.md](docs/superpowers/plans/2026-08-20-three-repo-separation-roadmap.md).
+
+**This file stays high-level on purpose, and that is why it has not rotted.** Anything with a number in
+it — suite counts, file sizes, which gate fails on what, the release recipe — lives in
+[CLAUDE.md](CLAUDE.md) and is re-measured there. Read that before changing code; read this for what the
+product is trying to be.
+
+
 - [README.md](README.md) — repo overview.
 - [docs/PRODUCT_BRIEF.md](docs/PRODUCT_BRIEF.md) — goals, non-goals, user stories.
 - [docs/ARCHITECTURE_PLAN.md](docs/ARCHITECTURE_PLAN.md) — target architecture and data model.
