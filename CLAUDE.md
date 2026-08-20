@@ -188,16 +188,22 @@ Editing `service/new_dashboard/app.js` also means updating `extraction-proof.tes
 (see the layout table) — it fails loudly rather than silently if a declaration moves without being
 declared.
 
-**And editing a BRIDGE file can turn the DASHBOARD suite red, which is not where anyone looks.**
-`extraction-proof.test.mjs` cross-checks `declarationSpan` against the real spans of five bridge
-classes — `PiSession`, `CodexSession`, `HermesSession`, `TerminalProcessManager` — so growing one of
-those fails a dashboard test. That is the parser check working, not a size limit: RE-MEASURE the span
-independently and record the new figure, rather than copying the number out of the failure message,
-which records whatever the change produced rather than what is true. v0.6 Phase 8 hit exactly this: the
-bridge suite was green after the seam landed and the dashboard suite was not run, so a red gate sat
-unnoticed until the next full sweep.
+**Run all three suites for every change, because no suite stays inside its own tree.** Measured
+2026-08-20, counting test files that read a path literal outside their own directory:
 
-Full end-to-end test is a two-session live round-trip. Register two agents, use `comms_send` from one to the other, verify the target wakes or receives a steer/queued turn according to capability, and verify the response is threaded back in chat.
+| suite | also reads | in N test files |
+|---|---|---|
+| bridge | `install.sh` / `service/new_dashboard` / `service` | 17 / 10 / 9 |
+| python | `mcp/stdio` / `install.sh` / `service/new_dashboard` | 13 / 13 / 4 |
+| dashboard | `service` / `mcp/stdio` | 4 / 3 |
+
+So a bridge edit can redden python AND dashboard; an `install.sh` edit reaches all three. **The targeted
+run is the trap** — it is green because it did not look. v0.6 Phase 8 hit exactly this: the seam grew
+`TerminalProcessManager`, the bridge suite was green, and `extraction-proof.test.mjs` — a DASHBOARD test
+that cross-checks `declarationSpan` against five BRIDGE classes — sat red until the next full sweep.
+When one of those cross-checks fails, RE-MEASURE the value independently and record it, rather than
+copying the number out of the failure message: that number is whatever the change produced, not what is
+true.
 
 ### The 1000-line gate fails your change — read this before "fixing" it
 
