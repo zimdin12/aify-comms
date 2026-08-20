@@ -50,6 +50,7 @@ import {
   // Moved out of THIS file in v0.5.4 so they could be tested — see the note where they used to sit.
   readBoundAgentId,
   readProcEnv,
+  versionToCompareWrappersAgainst,
   wrapperVersionVerdict,
 } from "./doctor-predicates.js";
 
@@ -273,9 +274,34 @@ function checkWrappers() {
 // wrapper installed before the contract does not know that flag and forwards it to the runtime, so
 // doctor would LAUNCH CLAUDE on a live machine to find out whether claude-aify was current.
 function checkWrapperVersions() {
-  const repoVersion = repo ? (() => {
-    try { return readFileSync(join(repo.dir, "VERSION"), "utf8").trim(); } catch { return ""; }
-  })() : "";
+  // aify-wrapper's VERSION, not aify-comms'. The marker in a launcher is stamped from the package
+  // that rendered it, so the package is the only number it can honestly be measured against. Reading
+  // the repo root compared two unrelated counters that happened to agree on 2026-08-20; the first
+  // independent release on either side would have turned every clean install STALE.
+  //
+  // The CHECKOUT's copy first, then the installed bridge's. The check says REINSTALL, and a reinstall
+  // runs install.sh from the checkout and renders from the checkout's node_modules -- so that is the
+  // version a launcher would get. The installed copy is the fallback for a host with no checkout at
+  // all; preferring it would compare against what the LAST install used, which is precisely the
+  // number a staleness check must not treat as current.
+  //
+  // Neither readable gives "" and the verdict is unknown-all -- a fail that says it verified nothing,
+  // rather than a confident comparison against the wrong number.
+  const wrapperPackageVersion = (() => {
+    const roots = [repo ? join(repo.dir, "mcp", "stdio") : null, BRIDGE_DIR].filter(Boolean);
+    for (const root of roots) {
+      try {
+        return readFileSync(join(root, "node_modules", "aify-wrapper", "VERSION"), "utf8").trim();
+      } catch { /* try the next root */ }
+    }
+    return "";
+  })();
+  const repoVersion = versionToCompareWrappersAgainst({
+    wrapperPackageVersion,
+    serviceVersion: repo ? (() => {
+      try { return readFileSync(join(repo.dir, "VERSION"), "utf8").trim(); } catch { return ""; }
+    })() : "",
+  });
 
   const wrappers = [];
   for (const name of ["claude-aify", "codex-aify", "hermes-aify"]) {

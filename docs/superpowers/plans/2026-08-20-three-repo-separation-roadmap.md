@@ -106,10 +106,16 @@ reports `passed / failed / unanswered` and a silent registered service reads `un
 The TUI shows registered services, owned processes and its own I/O, and claims no agent status.
 
 **Phase 8 — aify-comms. UNBLOCKED, and stopped where it was told to stop. See docs/PHASE8_STATUS.md.**
-The stream aify-env was missing now exists, so delegation can carry a console as well as a spawn. The
-client is built and OFF; the seam (`TerminalProcessManager.start()`) is deliberately unwired, because
-what remains is the PROOF that default-off is byte-identical -- through output batching, auto-answer,
-console keepalive and the heal path -- not the plumbing. Flipping is the operator's, on an idle fleet.
+The stream aify-env was missing now exists, so delegation can carry a console as well as a spawn.
+**This paragraph said the seam was "deliberately unwired". That is out of date and was left standing
+after the work it describes was finished** -- exactly the failure `docs inherit intention, not outcome`
+names. `TerminalProcessManager.start()` now delegates: `startDelegated()` mirrors `startPty` through
+the same state, `_handleOutput`, `_handleExit` and keepalive, and the four control paths (`input`,
+`resize`, `stop`, auth-kill) key on `terminal.term` rather than `kind === "pty"`. It is proven against
+a REAL aify-env, not a fixture -- output through `onOutput`, exit code 5 through `onExit`, a keystroke
+echoed back -- and it is still OFF, because `isEnabled()` needs both `AIFY_COMMS_DELEGATE_SPAWNS` and
+`AIFY_ENV_ENDPOINT` and nothing in this repo sets either. Flipping is the operator's, on an idle
+fleet.
 Original gate, unchanged, for when it resumes: aify-comms spawns nothing itself; every spawn goes through aify-env. The
 `aify-comms` command does not exist. `/health` self-reports build sha, branch and built-at, all from
 the stamp, and the repo ships the tooling that compares that report against a checkout. A live

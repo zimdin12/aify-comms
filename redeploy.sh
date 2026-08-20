@@ -17,16 +17,12 @@ REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 # wrappers were last built with > loopback. Never a baked-in LAN address: that only ever
 # worked on one machine, and shipping it in a public repo published that host to everyone.
 detect_installed_server_url() {
-  # The wrappers bake their server URL at install time; reuse it so a re-deploy keeps
-  # pointing at whatever the operator actually chose.
-  local w
-  for w in "$HOME/.local/bin/claude-aify" "$HOME/.local/bin/codex-aify" "$HOME/.local/bin/hermes-aify"; do
-    [ -f "$w" ] || continue
-    local found
-    found="$(grep -oE 'AIFY_SERVER_URL:-http://[^"}]+' "$w" 2>/dev/null | head -1 | sed 's/^AIFY_SERVER_URL:-//')"
-    if [ -n "${found:-}" ]; then printf '%s' "$found"; return 0; fi
-  done
-  return 1
+  # The wrappers bake their server URL at install time; reuse it so a re-deploy keeps pointing at
+  # whatever the operator actually chose. scripts/installed-endpoint.sh is the one reader -- this
+  # function used to hold its own copy of a regex that matched the PRE-CONTRACT wrapper shape, so it
+  # quietly stopped finding anything and this script fell through to loopback, which would have
+  # rewritten every wrapper on the host to point at 127.0.0.1.
+  bash "$REPO_ROOT/scripts/installed-endpoint.sh" "$HOME/.local/bin" 2>/dev/null
 }
 DEFAULT_SERVER="${AIFY_DEFAULT_SERVER_URL:-$(detect_installed_server_url || echo "http://127.0.0.1:8800")}"
 SERVER_URL="${1:-$DEFAULT_SERVER}"

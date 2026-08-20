@@ -19,6 +19,12 @@ wanting to send work there — two questions, two answers.
 Only `1`, `true`, `yes` or `on` count. A truthiness check would read `"0"` and `"false"` as on, which
 is the worst possible direction for this particular switch.
 
+**Neither variable installs anything.** aify-env is a separate daemon that has to be running on the
+host before delegation has anywhere to go — `git clone https://github.com/zimdin12/aify-env`,
+`npm install -g .`, `aify-env`. Its README covers the loopback binding, what `aify-env-doctor` reports
+about a host with no build tools, and what a hard kill leaves behind. Turning these two variables on
+against a host with no daemon gets refused spawns, not a fallback to the old path.
+
 It reports rather than throws. "Unreachable" and "refused" are different answers and a caller falls
 back differently on each; an exception at that boundary makes them identical to a catch block, which
 then does the wrong one.
@@ -59,7 +65,7 @@ fail for reasons unrelated to the branch.
 
 `TerminalProcessManager` runs `cmd /d /s /c <command>` on Windows and `bash -lc <command>` elsewhere.
 
-**Traced, not assumed:** there is one production caller, `terminal-control-loop.mjs:87`, and the string
+**Traced, not assumed:** there is one production caller, `runTerminalControlPass` in `terminal-control-loop.mjs`, and the string
 comes from `terminal.command || control.body` — it arrives **from the service**. The bridge does not
 compose it. So passing launcher and args structurally is a change to the service-to-bridge contract,
 not a bridge-local edit, and every terminal row already queued carries a command string.

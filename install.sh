@@ -58,16 +58,8 @@ Examples:
   bash install.sh --client codex http://localhost:8800
   bash install.sh --client hermes http://localhost:8800 --with-hook
 
-Pi/OMP note:
-  --client pi is intentionally disabled. Managed Pi works through the
-  environment bridge's persistent `omp --mode rpc` child; resident
-  `omp-aify` / `pi-aify` wrappers are presence-only and not installed by
-  default because OMP has no multi-client resident wake surface.
-
-OpenCode note:
-  --client opencode is intentionally disabled. Managed OpenCode runs through
-  an environment bridge installed by a supported client; resident OpenCode is
-  presence/debug metadata only.
+  --client pi and --client opencode are intentionally disabled; each prints why
+  when you ask for it. Both still run MANAGED, through an environment bridge.
 EOF
 }
 
@@ -123,12 +115,11 @@ done
 # returns EOF instantly and would silently accept an empty answer, so a non-TTY run must never
 # prompt — it takes the default exactly as before.
 if [ -z "$SERVER_URL" ] && [ -t 0 ] && [ "${AIFY_NO_PROMPT:-}" != "1" ]; then
+  # scripts/installed-endpoint.sh, not a regex here: this and redeploy.sh held two copies of one
+  # reader and both went stale together. That script says what the miss cost.
   _prompt_default="$DEFAULT_AIFY_SERVER_URL"
-  for _w in "$HOME/.local/bin/claude-aify" "$HOME/.local/bin/codex-aify" "$HOME/.local/bin/hermes-aify"; do
-    [ -f "$_w" ] || continue
-    _found="$(grep -oE 'AIFY_SERVER_URL:-http://[^"}]+' "$_w" 2>/dev/null | head -1 | sed 's/^AIFY_SERVER_URL:-//')"
-    if [ -n "${_found:-}" ]; then _prompt_default="$_found"; break; fi
-  done
+  _found="$(bash "$SCRIPT_DIR/scripts/installed-endpoint.sh" "$HOME/.local/bin" 2>/dev/null || true)"
+  [ -z "${_found:-}" ] || _prompt_default="$_found"
   printf 'aify-comms service URL [%s]: ' "$_prompt_default" >&2
   read -r _answer || _answer=""
   SERVER_URL="${_answer:-$_prompt_default}"
@@ -439,7 +430,9 @@ copy_hermes_assets() {
 # launcher text did this install use" has an exact answer. They were a byte-identical copy here until
 # the operator settled it: consume the package, no duplicates. Resolves under mcp/stdio/node_modules
 # because `npm install` runs at [1/4] and every wrapper installs after it.
-WRAPPER_TEMPLATE_DIR="$SCRIPT_DIR/mcp/stdio/node_modules/aify-wrapper/wrappers"
+# Overridable so a test can render against a COPY of the package rather than mutating the one every
+# install reads, which would be a race the day two things render at once.
+WRAPPER_TEMPLATE_DIR="${AIFY_WRAPPER_TEMPLATE_DIR:-$SCRIPT_DIR/mcp/stdio/node_modules/aify-wrapper/wrappers}"
 
 render_wrapper_template() {
   local template="$WRAPPER_TEMPLATE_DIR/$1"
@@ -450,11 +443,13 @@ render_wrapper_template() {
   local text
   # `#|` lines are template-only: documentation for the template, never for the installed wrapper.
   text="$(grep -v "^#|" "$template")"
-  # The repo-root VERSION file, read here rather than declared: this project has one release version
-  # and a test that fails any file carrying a second. A wrapper that reports its own version is what
-  # replaces install.sh's same-build guarantee once the wrapper ships separately from the bridge.
+  # The AIFY-WRAPPER package's VERSION, beside the templates -- not aify-comms'. The launcher text comes
+  # from that package, so only the package can say which build is installed; reading $SCRIPT_DIR/VERSION
+  # made this field mean aify-comms here and aify-wrapper when aify-wrapper's own installer rendered the
+  # identical template. "unknown" on a missing file, never a borrowed number: doctor reads that as
+  # stale, which is true. Pinned by test_wrapper_marker_names_the_package_that_stamped_it.py.
   local wrapper_version
-  wrapper_version="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo unknown)"
+  wrapper_version="$(cat "$WRAPPER_TEMPLATE_DIR/../VERSION" 2>/dev/null || echo unknown)"
   # `$DEFAULT_AIFY_SERVER_URL` rather than a repeated literal, which also settles a disagreement: the
   # hermes generator resolved its endpoint as `${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}` and so honoured
   # `AIFY_DEFAULT_SERVER_URL`, while the claude, codex and pi heredocs hardcoded the fallback and
@@ -2760,14 +2755,19 @@ fi
 install_bridge_launcher
 echo "  Done."
 
-if [ "$WITH_HOOK" = true ]; then
-  echo "[4/4] Installing notification hook..."
-  if [ "$CLIENT" = "claude" ]; then
-    install_claude_hook
-  elif [ "$CLIENT" = "codex" ]; then
-    install_codex_hook
-  elif [ "$CLIENT" = "hermes" ]; then
-    install_hermes_hook
+# An operator who opted in once stays opted in: `--with-hook` decides whether to install a hook that is
+# NOT there, never whether to maintain one that is. scripts/hook-installed.sh carries the reasoning and
+# derives claude's and codex's roots; only hermes' is underivable, so only hermes' is passed.
+_hook_root=""; [ "$CLIENT" != "hermes" ] || _hook_root="$(hermes_config_root 2>/dev/null || true)"
+bash "$SCRIPT_DIR/scripts/hook-installed.sh" "$CLIENT" $_hook_root >/dev/null 2>&1 && _hook_present=true || _hook_present=false
+
+if [ "$WITH_HOOK" = true ] || [ "$_hook_present" = true ]; then
+  [ "$WITH_HOOK" = true ] && _hook_verb="Installing" || _hook_verb="Refreshing the already-installed"
+  echo "[4/4] $_hook_verb notification hook for $CLIENT..."
+  # Derived, not listed: whichever install_<client>_hook exists runs, so a fourth client needs a
+  # function and nothing here.
+  if declare -f "install_${CLIENT}_hook" >/dev/null 2>&1; then
+    "install_${CLIENT}_hook"
   else
     echo "  Notification hook install is not implemented for $CLIENT yet; skipping."
   fi
