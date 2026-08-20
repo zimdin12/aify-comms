@@ -51,7 +51,7 @@ recorded failure.
 | `install.sh` | aify-wrapper | Modified: `--all`, registry read, fingerprint baking. |
 | `wrappers/*.sh.in` | both | Modified: bake `HARNESS_REGISTRY_FINGERPRINT`; strict mode emits N entries. |
 | `install.sh` | aify-comms | Modified: write its own registry entry; consume the package. |
-| `service/tests/test_wrapper_templates_are_published_in_sync.py` | aify-comms | **Deleted in Task 6.** |
+| `service/tests/test_wrapper_templates_are_published_in_sync.py` (since DELETED — Task 6b made the package the single source, so there is nothing left to compare) | aify-comms | **Deleted in Task 6.** |
 
 Pure logic goes in `lib/*.mjs` and is imported, following the repo's own rule that logic reachable
 only through a shell script can only fail in production. `doctor-predicates.js` is the precedent, and
@@ -65,7 +65,7 @@ the first thing its extraction caught was a real bug.
 > barely started.
 >
 > What was verified before ticking is the DELIVERABLE of each task, not a record of each step having
-> been performed as written: `lib/registry.mjs` + `docs/REGISTRY.md` + its tests, `lib/detect-harnesses.mjs`,
+> been performed as written: `lib/registry.mjs` + [aify-wrapper's REGISTRY.md](https://github.com/zimdin12/aify-wrapper/blob/main/docs/REGISTRY.md) + its tests, `lib/detect-harnesses.mjs`,
 > `install.sh --all` with `tests/install-all.test.js`, the baked fingerprint with `tests/registry-baking.test.js`
 > and `lib/staleness.mjs`, and opt-in strict mode with `tests/strict-mcp.test.js` — with the suite at
 > 124 passing. The "write a failing test, watch it fail" steps cannot be re-verified after the fact;
@@ -77,7 +77,7 @@ the first thing its extraction caught was a real bug.
 
 ### Task 1: The registry contract
 
-**Files:** Create `lib/registry.mjs`, `tests/registry.test.js`. Create `docs/REGISTRY.md`.
+**Files:** Create `lib/registry.mjs`, `tests/registry.test.js`. Create [aify-wrapper's REGISTRY.md](https://github.com/zimdin12/aify-wrapper/blob/main/docs/REGISTRY.md).
 
 **Interfaces — Produces:**
 - `parseRegistry(text: string) -> {ok, registry?, errors[]}`
@@ -166,7 +166,7 @@ test("a MISSING registry is a valid empty registry, not an error", () => {
 - [x] **Step 3: Implement `lib/registry.mjs`.** Guards fail closed: an unparseable or unknown-version
       registry returns `ok:false`, never a partially-populated object.
 - [x] **Step 4: Run. Expected: PASS.**
-- [x] **Step 5:** Write `docs/REGISTRY.md` — the schema, who writes it, who reads it, and that it is
+- [x] **Step 5:** Write [aify-wrapper's REGISTRY.md](https://github.com/zimdin12/aify-wrapper/blob/main/docs/REGISTRY.md) — the schema, who writes it, who reads it, and that it is
       read at install and not at launch.
 - [x] **Step 6: Commit.**
 
