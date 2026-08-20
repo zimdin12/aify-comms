@@ -146,6 +146,32 @@ payload, on the assumption that a JSON field would be ignored by an old reader. 
 bridge does not read that JSON - so the claim was right for the wrong reason, which is the kind that
 survives review and fails in practice.)
 
+### The bridge ALREADY parses that shell string, and it has already cost a defect
+
+The table above weighs option 1 as introducing quoting bugs: "quoting bugs live exactly here". True, and
+incomplete — they live there **today**, in the design we already run.
+
+`terminal-control-loop.mjs` takes the command string and calls `extractTerminalSessionHandle`, which is
+`extractRuntimeSessionHandleFromCommand`: a set of per-runtime regexes plus `unquoteShellToken`, run
+over the command to recover `--resume <handle>`. A sibling, `runtimeCommandWithoutResume`, REWRITES the
+string to strip the same flag, which is how the heal path starts a fresh session.
+
+That parsing has already failed in production. The regex set did not recognise codex's or opencode's
+resume forms, so `runtimeCommandWithoutResume` returned both unchanged — the heal could never fire for
+either, because it only proceeds when the stripped command DIFFERS — and the handle came back empty, so
+workers were handed a blank `CODEX_THREAD_ID`. The comment above that flag table records it.
+
+So the honest comparison is not "a safe string versus a risky parse". Both options parse; one of them
+parses **already**, and argv would DELETE that parse rather than add one — finding a flag in a list and
+taking the next element needs no regex and no unquoting.
+
+**Checked and rejected, so nobody repeats it:** I expected to find that the terminal row already carried
+`session_handle` and the bridge was re-deriving data it had been given. It does not. `terminal_sessions`
+carries `command` and nothing else of the kind — the four `session_handle` columns in the schema belong
+to `agents`, `bridge_instances`, `spawn_requests` and `agent_sessions`. The bridge derives the handle
+because it genuinely has no other source, which makes this a missing field rather than a redundant one,
+and either argv or an explicit handle column would answer it.
+
 Step 5 is unchanged and is still the work. None of this is built, and nothing here delegates.
 
 The third option is the right answer, and where this stops. Choosing the
