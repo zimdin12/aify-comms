@@ -43,12 +43,33 @@ the local methods overridden to record that they were reached. Actually spawning
 keepalive and a teardown that raises "Signals not supported on windows" — three ways for the file to
 fail for reasons unrelated to the branch.
 
+## The finding that ends this phase: aify-comms passes a SHELL STRING, aify-env takes a FILE
+
+`TerminalProcessManager` runs `cmd /d /s /c <command>` on Windows and `bash -lc <command>` elsewhere.
+`command` is a shell command STRING that it composes.
+
+aify-env takes a `launcher` path and allowlists it by reading `HARNESS_WRAPPER_VERSION` out of the
+file. That is the whole safety model: a host service that runs programs for any caller is remote code
+execution unless something constrains what it runs.
+
+Those two do not meet, and the three ways to make them meet are not equivalent:
+
+| | what it costs |
+|---|---|
+| **Parse the shell string into launcher + args** | Quoting bugs live exactly here. This project already shipped one from a hand-typed quote in a guard, and one from an unescaped backtick in a heredoc. A parser that is wrong on a path with a space produces an agent that will not start, or worse, starts something else. |
+| **Let aify-env accept shell strings** | Destroys the allowlist. `bash -lc "<anything>"` passes any marker check, because the thing being executed is bash. |
+| **Have aify-comms pass launcher + args structurally** | Correct, and it reaches upstream into how every managed command is composed. |
+
+The third is the right answer and it is not a small edit, so it is where this stops. Choosing the
+first two would trade a real safety property for convenience, and doing that quietly is exactly what
+the flag was put in to prevent.
+
 | | | size |
 |---|---|---|
 | 1 | ~~A stream endpoint on aify-env~~ | **done** |
 | 2 | ~~An `EnvClient` subscriber~~ — `subscribeOutput`, 5 tests | **done** |
 | 3 | ~~Wire `TerminalProcessManager.start()` behind the flag, default off~~ | **done, and it refuses** |
-| 3b | A `term` shim over `EnvClient`: write, resize, kill, plus the console keepalive | medium |
+| 3b | A `term` shim over `EnvClient` — the endpoints it needs (input, resize) now exist | blocked on the shell-string decision above |
 | 4 | **Prove default-off is byte-identical**: same spawn, same manager, same output, same healing | medium — this is the work |
 | 5 | Flip on an IDLE fleet; keep the local path until a live two-session round-trip passes | operator |
 
