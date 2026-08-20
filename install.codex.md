@@ -2,18 +2,34 @@
 
 Use aify-comms when you want dashboard-driven coordination for coding agents: live direct messages, channels, shared artifacts, active dispatch, managed agent spawn, and environment control.
 
-## Copy-Paste Install
+## Before you install: the service has to be running
+
+The steps below install a CLIENT and point it at a service. Something has to be serving that address,
+and on a fresh machine nothing is. Clone once and bring the service up first — the same checkout is
+what the client install uses:
 
 ```bash
 git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
 cd ~/aify-comms
+./setup.sh                          # generates .env + config from the examples
+docker compose up -d --build        # API on :8800, Dashboard Next on :8801
+curl http://localhost:8800/health   # {"status":"healthy", ...} before going further
+```
+
+If the service already runs somewhere else, skip this, clone anyway (the installer runs from the
+checkout), and use that address below instead of `localhost`. Full setup detail is in
+[README.md](README.md).
+
+## Copy-Paste Install
+
+```bash
+cd ~/aify-comms    # the checkout from the step above
 bash install.sh --client codex http://localhost:8800 --with-hook
 ```
 
 If you are using local-only mode with no shared server:
 
 ```bash
-git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
 cd ~/aify-comms
 bash install.sh --client codex --with-hook
 ```
@@ -28,6 +44,13 @@ For dashboard-managed spawns, also connect an environment bridge on the machine 
 cd /path/to/workspace-or-workspace-parent
 aify-comms
 ```
+
+**One bridge per environment, and starting a second replaces the first.** `aify-comms` IS the
+environment bridge: run it where you want agents to run, once. Starting it again supersedes the bridge
+already serving that environment, and the older one exits taking its managed workers with it — that is
+how a four-second run meant only to check the launcher still worked took down nine agents on
+2026-08-11. To verify without starting anything, use `aify-comms --check` (validates node and the
+script path, registers nothing) or `aify-comms doctor`.
 
 On Linux, macOS, or WSL use `aify-comms`. On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://localhost:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. `aify-comms --help` shows usage and unknown flag-like arguments are rejected instead of becoming roots. See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md). The installer configures Codex's MCP client; the environment bridge is the long-running host process started with `--environment-bridge`, heartbeats into the dashboard, and claims spawn requests.
 

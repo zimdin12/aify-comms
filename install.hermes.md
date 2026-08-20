@@ -6,6 +6,12 @@ agent spawn, browser Console, and environment control.
 
 ## Prerequisites
 
+- **The aify-comms service must be running** before these steps mean anything: they install a CLIENT
+  and point it at an address. On a fresh machine, in the checkout you cloned, run `./setup.sh`, then
+  `docker compose up -d --build`, then confirm `curl http://localhost:8800/health` answers before
+  going further. Clone this repo first — the client install runs from the same checkout. If the service
+  already runs elsewhere, use that address instead of `localhost`.
+  Detail in [README.md](README.md).
 - **Node.js 22 or newer** is required on the runtime that launches `hermes-aify`.
   The Hermes TUI's gateway client uses the global `WebSocket` constructor, which
   is only available in Node 22+. Earlier Node versions surface as
