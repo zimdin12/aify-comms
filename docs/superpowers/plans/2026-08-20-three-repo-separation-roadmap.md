@@ -70,10 +70,11 @@ and is reaped when it dies. A file without `HARNESS_WRAPPER_VERSION` is refused.
 reports `passed / failed / unanswered` and a silent registered service reads `unanswered`, never `ok`.
 The TUI shows registered services, owned processes and its own I/O, and claims no agent status.
 
-**Phase 8 — aify-comms. BLOCKED before the flag, see docs/PHASE8_STATUS.md.**
-aify-env has no output STREAM, so delegation would carry a spawn and lose every managed console --
-which breaks the operator's hard TUI requirement. The client exists and is off; the seam
-(`TerminalProcessManager.start()`) is deliberately unwired until the protocol grows a stream.
+**Phase 8 — aify-comms. UNBLOCKED, and stopped where it was told to stop. See docs/PHASE8_STATUS.md.**
+The stream aify-env was missing now exists, so delegation can carry a console as well as a spawn. The
+client is built and OFF; the seam (`TerminalProcessManager.start()`) is deliberately unwired, because
+what remains is the PROOF that default-off is byte-identical -- through output batching, auto-answer,
+console keepalive and the heal path -- not the plumbing. Flipping is the operator's, on an idle fleet.
 Original gate, unchanged, for when it resumes: aify-comms spawns nothing itself; every spawn goes through aify-env. The
 `aify-comms` command does not exist. `/health` self-reports build sha, branch and built-at, all from
 the stamp, and the repo ships the tooling that compares that report against a checkout. A live
