@@ -1,7 +1,7 @@
 # v0.6 Phase 6 — aify-wrapper completion: implementation plan
 
 > **For agentic workers:** implement task-by-task. Each task ends with an independently testable
-> deliverable and a commit. Steps use `- [ ]` for tracking.
+> deliverable and a commit. Steps use `- [x]` for tracking.
 
 **Goal.** Make aify-wrapper the single source of the launchers: it detects the harnesses present and
 installs one launcher for each, it learns about services from a shared registry instead of a single
@@ -59,6 +59,22 @@ the first thing its extraction caught was a real bug.
 
 ---
 
+> **Tasks 1-5 are complete; their boxes were ticked RETROSPECTIVELY on 2026-08-20, and that
+> distinction matters.** They were never ticked during execution, so this plan read as 29 undone steps
+> while the phase gate read "met" — a contradiction that would tell anyone resuming that Phase 6 had
+> barely started.
+>
+> What was verified before ticking is the DELIVERABLE of each task, not a record of each step having
+> been performed as written: `lib/registry.mjs` + `docs/REGISTRY.md` + its tests, `lib/detect-harnesses.mjs`,
+> `install.sh --all` with `tests/install-all.test.js`, the baked fingerprint with `tests/registry-baking.test.js`
+> and `lib/staleness.mjs`, and opt-in strict mode with `tests/strict-mcp.test.js` — with the suite at
+> 124 passing. The "write a failing test, watch it fail" steps cannot be re-verified after the fact;
+> their outcome, a test that exists and passes, can.
+>
+> Thirty boxes were ticked, not twenty-nine: one sat under Task 6a, whose heading already read DONE,
+> which is the same bookkeeping lapse one task further on. **Task 6b has no checklist at all** — it is
+> an open operator decision, stated in its heading, and nothing here marks it complete.
+
 ### Task 1: The registry contract
 
 **Files:** Create `lib/registry.mjs`, `tests/registry.test.js`. Create `docs/REGISTRY.md`.
@@ -90,7 +106,7 @@ env names carry its endpoint rather than anyone guessing.
 }
 ```
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
 
 ```js
 import { test } from "node:test";
@@ -146,13 +162,13 @@ test("a MISSING registry is a valid empty registry, not an error", () => {
 });
 ```
 
-- [ ] **Step 2: Run them. Expected: FAIL, module not found.**
-- [ ] **Step 3: Implement `lib/registry.mjs`.** Guards fail closed: an unparseable or unknown-version
+- [x] **Step 2: Run them. Expected: FAIL, module not found.**
+- [x] **Step 3: Implement `lib/registry.mjs`.** Guards fail closed: an unparseable or unknown-version
       registry returns `ok:false`, never a partially-populated object.
-- [ ] **Step 4: Run. Expected: PASS.**
-- [ ] **Step 5:** Write `docs/REGISTRY.md` — the schema, who writes it, who reads it, and that it is
+- [x] **Step 4: Run. Expected: PASS.**
+- [x] **Step 5:** Write `docs/REGISTRY.md` — the schema, who writes it, who reads it, and that it is
       read at install and not at launch.
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ---
 
@@ -166,7 +182,7 @@ where `lookup(cmd) -> string|null` is injected so the test never touches the rea
 The injected lookup is the point. A test that shells out to `command -v` measures the developer's
 machine, and this project has a rule about tests that read live ambient state.
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
 
 ```js
 test("returns one row per known harness, found or not", () => {
@@ -187,10 +203,10 @@ test("the harness list is derived from the wrapper templates present, not hardco
 });
 ```
 
-- [ ] **Step 2: Run. Expected: FAIL.**
-- [ ] **Step 3: Implement.** Derive the client list from `wrappers/*.sh.in` rather than listing it.
-- [ ] **Step 4: Run. Expected: PASS.**
-- [ ] **Step 5: Commit.**
+- [x] **Step 2: Run. Expected: FAIL.**
+- [x] **Step 3: Implement.** Derive the client list from `wrappers/*.sh.in` rather than listing it.
+- [x] **Step 4: Run. Expected: PASS.**
+- [x] **Step 5: Commit.**
 
 ---
 
@@ -201,12 +217,12 @@ test("the harness list is derived from the wrapper templates present, not hardco
 `--client` stays and stays exact. `--all` installs a launcher for every detected harness and prints a
 line per skipped one saying why. Silence about a skip reads as "installed everything" when it did not.
 
-- [ ] **Step 1: Write the failing tests.** Assert that `--all` against a stub PATH containing two
+- [x] **Step 1: Write the failing tests.** Assert that `--all` against a stub PATH containing two
       runtimes emits exactly two launchers, and that the two absent ones are NAMED in the output.
-- [ ] **Step 2: Run. Expected: FAIL.**
-- [ ] **Step 3: Implement**, reusing `--render-only` so the test never mutates the machine.
-- [ ] **Step 4: Run. Expected: PASS.** Confirm `--render-only` still exits before any env mutation.
-- [ ] **Step 5: Commit.**
+- [x] **Step 2: Run. Expected: FAIL.**
+- [x] **Step 3: Implement**, reusing `--render-only` so the test never mutates the machine.
+- [x] **Step 4: Run. Expected: PASS.** Confirm `--render-only` still exits before any env mutation.
+- [x] **Step 5: Commit.**
 
 ---
 
@@ -218,17 +234,17 @@ Add `HARNESS_REGISTRY_FINGERPRINT="@@REGISTRY_FINGERPRINT@@"` beside `HARNESS_WR
 `--check` prints it. A reader comparing it against the current registry can say **reinstall** —
 by reading the file, never by running it.
 
-- [ ] **Step 1: Write the failing tests.** `--check` exposes the fingerprint; a wrapper built from an
+- [x] **Step 1: Write the failing tests.** `--check` exposes the fingerprint; a wrapper built from an
       empty registry and one built from a populated registry differ; `--check` still registers nothing
       and starts nothing.
-- [ ] **Step 2: Run. Expected: FAIL.**
-- [ ] **Step 3: Implement** in all four templates.
-- [ ] **Step 4:** Prove each template change is otherwise byte-identical to the previous render before
+- [x] **Step 2: Run. Expected: FAIL.**
+- [x] **Step 3: Implement** in all four templates.
+- [x] **Step 4:** Prove each template change is otherwise byte-identical to the previous render before
       asserting new behaviour. This is how the extraction caught an escaped-backtick bug that had been
       silently blanking a comment in every installed hermes-aify.
-- [ ] **Step 5:** Re-sync the four templates into aify-comms and update the hashes in
+- [x] **Step 5:** Re-sync the four templates into aify-comms and update the hashes in
       `test_wrapper_templates_are_published_in_sync.py` **in the same commit**.
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ---
 
@@ -256,17 +272,17 @@ the ones they named.
 The primary two stay built at LAUNCH rather than baked, because `HARNESS_ENDPOINT` is a launch-time
 input that must keep winning for them. Opted-in extras are baked at install as a JSON fragment.
 
-- [ ] **Step 1: Write the failing tests.** A registry with an opted-in second service renders a strict
+- [x] **Step 1: Write the failing tests.** A registry with an opted-in second service renders a strict
       config carrying both, each with its own endpoint in its own `endpointEnv` keys. A registry with
       no opt-in renders a strict config byte-identical to today's. `strictMcp: true` on a service with
       no `mcp` entries adds nothing rather than an empty object.
-- [ ] **Step 2: Run. Expected: FAIL.**
-- [ ] **Step 3:** Add `strictMcp` to the schema and a `strictMcpEntriesFor(registry)` selector.
-- [ ] **Step 4: Implement the template change.** Prove the default-path render is byte-identical to
+- [x] **Step 2: Run. Expected: FAIL.**
+- [x] **Step 3:** Add `strictMcp` to the schema and a `strictMcpEntriesFor(registry)` selector.
+- [x] **Step 4: Implement the template change.** Prove the default-path render is byte-identical to
       the pre-change render before asserting the new behaviour.
-- [ ] **Step 5: Run. Expected: PASS.** Default (non-strict) mode must still write no MCP config at all.
-- [ ] **Step 6:** Re-sync to aify-comms and update the hashes in the same commit.
-- [ ] **Step 7: Commit.**
+- [x] **Step 5: Run. Expected: PASS.** Default (non-strict) mode must still write no MCP config at all.
+- [x] **Step 6:** Re-sync to aify-comms and update the hashes in the same commit.
+- [x] **Step 7: Commit.**
 
 ### Task 6a: aify-comms registers itself — DONE
 
