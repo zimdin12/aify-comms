@@ -1,26 +1,36 @@
-"""A `file.py:1234` pointer in the docs an agent is TOLD to trust must land inside that file.
+"""The docs an agent is TOLD to trust name files and SYMBOLS, never line numbers.
 
-`test_prose_paths_resolve.py` already checks that a named file exists. This checks the other half of the
-same claim: that the LINE exists too. The two failed apart, because a refactor that moves 20,000 lines
-out of a file leaves the filename valid and every line number in it meaningless.
+A line number is a fact about a file at one moment. This repo moves thousands of lines at a time -- v0.5
+emptied `api_v2.py` from 20,545 lines to 53, and v0.6 Phase 2 took `install.sh` from 4,371 to 2,934 when
+the wrapper bodies moved to `wrappers/` -- so every pointer past the edit shifts silently. Nothing goes
+red, because a line number cannot be wrong, only stale.
 
-MEASURED BEFORE WRITING, 2026-08-20: 33 line-pointers in the primary-entry-point docs, 21 of them dead.
-`DECISIONS.md` and `KNOWN_ISSUES.md` between them name `api_v2.py` at lines 281, 352, 1047, 2228, 4637,
-8517, 8650, 9923, 10927, 12391 and 19418. That file is 53 lines long: v0.5 moved every route domain out
-of it. `server.js:1857` and `app.js:2315` are the same story from the JS side.
+MEASURED, 2026-08-20, in two passes. First: 21 of 33 pointers in these docs named a line PAST THE END of
+its file, `api_v2.py:12391` among them. Those were repaired. Then the survivors were checked against
+what they claimed, and that is the pass that produced this rule:
 
-WHY IT MATTERS HERE AND NOT EVERYWHERE. The repo has 508 such pointers and 307 are dead, but most sit in
-dated records -- V0.2_PLAN.md, the findings ledgers, dashboard audits -- where a pointer into code as it
-stood IS the record, and rewriting it would be falsifying history. The population gated here is the one
-CLAUDE.md declares as its primary entry points, plus CLAUDE.md itself: the documents an agent is
-instructed to read before its first change. A dead pointer there sends a reader somewhere real and
-wrong, which prose_paths_resolve's own words call worse than no trail, because it reads as governance.
+    install.sh:203  claimed `install_claude_wrapper`   - the function is at 476
+    install.sh:319  claimed codex app-server ports     - the line prunes dangling symlinks
+    install.sh:539  claimed a pi-session-state probe   - the line detects the Hermes install root
+    server.js:895   claimed an auto-register call site - the line is a `// moved to ...` tombstone
 
-DERIVED FROM CLAUDE.md, not listed. The population is parsed out of the "Primary entry points" section,
-so a doc promoted into that list comes under this gate the same day, and one demoted leaves it.
+Five of the six checkable survivors pointed somewhere real and wrong, which prose_paths_resolve's own
+words call worse than no trail: it reads as governance. Only one was still correct. A gate that merely
+required them to RESOLVE would have passed every one of those five, because a wrong line inside a
+2,934-line file resolves perfectly.
 
-WHAT IT DOES NOT CHECK: whether the line says what the prose claims. `install.sh:1285` resolves and
-points five lines above the function it names. Resolvability is the floor, not the ceiling.
+So the rule is not "resolve" but "do not use". A symbol survives the refactor that moves it; a line
+number is the thing that did not survive the last one, and grep finds a symbol in less time than it
+takes to notice a pointer has drifted.
+
+DERIVED, not listed: the population is CLAUDE.md plus every .md it links from its Primary entry points
+section, plus every file under `.claude/skills`. A doc promoted into that list is covered the same day.
+The skills are there for a stronger reason than the entry points: a SKILL.md loads into every agent's
+context every session, so a bad pointer there is paid by every agent on every turn.
+
+Historical records are deliberately OUT. The repo holds ~490 such pointers and most sit in dated
+plans, ledgers and audits, where a pointer into code as it stood IS the record and rewriting it would
+falsify history.
 """
 
 from __future__ import annotations
@@ -36,6 +46,8 @@ REPO = Path(__file__).resolve().parents[2]
 PREFIXES = ("", "service/", "mcp/", "mcp/stdio/", "service/routers/", "service/new_dashboard/")
 
 #: `path.py:123`, with an optional closing backtick between the two.
+NEWLINE = chr(10)
+
 POINTER_RE = re.compile(r"(?<![/\w.-])((?:[\w.-]+/)*[\w.-]+\.(?:py|js|mjs|sh))`?:(\d+)\b")
 
 
@@ -87,23 +99,19 @@ class ProseLinePointersResolve(unittest.TestCase):
         for expected in ("CLAUDE.md", "DECISIONS.md", "KNOWN_ISSUES.md"):
             self.assertIn(expected, names, f"{expected} dropped out of the gated set")
 
-    def test_every_line_pointer_lands_inside_its_file(self):
-        dead = []
+    def test_no_doc_an_agent_must_trust_cites_a_line_number(self):
+        found = []
         for doc in gated_docs():
             for match in POINTER_RE.finditer(doc.read_text(encoding="utf-8", errors="replace")):
-                ref, line = match.group(1), int(match.group(2))
-                path = resolve(ref)
-                if path is None:
-                    dead.append(f"{doc.name}: {ref}:{line} — no such file")
-                elif line > line_count(path):
-                    dead.append(f"{doc.name}: {ref}:{line} — {path.name} has {line_count(path)} lines")
+                found.append(f"{doc.name}: {match.group(0)}")
 
         self.assertEqual(
-            dead,
+            found,
             [],
-            "line pointers in primary-entry-point docs do not land in their file. A refactor moved the "
-            "code; the pointer did not move with it. Prefer naming the file and the SYMBOL — a symbol "
-            "survives a refactor and a line number does not:\n  " + "\n  ".join(dead),
+            "these docs cite line numbers, and line numbers rot silently — a refactor moves the code "
+            "and the pointer keeps resolving to something unrelated. Name the file and the SYMBOL "
+            "instead; grep finds it, and it survives the next move:"
+            + NEWLINE + "  " + (NEWLINE + "  ").join(found),
         )
 
 

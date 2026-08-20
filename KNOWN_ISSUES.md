@@ -137,7 +137,7 @@ Both gate on the same `ACTIVE_RUN_BRIDGE_STALE_SECONDS`, so the 90s grace is not
 constraint and they become eligible together.
 
 **CORRECTED 2026-08-07: this was never a coin flip. Recovery lost every time, and the cause is
-ORDERING.** Inside one reconcile sweep the failing path is reached at `service/main.py:113`
+ORDERING.** Inside one reconcile sweep the failing path is reached in `service/reconcilers/sweep.py`
 (`_repair_unusable_active_runs` → `_discard_unusable_active_run`) and recovery runs 58 steps later
 at `:171`, with a `_commit_step` between them. So the failing path always gets there first and
 recovery can never rescue a run it has already failed. Calling it a race understated it and pointed
@@ -183,8 +183,8 @@ Plan: [docs/plans/2026-07-14-cli-status-view-and-dashboard-upgrades.md](docs/pla
 
 - **`aify status` — a fleet CLI/TUI status view.** `aify-doctor` proves "is my install real?"; this answers "what is my fleet doing, and where?" — agent, runtime, status, machine/tty/pid/cwd, bridge staleness, identity, session. Every cell provable from the host, because today proved the DB reports what was *claimed*, not what is *true*.
 - **The dashboard console cannot be scrolled.** Two verified causes: the console is seeded with a *screen snapshot* (there is no history to scroll to — xterm's scrollback only fills after attach, and claude repaints in place rather than emitting lines), and `.console-wide-mirror { overflow-y: hidden }` (styles.css:910) kills vertical scroll outright. Fix: switch the live screen to `pyte.HistoryScreen` (real server-side scrollback) and drop the CSS rule — in that order.
-- **The analytics range selector is coarse AND half the page ignores it.** Only `24h/30d/12m/All` exist (analytics.js:70-75). `/analytics` honours the range; `/usage` and `/usage/consumption` take no range param at all (`service/new_dashboard/analytics-page.mjs`), so those blocks always show "now" under whatever label is selected.
-- **A cold managed agent offers no way to start it.** Hermes cold-start is NOT broken (spawn requests ran at 19:27 on 2026-07-14); the Console tab simply returns early at `if (!session)` (app.js:257), above the start buttons (`service/new_dashboard/console-actions.mjs`). An agent with no session row can never reach them — hence "why can't I start hermes models?".
+- **The analytics range selector is coarse AND half the page ignores it.** Only `24h/30d/12m/All` exist (`service/new_dashboard/analytics-page.mjs`). `/analytics` honours the range; `/usage` and `/usage/consumption` take no range param at all (`service/new_dashboard/analytics-page.mjs`), so those blocks always show "now" under whatever label is selected.
+- **A cold managed agent offers no way to start it.** Hermes cold-start is NOT broken (spawn requests ran at 19:27 on 2026-07-14); the Console tab simply returns early at `if (!session)` (`service/new_dashboard/console-actions.mjs`), above the start buttons (`service/new_dashboard/console-actions.mjs`). An agent with no session row can never reach them — hence "why can't I start hermes models?".
 
 ## Status identity (2026-07-14) — the "always working" class, ROOT-CAUSED + FIXED
 
