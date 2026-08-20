@@ -10,6 +10,12 @@ Inter-agent communication hub: messaging, channels, file sharing, active dispatc
   below assume it.
 - [README.md](README.md) — what the service is, setup, day-to-day usage.
 - [install.claude.md](install.claude.md) / [install.codex.md](install.codex.md) / [install.hermes.md](install.hermes.md) / [install.opencode.md](install.opencode.md) / [install.pi.md](install.pi.md) — per-runtime install guides (wrappers, hooks, verification).
+- [docs/superpowers/plans/2026-08-20-three-repo-separation-roadmap.md](docs/superpowers/plans/2026-08-20-three-repo-separation-roadmap.md)
+  — **v0.6, the work in flight.** aify-comms, [aify-wrapper](https://github.com/zimdin12/aify-wrapper)
+  and [aify-env](https://github.com/zimdin12/aify-env) as three repos, which phases are done, and the
+  operator decisions each one turned on. Phase 8 is built and deliberately OFF: read
+  [docs/PHASE8_STATUS.md](docs/PHASE8_STATUS.md) before touching spawn or terminals, since the
+  delegated path exists in the code and only two environment variables stand between it and live.
 - [DECISIONS.md](DECISIONS.md) — rationale for non-obvious design choices and current runtime limits.
 - [KNOWN_ISSUES.md](KNOWN_ISSUES.md) — known limitations, deferred work, watch-items, and pre-existing backlog.
 - `.claude/skills/aify-comms/SKILL.md` — agent-facing usage guide (tool reference, multi-instance matrix, status table).
