@@ -86,13 +86,42 @@ the flag was put in to prevent.
 | 2 | ~~An `EnvClient` subscriber~~ — `subscribeOutput` over SSE | **done** |
 | 3 | ~~Wire `TerminalProcessManager.start()` behind the flag, default off~~ | **done, and it refuses** |
 | 3b | A `term` shim over `EnvClient` — the endpoints it needs (input, resize) now exist | blocked on the shell-string decision above |
-| 4 | **Prove default-off is byte-identical**: same spawn, same manager, same output, same healing | medium — this is the work |
+| 4 | ~~Prove default-off is byte-identical~~ — by reconstruction, on both files | **done** |
 | 5 | Flip on an IDLE fleet; keep the local path until a live two-session round-trip passes | operator |
 
-Item 4 is where the effort sits, and it is not a formality. `TerminalProcessManager` does more than
-spawn: output batching, auto-answer, console keepalive, and a heal path that restarts a session
-without `--resume`. A delegated process has to arrive at all of that identically or the difference
-shows up as an agent that behaves subtly differently and nobody can say why.
+## Item 4, done: what "default-off is byte-identical" now rests on
+
+`TerminalProcessManager` does more than spawn — output batching, auto-answer, console keepalive, and a
+heal path that restarts a session without `--resume`. Re-testing each of those would have been the
+obvious way to show they still work, and it would have been the wrong one: they were never changed, so
+those tests would pass on day one and keep passing whatever the seam did next.
+
+The claim is proven structurally instead, in two halves that compose:
+
+1. **The files are pre-seam plus declared blocks.** `seam-is-additive-only.test.js` reconstructs each
+   pre-seam file by removing exactly the blocks the seam declares it added, and requires equality with
+   a tracked fixture taken from the commit before it. Any edit anywhere else fails it.
+2. **Those blocks are inert when the flag is off** — the seven branch tests, plus three that assert the
+   production call site actually supplies the dependency.
+
+Together: batching, auto-answer, keepalive and healing are untouched **by construction**. That is a
+stronger statement than four behavioural tests, and far cheaper to keep true.
+
+**BOTH files, because the production path is two.** `terminal-runtime.js` holds the guard;
+`terminal-manager.mjs` is the call site that supplies it. Proving only the guard would have proven the
+half that was never broken — the placebo bug was at the call site.
+
+Mutation-checked in both directions: a single added space on an unrelated line in either file reddens
+its reconstruction, and reverting restores green.
+
+**It normalises line endings before comparing, deliberately.** `terminal-manager.mjs` is CRLF in this
+working tree and `terminal-runtime.js` is LF, and git rewrites both per the checkout's `core.autocrlf`.
+Pinning those bytes would test the checkout rather than the code, and would go red on a colleague's
+machine for a reason having nothing to do with the seam. The first version did compare raw bytes and
+reported the CRLF file as differing in all 185 lines.
+
+**Retire this test when the flag is flipped.** It pins a phase, not an invariant: once delegation
+actually delegates, "identical to pre-seam" stops being the property anyone wants.
 
 ## What has NOT been touched
 
