@@ -69,6 +69,27 @@ export class EnvClient {
     return this.#request("DELETE", `/processes/${encodeURIComponent(id)}`, undefined, 204);
   }
 
+  /**
+   * Type into a delegated process.
+   *
+   * Without this a delegated console is a viewer: watchable, not usable. The caller that wants to
+   * delegate would have to keep a local pty for the writing, which defeats delegating at all.
+   */
+  async write(id, data) {
+    return this.#request("POST", `/processes/${encodeURIComponent(id)}/input`, { data: String(data ?? "") }, 200);
+  }
+
+  /**
+   * Resize a delegated process's terminal.
+   *
+   * REPORTS WHETHER IT APPLIED. A piped process has no terminal, and accepting the request silently
+   * would let a console believe it had set a width while the agent kept wrapping at the default, with
+   * nothing anywhere saying why.
+   */
+  async resize(id, cols, rows) {
+    return this.#request("POST", `/processes/${encodeURIComponent(id)}/resize`, { cols, rows }, 200);
+  }
+
   async list() {
     return this.#request("GET", "/processes", undefined, 200);
   }

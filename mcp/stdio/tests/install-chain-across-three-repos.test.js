@@ -17,10 +17,15 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
 const WRAPPER_REPO = process.env.AIFY_WRAPPER_REPO || path.join(os.homedir(), "projects", "aify-wrapper");
-const WRITER = path.join(path.dirname(new URL(import.meta.url).pathname).replace(/^\//, ""), "..", "register-service-cli.mjs");
+// fileURLToPath, not pathname-with-the-slash-stripped: on Windows the URL path is /C:/... and
+// stripping the leading slash yields C:/... only by luck of the drive letter -- a UNC path or a
+// percent-encoded space comes out wrong. Node ships the correct conversion; hand-rolling it is how
+// this file produced C:/c/... shapes that no module could resolve.
+const WRITER = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "register-service-cli.mjs");
 const INSTALL = path.join(WRAPPER_REPO, "install.sh");
 const CHECK = path.join(WRAPPER_REPO, "bin", "aify-wrapper-check.mjs");
 const available = fs.existsSync(INSTALL) && fs.existsSync(CHECK);
