@@ -4,7 +4,7 @@ There are two, and the duplication is forced rather than sloppy:
 
   * `scripts/installed-endpoint.sh` (bash) -- used by `redeploy.sh` and by install.sh's prompt, which
     runs BEFORE [1/4] does `npm install`, so it cannot depend on a node module being present.
-  * `aify-wrapper`'s `lib/installed-endpoint.mjs` (JS) -- used by that package's own installer to make
+  * aify-wrapper's `mcp/stdio/node_modules/aify-wrapper/lib/installed-endpoint.mjs` (JS) -- used by that package's own installer to make
     a reinstall stop asking for an endpoint the host already has.
 
 Both parse the same assignment line out of the same rendered launcher. A template change moves that

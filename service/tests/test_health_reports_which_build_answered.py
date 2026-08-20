@@ -1,7 +1,7 @@
 """`/health` must say WHICH build answered, not only that something did.
 
 aify-env's doctor asks every registered service for a self-report at `<endpoint>/health` and renders
-`status`, and `version` when the service supplies one -- `probeService` in aify-env's lib/services.mjs
+`status`, and `version` when the service supplies one -- `probeService`, in aify-env's services module
 reads exactly those fields. aify-comms answered `{"status":"healthy"}` and nothing else, so a
 multi-service doctor could say a service was up and never which code was serving.
 
