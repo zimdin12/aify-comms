@@ -232,7 +232,7 @@ not a fix**: appending an entry to make a red test green is the exact move the g
 which ships in the container — and the JS half's two hand-listed roots covered everything only by
 coincidence. Neither hole was visible from the result: an unguarded population reports green exactly like a
 guarded one. **Shell and CSS are deliberately OUT of scope** and each gate says so in a test, because
-`install.sh` (2,958 lines, down from 4,371 once all four wrapper bodies moved to `wrappers/`) and `service/new_dashboard/styles.css` (1,844) are non-test source over the
+`install.sh` (2,958 lines, down from 4,371 once all four wrapper bodies became template files) and `service/new_dashboard/styles.css` (1,844) are non-test source over the
 limit and bringing them in is an open reviewer question, not a widening to do quietly.
 
 The failure this gate was built from: a v0.5.4 relocation moved a 6-line helper into `service/db.py` — the

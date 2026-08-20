@@ -189,9 +189,16 @@ Important starting docs:
 
 ## Repo layout
 
-The launchers under `wrappers/` are also published as a standalone package at
-[zimdin12/aify-wrapper](https://github.com/zimdin12/aify-wrapper) — the same four templates, for a
-host that wants launchers without this service. Installing aify-comms needs nothing from it.
+The launchers come from [zimdin12/aify-wrapper](https://github.com/zimdin12/aify-wrapper), a separate
+package this repo DEPENDS ON. They used to live here under `wrappers/` as a byte-identical copy of the
+published ones, kept honest by a hash gate in each repo — two sources of truth for one artifact. That
+ended on 2026-08-20: `wrappers/` is deleted, both gates are retired, and `install.sh` renders from
+`mcp/stdio/node_modules/aify-wrapper/wrappers`, pinned to a commit in `mcp/stdio/package.json`.
+
+**What that means for installing:** nothing new. `install.sh` already ran `npm install` before it wrote
+any launcher, so the dependency arrives with the ones this bridge always needed. The one consequence is
+for developers: `--emit-wrappers`, the render-only test hook, exits before that npm step by design, so a
+fresh checkout has to fetch dependencies once before it can render a launcher.
 
 | Path | What |
 |------|------|

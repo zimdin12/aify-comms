@@ -33,9 +33,11 @@ reload differently: a bridge is a running process, so new code on disk means not
 re-run (`wrapper-current`). The two doctor checks say opposite things on purpose — one says RESTART,
 the other says REINSTALL.
 
-Since v0.6 all four bodies live in [`wrappers/`](../wrappers) as `*.sh.in` templates rather than
-inside `install.sh` heredocs, and each reads six `HARNESS_*` inputs a host supplies rather than
-knowing it belongs to aify-comms. See
+Since v0.6 all four bodies are `*.sh.in` templates rather than `install.sh` heredocs, and each reads
+six `HARNESS_*` inputs a host supplies rather than knowing it belongs to aify-comms. They now live in
+the [aify-wrapper](https://github.com/zimdin12/aify-wrapper) package, which this repo depends on at a
+pinned commit — the local `wrappers/` copy and the hash gates that kept it honest were retired on
+2026-08-20 when the duplication ended. See
 [the wrapper contract](superpowers/specs/2026-08-19-harness-wrapper-contract.md).
 
 **Only three of the four can be tested by running them.** claude, codex and pi each have a harness
