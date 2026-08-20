@@ -121,15 +121,19 @@ queues per capability, and the response threads back.
 Five decisions, scattered across three documents until now, with what each one holds up. Nothing in this
 list is blocked on effort; every one of them is a judgement that is not an agent's to make.
 
+**FOUR OF THE FIVE ARE ANSWERED as of 2026-08-20**, and the work each unblocked is done. What remains is
+the deploy window, which is the only one with anything at stake in waiting: the gap between checkout and
+fleet grows with every commit.
+
 | | decision | what it holds up | where it is argued |
 |---|---|---|---|
-| 1 | **The published git identity in aify-wrapper.** Its history carries two personal addresses, `steven.zimdin@gmail.com` and `zimdin12@msn.com`. aify-env uses the `noreply` form instead. | Nothing technical. Changing it means rewriting published history and force-pushing a public repo. | this table |
+| 1 | ~~The published git identity in aify-wrapper.~~ **DECIDED 2026-08-20: leave it.** Both addresses are the operator's own and already public. | — | this table |
 | 2 | ~~Task 6b — how aify-comms locates the wrapper package.~~ **DECIDED 2026-08-20: consume the package.** Done — pinned npm dependency, `wrappers/` deleted, both drift gates retired. | — | `2026-08-20-aify-wrapper-completion.md`, Task 6b |
-| 3 | **Shell string versus structural argv.** | Phase 8 item 3b, the `term` shim, and therefore the flip itself. | `docs/PHASE8_STATUS.md` |
+| 3 | ~~Shell string versus structural argv.~~ **DECIDED 2026-08-20: carry `argv`, additively.** Built end to end and proven against a real aify-env; the seam delegates and is still flag-off. | — | `docs/PHASE8_STATUS.md` |
 | 4 | **The deploy window.** Nothing from this program is deployed: `aify-comms doctor` reports 4 checks needing attention, all of them "older than the checkout". | Everything reaching the fleet. The service, the bridge, the installed skills and the running wrappers are all behind. | `aify-comms doctor` |
-| 5 | **The `aify-env` name.** | Nothing today. It gets more expensive to change with every installed host. | `docs/AIFY_ENV_BOUNDARY.md` |
+| 5 | ~~The `aify-env` name.~~ **DECIDED 2026-08-20: keep it.** It names the tier rather than the coupling, which was the point. | — | `docs/AIFY_ENV_BOUNDARY.md` |
 
-**Decision 3 is the one with new evidence since it was framed.** The options table treats "parse the
+**Decision 3, now answered, was the one that changed most under examination.** The options table treats "parse the
 shell string" as the risky choice because quoting bugs live there. They live there ALREADY: the bridge
 regex-parses the command to recover `--resume <handle>` and rewrites it to strip the flag, and that
 parsing has shipped a defect — codex's and opencode's forms went unrecognised, so the heal path could
