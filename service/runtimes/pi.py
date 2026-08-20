@@ -43,13 +43,13 @@ class PiAdapter(RuntimeAdapter):
             return f"pi-aify --aify-agent {aid} --resume {session_id}"
         return f"pi-aify --resume {session_id}"
 
-    def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:
-        if interactive:
-            return f"pi-aify --aify-agent {agent_id}"
+    def console_argv(self, *, agent_id: str, handle: str, interactive: bool) -> list[str]:
         parts = ["pi-aify", "--aify-agent", agent_id]
-        if handle:
+        # Interactive pi never resumes - the 026H trap. Kept as a branch on the LIST rather than an
+        # early-returned string, so the two forms cannot disagree about it.
+        if handle and not interactive:
             parts.extend(["--resume", handle])
-        return " ".join(parts)
+        return parts
 
     # Plan 4 (2026-05-25): pi storage at ~/.omp/agent/sessions/<project-key>/
     # <timestamp>_<uuid>.jsonl. The session id is the UUID embedded in the

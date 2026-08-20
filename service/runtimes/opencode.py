@@ -33,5 +33,5 @@ class OpencodeAdapter(RuntimeAdapter):
             return f"opencode-aify --aify-agent {aid} --resume {session_id}"
         return f"opencode-aify --resume {session_id}"
 
-    def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:
-        return "opencode"
+    def console_argv(self, *, agent_id: str, handle: str, interactive: bool) -> list[str]:
+        return ["opencode"]

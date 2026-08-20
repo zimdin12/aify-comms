@@ -42,11 +42,11 @@ class CodexAdapter(RuntimeAdapter):
             return f"codex-aify --aify-agent {aid} --resume {session_id}"
         return f"codex-aify --resume {session_id}"
 
-    def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:
+    def console_argv(self, *, agent_id: str, handle: str, interactive: bool) -> list[str]:
         parts = ["codex-aify", "--aify-agent", agent_id]
         if handle:
             parts.extend(["--resume", handle])
-        return " ".join(parts)
+        return parts
 
     def diagnostic_env(self) -> dict[str, str]:
         env = super().diagnostic_env()

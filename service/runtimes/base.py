@@ -90,8 +90,21 @@ class RuntimeAdapter:
     def wrapper_name(self) -> str:
         raise NotImplementedError("Plan 3 — subclass must override wrapper_name")
 
+    def console_argv(self, **opts: Any) -> list[str]:
+        """The console launch as ARGV - the program, then its arguments.
+
+        This is the value; `console_command` is a view of it. Subclasses override THIS one.
+
+        v0.6 Phase 8 needs the structural form because aify-env executes an allowlisted launcher file
+        rather than a shell string, and every adapter was already building this list and joining it on
+        the last line. Keeping the list costs nothing, and the string is derived from it.
+        """
+        raise NotImplementedError("subclass must override console_argv")
+
     def console_command(self, **opts: Any) -> str:
-        raise NotImplementedError("Plan 3 — subclass must override console_command")
+        """The console launch as one shell string, derived so it cannot drift from the argv."""
+        return " ".join(self.console_argv(**opts))
+
 
     # ─────────────────── OPERATOR TAKEOVER (governance) ───────────────────
 

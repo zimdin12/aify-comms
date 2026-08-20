@@ -31,15 +31,15 @@ class ClaudeAdapter(RuntimeAdapter):
             return f"claude-aify --aify-agent {aid} --resume {session_id}"
         return f"claude-aify --resume {session_id}"
 
-    def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:
-        if interactive and handle:
-            return f"claude-aify --aify-agent {agent_id} --resume {handle}"
-        if interactive:
-            return f"claude-aify --aify-agent {agent_id}"
-        parts = ["claude-aify", "--aify-agent", agent_id, "--auto"]
+    def console_argv(self, *, agent_id: str, handle: str, interactive: bool) -> list[str]:
+        # `--auto` only outside interactive: a console an operator is typing into must not also be
+        # answering for itself.
+        parts = ["claude-aify", "--aify-agent", agent_id]
+        if not interactive:
+            parts.append("--auto")
         if handle:
             parts.extend(["--resume", handle])
-        return " ".join(parts)
+        return parts
 
     def is_resident_ready(self, runtime_config: dict) -> bool:
         # Restores Plan 2 Task 14 dropped gate (#120).

@@ -74,9 +74,40 @@ Those two do not meet, and the three ways to make them meet are not equivalent:
 |---|---|
 | **Parse the shell string into launcher + args** | Quoting bugs live exactly here. This project already shipped one from a hand-typed quote in a guard, and one from an unescaped backtick in a heredoc. A parser that is wrong on a path with a space produces an agent that will not start, or worse, starts something else. |
 | **Let aify-env accept shell strings** | Destroys the allowlist. `bash -lc "<anything>"` passes any marker check, because the thing being executed is bash. |
-| **Have aify-comms pass launcher + args structurally** | Correct, and it reaches upstream into how every managed command is composed. |
+| **Have aify-comms pass launcher + args structurally** | Correct. Costed here as reaching "upstream into how every managed command is composed" — **measured since, and smaller than that reads.** See below. |
 
-The third is the right answer and it is not a small edit, so it is where this stops. Choosing the
+### Measured: the structural form already existed, one line from the surface
+
+Every managed command comes from one place — `adapter.console_command(...)`, via
+`_default_console_command` in `service/api_core/capabilities.py`. There are five adapters, and every
+one of them was already building a list and throwing the structure away on its last line:
+
+```python
+parts = ["claude-aify", "--aify-agent", agent_id]
+if handle:
+    parts.extend(["--resume", handle])
+return " ".join(parts)          # <- the argv existed until here
+```
+
+So `console_argv` is now the value each adapter returns and `console_command` is a view of it, derived
+once in the base class. **No behaviour changed**: the strings are byte-identical, pinned by literals in
+`test_console_command_resume.py`, and dropping `--auto` reddens it.
+
+Two further measurements bear on the decision:
+
+- **Four of the five runtimes never had a command string to parse.** A managed pi, hermes, codex or
+  opencode worker gets a SENTINEL — `aify://virtual-rpc/<runtime>` — and nothing executes it. The shell
+  string only ever mattered for the runtimes that take a real PTY.
+- **No argv element contains a space**, asserted for every runtime and every case. While that holds the
+  string and the list carry the same information, so switching between them loses nothing. The test
+  fails the day it stops holding, which is the day the structural form stops being optional.
+
+**This does not decide anything and does not delegate anything.** No spawn path changed, the bridge
+receives exactly what it received before, and the seam still refuses when the flag is on. It removes one
+argument from the open question — that the structural form would have to be built from scratch — and
+leaves the question where it belongs.
+
+The third option is the right answer, and where this stops. Choosing the
 first two would trade a real safety property for convenience, and doing that quietly is exactly what
 the flag was put in to prevent.
 

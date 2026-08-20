@@ -38,11 +38,11 @@ class HermesAdapter(RuntimeAdapter):
             return f"hermes-aify --aify-agent {aid} --resume {session_id}"
         return f"hermes-aify --resume {session_id}"
 
-    def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:
+    def console_argv(self, *, agent_id: str, handle: str, interactive: bool) -> list[str]:
         parts = ["hermes-aify", "--aify-agent", agent_id]
         if handle:
             parts.extend(["--resume", handle])
-        return " ".join(parts)
+        return parts
 
     def is_resident_ready(self, runtime_config: dict) -> bool:
         if not runtime_config:
