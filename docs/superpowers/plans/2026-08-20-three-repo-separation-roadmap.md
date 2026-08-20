@@ -98,7 +98,7 @@ so they need a reinstall. That agrees with `aify-comms doctor`, which reports th
 as older than the checkout — the whole install is behind, by design, pending the deploy decision.
 
 **Phase 7 — aify-env. MET by measurement — run the suite for the count rather than trusting one
-written here; it was 171 on 2026-08-20 and every number in prose rots.** A process started through aify-env runs under a PTY, streams to a consumer,
+written here; it was 171 and is now 191 on 2026-08-20, and every number in prose rots.** A process started through aify-env runs under a PTY, streams to a consumer,
 and is reaped when it dies. A file without `HARNESS_WRAPPER_VERSION` is refused. `aify-env doctor`
 reports `passed / failed / unanswered` and a silent registered service reads `unanswered`, never `ok`.
 The TUI shows registered services, owned processes and its own I/O, and claims no agent status.
