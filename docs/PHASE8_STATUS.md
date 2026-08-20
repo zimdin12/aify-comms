@@ -183,9 +183,9 @@ the flag was put in to prevent.
 | 1 | ~~A stream endpoint on aify-env~~ | **done** |
 | 2 | ~~An `EnvClient` subscriber~~ — `subscribeOutput` over SSE | **done** |
 | 3 | ~~Wire `TerminalProcessManager.start()` behind the flag, default off~~ | **done, and it refuses** |
-| 3b | A `term` shim over `EnvClient` — the endpoints it needs (input, resize) now exist | blocked on the shell-string decision above |
+| 3b | ~~A `term` shim over `EnvClient`~~ — and the seam now DELEGATES rather than refusing | **done** |
 | 4 | ~~Prove default-off is byte-identical~~ — by reconstruction, on both files | **done** |
-| 5 | Flip on an IDLE fleet; keep the local path until a live two-session round-trip passes | operator |
+| 5 | Flip on an IDLE fleet; keep the local path until a live two-session round-trip passes | **operator — the only step left** |
 
 ## Item 4, done: what "default-off is byte-identical" now rests on
 
@@ -225,3 +225,30 @@ actually delegates, "identical to pre-seam" stops being the property anyone want
 
 No spawn path changed. No process was started, stopped or routed through aify-env by aify-comms. The
 bridge, the manager and the dashboard console behave exactly as before.
+
+## Built, and proven against a real aify-env
+
+The operator settled the shell-string question on 2026-08-20: carry `argv` beside the command,
+additively. Everything below it followed.
+
+`terminal_sessions.argv` holds the launch as a list; `command` is unchanged and is now DERIVED as its
+join, so the two cannot describe different launches. The bridge prefers argv where a row carries it and
+falls back to the string otherwise — which DELETES a parse rather than adding one, since the handle was
+being recovered by regex over a shell string and that parse had already shipped a defect.
+
+`startDelegated` mirrors `startPty`: same state, same `_handleOutput` and `_handleExit`, same keepalive.
+That mirroring is the parity argument, because batching, auto-answer, classification and healing are all
+reached through those two callbacks.
+
+**PROVEN END TO END, not against a fake.** `delegated-terminal-against-real-aify-env.test.js` drives the
+real manager against a real daemon: the agent's output arrives through `onOutput`, its exit code arrives
+through `onExit`, and a keystroke written to `term` is echoed back by the agent. Every earlier test of
+this path stopped at a stand-in on one side or the other, which is the arrangement where both halves are
+green and the pair is broken.
+
+**Two refusals remain and are deliberate.** A row with no argv cannot be delegated, because splitting a
+shell string is the quoting bug this avoids; and an `argv[0]` that does not resolve is refused rather
+than guessed, because aify-env is asked for a launcher by path.
+
+**Still OFF.** `isEnabled` needs both `AIFY_COMMS_DELEGATE_SPAWNS` and `AIFY_ENV_ENDPOINT`, and neither
+is set. The local path is untouched and remains the fallback.

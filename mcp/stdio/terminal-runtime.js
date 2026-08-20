@@ -338,11 +338,30 @@ export class TerminalProcessManager {
     this.terminals.set(id, state);
     state.stopConsoleKeepalive = this._armConsoleKeepalive(id, state);
 
-    await this.envDelegation.client.subscribeOutput(
+    const unsubscribe = await this.envDelegation.client.subscribeOutput(
       started.handle.id,
       (text) => { this._handleOutput(id, state, text).catch(() => {}); },
       (code) => { this._handleExit(id, state, { code, signal: null }).catch(() => {}); },
     );
+
+    // FAIL CLOSED ON A DEAF TERMINAL. subscribeOutput answers null when there is no endpoint, the
+    // fetch failed, the status was not 200, or the body cannot be read. Ignoring that produced the
+    // worst shape available: a terminal reported "attached", registered here, with a process running
+    // in aify-env that nothing was listening to -- no output would ever arrive and no exit would ever
+    // be delivered, so the row sat there looking healthy forever.
+    //
+    // Unwinding in this order matters: the remote process first, because that is the one that keeps
+    // running if we get it wrong, and the local row second.
+    if (!unsubscribe) {
+      try { await this.envDelegation.client.stop(started.handle.id); } catch { /* best effort */ }
+      try { state.stopConsoleKeepalive?.(); } catch { /* best effort */ }
+      this.terminals.delete(id);
+      throw new Error(
+        `terminal ${id} started in aify-env but its output stream could not be opened; the process has `
+        + "been stopped rather than left running with nothing listening to it.",
+      );
+    }
+    state.unsubscribeOutput = unsubscribe;
 
     return { pid: started.handle.pid, status: "attached", pty: started.handle.terminal === true };
   }
@@ -470,7 +489,11 @@ export class TerminalProcessManager {
     if (classification?.kind === "auth" && !state.classification) {
       state.classification = classification;
       await this._enqueueOutput(id, `\n[aify-comms] ${classification.message}\n`, { flushNow: true });
-      if (state.kind === "pty") {
+      if (state.kind === "delegated") {
+        // Through the environment. terminateProcessTree here would signal a pid we do not own.
+        try { state.term?.kill(); } catch { /* already gone */ }
+      }
+      else if (state.kind === "pty") {
         try { terminateProcessTree(state.term, "SIGTERM"); } catch { try { state.term?.kill(); } catch {} }
       }
       else terminateProcessTree(state.proc, "SIGTERM");
@@ -499,7 +522,11 @@ export class TerminalProcessManager {
         sessionHandle: state.sessionHandle,
         message,
       };
-      if (state.kind === "pty") {
+      if (state.kind === "delegated") {
+        // Through the environment. terminateProcessTree here would signal a pid we do not own.
+        try { state.term?.kill(); } catch { /* already gone */ }
+      }
+      else if (state.kind === "pty") {
         try { terminateProcessTree(state.term, "SIGTERM"); } catch { try { state.term?.kill(); } catch {} }
       }
       else terminateProcessTree(state.proc, "SIGTERM");
@@ -628,7 +655,9 @@ export class TerminalProcessManager {
   input(id, body = "") {
     const terminal = this.terminals.get(id);
     if (!terminal) throw new Error(`Terminal "${id}" is not running`);
-    if (terminal.kind === "pty") {
+    // ANY terminal with a `term` -- a local pty or a delegated shim. Keying on kind === "pty" sent a
+    // delegated keystroke to terminal.proc.stdin, which is undefined there, so it VANISHED silently.
+    if (terminal.term) {
       terminal.term.write(String(body || ""));
       return;
     }
@@ -704,7 +733,9 @@ export class TerminalProcessManager {
   resize(id, cols = 0, rows = 0) {
     const terminal = this.terminals.get(id);
     if (!terminal) throw new Error(`Terminal "${id}" is not running`);
-    if (terminal.kind === "pty") {
+    // Delegated terminals resize too. The clamp still applies: the call crosses a socket first, but it
+    // ends at a pty, and the ioctl that crashed on WSL2's columns=131072 does not care how it arrived.
+    if (terminal.term) {
       // Clamp BOTH bounds (Hermes parity). The lower floor keeps a usable grid; the UPPER cap
       // guards node-pty's TIOCSWINSZ ioctl, which throws on an absurd winsize — Hermes hit this
       // when WSL2 reported `columns=131072, rows=1` and the resize crashed the PTY. We run heavily
@@ -726,6 +757,14 @@ export class TerminalProcessManager {
     if (!terminal) return { stopped: false };
     terminal.stopping = true;
     this.terminals.delete(id);
+    if (terminal.kind === "delegated") {
+      // The environment owns the process, so stopping it there IS the stop. There is no local pid to
+      // signal -- the pid we hold belongs to another process's child. Before this, stop() fell through
+      // to terminal.proc.stdin.end() and THREW on every delegated terminal.
+      try { terminal.term.kill(); } catch { /* the environment may already have reaped it */ }
+      await waitForExitOrTimeout(terminal.exitPromise, 3000);
+      return { stopped: true };
+    }
     if (terminal.kind === "pty") {
       // term.kill() sends a single SIGHUP to the wrapper bash, which the wrapper
       // traps do not catch and which never reaches its sibling/child processes.

@@ -2541,7 +2541,7 @@ test("the five bridge classes are measurable, and the sizes are cross-checked", 
     // assertion's "actual": a figure copied out of a failure message records whatever the change
     // produced rather than what is true. +86 is the new method and its documentation, which is the
     // answer agreeing with the cause.
-    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 740],
+    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 779],
   ];
   for (const [rel, name, expected] of cases) {
     const span = declarationSpan(read(rel), name);
