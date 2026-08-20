@@ -817,6 +817,12 @@ export class TerminalProcessManager {
   listOwnedSessions() {
     const out = [];
     for (const [id, state] of this.terminals.entries()) {
+      // LOCAL PROCESSES ONLY. This list feeds dead-PTY reporting, which asks whether a pid is alive on
+      // THIS host. A delegated process lives in aify-env, possibly on another machine, so its pid here
+      // either names nothing or names something unrelated that happens to share the number -- and the
+      // answer would be about the wrong process either way. Liveness for a delegated terminal is
+      // aify-env's to report, and it does, on /health.
+      if (state?.kind === "delegated") continue;
       const pid = state?.term?.pid ?? state?.proc?.pid;
       const numeric = Number(pid);
       if (!Number.isInteger(numeric) || numeric <= 0) continue;

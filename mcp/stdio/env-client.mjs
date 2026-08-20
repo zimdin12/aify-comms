@@ -129,15 +129,37 @@ export class EnvClient {
     let stopped = false;
     let pending = "";
 
+    // Told ONCE, whichever way the stream ends. A `null` code means "we stopped being able to see it"
+    // -- distinct from 0, which would tell the heal path the agent finished normally.
+    let ended = false;
+    const finish = (code) => {
+      if (ended) return;
+      ended = true;
+      stopped = true;
+      if (typeof onExit !== "function") return;
+      try {
+        onExit(code);
+      } catch {
+        // A broken consumer does not get to break the teardown.
+      }
+    };
+
     (async () => {
       while (!stopped) {
         let chunk;
         try {
           chunk = await reader.read();
         } catch {
+          // The socket failed under us -- an environment that died, a network that went. Same answer.
+          finish(null);
           return;
         }
-        if (chunk.done) return;
+        if (chunk.done) {
+          // The stream closed with no exit frame. aify-env sends one and then ends, so reaching here
+          // means the environment went away rather than the process finishing.
+          finish(null);
+          return;
+        }
         pending += decoder.decode(chunk.value, { stream: true });
 
         // Events are newline-delimited, which is exactly why each payload is JSON-encoded: a newline
@@ -159,14 +181,7 @@ export class EnvClient {
           // THE `event:` LINE DECIDES, not the payload. An agent that prints something exit-shaped
           // must not be able to end its own terminal, which it could if this matched on content.
           if (lines.some((l) => l === "event: exit")) {
-            stopped = true;
-            if (typeof onExit === "function") {
-              try {
-                onExit(Number(payload?.code ?? 0));
-              } catch {
-                // A broken consumer does not get to break the teardown.
-              }
-            }
+            finish(Number(payload?.code ?? 0));
             return;
           }
 

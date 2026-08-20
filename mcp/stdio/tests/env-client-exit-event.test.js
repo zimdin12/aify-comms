@@ -75,7 +75,9 @@ test("output containing the word exit is still output", async () => {
   await client(streamingFetch(frames)).subscribeOutput("p1", (c) => seen.push(c), (code) => exits.push(code));
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(seen.length, 1);
-  assert.deepEqual(exits, [], "an agent printing an exit frame ended its own terminal");
+  // The stream still ENDS here, and ending is now itself an exit -- so the assertion is not "no exit"
+  // but "no exit CODE taken from the payload". A 1 would mean the agent's own text was read as an exit.
+  assert.deepEqual(exits, [null], "an agent printing an exit frame was read as an exit");
 });
 
 test("subscribing without an exit listener still works", async () => {
@@ -93,5 +95,34 @@ test("a malformed exit payload does not fire a bogus exit", async () => {
   const frames = [`event: exit${LF}data: {not json${FRAME}`];
   await client(streamingFetch(frames)).subscribeOutput("p1", () => {}, (code) => exits.push(code));
   await new Promise((r) => setTimeout(r, 30));
-  assert.deepEqual(exits, [], "an unreadable exit frame was reported as an exit anyway");
+  // Same distinction: the malformed frame must not yield a code. The stream then ends, which reports
+  // null -- "we stopped being able to see it" rather than "it finished with status 0".
+  assert.deepEqual(exits, [null], "an unreadable exit frame produced a code out of nowhere");
+});
+
+test("a stream that ENDS without an exit frame still reports an exit", async () => {
+  // The aify-env-died case. If the environment goes away, the socket simply closes -- there is no exit
+  // frame, because nothing was there to send one. Returning quietly would leave the caller's terminal
+  // marked attached forever with no process behind it: a dead agent wearing the shape of a thinking
+  // one, which is the failure the exit event exists to prevent, one level up.
+  //
+  // The code is NULL rather than 0. A clean zero would tell the heal path the agent finished normally,
+  // and it did not -- we simply stopped being able to see it.
+  const exits = [];
+  const frames = [`data: ${JSON.stringify("partial output")}${FRAME}`];
+  await client(streamingFetch(frames)).subscribeOutput("p1", () => {}, (code) => exits.push(code));
+  await new Promise((r) => setTimeout(r, 40));
+
+  assert.equal(exits.length, 1, "the stream ended and nobody was told");
+  assert.equal(exits[0], null, "a lost stream must not read as a clean exit");
+});
+
+test("an exit frame still wins over the stream simply ending", async () => {
+  // Both paths can fire on the same stream -- the frame arrives, then the socket closes. The caller
+  // must be told once, with the real code.
+  const exits = [];
+  const frames = [`event: exit${LF}data: ${JSON.stringify({ code: 3 })}${FRAME}`];
+  await client(streamingFetch(frames)).subscribeOutput("p1", () => {}, (code) => exits.push(code));
+  await new Promise((r) => setTimeout(r, 40));
+  assert.deepEqual(exits, [3], "a real exit code was lost or reported twice");
 });

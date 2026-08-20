@@ -126,3 +126,21 @@ test("a start whose output stream fails is REFUSED, not reported as attached", a
   assert.equal(manager.terminals.has("t9"), false, "a refused start left local state behind");
   assert.deepEqual(stopped, ["env-9"], "the process was left running in aify-env after the refusal");
 });
+
+test("a delegated terminal is not listed as a locally owned OS process", async () => {
+  // Raised in review as a watch item, and it is sharper than a naming question. listOwnedSessions
+  // feeds dead-PTY REPORTING, which asks whether a pid is alive ON THIS HOST. A delegated process
+  // lives in aify-env, which may be another machine entirely -- so that pid either does not exist here
+  // or, worse, belongs to something unrelated that happens to share the number. Either way the answer
+  // would be about the wrong process.
+  //
+  // Liveness for a delegated terminal is aify-env's to report, and it does, on /health.
+  const calls = [];
+  const manager = await delegated(calls);
+  assert.equal(manager.terminals.has("t1"), true, "the terminal is not registered; this proves nothing");
+  assert.deepEqual(
+    manager.listOwnedSessions().map((s) => s.terminalId),
+    [],
+    "a delegated pid was reported as an OS process this bridge owns",
+  );
+});

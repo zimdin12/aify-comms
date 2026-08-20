@@ -29,6 +29,17 @@ if (process.platform === "win32") {
   process.exit(0);
 }
 
+// DETACHED ONLY OFF WINDOWS. A detached child on Windows gets its OWN CONSOLE, and windowsHide
+// suppresses the window being SHOWN rather than the console being created -- with Windows Terminal
+// as the host that surfaces as a tab that steals focus. The operator has now reported it three
+// times; the previous fix added windowsHide, which treated the symptom.
+//
+// The fidelity is kept where it is free: on POSIX `detached` makes the child a process GROUP
+// LEADER, which is the thing under test. On Windows the tree kill goes through `taskkill /T`,
+// which walks the parent-child table and does not care about groups -- so dropping detached there
+// costs the test nothing and stops opening windows on a working machine.
+const DETACH = process.platform !== "win32";
+
 async function runCase(name, childOptions) {
   const parent = spawn(process.execPath, [
     "-e",
@@ -64,6 +75,6 @@ async function runCase(name, childOptions) {
 }
 
 await runCase("same process group child", '{ stdio: "ignore", windowsHide: true }');
-await runCase("detached child", '{ detached: true, stdio: "ignore", windowsHide: true }');
+await runCase("detached child", `{ detached: ${DETACH}, stdio: "ignore", windowsHide: true }`);
 
 console.log("process-tree.test.js: all assertions passed");

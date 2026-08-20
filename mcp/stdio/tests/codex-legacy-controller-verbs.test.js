@@ -41,15 +41,26 @@ const isAlive = (pid) => {
 // A detached stand-in for the codex app-server, with a child of its own so a TREE is what gets asserted.
 // Both pids are ours - no pid is ever chosen by heuristic, and none is passed to the real tree-killer unless
 // this test created it.
+// DETACHED ONLY OFF WINDOWS. A detached child on Windows gets its OWN CONSOLE, and windowsHide
+// suppresses the window being SHOWN rather than the console being created -- with Windows Terminal
+// as the host that surfaces as a tab that steals focus. The operator has now reported it three
+// times; the previous fix added windowsHide, which treated the symptom.
+//
+// The fidelity is kept where it is free: on POSIX `detached` makes the child a process GROUP
+// LEADER, which is the thing under test. On Windows the tree kill goes through `taskkill /T`,
+// which walks the parent-child table and does not care about groups -- so dropping detached there
+// costs the test nothing and stops opening windows on a working machine.
+const DETACH = process.platform !== "win32";
+
 async function spawnStandInAppServer() {
   const parent = spawn(process.execPath, [
     "-e",
     'const { spawn } = require("node:child_process");' +
     'const kid = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"],' +
-    '  { stdio: "ignore", detached: true, windowsHide: true });' +
+    '  { stdio: "ignore", detached: ' + DETACH + ', windowsHide: true });' +
     'process.stdout.write(String(kid.pid) + "\\n");' +
     "setInterval(() => {}, 1000);",
-  ], { detached: true, stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+  ], { detached: DETACH, stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
 
   const childPid = await new Promise((resolve, reject) => {
     const bail = setTimeout(() => reject(new Error("the stand-in app-server never reported its child")), 10000);

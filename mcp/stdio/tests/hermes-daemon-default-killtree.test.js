@@ -45,16 +45,27 @@ function isAlive(pid) {
 // takes it down too — an assertion resting on that child passes against a `taskkill` with NO `/t`, which is
 // precisely the flag this test claims to cover. A DETACHED grandchild has its own console and survives
 // until something walks the tree. Both are asserted: one for the ordinary case, one that only `/t` reaches.
+// DETACHED ONLY OFF WINDOWS. A detached child on Windows gets its OWN CONSOLE, and windowsHide
+// suppresses the window being SHOWN rather than the console being created -- with Windows Terminal
+// as the host that surfaces as a tab that steals focus. The operator has now reported it three
+// times; the previous fix added windowsHide, which treated the symptom.
+//
+// The fidelity is kept where it is free: on POSIX `detached` makes the child a process GROUP
+// LEADER, which is the thing under test. On Windows the tree kill goes through `taskkill /T`,
+// which walks the parent-child table and does not care about groups -- so dropping detached there
+// costs the test nothing and stops opening windows on a working machine.
+const DETACH = process.platform !== "win32";
+
 async function spawnRealTree() {
   const parent = spawn(process.execPath, [
     "-e",
     'const { spawn } = require("node:child_process");' +
     'const plain = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });' +
     'const own = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"],' +
-    '  { stdio: "ignore", detached: true, windowsHide: true });' +
+    '  { stdio: "ignore", detached: ' + DETACH + ', windowsHide: true });' +
     'process.stdout.write(plain.pid + " " + own.pid + "\\n");' +
     "setInterval(() => {}, 1000);",
-  ], { detached: true, stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+  ], { detached: DETACH, stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
 
   const [plainPid, detachedPid] = await new Promise((resolve, reject) => {
     const bail = setTimeout(() => reject(new Error("the fixture tree never reported its child pids")), 10000);

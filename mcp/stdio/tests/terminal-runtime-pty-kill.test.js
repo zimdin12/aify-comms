@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { TerminalProcessManager } from "../terminal-runtime.js";
-const child = spawn("sleep", ["120"], { detached: true });
+const child = spawn("sleep", ["120"], { detached: process.platform !== "win32", stdio: "ignore", windowsHide: true });
 const mgr = new TerminalProcessManager({ onOutput: async () => {}, onExit: async () => {} });
 mgr.terminals.set("t1", {
   id: "t1", kind: "pty", exitPromise: Promise.resolve(),
