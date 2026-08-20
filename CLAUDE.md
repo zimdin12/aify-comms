@@ -179,6 +179,13 @@ cd mcp/stdio && node tests/run-all.mjs                 # 342 suites
 cd service/new_dashboard && node --test *.test.mjs     # 1135 tests
 ```
 
+**The bridge suite uses TWO idioms, and counting one of them gives a third the answer.** 233 files use
+`node:test` with `test(...)` blocks; 109 use plain top-level assertions and print "all assertions
+passed" at the end. `run-all.mjs` judges every file by EXIT STATUS, so both work -- and its "N suite(s)
+passed" is a FILE count, not a test count. Counting `test(` calls to size the suite reports 109 files as
+empty when they are not. Measured 2026-08-20: all 342 files carry a `test(` or an `assert`, so none is
+vacuous.
+
 Those counts are a **measured snapshot** (2026-08-17), not a target: they are there so a wrong invocation is
 obvious (a `node --test` that reports 200 did not discover the suite). They rot with every slice — the run is
 the authority, never the number written here. They were 3991/318/1097 on 2026-08-17, 4165/332/1109 on 2026-08-19, and are the figures above on 2026-08-20. **Until that last update this file carried TWO different dashboard counts** -- 1097 in the layout table and 1109 here -- which is the failure this paragraph warns about, sitting inside the warning. Before that they read 955/219/541 and 1576 while the real
