@@ -189,6 +189,18 @@ Important starting docs:
 
 ## Repo layout
 
+**Three repos, one stack.** This one owns messaging, dispatch and sessions.
+[aify-wrapper](https://github.com/zimdin12/aify-wrapper) owns the launchers — the four `*-aify`
+commands that point a coding-agent CLI at a coordinating service — and this repo depends on it at a
+pinned commit. [aify-env](https://github.com/zimdin12/aify-env) owns processes and terminals on a
+host, so more than one service can start agents there without two spawners fighting over the same
+PTYs. Which concern lives where, and why, is
+[docs/AIFY_ENV_BOUNDARY.md](docs/AIFY_ENV_BOUNDARY.md).
+
+You need neither of the others to run aify-comms today: the launchers arrive as a dependency, and
+delegation to aify-env is built but off behind two environment variables
+([docs/PHASE8_STATUS.md](docs/PHASE8_STATUS.md)).
+
 The launchers come from [zimdin12/aify-wrapper](https://github.com/zimdin12/aify-wrapper), a separate
 package this repo DEPENDS ON. They used to live here under `wrappers/` as a byte-identical copy of the
 published ones, kept honest by a hash gate in each repo — two sources of truth for one artifact. That
