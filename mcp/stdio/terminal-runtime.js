@@ -76,7 +76,11 @@ export class TerminalProcessManager {
     consoleKeepaliveMs = 4000,
     consoleKeepaliveIdleGraceTicks = 30,
     consoleKeepaliveIdleReprobeTicks = 4,
+    envDelegation = null,
   } = {}) {
+    // Injected rather than read here, so a test can drive both branches without setting an env var --
+    // and so the default really is "whatever the environment says", which is off.
+    this.envDelegation = envDelegation;
     this.onOutput = onOutput;
     this.onExit = onExit;
     this.onHeal = onHeal;
@@ -148,6 +152,24 @@ export class TerminalProcessManager {
       await this.stop(id, "restarting terminal");
     }
     const spec = { id, command, cwd, env, cols, rows, runtime: normalizeRuntime(runtime), sessionHandle, healAttempted, agentId, sessionMode };
+    // v0.6 Phase 8: the seam where spawning leaves aify-comms.
+    //
+    // OFF unless AIFY_ENV_ENDPOINT is set, which nothing in this repo sets. With it unset this is one
+    // boolean and the next two lines are the whole of what happens, exactly as before.
+    //
+    // It REFUSES rather than half-delegating. Feeding a delegated process into _handleOutput and
+    // _handleExit would inherit the batching, auto-answer and classification for free, which is why
+    // parity is reachable at all -- but `state.term` is also used to write, resize and kill, and the
+    // console keepalive probes it. A delegated start without that shim would produce agents that are
+    // subtly different in ways nobody could attribute. Refusing names the gap at the point of use
+    // instead of leaving it in a document.
+    if (this.envDelegation?.isEnabled()) {
+      throw new Error(
+        "AIFY_ENV_ENDPOINT is set, but delegating terminals to aify-env is not finished: a term shim "
+        + "(write/resize/kill) and the console keepalive still run against a local pty. Unset it to "
+        + "spawn locally. See docs/PHASE8_STATUS.md.",
+      );
+    }
     if (pty) {
       return this.startPty(spec);
     }

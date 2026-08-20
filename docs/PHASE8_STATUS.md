@@ -23,17 +23,32 @@ a bounded most-recent replay for consumers that attach late, and a 404 that is d
 stream that is merely quiet. Proven end to end over a socket, attaching 300 ms after the process
 started and receiving both what was printed before and what came after.
 
-## Not built, on purpose
+## The seam is wired, and it REFUSES
 
-**`TerminalProcessManager.start()` is the seam** — one method, one instance (`TERMINAL_MANAGER`). It is
-unwired, because wiring it is the step that can take a fleet down and the remaining work is the
-*proof*, not the plumbing.
+**`TerminalProcessManager.start()`** now consults an injected `envDelegation` before dispatching. With
+`AIFY_ENV_ENDPOINT` unset — which nothing in this repo sets — it is one boolean and the next two lines
+are exactly what happened before. Seven tests pin that, including one that reads the REAL environment
+rather than a fixture, and mutation-checking the branch reddens three of them.
+
+When the flag IS set it **throws, naming what is not delegated**, rather than half-working. That is the
+important choice. A delegated process fed through `_handleOutput` and `_handleExit` would inherit the
+output batching, the auto-answer and the classification for free — which is why parity is reachable at
+all, and also why a half-delegated path would LOOK right. Meanwhile `state.term` is used to write,
+resize and kill, and the console keepalive probes it. Without a shim for those, flipping the flag would
+produce agents that are subtly different in ways nobody could attribute. Refusing puts that at the
+point of use instead of leaving it in a document.
+
+The seam tests spawn NOTHING. The seam is a dispatch decision, so dispatch is what is asserted, with
+the local methods overridden to record that they were reached. Actually spawning drags in a pty, a
+keepalive and a teardown that raises "Signals not supported on windows" — three ways for the file to
+fail for reasons unrelated to the branch.
 
 | | | size |
 |---|---|---|
 | 1 | ~~A stream endpoint on aify-env~~ | **done** |
-| 2 | An `EnvClient` subscriber feeding the same `onOutput` the local path feeds | small |
-| 3 | Wire `TerminalProcessManager.start()` behind the flag, default off | small |
+| 2 | ~~An `EnvClient` subscriber~~ — `subscribeOutput`, 5 tests | **done** |
+| 3 | ~~Wire `TerminalProcessManager.start()` behind the flag, default off~~ | **done, and it refuses** |
+| 3b | A `term` shim over `EnvClient`: write, resize, kill, plus the console keepalive | medium |
 | 4 | **Prove default-off is byte-identical**: same spawn, same manager, same output, same healing | medium — this is the work |
 | 5 | Flip on an IDLE fleet; keep the local path until a live two-session round-trip passes | operator |
 

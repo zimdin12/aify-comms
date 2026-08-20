@@ -34,6 +34,30 @@ function fakeFetch(answers) {
   return impl;
 }
 
+/** A fetch that answers with an SSE body carrying the given `data:` payloads. */
+function sseFetch(payloads) {
+  return async () => ({
+    status: 200,
+    body: {
+      getReader: () => {
+        const NL = String.fromCharCode(10);
+        const frames = payloads.map((p) => `data: ${p}${NL}${NL}`);
+        let i = 0;
+        return {
+          read: async () => (i < frames.length
+            ? { value: new TextEncoder().encode(frames[i++]), done: false }
+            : { value: undefined, done: true }),
+          cancel: async () => {},
+        };
+      },
+    },
+    json: async () => null,
+  });
+}
+
+/** Let the reader loop drain. The subscription is a background loop, not a promise the caller awaits. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+
 test("OFF by default: nothing configured means delegation is not enabled", () => {
   // The safety property of this whole phase. If this ever passes wrongly, deploying the file changes
   // where every managed agent is spawned.
@@ -114,4 +138,60 @@ test("an answer that is not JSON is a failure, not an empty success", async () =
   const result = await client.start({ service: "s", launcher: "/x" });
   assert.equal(result.ok, true);
   assert.equal(result.handle, null, "an unparseable body must not masquerade as a handle");
+});
+
+// ── watching output ──────────────────────────────────────────────────────────────
+// The half that makes delegation usable at all. A delegated spawn without this carries the process and
+// loses the console, and a managed agent whose console is empty reads as hung.
+
+test("subscribeOutput yields each chunk the environment sends", async () => {
+  const client = new EnvClient({ endpoint: NOWHERE, fetchImpl: sseFetch(['"FIRST"', '"SECOND"']) });
+  const seen = [];
+  const stop = await client.subscribeOutput("p1", (chunk) => seen.push(chunk));
+  assert.notEqual(stop, null);
+  await settle();
+  assert.deepEqual(seen, ["FIRST", "SECOND"]);
+  stop();
+});
+
+test("a 404 from the stream returns null, so a caller can tell it apart from silence", async () => {
+  // No such process means look elsewhere. An open-but-quiet stream means wait. A caller that cannot
+  // distinguish them shows an empty console either way and gives nobody a reason.
+  const client = new EnvClient({
+    endpoint: NOWHERE,
+    fetchImpl: async () => ({ status: 404, body: null, json: async () => ({ error: "no such process" }) }),
+  });
+  assert.equal(await client.subscribeOutput("gone", () => {}), null);
+});
+
+test("an unreachable environment returns null rather than throwing", async () => {
+  const client = new EnvClient({ endpoint: NOWHERE, fetchImpl: async () => { throw new Error("ECONNREFUSED"); } });
+  assert.equal(await client.subscribeOutput("p1", () => {}), null);
+});
+
+test("a chunk that is not valid JSON is SKIPPED, not delivered raw", async () => {
+  // Chunks are JSON-encoded inside each event precisely so a newline in the output cannot end the
+  // event early. Delivering a malformed one raw would put a fragment of framing into a console.
+  const client = new EnvClient({ endpoint: NOWHERE, fetchImpl: sseFetch(["not-json", '"GOOD"']) });
+  const seen = [];
+  const stop = await client.subscribeOutput("p1", (chunk) => seen.push(chunk));
+  await settle();
+  assert.deepEqual(seen, ["GOOD"]);
+  stop();
+});
+
+test("a listener that throws does not stop the stream", async () => {
+  const client = new EnvClient({ endpoint: NOWHERE, fetchImpl: sseFetch(['"A"', '"B"']) });
+  const seen = [];
+  let first = true;
+  const stop = await client.subscribeOutput("p1", (chunk) => {
+    if (first) {
+      first = false;
+      throw new Error("a broken consumer");
+    }
+    seen.push(chunk);
+  });
+  await settle();
+  assert.deepEqual(seen, ["B"], "the stream stopped after a consumer threw");
+  stop();
 });

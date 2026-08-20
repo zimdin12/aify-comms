@@ -65,6 +65,81 @@ export class EnvClient {
     return this.#request("GET", "/health", undefined, 200);
   }
 
+  /**
+   * Watch a process's output.
+   *
+   * Returns an unsubscribe function, or NULL when there is nothing to watch — no such process, or no
+   * environment answering. A caller has to be able to tell that from an open stream that is simply
+   * quiet: one means look elsewhere, the other means wait, and a console that cannot distinguish them
+   * shows empty either way and gives nobody a reason.
+   *
+   * Reads in a background loop rather than returning a promise the caller awaits, because the caller
+   * is wiring a console and wants to carry on.
+   */
+  async subscribeOutput(id, listener) {
+    if (!this.#endpoint) return null;
+
+    let response;
+    try {
+      response = await this.#fetch(`${this.#endpoint}/processes/${encodeURIComponent(id)}/output`, {
+        // No timeout: this connection is meant to stay open. A timeout here would sever a healthy
+        // console on a quiet agent, which looks exactly like the agent having died.
+        headers: { accept: "text/event-stream" },
+      });
+    } catch {
+      return null;
+    }
+    if (response.status !== 200 || !response.body?.getReader) return null;
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let stopped = false;
+    let pending = "";
+
+    (async () => {
+      while (!stopped) {
+        let chunk;
+        try {
+          chunk = await reader.read();
+        } catch {
+          return;
+        }
+        if (chunk.done) return;
+        pending += decoder.decode(chunk.value, { stream: true });
+
+        // Events are newline-delimited, which is exactly why each payload is JSON-encoded: a newline
+        // inside the output would otherwise end the event early.
+        const parts = pending.split(String.fromCharCode(10, 10));
+        pending = parts.pop() ?? "";
+        for (const frame of parts) {
+          const line = frame.split(String.fromCharCode(10)).find((l) => l.startsWith("data: "));
+          if (!line) continue;
+          let text;
+          try {
+            text = JSON.parse(line.slice("data: ".length));
+          } catch {
+            // Malformed framing. Skipping beats delivering a fragment of protocol into a console.
+            continue;
+          }
+          try {
+            listener(text);
+          } catch {
+            // A broken consumer must not sever the stream for anyone else watching.
+          }
+        }
+      }
+    })();
+
+    return () => {
+      stopped = true;
+      try {
+        reader.cancel();
+      } catch {
+        // Already closed.
+      }
+    };
+  }
+
   async #request(method, path, body, expected) {
     if (!this.#endpoint) return { ok: false, error: "no aify-env endpoint configured" };
     let response;
