@@ -57,7 +57,7 @@ const CEILINGS = {
   "aify-comms-debug/references/lifecycle.md": 6_704,
   "aify-comms-debug/references/pi.md": 7_316,
   "aify-comms-debug/references/status-model.md": 21_921,
-  "aify-comms-debug/references/status-symptoms.md": 19_429,
+  "aify-comms-debug/references/status-symptoms.md": 19_427,
 };
 
 // An ALWAYS-LOADED file enters context whether or not it is needed, so it carries a hard limit on top

@@ -54,7 +54,16 @@ def line_count(path: Path) -> int:
 
 
 def gated_docs() -> list[Path]:
-    """CLAUDE.md and every .md it links from its Primary entry points section."""
+    """CLAUDE.md, every .md it links from Primary entry points, and every always-loaded skill file.
+
+    The skills are in the population for a stronger reason than the entry points are. A SKILL.md is not
+    read on demand: it loads into every agent's context every session, so a dead pointer there is paid
+    by every agent on every turn, and the reader who follows it is mid-task rather than orienting.
+
+    They are found by walking `.claude/skills`, not listed. The `.agents` mirror is byte-identical and
+    gated as such by test_skill_mirror_parity, so checking one checks both -- and fixing one without the
+    other reddens that gate rather than passing quietly.
+    """
     claude = REPO / "CLAUDE.md"
     text = claude.read_text(encoding="utf-8", errors="replace")
     section = text.split("## Primary entry points", 1)
@@ -65,6 +74,7 @@ def gated_docs() -> list[Path]:
         candidate = REPO / match.group(1)
         if candidate.is_file():
             docs.append(candidate)
+    docs.extend(sorted((REPO / ".claude" / "skills").rglob("*.md")))
     return docs
 
 
