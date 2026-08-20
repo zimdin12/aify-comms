@@ -188,6 +188,15 @@ Editing `service/new_dashboard/app.js` also means updating `extraction-proof.tes
 (see the layout table) — it fails loudly rather than silently if a declaration moves without being
 declared.
 
+**And editing a BRIDGE file can turn the DASHBOARD suite red, which is not where anyone looks.**
+`extraction-proof.test.mjs` cross-checks `declarationSpan` against the real spans of five bridge
+classes — `PiSession`, `CodexSession`, `HermesSession`, `TerminalProcessManager` — so growing one of
+those fails a dashboard test. That is the parser check working, not a size limit: RE-MEASURE the span
+independently and record the new figure, rather than copying the number out of the failure message,
+which records whatever the change produced rather than what is true. v0.6 Phase 8 hit exactly this: the
+bridge suite was green after the seam landed and the dashboard suite was not run, so a red gate sat
+unnoticed until the next full sweep.
+
 Full end-to-end test is a two-session live round-trip. Register two agents, use `comms_send` from one to the other, verify the target wakes or receives a steer/queued turn according to capability, and verify the response is threaded back in chat.
 
 ### The 1000-line gate fails your change — read this before "fixing" it

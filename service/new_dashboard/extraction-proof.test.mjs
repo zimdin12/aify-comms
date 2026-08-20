@@ -2535,7 +2535,10 @@ test("the five bridge classes are measurable, and the sizes are cross-checked", 
     ["mcp/stdio/pi-session.js", "PiSession", 960],
     ["mcp/stdio/codex-session.js", "CodexSession", 684],
     ["mcp/stdio/hermes-session.js", "HermesSession", 529],
-    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 626],
+    // 626 -> 648 on 2026-08-20: v0.6 Phase 8 added the delegation seam to `start()`. RE-MEASURED
+    // independently by brace-matching from the class header, not taken from the assertion's "actual" —
+    // a figure copied out of a failure message records whatever the bug produced.
+    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 648],
   ];
   for (const [rel, name, expected] of cases) {
     const span = declarationSpan(read(rel), name);
