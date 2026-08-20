@@ -15,6 +15,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+AIFY_SERVICE_REGISTRY="${AIFY_SERVICE_REGISTRY:-$HOME/.aify/services.json}"
 # Native client-install location for the host-side MCP bridge runtime. The repo
 # may sit on a slow filesystem (e.g. a WSL2 9p Docker bind-mount, where reading
 # the ~3900 node_modules files cold takes ~5s — which blows hermes' hardcoded
@@ -456,9 +457,10 @@ render_wrapper_template() {
   # ignored it. Same value unless an operator sets that variable, and honouring it is the correct half.
   text="${text//@@ENDPOINT@@/${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}}"
   text="${text//@@WRAPPER_VERSION@@/$wrapper_version}"
-  # "unknown", not blank: aify-comms reads no registry yet, and blank would claim "built from an
-  # empty registry", which is a different thing from nobody having looked.
-  text="${text//@@REGISTRY_FINGERPRINT@@/${AIFY_REGISTRY_FINGERPRINT:-unknown}}"
+  # The registry's real fingerprint, computed once per run by scripts/registry-fingerprint.sh, which
+  # calls the aify-wrapper package's own tool so the two ends cannot disagree about what one is.
+  [ -n "${_AIFY_REGISTRY_FP:-}" ] || _AIFY_REGISTRY_FP="$(bash "$SCRIPT_DIR/scripts/registry-fingerprint.sh" "$AIFY_SERVICE_REGISTRY")"
+  text="${text//@@REGISTRY_FINGERPRINT@@/$_AIFY_REGISTRY_FP}"
   # Empty is accurate here, and unlike the fingerprint "unknown" would be WRONG: the launcher
   # branches on this being non-empty and would try to base64-decode it.
   text="${text//@@STRICT_EXTRA_MCP_B64@@/}"
@@ -2732,6 +2734,13 @@ cd "$SCRIPT_DIR"
 # every wrapper + MCP config points at. Re-synced on every install (mirror with
 # --delete) so security fixes flow; self-contained so a client needs no repo.
 copy_bridge_to_native_dir
+
+# Registered BEFORE any launcher renders: a launcher bakes the registry's fingerprint as it stands, so
+# registering afterwards left every first install with a launcher stale by the entry it had just added.
+# Non-fatal -- launchers not learning about aify-comms is not aify-comms being broken.
+node "$AIFY_BRIDGE_DIR/register-service-cli.mjs" "$AIFY_SERVICE_REGISTRY" \
+  "${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}" "$AIFY_BRIDGE_DIR" \
+  || echo "warning: aify-comms was not registered in $AIFY_SERVICE_REGISTRY (see above)." >&2
 echo "  Done."
 
 echo "[2/4] Installing agent guidance..."
@@ -2876,16 +2885,6 @@ DOCTOR_PATH="$DOCTOR_BIN_DIR/aify-doctor"
 chmod +x "$DOCTOR_PATH" 2>/dev/null || true
 echo "Verifier installed: aify-comms doctor   (\`aify-comms doctor --json\` for scripted/agent checks)"
 echo "                    aify-doctor         (same thing, kept as an alias)"
-
-# Register this SERVICE so launchers learn it exists (see mcp/stdio/register-service-cli.mjs).
-# Non-fatal: a registry we cannot safely rewrite means launchers do not learn about aify-comms, which
-# is not the same as aify-comms being broken.
-AIFY_SERVICE_REGISTRY="${AIFY_SERVICE_REGISTRY:-$HOME/.aify/services.json}"
-if command -v node >/dev/null 2>&1; then
-  node "$AIFY_BRIDGE_DIR/register-service-cli.mjs" "$AIFY_SERVICE_REGISTRY" \
-    "${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}" "$AIFY_BRIDGE_DIR" \
-    || echo "warning: aify-comms was not registered in $AIFY_SERVICE_REGISTRY (see above)." >&2
-fi
 
 echo ""
 echo "=== Installation complete ==="

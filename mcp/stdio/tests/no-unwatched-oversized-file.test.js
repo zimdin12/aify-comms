@@ -50,7 +50,12 @@ const CEILINGS = {
   //
   // So this number goes UP once, with the payoff named: Phase 8 takes roughly 139 lines out of this
   // file, and this ceiling comes down past 2934 then rather than being left slack.
-  "install.sh": 2958,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
+  // 2958 -> 2957 on 2026-08-20. It goes DOWN while gaining three fixes, so record why rather than
+  // leaving the ceiling slack: usage() had restated both disabled-client refusal reasons that the
+  // refusals themselves print; the hook dispatch derives `install_${CLIENT}_hook` instead of listing
+  // three clients; and the registry fingerprint moved to scripts/registry-fingerprint.sh beside the
+  // two other readers. Comments that restated what the scripts they call already explain went too.
+  "install.sh": 2957,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.
