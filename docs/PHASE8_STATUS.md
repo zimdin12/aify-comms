@@ -107,6 +107,31 @@ receives exactly what it received before, and the seam still refuses when the fl
 argument from the open question — that the structural form would have to be built from scratch — and
 leaves the question where it belongs.
 
+### What option three still needs, end to end
+
+Traced against both sides rather than estimated. `POST /processes` on aify-env takes a `launcher` that
+it reads itself, fails closed if unreadable, judges, and derives the interpreter from — so the file it
+judges is always the file it runs. It requires a **readable path**, and it deliberately does **not**
+search PATH for the launcher: that would hand the choice of what executes to whatever PATH says. There
+is now a test in aify-env pinning that, with the absolute-path control that makes its refusal meaningful.
+
+An adapter's `argv[0]` is a bare **name** — `claude-aify`. So the chain is:
+
+| | | where it lives |
+|---|---|---|
+| 1 | the service produces argv | **done** — `console_argv`, five adapters |
+| 2 | resolve `argv[0]` to an absolute path | **unbuilt** — must be caller-side, and only the host knows its own PATH |
+| 3 | call aify-env with `{launcher: <path>, args: argv[1:]}` | unbuilt, small once 2 exists |
+| 4 | a `term` shim: write, resize, kill, console keepalive | 3b, the real remaining work |
+
+**Step 2 is bridge-local, not a service-to-bridge contract change.** The bridge runs on the host and can
+resolve a launcher name; the service cannot, and should not try — the same host may not have the same
+PATH. That narrows what the original finding called a change reaching "upstream into how every managed
+command is composed": the upstream half is done, and what is left of steps 2 and 3 does not cross the
+service boundary at all.
+
+Step 4 is unchanged and is still the work. None of this is built, and nothing here delegates.
+
 The third option is the right answer, and where this stops. Choosing the
 first two would trade a real safety property for convenience, and doing that quietly is exactly what
 the flag was put in to prevent.
