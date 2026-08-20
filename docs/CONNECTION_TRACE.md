@@ -13,10 +13,10 @@ server and a server tested against a fake client are both green while the pair i
 | # | From → To | What crosses | Evidence |
 |---|---|---|---|
 | 1 | aify-comms → registry file | its own service entry | `register-service-cli.test.js` |
-| 2 | registry → aify-wrapper | endpoints, `endpointEnv`, strict opt-in | fixture test in aify-wrapper: real writer output, parsed by the authoritative parser |
+| 2 | registry → aify-wrapper | endpoints, `endpointEnv`, strict opt-in | fixture test in aify-wrapper, **and the same bytes pinned against the real CLI here** |
 | 3 | registry → aify-wrapper → launcher | a fingerprint of what it was built from | `install-chain-across-three-repos.test.js` |
 | 4 | launcher → `aify-wrapper-check` | is it still current | same test: install, drift, **stale**, reinstall, **healed** |
-| 5 | registry → aify-env | which services exist | fixture test in aify-env |
+| 5 | registry → aify-env | which services exist | fixture test in aify-env, **same bytes pinned here** |
 | 6 | aify-comms client → aify-env server | start / list / health / output / stop / refusal | `env-client-against-real-aify-env.test.js`, over a real socket |
 | 7 | aify-env doctor → aify-comms | `/health` | **verified live** — see below |
 
@@ -40,6 +40,30 @@ states appear in one real run** — passed, failed, unanswered — which is the 
 a claim about it. And the health body carries **no credential**: the ntfy block is counters and an
 `enabled` flag, never the topic, which is the one value in this project that must never appear in a
 response.
+
+## A contract asserted on one side only is one the other side can break silently
+
+The links above are held up by RECORDED artifacts: a consumer keeps a copy of what a producer emits and
+tests against it. That proves the consumer can parse what the producer made **on the day it was
+recorded**, and a recording cannot notice when the thing it recorded changes. Three instances, all found
+by looking for the shape rather than by anything going red:
+
+| what was recorded | who held the only copy | what a change would have done |
+|---|---|---|
+| the four wrapper templates | aify-comms | an edit in aify-wrapper diverges the pair, both suites green |
+| this service's registry output | aify-wrapper and aify-env | `command` renamed, or key order destabilised, unnoticed here |
+| a rendered `claude-aify` | aify-env | a template change makes aify-env refuse EVERY launcher on the host, while its suite passes on the stale copy |
+
+Each is now pinned on the producing side as well, so a change reddens in the repo where it is made. The
+third one could not be fixed where it was found: rendering a launcher for real needs the installer, and
+a test that shells into a sibling checkout only passes on one machine. It lives in aify-wrapper instead.
+
+**Measured before writing any of them** — all copies agreed at the time. These close holes rather than
+repair breaks, and saying which is the difference between a fix and a story about one.
+
+**Two of the three claims were wrong until a mutation corrected them.** `version` was already covered by
+the existing suite, and an indented marker is explicitly tolerated by aify-env's regex rather than
+refused. Running the mutation is what found both; the prose had been confident about each.
 
 ## What the trace corrected
 

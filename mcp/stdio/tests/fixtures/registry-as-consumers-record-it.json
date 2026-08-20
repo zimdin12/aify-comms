@@ -1,0 +1,28 @@
+{
+  "services": {
+    "aify-comms": {
+      "endpoint": "http://127.0.0.2:1",
+      "endpointEnv": [
+        "CLAUDE_MCP_SERVER_URL",
+        "AIFY_SERVER_URL"
+      ],
+      "mcp": [
+        {
+          "args": [
+            "/opt/aify/mcp/stdio/server.js"
+          ],
+          "command": "node",
+          "name": "aify-comms"
+        },
+        {
+          "args": [
+            "/opt/aify/mcp/stdio/claude-channel.js"
+          ],
+          "command": "node",
+          "name": "aify-comms-channel"
+        }
+      ]
+    }
+  },
+  "version": 1
+}
