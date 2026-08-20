@@ -109,7 +109,7 @@ export class EnvClient {
    * Reads in a background loop rather than returning a promise the caller awaits, because the caller
    * is wiring a console and wants to carry on.
    */
-  async subscribeOutput(id, listener) {
+  async subscribeOutput(id, listener, onExit) {
     if (!this.#endpoint) return null;
 
     let response;
@@ -145,17 +145,33 @@ export class EnvClient {
         const parts = pending.split(String.fromCharCode(10, 10));
         pending = parts.pop() ?? "";
         for (const frame of parts) {
-          const line = frame.split(String.fromCharCode(10)).find((l) => l.startsWith("data: "));
+          const lines = frame.split(String.fromCharCode(10));
+          const line = lines.find((l) => l.startsWith("data: "));
           if (!line) continue;
-          let text;
+          let payload;
           try {
-            text = JSON.parse(line.slice("data: ".length));
+            payload = JSON.parse(line.slice("data: ".length));
           } catch {
             // Malformed framing. Skipping beats delivering a fragment of protocol into a console.
             continue;
           }
+
+          // THE `event:` LINE DECIDES, not the payload. An agent that prints something exit-shaped
+          // must not be able to end its own terminal, which it could if this matched on content.
+          if (lines.some((l) => l === "event: exit")) {
+            stopped = true;
+            if (typeof onExit === "function") {
+              try {
+                onExit(Number(payload?.code ?? 0));
+              } catch {
+                // A broken consumer does not get to break the teardown.
+              }
+            }
+            return;
+          }
+
           try {
-            listener(text);
+            listener(payload);
           } catch {
             // A broken consumer must not sever the stream for anyone else watching.
           }

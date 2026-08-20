@@ -72,16 +72,52 @@ test("a delegation reporting DISABLED is consulted and not taken", async () => {
   assert.ok(["pty", "pipe"].includes(manager.reached), "a disabled delegation blocked the local path");
 });
 
-test("a delegation reporting ENABLED refuses, and says what is missing", async () => {
-  // Fail closed, loudly, naming the gap. The alternative is a flag whose "on" position produces agents
-  // that are subtly different, which is the failure this phase exists to avoid introducing.
+test("delegation ON with no argv refuses, and says why splitting the string is not the answer", async () => {
+  // The seam used to refuse outright because the term shim did not exist. It does now, so the refusal
+  // that remains is the honest one: a row carrying only a command STRING cannot be delegated, because
+  // aify-env runs an allowlisted launcher file and splitting a shell string is the quoting bug this
+  // design exists to avoid.
   const manager = new DispatchSpy({ envDelegation: { isEnabled: () => true } });
   await assert.rejects(() => manager.start(spec("seam-3")), (error) => {
     assert.match(error.message, /aify-env/i);
-    assert.match(error.message, /shim|keepalive/i, "the refusal must name what is not delegated");
-    assert.match(error.message, /PHASE8_STATUS/, "the refusal must point somewhere");
+    assert.match(error.message, /argv/i, "the refusal must name what is missing");
+    assert.match(
+      error.message,
+      /AIFY_COMMS_DELEGATE_SPAWNS/,
+      "an operator who hits this must be told which half to turn off",
+    );
     return true;
   });
+});
+
+test("delegation ON with argv whose launcher does not resolve refuses, rather than inventing a path", async () => {
+  // aify-env is asked for a launcher BY PATH; it deliberately does not search PATH on our behalf. A
+  // guess here would ask the environment to execute something we could not name.
+  const manager = new DispatchSpy({ envDelegation: { isEnabled: () => true } });
+  await assert.rejects(
+    () => manager.start({ ...spec("seam-4"), argv: ["definitely-not-on-this-path-xyz", "--flag"] }),
+    (error) => {
+      assert.match(error.message, /does not resolve/i);
+      return true;
+    },
+  );
+});
+
+test("delegation ON with a RESOLVABLE launcher goes to aify-env, not to a local spawn", async () => {
+  // The path this phase was built for. Nothing spawns locally, and the manager asks the environment.
+  const asked = [];
+  const client = {
+    async start(req) { asked.push(req); return { ok: true, handle: { id: "env-1", pid: 4242, terminal: true } }; },
+    async subscribeOutput() { return () => {}; },
+  };
+  const manager = new DispatchSpy({ envDelegation: { isEnabled: () => true, client } });
+  const result = await manager.start({ ...spec("seam-5"), argv: [process.execPath, "--version"] });
+
+  assert.equal(result.pid, 4242);
+  assert.equal(asked.length, 1, "the environment was not asked to start anything");
+  assert.equal(asked[0].service, "aify-comms");
+  assert.deepEqual(asked[0].args, ["--version"], "argv[0] is the launcher; the rest are its arguments");
+  assert.equal(manager.reached, null, "it dispatched locally as well as delegating");
 });
 
 test("the refusal happens BEFORE any local dispatch", async () => {
@@ -155,34 +191,3 @@ test("the production wiring reads the environment at CALL time, not at construct
 // So the message told an operator to unset the one variable that is ALSO their diagnostic tooling's
 // only way to find the environment. Following it works, and costs them their doctor.
 
-test("the refusal names the OPT-IN flag, not the endpoint an operator also needs for doctor", async () => {
-  const { TerminalProcessManager } = await import("../terminal-runtime.js");
-  const manager = new TerminalProcessManager({ envDelegation: { isEnabled: () => true } });
-
-  const error = await manager
-    .start({ id: "seam-message", command: "true", cwd: process.cwd() })
-    .then(() => null, (e) => e);
-
-  assert.notEqual(error, null, "delegation was on and the seam did not refuse");
-  assert.match(
-    error.message,
-    /AIFY_COMMS_DELEGATE_SPAWNS/,
-    "the refusal does not name the opt-in flag, so an operator cannot tell what to turn off",
-  );
-});
-
-test("the refusal does not tell an operator to unset the endpoint aify-env's doctor reads", async () => {
-  const { TerminalProcessManager } = await import("../terminal-runtime.js");
-  const manager = new TerminalProcessManager({ envDelegation: { isEnabled: () => true } });
-
-  const error = await manager
-    .start({ id: "seam-remedy", command: "true", cwd: process.cwd() })
-    .then(() => null, (e) => e);
-
-  assert.notEqual(error, null, "delegation was on and the seam did not refuse");
-  assert.doesNotMatch(
-    error.message,
-    /Unset it to spawn locally/,
-    "the remedy points at AIFY_ENV_ENDPOINT, which is also how aify-env's doctor and TUI are found",
-  );
-});

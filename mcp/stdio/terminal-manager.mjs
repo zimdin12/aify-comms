@@ -31,7 +31,7 @@ import { IS_REMOTE, httpCall, logTransientOrError } from "./aify-service-endpoin
 import { REMOTE_AGENT_STATE } from "./bridge-agent-state.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
 import { decideConsolePulse } from "./console-pulse.mjs";
-import { isEnabled } from "./env-client.mjs";
+import { EnvClient, isEnabled } from "./env-client.mjs";
 import { reportDeadOwnedSessions } from "./dead-pty-reporter.js";
 import { IS_ENVIRONMENT_BRIDGE } from "./launch-identity.mjs";
 import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
@@ -90,7 +90,15 @@ export const TERMINAL_MANAGER = new TerminalProcessManager({
   //
   // Read at START time rather than at construction, so a value exported after this module loaded is
   // still honoured.
-  envDelegation: { isEnabled: () => isEnabled(process.env) },
+  envDelegation: {
+    isEnabled: () => isEnabled(process.env),
+    // Built on demand, from the environment at CALL time. Constructing it at module load would bake in
+    // an endpoint exported afterwards -- and would build a client on every host, including the vast
+    // majority that never delegate anything.
+    get client() {
+      return new EnvClient({ endpoint: String(process.env.AIFY_ENV_ENDPOINT || "").trim() });
+    },
+  },
   onOutput: async (terminalId, output) => {
     await httpCall("POST", `/terminals/${encodeURIComponent(terminalId)}/output`, {
       bridgeId: BRIDGE_INSTANCE_ID,

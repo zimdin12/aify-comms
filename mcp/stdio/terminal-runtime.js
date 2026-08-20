@@ -2,6 +2,8 @@ import { spawn } from "child_process";
 import { createRequire } from "module";
 import { homedir } from "node:os";
 import { normalizeRuntime, terminateProcessTree } from "./runtimes.js";
+import { resolveExecutable } from "./runtimes-exec.js";
+import { createEnvTerm } from "./env-term-shim.mjs";
 import { reapPriorManagedClaude } from "./reap-managed-claude.js";
 import { classifyClaudeConsoleTail, hasActiveSubagents } from "./claude-console-spinner.js";
 import { matchConsolePrompt } from "./claude-console-prompts.js";
@@ -145,7 +147,7 @@ export class TerminalProcessManager {
   }
 
 
-  async start({ id, command, cwd = process.cwd(), env = process.env, cols = 100, rows = 28, runtime = "", sessionHandle = "", healAttempted = false, agentId = "", sessionMode = "" }) {
+  async start({ id, command, argv = [], cwd = process.cwd(), env = process.env, cols = 100, rows = 28, runtime = "", sessionHandle = "", healAttempted = false, agentId = "", sessionMode = "" }) {
     if (!id) throw new Error("Terminal id is required");
     if (!command) throw new Error("Terminal command is required");
     if (this.terminals.has(id)) {
@@ -169,12 +171,7 @@ export class TerminalProcessManager {
     // subtly different in ways nobody could attribute. Refusing names the gap at the point of use
     // instead of leaving it in a document.
     if (this.envDelegation?.isEnabled()) {
-      throw new Error(
-        "delegating terminals to aify-env is not finished: a term shim (write/resize/kill) and the "
-        + "console keepalive still run against a local pty. Unset AIFY_COMMS_DELEGATE_SPAWNS to spawn "
-        + "locally -- that is the opt-in, and unsetting it leaves AIFY_ENV_ENDPOINT alone, which "
-        + "aify-env's own doctor and TUI need to find the daemon. See docs/PHASE8_STATUS.md.",
-      );
+      return this.startDelegated({ ...spec, argv });
     }
     if (pty) {
       return this.startPty(spec);
@@ -257,6 +254,97 @@ export class TerminalProcessManager {
       this._handleExit(id, state, { code: exitCode, signal }).catch(() => {});
     });
     return { pid: term.pid, status: "attached", pty: true };
+  }
+
+  /**
+   * Start a terminal in aify-env instead of here.
+   *
+   * Mirrors startPty's wiring deliberately: the same state shape, the same `_handleOutput` and
+   * `_handleExit`, the same keepalive. That is what makes a delegated agent behave identically rather
+   * than subtly differently -- the batching, auto-answer, classification and heal path are all reached
+   * through those two callbacks, so routing into them is what buys parity.
+   *
+   * REFUSES rather than guessing, in two cases that are not failures of this code:
+   *   - no argv: the command is a shell string somebody composed, and splitting it is the quoting bug
+   *     this whole design exists to avoid.
+   *   - argv[0] does not resolve: aify-env allowlists a launcher FILE, and inventing a path for it
+   *     would mean asking the environment to execute something we could not name.
+   */
+  async startDelegated(spec) {
+    const { id, command, argv = [], cwd, env, cols, rows, runtime, sessionHandle, healAttempted, agentId, sessionMode } = spec;
+    const parts = Array.isArray(argv) ? argv.filter((a) => typeof a === "string") : [];
+    if (parts.length === 0) {
+      throw new Error(
+        `cannot delegate terminal ${id}: the row carries no argv, only a command string. aify-env runs `
+        + "an allowlisted launcher file, and splitting a shell string is the quoting bug this avoids. "
+        + "Unset AIFY_COMMS_DELEGATE_SPAWNS to spawn locally -- that is the opt-in, and unsetting it "
+        + "leaves AIFY_ENV_ENDPOINT alone, which aify-env's own doctor and TUI need to find the daemon.",
+      );
+    }
+
+    const launcher = resolveExecutable(parts[0]);
+    if (!launcher) {
+      throw new Error(
+        `cannot delegate terminal ${id}: "${parts[0]}" does not resolve to an executable on this host. `
+        + "aify-env is asked for a launcher by path; it does not search PATH on our behalf.",
+      );
+    }
+
+    const started = await this.envDelegation.client.start({
+      service: "aify-comms",
+      launcher,
+      args: parts.slice(1),
+      cwd: expandUserHome(cwd) || process.cwd(),
+      env,
+    });
+    if (!started?.ok) {
+      throw new Error(`aify-env refused terminal ${id}: ${started?.error ?? "no answer"}`);
+    }
+
+    let resolveExit = null;
+    const exitPromise = new Promise((resolve) => { resolveExit = resolve; });
+    const term = createEnvTerm({
+      client: this.envDelegation.client,
+      id: started.handle.id,
+      pid: started.handle.pid,
+      // Unawaited term calls report here rather than vanishing; a delegated console that silently
+      // swallows keystrokes is the failure this reporting exists for.
+      onError: (op, error) => console.error(`[aify] delegated ${op} failed for ${id}: ${error}`),
+    });
+
+    const state = {
+      id,
+      command,
+      cwd,
+      env,
+      cols: Math.min(2000, Math.max(20, Number(cols || 100))),
+      rows: Math.min(1000, Math.max(6, Number(rows || 28))),
+      runtime: normalizeRuntime(runtime),
+      sessionHandle: String(sessionHandle || "").trim(),
+      healAttempted: !!healAttempted,
+      agentId: String(agentId || "").trim(),
+      sessionMode: String(sessionMode || "").trim(),
+      term,
+      status: "attached",
+      // Named so anything reasoning about ownership can tell this pty is not ours to signal.
+      kind: "delegated",
+      envProcessId: started.handle.id,
+      outputTail: "",
+      classification: null,
+      resumeHealTimer: null,
+      exitPromise,
+      resolveExit,
+    };
+    this.terminals.set(id, state);
+    state.stopConsoleKeepalive = this._armConsoleKeepalive(id, state);
+
+    await this.envDelegation.client.subscribeOutput(
+      started.handle.id,
+      (text) => { this._handleOutput(id, state, text).catch(() => {}); },
+      (code) => { this._handleExit(id, state, { code, signal: null }).catch(() => {}); },
+    );
+
+    return { pid: started.handle.pid, status: "attached", pty: started.handle.terminal === true };
   }
 
   async startPipeProcess({ id, command, cwd, env, cols = 100, rows = 28, runtime = "", sessionHandle = "", healAttempted = false, agentId = "", sessionMode = "" }) {
