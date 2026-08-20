@@ -12,6 +12,9 @@ number and the tag waits for it.
 and sequenced here, and get their own plans when the phase before them lands — writing them now would
 be fabricating detail nobody has earned yet.
 
+**Does it all connect?** [CONNECTION_TRACE.md](../../CONNECTION_TRACE.md) — every link between the
+three repos and what proves it, including the one verified against the running service.
+
 **Prior art in this repo, read before starting any phase:**
 [MULTI_SERVICE_STACK_TRACE.md](../../MULTI_SERVICE_STACK_TRACE.md) (what already works and what
 blocks a second service) and [AIFY_ENV_BOUNDARY.md](../../AIFY_ENV_BOUNDARY.md) (what moves, what
