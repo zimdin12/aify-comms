@@ -192,6 +192,58 @@ function resumeRegexesForRuntime(runtime, flags = "") {
   return patterns;
 }
 
+/**
+ * The resume flags a runtime's launch command can carry.
+ *
+ * Exported so the argv reader derives from the SAME table the regexes are built from. Two lists that
+ * must agree is how this went wrong before: codex and opencode were missing from the flag set and
+ * nothing connected the adapters that EMIT `--resume` to the code that has to undo it.
+ */
+export function resumeFlagsForRuntime(runtime = "") {
+  return RESUME_FLAGS_BY_RUNTIME[normalizeRuntime(runtime)] || [];
+}
+
+/**
+ * The resume handle read out of ARGV: find the flag, take the next element.
+ *
+ * No regex and no unquoting, because argv arrives already separated -- which is the whole reason
+ * v0.6 Phase 8 carries it. A handle containing a space is recoverable here and is not from a string.
+ *
+ * FAILS CLOSED to "" on anything that is not an array of strings. Callers read this out of a JSON
+ * column, so a malformed value is a real input rather than a hypothetical, and an empty answer means
+ * "use the string reader" to every caller.
+ */
+export function extractRuntimeSessionHandleFromArgv(runtime = "", argv = []) {
+  if (!Array.isArray(argv)) return "";
+  const parts = argv.filter((part) => typeof part === "string");
+  if (parts.length !== argv.length) return "";
+
+  const key = normalizeRuntime(runtime);
+  // Codex's SUBCOMMAND form first, so it keeps deciding the case it already decided: the dashboard
+  // renders `codex ... resume [--include-non-interactive] <handle>`, where the id is POSITIONAL.
+  if (key === "codex") {
+    const at = parts.indexOf("resume");
+    if (at !== -1) {
+      const rest = parts.slice(at + 1).filter((part) => part !== "--include-non-interactive");
+      if (rest.length && !rest[0].startsWith("-")) return rest[0];
+    }
+  }
+
+  const flags = resumeFlagsForRuntime(key);
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i];
+    for (const flag of flags) {
+      if (part === flag) {
+        const next = parts[i + 1];
+        // A flag with nothing after it is not a handle. Reading past the end would invent one.
+        return typeof next === "string" ? next : "";
+      }
+      if (part.startsWith(`${flag}=`)) return part.slice(flag.length + 1);
+    }
+  }
+  return "";
+}
+
 export function extractRuntimeSessionHandleFromCommand(runtime = "", command = "") {
   const text = String(command || "");
   for (const regex of resumeRegexesForRuntime(runtime)) {

@@ -16,6 +16,7 @@ import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
 // an unhandled one, and leaving the failure tracker blind to it.
 import { noteControlClaimFailure, noteControlClaimSuccess } from "./claim-failure-tracker.mjs";
 import { workspaceWithinRoots } from "./environment-identity.mjs";
+import { extractRuntimeSessionHandleFromArgv } from "./runtimes.js";
 import { defaultGetCmdline as hermesGetCmdline } from "./hermes-daemon.js";
 import { IS_ENVIRONMENT_BRIDGE } from "./launch-identity.mjs";
 import { readManagedViaWrapperRuntimes } from "./managed-wrapper-cache.mjs";
@@ -67,7 +68,16 @@ export async function runTerminalControlPass({
         }
         const command = terminal.command || control.body || "";
         const runtime = normalizeRuntime(terminal.runtime || "");
-        const sessionHandle = extractTerminalSessionHandle(runtime, command);
+        // PREFER ARGV where the row carries it (v0.6 Phase 8). Reading the handle structurally means
+        // finding a flag and taking the next element -- no regex, no shell unquoting, and nothing a
+        // space in a path can defeat. The string reader stays for every row created before the column
+        // existed and for operator-supplied commands, which have no argv by design.
+        //
+        // This is not a new parse. It DELETES one for the rows that carry argv, and the parse it
+        // replaces has already shipped a defect: codex's and opencode's resume forms went unrecognised,
+        // so the heal path could not fire and workers got a blank CODEX_THREAD_ID.
+        const fromArgv = extractRuntimeSessionHandleFromArgv(runtime, terminal.argv);
+        const sessionHandle = fromArgv || extractTerminalSessionHandle(runtime, command);
         let agentInfo = {};
         if (terminal.agentId) {
           try {
