@@ -28,6 +28,16 @@ section, plus every file under `.claude/skills`. A doc promoted into that list i
 The skills are there for a stronger reason than the entry points: a SKILL.md loads into every agent's
 context every session, so a bad pointer there is paid by every agent on every turn.
 
+SYMBOL NAMES WERE CHECKED TOO, AND ARE NOT GATED, so nobody repeats the search. Of 546 backticked
+identifiers in these docs, 16 exist nowhere in this repo's source -- and 15 of those are correct:
+`tty_do_resize` is the Linux kernel's, `delete_empty_sessions` is hermes', `approval_mode` and
+`allowed_models` are config keys, `poolStale` appears in a "Fix =" sentence describing work not yet
+done, and `test_session_identity_sticky` names a test inside a historical red-baseline record. A gate
+here would be 15 false alarms and one finding, and a gate that cries wolf gets switched off. The one
+real candidate is `statusBucketForPresence`, presented as ours and absent under every variant name;
+locating a successor needs more archaeology than one backticked name in a dated entry is worth, and
+inventing a replacement would be worse than leaving it.
+
 Historical records are deliberately OUT. The repo holds ~490 such pointers and most sit in dated
 plans, ledgers and audits, where a pointer into code as it stood IS the record and rewriting it would
 falsify history.
