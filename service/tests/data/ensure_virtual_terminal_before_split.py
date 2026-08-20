@@ -153,9 +153,9 @@ async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureReque
         await db.execute(
             """
             INSERT INTO terminal_sessions (
-                id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command,
+                id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command, argv,
                 output, status, requested_by, created_at, updated_at, stopped_at, error
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 terminal_id,
@@ -166,6 +166,9 @@ async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureReque
                 runtime,
                 workspace,
                 virtual_command,
+                # A virtual-rpc sentinel is not a launch: nothing executes it, so there is no argv to
+                # describe. Empty here is the honest value, not an omission.
+                "",
                 "",
                 "running",
                 requested_by,

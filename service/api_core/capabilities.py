@@ -189,6 +189,17 @@ def _default_console_command(session, workspace: str, *, interactive: bool = Fal
     (claude interactive stays fresh, codex always resumes, pi interactive
     avoids the 026H trap, opencode is plain CLI).
     """
+    return " ".join(_default_console_argv(session, workspace, interactive=interactive))
+
+
+def _default_console_argv(session, workspace: str, *, interactive: bool = False) -> list[str]:
+    """The same launch as ARGV - the program, then its arguments.
+
+    This is the value; `_default_console_command` is a view of it, so the two cannot describe different
+    launches. v0.6 Phase 8 needs the structural form because aify-env executes an allowlisted launcher
+    file rather than a shell string, and every adapter was already building this list and joining it on
+    its last line.
+    """
     from service.runtimes import adapter_for
 
     agent_id = str(session["agent_id"] or "").strip()
@@ -198,9 +209,11 @@ def _default_console_command(session, workspace: str, *, interactive: bool = Fal
     try:
         adapter = adapter_for(runtime)
     except ValueError:
-        return f"{runtime or 'agent'} --aify-agent {agent_id}"
+        # Same fallback the string form has always had, as a list. A runtime with no adapter still
+        # produces something runnable rather than an empty argv.
+        return [runtime or "agent", "--aify-agent", agent_id]
 
-    return adapter.console_command(
+    return adapter.console_argv(
         agent_id=agent_id,
         handle=handle,
         interactive=interactive,

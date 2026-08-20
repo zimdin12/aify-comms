@@ -110,6 +110,10 @@ AGENT_SESSION_MIGRATIONS = {
 }
 
 TERMINAL_SESSION_MIGRATIONS = {
+    # v0.6 Phase 8: the launch as a JSON array, beside the shell string it joins to. Additive on
+    # purpose -- `command` is unchanged, so a bridge that has not been updated reads what it always
+    # read and every queued row keeps working.
+    "argv": "ALTER TABLE terminal_sessions ADD COLUMN argv TEXT DEFAULT ''",
     "output": "ALTER TABLE terminal_sessions ADD COLUMN output TEXT DEFAULT ''",
     "output_seq": "ALTER TABLE terminal_sessions ADD COLUMN output_seq INTEGER DEFAULT 0",
     # PTY root pid (2026-06-02): persisted so Dashboard Stop/Restart can

@@ -149,9 +149,9 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
             await db.execute(
                 """
                 INSERT INTO terminal_sessions (
-                    id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command,
+                    id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command, argv,
                     output, status, requested_by, created_at, updated_at, stopped_at, error
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     terminal_id,
@@ -162,6 +162,7 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
                     session["runtime"],
                     workspace,
                     virtual_command,
+                    "",
                     "",
                     "running",
                     requested_by,
@@ -257,15 +258,19 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
         workspace, _workspace_root = _workspace_for_environment(environment, req.workspace, session["workspace"] or "")
         terminal_id = f"term_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
         now = _now()
-        command = str(req.command or "").strip() or _default_console_command(session, workspace, interactive=True)
+        # An operator-supplied command has no argv: we did not build it, and splitting it would be the
+        # parse this avoids. Ours does, and the string is its join so the two cannot disagree.
+        supplied = str(req.command or "").strip()
+        argv = None if supplied else _default_console_argv(session, workspace, interactive=True)
+        command = supplied or " ".join(argv)
         requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
         bridge_id = str(environment.get("bridgeId") or "").strip()
         await db.execute(
             """
             INSERT INTO terminal_sessions (
-                id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command,
+                id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command, argv,
                 output, status, requested_by, created_at, updated_at, stopped_at, error
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 terminal_id,
@@ -276,6 +281,7 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
                 session["runtime"],
                 workspace,
                 command,
+                json.dumps(argv) if argv else "",
                 "",
                 "starting",
                 requested_by,

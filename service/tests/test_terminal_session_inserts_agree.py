@@ -51,6 +51,9 @@ PTY_TWIN = "_insert_pty_console_terminal"
 SUBSTITUTIONS = [
     ("virtual_command,", "command,"),
     ('"running",', '"starting",'),
+    # v0.6 Phase 8. Both branches write `argv`; only the PTY one can have a value. A virtual-rpc
+    # command is a sentinel nothing executes, so it has no launch to describe structurally.
+    ('"",', 'json.dumps(argv) if argv else "",'),
 ]
 
 

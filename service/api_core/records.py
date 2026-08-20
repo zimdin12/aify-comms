@@ -13,6 +13,7 @@ in one sentence is one you can test in isolation.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from service.api_core.capabilities import _row_capabilities
@@ -118,6 +119,24 @@ def _agent_session_to_dict(row) -> dict[str, Any]:
     }
 
 
+def _decoded_argv(raw: Any) -> list[str]:
+    """A stored argv as a list of strings, or [] for anything that is not one.
+
+    NEVER RAISES. A terminal fetch must not fail over an advisory field -- the same rule the role field
+    follows one function along. A database predating the migration has no column at all, and a value
+    that is valid JSON but not an array of strings is as unusable as one that is not JSON.
+    """
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(part) for part in parsed]
+
+
 def _terminal_session_to_dict(row) -> dict[str, Any]:
     keys = set(row.keys())
     return {
@@ -129,6 +148,10 @@ def _terminal_session_to_dict(row) -> dict[str, Any]:
         "runtime": row["runtime"],
         "workspace": row["workspace"] or "",
         "command": row["command"] or "",
+        # v0.6 Phase 8: the launch as a list, beside the string it joins to. Empty means "no structural
+        # form here", which every consumer already has to handle -- an operator-supplied command has
+        # none, because splitting a human's shell string is the parse this design avoids.
+        "argv": _decoded_argv(row["argv"] if "argv" in keys else ""),
         "output": (row["output"] if "output" in keys else "") or "",
         "outputSeq": int((row["output_seq"] if "output_seq" in keys else 0) or 0),
         "cols": int((row["cols"] if "cols" in keys else 0) or 0),

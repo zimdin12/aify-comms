@@ -23,7 +23,7 @@ import time
 import uuid
 from typing import Any
 
-from service.api_core.capabilities import _default_console_command, _environment_supports_terminal
+from service.api_core.capabilities import _default_console_argv, _environment_supports_terminal
 from service.api_core.events import _append_terminal_control, _append_terminal_event
 from service.api_core.records import _environment_record_to_dict
 from service.api_core.runtime import _normalize_runtime
@@ -108,14 +108,17 @@ async def _ensure_managed_pty_for_dispatch(
     workspace, _workspace_root = _workspace_for_environment(environment, None, session["workspace"] or "")
     terminal_id = f"term_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
     bridge_id = str(environment.get("bridgeId") or "").strip()
-    command = _default_console_command(session, workspace)
+    # argv is the value; command is its join. Stored together so a bridge can take either, and derived
+    # from one source so they cannot describe different launches.
+    argv = _default_console_argv(session, workspace)
+    command = " ".join(argv)
     now = _now()
     await db.execute(
         """
         INSERT INTO terminal_sessions (
-            id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command,
+            id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command, argv,
             output, status, requested_by, created_at, updated_at, stopped_at, error
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             terminal_id,
@@ -126,6 +129,7 @@ async def _ensure_managed_pty_for_dispatch(
             session["runtime"],
             workspace,
             command,
+            json.dumps(argv),
             "",
             "starting",
             requested_by or "dashboard",

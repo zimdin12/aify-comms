@@ -25,7 +25,7 @@ import uuid
 
 from fastapi import HTTPException, Request
 
-from service.api_core.capabilities import _default_console_command
+from service.api_core.capabilities import _default_console_argv
 from service.api_core.console_capability_gate import _refuse_console_without_terminal_capability
 from service.api_core.console_terminal_rows import (
     _insert_pty_console_terminal,
@@ -159,11 +159,15 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
         workspace, _workspace_root = _workspace_for_environment(environment, req.workspace, session["workspace"] or "")
         terminal_id = f"term_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
         now = _now()
-        command = str(req.command or "").strip() or _default_console_command(session, workspace, interactive=True)
+        # An operator-supplied command has no argv: we did not build it, and splitting it would be the
+        # parse this avoids. Ours does, and the string is its join so the two cannot disagree.
+        supplied = str(req.command or "").strip()
+        argv = None if supplied else _default_console_argv(session, workspace, interactive=True)
+        command = supplied or " ".join(argv)
         requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
         bridge_id = str(environment.get("bridgeId") or "").strip()
         await _insert_pty_console_terminal(
-            db, terminal_id, session_id, session, bridge_id, workspace, command, requested_by, now,
+            db, terminal_id, session_id, session, bridge_id, workspace, command, requested_by, now, argv,
         )
         await _append_terminal_event(
             db,

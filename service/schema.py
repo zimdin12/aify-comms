@@ -350,6 +350,7 @@ CREATE TABLE IF NOT EXISTS terminal_sessions (
     runtime TEXT NOT NULL,
     workspace TEXT DEFAULT '',
     command TEXT DEFAULT '',
+    argv TEXT DEFAULT '',
     output TEXT DEFAULT '',
     output_seq INTEGER DEFAULT 0,
     status TEXT DEFAULT 'starting',

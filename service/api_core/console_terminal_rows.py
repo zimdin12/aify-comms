@@ -57,9 +57,9 @@ async def _insert_virtual_console_terminal(
             await db.execute(
                 """
                 INSERT INTO terminal_sessions (
-                    id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command,
+                    id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command, argv,
                     output, status, requested_by, created_at, updated_at, stopped_at, error
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     terminal_id,
@@ -70,6 +70,7 @@ async def _insert_virtual_console_terminal(
                     session["runtime"],
                     workspace,
                     virtual_command,
+                    "",
                     "",
                     "running",
                     requested_by,
@@ -82,15 +83,15 @@ async def _insert_virtual_console_terminal(
 
 
 async def _insert_pty_console_terminal(
-    db, terminal_id, session_id, session, bridge_id, workspace, command, requested_by, now
+    db, terminal_id, session_id, session, bridge_id, workspace, command, requested_by, now, argv
 ) -> None:
         """The real-PTY console row. Born `starting`: a bridge still has to spawn the process."""
         await db.execute(
             """
             INSERT INTO terminal_sessions (
-                id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command,
+                id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command, argv,
                 output, status, requested_by, created_at, updated_at, stopped_at, error
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 terminal_id,
@@ -101,6 +102,7 @@ async def _insert_pty_console_terminal(
                 session["runtime"],
                 workspace,
                 command,
+                json.dumps(argv) if argv else "",
                 "",
                 "starting",
                 requested_by,
