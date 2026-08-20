@@ -155,16 +155,19 @@ that a second service walks into.
 
 **For several, no**, and the missing pieces are these, smallest first:
 
-| # | Missing | Size |
-|---|---|---|
-| 1 | A registry (`~/.aify/services.json`) that services write at install and the launcher reads at launch | small |
-| 2 | The launcher emitting one MCP server entry per registered service | small — the map is already plural |
-| 3 | `AIFY_SERVICE` naming which service a session belongs to, set explicitly by a spawner instead of inherited | small |
-| 4 | Per-service identity, probably `agentId` inside each registry entry, with `HARNESS_IDENTITY` kept as the single-service override | medium — it changes the contract |
-| 5 | The environment tier extracted so any service can request a spawn without owning PTYs | **large — v0.6 Phase 8** |
+**Three of the five are now built. Re-measured 2026-08-20 rather than recalled** — this table stood
+unchanged while the work under it landed, which is how a plan becomes a description of the past.
 
-1 to 3 are additive and safe. 4 changes a contract that four wrappers and a live fleet depend on. 5 is
-a release of its own.
+| # | Missing | Size | State |
+|---|---|---|---|
+| 1 | A registry (`~/.aify/services.json`) that services write at install and the launcher reads at launch | small | **DONE.** aify-comms writes its entry through `mcp/stdio/register-service-cli.mjs`; aify-wrapper reads it in `lib/registry.mjs`. |
+| 2 | The launcher emitting one MCP server entry per registered service | small — the map is already plural | **DONE, opt-in.** `strictMcpEntriesFor(registry)` selects the services that asked, and only those; a host where nobody opted in renders byte-identically to before. |
+| 3 | `AIFY_SERVICE` naming which service a session belongs to, set explicitly by a spawner instead of inherited | small | **OPEN.** Nothing sets it — verified by grepping the four templates and both bridges. |
+| 4 | Per-service identity, probably `agentId` inside each registry entry, with `HARNESS_IDENTITY` kept as the single-service override | medium — it changes the contract | **OPEN.** |
+| 5 | The environment tier extracted so any service can request a spawn without owning PTYs | **large — v0.6 Phase 8** | **BUILT, and OFF.** aify-env exists and aify-comms delegates through it, proven against a real daemon; `isEnabled()` needs two variables and nothing sets either. The flip is the operator's, on an idle fleet. |
+
+3 and 4 are what remain. 3 is additive and safe; 4 changes a contract that four wrappers and a live
+fleet depend on.
 
 ## What I would NOT do
 

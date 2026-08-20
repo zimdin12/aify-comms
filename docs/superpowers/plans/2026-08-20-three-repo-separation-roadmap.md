@@ -92,6 +92,18 @@ host's actually-installed launchers, `aify-wrapper-check` reports:
 Three things in that output rather than only the last line. It reports `??` and never "current", so a
 launcher it cannot read is not counted as fine — the rule this program keeps re-learning. It read the
 files rather than running them, which is what makes it safe to point at a pre-contract wrapper at all.
+
+**And the clause was only half true until 2026-08-20: `install.sh` baked the literal string
+`unknown`.** aify-comms' installer is the primary path, so every launcher on every host would have read
+`??` forever and none could ever read `current` — the right failure direction, telling nobody anything
+about the only path that matters. aify-wrapper's own installer had baked the real value all along, so
+one field in one template meant different things depending on which installer wrote it. It now calls
+the package's own fingerprint tool through `scripts/registry-fingerprint.sh`, and registration moved
+ahead of wrapper rendering, because a launcher bakes the registry as it stands and registering
+afterwards made every FIRST install produce a launcher stale by the entry it had just added. Proven
+both ways: a one-service registry fingerprints `2bc86e1bcae311fa` where an empty one gives
+`bcee5b55e534ae7e`, the render bakes the former, and the checker says `1 current` against that registry
+and `0 current, 1 stale` against the other.
 And `--strict` exits 1, verified separately, so a script can act on the answer instead of only a human
 reading it.
 
@@ -100,7 +112,8 @@ so they need a reinstall. That agrees with `aify-comms doctor`, which reports th
 as older than the checkout — the whole install is behind, by design, pending the deploy decision.
 
 **Phase 7 — aify-env. MET by measurement — run the suite for the count rather than trusting one
-written here; it was 171 and is now 191 on 2026-08-20, and every number in prose rots.** A process started through aify-env runs under a PTY, streams to a consumer,
+written here; it was 171, then 191, and is 232 (231 + 1 skip) later the same day, 2026-08-20. Three
+figures for one day is the point: every number in prose rots.** A process started through aify-env runs under a PTY, streams to a consumer,
 and is reaped when it dies. A file without `HARNESS_WRAPPER_VERSION` is refused. `aify-env doctor`
 reports `passed / failed / unanswered` and a silent registered service reads `unanswered`, never `ok`.
 The TUI shows registered services, owned processes and its own I/O, and claims no agent status.

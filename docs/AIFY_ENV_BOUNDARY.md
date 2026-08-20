@@ -17,7 +17,7 @@ This is the answer to that blocker.
 | | Owns | Knows about |
 |---|---|---|
 | **aify-wrapper** | The four launchers. Installs one per harness present. | Harnesses. Not services. |
-| **aify-env** | Processes and PTYs on this host. One per host. Hosts `aify-doctor`. | Neither. Runs what it is told, from the allowlist below. |
+| **aify-env** | Processes and PTYs on this host. One per host. Hosts `aify-env-doctor`. | Neither. Runs what it is told, from the allowlist below. |
 | **aify-comms** | Messaging, dispatch, channels, agent semantics. | Agents. Stops being a command. |
 | **aify-dashboard** | Agent-pushed HTML, liveness pages, tasks, docs, projects. | Reads the others. |
 
@@ -90,7 +90,7 @@ Open: whether the marker alone is enough, or whether the installed set should al
 install time so that a hand-written file carrying the marker cannot enrol itself. For a local trust
 boundary the marker is probably enough; for a shared host it is not.
 
-## aify-doctor lives in aify-env, and ASKS rather than inspects
+## The environment's doctor lives in aify-env, and ASKS rather than inspects
 
 An earlier draft of this file had aify-env hosting a doctor that ran every component's checks as
 plugins. The operator rejected it, correctly: that is still centralisation, just with a nicer name. A
@@ -108,8 +108,15 @@ Nothing crosses that line except **reachability**, which is symmetric and honest
 "aify-comms is registered and answering" or "registered and silent". It cannot say "aify-comms is
 healthy" — it asks, and displays the answer it was given.
 
-So aify-doctor in aify-env is a **collector and a display**, not an inspector. It runs its own
-environment checks, asks each registered service for its self-report, and renders both.
+So `aify-env-doctor` is a **collector and a display**, not an inspector. It runs its own environment
+checks, asks each registered service for its self-report, and renders both.
+
+**It was called `aify-doctor` until 2026-08-20, and that was the boundary being crossed in the command
+name.** aify-comms installs a different tool under exactly that name -- its deploy verifier, which
+inspects containers and bridges. Two tiers on one host is what this document is for, so `npm install
+-g` would have shadowed one with the other, silently, and whichever won would look like it had changed
+its mind about what it reports. Every command aify-env puts on PATH is now named after the package,
+and a test derives that rule rather than listing other projects' names.
 
 Two constraints make a self-report trustworthy, and both come from failures this project already had:
 
