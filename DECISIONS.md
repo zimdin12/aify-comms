@@ -2,6 +2,30 @@
 
 Short rationale log for non-obvious choices, plus the current runtime limits. If you're wondering *why* the service behaves a certain way, this file beats guessing from the code.
 
+## Three repos, and which concern each one owns (2026-08-20)
+
+**Decision.** aify-comms owns messaging, dispatch and sessions.
+[aify-wrapper](https://github.com/zimdin12/aify-wrapper) owns the launchers, and this repo consumes it
+as an npm dependency pinned to a commit. [aify-env](https://github.com/zimdin12/aify-env) owns
+processes and terminals on a host. The full argument is
+[docs/AIFY_ENV_BOUNDARY.md](docs/AIFY_ENV_BOUNDARY.md); this entry records what was settled and what it
+costs, because the decisions record had no trace of the largest structural change in v0.6.
+
+**Why the environment tier is separate.** Spawning lives inside aify-comms today, so a second service
+on the same host cannot start an agent without building its own spawner — and this project's recorded
+incidents are almost all one spawner colliding with itself. Two independent spawners on one host is
+that class of bug with a repo boundary through the middle of it.
+
+**What it costs, stated rather than discovered later.** A contract with two ends can now drift between
+two release lines, and it did: the wrapper version marker meant aify-comms' release in one installer and
+aify-wrapper's in the other, invisible while both files read 0.5.7. Each cross-repo contract therefore
+carries a test on the PRODUCING side too — the registry fingerprint, the endpoint readers, the launcher
+exports, and the service self-report `/health` answers to aify-env.
+
+**Not decided here:** the deploy window, and the Phase 8 flip. Delegation to aify-env is built and off
+behind `AIFY_COMMS_DELEGATE_SPAWNS` and `AIFY_ENV_ENDPOINT`, and flipping it is the operator's on an
+idle fleet ([docs/PHASE8_STATUS.md](docs/PHASE8_STATUS.md)).
+
 ## Worker-death cleanup is keyed on terminal STATE, not on a death EVENT (2026-08-07)
 
 **`_finalize_spawns_with_dead_terminals` asks "is this spawn's terminal in a terminal status?" rather than trusting any death path to notify it.** That is the whole point of the reconciler, and it is a correction of the shape that came before it.
@@ -858,7 +882,7 @@ The repo is `zimdin12/aify-comms` and the Docker container is `aify-comms-servic
 
 ## Resident codex uses the existing WS app-server channel (no separate codex-channel.js)
 
-**Decision.** Resident-codex dispatch delivery is handled by the existing `createCodexControllerLegacy` path in `mcp/stdio/controllers/codex-legacy-controller.js`. The main bridge claims resident-codex runs through `/dispatch/claim` (`mcp/stdio/dispatch-execution.js` with `executionModes` from `supportedExecutionModes`), `launchRuntimeRun` → `createCodexController` routes resident runs with `runtimeConfig.appServerUrl` set to `createCodexControllerLegacy`, which connects WebSocket to the per-instance `codex app-server` launched by `codex-aify` `wrappers/codex-aify.sh.in` and issues `turn/start` on the resident's active thread. We did NOT create a separate `codex-channel.js` mirroring `claude-channel.js`.
+**Decision.** Resident-codex dispatch delivery is handled by the existing `createCodexControllerLegacy` path in `mcp/stdio/controllers/codex-legacy-controller.js`. The main bridge claims resident-codex runs through `/dispatch/claim` (`mcp/stdio/dispatch-execution.js` with `executionModes` from `supportedExecutionModes`), `launchRuntimeRun` → `createCodexController` routes resident runs with `runtimeConfig.appServerUrl` set to `createCodexControllerLegacy`, which connects WebSocket to the per-instance `codex app-server` launched by `codex-aify` `mcp/stdio/node_modules/aify-wrapper/wrappers/codex-aify.sh.in` and issues `turn/start` on the resident's active thread. We did NOT create a separate `codex-channel.js` mirroring `claude-channel.js`.
 
 **Why.** `claude-channel.js` is a separate process because Anthropic's `notifications/claude/channel` mechanism requires a separate MCP server entry registered via `--dangerously-load-development-channels server:aify-comms-channel`. Codex has no equivalent constraint — its native JSON-RPC `turn/start` against an existing `threadId` is the right primitive and is already used by the legacy controller. A separate process would duplicate the WS client, initialize/initialized handshake, turn lifecycle notification handling, and turn/interrupt support that `createCodexControllerLegacy` already implements, increasing the surface area for divergence bugs. The dispatch loop's `reportTurnBusy` pulse (`mcp/stdio/claude-channel.js`) and explicit clear (same file) already give resident codex the same status taxonomy as claude.
 
@@ -900,8 +924,8 @@ The repo is `zimdin12/aify-comms` and the Docker container is `aify-comms-servic
 
 **Known limitations as of 2026-05-24:**
 
-- **Codex managed Console PTY starts a fresh app-server**, not the bridge's existing one (`wrappers/codex-aify.sh.in` allocates a new port per `codex-aify` invocation; the wrapper has no flag to attach to a pre-existing `codex app-server` URL). The bridge's `CodexSession` and the wrapper PTY are two separate app-server processes with two separate thread states. Operator-visible: clicking Open Console for a managed codex agent shows a brand new codex prompt, not the agent's running context. Bridge dispatches still deliver correctly via the bridge's own app-server connection — the Console PTY is supplementary visibility only.
-- **Pi managed wrapper PTY exits with bridge-owned mutex.** `pi-aify` (`wrappers/pi-aify.sh.in`) probes `GET /agents/<id>/pi-session-state` at startup and refuses to launch when `bridgeOwned: true`. The bridge's persistent `PiSession` claims that mutex on every dispatch via `acquirePiSession` (`mcp/stdio/pi-session.js`). Result: managed pi Console PTY launched via `_ensure_managed_pty_for_dispatch` exits 1 before omp ever runs. The synth-terminal view of `omp --mode rpc` is the only operator-visible surface for managed pi.
+- **Codex managed Console PTY starts a fresh app-server**, not the bridge's existing one (`mcp/stdio/node_modules/aify-wrapper/wrappers/codex-aify.sh.in` allocates a new port per `codex-aify` invocation; the wrapper has no flag to attach to a pre-existing `codex app-server` URL). The bridge's `CodexSession` and the wrapper PTY are two separate app-server processes with two separate thread states. Operator-visible: clicking Open Console for a managed codex agent shows a brand new codex prompt, not the agent's running context. Bridge dispatches still deliver correctly via the bridge's own app-server connection — the Console PTY is supplementary visibility only.
+- **Pi managed wrapper PTY exits with bridge-owned mutex.** `pi-aify` (`mcp/stdio/node_modules/aify-wrapper/wrappers/pi-aify.sh.in`) probes `GET /agents/<id>/pi-session-state` at startup and refuses to launch when `bridgeOwned: true`. The bridge's persistent `PiSession` claims that mutex on every dispatch via `acquirePiSession` (`mcp/stdio/pi-session.js`). Result: managed pi Console PTY launched via `_ensure_managed_pty_for_dispatch` exits 1 before omp ever runs. The synth-terminal view of `omp --mode rpc` is the only operator-visible surface for managed pi.
 
 **Why not fix individually.** Both stem from the same architectural choice: managed agents have TWO competing backings — the bridge's native RPC adapter (`CodexSession` / `HermesSession` / `PiSession`) AND the (sometimes spawned) wrapper PTY. They don't share state. The proper fix is the **unified-backing refactor**: managed agents always go through `_ensure_managed_pty_for_dispatch` → `*-aify` in PTY → the wrapper's in-process bridge claims dispatches just like resident agents do. Drop the native RPC adapters for managed entirely. Same code path resident & managed. Significant change to dispatch routing; deferred pending operator confirmation.
 
@@ -915,7 +939,7 @@ The repo is `zimdin12/aify-comms` and the Docker container is `aify-comms-servic
 
 **Reconsider if.** Upstream Claude Code fixes the MCP init race (#38462 / #21341 close) — at which point the env-var escape hatch becomes dead code and can be removed. Until then, keep both branches.
 
-**Plan 4 Task 15 verification (2026-05-25):** Wrapper redeployed at `~/.local/bin/claude-aify` (May 25 17:47) post-`./install.sh --client claude`. Static check: install.sh's claude-aify wrapper-generation gates `--strict-mcp-config` behind `AIFY_CLAUDE_STRICT_MCP=1` (verified by `mcp/stdio/tests/claude-aify-strict-mcp-env-gate.test.js`). Operator-side live smoke pending — should be done when operator returns: launch fresh `claude-aify` and verify `/mcp` lists the full `~/.claude.json` mcpServers (aify-comms, aify-comms-channel, browsermcp, github, aify-project-graph, etc.). If MCPs are still missing, root cause is deeper than the env-gate and needs investigation.
+**Plan 4 Task 15 verification (2026-05-25):** Wrapper redeployed at `~/.local/bin/claude-aify` (May 25 17:47) post-`./install.sh --client claude`. Static check: install.sh's claude-aify wrapper-generation gates `--strict-mcp-config` behind `AIFY_CLAUDE_STRICT_MCP=1` (verified by `mcp/stdio/tests/install-claude-strict-mcp.test.js`). Operator-side live smoke pending — should be done when operator returns: launch fresh `claude-aify` and verify `/mcp` lists the full `~/.claude.json` mcpServers (aify-comms, aify-comms-channel, browsermcp, github, aify-project-graph, etc.). If MCPs are still missing, root cause is deeper than the env-gate and needs investigation.
 
 ## 2026-05-25 — RuntimeAdapter foundation + unified session-handle capture
 
