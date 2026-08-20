@@ -38,6 +38,30 @@ clients are uninstalled:
 rm -rf "${AIFY_HOME:-$HOME/.aify-comms}"
 ```
 
+## Remove The Verifier And This Service's Registry Entry
+
+`install.sh` writes these for every client, so they outlive a per-client uninstall.
+
+```bash
+rm -f "$HOME/.local/bin/aify-doctor"      # the verifier; `aify-comms doctor` is the same script
+```
+
+Left behind, that command still runs and points at a bridge you just deleted, so it reports failures
+about a service that is gone.
+
+The shared service registry needs an edit rather than a delete:
+
+```bash
+# ~/.aify/services.json is SHARED. Remove only the "aify-comms" key.
+node -e 'const f=require("os").homedir()+"/.aify/services.json";const fs=require("fs");if(!fs.existsSync(f))process.exit(0);const j=JSON.parse(fs.readFileSync(f,"utf8"));delete (j.services||{})["aify-comms"];fs.writeFileSync(f,JSON.stringify(j,null,2)+"
+")'
+```
+
+**Do not delete that file.** Every service on the host keeps its entry there, and launchers read it to
+learn which services exist — deleting it uninstalls the others from every launcher's point of view.
+Leaving the aify-comms key in place is the milder failure: launchers keep being told this service
+exists at an address that no longer answers.
+
 ## Stop Or Remove The Docker Service
 
 Keep data but stop containers:
@@ -147,6 +171,7 @@ Then remove the shared launcher/wrapper/state if you no longer use it:
 ```bash
 rm -f "$HOME/.local/bin/aify-comms" "$HOME/.local/bin/hermes-aify"
 rm -f "$HOME/.local/bin/aify-comms.cmd" "$HOME/.local/bin/hermes-aify.cmd"
+rm -f "$HOME/.local/bin/hermes-aify.ps1"   # hermes is the only client with a PowerShell launcher
 rm -f "$HOME/.hermes/agent-hooks/aify-notify.sh"
 rm -rf "$HOME/.local/state/aify-comms"
 ```
@@ -197,15 +222,25 @@ The installer may have added `%USERPROFILE%\.local\bin` to the user `Path`. Remo
 ## Verify Removal
 
 ```bash
-curl http://192.0.2.10:8800/health
+curl http://localhost:8800/health     # or the address you installed against
 ```
 
-This should fail if the service is fully stopped.
+This should fail to connect once the service is stopped. **Use the address you actually used.** This
+line said `192.0.2.10` — a documentation-range address that is unroutable from everywhere — so it
+failed identically whether the service was stopped or still serving, which is a check that cannot
+distinguish the thing it was written to distinguish.
 
 Check no bridge is still running:
 
 ```bash
 pgrep -af '/mcp/stdio/server.js|aify-comms' || true
+```
+
+Check the verifier and the registry entry are gone:
+
+```bash
+command -v aify-doctor || echo "aify-doctor removed"
+node -e 'const f=require("os").homedir()+"/.aify/services.json";const fs=require("fs");if(!fs.existsSync(f))return console.log("no registry on this host");const k=Object.keys(JSON.parse(fs.readFileSync(f,"utf8")).services||{});console.log(k.includes("aify-comms")?"STILL REGISTERED":"aify-comms unregistered; other services kept: "+k.join(", "))'
 ```
 
 Check the client no longer has the MCP server:
