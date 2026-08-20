@@ -1,29 +1,41 @@
 // Talking to aify-env, the host that owns processes and terminals.
 //
-// OFF BY DEFAULT, and that is the whole safety story for this phase. With no endpoint configured
-// `isEnabled()` is false and every caller takes exactly the path it takes today — same spawn, same
-// manager, same bytes. Turning it on is a deliberate act on an idle fleet, not a side effect of
-// deploying this file.
+// OFF BY DEFAULT, and that is the whole safety story for this phase. It takes an explicit
+// `AIFY_COMMS_DELEGATE_SPAWNS=1` AND an `AIFY_ENV_ENDPOINT` to turn on; with either missing every
+// caller takes exactly the path it takes today — same spawn, same manager, same bytes. Turning it on
+// is a deliberate act on an idle fleet, not a side effect of deploying this file.
 //
 // Why this exists: spawning currently lives inside aify-comms, so a second service can only run its
 // own spawner (two PTY owners on one host, and this project has incidents from ONE colliding with
 // itself) or depend on aify-comms. Moving the capability out is the fix; this is the client half of it.
 //
-// WHAT THIS CANNOT DO YET, said here because it decides when the flag may be flipped: aify-env has no
-// output STREAM. Start, stop and list are request/response, and a managed agent's console needs its
-// output continuously. Until the protocol grows a stream, delegation can carry a spawn but not a
-// console — so the flag stays off regardless of how well the code below works.
+// WHAT THIS CANNOT DO YET, said here because it decides when the flag may be flipped: aify-env can now
+// stream output, take input and resize — that gap is closed. What is still missing is a `term` shim in
+// TerminalProcessManager (write/resize/kill plus the console keepalive), and the fact that aify-comms
+// composes a shell command STRING while aify-env allowlists a launcher FILE. Until both are settled the
+// seam refuses when the flag is on, rather than half-delegating. See docs/PHASE8_STATUS.md.
 
 const DEFAULT_TIMEOUT_MS = 5000;
 
+/** Only these mean yes. "0" and "false" are what somebody types when they mean off. */
+const AFFIRMATIVE = new Set(["1", "true", "yes", "on"]);
+
 /**
- * Is delegation configured?
+ * Is delegation turned on, and does it have somewhere to go?
  *
- * Keyed on the endpoint being SET rather than on a separate boolean, so there is one thing to get
- * right. A flag that is on with nowhere to talk to is a state nobody wants to debug.
+ * TWO QUESTIONS, TWO ANSWERS, and getting that wrong was the point of this function's first version.
+ * It keyed on `AIFY_ENV_ENDPOINT` alone — "one thing to get right" — except that is the variable
+ * aify-env's OWN doctor and TUI read to find the daemon. An operator who exported it to look at their
+ * environment would have made every managed spawn in aify-comms refuse. Knowing where aify-env is says
+ * nothing about wanting to send work there.
+ *
+ * So: an explicit opt-in, AND an endpoint. Opting in with nowhere to send it is not "on" — it is a
+ * misconfiguration, and calling it on would produce a refusal whose message points at the wrong half.
  */
 export function isEnabled(env = process.env) {
-  return typeof env.AIFY_ENV_ENDPOINT === "string" && env.AIFY_ENV_ENDPOINT.trim() !== "";
+  const optedIn = AFFIRMATIVE.has(String(env.AIFY_COMMS_DELEGATE_SPAWNS ?? "").trim().toLowerCase());
+  const endpoint = String(env.AIFY_ENV_ENDPOINT ?? "").trim();
+  return optedIn && endpoint !== "";
 }
 
 export class EnvClient {

@@ -66,14 +66,34 @@ test("OFF by default: nothing configured means delegation is not enabled", () =>
   }
 });
 
-test("enabled only when an endpoint is actually set", () => {
-  assert.equal(isEnabled({ AIFY_ENV_ENDPOINT: NOWHERE }), true);
+test("KNOWING WHERE aify-env IS DOES NOT MEAN WANTING TO DELEGATE TO IT", () => {
+  // This was keyed on the endpoint alone, and that was wrong. AIFY_ENV_ENDPOINT is the variable
+  // aify-env's OWN doctor and TUI read to find the daemon. An operator who exports it to look at their
+  // environment would have made every managed spawn in aify-comms refuse. Two different questions,
+  // and one of them is nobody's business but the operator's.
+  assert.equal(isEnabled({ AIFY_ENV_ENDPOINT: NOWHERE }), false);
 });
 
-test("enablement is keyed on the ENDPOINT, not on a separate boolean", () => {
-  // One thing to get right. A flag that is on with nowhere to talk to is a state nobody wants to
-  // debug at the moment an agent will not start.
-  assert.equal(isEnabled({ AIFY_USE_ENV: "1" }), false);
+test("delegation needs an EXPLICIT opt-in and somewhere to send it", () => {
+  assert.equal(isEnabled({ AIFY_COMMS_DELEGATE_SPAWNS: "1", AIFY_ENV_ENDPOINT: NOWHERE }), true);
+  // Opting in with nowhere to talk to is not enabled: it is a misconfiguration, and reporting it as on
+  // would produce a refusal whose message points at the wrong half.
+  assert.equal(isEnabled({ AIFY_COMMS_DELEGATE_SPAWNS: "1" }), false);
+});
+
+test("only an explicit truthy opt-in counts", () => {
+  // "0" and "false" are what somebody types when they mean off, and a truthiness check would read both
+  // as on -- which is the worst possible direction for this particular switch.
+  for (const value of ["0", "false", "no", "", "  "]) {
+    assert.equal(
+      isEnabled({ AIFY_COMMS_DELEGATE_SPAWNS: value, AIFY_ENV_ENDPOINT: NOWHERE }),
+      false,
+      `${JSON.stringify(value)} was read as on`,
+    );
+  }
+  for (const value of ["1", "true", "yes", "TRUE"]) {
+    assert.equal(isEnabled({ AIFY_COMMS_DELEGATE_SPAWNS: value, AIFY_ENV_ENDPOINT: NOWHERE }), true, value);
+  }
 });
 
 test("start POSTs the launcher and the service that owns it", async () => {

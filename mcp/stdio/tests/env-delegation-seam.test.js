@@ -48,7 +48,7 @@ const spec = (id) => ({ id, command: "aify-seam-probe", cwd: process.cwd(), env:
 test("OFF by default in THIS environment: nothing is delegated", () => {
   // Read from the real environment rather than a fixture, because the claim is about this machine and
   // every machine that ships this file.
-  assert.equal(isEnabled(process.env), false, "AIFY_ENV_ENDPOINT is set here; delegation is not off");
+  assert.equal(isEnabled(process.env), false, "AIFY_COMMS_DELEGATE_SPAWNS is set here; delegation is not off");
 });
 
 test("with no delegation configured, start() dispatches LOCALLY", async () => {
@@ -100,4 +100,47 @@ test("id and command are still validated FIRST, delegation or not", async () => 
   await assert.rejects(() => manager.start({ command: "x" }), /id is required/);
   await assert.rejects(() => manager.start({ id: "a" }), /command is required/);
   assert.equal(manager.reached, null);
+});
+
+// ── the production wiring ────────────────────────────────────────────────────────
+// Every test above INJECTS an envDelegation, which is exactly why none of them could see that the
+// production manager was constructed without one. The constructor defaults it to null, so the branch
+// never fired and setting the environment variable did nothing at all — a placebo flag.
+//
+// The lesson generalises: a unit test of a seam cannot see a gap at the call site, because the test IS
+// the call site.
+
+test("the PRODUCTION manager is wired to a real delegation, not left at the default", async () => {
+  const { TERMINAL_MANAGER } = await import("../terminal-manager.mjs");
+  assert.notEqual(TERMINAL_MANAGER.envDelegation, null, "the flag is a placebo: nothing consults it");
+  assert.equal(typeof TERMINAL_MANAGER.envDelegation.isEnabled, "function");
+});
+
+test("the production wiring reads the REAL environment, and here that is OFF", async () => {
+  const { TERMINAL_MANAGER } = await import("../terminal-manager.mjs");
+  assert.equal(
+    TERMINAL_MANAGER.envDelegation.isEnabled(),
+    false,
+    "delegation is enabled on this machine; managed spawns would refuse",
+  );
+});
+
+test("the production wiring reads the environment at CALL time, not at construction", async () => {
+  // A value captured when the module loaded would ignore anything exported afterwards, which is how a
+  // flag becomes untestable and, worse, unturnoffable in a running process.
+  const { TERMINAL_MANAGER } = await import("../terminal-manager.mjs");
+  const before = process.env.AIFY_COMMS_DELEGATE_SPAWNS;
+  const beforeEndpoint = process.env.AIFY_ENV_ENDPOINT;
+  try {
+    process.env.AIFY_COMMS_DELEGATE_SPAWNS = "1";
+    // Set, and reachable by nothing. Never a real environment.
+    process.env.AIFY_ENV_ENDPOINT = "http://127.0.0.2:1";
+    assert.equal(TERMINAL_MANAGER.envDelegation.isEnabled(), true, "the value was captured at load");
+  } finally {
+    if (before === undefined) delete process.env.AIFY_COMMS_DELEGATE_SPAWNS;
+    else process.env.AIFY_COMMS_DELEGATE_SPAWNS = before;
+    if (beforeEndpoint === undefined) delete process.env.AIFY_ENV_ENDPOINT;
+    else process.env.AIFY_ENV_ENDPOINT = beforeEndpoint;
+  }
+  assert.equal(TERMINAL_MANAGER.envDelegation.isEnabled(), false, "the seal did not restore");
 });

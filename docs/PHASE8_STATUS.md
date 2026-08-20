@@ -7,10 +7,17 @@ today's behaviour and stop before flipping it.
 
 **`mcp/stdio/env-client.mjs`** and its 10 tests — start, stop, list and health against aify-env.
 
-**Off by default, and keyed on the endpoint rather than a separate boolean.** One thing to get right:
-a flag that is on with nowhere to talk to is a state nobody wants to debug at the moment an agent will
-not start. Verified rather than asserted — `AIFY_ENV_ENDPOINT` is unset in this environment, nothing
-in the repo sets it, and nothing imports the client. Shipping the file changes no behaviour.
+**Off by default, and it takes TWO things to turn on:** `AIFY_COMMS_DELEGATE_SPAWNS=1` **and**
+`AIFY_ENV_ENDPOINT`.
+
+The first version keyed on the endpoint alone, reasoning that one thing is easier to get right than
+two. That was wrong, and the reason is concrete: `AIFY_ENV_ENDPOINT` is the variable aify-env's **own**
+doctor and TUI read to find the daemon. An operator who exported it to look at their environment would
+have made every managed spawn in aify-comms refuse. Knowing where aify-env is says nothing about
+wanting to send work there — two questions, two answers.
+
+Only `1`, `true`, `yes` or `on` count. A truthiness check would read `"0"` and `"false"` as on, which
+is the worst possible direction for this particular switch.
 
 It reports rather than throws. "Unreachable" and "refused" are different answers and a caller falls
 back differently on each; an exception at that boundary makes them identical to a catch block, which
@@ -25,9 +32,14 @@ started and receiving both what was printed before and what came after.
 
 ## The seam is wired, and it REFUSES
 
-**`TerminalProcessManager.start()`** now consults an injected `envDelegation` before dispatching. With
-`AIFY_ENV_ENDPOINT` unset — which nothing in this repo sets — it is one boolean and the next two lines
-are exactly what happened before. Seven tests pin that, including one that reads the REAL environment
+**`TerminalProcessManager.start()`** consults an injected `envDelegation` before dispatching, and
+`TERMINAL_MANAGER` is **wired to a real one** — which for a while it was not. The constructor defaults
+`envDelegation` to null, the production call site omitted it, and the flag was therefore a **placebo**:
+setting the variable did nothing at all. Every seam test injects the dependency, so none of them could
+see it — a unit test of a seam cannot see a gap at the call site, because the test *is* the call site.
+Three tests now assert the production wiring, and removing it reddens all three.
+
+With delegation off it is one boolean and the next two lines are exactly what happened before. Seven tests pin that, including one that reads the REAL environment
 rather than a fixture, and mutation-checking the branch reddens three of them.
 
 When the flag IS set it **throws, naming what is not delegated**, rather than half-working. That is the
