@@ -1,6 +1,8 @@
 # aify-env: what moves, what stays, and why the allowlist writes itself
 
-Design capture, 2026-08-19. The operator's shape, my measurements, and the two consequences that
+Design capture, 2026-08-19. **Built and published since:** <https://github.com/zimdin12/aify-env>.
+Where this document and the code disagree, the code is the answer — this records the reasoning,
+not the state. The operator's shape, my measurements, and the two consequences that
 follow from it rather than from me. Nothing here is built. It exists so the decisions survive the
 conversation they were made in.
 
@@ -32,7 +34,7 @@ renaming around it, so the string only ever names the service.
 
 ## The cut, measured
 
-`terminal-runtime.js` (691 lines) already holds both execution paths, and neither knows what claude is:
+`terminal-runtime.js` already holds both execution paths, and neither knows what claude is:
 
 ```js
 const term = pty.spawn(shell, args, {…})   // PTY — the dashboard console needs a real TUI
@@ -49,8 +51,9 @@ Turn detection, stop gating, steering. Hermes' `prompt.submit` interrupts where 
 queues, and getting that backwards was a real bug here. **None of it is running a command.** It is
 knowing when an agent stopped thinking.
 
-Roughly one generic file against ~16.9k lines of harness semantics in `mcp/stdio` (split by filename,
-so an order of magnitude rather than a figure). The risk is not the cut, it is the 16.9k following the
+Roughly one generic file against ~16.9k lines of harness semantics in `mcp/stdio` — measured
+2026-08-19 by filename, so an order of magnitude rather than a figure, and it rots: re-measure before
+quoting it. The risk is not the cut, it is the 16.9k following the
 691 into the new repo, at which point aify-env is the bridge with a new name in a new place.
 
 **What aify-env fixes:** two PTY owners on one host, which was the whole of Finding 4. One owner,

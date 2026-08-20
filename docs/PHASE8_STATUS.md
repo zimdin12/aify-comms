@@ -5,7 +5,7 @@ today's behaviour and stop before flipping it.
 
 ## Built
 
-**`mcp/stdio/env-client.mjs`** and its 10 tests — start, stop, list and health against aify-env.
+**`mcp/stdio/env-client.mjs`** and its tests — start, stop, list, health and output against aify-env.
 
 **Off by default, and it takes TWO things to turn on:** `AIFY_COMMS_DELEGATE_SPAWNS=1` **and**
 `AIFY_ENV_ENDPOINT`.
@@ -83,7 +83,7 @@ the flag was put in to prevent.
 | | | size |
 |---|---|---|
 | 1 | ~~A stream endpoint on aify-env~~ | **done** |
-| 2 | ~~An `EnvClient` subscriber~~ — `subscribeOutput`, 5 tests | **done** |
+| 2 | ~~An `EnvClient` subscriber~~ — `subscribeOutput` over SSE | **done** |
 | 3 | ~~Wire `TerminalProcessManager.start()` behind the flag, default off~~ | **done, and it refuses** |
 | 3b | A `term` shim over `EnvClient` — the endpoints it needs (input, resize) now exist | blocked on the shell-string decision above |
 | 4 | **Prove default-off is byte-identical**: same spawn, same manager, same output, same healing | medium — this is the work |

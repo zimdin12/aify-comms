@@ -21,6 +21,9 @@ stays, the derived allowlist, and why doctor asks rather than inspects).
 
 ## The four components
 
+**Where they live.** aify-wrapper: <https://github.com/zimdin12/aify-wrapper>. aify-env:
+<https://github.com/zimdin12/aify-env>. aify-comms is the private repo this file lives in.
+
 | | Owns | Must not know |
 |---|---|---|
 | **aify-wrapper** | The launchers. One per harness present on the host. | Anything about a specific service. |
@@ -70,7 +73,8 @@ rather than running them. `test_wrapper_templates_are_published_in_sync.py` is N
 how aify-comms locates the package is an operator decision, and every option changes how users install.
 See the plan's Task 6b.
 
-**Phase 7 — aify-env. MET by measurement (121 tests, nothing skipped).** A process started through aify-env runs under a PTY, streams to a consumer,
+**Phase 7 — aify-env. MET by measurement — run the suite for the count rather than trusting one
+written here; it was 171 on 2026-08-20 and every number in prose rots.** A process started through aify-env runs under a PTY, streams to a consumer,
 and is reaped when it dies. A file without `HARNESS_WRAPPER_VERSION` is refused. `aify-env doctor`
 reports `passed / failed / unanswered` and a silent registered service reads `unanswered`, never `ok`.
 The TUI shows registered services, owned processes and its own I/O, and claims no agent status.
