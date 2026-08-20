@@ -60,8 +60,13 @@ independent reasons.
 A phase is done when its gate is green by measurement, not by assertion.
 
 **Phase 6 — aify-wrapper. MET, except the last clause.** Installing it on a host with N harnesses present produces N launchers and
-touches nothing else. A wrapper built against a stale registry reports itself stale rather than
-silently launching against one service. `test_wrapper_templates_are_published_in_sync.py` is NOT deleted:
+touches nothing else.
+
+A wrapper built against a stale registry reports itself stale rather than silently launching against
+one service — **and this clause was wrongly marked met once.** The fingerprint was baked into every
+launcher and printed by `--check`, and nothing compared it to anything: a value written and displayed
+is not a check. `aify-wrapper-check` is the consumer that was missing, and it reads the launchers
+rather than running them. `test_wrapper_templates_are_published_in_sync.py` is NOT deleted:
 how aify-comms locates the package is an operator decision, and every option changes how users install.
 See the plan's Task 6b.
 

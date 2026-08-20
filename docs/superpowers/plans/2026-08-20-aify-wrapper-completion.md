@@ -318,7 +318,9 @@ the day the duplication ends — that day is a decision, not a task.
 Done when, by measurement:
 
 1. `install.sh --all` on a host with N harnesses produces N launchers and names every skip.
-2. A launcher built against a stale registry reports itself stale via `--check`, without executing.
+2. A launcher built against a stale registry is REPORTED stale by `aify-wrapper-check`, which reads
+   the launchers and never runs one. (`--check` prints the fingerprint; printing is not comparing,
+   and this clause stood marked met for a while with no consumer anywhere.)
 3. Strict mode carries every registered service with its own endpoint.
 4. `test_wrapper_templates_are_published_in_sync.py` is deleted, because the duplication is gone.
 5. All four suites green, counts recorded from the run.
