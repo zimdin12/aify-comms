@@ -32,6 +32,13 @@ PACKAGE_URL = "https://github.com/zimdin12/aify-wrapper"
 
 #: sha256 of each template, MEASURED 2026-08-20 at aify-wrapper commit 8546925.
 #: Changing a template means updating the hash here AND re-syncing the package in the same change.
+#:
+#: THE SAME DIGESTS ARE PINNED IN the aify-wrapper package, by its own test named
+#: templates-match-the-published-copies.test.js (that repo's tests/ directory, not this one's).
+#: This gate reads only the copies in THIS repo, so on its own it catches an edit made here and is
+#: blind to one made there -- that side could change a template and both suites would stay green while
+#: the two copies diverged. With both gates pinning the same values, whichever repo you forget goes red
+#: in its own suite. Update both tables in the same change.
 PUBLISHED = {
     "claude-aify.sh.in": "1b7ff4e82d15199ce0d0bc4d02a0ecafe4e9c3cde57d05c3bed8f9f13ba30ca8",
     "codex-aify.sh.in": "7e4d0480fbbded52440f0f90b170fc5b24e8648ae9f7c28ab50e72d10f1d25bf",
