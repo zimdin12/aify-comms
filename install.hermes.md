@@ -135,6 +135,20 @@ restart the bridge:
 [Environment]::SetEnvironmentVariable('AIFY_HERMES_COMMAND','C:\path\to\hermes.exe','User')
 ```
 
+## Confirm it took effect
+
+Every deploy path in this repo can fail silently: no error, everything looks installed, and what you
+changed is not what is running. Do not read the absence of an error as success.
+
+```bash
+aify-comms doctor          # human-readable; --json for scripts, --strict to exit non-zero
+```
+
+On a fresh install `service`, `bridge-installed`, `skills-installed` and `wrapper-current` should all
+be green. `bridge-running` and `agent-identity` SKIP on Windows — they read `/proc` — so on Windows
+`bridge-current` is what tells you a running bridge is on the current build. A check that could not
+gather evidence reports `unknown-all` and fails; that is the tool working, not a bug to quieten.
+
 ## Auto / bypass flag
 
 `hermes-aify` now adds Hermes' `--yolo` flag (`HERMES_YOLO_MODE=1`) to the

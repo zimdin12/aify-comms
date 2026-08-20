@@ -36,6 +36,20 @@ bash install.sh --client codex --with-hook
 
 Restart Codex after install.
 
+## Confirm it took effect
+
+Every deploy path in this repo can fail silently: no error, everything looks installed, and what you
+changed is not what is running. Do not read the absence of an error as success.
+
+```bash
+aify-comms doctor          # human-readable; --json for scripts, --strict to exit non-zero
+```
+
+On a fresh install `service`, `bridge-installed`, `skills-installed` and `wrapper-current` should all
+be green. `bridge-running` and `agent-identity` SKIP on Windows — they read `/proc` — so on Windows
+`bridge-current` is what tells you a running bridge is on the current build. A check that could not
+gather evidence reports `unknown-all` and fails; that is the tool working, not a bug to quieten.
+
 The installer verifies that the copied `node-pty` package can load its native binary and automatically rebuilds it when the package exists but the binary is missing or unloadable. Use `aify-comms doctor --json` after installation; checking only `node_modules/node-pty` is not sufficient proof that managed Console PTYs can start.
 
 For dashboard-managed spawns, also connect an environment bridge on the machine that should run Codex. The installer adds the `aify-comms` launcher for this:
