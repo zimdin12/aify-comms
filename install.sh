@@ -59,8 +59,8 @@ Examples:
   bash install.sh --client codex http://localhost:8800
   bash install.sh --client hermes http://localhost:8800 --with-hook
 
-  --client pi and --client opencode are intentionally disabled; each prints why
-  when you ask for it. Both still run MANAGED, through an environment bridge.
+  --client pi is intentionally disabled (managed Pi runs the bridge's `omp --mode rpc`);
+  --client opencode is intentionally disabled (managed OpenCode runs through a bridge too).
 EOF
 }
 

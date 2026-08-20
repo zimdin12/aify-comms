@@ -111,6 +111,22 @@ async def health():
     (shed on full, drop on failure, never block a send) and it must be advisory here too.
     """
     payload = {"status": "healthy"}
+    # WHICH build answered, not only that something did. aify-env's doctor asks every registered
+    # service for a self-report here and renders `status` and `version`; without the version a
+    # multi-service doctor can say a service is up and never say which code is serving. That is the
+    # blind spot this repo's own `service` check exists to close, reappearing one layer out.
+    #
+    # Both come from the build stamp, so this declares no second version -- a version declared
+    # anywhere but the stamp is what test_version_single_source.py fails on. Wrapped for the same
+    # reason the ntfy block below is: this endpoint is the container's healthcheck, and a
+    # build-identity problem must not restart a container that is serving the fleet perfectly well.
+    try:
+        _config = get_config()
+        payload["version"] = _config.version
+        payload["build"] = _config.build_short
+    except Exception as exc:  # pragma: no cover - defensive by intent
+        logger.warning("build identity unavailable in /health (%s)", type(exc).__name__)
+
     try:
         from service.ntfy import get_relay
 
