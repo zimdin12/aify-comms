@@ -72,9 +72,11 @@ A wrapper built against a stale registry reports itself stale rather than silent
 one service — **and this clause was wrongly marked met once.** The fingerprint was baked into every
 launcher and printed by `--check`, and nothing compared it to anything: a value written and displayed
 is not a check. `aify-wrapper-check` is the consumer that was missing, and it reads the launchers
-rather than running them. `test_wrapper_templates_are_published_in_sync.py` is NOT deleted:
-how aify-comms locates the package is an operator decision, and every option changes how users install.
-See the plan's Task 6b.
+rather than running them. `test_wrapper_templates_are_published_in_sync.py` **is deleted, and so is
+`wrappers/`**: the operator settled Task 6b on 2026-08-20 — aify-comms consumes the package, no
+duplicates. `install.sh` renders from `mcp/stdio/node_modules/aify-wrapper/wrappers`, pinned to a sha,
+and the swap was proven byte-identical on all six rendered launchers before the copy was removed. The
+twin gate in aify-wrapper went with it: with one source of truth there is nothing left to compare.
 
 **The fingerprint clause is now PROVEN on the real system, not only in fixtures.** Run against this
 host's actually-installed launchers, `aify-wrapper-check` reports:
@@ -122,7 +124,7 @@ list is blocked on effort; every one of them is a judgement that is not an agent
 | | decision | what it holds up | where it is argued |
 |---|---|---|---|
 | 1 | **The published git identity in aify-wrapper.** Its history carries two personal addresses, `steven.zimdin@gmail.com` and `zimdin12@msn.com`. aify-env uses the `noreply` form instead. | Nothing technical. Changing it means rewriting published history and force-pushing a public repo. | this table |
-| 2 | **Task 6b — how aify-comms locates the wrapper package.** | Retiring `test_wrapper_templates_are_published_in_sync.py` and ending the two-copy duplication of the four templates. Every option changes how users install. | `2026-08-20-aify-wrapper-completion.md`, Task 6b |
+| 2 | ~~Task 6b — how aify-comms locates the wrapper package.~~ **DECIDED 2026-08-20: consume the package.** Done — pinned npm dependency, `wrappers/` deleted, both drift gates retired. | — | `2026-08-20-aify-wrapper-completion.md`, Task 6b |
 | 3 | **Shell string versus structural argv.** | Phase 8 item 3b, the `term` shim, and therefore the flip itself. | `docs/PHASE8_STATUS.md` |
 | 4 | **The deploy window.** Nothing from this program is deployed: `aify-comms doctor` reports 4 checks needing attention, all of them "older than the checkout". | Everything reaching the fleet. The service, the bridge, the installed skills and the running wrappers are all behind. | `aify-comms doctor` |
 | 5 | **The `aify-env` name.** | Nothing today. It gets more expensive to change with every installed host. | `docs/AIFY_ENV_BOUNDARY.md` |

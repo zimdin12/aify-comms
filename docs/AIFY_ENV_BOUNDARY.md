@@ -71,10 +71,10 @@ that constraint is incidental, not enforced. Generalise it and the constraint is
 
 The fix is already in the artifacts. Every contract wrapper carries a marker on a line of its own:
 
-    wrappers/claude-aify.sh.in:46   HARNESS_WRAPPER_VERSION="@@WRAPPER_VERSION@@"
-    wrappers/codex-aify.sh.in:27    HARNESS_WRAPPER_VERSION="@@WRAPPER_VERSION@@"
-    wrappers/hermes-aify.sh.in:24   HARNESS_WRAPPER_VERSION="@@WRAPPER_VERSION@@"
-    wrappers/pi-aify.sh.in:26       HARNESS_WRAPPER_VERSION="@@WRAPPER_VERSION@@"
+    aify-wrapper's claude-aify.sh.in   HARNESS_WRAPPER_VERSION="@@WRAPPER_VERSION@@"
+    aify-wrapper's codex-aify.sh.in    HARNESS_WRAPPER_VERSION="@@WRAPPER_VERSION@@"
+    aify-wrapper's hermes-aify.sh.in   HARNESS_WRAPPER_VERSION="@@WRAPPER_VERSION@@"
+    aify-wrapper's pi-aify.sh.in       HARNESS_WRAPPER_VERSION="@@WRAPPER_VERSION@@"
 
 **aify-env executes a file only if that file carries the marker.** Derived from the artifact, not from
 a list — which is this repo's own rule, that a list you must remember to update is a defect with a

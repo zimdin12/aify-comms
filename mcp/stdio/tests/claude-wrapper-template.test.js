@@ -21,13 +21,20 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 
-import { REPO, renderWrapper } from "./wrapper-harness.mjs";
+import { REPO, WRAPPER_TEMPLATES, renderWrapper } from "./wrapper-harness.mjs";
 
-const WRAPPERS_DIR = path.join(REPO, "wrappers");
+const WRAPPERS_DIR = WRAPPER_TEMPLATES;
 const INSTALL_SH = path.join(REPO, "install.sh");
 
-const templateNames = () =>
-  fs.existsSync(WRAPPERS_DIR) ? fs.readdirSync(WRAPPERS_DIR).filter((f) => f.endsWith(".sh.in")) : [];
+// FAILS rather than returning []. An empty list would make every test that iterates the templates
+// pass by having nothing to iterate, which is the shape of green that judged nothing -- and the
+// directory is now a dependency, so "absent" means npm install has not run rather than "none exist".
+const templateNames = () => {
+  if (!fs.existsSync(WRAPPERS_DIR)) {
+    throw new Error(`no wrapper templates at ${WRAPPERS_DIR} — run 'npm install' in mcp/stdio`);
+  }
+  return fs.readdirSync(WRAPPERS_DIR).filter((f) => f.endsWith(".sh.in"));
+};
 
 /** Placeholders the templates actually use. */
 function placeholdersInTemplates() {

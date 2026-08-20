@@ -65,7 +65,7 @@ could make one of them true.
 | `.claude/skills/aify-comms/` | Usage skill — tool reference, workflow, status table, multi-instance matrix. |
 | `.claude/skills/aify-comms-debug/` | Troubleshooting skill — known issues and fixes. |
 | `.agents/skills/aify-comms*/` | Mirrors of the two skills for Codex agents. Keep in sync. |
-| `wrappers/*.sh.in` | **Also published standalone at [zimdin12/aify-wrapper](https://github.com/zimdin12/aify-wrapper)** — byte-identical copies today: aify-comms renders its own, the package renders the same text for a host that wants launchers WITHOUT the service. Two sources of truth for one artifact, so `test_wrapper_templates_are_published_in_sync.py` fails when one changes and says to re-sync the other in the same change. Both the gate and the duplication go away when aify-comms consumes the package instead of copying it, which is the v0.6 direction. **v0.6 Phase 2.** All four launcher bodies — claude, codex, pi, hermes — as real files. `install.sh` renders them with `render_wrapper_template`, substituting `@@TOKEN@@` placeholders and stripping `#|` template-only comments; hermes also passes `KEY=VALUE` extras for the three values only an install can compute. They lived in unquoted heredocs where every runtime `$` had to be written `\$` — hermes carried 90 escaped backticks — and as files they are diffable, reviewable and `bash -n`-able. Every move was proven BYTE-IDENTICAL before any behaviour changed, which is how the extraction caught an escaped backtick bug that had been silently blanking a comment in every installed hermes-aify. **install.sh 4,371 → 2,950.** |
+| `mcp/stdio/node_modules/aify-wrapper/wrappers/` | The four launcher templates, from the **[aify-wrapper](https://github.com/zimdin12/aify-wrapper) package**, pinned to a sha in `mcp/stdio/package.json`. They were a byte-identical copy under `wrappers/` here, kept honest by a hash gate in each repo — two sources of truth for one artifact. The operator settled it on 2026-08-20: aify-comms consumes the package, no duplicates. Both drift gates are retired and `wrappers/` is deleted; `install.sh` renders from `WRAPPER_TEMPLATE_DIR`, and the swap was proven byte-identical on all six rendered launchers before the copy was removed. **`--emit-wrappers` now needs `npm install` to have run in `mcp/stdio`**, because it exits before the installer's own npm step by design. |
 | `install.sh` | Client installer. Targets Claude, Codex, or Hermes via `--client` (OpenCode/Pi installs are intentionally disabled). `--emit-wrappers <dir>` renders a wrapper and EXITS before npm, MCP registration or any env mutation — which is what lets the suite render and run the real launchers on a machine with a live fleet. `--prebuild-dry-run` is its sibling and carries the same property for the hermes web_dist branch: it exercises the detection logic with no npm invocation and no wrapper writes, which is how `test_install_hermes_prebuild.py` tests that branch without touching the operator's environment. |
 | `examples/team-setup/` | Example team definition (manager, coder, tester, etc.) showing how to register a multi-role team. |
 
@@ -174,7 +174,7 @@ on a module that referenced an undefined name and threw on its first real call, 
 a test.
 
 ```bash
-python -m pytest service/tests -q                      # 4185 tests (+8411 subtests)
+python -m pytest service/tests -q                      # 4183 tests (+8400 subtests)
 cd mcp/stdio && node tests/run-all.mjs                 # 342 suites
 cd service/new_dashboard && node --test *.test.mjs     # 1135 tests
 ```
@@ -232,7 +232,7 @@ not a fix**: appending an entry to make a red test green is the exact move the g
 which ships in the container — and the JS half's two hand-listed roots covered everything only by
 coincidence. Neither hole was visible from the result: an unguarded population reports green exactly like a
 guarded one. **Shell and CSS are deliberately OUT of scope** and each gate says so in a test, because
-`install.sh` (2,950 lines, down from 4,371 once all four wrapper bodies moved to `wrappers/`) and `service/new_dashboard/styles.css` (1,844) are non-test source over the
+`install.sh` (2,958 lines, down from 4,371 once all four wrapper bodies moved to `wrappers/`) and `service/new_dashboard/styles.css` (1,844) are non-test source over the
 limit and bringing them in is an open reviewer question, not a widening to do quietly.
 
 The failure this gate was built from: a v0.5.4 relocation moved a 6-line helper into `service/db.py` — the

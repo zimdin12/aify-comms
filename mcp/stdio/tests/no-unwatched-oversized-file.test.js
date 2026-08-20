@@ -50,7 +50,10 @@ const CEILINGS = {
   //
   // So this number goes UP once, with the payoff named: Phase 8 takes roughly 139 lines out of this
   // file, and this ceiling comes down past 2934 then rather than being left slack.
-  "install.sh": 2950,
+  "install.sh": 2958,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
+  // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
+  // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
+  // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.
   "service/new_dashboard/styles.css": 1844,
 };
 

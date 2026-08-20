@@ -435,10 +435,18 @@ copy_hermes_assets() {
 # `sed` is deliberately NOT used: the values are filesystem paths and URLs that can contain the
 # delimiter, and a path with a slash in it silently produces a broken wrapper rather than an error.
 # Bash parameter substitution has no delimiter to collide with.
+# Templates come from the aify-wrapper PACKAGE, pinned to a sha in mcp/stdio/package.json, so "which
+# launcher text did this install use" has an exact answer. They were a byte-identical copy here until
+# the operator settled it: consume the package, no duplicates. Resolves under mcp/stdio/node_modules
+# because `npm install` runs at [1/4] and every wrapper installs after it.
+WRAPPER_TEMPLATE_DIR="$SCRIPT_DIR/mcp/stdio/node_modules/aify-wrapper/wrappers"
+
 render_wrapper_template() {
-  local template="$SCRIPT_DIR/wrappers/$1"
+  local template="$WRAPPER_TEMPLATE_DIR/$1"
   local target="$2"
-  [ -f "$template" ] || { echo "missing wrapper template: $template" >&2; exit 1; }
+  # --emit-wrappers exits before the installer's npm step by design, so a fresh checkout must fetch
+  # dependencies once before it can render.
+  [ -f "$template" ] || { echo "missing template: $template — run 'npm install' in mcp/stdio" >&2; exit 1; }
   local text
   # `#|` lines are template-only: documentation for the template, never for the installed wrapper.
   text="$(grep -v "^#|" "$template")"

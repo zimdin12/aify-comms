@@ -245,3 +245,11 @@ export function runWrapper(wrapperPath, {
     files: parsed.files,
   };
 }
+
+/**
+ * Where the launcher templates live: the aify-wrapper PACKAGE, not this repo.
+ *
+ * They were a byte-identical copy under `wrappers/` until aify-comms started consuming the package,
+ * so a test that still joins REPO with "wrappers" is reading a directory that no longer exists.
+ */
+export const WRAPPER_TEMPLATES = path.join(REPO, "mcp", "stdio", "node_modules", "aify-wrapper", "wrappers");

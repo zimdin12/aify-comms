@@ -308,7 +308,17 @@ the goal.
       aify-wrapper's `lib/registry.mjs`, yielding both MCP entries with the endpoint under both
       declared keys.
 
-### Task 6b: aify-comms consuming the package — NEEDS AN OPERATOR DECISION
+### Task 6b: aify-comms consuming the package — DECIDED AND DONE (2026-08-20)
+
+> **The operator chose: aify-comms pulls the package, no duplicates.** Implemented as the npm option,
+> pinned to a sha in `mcp/stdio/package.json`. The table below is left as it was written, because the
+> reasoning that framed the choice is worth keeping — but note that its stated cost for this option,
+> "install now needs network", was ALREADY PAID: `install.sh` runs `npm install` at [1/4], every
+> wrapper installs after it, and `node_modules` is not committed. The pinned sha answers the drift half.
+>
+> `wrappers/` is deleted, `test_wrapper_templates_are_published_in_sync.py` is deleted, and so is the
+> twin gate in aify-wrapper. The templates were proven byte-identical through npm, and all six rendered
+> launchers proven byte-identical after the swap, before anything was removed.
 
 **Not done, and not something to decide unilaterally.** The plan said "point aify-comms' install at
 the aify-wrapper package, then delete `wrappers/` and the drift gate". Implementing it means choosing
