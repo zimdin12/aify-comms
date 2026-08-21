@@ -2738,7 +2738,7 @@ copy_bridge_to_native_dir
 # Registered BEFORE any launcher renders: a launcher bakes the registry's fingerprint as it stands, so
 # registering afterwards left every first install with a launcher stale by the entry it had just added.
 # Non-fatal -- launchers not learning about aify-comms is not aify-comms being broken.
-node "$AIFY_BRIDGE_DIR/register-service-cli.mjs" "$AIFY_SERVICE_REGISTRY" \
+node "$(path_for_node "$AIFY_BRIDGE_DIR/register-service-cli.mjs")" "$(path_for_node "$AIFY_SERVICE_REGISTRY")" \
   "${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}" "$AIFY_BRIDGE_DIR" \
   || echo "warning: aify-comms was not registered in $AIFY_SERVICE_REGISTRY (see above)." >&2
 echo "  Done."

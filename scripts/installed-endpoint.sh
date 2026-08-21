@@ -30,9 +30,16 @@ for name in claude-aify codex-aify hermes-aify pi-aify omp-aify; do
   file="$dir/$name"
   [ -f "$file" ] || continue
 
-  # The current shape: HARNESS_ENDPOINT="${HARNESS_ENDPOINT-${AIFY_COMMS_URL:-<url>}}"
-  found="$(grep -oE '^HARNESS_ENDPOINT="\$\{HARNESS_ENDPOINT-\$\{[A-Z0-9_]+:-[^}"]+\}\}"$' "$file" 2>/dev/null \
-    | head -1 | sed -E 's/.*:-([^}"]+)\}\}"$/\1/')"
+  # The current shape, at ANY nesting depth. claude nests once:
+  #   HARNESS_ENDPOINT="${HARNESS_ENDPOINT-${AIFY_COMMS_URL:-<url>}}"
+  # hermes nests twice, because it falls back through a second variable first:
+  #   HARNESS_ENDPOINT="${HARNESS_ENDPOINT-${AIFY_SERVER_URL:-${AIFY_COMMS_URL:-<url>}}}"
+  # A pattern written against claude's single level matched nothing for hermes, and since redeploy.sh
+  # falls back to loopback when nothing is recovered, a hermes-only host would have had every wrapper
+  # repointed at 127.0.0.1 by the command that exists to preserve its endpoint. The baked URL is the
+  # INNERMOST default, so the greedy `.*` before `:-` takes the last one whatever the depth.
+  found="$(grep -oE '^HARNESS_ENDPOINT="\$\{HARNESS_ENDPOINT-.*\}"$' "$file" 2>/dev/null \
+    | head -1 | sed -E 's/.*:-([^}"]+)\}+"$/\1/')"
 
   # The pre-contract shape, still on disk for anyone updating from an older install.
   if [ -z "$found" ]; then

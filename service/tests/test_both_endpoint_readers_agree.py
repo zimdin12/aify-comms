@@ -15,6 +15,7 @@ An agreement test rather than a shared implementation, because the sharing is wh
 """
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -93,3 +94,36 @@ def test_both_readers_refuse_an_unrendered_template():
         shutil.copyfile(template, out / "claude-aify")
         assert _bash_says(out) == ""
         assert _js_says(out) == ""
+
+
+# Every client install.sh can render. Derived from the installer's own emit flags rather than listed,
+# so a fifth client cannot arrive with an unread wrapper shape.
+def _emittable_clients() -> list[str]:
+    text = INSTALL_SH.read_text(encoding="utf-8")
+    flags = re.findall(r"--emit-([a-z]+)-wrappers", text)
+    clients = sorted(set(flags))
+    assert clients, "found no --emit-<client>-wrappers flags; this derivation is broken"
+    return clients
+
+
+@pytest.mark.parametrize("client", _emittable_clients())
+def test_both_readers_find_the_endpoint_for_every_client_the_installer_renders(client, tmp_path):
+    """The Claude-only version of this test is why a real blocker shipped.
+
+    hermes' template nests the fallback TWO levels --
+    `${HARNESS_ENDPOINT-${AIFY_SERVER_URL:-${AIFY_COMMS_URL:-<url>}}}` -- and a reader written against
+    claude's one level returned nothing for it. redeploy.sh then falls back to loopback, so a
+    hermes-only host would have had every wrapper repointed at 127.0.0.1 by the command that exists to
+    preserve its endpoint. Found by comms-senior-dev in pre-deploy review; the tests were green.
+    """
+    bash, _ = _tools()
+    out = tmp_path / client
+    subprocess.run(
+        [bash, str(INSTALL_SH), "--client", client, URL, "--emit-wrappers", _posix(out)],
+        check=True, capture_output=True, env={**os.environ, "AIFY_NO_PROMPT": "1"},
+    )
+    rendered = sorted(p.name for p in out.iterdir())
+    assert rendered, f"nothing rendered for {client}, so nothing was read"
+
+    assert _bash_says(out) == URL, f"the bash reader lost {client}'s shape: {rendered}"
+    assert _js_says(out) == URL, f"the js reader lost {client}'s shape: {rendered}"
