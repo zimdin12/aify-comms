@@ -260,4 +260,3 @@ sustained `isGatewaySessionIdle` read plus `!inFlight`; an unknown/unreadable re
 `/turn-end` is idempotent and can never re-arm `working`. Applies to claude, codex (same loop)
 and hermes. **This does NOT rescue an agent-id-less bridge** — the detector never arms at all
 there; see *CHECK THIS FIRST* at the top.
-

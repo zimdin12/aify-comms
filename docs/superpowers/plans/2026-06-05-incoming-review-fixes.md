@@ -84,7 +84,7 @@ Each: implement → test → (service→rebuild / bridge→reinstall) → commit
 
 - **4 bridge-test failures are PRE-EXISTING** (fail at the pre-peer baseline `532c772` too): `hermes-register-fresh-handle`, `hermes-runtime`, `server-url-fallback`, `wrapper-backed hermes child resident-claim`. Peer introduced NO regressions. (Backlog, environment/harness-bound — not in scope here.)
 - **Issue 1 STILL OPEN and EXPANDED.** `98bcc91` added a bash `unset` for the dead-handle-on-fresh fix but again skipped PS1. So PS1 lagged on BOTH `16de796` (explicit-resume discard) AND `98bcc91` (clear-handle-on-fresh). The peer only ever edits the bash wrapper. → **DONE this round:** ported both into the PS1 block (`install.sh:~2314`); generated wrapper parses clean (pwsh ParseFile OK) + carries the block. This is my no-collision lane.
-- **Issues #2 (cursor-resume) and #3 (self-exit) NOT fixed by the new commits, and they live in the peer's ACTIVELY-ITERATING files** (console/bridge/status — `22536dd` is more status work). → **FLAG to the peer rather than fix** (editing there now collides with their next push). 
+- **Issues #2 (cursor-resume) and #3 (self-exit) NOT fixed by the new commits, and they live in the peer's ACTIVELY-ITERATING files** (console/bridge/status — `22536dd` is more status work). → **FLAG to the peer rather than fix** (editing there now collides with their next push).
 - **M-B (byproduct staleness clamp)** is in `api_v2.py` status code the peer just touched (`22536dd`). → **DEFER** to avoid collision; low-impact edge.
 
 **Net this round:** execute Issue 1 only (PS1 parity, peer's blind spot, this-host bug). Flag #2/#3/M-B to the peer. Re-pull before doing more.

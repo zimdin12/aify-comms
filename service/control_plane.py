@@ -891,4 +891,3 @@ from service.api_core.vocabulary import (
 
 
 # ─── Dashboard compatibility redirects ──────────────────────────────────────
-

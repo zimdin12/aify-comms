@@ -64,4 +64,3 @@ Everything else in the plan stands: framing is newline-delimited JSON; method na
 - `tool_call` / `tool_call_update` variants not directly observed — verify on a turn that invokes a tool. (Will exercise via T5 client-callback test path.)
 - `session/cancel` response shape unverified — assume null result based on spec.
 - `session/request_permission` not seen because openai-codex provider is configured without per-tool gating; in stricter modes hermes will call back into the bridge. Plan auto-approves regardless.
-

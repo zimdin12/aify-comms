@@ -132,7 +132,7 @@ watch -n2 'docker exec aify-comms-service python3 -c "
 import sqlite3,datetime as d
 c=sqlite3.connect(chr(47)+chr(100)+chr(97)+chr(116)+chr(97)+chr(47)+\"aify.db\");c.row_factory=sqlite3.Row
 now=d.datetime.now(d.timezone.utc)
-def age(t): 
+def age(t):
  import datetime;return round((now-d.datetime.fromisoformat(t.replace(chr(90),chr(43)+chr(48)+chr(48)+chr(58)+chr(48)+chr(48)))).total_seconds())
 r=c.execute(\"SELECT updated_at FROM terminal_sessions WHERE agent_id=? AND status=chr(97)... \").fetchone()
 "'

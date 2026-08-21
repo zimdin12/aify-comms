@@ -228,4 +228,3 @@ The bridge spawned `hermes acp` but never got an `initialize` response within 45
 ### Bridge declines hermes's terminal/* callbacks
 
 If hermes asks the bridge to spawn a child process (`terminal/create`, etc.), the bridge replies with method-not-found by design (no in-bridge sandbox). Hermes should fall back to its own sandbox. If hermes errors out instead, configure hermes itself with a sandbox provider — the bridge will not host tool subprocesses.
-

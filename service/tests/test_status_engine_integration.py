@@ -913,4 +913,3 @@ class ConsoleLeaseAndStalenessByproductTests(FastApiTestCase):
             c.close()
         self.assertEqual(self._byproduct_status("clboot"), "online",
                          "a booting managed console (no sidecar yet) must display online, not available")
-
