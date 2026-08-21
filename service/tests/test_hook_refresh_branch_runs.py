@@ -111,3 +111,53 @@ def test_a_client_with_no_installer_says_so_instead_of_failing():
         out = _run("hermes", True, Path(tmp), config=None)
         assert "not implemented for hermes" in out, out
         assert "STUB-RAN" not in out
+
+
+def test_a_config_root_containing_a_space_still_finds_the_hook():
+    """The argument install.sh passes must survive a path with a space in it.
+
+    It was written unquoted so an EMPTY root would disappear rather than become an empty argument.
+    That works and word-splits: a hermes root under a user folder named `Foo Bar` -- ordinary
+    on Windows — arrives as two arguments, the detector reads the wrong path, answers "no hook", and
+    hermes silently stops being refreshed on update. That is the exact silent skip this branch exists
+    to remove, reintroduced for the one client whose root is passed rather than derived.
+
+    Quoting is safe for the empty case too: hermes refuses an empty root outright, and claude and codex
+    fall back to their own defaults via `${root:-...}`.
+    """
+    with tempfile.TemporaryDirectory(prefix="aify-hookspace-") as tmp:
+        home = Path(tmp) / "home with a space"
+        (home / ".claude").mkdir(parents=True)
+        (home / ".claude" / "settings.json").write_text(REGISTERED_CLAUDE, encoding="utf-8")
+        out = _run("claude", False, home, config=None)
+        assert "STUB-RAN claude" in out, "a space in the path must not read as 'no hook installed'"
+        assert "Refreshing" in out
+
+
+def test_a_hermes_root_containing_a_space_is_passed_whole():
+    """hermes is the case that matters: its root is PASSED, not derived, so it is the only one that
+    travels through that argument at all."""
+    with tempfile.TemporaryDirectory(prefix="aify-hermesspace-") as tmp:
+        home = Path(tmp)
+        root = home / "hermes config" 
+        root.mkdir(parents=True)
+        (root / "config.yaml").write_text("agent_hooks:\n  - command: node notify-check.js\n", encoding="utf-8")
+
+        script = home / "branch.sh"
+        script.write_text(
+            f'SCRIPT_DIR="{_posix(REPO)}"\n'
+            'CLIENT="hermes"\n'
+            "WITH_HOOK=false\n"
+            f'hermes_config_root() {{ printf "%s" "{_posix(root)}"; }}\n'
+            'install_hermes_hook() { echo "STUB-RAN hermes"; }\n'
+            + hook_branch() + "\n",
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [_bash(), _posix(script)], capture_output=True, text=True,
+            env={**os.environ, "HOME": _posix(home)},
+        )
+        assert result.returncode == 0, result.stderr
+        assert "STUB-RAN hermes" in result.stdout, (
+            f"a hermes root with a space must be passed whole: {result.stdout}"
+        )

@@ -2768,7 +2768,7 @@ echo "  Done."
 # NOT there, never whether to maintain one that is. scripts/hook-installed.sh carries the reasoning and
 # derives claude's and codex's roots; only hermes' is underivable, so only hermes' is passed.
 _hook_root=""; [ "$CLIENT" != "hermes" ] || _hook_root="$(hermes_config_root 2>/dev/null || true)"
-bash "$SCRIPT_DIR/scripts/hook-installed.sh" "$CLIENT" $_hook_root >/dev/null 2>&1 && _hook_present=true || _hook_present=false
+bash "$SCRIPT_DIR/scripts/hook-installed.sh" "$CLIENT" "$_hook_root" >/dev/null 2>&1 && _hook_present=true || _hook_present=false
 
 if [ "$WITH_HOOK" = true ] || [ "$_hook_present" = true ]; then
   [ "$WITH_HOOK" = true ] && _hook_verb="Installing" || _hook_verb="Refreshing the already-installed"
