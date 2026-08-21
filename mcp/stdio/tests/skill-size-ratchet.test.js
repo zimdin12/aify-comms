@@ -50,13 +50,13 @@ const CEILINGS = {
   "aify-comms-debug/references/codex.md": 14_114,
   "aify-comms-debug/references/dashboard-console.md": 18_454,
   "aify-comms-debug/references/dispatch-bridges.md": 25917,
-  "aify-comms-debug/references/dispatch-delivery.md": 26_578,
-  "aify-comms-debug/references/dispatch-launch.md": 14_005,
+  "aify-comms-debug/references/dispatch-delivery.md": 26_577,
+  "aify-comms-debug/references/dispatch-launch.md": 14_004,
   "aify-comms-debug/references/hermes-session.md": 27_285,
-  "aify-comms-debug/references/hermes-turns.md": 15_997,
+  "aify-comms-debug/references/hermes-turns.md": 15_996,
   "aify-comms-debug/references/lifecycle.md": 6_704,
   "aify-comms-debug/references/pi.md": 7_316,
-  "aify-comms-debug/references/status-model.md": 21_921,
+  "aify-comms-debug/references/status-model.md": 21_920,
   "aify-comms-debug/references/status-symptoms.md": 19_427,
 };
 
