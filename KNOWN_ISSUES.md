@@ -4,6 +4,28 @@ Living list of known limitations, deferred work, and things to watch. Complement
 
 > **v0.2 backlog moved out of this file.** Non-urgent findings from the v0.1 release review now live in **[docs/V0.2_PLAN.md](docs/V0.2_PLAN.md)** with their traces attached — including two behaviour changes awaiting an operator decision (the compaction dialog now spends usage limits by design; managed codex auto-approves all command/file approvals). This file stays the list of *known limitations*; that file is the *work queue*. What actually shipped in v0.2, and the findings that were **disproven or dropped**, are in **[docs/V0.2_SPEC.md](docs/V0.2_SPEC.md)**.
 
+## Registration records `bridgeDir` as given, so its form depends on the shell (2026-08-21)
+
+`install.sh` converts two of the three arguments it hands to `register-service-cli.mjs` through
+`path_for_node`; the third, `bridgeDir`, is passed raw. The registry then records whatever it received,
+and the launcher builds its MCP `args` by joining that with filenames.
+
+With MSYS path conversion ON — every shell on this fleet — the shell converts it and the registry holds
+`C:/...`, which is correct. With conversion disabled the registry holds `/c/...`, which native Node
+cannot open. Measured both ways; a first probe of mine appeared to disprove it because the shell had
+quietly converted the argument before Node saw it.
+
+**Not a deploy blocker under the measured premise**, and left alone deliberately rather than fixed on
+the eve of a deploy: `path_for_node` emits backslashes where the shell emits forward slashes, so
+"fixing" it would change the recorded payload on every host to a form nothing has exercised. Raised by
+comms-senior-dev in pre-deploy review; the failure mode he first reported — registration silently
+failing and leaving no entry at all — IS fixed.
+
+The related baked launcher paths (`install.sh` around the `aify-comms` and `aify-doctor` bodies) are the
+same class and equally unreachable here: nothing on this fleet exports `MSYS2_ARG_CONV_EXCL` or
+`MSYS_NO_PATHCONV` — not the installed launchers, not the operator's shell, not the four wrapper
+templates, whose only mentions are comments.
+
 ## `undefined` is not a placeholder session handle, and JavaScript writes it (2026-08-17)
 
 **Measured, not ruled on.** `HANDLE_PLACEHOLDERS` filters the strings a shell writes when a variable
