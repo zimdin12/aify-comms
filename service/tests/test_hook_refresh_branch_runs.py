@@ -139,7 +139,7 @@ def test_a_hermes_root_containing_a_space_is_passed_whole():
     travels through that argument at all."""
     with tempfile.TemporaryDirectory(prefix="aify-hermesspace-") as tmp:
         home = Path(tmp)
-        root = home / "hermes config" 
+        root = home / "hermes config"
         root.mkdir(parents=True)
         (root / "config.yaml").write_text("agent_hooks:\n  - command: node notify-check.js\n", encoding="utf-8")
 
