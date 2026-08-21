@@ -22,6 +22,8 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { leakedCarriers, sealedChildEnv } from "./_child-env.mjs";
+
 const BRIDGE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REPO = path.resolve(BRIDGE, "..", "..");
 const INSTALL_SH = path.join(REPO, "install.sh");
@@ -135,10 +137,13 @@ test("registration survives a shell with path conversion turned off", () => {
       : token
   ));
 
-  execFileSync(process.execPath, converted, {
-    encoding: "utf8",
-    env: { ...process.env, MSYS2_ARG_CONV_EXCL: "*", MSYS_NO_PATHCONV: "1" },
-  });
+  // sealedChildEnv, not a raw spread: a wrapper-launched shell carries the operator's service URL,
+  // API key, hermes session and agent identity, and this child WRITES a registry. Passing them in
+  // would be inheritance nobody asked for, into the one test here that produces a file.
+  const childEnv = sealedChildEnv({ MSYS2_ARG_CONV_EXCL: "*", MSYS_NO_PATHCONV: "1" });
+  assert.deepEqual(leakedCarriers(childEnv), [],
+    "the child that writes a registry must inherit none of the operator's live carriers");
+  execFileSync(process.execPath, converted, { encoding: "utf8", env: childEnv });
 
   const written = JSON.parse(fs.readFileSync(registry, "utf8"));
   assert.ok(written.services?.["aify-comms"], "the registry must be written with conversion disabled");
