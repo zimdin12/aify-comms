@@ -50,6 +50,7 @@ import {
   // Moved out of THIS file in v0.5.4 so they could be tested — see the note where they used to sit.
   readBoundAgentId,
   readProcEnv,
+  nativePathForRead,
   versionToCompareWrappersAgainst,
   wrapperVersionVerdict,
 } from "./doctor-predicates.js";
@@ -309,7 +310,9 @@ function checkWrapperVersions() {
     if (!resolved) continue;
     let version = null;
     try {
-      const text = readFileSync(resolved.trim(), "utf8");
+      // `which` prints an MSYS path on Git-Bash; native Node cannot open it and the catch below
+      // turned that into "no marker", so every launcher read as pre-contract whatever it contained.
+      const text = readFileSync(nativePathForRead(resolved.trim()), "utf8");
       const m = text.match(/HARNESS_WRAPPER_VERSION="([^"]*)"/);
       if (m && m[1]) version = m[1];
     } catch { /* unreadable — treated as no marker, i.e. stale */ }

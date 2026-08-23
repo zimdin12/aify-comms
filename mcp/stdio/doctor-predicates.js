@@ -671,6 +671,28 @@ export function readProcEnv(pid, { procRoot = "/proc", readFile = readFileSync }
  * turns "" into `unknown-all`, a FAIL that says it verified nothing -- which is the truth, and is the
  * opposite of the confident wrong answer the fallback would give.
  */
+/**
+ * A path that `readFileSync` can actually open, from whatever `which` printed.
+ *
+ * On Git-Bash, `which claude-aify` prints an MSYS path -- /c/Users/.../claude-aify. Native Node
+ * resolves that to C:\c\Users\..., the drive letter glued onto a POSIX path, and the read throws
+ * ENOENT. doctor's catch treated an unreadable launcher as "no marker", so `wrapper-current` reported
+ * EVERY launcher as a pre-contract build regardless of what it contained. It looked right only while
+ * the launchers genuinely were pre-contract.
+ *
+ * No conversion-disabling variable is involved. This path never passes through argv conversion; it
+ * arrives as text on a subprocess's stdout, which is why the shell never rescues it.
+ *
+ * Only a SINGLE-letter first segment is a drive: `/co/tools/x` is a directory called "co" and must
+ * survive untouched, or this corrupts real POSIX paths on the platform where they are correct.
+ */
+export function nativePathForRead(value) {
+  const text = String(value ?? "");
+  const match = /^\/([A-Za-z])\/(.*)$/.exec(text);
+  if (!match) return text;
+  return `${match[1].toUpperCase()}:/${match[2]}`;
+}
+
 export function versionToCompareWrappersAgainst({ wrapperPackageVersion, serviceVersion } = {}) {
   void serviceVersion; // named so the wrong source is visible here rather than tempting at the call site
   return String(wrapperPackageVersion || "").trim();

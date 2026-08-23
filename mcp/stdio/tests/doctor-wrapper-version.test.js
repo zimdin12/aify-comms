@@ -17,7 +17,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { versionToCompareWrappersAgainst, wrapperVersionVerdict } from "../doctor-predicates.js";
+import { nativePathForRead, versionToCompareWrappersAgainst, wrapperVersionVerdict } from "../doctor-predicates.js";
 
 const V = "0.5.7";
 
@@ -131,4 +131,43 @@ test("no readable wrapper package means nothing to compare, not aify-comms' numb
   });
   assert.equal(verdict.ok, false);
   assert.equal(verdict.code, "unknown-all");
+});
+
+// ── The path `which` hands back ────────────────────────────────────────────────────
+//
+// On Git-Bash, `which claude-aify` prints an MSYS path: /c/Users/.../claude-aify. Native Node cannot
+// open that — it resolves to C:\c\Users\..., the drive letter glued onto a POSIX path — and the read
+// throws ENOENT. doctor's catch treats an unreadable launcher as "no marker", so wrapper-current
+// reported EVERY launcher as a pre-contract build no matter what it actually contained.
+//
+// It read correctly this morning only because the launchers really were pre-contract. After a
+// reinstall put `HARNESS_WRAPPER_VERSION="0.5.7"` in all three, it still said pre-contract, which is
+// what showed the reader had never worked.
+//
+// No conversion-disabling variable is involved: this path never goes through argv conversion at all,
+// it arrives as text on a subprocess's stdout. That is why the earlier "not reachable on this fleet"
+// judgement did not cover this instance.
+test("an MSYS path from `which` is converted before the launcher is read", () => {
+  assert.equal(nativePathForRead("/c/Users/Administrator/.local/bin/claude-aify"),
+    "C:/Users/Administrator/.local/bin/claude-aify");
+  assert.equal(nativePathForRead("/d/tools/codex-aify"), "D:/tools/codex-aify");
+});
+
+test("paths that are already usable are handed back untouched", () => {
+  // A native Windows path, and a real POSIX path on Linux/macOS. Rewriting either would break the
+  // platform it came from.
+  assert.equal(nativePathForRead("C:/Users/x/claude-aify"), "C:/Users/x/claude-aify");
+  const B = String.fromCharCode(92);
+  const backslashed = `C:${B}Users${B}x${B}claude-aify`;
+  assert.equal(nativePathForRead(backslashed), backslashed);
+  assert.equal(nativePathForRead("/home/dev/.local/bin/claude-aify"), "/home/dev/.local/bin/claude-aify");
+  assert.equal(nativePathForRead("/usr/local/bin/codex-aify"), "/usr/local/bin/codex-aify");
+});
+
+test("only a single-letter first segment is a drive, and empties stay empty", () => {
+  // /co/... is a directory called "co", not drive C. Getting this wrong would corrupt real POSIX
+  // paths on the platform where they are correct.
+  assert.equal(nativePathForRead("/co/tools/x-aify"), "/co/tools/x-aify");
+  assert.equal(nativePathForRead(""), "");
+  assert.equal(nativePathForRead("   "), "   ");
 });
