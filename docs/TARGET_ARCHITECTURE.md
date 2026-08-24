@@ -50,6 +50,18 @@ hermes-aify         launcher
 
 Nothing else. No `aify-comms` command, no `aify-doctor`, no `aify-env-doctor` as a second binary.
 
+**Measured on this host, 2026-08-24, after installing all three layers at 0.6.0.** Eight, not four,
+and the gap is worth naming rather than leaving a list the machine visibly contradicts:
+
+| on PATH | why | goes when |
+|---|---|---|
+| `aify-env`, `claude-aify`, `codex-aify`, `hermes-aify` | the target four | — |
+| `aify-comms` | the environment bridge. Nothing else starts one while delegation is off | Phase 8 flips (open item 2) |
+| `aify-wrapper-check`, `aify-wrapper-install` | aify-wrapper's own commands, installed by the client path by construction. A launcher answering for itself needs a command to ask | they are the client path; the list above should include them |
+| `aify-doctor` | an alias for `aify-comms doctor`, kept for agent habits and older docs | **the only genuine leftover.** One line in install.sh, and the question is whether anything still reaches for the old name |
+
+Three of the four extras are structural and one is a habit. `aify-env-doctor` is genuinely gone.
+
 ## Where each doctor lives
 
 - **aify-comms' doctor runs inside the container.** It answers about the container: its build, its
