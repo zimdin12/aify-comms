@@ -1,11 +1,11 @@
 {
-  "name": "aify-agents-bridge",
-  "description": "Headless agent control plane forked from aify-comms — messaging, channels, dashboard, environment bridges, and managed headless agent spawning for Claude Code, Codex, and OpenCode.",
+  "name": "aify-comms",
+  "description": "Inter-agent communication hub: messaging, channels, file sharing, active dispatch, and a dashboard for Claude Code, Codex, Hermes and other MCP-connected coding agents.",
   "version": "0.6.0",
   "author": {
     "name": "zimdin12"
   },
-  "homepage": "https://github.com/zimdin12/aify-agents-bridge",
+  "homepage": "https://github.com/zimdin12/aify-comms",
   "license": "MIT",
   "keywords": [
     "multi-agent",
@@ -54,7 +54,7 @@
   },
   "env": {
     "AIFY_SERVER_URL": {
-      "description": "aify-agents-bridge server URL (e.g. http://localhost:8800). Leave empty for local-only mode.",
+      "description": "aify-comms server URL (e.g. http://localhost:8800). Leave empty for local-only mode.",
       "required": false,
       "default": ""
     },

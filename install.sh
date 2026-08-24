@@ -59,6 +59,10 @@ Examples:
   bash install.sh --client codex http://localhost:8800
   bash install.sh --client hermes http://localhost:8800 --with-hook
 
+  --mcp-transport <stdio|sse>   how the launcher reaches MCP. Default stdio: the launcher spawns
+                                the local bridge from ~/.aify-comms. With sse it talks to
+                                <endpoint>/mcp/sse instead and needs no service code on this host.
+
   --client pi is intentionally disabled (managed Pi runs the bridge's `omp --mode rpc`);
   --client opencode is intentionally disabled (managed OpenCode runs through a bridge too).
 EOF
@@ -73,6 +77,23 @@ while [ $# -gt 0 ]; do
     --with-hook)
       WITH_HOOK=true
       shift
+      ;;
+    --mcp-transport)
+      # Which transport the launcher's MCP entry uses: `stdio` spawns the local bridge out of
+      # ~/.aify-comms, `sse` talks to <endpoint>/mcp/sse and needs no service code on this host.
+      # Default is stdio: repointing a live fleet's transport is not an upgrade side effect.
+      MCP_TRANSPORT="${2:-}"
+      case "$MCP_TRANSPORT" in
+        stdio|sse) ;;
+        *)
+          # Refused, never defaulted. A silently-ignored transport would render a launcher that
+          # quietly disagrees with what the operator asked for -- the failure this whole placeholder
+          # arrived to fix, one level up.
+          echo "install.sh: unknown --mcp-transport '$MCP_TRANSPORT' (expected stdio or sse)" >&2
+          exit 78
+          ;;
+      esac
+      shift 2
       ;;
     --prebuild-dry-run)
       PREBUILD_DRY_RUN=true
@@ -463,6 +484,13 @@ render_wrapper_template() {
   text="${text//@@REGISTRY_FINGERPRINT@@/$_AIFY_REGISTRY_FP}"
   # Empty is accurate here, and unlike the fingerprint "unknown" would be WRONG: the launcher
   # branches on this being non-empty and would try to base64-decode it.
+  # THE TRANSPORT BRANCH. Both arms are in every template and this decides which one is live, because
+  # HARNESS_ENDPOINT resolves at launch and a baked URL would let a wrapper announce one endpoint while
+  # its MCP entry talked to another. Left unsubstituted until 2026-08-24, so every launcher aify-comms
+  # rendered carried the literal `@@MCP_TRANSPORT@@` and compared it to "sse" -- false, so it took the
+  # stdio arm and worked by accident. aify-wrapper's own installer substituted it all along, which is
+  # how one template meant two things depending on which installer wrote it, for the second time.
+  text="${text//@@MCP_TRANSPORT@@/${MCP_TRANSPORT:-stdio}}"
   text="${text//@@STRICT_EXTRA_MCP_B64@@/}"
   text="${text//@@BRIDGE_DIR@@/$AIFY_BRIDGE_DIR}"
   text="${text//@@NATIVE_BASE@@/$AIFY_NATIVE_BASE}"
