@@ -22,9 +22,16 @@ aify-wrapper's in the other, invisible while both files read 0.5.7. Each cross-r
 carries a test on the PRODUCING side too — the registry fingerprint, the endpoint readers, the launcher
 exports, and the service self-report `/health` answers to aify-env.
 
-**Not decided here:** the deploy window, and the Phase 8 flip. Delegation to aify-env is built and off
+**Not decided here:** the Phase 8 flip. Delegation to aify-env is built and off
 behind `AIFY_COMMS_DELEGATE_SPAWNS` and `AIFY_ENV_ENDPOINT`, and flipping it is the operator's on an
 idle fleet ([docs/PHASE8_STATUS.md](docs/PHASE8_STATUS.md)).
+
+**The deploy window was the other one, and it is spent:** the operator gave the go on 2026-08-24 and
+v0.6.0 went out end to end. The drift this entry predicted arrived on schedule -- aify-wrapper sat on
+0.5.7 while the other two moved to 0.6.0, so every launcher rendered here was stamped with a version
+older than the contract it carries. Caught by reading the package rather than by anything failing,
+which is the point of the paragraph above: the two counters agreeing is not evidence, and neither is
+them disagreeing quietly.
 
 ## Worker-death cleanup is keyed on terminal STATE, not on a death EVENT (2026-08-07)
 

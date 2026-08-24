@@ -9,7 +9,7 @@ aify-comms has a **backend** and a **client** side, and they are separate instal
 | you want | install | how |
 |---|---|---|
 | **the service** — database, dashboard, the API agents talk to | the container | `./setup.sh` then `docker compose up -d --build` |
-| **to run agents on this machine** | `aify-env` + the launchers | `npm install -g github:zimdin12/aify-env`, then aify-wrapper's `install.sh --all --endpoint <url>` |
+| **to run agents on this machine** | `aify-env` + the launchers | `npm install -g github:zimdin12/aify-env github:zimdin12/aify-wrapper`, then `aify-wrapper-install --all --endpoint <url>` |
 
 A machine may do either, both, or neither. The service can live on another host entirely — point the
 client install at its address instead of `localhost`.

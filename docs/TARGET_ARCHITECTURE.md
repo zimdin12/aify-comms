@@ -85,10 +85,23 @@ operator rather than on effort.
 **Left, and both are the operator's call, not a missing capability:**
 
 1. **The client path still installs aify-comms code.** `--mcp-transport sse` exists and renders a
-   launcher that talks to `<endpoint>/mcp/sse` instead of spawning a local bridge, so the capability is
-   there. It is OFF by default because repointing a live fleet's transport is not an upgrade side
-   effect. Turning it on for a host is one install flag; `~/.aify-comms` stops being load-bearing the
-   moment every launcher on that host uses it.
+   launcher that talks to `<endpoint>/mcp/sse` instead of spawning a local bridge. Proven end to end
+   rather than by status code: the container completes the MCP handshake, issues a session id, and
+   serves 22 `comms_*` tools to a client that asks for them. `~/.aify-comms` stops being load-bearing
+   the moment every launcher on a host uses it.
+
+   **But it is not a free swap, and saying "one install flag" understated it.** The SSE surface is
+   REDUCED by design and `mcp/stdio/tests/transport-parity.test.js` requires every difference to be
+   declared. Nine of the fourteen missing tools are principled — `comms_spawn`, `comms_restart`,
+   `comms_compact`, `comms_interrupt`, `comms_delete_session`, `comms_remove_agent` need a local
+   process; `comms_usage`, `comms_envs`, `comms_listen` read host state a container cannot see. The
+   other five are absent only because nobody mirrored them: `comms_agent_info`, `comms_contracts`,
+   `comms_status`, `comms_describe`, `comms_unsend`. The parity gate already flags `comms_agent_info`
+   as the one worth revisiting, since it is where an agent's production is reported.
+
+   So an agent moved to SSE today loses lifecycle control it could not have had anyway, and five tools
+   it could. Mirroring those five is the work that makes this flag a genuine equivalence rather than a
+   trade, and it is ordinary work, not a decision.
 
 2. **The `aify-comms` command still hosts managed agents.** Delegation to aify-env is built and proven
    against a real daemon, and off behind `AIFY_COMMS_DELEGATE_SPAWNS` + `AIFY_ENV_ENDPOINT`. Flipping
