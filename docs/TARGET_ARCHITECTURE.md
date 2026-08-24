@@ -55,26 +55,36 @@ Nothing else. No `aify-comms` command, no `aify-doctor`, no `aify-env-doctor` as
 Nothing inspects another component's internals. That rule is older than this document and is argued in
 [AIFY_ENV_BOUNDARY.md](AIFY_ENV_BOUNDARY.md); this file only records where the pieces end up.
 
-## What is in the way, measured 2026-08-23
+## What is in the way — re-measured 2026-08-24, after a day of work
 
-Recorded so the gap is a work list rather than a rediscovery.
+Four of the five items below were closed. What remains is one flip and one deletion, both gated on the
+operator rather than on effort.
 
-1. **The client path installs aify-comms code.** `~/.aify-comms` is 92 MB and 160 host-side JS files. It is aify-comms' bridge runtime
-   copied onto the host, because a coding agent loads a *stdio* MCP server locally instead of talking
-   to the container. In the target shape this directory does not exist.
+**Closed:**
 
-2. **The container's MCP transport does not load.** `mcp/sse_server.py` ships and `service/main.py`
-   mounts it, but startup logs `MCP SSE server not available: No module named 'mcp.server.fastmcp'`, so
-   `/mcp/sse` is a 404. This is the single blocker for point 1: until agents can reach MCP over HTTP,
-   the host copy is load-bearing.
+- ~~A launcher does not report its version.~~ All four templates now export `HARNESS_WRAPPER_VERSION`
+  and `HARNESS_REGISTRY_FINGERPRINT`, and the bridge sends them at registration as `launcherVersion`
+  and `launcherRegistryFingerprint`. A launcher REPORTS its state; it does not host a doctor.
+- ~~`aify-comms doctor` answers other tiers' questions.~~ Twelve checks are eight. `wrappers`,
+  `wrapper-current` and `runtimes` went to aify-wrapper, where `aify-wrapper-check` already
+  implemented them; `bridge-terminal` went to `aify-env doctor`. Verified on a live host: both still
+  answer.
+- ~~Three binaries for one product.~~ `aify-env doctor` and `aify-env tui` are subcommands, and an
+  unknown one exits 64 rather than falling through to starting the daemon.
+- ~~The container's MCP transport does not load.~~ `mcp[cli]` was unbounded above, floated to 2.0.0
+  and lost the API `sse_server.py` imports; the failure logged at INFO so it read as "not configured".
+  Bounded to `<2`, logged as a WARNING, tested. `/mcp/sse` returns 200.
 
-3. **A launcher does not report its version.** `HARNESS_WRAPPER_VERSION` is a shell local, never
-   exported, so the only way to know which launcher started a session is to read the file on the host.
-   That is why launcher staleness is a host command today.
+**Left, and both are the operator's call, not a missing capability:**
 
-4. **`aify-comms doctor` answers other tiers' questions.** Of its twelve checks, three belong to
-   aify-wrapper (which already implements them in `aify-wrapper-check`) and one duplicates aify-env's
-   terminal check. Four more are about `~/.aify-comms` and stop existing with point 1.
+1. **The client path still installs aify-comms code.** `--mcp-transport sse` exists and renders a
+   launcher that talks to `<endpoint>/mcp/sse` instead of spawning a local bridge, so the capability is
+   there. It is OFF by default because repointing a live fleet's transport is not an upgrade side
+   effect. Turning it on for a host is one install flag; `~/.aify-comms` stops being load-bearing the
+   moment every launcher on that host uses it.
 
-5. **The `aify-comms` command still hosts managed agents.** It can only disappear once spawning goes
-   through aify-env — built, and off behind two environment variables.
+2. **The `aify-comms` command still hosts managed agents.** Delegation to aify-env is built and proven
+   against a real daemon, and off behind `AIFY_COMMS_DELEGATE_SPAWNS` + `AIFY_ENV_ENDPOINT`. Flipping
+   it needs an idle fleet.
+
+When both are on, PATH holds `aify-env` and the three launchers, and nothing else.
