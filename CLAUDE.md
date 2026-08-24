@@ -16,6 +16,11 @@ Inter-agent communication hub: messaging, channels, file sharing, active dispatc
   operator decisions each one turned on. Phase 8 is built and deliberately OFF: read
   [docs/PHASE8_STATUS.md](docs/PHASE8_STATUS.md) before touching spawn or terminals, since the
   delegated path exists in the code and only two environment variables stand between it and live.
+- [docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md) — **the shape this is heading for, as the
+  operator specified it.** Container / host / `~/.aify`, four commands on PATH, and where each doctor
+  lives. Not a proposal: anything disagreeing with it is the thing that is wrong. Read it before
+  arguing about component boundaries — it exists because the same target had to be restated several
+  times before it was written down.
 - [DECISIONS.md](DECISIONS.md) — rationale for non-obvious design choices and current runtime limits.
 - [KNOWN_ISSUES.md](KNOWN_ISSUES.md) — known limitations, deferred work, watch-items, and pre-existing backlog.
 - `.claude/skills/aify-comms/SKILL.md` — agent-facing usage guide (tool reference, multi-instance matrix, status table).
