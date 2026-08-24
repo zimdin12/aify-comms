@@ -79,6 +79,34 @@ export function cwdRootsForEnvironment() {
   return dedupePreserveOrder([DEFAULT_CWD]);
 }
 
+/**
+ * What the LAUNCHER reported about itself, from the environment it exported into this runtime.
+ *
+ * aify-wrapper exports HARNESS_WRAPPER_VERSION and HARNESS_REGISTRY_FINGERPRINT. Carrying them to the
+ * control plane is what lets the service answer "which launcher started this session, and which
+ * registry was it built against" -- the question that is otherwise answerable only by opening a file
+ * on the host, which is the entire reason a host-side launcher check exists.
+ *
+ * ABSENT STAYS ABSENT. A runtime not started by one of our launchers omits the keys rather than
+ * reporting empty strings: an empty value is a value, and a consumer cannot tell it from a launcher
+ * that genuinely reported nothing. An unsubstituted `@@PLACEHOLDER@@` is treated the same way -- it
+ * means the render did not finish, not that the build is called that.
+ */
+export function launcherStateFrom(env = {}) {
+  const real = (value) => {
+    const text = String(value ?? "").trim();
+    if (!text) return null;
+    if (/^@@[A-Z0-9_]+@@$/.test(text)) return null;
+    return text;
+  };
+  const version = real(env.HARNESS_WRAPPER_VERSION);
+  const fingerprint = real(env.HARNESS_REGISTRY_FINGERPRINT);
+  const out = {};
+  if (version) out.launcherVersion = version;
+  if (fingerprint) out.launcherRegistryFingerprint = fingerprint;
+  return out;
+}
+
 export function environmentHeartbeatPayload() {
   const hostname = (() => {
     try { return os.hostname() || "unknown-host"; } catch { return "unknown-host"; }
@@ -94,6 +122,7 @@ export function environmentHeartbeatPayload() {
     kind,
     bridgeId: BRIDGE_INSTANCE_ID,
     bridgeVersion: BRIDGE_VERSION,
+    ...launcherStateFrom(process.env),
     cwdRoots: cwdRootsForEnvironment(),
     runtimes: advertisedEnvironmentRuntimes(),
     terminal: terminalSupported,
