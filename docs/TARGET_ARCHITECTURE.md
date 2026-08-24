@@ -108,3 +108,25 @@ operator rather than on effort.
    it needs an idle fleet.
 
 When both are on, PATH holds `aify-env` and the three launchers, and nothing else.
+
+## The client path, verified from a clean install
+
+Documented install commands rot in a particular way: they are written on the machine that already has
+the thing, and verified by the person who never has to run them. `npm install -g aify-env` sat in four
+documents returning 404 for everyone else, correct-looking because aify-env is `npm link`ed here.
+
+So this was run rather than reasoned about, into a throwaway npm prefix so the real install was never
+touched:
+
+```
+npm install -g --prefix <tmp> github:zimdin12/aify-wrapper
+  -> aify-wrapper-check, aify-wrapper-install (+ .cmd and .ps1 shims), VERSION 0.6.0
+<tmp>/aify-wrapper-check   -> ok claude-aify / ok codex-aify / ok hermes-aify, "3 current"
+<tmp>/aify-wrapper-install --help  -> usage, no install performed
+```
+
+Both bins execute on Windows, where a `.sh` entry behind a generated `.cmd` shim is the thing most
+likely not to. `npm view github:zimdin12/aify-env version` answers 0.6.0 the same way.
+
+Re-run this the next time either package's packaging changes. It is cheap, and it is the only check
+that does not depend on this machine's own state.
