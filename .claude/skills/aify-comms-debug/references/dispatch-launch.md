@@ -112,6 +112,22 @@ After opening the native CLI, re-register from that same session with the same `
 
 **Fix.** Current service builds normalize workspace paths for the selected environment before persisting spawn requests and runtime specs. Non-Windows environments store POSIX slashes; Windows environments keep Windows path style. Update/restart the service, then retry or repair the affected spawn/session workspace.
 
+## Managed spawn fails and aify-env is in the path
+
+**Symptom.** A managed run never starts. The error names aify-env, or a launcher path that looks
+almost right, or nothing started at all.
+
+**Cause.** Since 2026-08-25 managed spawns are DELEGATED to aify-env. It is required: the bridge
+refuses rather than spawning locally, because two spawners on one host is what the tier exists to
+prevent. So a down aify-env, a launcher without a `HARNESS_WRAPPER_VERSION` marker, or a row carrying
+no argv all surface here rather than as a runtime problem.
+
+**Read first.** `aify-comms doctor` → `spawn-delegation` says where spawns run and whether aify-env is
+answering. `aify-env doctor` answers for the host. Neither starts anything.
+
+**Fix.** Start aify-env if it is down. If the launcher is refused, reinstall it with `install.sh` so it
+carries the marker. To host spawns locally again, reinstall without `--delegate-spawns`.
+
 ## Claude/Pi managed run fails: `spawn "/path/to/claude-or-omp" ENOENT`
 
 **Symptom.** A managed Claude Code or Oh My Pi run fails before the agent replies with an error like `spawn "/home/dev/.local/bin/claude" ENOENT` or `spawn "/home/dev/.local/bin/omp" ENOENT`, even though the diagnostic says `command -v` resolved the launcher.

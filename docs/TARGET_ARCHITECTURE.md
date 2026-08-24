@@ -115,9 +115,20 @@ operator rather than on effort.
    it could. Mirroring those five is the work that makes this flag a genuine equivalence rather than a
    trade, and it is ordinary work, not a decision.
 
-2. **The `aify-comms` command still hosts managed agents.** Delegation to aify-env is built and proven
-   against a real daemon, and off behind `AIFY_COMMS_DELEGATE_SPAWNS` + `AIFY_ENV_ENDPOINT`. Flipping
-   it needs an idle fleet.
+2. ~~**The `aify-comms` command still hosts managed agents.**~~ **DONE 2026-08-25: delegation is ON.**
+   The operator took the call on an idle fleet, `install.sh --delegate-spawns` bakes it into the
+   environment-bridge launcher, and `aify-comms doctor`'s `spawn-delegation` reports the setting and
+   whether aify-env is answering.
+
+   **Proven end to end rather than by reading**, through the same code the bridge runs: a real
+   `claude-aify` launched by aify-env, exit 0, its output streamed back, and aify-env owning the
+   process while it lived. That proof found three defects nothing else had — argv never reaching the
+   spawn, Windows resolving the launcher to a `.cmd` shim aify-env refuses, and the launcher path
+   losing every backslash before bash. Each would have broken the first spawn with every component
+   looking healthy.
+
+   What remains of this item is the command itself: `aify-comms` still exists as the environment
+   bridge, and deleting it is the last step rather than the flip.
 
 When both are on, PATH holds `aify-env` and the three launchers, and nothing else.
 

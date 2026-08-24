@@ -22,9 +22,16 @@ aify-wrapper's in the other, invisible while both files read 0.5.7. Each cross-r
 carries a test on the PRODUCING side too — the registry fingerprint, the endpoint readers, the launcher
 exports, and the service self-report `/health` answers to aify-env.
 
-**Not decided here:** the Phase 8 flip. Delegation to aify-env is built and off
-behind `AIFY_COMMS_DELEGATE_SPAWNS` and `AIFY_ENV_ENDPOINT`, and flipping it is the operator's on an
-idle fleet ([docs/PHASE8_STATUS.md](docs/PHASE8_STATUS.md)).
+**Both decisions are now spent.** The Phase 8 flip was taken on 2026-08-25, on an idle fleet:
+managed spawns go to aify-env, and `install.sh --delegate-spawns` bakes it into the launcher so the
+setting lives in the file rather than in whatever environment started it
+([docs/PHASE8_STATUS.md](docs/PHASE8_STATUS.md)).
+
+**The flip is where the cost of a two-ended contract came due, exactly as this entry predicted.** The
+seam had been proven against a real aify-env and still could not spawn: the caller never passed argv,
+Windows resolved the launcher to a `.cmd` shim the environment refuses, and the path lost its
+backslashes before reaching bash. Three defects, all on the joins rather than in either component, all
+found by running a spawn rather than by reading the code that would run it.
 
 **The deploy window was the other one, and it is spent:** the operator gave the go on 2026-08-24 and
 v0.6.0 went out end to end. The drift this entry predicted arrived on schedule -- aify-wrapper sat on

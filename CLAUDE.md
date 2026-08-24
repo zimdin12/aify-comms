@@ -13,9 +13,13 @@ Inter-agent communication hub: messaging, channels, file sharing, active dispatc
 - [docs/superpowers/plans/2026-08-20-three-repo-separation-roadmap.md](docs/superpowers/plans/2026-08-20-three-repo-separation-roadmap.md)
   — **v0.6, the work in flight.** aify-comms, [aify-wrapper](https://github.com/zimdin12/aify-wrapper)
   and [aify-env](https://github.com/zimdin12/aify-env) as three repos, which phases are done, and the
-  operator decisions each one turned on. Phase 8 is built and deliberately OFF: read
-  [docs/PHASE8_STATUS.md](docs/PHASE8_STATUS.md) before touching spawn or terminals, since the
-  delegated path exists in the code and only two environment variables stand between it and live.
+  operator decisions each one turned on. **Phase 8 is ON since 2026-08-25: managed spawns go to
+  aify-env**, so aify-env is now REQUIRED for spawning and a spawn fails loudly rather than falling
+  back — two spawners on one host is the collision the tier exists to end. Read
+  [docs/PHASE8_STATUS.md](docs/PHASE8_STATUS.md) before touching spawn or terminals; its last section
+  records the three defects the first real spawn exposed, all of which sat on the joins between
+  components that each reported healthy. `aify-comms doctor`'s `spawn-delegation` says where spawns
+  run and whether aify-env is answering.
 - [docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md) — **the shape this is heading for, as the
   operator specified it.** Container / host / `~/.aify`, four commands on PATH, and where each doctor
   lives. Not a proposal: anything disagreeing with it is the thing that is wrong. Read it before

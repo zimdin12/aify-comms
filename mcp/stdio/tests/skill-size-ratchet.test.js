@@ -51,7 +51,17 @@ const CEILINGS = {
   "aify-comms-debug/references/dashboard-console.md": 18_454,
   "aify-comms-debug/references/dispatch-bridges.md": 25917,
   "aify-comms-debug/references/dispatch-delivery.md": 26_577,
-  "aify-comms-debug/references/dispatch-launch.md": 14_004,
+  // 14_004 -> 14_926 on 2026-08-25. A DECISION, and here is what it buys.
+  //
+  // Managed spawns are delegated to aify-env from that date, and it is REQUIRED: the bridge refuses
+  // rather than spawning locally. So "the managed run never started" acquired a new first cause, and
+  // an agent debugging it without this entry chases cwd and launcher-path causes that no longer
+  // apply -- the entries directly below this one. Every one of the three defects the first real spawn
+  // exposed surfaces exactly this way.
+  //
+  // Paid by being the shortest thing that changes the reader's first move: it names the two commands
+  // that answer the question and the three shapes the failure takes, and nothing else.
+  "aify-comms-debug/references/dispatch-launch.md": 14_926,
   "aify-comms-debug/references/hermes-session.md": 27_285,
   "aify-comms-debug/references/hermes-turns.md": 15_996,
   "aify-comms-debug/references/lifecycle.md": 6_704,

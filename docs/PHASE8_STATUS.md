@@ -7,6 +7,10 @@ today's behaviour and stop before flipping it.
 
 **`mcp/stdio/env-client.mjs`** and its tests — start, stop, list, health and output against aify-env.
 
+> **SUPERSEDED 2026-08-25: delegation is ON.** The operator took the call on an idle fleet. What
+> follows describes the state while it was off, and the section at the end of this file records the
+> flip and the three defects the first real spawn exposed. Read this part as history.
+
 **Off by default, and it takes TWO things to turn on:** `AIFY_COMMS_DELEGATE_SPAWNS=1` **and**
 `AIFY_ENV_ENDPOINT`.
 
@@ -256,5 +260,59 @@ green and the pair is broken.
 shell string is the quoting bug this avoids; and an `argv[0]` that does not resolve is refused rather
 than guessed, because aify-env is asked for a launcher by path.
 
-**Still OFF.** `isEnabled` needs both `AIFY_COMMS_DELEGATE_SPAWNS` and `AIFY_ENV_ENDPOINT`, and neither
-is set. The local path is untouched and remains the fallback.
+**Still OFF** *(true when written; the flip is recorded in the section below)*. `isEnabled` needs both
+`AIFY_COMMS_DELEGATE_SPAWNS` and `AIFY_ENV_ENDPOINT`, and neither is set. The local path is untouched
+and remains the fallback.
+
+That last sentence did not survive contact: with delegation on there IS no fallback. The bridge
+refuses rather than spawning locally, deliberately, because silently hosting a spawn the operator
+asked aify-env to run is how two spawners end up on one host.
+
+## The flip, 2026-08-25
+
+Turned on by the operator on an idle fleet: zero managed agents were live, which is the condition this
+document asked for.
+
+`install.sh --delegate-spawns [url]` bakes `AIFY_COMMS_DELEGATE_SPAWNS` and `AIFY_ENV_ENDPOINT` into
+the environment-bridge launcher, defaulting to aify-env's fixed loopback address. Baked rather than
+left ambient so the setting is visible in the file instead of depending on whatever environment
+started the bridge, and the launcher now announces which spawner is in force. `aify-comms doctor` grew
+`spawn-delegation`, which READS that setting -- never by running the launcher, since a bare
+`aify-comms` supersedes the live bridge -- and probes the endpoint, because delegation makes aify-env
+required and a down daemon otherwise appears as spawns failing with no cause attached.
+
+### What the first real spawn exposed
+
+Three defects, none visible from the code, each fatal to the first spawn while every component
+reported healthy:
+
+1. **argv never reached the spawn.** `terminal-control-loop.mjs` reads `terminal.argv` to find the
+   session handle structurally, then called `start()` without it. `startDelegated` refuses a row with
+   no argv -- correctly, because aify-env executes a launcher FILE and splitting a shell string is the
+   quoting bug that design avoids -- so every delegated spawn would have thrown.
+
+2. **Windows resolved the launcher to its `.cmd` shim.** `resolveExecutable("claude-aify")` returns
+   the generated shim, which carries neither a shebang nor `HARNESS_WRAPPER_VERSION`, and aify-env
+   refuses it. Measured on the host: shim REFUSED, extensionless sibling ACCEPTED. Delegation now asks
+   which file IS the launcher rather than what Windows would execute.
+
+3. **The launcher path lost every backslash before bash.** Exit 127, with
+   `/bin/bash: C:UsersAdministrator.localbinclaude-aify: No such file or directory`. Windows builds a
+   command line out of argv and a POSIX shell parsing it back treats a backslash as an escape. Fixed
+   in aify-env by handing bash a forward-slash path.
+
+**The seam had been "proven against a real aify-env" before all three.** That proof constructed the
+spec itself and passed a POSIX path, so it exercised the seam and not the path into it. The difference
+between a component that works and a component that works when something else supplies the input is
+the whole of what these three were.
+
+### Proven after the fixes
+
+Through the same code the bridge runs, against a real aify-env: `start()` returned, aify-env owned the
+process while it lived, the real `claude-aify` produced its own output, that output streamed back
+through the delegated path, and it exited 0.
+
+### What is left
+
+The `aify-comms` command still exists as the environment bridge. Deleting it is the last step of the
+tier, and it is not the flip.
