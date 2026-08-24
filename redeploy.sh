@@ -27,6 +27,18 @@ detect_installed_server_url() {
 DEFAULT_SERVER="${AIFY_DEFAULT_SERVER_URL:-$(detect_installed_server_url || echo "http://127.0.0.1:8800")}"
 SERVER_URL="${1:-$DEFAULT_SERVER}"
 
+# WHERE SPAWNS GO, carried across the update the same way the endpoint is. install.sh bakes delegation
+# only when asked, so re-rendering without asking moved managed spawns back off aify-env -- observed
+# minutes after the flip, `spawn-delegation` going from `delegated` to `local` across a routine
+# redeploy whose whole promise is that it changes nothing but the code.
+#
+# Empty when delegation is off, which reproduces an un-delegated install exactly.
+DELEGATE_ARGS=()
+if _installed_env_endpoint="$(bash "$REPO_ROOT/scripts/installed-delegation.sh" "$HOME/.local/bin" 2>/dev/null)"; then
+  DELEGATE_ARGS=(--delegate-spawns "$_installed_env_endpoint")
+  echo "redeploy.sh: keeping managed spawns delegated to $_installed_env_endpoint"
+fi
+
 if [ ! -f "$REPO_ROOT/install.sh" ]; then
   echo "redeploy.sh: install.sh not found at $REPO_ROOT" >&2
   exit 1
@@ -98,7 +110,7 @@ for client in "${CLIENTS[@]}"; do
     continue
   fi
   echo "redeploy.sh: refreshing $client..."
-  if bash "$REPO_ROOT/install.sh" --client "$client" "$SERVER_URL"; then
+  if bash "$REPO_ROOT/install.sh" --client "$client" "$SERVER_URL" "${DELEGATE_ARGS[@]+"${DELEGATE_ARGS[@]}"}"; then
     echo "redeploy.sh: $client refreshed"
     REFRESHED=$((REFRESHED + 1))
   else
