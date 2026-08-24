@@ -170,18 +170,6 @@ function checkNativeBridge() {
   return add("bridge-installed", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }
 
-function checkBridgeTerminal() {
-  try {
-    execFileSync(process.execPath, ["-e", "require('node-pty')"], {
-      cwd: BRIDGE_DIR,
-      stdio: "ignore",
-    });
-    return add("bridge-terminal", true, "ok", "installed node-pty native module loads");
-  } catch {
-    return add("bridge-terminal", false, "unloadable", "installed node-pty native module does not load; terminal-backed runtimes cannot start.",
-      "Run `cd ~/.aify-comms/mcp/stdio && npm rebuild node-pty`, then restart the environment bridge.");
-  }
-}
 
 // ── 3. RUNNING bridges: a process keeps the code it loaded at boot ──────────────────
 // This is the check that would have saved the most time. A fix can be committed, installed, and
@@ -255,78 +243,8 @@ async function checkAgentIdentity() {
     "Relaunch each with `--aify-agent <id>` (add `--resume <handle>` to keep its conversation).");
 }
 
-// ── 5/6. wrappers + runtimes actually on PATH ────────────────────────────────────────
-function checkWrappers() {
-  const found = ["claude-aify", "codex-aify", "hermes-aify", "aify-comms"].filter((w) => sh("command", ["-v", w]) || sh("which", [w]));
-  if (!found.length) {
-    return add("wrappers", false, "missing", "no aify wrappers on PATH.",
-      "Run install.sh, and make sure ~/.local/bin is on PATH.");
-  }
-  add("wrappers", true, "ok", `on PATH: ${found.join(", ")}`);
-}
 
-// ── 6b. wrapper-current: is the launcher on PATH the build this checkout describes? ──
-//
-// The replacement for a guarantee v0.6 gives up. install.sh guarantees wrapper and bridge are the same
-// build by doing both in one step; publishing the wrappers separately ends that by construction, and
-// `bridge-installed` / `bridge-current` exist BECAUSE that guarantee kept being violated silently.
-//
-// READS, NEVER RUNS. `claude-aify --check` would be the obvious way to ask, and it is unsafe here: a
-// wrapper installed before the contract does not know that flag and forwards it to the runtime, so
-// doctor would LAUNCH CLAUDE on a live machine to find out whether claude-aify was current.
-function checkWrapperVersions() {
-  // aify-wrapper's VERSION, not aify-comms'. The marker in a launcher is stamped from the package
-  // that rendered it, so the package is the only number it can honestly be measured against. Reading
-  // the repo root compared two unrelated counters that happened to agree on 2026-08-20; the first
-  // independent release on either side would have turned every clean install STALE.
-  //
-  // The CHECKOUT's copy first, then the installed bridge's. The check says REINSTALL, and a reinstall
-  // runs install.sh from the checkout and renders from the checkout's node_modules -- so that is the
-  // version a launcher would get. The installed copy is the fallback for a host with no checkout at
-  // all; preferring it would compare against what the LAST install used, which is precisely the
-  // number a staleness check must not treat as current.
-  //
-  // Neither readable gives "" and the verdict is unknown-all -- a fail that says it verified nothing,
-  // rather than a confident comparison against the wrong number.
-  const wrapperPackageVersion = (() => {
-    const roots = [repo ? join(repo.dir, "mcp", "stdio") : null, BRIDGE_DIR].filter(Boolean);
-    for (const root of roots) {
-      try {
-        return readFileSync(join(root, "node_modules", "aify-wrapper", "VERSION"), "utf8").trim();
-      } catch { /* try the next root */ }
-    }
-    return "";
-  })();
-  const repoVersion = versionToCompareWrappersAgainst({
-    wrapperPackageVersion,
-    serviceVersion: repo ? (() => {
-      try { return readFileSync(join(repo.dir, "VERSION"), "utf8").trim(); } catch { return ""; }
-    })() : "",
-  });
 
-  const wrappers = [];
-  for (const name of ["claude-aify", "codex-aify", "hermes-aify"]) {
-    const resolved = sh("command", ["-v", name]) || sh("which", [name]);
-    if (!resolved) continue;
-    let version = null;
-    try {
-      // `which` prints an MSYS path on Git-Bash; native Node cannot open it and the catch below
-      // turned that into "no marker", so every launcher read as pre-contract whatever it contained.
-      const text = readFileSync(nativePathForRead(resolved.trim()), "utf8");
-      const m = text.match(/HARNESS_WRAPPER_VERSION="([^"]*)"/);
-      if (m && m[1]) version = m[1];
-    } catch { /* unreadable — treated as no marker, i.e. stale */ }
-    wrappers.push({ name, version });
-  }
-
-  const verdict = wrapperVersionVerdict({ repoVersion, wrappers });
-  add("wrapper-current", verdict.ok, verdict.code, verdict.detail, verdict.fix);
-}
-
-function checkRuntimes() {
-  const rt = ["claude", "codex", "hermes"].filter((r) => sh("which", [r]));
-  add("runtimes", true, "ok", rt.length ? `installed: ${rt.join(", ")}` : "none of claude/codex/hermes found on PATH");
-}
 
 // ── 7. environment bridge: is one actually connected? ────────────────────────────────
 // REGISTERED IS NOT CONNECTED (fixed 2026-07-26). This counted rows in /environments and
@@ -462,13 +380,18 @@ function checkSkillsInstalled() {
 // ── run ──────────────────────────────────────────────────────────────────────────────
 await checkService();
 checkNativeBridge();
-checkBridgeTerminal();
+// LAUNCHER AND TERMINAL QUESTIONS ARE NOT THIS TOOL'S.
+//
+// `wrappers`, `wrapper-current` and `runtimes` moved to aify-wrapper, where
+// `aify-wrapper-check` already answered them -- a second implementation of one question does
+// not agree for free, it agrees until one of them is fixed, and the copy that lived here is
+// the one that carried a Windows bug aify-wrapper's never had.
+//
+// `bridge-terminal` moved to `aify-env doctor`, which owns whether this host can open a
+// terminal. See docs/AIFY_ENV_BOUNDARY.md for the table that assigns them.
 checkSkillsInstalled();
 checkRunningBridges();
 await checkAgentIdentity();
-checkWrappers();
-checkWrapperVersions();
-checkRuntimes();
 await checkEnvBridge();
 await checkUsage();
 
