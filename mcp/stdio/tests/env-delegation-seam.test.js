@@ -22,6 +22,25 @@ import { test } from "node:test";
 
 import { TerminalProcessManager } from "../terminal-runtime.js";
 import { isEnabled } from "../env-client.mjs";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+/**
+ * A real launcher on disk: shebang plus the marker aify-env requires.
+ *
+ * These tests used `process.execPath` -- node itself -- which resolves fine and is NOT a launcher.
+ * aify-env would have refused it, so the tests were passing on a spawn the environment could never
+ * accept, and that gap is exactly where the Windows .cmd-shim defect hid. A fixture that satisfies the
+ * real contract is what makes these tests mean something.
+ */
+function writeLauncherFixture(name) {
+  const dir = mkdtempSync(join(tmpdir(), "aify-launcher-"));
+  const file = join(dir, name);
+  const eol = String.fromCharCode(10);
+  writeFileSync(file, ["#!/usr/bin/env bash", 'HARNESS_WRAPPER_VERSION="0.6.0"', "exit 0", ""].join(eol));
+  return file;
+}
 
 /**
  * A manager that records which local path it was dispatched to and starts nothing.
@@ -111,7 +130,7 @@ test("delegation ON with a RESOLVABLE launcher goes to aify-env, not to a local 
     async subscribeOutput() { return () => {}; },
   };
   const manager = new DispatchSpy({ envDelegation: { isEnabled: () => true, client } });
-  const result = await manager.start({ ...spec("seam-5"), argv: [process.execPath, "--version"] });
+  const result = await manager.start({ ...spec("seam-5"), argv: [writeLauncherFixture("probe-aify"), "--version"] });
 
   assert.equal(result.pid, 4242);
   assert.equal(asked.length, 1, "the environment was not asked to start anything");

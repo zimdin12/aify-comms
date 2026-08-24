@@ -2535,13 +2535,18 @@ test("the five bridge classes are measurable, and the sizes are cross-checked", 
     ["mcp/stdio/pi-session.js", "PiSession", 960],
     ["mcp/stdio/codex-session.js", "CodexSession", 684],
     ["mcp/stdio/hermes-session.js", "HermesSession", 529],
-    // 626 -> 648 -> 654 -> 740 across v0.6 Phase 8: the delegation seam, a correction to its comment,
-    // then startDelegated -- the method that actually routes a terminal into aify-env. RE-MEASURED
-    // independently each time by brace-matching from the class header, never taken from the
-    // assertion's "actual": a figure copied out of a failure message records whatever the change
-    // produced rather than what is true. +86 is the new method and its documentation, which is the
-    // answer agreeing with the cause.
-    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 785],
+    // 626 -> 648 -> 654 -> 740 -> 785 -> 799 across v0.6 Phase 8: the delegation seam, a correction to
+    // its comment, then startDelegated -- the method that actually routes a terminal into aify-env --
+    // and now choosing the launcher FILE over whatever Windows would execute. RE-MEASURED independently
+    // each time by brace-matching from the class header, never taken from the assertion's "actual": a
+    // figure copied out of a failure message records whatever the change produced rather than what is
+    // true.
+    //
+    // +14 on 2026-08-25, and the arithmetic is the third check: resolving `claude-aify` on Windows
+    // returns the generated .cmd shim, which carries no shebang and no HARNESS_WRAPPER_VERSION, so
+    // aify-env refused every delegated spawn while the command resolved and the file existed. The 14
+    // lines are the selection and its refusal message. Cause, count and measurement agree.
+    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 799],
   ];
   for (const [rel, name, expected] of cases) {
     const span = declarationSpan(read(rel), name);

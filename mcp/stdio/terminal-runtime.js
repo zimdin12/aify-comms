@@ -1,8 +1,10 @@
 import { spawn } from "child_process";
 import { createRequire } from "module";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { normalizeRuntime, terminateProcessTree } from "./runtimes.js";
 import { resolveExecutable } from "./runtimes-exec.js";
+import { launcherCandidates, launcherFileFor } from "./launcher-file.mjs";
 import { createEnvTerm } from "./env-term-shim.mjs";
 import { reapPriorManagedClaude } from "./reap-managed-claude.js";
 import { classifyClaudeConsoleTail, hasActiveSubagents } from "./claude-console-spinner.js";
@@ -282,13 +284,27 @@ export class TerminalProcessManager {
       );
     }
 
-    const launcher = resolveExecutable(parts[0]);
-    if (!launcher) {
+    const resolved = resolveExecutable(parts[0]);
+    if (!resolved) {
       throw new Error(
         `cannot delegate terminal ${id}: "${parts[0]}" does not resolve to an executable on this host. `
         + "aify-env is asked for a launcher by path; it does not search PATH on our behalf.",
       );
     }
+    // THE LAUNCHER FILE, not whatever Windows would execute. Resolving `claude-aify` there returns
+    // the generated `claude-aify.cmd` shim, which carries no shebang and no HARNESS_WRAPPER_VERSION,
+    // so aify-env refused every delegated spawn on Windows while the command resolved, the file
+    // existed and the environment was answering. On Linux the two are one path and this is inert,
+    // which is why a seam "proven against a real aify-env" never saw it.
+    const found = launcherFileFor(resolved, (file) => readFileSync(file, "utf8"));
+    if (!found) {
+      throw new Error(
+        `cannot delegate terminal ${id}: none of [${launcherCandidates(resolved).join(", ")}] carries a `
+        + "HARNESS_WRAPPER_VERSION marker, so aify-env would refuse to execute it. Reinstall the "
+        + "launcher with install.sh, or unset AIFY_COMMS_DELEGATE_SPAWNS to spawn locally.",
+      );
+    }
+    const launcher = found.path;
 
     const started = await this.envDelegation.client.start({
       service: "aify-comms",

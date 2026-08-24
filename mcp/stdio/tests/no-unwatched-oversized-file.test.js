@@ -68,7 +68,15 @@ const CEILINGS = {
   // 2934 line and spending it twice would make the promise meaningless. Paid instead by cutting the
   // comments on this change to what a reader needs -- the incident lives in the commit, which is
   // where it does not cost a line on every read.
-  "install.sh": 2978,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
+  // 2978 -> 3017 on 2026-08-25. The delegation opt-in, and the gate's own instruction followed:
+  // --delegate-spawns with its endpoint default and validation, the two exports baked into the
+  // environment-bridge launcher, the line that announces which spawner is in force, and four lines of
+  // usage text. 39 lines for the switch that moves spawning to aify-env, which is the point of the
+  // whole tier.
+  //
+  // Still not paid by the Phase 8 deletion promised above: that reduction is spent once, and this file
+  // loses roughly 139 lines when the `aify-comms` command goes. This ceiling comes down then.
+  "install.sh": 3017,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.

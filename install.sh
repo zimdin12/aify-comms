@@ -16,6 +16,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AIFY_SERVICE_REGISTRY="${AIFY_SERVICE_REGISTRY:-$HOME/.aify/services.json}"
+# Empty means "this bridge hosts spawns", which is what every install does unless --delegate-spawns
+# asks otherwise. Baked into the launcher either way, so the setting is visible in the file rather
+# than depending on whatever environment happened to start it.
+DELEGATE_SPAWNS=""
+AIFY_ENV_ENDPOINT_BAKED=""
 # Native client-install location for the host-side MCP bridge runtime. The repo
 # may sit on a slow filesystem (e.g. a WSL2 9p Docker bind-mount, where reading
 # the ~3900 node_modules files cold takes ~5s — which blows hermes' hardcoded
@@ -59,6 +64,10 @@ Examples:
   bash install.sh --client codex http://localhost:8800
   bash install.sh --client hermes http://localhost:8800 --with-hook
 
+  --delegate-spawns [url]       managed spawns go to aify-env instead of being hosted by the
+                                aify-comms bridge. Defaults to http://127.0.0.1:8802, which is
+                                where aify-env binds. aify-env becomes required for spawning.
+
   --mcp-transport <stdio|sse>   how the launcher reaches MCP. Default stdio: the launcher spawns
                                 the local bridge from ~/.aify-comms. With sse it talks to
                                 <endpoint>/mcp/sse instead and needs no service code on this host.
@@ -77,6 +86,20 @@ while [ $# -gt 0 ]; do
     --with-hook)
       WITH_HOOK=true
       shift
+      ;;
+    --delegate-spawns)
+      # Managed spawns go to aify-env instead of being hosted by this bridge. OFF unless asked for:
+      # turning it on makes aify-env REQUIRED for spawning, and a host whose aify-env is not running
+      # would lose managed agents at the moment of an unrelated reinstall.
+      #
+      # The endpoint is optional and defaults to aify-env's fixed loopback address -- that daemon binds
+      # 127.0.0.1:8802 and deliberately has no --host, so there is one right answer and no reason to
+      # make an operator type it.
+      DELEGATE_SPAWNS=1
+      case "${2:-}" in
+        http://*|https://*) AIFY_ENV_ENDPOINT_BAKED="$2"; shift 2 ;;
+        *) AIFY_ENV_ENDPOINT_BAKED="http://127.0.0.1:8802"; shift ;;
+      esac
       ;;
     --mcp-transport)
       # `stdio` spawns the local bridge from ~/.aify-comms; `sse` talks to <endpoint>/mcp/sse and
@@ -1462,9 +1485,25 @@ NODE
 export AIFY_SERVER_URL="\$SERVER_URL"
 export AIFY_CWD_ROOTS="\$ROOTS"
 
+# WHERE SPAWNS RUN. Empty means this bridge hosts managed agents itself, which is what it did
+# before v0.6 and what every host does until an operator opts in. Set, it delegates every spawn to
+# aify-env, which owns processes and PTYs on this host and runs the allowlisted launcher file.
+#
+# aify-env becomes REQUIRED for managed spawns once this is set: a spawn fails loudly rather than
+# quietly falling back, because a silent fallback would mean two spawners on one host -- the exact
+# collision this tier exists to end. `aify-comms doctor` reports both the setting and whether
+# aify-env is answering.
+export AIFY_COMMS_DELEGATE_SPAWNS="$DELEGATE_SPAWNS"
+export AIFY_ENV_ENDPOINT="$AIFY_ENV_ENDPOINT_BAKED"
+
 echo "aify-comms ENVIRONMENT BRIDGE (this hosts dashboard-managed agents)"
 echo "  server: \$AIFY_SERVER_URL"
 echo "  roots:  \$AIFY_CWD_ROOTS"
+if [ -n "\$AIFY_COMMS_DELEGATE_SPAWNS" ]; then
+  echo "  spawns: DELEGATED to aify-env at \$AIFY_ENV_ENDPOINT"
+else
+  echo "  spawns: hosted by this bridge"
+fi
 echo "  note:   starting this SUPERSEDES any bridge already serving this environment —"
 echo "          the older one exits and its managed workers are reaped. Use --check to"
 echo "          validate the launcher without starting anything."

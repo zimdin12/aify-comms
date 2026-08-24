@@ -97,6 +97,16 @@ export async function runTerminalControlPass({
         const started = await TERMINAL_MANAGER.start({
           id: terminalId,
           command,
+          // THE ROW'S ARGV, which delegation cannot spawn without. The loop already reads
+          // `terminal.argv` above to find the session handle structurally, then dropped it here --
+          // so `startDelegated` saw an empty argv and threw "the row carries no argv" on every
+          // spawn. Phase 8 was proven against a real aify-env by a test that passes argv itself; the
+          // production caller never did, which is the difference between a seam that works and one
+          // that works when something else supplies the input.
+          //
+          // Harmless while delegation is off: the local PTY path spawns from `command` and ignores
+          // it. It is the flip that needs it.
+          argv: Array.isArray(terminal.argv) ? terminal.argv : [],
           cwd: workspace,
           env: wrapperEnv,
           cols: control.cols || 100,

@@ -18,6 +18,25 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { TerminalProcessManager } from "../terminal-runtime.js";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+/**
+ * A real launcher on disk: shebang plus the marker aify-env requires.
+ *
+ * These tests used `process.execPath` -- node itself -- which resolves fine and is NOT a launcher.
+ * aify-env would have refused it, so the tests were passing on a spawn the environment could never
+ * accept, and that gap is exactly where the Windows .cmd-shim defect hid. A fixture that satisfies the
+ * real contract is what makes these tests mean something.
+ */
+function writeLauncherFixture(name) {
+  const dir = mkdtempSync(join(tmpdir(), "aify-launcher-"));
+  const file = join(dir, name);
+  const eol = String.fromCharCode(10);
+  writeFileSync(file, ["#!/usr/bin/env bash", 'HARNESS_WRAPPER_VERSION="0.6.0"', "exit 0", ""].join(eol));
+  return file;
+}
 
 /** An EnvClient stand-in that records what the manager asks the environment to do. */
 function fakeClient(calls = []) {
@@ -36,7 +55,7 @@ async function delegated(calls) {
     envDelegation: { isEnabled: () => true, client: fakeClient(calls) },
   });
   await manager.start({
-    id: "t1", command: process.execPath, argv: [process.execPath, "--version"],
+    id: "t1", command: writeLauncherFixture("probe-aify"), argv: [writeLauncherFixture("probe-aify"), "--version"],
     cwd: process.cwd(), runtime: "claude-code", sessionMode: "managed",
   });
   return manager;
@@ -117,7 +136,7 @@ test("a start whose output stream fails is REFUSED, not reported as attached", a
 
   await assert.rejects(
     () => manager.start({
-      id: "t9", command: process.execPath, argv: [process.execPath, "--version"],
+      id: "t9", command: writeLauncherFixture("probe-aify"), argv: [writeLauncherFixture("probe-aify"), "--version"],
       cwd: process.cwd(), runtime: "claude-code",
     }),
     /stream|output/i,

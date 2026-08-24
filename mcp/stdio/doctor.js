@@ -50,6 +50,7 @@ import {
   // Moved out of THIS file in v0.5.4 so they could be tested — see the note where they used to sit.
   readBoundAgentId,
   readProcEnv,
+  spawnDelegationVerdict,
 } from "./doctor-predicates.js";
 
 const args = process.argv.slice(2);
@@ -377,6 +378,46 @@ function checkSkillsInstalled() {
 // ── run ──────────────────────────────────────────────────────────────────────────────
 await checkService();
 checkNativeBridge();
+// WHERE MANAGED SPAWNS RUN, and whether that place is answering.
+//
+// Delegation makes aify-env required for spawning: the bridge REFUSES rather than falling back, which
+// is right -- two spawners on one host is the collision the environment tier exists to end -- and it
+// is invisible, because what an operator sees is spawns failing rather than a daemon that is down.
+//
+// The launcher is READ, never run: a bare `aify-comms` starts an environment bridge and supersedes the
+// live one, which is how this fleet lost nine managed agents.
+async function checkSpawnDelegation() {
+  let launcherText = null;
+  for (const candidate of [
+    join(homedir(), ".local", "bin", "aify-comms"),
+    join(homedir(), ".local", "bin", "aify-comms.cmd"),
+  ]) {
+    try {
+      launcherText = readFileSync(candidate, "utf8");
+      break;
+    } catch {
+      // Try the next spelling; an absent launcher is reported by the verdict, not thrown here.
+    }
+  }
+  let endpointAnswered = null;
+  const endpoint = launcherText
+    ? (/^export AIFY_ENV_ENDPOINT="([^"]*)"/m.exec(launcherText) ?? [, ""])[1]
+    : "";
+  const delegating = launcherText
+    ? (/^export AIFY_COMMS_DELEGATE_SPAWNS="([^"]*)"/m.exec(launcherText) ?? [, ""])[1].trim() !== ""
+    : false;
+  if (delegating && endpoint) {
+    try {
+      const response = await fetch(`${endpoint}/health`, { signal: AbortSignal.timeout(3000) });
+      endpointAnswered = response.ok;
+    } catch {
+      endpointAnswered = false;
+    }
+  }
+  const verdict = spawnDelegationVerdict({ launcherText, endpointAnswered });
+  return add("spawn-delegation", verdict.ok, verdict.code, verdict.detail, verdict.fix);
+}
+
 // LAUNCHER AND TERMINAL QUESTIONS ARE NOT THIS TOOL'S.
 //
 // `wrappers`, `wrapper-current` and `runtimes` moved to aify-wrapper, where
@@ -387,6 +428,7 @@ checkNativeBridge();
 // `bridge-terminal` moved to `aify-env doctor`, which owns whether this host can open a
 // terminal. See docs/AIFY_ENV_BOUNDARY.md for the table that assigns them.
 checkSkillsInstalled();
+await checkSpawnDelegation();
 checkRunningBridges();
 await checkAgentIdentity();
 await checkEnvBridge();

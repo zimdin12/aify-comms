@@ -638,3 +638,79 @@ export function readProcEnv(pid, { procRoot = "/proc", readFile = readFileSync }
   } catch { /* process gone / not ours */ }
   return out;
 }
+
+/**
+ * Where managed spawns run, and whether that place is answering.
+ *
+ * Delegation makes aify-env REQUIRED for spawning: `startDelegated` refuses rather than falling back,
+ * because a silent fallback would put two spawners on one host, which is the collision the environment
+ * tier exists to end. Refusing is right and invisible -- an operator sees spawns failing, not a daemon
+ * that is down -- so this check exists to name the cause before it is needed.
+ *
+ * READ FROM THE LAUNCHER FILE, never by running it: a bare `aify-comms` starts an environment bridge
+ * and supersedes the live one, which is how this fleet lost nine managed agents in August.
+ *
+ * @param {{launcherText: string|null, endpointAnswered: boolean|null}} input
+ *   launcherText: the installed `aify-comms` launcher, or null if it could not be read.
+ *   endpointAnswered: whether aify-env replied; null when it was not asked (delegation off).
+ */
+export function spawnDelegationVerdict({ launcherText = null, endpointAnswered = null } = {}) {
+  if (launcherText === null) {
+    return {
+      ok: false,
+      code: "unknown-all",
+      detail: "Could not read the installed aify-comms launcher, so where spawns run is unknown. "
+        + "Nothing was verified.",
+      fix: "Run install.sh for any client; it writes the environment-bridge launcher.",
+    };
+  }
+  const setting = /^export AIFY_COMMS_DELEGATE_SPAWNS="([^"]*)"/m.exec(launcherText);
+  if (!setting) {
+    // A launcher rendered before the setting existed. Not a failure: it hosts spawns itself, which is
+    // the behaviour every host had before v0.6 and still the default.
+    return {
+      ok: true,
+      code: "pre-contract",
+      detail: "This launcher predates the delegation setting, so the bridge hosts managed spawns "
+        + "itself — the default. Reinstall to make the setting explicit in the file.",
+      fix: "",
+    };
+  }
+  const on = setting[1].trim() !== "";
+  if (!on) {
+    return {
+      ok: true,
+      code: "local",
+      detail: "Managed spawns are hosted by the aify-comms bridge itself. aify-env is not in the "
+        + "spawn path, so its process list is empty by design.",
+      fix: "",
+    };
+  }
+  const endpoint = (/^export AIFY_ENV_ENDPOINT="([^"]*)"/m.exec(launcherText) ?? [, ""])[1];
+  if (endpointAnswered === true) {
+    return {
+      ok: true,
+      code: "delegated",
+      detail: `Managed spawns are delegated to aify-env at ${endpoint || "(no endpoint baked)"}, `
+        + "which is answering.",
+      fix: "",
+    };
+  }
+  if (endpointAnswered === null) {
+    return {
+      ok: false,
+      code: "unknown-all",
+      detail: `Delegation is on, pointing at ${endpoint || "(no endpoint baked)"}, and it was not `
+        + "asked whether that is answering. Nothing was verified.",
+      fix: "Re-run the doctor with network access to the endpoint.",
+    };
+  }
+  return {
+    ok: false,
+    code: "unreachable",
+    detail: `Delegation is on but aify-env at ${endpoint || "(no endpoint baked)"} is not answering. `
+      + "Every managed spawn will FAIL until it is: the bridge refuses rather than silently hosting "
+      + "them itself, because two spawners on one host is the collision this tier exists to end.",
+    fix: "Start aify-env on this host, or reinstall without --delegate-spawns to host spawns locally.",
+  };
+}
