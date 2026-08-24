@@ -15,6 +15,23 @@ is the thing that is wrong.
 The container is a service. The host is where agents actually run. `~/.aify` is how the host-side
 pieces agree with each other without a fourth component to coordinate them.
 
+## Installing is TWO paths, not one
+
+They are separate installs for separate roles, and a machine may do either, both, or neither.
+
+| path | what you install | what you get |
+|---|---|---|
+| **backend / service** | the container | aify-comms: its database, its config, the dashboard, its own doctor. Reached over HTTP. |
+| **client / frontend** | `aify-env` + `aify-wrapper` | the host tier and the `*-aify` launchers, configured through `~/.aify`, pointed at a service that may live on another machine |
+
+Nothing in the client path is aify-comms code. That is the test for whether the split is real: a host
+that runs agents installs aify-env and the launchers, and carries no copy of the service.
+
+**Today it fails that test.** `install.sh` is one script doing both halves, and the client half installs
+92 MB of aify-comms' own runtime into `~/.aify-comms`. Two paths means two installers, and the client
+one is `npm install -g aify-env` plus aify-wrapper's `install.sh --all --endpoint <url>` -- both of
+which already exist and already work.
+
 ## Commands on PATH
 
 ```
@@ -42,7 +59,7 @@ Nothing inspects another component's internals. That rule is older than this doc
 
 Recorded so the gap is a work list rather than a rediscovery.
 
-1. **`~/.aify-comms` exists at all — 92 MB, 160 host-side JS files.** It is aify-comms' bridge runtime
+1. **The client path installs aify-comms code.** `~/.aify-comms` is 92 MB and 160 host-side JS files. It is aify-comms' bridge runtime
    copied onto the host, because a coding agent loads a *stdio* MCP server locally instead of talking
    to the container. In the target shape this directory does not exist.
 
