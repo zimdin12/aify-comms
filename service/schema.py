@@ -224,6 +224,8 @@ CREATE TABLE IF NOT EXISTS environments (
     kind TEXT DEFAULT '',
     bridge_id TEXT DEFAULT '',
     bridge_version TEXT DEFAULT '',
+    launcher_version TEXT DEFAULT '',
+    launcher_registry_fingerprint TEXT DEFAULT '',
     cwd_roots TEXT DEFAULT '[]',
     runtimes TEXT DEFAULT '[]',
     status TEXT DEFAULT 'online',

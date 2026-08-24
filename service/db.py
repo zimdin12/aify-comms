@@ -98,6 +98,9 @@ DISPATCH_CONTROL_MIGRATIONS = {
 
 ENVIRONMENT_MIGRATIONS = {
     "bridge_version": "ALTER TABLE environments ADD COLUMN bridge_version TEXT DEFAULT ''",
+    "launcher_version": "ALTER TABLE environments ADD COLUMN launcher_version TEXT DEFAULT ''",
+    "launcher_registry_fingerprint":
+        "ALTER TABLE environments ADD COLUMN launcher_registry_fingerprint TEXT DEFAULT ''",
 }
 
 AGENT_SESSION_MIGRATIONS = {

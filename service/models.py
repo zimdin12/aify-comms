@@ -355,6 +355,11 @@ class EnvironmentHeartbeat(_MachineIdNormalizingModel):
     kind: Optional[str] = None
     bridgeId: Optional[str] = None
     bridgeVersion: Optional[str] = None
+    # What the LAUNCHER reported about itself, which is a different claim from what the bridge
+    # reports about itself above. A bridge started by hand has no launcher and sends neither;
+    # that is normal rather than missing data, so both default to empty on the row.
+    launcherVersion: Optional[str] = None
+    launcherRegistryFingerprint: Optional[str] = None
     cwdRoots: Optional[list[str]] = None
     runtimes: Optional[list[dict[str, Any]]] = None
     terminal: Optional[bool] = None

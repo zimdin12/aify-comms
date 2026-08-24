@@ -37,8 +37,9 @@ async def _record_environment_registration(
                 """
                 UPDATE environments
                 SET label = ?, machine_id = ?, os = ?, kind = ?, bridge_id = ?,
-                    bridge_version = ?, cwd_roots = ?, runtimes = ?, status = ?,
-                    metadata = ?, last_seen = ?
+                    bridge_version = ?, launcher_version = ?,
+                    launcher_registry_fingerprint = ?, cwd_roots = ?, runtimes = ?,
+                    status = ?, metadata = ?, last_seen = ?
                 WHERE id = ?
                 """,
                 (
@@ -48,6 +49,8 @@ async def _record_environment_registration(
                     req.kind or "",
                     req.bridgeId or "",
                     req.bridgeVersion or "",
+                    req.launcherVersion or "",
+                    req.launcherRegistryFingerprint or "",
                     json.dumps(effective_roots),
                     json.dumps(runtimes),
                     requested_status,
@@ -61,8 +64,9 @@ async def _record_environment_registration(
                 """
                 INSERT INTO environments (
                     id, label, machine_id, os, kind, bridge_id, bridge_version,
+                    launcher_version, launcher_registry_fingerprint,
                     cwd_roots, runtimes, status, metadata, registered_at, last_seen
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     env_id,
@@ -72,6 +76,8 @@ async def _record_environment_registration(
                     req.kind or "",
                     req.bridgeId or "",
                     req.bridgeVersion or "",
+                    req.launcherVersion or "",
+                    req.launcherRegistryFingerprint or "",
                     json.dumps(effective_roots),
                     json.dumps(runtimes),
                     requested_status,

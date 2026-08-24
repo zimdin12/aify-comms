@@ -57,6 +57,11 @@ def _environment_record_to_dict(row, *, offline_seconds: int = 90) -> dict[str, 
         "kind": row["kind"] or "",
         "bridgeId": row["bridge_id"] or "",
         "bridgeVersion": (row["bridge_version"] if "bridge_version" in row.keys() else "") or "",
+        "launcherVersion": (row["launcher_version"] if "launcher_version" in row.keys() else "") or "",
+        "launcherRegistryFingerprint": (
+            row["launcher_registry_fingerprint"]
+            if "launcher_registry_fingerprint" in row.keys() else ""
+        ) or "",
         "cwdRoots": _json_loads_or(row["cwd_roots"], []),
         "runtimes": normalized_runtimes,
         "terminal": terminal,
