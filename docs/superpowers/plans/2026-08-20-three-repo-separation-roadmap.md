@@ -93,6 +93,20 @@ Three things in that output rather than only the last line. It reports `??` and 
 launcher it cannot read is not counted as fine — the rule this program keeps re-learning. It read the
 files rather than running them, which is what makes it safe to point at a pre-contract wrapper at all.
 
+**Re-measured 2026-08-24, after the deploy, on the same three launchers:**
+
+```
+  ok    claude-aify
+  ok    codex-aify
+  ok    hermes-aify
+
+3 current
+```
+
+Kept both readings rather than replacing the first. The `??` run is the evidence that the checker can
+say "I could not read this", and a document holding only the green run cannot show that its instrument
+has a negative to return.
+
 **And the clause was only half true until 2026-08-20: `install.sh` baked the literal string
 `unknown`.** aify-comms' installer is the primary path, so every launcher on every host would have read
 `??` forever and none could ever read `current` — the right failure direction, telling nobody anything
@@ -140,16 +154,16 @@ queues per capability, and the response threads back.
 Five decisions, scattered across three documents until now, with what each one holds up. Nothing in this
 list is blocked on effort; every one of them is a judgement that is not an agent's to make.
 
-**FOUR OF THE FIVE ARE ANSWERED as of 2026-08-20**, and the work each unblocked is done. What remains is
-the deploy window, which is the only one with anything at stake in waiting: the gap between checkout and
-fleet grows with every commit.
+**ALL FIVE ARE ANSWERED.** Four on 2026-08-20 and the deploy window on 2026-08-24, when the operator
+gave the go and v0.6.0 went out: container, bridge, skills and all three launchers. The gap this table
+warned about growing is closed, so the section below is now a record rather than a queue.
 
 | | decision | what it holds up | where it is argued |
 |---|---|---|---|
 | 1 | ~~The published git identity in aify-wrapper.~~ **DECIDED 2026-08-20: leave it.** Both addresses are the operator's own and already public. | — | this table |
 | 2 | ~~Task 6b — how aify-comms locates the wrapper package.~~ **DECIDED 2026-08-20: consume the package.** Done — pinned npm dependency, `wrappers/` deleted, both drift gates retired. | — | `2026-08-20-aify-wrapper-completion.md`, Task 6b |
 | 3 | ~~Shell string versus structural argv.~~ **DECIDED 2026-08-20: carry `argv`, additively.** Built end to end and proven against a real aify-env; the seam delegates and is still flag-off. | — | `docs/PHASE8_STATUS.md` |
-| 4 | **The deploy window.** Nothing from this program is deployed: `aify-comms doctor` reports 4 checks needing attention, all of them "older than the checkout". | Everything reaching the fleet. The service, the bridge, the installed skills and the running wrappers are all behind. | `aify-comms doctor` |
+| 4 | ~~The deploy window.~~ **DECIDED 2026-08-24: go.** v0.6.0 deployed end to end. `/health` reports `0.6.0`, `aify-wrapper-check` reports `3 current`, and `service` is green against HEAD. | — | `aify-comms doctor` |
 | 5 | ~~The `aify-env` name.~~ **DECIDED 2026-08-20: keep it.** It names the tier rather than the coupling, which was the point. | — | `docs/AIFY_ENV_BOUNDARY.md` |
 
 **Decision 3, now answered, was the one that changed most under examination.** The options table treats "parse the
@@ -159,8 +173,10 @@ parsing has shipped a defect — codex's and opencode's forms went unrecognised,
 never fire and workers got a blank `CODEX_THREAD_ID`. Passing argv would delete a parse rather than add
 one.
 
-**Decision 4 is the only one that is time-sensitive**, and only mildly: the gap between checkout and
-fleet grows with every commit, and `bridge-current` cannot verify a wrapper that has not been relaunched.
+**Decision 4 was the only time-sensitive one**, and it is spent. What replaced it is smaller and
+structural: `bridge-installed` and `skills-installed` go stale the moment anything under `mcp/stdio/`
+or the skills is edited, so they are a reinstall away rather than a decision away, and they read red
+between an edit and that reinstall by design.
 
 ## Risk, and the one that is not like the others
 

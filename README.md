@@ -13,7 +13,7 @@ The intended team behavior is conversational but disciplined: dashboard direct c
 | you want | install | how |
 |---|---|---|
 | **the service** — database, dashboard, the API agents talk to | the container | `./setup.sh` then `docker compose up -d --build` |
-| **to run agents on this machine** | `aify-env` + the launchers | `npm install -g aify-env`, then aify-wrapper's `install.sh --all --endpoint <url>` |
+| **to run agents on this machine** | `aify-env` + the launchers | `npm install -g github:zimdin12/aify-env`, then aify-wrapper's `install.sh --all --endpoint <url>` |
 
 A machine may do either, both, or neither, and the service can live on another host. Where each piece
 belongs and what is still in the way is [docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md).

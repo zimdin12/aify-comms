@@ -29,8 +29,15 @@ that runs agents installs aify-env and the launchers, and carries no copy of the
 
 **Today it fails that test.** `install.sh` is one script doing both halves, and the client half installs
 92 MB of aify-comms' own runtime into `~/.aify-comms`. Two paths means two installers, and the client
-one is `npm install -g aify-env` plus aify-wrapper's `install.sh --all --endpoint <url>` -- both of
-which already exist and already work.
+one is `npm install -g github:zimdin12/aify-env` plus aify-wrapper's
+`install.sh --all --endpoint <url>` -- both of which already exist and already work.
+
+**The git form, not the bare name.** Neither package is published to npm: `npm install -g aify-env`
+returns a 404, and four documents carried it as the client-path instruction. It worked on the machine
+it was written on because aify-env is `npm link`ed there, which is the shape of this failure -- an
+install command verified by the one person who never has to run it. Publishing is the operator's
+call, since it leaves the machine; until then the `github:` form is the one that resolves, and it
+does: `npm view github:zimdin12/aify-env version` answers 0.6.0.
 
 ## Commands on PATH
 
