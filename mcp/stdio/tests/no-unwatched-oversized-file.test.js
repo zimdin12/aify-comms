@@ -55,7 +55,20 @@ const CEILINGS = {
   // refusals themselves print; the hook dispatch derives `install_${CLIENT}_hook` instead of listing
   // three clients; and the registry fingerprint moved to scripts/registry-fingerprint.sh beside the
   // two other readers. Comments that restated what the scripts they call already explain went too.
-  "install.sh": 2957,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
+  // 2957 -> 2978 on 2026-08-24. A DEFECT FIX, and the smallest one that closes it.
+  //
+  // The templates carry a transport branch and this installer never substituted `@@MCP_TRANSPORT@@`,
+  // so every launcher it rendered compared a literal placeholder to "sse", got false, and took the
+  // stdio arm by accident -- for a value nobody had chosen. aify-wrapper's installer had substituted
+  // it all along, which is the second time one template meant two things depending on which installer
+  // wrote it. The 21 lines are a flag with validation that exits 78 rather than defaulting, the
+  // substitution itself, and three lines of usage text.
+  //
+  // NOT paid by the Phase 8 deletion promised above: that reduction is already spent against the
+  // 2934 line and spending it twice would make the promise meaningless. Paid instead by cutting the
+  // comments on this change to what a reader needs -- the incident lives in the commit, which is
+  // where it does not cost a line on every read.
+  "install.sh": 2978,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.

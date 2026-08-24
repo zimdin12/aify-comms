@@ -79,19 +79,15 @@ while [ $# -gt 0 ]; do
       shift
       ;;
     --mcp-transport)
-      # Which transport the launcher's MCP entry uses: `stdio` spawns the local bridge out of
-      # ~/.aify-comms, `sse` talks to <endpoint>/mcp/sse and needs no service code on this host.
-      # Default is stdio: repointing a live fleet's transport is not an upgrade side effect.
+      # `stdio` spawns the local bridge from ~/.aify-comms; `sse` talks to <endpoint>/mcp/sse and
+      # needs no service code here. Default stdio: repointing a live fleet is not a side effect.
+      # Refused rather than defaulted, or an ignored value renders a launcher that disagrees with
+      # what was asked for -- the same failure the unsubstituted placeholder caused one level up.
       MCP_TRANSPORT="${2:-}"
       case "$MCP_TRANSPORT" in
         stdio|sse) ;;
-        *)
-          # Refused, never defaulted. A silently-ignored transport would render a launcher that
-          # quietly disagrees with what the operator asked for -- the failure this whole placeholder
-          # arrived to fix, one level up.
-          echo "install.sh: unknown --mcp-transport '$MCP_TRANSPORT' (expected stdio or sse)" >&2
-          exit 78
-          ;;
+        *) echo "install.sh: unknown --mcp-transport '$MCP_TRANSPORT' (expected stdio or sse)" >&2
+           exit 78 ;;
       esac
       shift 2
       ;;
@@ -484,12 +480,9 @@ render_wrapper_template() {
   text="${text//@@REGISTRY_FINGERPRINT@@/$_AIFY_REGISTRY_FP}"
   # Empty is accurate here, and unlike the fingerprint "unknown" would be WRONG: the launcher
   # branches on this being non-empty and would try to base64-decode it.
-  # THE TRANSPORT BRANCH. Both arms are in every template and this decides which one is live, because
-  # HARNESS_ENDPOINT resolves at launch and a baked URL would let a wrapper announce one endpoint while
-  # its MCP entry talked to another. Left unsubstituted until 2026-08-24, so every launcher aify-comms
-  # rendered carried the literal `@@MCP_TRANSPORT@@` and compared it to "sse" -- false, so it took the
-  # stdio arm and worked by accident. aify-wrapper's own installer substituted it all along, which is
-  # how one template meant two things depending on which installer wrote it, for the second time.
+  # THE TRANSPORT BRANCH: both arms are in every template and this picks the live one. Unsubstituted
+  # until 2026-08-24, so every launcher carried the literal `@@MCP_TRANSPORT@@`, compared it to "sse",
+  # and took the stdio arm by accident -- while aify-wrapper's installer had substituted it all along.
   text="${text//@@MCP_TRANSPORT@@/${MCP_TRANSPORT:-stdio}}"
   text="${text//@@STRICT_EXTRA_MCP_B64@@/}"
   text="${text//@@BRIDGE_DIR@@/$AIFY_BRIDGE_DIR}"
