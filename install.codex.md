@@ -2,6 +2,22 @@
 
 Use aify-comms when you want dashboard-driven coordination for coding agents: live direct messages, channels, shared artifacts, active dispatch, managed agent spawn, and environment control.
 
+## Two installs, and you may only need one
+
+aify-comms has a **backend** and a **client** side, and they are separate installs.
+
+| you want | install | how |
+|---|---|---|
+| **the service** — database, dashboard, the API agents talk to | the container | `./setup.sh` then `docker compose up -d --build` |
+| **to run agents on this machine** | `aify-env` + the launchers | `npm install -g aify-env`, then aify-wrapper's `install.sh --all --endpoint <url>` |
+
+A machine may do either, both, or neither. The service can live on another host entirely — point the
+client install at its address instead of `localhost`.
+
+**The steps below are the client side**, and they currently also install this repo's own bridge
+runtime onto the host. That is being unwound: see
+[docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md) for where it lands and what is left.
+
 ## Before you install: the service has to be running
 
 The steps below install a CLIENT and point it at a service. Something has to be serving that address,

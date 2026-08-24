@@ -8,6 +8,16 @@ The dashboard is the product surface. Messages are the work interface; runs, ses
 
 The intended team behavior is conversational but disciplined: dashboard direct chat is human/operator chat, every message is a small contract, direct agent requests should receive threaded replies, and channel discussion should happen when an agent is named, responsible, asked a question, or has evidence to contribute. Managed turns should not end silently: final text is captured as the current reply, and future work needs a real `comms_send` wake.
 
+## Two installs, and you may only need one
+
+| you want | install | how |
+|---|---|---|
+| **the service** — database, dashboard, the API agents talk to | the container | `./setup.sh` then `docker compose up -d --build` |
+| **to run agents on this machine** | `aify-env` + the launchers | `npm install -g aify-env`, then aify-wrapper's `install.sh --all --endpoint <url>` |
+
+A machine may do either, both, or neither, and the service can live on another host. Where each piece
+belongs and what is still in the way is [docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md).
+
 ## Quick start
 
 ```bash
