@@ -136,3 +136,50 @@ def test_every_doc_line_naming_a_moved_check_names_its_new_owner():
                 rel = path.relative_to(ROOT).as_posix()
                 offences.append(f"{rel}:{first}-{last} names `{check}` without naming {owner}")
     assert not offences, "\n".join(["a doc points at a check aify-comms no longer runs:", *offences])
+
+
+# ── The other direction: a check that exists and is documented nowhere ────────────────
+#
+# The rule above catches a doc naming a check that MOVED. It says nothing about a check that arrived
+# and was never written down, which is the quieter half: `skills-installed` shipped and CLAUDE.md's
+# doctor table listed the other seven for months. Nobody looking at the table would know to run it,
+# and nobody reading the report would know the row was supposed to be there.
+#
+# The table is the reference an agent working on this repo reads, so it is the one held to the full
+# set. Other documents mention whichever checks their subject needs.
+DOCTOR_TABLE_DOC = ROOT / "CLAUDE.md"
+
+
+def documented_check_ids() -> set[str]:
+    """The ids in CLAUDE.md's `| check | catches |` table."""
+    lines = DOCTOR_TABLE_DOC.read_text(encoding="utf-8").splitlines()
+    try:
+        start = next(i for i, line in enumerate(lines) if line.startswith("| check | catches"))
+    except StopIteration:  # pragma: no cover - the table is the subject of this test
+        raise AssertionError("CLAUDE.md no longer has a doctor table; this test is measuring nothing")
+    found = set()
+    for line in lines[start + 1:]:
+        if not line.startswith("|"):
+            break
+        match = re.match(r"\|\s*`([a-z][a-z0-9-]*)`", line)
+        if match:
+            found.add(match.group(1))
+    return found
+
+
+def test_the_table_scan_finds_a_table():
+    """Positive control: an empty scan would make the comparison below pass against anything."""
+    assert len(documented_check_ids()) >= 5, documented_check_ids()
+
+
+def test_every_check_the_doctor_runs_is_in_the_table():
+    undocumented = live_check_ids() - documented_check_ids()
+    assert not undocumented, (
+        f"aify-comms doctor runs checks CLAUDE.md's table does not list: {sorted(undocumented)}"
+    )
+
+
+def test_the_table_lists_no_check_the_doctor_does_not_run():
+    """The reverse, which is how the four moved checks lingered in that table."""
+    phantom = documented_check_ids() - live_check_ids()
+    assert not phantom, f"CLAUDE.md's table lists checks that do not exist: {sorted(phantom)}"
