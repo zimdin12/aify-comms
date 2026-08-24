@@ -174,7 +174,9 @@ async def lifespan(app: FastAPI):
             _mod.setup_mcp_server(app)
             logger.info(f"MCP SSE at {config.mcp_path_prefix}/sse")
         except Exception as e:
-            logger.info(f"MCP SSE server not available: {e}")
+            # WARNING, not info. A transport that failed to mount is not the same as one nobody
+            # configured, and reading it as routine is how this stayed broken unmeasured.
+            logger.warning(f"MCP SSE server FAILED to mount at {config.mcp_path_prefix}/sse: {e}")
 
     # v0.4 C3 — the ntfy drain task. It owns the network and the timeout so no request path ever
     # does. `start()` is a no-op when AIFY_NTFY_URL is unset, which is the default, so an operator
