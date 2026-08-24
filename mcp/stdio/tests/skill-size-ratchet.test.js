@@ -44,7 +44,7 @@ const CEILINGS = {
   "aify-comms/SKILL.md": 15_361,
   "aify-comms/references/building-software.md": 4_488,
   "aify-comms/references/leading-a-team.md": 19_462,
-  "aify-comms/references/operations.md": 11_555,
+  "aify-comms/references/operations.md": 11_550,
   "aify-comms/references/teamwork.md": 15_981,
   "aify-comms-debug/SKILL.md": 3_117,
   "aify-comms-debug/references/codex.md": 14_114,
