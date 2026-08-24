@@ -42,7 +42,7 @@ doing exactly their job: reporting that what is running is not what the checkout
 |---|---|---|
 | `service` | `bash scripts/stamp.sh && docker compose up -d --build` — 2 commits changed code the service executes (#10b's outbound guard, the rename repoint) | brief service restart |
 | `skills-installed` | re-install skills; 13 files differ | no |
-| `bridge-installed`, `wrapper-current` | `install.sh` per client — 12 commits touched `mcp/stdio/`, and the wrappers are all pre-contract builds | no: files are replaced, running processes keep what they loaded |
+| `bridge-installed`, `wrapper-current` (aify-wrapper's since v0.6) | `install.sh` per client — 12 commits touched `mcp/stdio/`, and the wrappers are all pre-contract builds | no: files are replaced, running processes keep what they loaded |
 | `bridge-current` | **relaunch every wrapper** | **yes — this stops and restarts the operator's working agents** |
 
 I have not run any of them. The operator said the team is working and that bridges can no longer be

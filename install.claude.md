@@ -67,8 +67,9 @@ changed is not what is running. Do not read the absence of an error as success.
 aify-comms doctor          # human-readable; --json for scripts, --strict to exit non-zero
 ```
 
-On a fresh install `service`, `bridge-installed`, `skills-installed` and `wrapper-current` should all
-be green. `bridge-running` and `agent-identity` SKIP on Windows — they read `/proc` — so on Windows
+On a fresh install `service`, `bridge-installed` and `skills-installed` should all be green. The
+launcher's own currency is `aify-wrapper-check`'s question, not this tool's — v0.6 moved it there
+rather than keep a second implementation of it. `bridge-running` and `agent-identity` SKIP on Windows — they read `/proc` — so on Windows
 `bridge-current` is what tells you a running bridge is on the current build. A check that could not
 gather evidence reports `unknown-all` and fails; that is the tool working, not a bug to quieten.
 

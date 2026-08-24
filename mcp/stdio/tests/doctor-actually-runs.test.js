@@ -121,9 +121,13 @@ test("a failing check carries a fix, because the report is what an operator acts
 test("the id scan reads the file, so it cannot silently agree with an empty run", () => {
   // Anti-vacuity for the comparison above: if `declaredCheckIds()` ever returned [], the equality
   // test would pass on a doctor that reported nothing at all.
+  //
+  // The named ids must be ones THIS tool still owns. `wrappers` was in this list and moved to
+  // aify-wrapper in v0.6, which turned a control into a false alarm -- the scan was working
+  // perfectly and the test said it was broken.
   const ids = declaredCheckIds();
   assert.ok(ids.length >= 8, `only ${ids.length} check ids found in doctor.js`);
-  for (const expected of ["service", "bridge-installed", "env-bridge", "wrappers"]) {
+  for (const expected of ["service", "bridge-installed", "env-bridge", "skills-installed"]) {
     assert.ok(ids.includes(expected), `${expected} is no longer declared in doctor.js`);
   }
 });

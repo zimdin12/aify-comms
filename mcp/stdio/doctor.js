@@ -50,9 +50,6 @@ import {
   // Moved out of THIS file in v0.5.4 so they could be tested — see the note where they used to sit.
   readBoundAgentId,
   readProcEnv,
-  nativePathForRead,
-  versionToCompareWrappersAgainst,
-  wrapperVersionVerdict,
 } from "./doctor-predicates.js";
 
 const args = process.argv.slice(2);

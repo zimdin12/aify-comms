@@ -13,10 +13,10 @@ test("installer rebuilds node-pty when its native module cannot load", () => {
   assert.match(installer, /npm rebuild node-pty/);
 });
 
-test("doctor reports an unloadable installed node-pty", () => {
-  assert.match(doctor, /bridge-terminal/);
-  assert.match(doctor, /require\(["']node-pty["']\)/);
-});
+// `bridge-terminal` used to be asserted here, as a regex over doctor.js. It moved to
+// `aify-env doctor` in v0.6, where lib/environment-checks.mjs answers it and both arms are tested by
+// CALLING terminalCheck() -- available, and node-pty failing to load -- rather than by checking that
+// a line was written. The installer half below stays: rebuilding node-pty is still aify-comms' job.
 
 test("doctor compares bridge processes to the install marker timestamp", () => {
   assert.match(doctor, /statSync\(join\(AIFY_HOME, ["']\.aify-version["']\)\)\.mtimeMs/);
