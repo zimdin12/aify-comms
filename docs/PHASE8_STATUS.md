@@ -21,7 +21,7 @@ is the worst possible direction for this particular switch.
 
 **Neither variable installs anything.** aify-env is a separate daemon that has to be running on the
 host before delegation has anywhere to go — `git clone https://github.com/zimdin12/aify-env`,
-`npm install -g .`, `aify-env`. Its README covers the loopback binding, what `aify-env-doctor` reports
+`npm install -g .`, `aify-env`. Its README covers the loopback binding, what `aify-env doctor` reports
 about a host with no build tools, and what a hard kill leaves behind. Turning these two variables on
 against a host with no daemon gets refused spawns, not a fallback to the old path.
 

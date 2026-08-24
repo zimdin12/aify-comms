@@ -17,7 +17,7 @@ This is the answer to that blocker.
 | | Owns | Knows about |
 |---|---|---|
 | **aify-wrapper** | The four launchers. Installs one per harness present. | Harnesses. Not services. |
-| **aify-env** | Processes and PTYs on this host. One per host. Hosts `aify-env-doctor`. | Neither. Runs what it is told, from the allowlist below. |
+| **aify-env** | Processes and PTYs on this host. One per host. Answers `aify-env doctor`. | Neither. Runs what it is told, from the allowlist below. |
 | **aify-comms** | Messaging, dispatch, channels, agent semantics. | Agents. Stops being a command. |
 | **aify-dashboard** | Agent-pushed HTML, liveness pages, tasks, docs, projects. | Reads the others. |
 
@@ -108,7 +108,7 @@ Nothing crosses that line except **reachability**, which is symmetric and honest
 "aify-comms is registered and answering" or "registered and silent". It cannot say "aify-comms is
 healthy" — it asks, and displays the answer it was given.
 
-So `aify-env-doctor` is a **collector and a display**, not an inspector. It runs its own environment
+So `aify-env doctor` is a **collector and a display**, not an inspector. It runs its own environment
 checks, asks each registered service for its self-report, and renders both.
 
 **It was called `aify-doctor` until 2026-08-20, and that was the boundary being crossed in the command
