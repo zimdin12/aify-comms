@@ -9,7 +9,10 @@ import {
   startResumeMarkerSync,
 } from "./hermes-active-session.mjs";
 import { defaultKillByPort } from "./hermes-daemon.js";
-import { runPollCycle } from "./hermes-delivery-run.mjs";
+import {
+  noAttachedSessionTeardownMessage,
+  runPollCycle,
+} from "./hermes-delivery-run.mjs";
 import {
   clearGatewayMarkers as defaultClearGatewayMarkers,
   clearSessionMarker as defaultClearSessionMarker,
@@ -33,6 +36,7 @@ import {
   MAX_REENSURE_WITHOUT_RECOVERY,
   ensureGatewayHost,
   gatewayIndexUrlFromWs,
+  gatewayUnreachableAfterProbesMessage,
   gatewayUnreachableMessage,
   installShutdownTeardown,
   isGatewayConnectRefused,
@@ -323,7 +327,8 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // PROACTIVE gateway-liveness probe (status-liveness, 2026-06-02). Every
   // GATEWAY_PROBE_MS, probe the gateway HOST's dashboard index for
   // reachability; after GATEWAY_PROBE_THRESHOLD consecutive failures, report the
-  // gateway dead ONCE (resident-lost) so the agent stops showing `available`
+  // gateway dead ONCE (resident-lost) — which for a MANAGED agent rests it
+  // cold-startable rather than taking it off `available`, the server's call —
   // even when NO run is pending (the reactive deliverRun path only triggers on
   // an actual claimed run). Debounced by the threshold so a single slow/transient
   // probe never flaps a healthy agent. Unref'd timer; swallows probe errors.
@@ -337,8 +342,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     reportDead: async ({ consecutiveFailures } = {}) => {
       if (!serverUrl) return;
       await reportGatewayDeadOnce(
-        `Hermes gateway unreachable at ${host.wsUrl} after ${consecutiveFailures} consecutive ` +
-          `liveness probes; the gateway host likely died. Self-correcting off 'available' (resident-lost).`,
+        gatewayUnreachableAfterProbesMessage(host.wsUrl, consecutiveFailures),
       );
     },
   });
@@ -603,10 +607,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
           noTuiCycles += 1;
           if (noTuiCycles >= noTuiTeardownCycles) {
             await reportGatewayDeadOnce(
-              `Hermes gateway at ${host.wsUrl} has had NO attached session (no visible TUI / ` +
-                `non-loop WS client) across ${noTuiCycles} consecutive poll cycles; the operator's ` +
-                `terminal was likely closed/killed. Self-correcting off 'available' (resident-lost) ` +
-                `and reaping the orphaned gateway host.`,
+              noAttachedSessionTeardownMessage(host.wsUrl, noTuiCycles),
             );
             stopLiveness();
             stopRepulse();

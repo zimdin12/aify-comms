@@ -448,8 +448,50 @@ export function isGatewayConnectRefused(err) {
 }
 
 
+/**
+ * A gateway URL with its credentials removed, for text that leaves this process.
+ *
+ * A hermes gateway URL carries its auth token in the query string
+ * (`ws://127.0.0.1:9147/api/ws?token=...`). Every message below is POSTed to the control plane -- as
+ * a run's `error`, or as the `reason` that becomes `agents.status_note` -- and both are served by the
+ * API and rendered on the dashboard. Measured on the live fleet 2026-08-25: SEVEN distinct gateway
+ * tokens, 43 characters each, sitting in stored dispatch-run errors and readable by anything that can
+ * read /dispatch/runs, which includes every agent.
+ *
+ * The tokens authenticate to a loopback gateway, so this is not remote exposure -- it is exposure
+ * BETWEEN the agents sharing this host, which is the boundary the per-agent gateway exists to draw:
+ * one agent's token is enough to attach to another's hermes session and drive it.
+ *
+ * Cut at the first `?` or `#` rather than parsed. A URL parser throws on the malformed input this is
+ * most likely to be handed, and the answer to "I cannot parse this" must not be "print it anyway".
+ */
+export function redactGatewayUrl(gatewayUrl) {
+  const raw = String(gatewayUrl || "").trim();
+  if (!raw) return "(unknown)";
+  const cut = raw.search(/[?#]/);
+  return cut === -1 ? raw : raw.slice(0, cut);
+}
+
+/**
+ * The liveness probe's version, which carries how many probes failed.
+ *
+ * Built rather than typed inline at the call site, which is where it was: that copy embedded the
+ * token-bearing `host.wsUrl` AND told the operator the agent was "Self-correcting off 'available'",
+ * which a managed agent does not do -- the server rests it cold-startable, still reading `available`,
+ * so the next message can start a fresh session. Kept short on purpose: this becomes
+ * `agents.status_note`, which the server truncates at 200 characters, and the remedy is the part
+ * worth keeping.
+ */
+export function gatewayUnreachableAfterProbesMessage(gatewayUrl, consecutiveFailures) {
+  const n = Number(consecutiveFailures) || 0;
+  return (
+    `Hermes gateway unreachable after ${n} liveness probes — restart this agent's hermes-aify ` +
+    `session for a fresh gateway. Last seen at ${redactGatewayUrl(gatewayUrl)}.`
+  );
+}
+
 export function gatewayUnreachableMessage(gatewayUrl) {
-  const url = String(gatewayUrl || "").trim() || "(unknown)";
+  const url = redactGatewayUrl(gatewayUrl);
   return (
     `Hermes gateway unreachable at ${url} (connection refused). ` +
     `The gateway host likely died; restart this agent's hermes-aify session to get a fresh gateway.`

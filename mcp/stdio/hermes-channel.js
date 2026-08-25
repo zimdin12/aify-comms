@@ -124,7 +124,9 @@ const RUNTIME = "hermes";
 // the bridge keeps heartbeating, the agent stays `available` for the whole
 // heartbeat lease. This periodic probe hits the api_server /health; after
 // GATEWAY_PROBE_THRESHOLD consecutive failures it reports the gateway dead
-// (resident-lost) so the agent self-corrects off `available` → `stale`.
+// (resident-lost). What the agent rests at is the SERVER's call, from session_mode: a resident
+// stops, a MANAGED worker rests cold-startable and goes on reading `available` so the next
+// message can start a fresh session. (`stale` left the vocabulary on 2026-06-18.)
 const GATEWAY_PROBE_MS = Math.max(
   5000,
   Number(process.env.AIFY_HERMES_GATEWAY_PROBE_MS || 30000),

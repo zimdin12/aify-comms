@@ -22,6 +22,7 @@ import {
   isGatewayConnectRefused,
   reportGatewayDead,
   sleep,
+  redactGatewayUrl,
 } from "./hermes-gateway.mjs";
 import {
   channelBridgeId,
@@ -51,13 +52,40 @@ const EMPTY_ATTACH_FAIL_THRESHOLD = Math.max(
 );
 
 export function noTuiAttachedMessage(gatewayUrl, attempts) {
-  const url = String(gatewayUrl || "").trim() || "(unknown)";
+  const url = redactGatewayUrl(gatewayUrl);
   const n = Number(attempts) || 0;
   return (
     `No visible hermes TUI attached to gateway ${url} ` +
     `(session.active_list empty across ${n} consecutive delivery attempts). ` +
     `The visible TUI is not a client of this gateway — relaunch this agent's ` +
     `hermes-aify session so the TUI attaches (HERMES_TUI_GATEWAY_URL) and can render messages.`
+  );
+}
+
+/**
+ * Why the loop is tearing a gateway down: it has had no attached session for long enough that the
+ * visible TUI is gone rather than slow.
+ *
+ * THIS TEXT REACHES THE OPERATOR. It is POSTed as `reason` to /agents/{id}/resident-lost, and the
+ * server writes it into `agents.status_note` -- truncated to 200 characters -- so it is read on the
+ * dashboard, not just in a log.
+ *
+ * IT DELIBERATELY PROMISES NO STATUS CHANGE. The version this replaced said "Self-correcting off
+ * 'available'", which is true for a RESIDENT and false for a MANAGED agent: the server rests a
+ * managed worker at `status='active'`, which derives `available`, precisely so the next message can
+ * cold-start a fresh session (`test_a_managed_worker_rests_COLD_STARTABLE_not_stopped`; resting it at
+ * `stopped` was the 2026-07-06 defect that left a whole hermes team unwakeable). So the old sentence
+ * was embedded, verbatim, in a status_note that went on to say "will cold-start a fresh session on
+ * the next message" -- one field telling the operator two opposite things. Which state the agent
+ * rests in is the SERVER's decision, made from session_mode; the bridge does not know it and must not
+ * narrate it.
+ */
+export function noAttachedSessionTeardownMessage(gatewayUrl, cycles) {
+  const url = redactGatewayUrl(gatewayUrl);
+  const n = Number(cycles) || 0;
+  return (
+    `No visible TUI attached across ${n} poll cycles — relaunch this agent's hermes-aify ` +
+    `session to reattach. Reaping the orphaned gateway host ${url}.`
   );
 }
 

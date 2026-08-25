@@ -64,6 +64,7 @@ import { makeTeardown } from "../hermes-gateway.mjs";
 import { runCli, runEnsureHostCli } from "../hermes-managed-host.js";
 import {
   deliverRun,
+  noAttachedSessionTeardownMessage,
   noTuiAttachedMessage,
   runPollCycle,
 } from "../hermes-delivery-run.mjs";
@@ -3133,4 +3134,48 @@ test("delivery loop: re-ensure is gated on the budget and reset on a live ws", (
     "a successful re-ensure must spend budget");
   assert.match(src, /reEnsureBudget = nextReEnsureBudget\(reEnsureBudget, \{ recovered: true \}\)/,
     "a live ws connect must reset the budget");
+});
+
+test("noAttachedSessionTeardownMessage: says what happened and what to do, and promises no status change", () => {
+  const url = "ws://127.0.0.1:9147/api/ws?token=abc";
+  const message = noAttachedSessionTeardownMessage(url, 10);
+
+  assert.ok(message.includes("ws://127.0.0.1:9147/api/ws"), "the operator cannot act without the gateway it names");
+  assert.ok(!message.includes("token=abc"), "the gateway credential must not travel with the message");
+  assert.ok(message.includes("10"), "how long it waited is the difference between slow and gone");
+  assert.ok(/relaunch/i.test(message), "the remedy is the whole point of the message");
+
+  // THE REGRESSION THIS EXISTS FOR. The previous text said "Self-correcting off 'available'", which
+  // is true for a resident and FALSE for a managed agent: the server rests a managed worker at
+  // status='active', deriving `available`, so the next message can cold-start it
+  // (test_a_managed_worker_rests_COLD_STARTABLE_not_stopped). The sentence was then embedded in a
+  // status_note that continued "will cold-start a fresh session on the next message" -- one field,
+  // two opposite claims. Which state the agent rests in is the server's call, from session_mode.
+  assert.ok(!/self-correct/i.test(message), "the bridge does not know which state the server will rest at");
+  assert.ok(!/available/.test(message), "naming a status here is a promise the bridge cannot keep");
+  for (const retired of ["stale", "idle"]) {
+    assert.ok(
+      !new RegExp(`\b${retired}\b`).test(message),
+      `${retired} left the status vocabulary in 2026-06-18 and must not be promised as a destination`,
+    );
+  }
+});
+
+test("noAttachedSessionTeardownMessage: fits the status_note budget the server truncates to", () => {
+  // A CROSS-COMPONENT FACT, not a style rule. The server writes this reason into agents.status_note
+  // as `str(req.reason)[:200]` (service/api_core/resident_loss.py), so anything past 200 characters
+  // is silently cut -- and the remedy sits at the END of the sentence, which is exactly what would be
+  // lost. Measured against a real gateway URL from the live fleet, token included.
+  const realistic = "ws://127.0.0.1:9147/api/ws?token=boxCCW04x3h49iuQa0wtMi37WWTd-BRjsffbcHRZYak";
+  const message = noAttachedSessionTeardownMessage(realistic, 10);
+  assert.ok(
+    message.length <= 200,
+    `status_note truncates at 200; this is ${message.length} and would lose its own remedy`,
+  );
+});
+
+test("noAttachedSessionTeardownMessage: degrades honestly on missing inputs", () => {
+  const message = noAttachedSessionTeardownMessage("", null);
+  assert.ok(message.includes("(unknown)"), "an empty gateway must read as unknown, not as a blank");
+  assert.ok(message.includes("0"), "a missing cycle count must not render as NaN or undefined");
 });

@@ -18,8 +18,10 @@
 // DEBOUNCE: require N CONSECUTIVE failed probes (default 3) before declaring the
 // gateway dead — a single slow/transient probe must NOT flip a healthy agent to
 // stale. The counter resets on any successful probe. On reaching the threshold
-// we call reportDead ONCE (latched) so the server flips the agent off
-// `available` → `stale` via the existing resident-lost path, then stop.
+// we call reportDead ONCE (latched) via the existing resident-lost path, then stop. WHAT THE AGENT
+// RESTS AT IS THE SERVER'S CALL, from session_mode: a resident stops, a MANAGED worker rests
+// cold-startable and goes on reading `available` so the next message starts a fresh session.
+// (`stale` left the status vocabulary on 2026-06-18 and is not a destination.)
 //
 // Mirrors the liveness-heartbeat.js / hermes-turn-repulse.js pattern: a PURE
 // decision helper (unit-testable with injected results, no sockets) + a timer

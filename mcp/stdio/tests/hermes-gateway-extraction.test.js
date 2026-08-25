@@ -85,7 +85,15 @@ const EXTRACTIONS = [
       { name: "maybeReEnsureGatewayHost", at: 669, marker: "// maybeReEnsureGatewayHost moved to ./hermes-gateway.mjs in v0.5.4.", pristineExported: true },
       { name: "openGatewayWsClient", at: 812, marker: "// openGatewayWsClient moved to ./hermes-gateway.mjs in v0.5.4.", pristineExported: true },
       { name: "isGatewayConnectRefused", at: 979, marker: "// isGatewayConnectRefused moved to ./hermes-gateway.mjs in v0.5.4.", pristineExported: true },
-      { name: "gatewayUnreachableMessage", at: 1002, marker: "// gatewayUnreachableMessage moved to ./hermes-gateway.mjs in v0.5.4.", pristineExported: true },
+      {
+        name: "gatewayUnreachableMessage", at: 1002, marker: "// gatewayUnreachableMessage moved to ./hermes-gateway.mjs in v0.5.4.", pristineExported: true,
+        // v0.7: the gateway URL is redacted before it reaches operator-facing text; the token in
+        // its query string was being stored by the control plane and served back over the API.
+        editedSince: [{
+          was: ["  const url = String(gatewayUrl || \"\").trim() || \"(unknown)\";"],
+          now: ["  const url = redactGatewayUrl(gatewayUrl);"],
+        }],
+      },
       { name: "reportGatewayDead", at: 1037, marker: "// reportGatewayDead moved to ./hermes-gateway.mjs in v0.5.4.", pristineExported: true },
       { name: "gatewayIndexUrlFromWs", at: 1067, marker: "// gatewayIndexUrlFromWs moved to ./hermes-gateway.mjs in v0.5.4.", pristineExported: true },
       { name: "makeGatewayReachabilityProbe", at: 1086, marker: "// makeGatewayReachabilityProbe moved to ./hermes-gateway.mjs in v0.5.4.", pristineExported: true },
@@ -172,7 +180,15 @@ const EXTRACTIONS = [
     module: DELIVERY_RUN,
     items: [
       { name: "EMPTY_ATTACH_FAIL_THRESHOLD", at: 143, marker: null },
-      { name: "noTuiAttachedMessage", at: 1018, marker: null, pristineExported: true },
+      {
+        name: "noTuiAttachedMessage", at: 1018, marker: null, pristineExported: true,
+        // v0.7: the gateway URL is redacted before it reaches operator-facing text; the token in
+        // its query string was being stored by the control plane and served back over the API.
+        editedSince: [{
+          was: ["  const url = String(gatewayUrl || \"\").trim() || \"(unknown)\";"],
+          now: ["  const url = redactGatewayUrl(gatewayUrl);"],
+        }],
+      },
       { name: "deliverRun", at: 1309, marker: null, pristineExported: true },
       { name: "runPollCycle", at: 1757, marker: null, pristineExported: true },
       { name: "CLAIM_404_GRACE", at: 1967, marker: null },
@@ -203,6 +219,39 @@ const EXTRACTIONS = [
         // comment lines undeclared when I did this on the app.js side, and the reconstruction still
         // differed until the comments were part of the entry.
         editedSince: [
+          {
+            // v0.7: the gateway credential stopped travelling with these messages, and two of them stopped
+            // claiming a status change the server does not make for a managed agent. Both templates became
+            // calls to builders in their owning modules, which is where the redaction and the 200-char
+            // status_note budget can be tested.
+            was: [
+              "  // gateway dead ONCE (resident-lost) so the agent stops showing `available`",
+            ],
+            now: [
+              "  // gateway dead ONCE (resident-lost) — which for a MANAGED agent rests it",
+              "  // cold-startable rather than taking it off `available`, the server's call —",
+            ],
+          },
+          {
+            was: [
+              "        `Hermes gateway unreachable at ${host.wsUrl} after ${consecutiveFailures} consecutive ` +",
+              "          `liveness probes; the gateway host likely died. Self-correcting off 'available' (resident-lost).`,",
+            ],
+            now: [
+              "        gatewayUnreachableAfterProbesMessage(host.wsUrl, consecutiveFailures),",
+            ],
+          },
+          {
+            was: [
+              "              `Hermes gateway at ${host.wsUrl} has had NO attached session (no visible TUI / ` +",
+              "                `non-loop WS client) across ${noTuiCycles} consecutive poll cycles; the operator's ` +",
+              "                `terminal was likely closed/killed. Self-correcting off 'available' (resident-lost) ` +",
+              "                `and reaping the orphaned gateway host.`,",
+            ],
+            now: [
+              "              noAttachedSessionTeardownMessage(host.wsUrl, noTuiCycles),",
+            ],
+          },
           {
             was: [
               "    // SET working on a gateway-running turn (edge-triggered). Thread the OPEN run",
