@@ -77,6 +77,7 @@ async def _enforce_env_reachable_gate(
     db,
     settings: dict[str, Any],
     agent_id: str,
+    agent_row=None,
 ) -> dict[str, Any]:
     """Read-boundary correction #2 (2026-06-12 status audit): a cached LIVE/available
     status must not outlive its owning ENVIRONMENT. `agent_live_state.refresh_after` is
@@ -108,9 +109,15 @@ async def _enforce_env_reachable_gate(
         # No quick binding anywhere — resolve the owning env the same way the offline
         # derivation does (machine_id + runtime), so an agent with no session row and no
         # runtime_state binding still gets gated against its real environment.
-        agent_row = await (await db.execute(
-            "SELECT * FROM agents WHERE id = ?", (agent_id,)
-        )).fetchone()
+        # The ROSTER already holds this row. `list_agents` selects every agent, then calls this
+        # gate per agent, and this branch re-selected the same row by id -- measured at 58 of the
+        # 285 statements one roster call issues for 50 agents. Each is an event-loop hop to
+        # aiosqlite's worker thread, which is what makes an indexed lookup cost milliseconds.
+        # Callers without the row in hand (the single-agent endpoint) pass nothing and still read.
+        if agent_row is None:
+            agent_row = await (await db.execute(
+                "SELECT * FROM agents WHERE id = ?", (agent_id,)
+            )).fetchone()
         if agent_row is None:
             return payload
         env_row = await _managed_owning_environment_row(db, agent_row, resolved_environment_id="")

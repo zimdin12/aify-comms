@@ -94,7 +94,7 @@ async def list_agents(request: Request):
             # _enforce_live_worker_gate for full rationale. (In-memory correction
             # only; the writeback was removed 2026-06-18 to cut read-path writes.)
             payload = await _enforce_live_worker_gate(payload, db, settings, aid)
-            payload = await _enforce_env_reachable_gate(payload, db, settings, aid)
+            payload = await _enforce_env_reachable_gate(payload, db, settings, aid, agent_row=row)
             result[aid] = payload
         return {"agents": result}
     finally:
