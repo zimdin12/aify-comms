@@ -15,6 +15,7 @@ import { api } from './api-client.mjs';
 import { asAgentArray, asArray } from './record-fields.mjs';
 import { chatLoadChannels, chatLoadConversation } from './message-transport.mjs';
 import { loadFiles } from './shared-files.mjs';
+import { refreshChipState } from './refresh-status.mjs';
 import { refreshActiveTerminalTheme } from './settings-panel.mjs';
 import { runQueryPath } from './run-helpers.mjs';
 import { applyTheme } from './theme.js';
@@ -55,7 +56,6 @@ export async function runRefreshCycle({
   ]);
   const ok = (i) => settled[i].status === 'fulfilled';
   const val = (i) => (ok(i) ? settled[i].value : undefined);
-  const failed = settled.filter((s) => s.status === 'rejected').length;
 
   if (ok(0)) state.agents = asAgentArray(val(0));
   if (ok(1)) { state.contracts = val(1).contracts || []; state.contractsBase = state.contracts; }
@@ -125,14 +125,16 @@ export async function runRefreshCycle({
   // which is a worse bug than a stale panel.
   refreshOpenInspector();
   clearTimeout(slowChipTimer); // cycle finished — cancel the pending "refreshing" flip
-  if (failed === 0) {
-    byId('api-status').textContent = 'live';
-    byId('api-status').className = 'status-chip ok';
-  } else if (ok(0)) {
-    byId('api-status').textContent = 'live';
-    byId('api-status').className = 'status-chip ok';
-  } else {
-    byId('api-status').textContent = 'reconnecting';
-    byId('api-status').className = 'status-chip warn';
+  // THREE STATES, because a sustained partial refresh is not a complete one. This used to read
+  // 'live' in green whenever /agents succeeded, whatever else had failed -- and the poll keeps each
+  // slice's last-good value, so a stale panel renders exactly like one where nothing changed.
+  // refresh-status.mjs owns the rule, remembers the previous cycle so a single blip stays green,
+  // and names which slices are stale rather than counting them.
+  const chip = refreshChipState(settled);
+  const chipEl = byId('api-status');
+  if (chipEl) {
+    chipEl.textContent = chip.text;
+    chipEl.className = chip.className;
+    chipEl.title = chip.title;
   }
 }

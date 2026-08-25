@@ -1133,6 +1133,47 @@ const EXTRACTIONS = [
           "});",
         ],
         editedSince: [{
+          // The connection chip stopped lying about a sustained partial refresh. It read 'live' in
+          // green whenever /agents succeeded, whatever else had failed -- so nine of ten fetches could
+          // fail and the view still claimed to be current, while the resilient poll quietly showed each
+          // failed slice's last-good value. The rule moved to refresh-status.mjs, which remembers the
+          // previous cycle so one blip stays green and a slice that misses twice running is named.
+          was: [
+            "  if (failed === 0) {",
+            "    byId('api-status').textContent = 'live';",
+            "    byId('api-status').className = 'status-chip ok';",
+            "  } else if (ok(0)) {",
+            "    byId('api-status').textContent = 'live';",
+            "    byId('api-status').className = 'status-chip ok';",
+            "  } else {",
+            "    byId('api-status').textContent = 'reconnecting';",
+            "    byId('api-status').className = 'status-chip warn';",
+            "  }",
+          ],
+          now: [
+            "  // THREE STATES, because a sustained partial refresh is not a complete one. This used to read",
+            "  // 'live' in green whenever /agents succeeded, whatever else had failed -- and the poll keeps each",
+            "  // slice's last-good value, so a stale panel renders exactly like one where nothing changed.",
+            "  // refresh-status.mjs owns the rule, remembers the previous cycle so a single blip stays green,",
+            "  // and names which slices are stale rather than counting them.",
+            "  const chip = refreshChipState(settled);",
+            "  const chipEl = byId('api-status');",
+            "  if (chipEl) {",
+            "    chipEl.textContent = chip.text;",
+            "    chipEl.className = chip.className;",
+            "    chipEl.title = chip.title;",
+            "  }",
+          ],
+        }, {
+          // `failed` counted what refresh-status.mjs now both counts and NAMES; two places deriving one
+          // number is how they come to disagree. A deletion needs a surviving neighbour as its anchor,
+          // because `now` is matched verbatim and an empty match would land at line zero.
+          was: [
+            "  const val = (i) => (ok(i) ? settled[i].value : undefined);",
+            "  const failed = settled.filter((s) => s.status === 'rejected').length;",
+          ],
+          now: ["  const val = (i) => (ok(i) ? settled[i].value : undefined);"],
+        }, {
           was: "async function _refreshImpl() {",
           now: [
             // `export ` is stripped before the declared edits are undone, so it is absent here.
