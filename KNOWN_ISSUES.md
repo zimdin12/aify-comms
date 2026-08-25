@@ -4,6 +4,39 @@ Living list of known limitations, deferred work, and things to watch. Complement
 
 > **v0.2 backlog moved out of this file.** Non-urgent findings from the v0.1 release review now live in **[docs/V0.2_PLAN.md](docs/V0.2_PLAN.md)** with their traces attached — including two behaviour changes awaiting an operator decision (the compaction dialog now spends usage limits by design; managed codex auto-approves all command/file approvals). This file stays the list of *known limitations*; that file is the *work queue*. What actually shipped in v0.2, and the findings that were **disproven or dropped**, are in **[docs/V0.2_SPEC.md](docs/V0.2_SPEC.md)**.
 
+## An interrupt reaches the agent as a permission refusal (2026-08-25)
+
+`comms_interrupt` works: three separate live processes were killed within five seconds of it, each
+verified by pid, and a control run left alone ran ninety seconds untouched. What the AGENT is told is
+wrong.
+
+Claude Code cancels the in-flight tool call and the model sees **"The user doesn't want to proceed with
+this tool use"** — the wording for a declined permission prompt. Observed live: the interrupted agent
+concluded a permission gate existed, built two theories about what was being gated, reported both, and
+corrected itself in the wrong direction. A production agent would stop retrying work nobody refused.
+
+**The service half is fixed.** A run failed after a recorded interrupt now names it — the requester and
+the time, out of `terminal_controls` — instead of listing four possible causes with a provider throttle
+among them. See `api_core/authored_failures.py`.
+
+**The runtime half is not ours.** That string comes from Claude Code, not from aify-comms, so it cannot
+be corrected from here. Closing it needs either a runtime change or a note injected into the session
+after an interrupt so the agent learns what actually happened. Nothing in this repo currently does that.
+
+## Managed spawns inherit whatever launched the bridge (2026-08-25, one variable fixed)
+
+A bridge started from inside a Claude Code session carried `CLAUDE_CODE_CHILD_SESSION`, `...baseEnv`
+spread it into every worker, and every managed agent ran with **transcript saving off** — announced by
+one line in a TUI nobody reads and unrecoverable afterwards.
+
+That variable is now cleared, the same way `AIFY_AGENT_ROLE` already was, and for the reason that file
+already documented: the bridge's own environment reaches everything it starts.
+
+**The class is not closed.** Two variables have been caught this way, one at a time, each after it
+caused a visible problem. `terminalChildEnv` spreads the whole parent environment and clears the two we
+know about. What is missing is the inverse: a stated list of what a managed worker may inherit, so the
+next such variable is refused by construction rather than after somebody notices its symptom.
+
 ## Registration records `bridgeDir` as given, so its form depends on the shell (2026-08-21)
 
 `install.sh` converts two of the three arguments it hands to `register-service-cli.mjs` through
