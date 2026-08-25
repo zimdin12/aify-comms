@@ -15,6 +15,7 @@ move rather than after.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -22,6 +23,7 @@ from typing import Optional
 
 from service.api_core.runtime import _normalize_runtime  # v0.5.1e: the leaf owner, not via the router
 from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
+from service.api_core.events import _append_terminal_event
 from service.api_core.agent_sessions import _current_agent_session_row
 from service.api_core.terminal_text import _ANSI_RE, _terminal_awaiting_input_hint
 from service.clock import now as _now
@@ -329,12 +331,38 @@ async def _reconcile_stuck_terminal_and_session_rows(db) -> dict[str, int]:
     """
     now = _now()
     result = {"stuck_stopping_terminals_closed": 0, "ended_sessions_backfilled": 0}
-    cur = await db.execute(
-        "UPDATE terminal_sessions SET status = 'stopped', stopped_at = COALESCE(stopped_at, ?) "
+    # SELECTED FIRST so each closure can say who closed it. This was one set-based UPDATE, which
+    # made it the only path in the service that can move SEVERAL terminals to `stopped` in a single
+    # statement -- every one of them stamped with the same `stopped_at`, and none of them recording
+    # anything but a count in the reconcile summary.
+    #
+    # That combination is what makes a simultaneous multi-terminal stop unattributable from the
+    # outside: an operator sees two consoles die in the same second and there is nothing to read.
+    # Every other function that stops or fails a terminal already appends an event; this was the one
+    # that did not. Two extra statements per sweep, and only when there is something to close.
+    stuck = await (await db.execute(
+        "SELECT id FROM terminal_sessions "
         "WHERE status = 'stopping' AND datetime(updated_at) < datetime('now', ? || ' seconds')",
-        (now, f"-{STUCK_STOPPING_GRACE_SECONDS}"),
-    )
-    result["stuck_stopping_terminals_closed"] = cur.rowcount or 0
+        (f"-{STUCK_STOPPING_GRACE_SECONDS}",),
+    )).fetchall()
+    stuck_ids = [str(row["id"]) for row in stuck if str(row["id"] or "").strip()]
+    if stuck_ids:
+        placeholders = ",".join("?" for _ in stuck_ids)
+        reason = (
+            "Closed by the stuck-stopping reconciler: a stop was requested and never confirmed "
+            f"within {STUCK_STOPPING_GRACE_SECONDS}s, so the row was forced to stopped."
+        )
+        cur = await db.execute(
+            f"UPDATE terminal_sessions SET status = 'stopped', stopped_at = COALESCE(stopped_at, ?), "
+            f"error = CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END "
+            f"WHERE id IN ({placeholders})",
+            (now, reason, *stuck_ids),
+        )
+        result["stuck_stopping_terminals_closed"] = cur.rowcount or 0
+        for terminal_id in stuck_ids:
+            await _append_terminal_event(
+                db, terminal_id, "terminal_stuck_stopping_closed", json.dumps({"reason": reason}),
+            )
     cur = await db.execute(
         "UPDATE agent_sessions SET ended_at = COALESCE(ended_at, last_seen, ?) "
         "WHERE status = 'ended' AND ended_at IS NULL",

@@ -33,6 +33,25 @@ costs one `editedSince` entry, and the thing to budget is getting the bytes righ
 
 ## Worth doing, needs an operator decision
 
+**The terminal-event LIMIT and the retention keep-count are both 200, and neither knows about the
+other.**
+`GET /terminals/{id}` returns `LIMIT 200`; `terminal_history`'s pruner keeps
+`keep_events_per_terminal = 200` newest rows. Two independent literals that happen to match.
+
+This sharpens the ordering fix rather than undermining it. Immediately after a prune the two sets
+coincide, so oldest-200 and newest-200 return the same rows and the fix changes nothing. It matters in
+the window BETWEEN prunes, when a chatty console has accumulated past 200 -- which for a busy console
+is most of the time.
+
+It matters much more if either number ever moves. Raise retention to 1000 and the OLD query would have
+served the oldest 200 of 1000: a console's first minutes, permanently, while the pruner faithfully kept
+ten times more recent history that nothing could reach. The fix makes the endpoint's answer correct
+independently of what retention keeps, which is the property worth having when two constants are
+coupled by coincidence rather than by reference.
+
+Not unified into one constant here: they belong to different layers (a read cap and a storage policy)
+and are legitimately allowed to differ. Naming the coupling is the useful part.
+
 **36% of the console's polled payload is an events array nothing reads.**
 Measured on the live console fetch `GET /terminals/{id}?cols=100&rows=28`, the request the dashboard
 polls while a console is open: 133,878 bytes total, of which the `events` array is 48,116 across 200
@@ -338,6 +357,24 @@ WHAT WAS RULED OUT, so nobody re-runs it:
 * The delegated spawn does not lose its terminal dimensions. `start()` builds its spec from
   defaulted locals, so `startDelegated` receives 100x28 and never falls through to aify-env's own
   120x30 defaults. The two paths would disagree if it did, and it does not.
+
+A CANDIDATE WITH A MECHANISM, found 2026-08-25 by censusing every writer that stops a terminal.
+Eleven functions in the service move a terminal to `stopped` or `failed`. Ten append a terminal event
+saying what happened. The eleventh, `_reconcile_stuck_terminal_and_session_rows`, did not -- and it is
+the ONLY one that closes terminals with a set-based UPDATE:
+
+    UPDATE terminal_sessions SET status = 'stopped', stopped_at = COALESCE(stopped_at, ?)
+    WHERE status = 'stopping' AND datetime(updated_at) < datetime('now', ? || ' seconds')
+
+One statement, any number of rows, every one stamped with the SAME `stopped_at`, recording nothing but
+a count in the reconcile summary. That is the exact signature of the incident: two terminals of
+different ages sharing a death instant, with nothing terminal-level to read.
+
+It is a candidate, not a conclusion. It only closes rows already in `stopping` past the grace window,
+and whether those two were in that state cannot be recovered now. What IS settled is that the one path
+capable of a simultaneous multi-terminal stop was the one path that left no trace, which is why the
+question was unanswerable rather than merely unanswered. Fixed: each closure now carries a reason on
+the row and an event naming the reconciler, so the next occurrence identifies itself.
 
 WHAT WOULD SETTLE IT: the terminal_events rows for those two ids around 18:52:55, which record who
 asked. There is no read endpoint for them, so this needs a query against the database rather than the
