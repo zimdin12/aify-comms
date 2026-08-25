@@ -45,12 +45,13 @@ from service.status_engine import derive
 logger = logging.getLogger("aify_comms.api_v2")
 
 
-async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dict[str, Any]] = None, now: Optional[str] = None):
+async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dict[str, Any]] = None, now: Optional[str] = None, environments_by_machine=None):
     row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
     if not row:
         return None
     settings = settings or await _load_settings(db)
-    cache = await _compute_live_status_cache(db, row, settings=settings, now=now)
+    cache = await _compute_live_status_cache(db, row, settings=settings, now=now,
+                                            environments_by_machine=environments_by_machine)
     # status v2 flag-branch (2026-06-04). The served status is the cache `status`.
     # Under `status_engine=new` the event-driven engine becomes authoritative for
     # the served value; under `old` (default) the legacy derivation is unchanged.
@@ -83,7 +84,7 @@ async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dic
     return cache
 
 
-async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str, Any]] = None, agent_ids: Optional[list[str]] = None, limit: Optional[int] = None) -> int:
+async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str, Any]] = None, agent_ids: Optional[list[str]] = None, limit: Optional[int] = None, environments_by_machine=None) -> int:
     """Recompute expired/missing live-status entries INTO THE IN-MEMORY CACHE. Returns how many
     were refreshed. No DB writes happen here anymore — the status cache lives in _LIVE_STATE_CACHE
     (2026-06-18), so there is nothing to commit and a read can never take SQLite's write lock.
@@ -111,7 +112,8 @@ async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str,
         if limit is not None and refreshed >= limit:
             break
         if _live_state_fresh(aid, now=now) is None:
-            await _refresh_agent_live_state(db, aid, settings=settings, now=now)
+            await _refresh_agent_live_state(db, aid, settings=settings, now=now,
+                                           environments_by_machine=environments_by_machine)
             refreshed += 1
     return refreshed
 

@@ -62,6 +62,18 @@ async def list_agents(request: Request):
     db = await get_db()
     try:
         settings = await _load_settings(db)
+        # ONE cache for this request, created before the FIRST phase that resolves an environment.
+        # `_managed_owning_environment_row` falls back to a lookup keyed on machine_id alone, so a
+        # roster of agents sharing a host asks the same question repeatedly.
+        #
+        # It used to be created between the two phases, which is why it only ever served one of
+        # them: measured at 50 agents, the machine lookup ran 17 times -- 16 of those from the
+        # live-state refresh below, which runs FIRST and had no cache to consult.
+        #
+        # Safe to share across both phases because nothing in this request writes `environments`;
+        # that is asserted end-to-end by test_the_roster_never_writes_what_it_caches.py, and the
+        # ceiling itself by test_the_roster_looks_up_an_environment_once.py.
+        environments_by_machine: dict = {}
         # The cache refresh/repair below is BEST-EFFORT: a SELECT never takes SQLite's write
         # lock (WAL), so when the single writer is briefly contended we serve slightly-stale
         # cached rows instead of 503ing the whole roster — a 503 here broke the dashboard load
@@ -69,7 +81,10 @@ async def list_agents(request: Request):
         # persists the refresh on its next pass. (2026-06-18 — read paths must never 503 on a lock.)
         try:
             repaired_active_runs = await _repair_unusable_active_runs(db)
-            refreshed_live_states = await _refresh_expired_agent_live_states(db, settings=settings, limit=_borrowed_list_agents_refresh_limit())
+            refreshed_live_states = await _refresh_expired_agent_live_states(
+                db, settings=settings, limit=_borrowed_list_agents_refresh_limit(),
+                environments_by_machine=environments_by_machine,
+            )
             if repaired_active_runs or refreshed_live_states:
                 await db.commit()
         except sqlite3.OperationalError as exc:
@@ -79,10 +94,6 @@ async def list_agents(request: Request):
                 await db.rollback()
             except Exception:
                 pass
-        # One cache for this request only, handed to every gate call below. See
-        # `_managed_owning_environment_row`: the environments lookup depends on machine_id alone, so
-        # a roster of agents sharing a host repeated the same two-row read once per agent.
-        environments_by_machine: dict = {}
         # One query for every agent's live-session environment binding, instead of one per agent.
         session_environment_by_agent = await load_session_environment_by_agent(db)
         cursor = await db.execute("SELECT * FROM agents")

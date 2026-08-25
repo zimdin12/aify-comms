@@ -30,11 +30,22 @@ A bridge restart reaps managed workers. That is why `bridge-current` is red on p
 
 ## Review order, riskiest first
 
-### 1. The roster read path — `5c45ab44`, `43188723`, `f7d64900`
+### 1. The roster read path — `5c45ab44`, `43188723`, `f7d64900`, and the correction after them
 
 Three commits, same three files (`registration_gates.py`, `managed_env.py`,
 `routers/agents/identity.py`), each removing repeated database round-trips from `GET /api/v1/agents`:
 285 → 235 → 186 → 137 per call at 50 agents.
+
+**A fourth commit corrects the second of those, and the correction is the part worth reading.**
+`43188723`'s message said it made the environments-by-machine lookup one per REQUEST. Measured
+afterwards by attributing every call to its stack, it was one per *phase*: `list_agents` refreshes
+expired live states before it builds the cache, so 16 of 17 lookups came from the refresh and only 1
+from the gate loop the cache was written for. The dict now exists before the first phase that
+resolves an environment and is threaded through to both. 137 → **121** per call at 50 agents;
+the whole poll cycle 173 → 157.
+
+I found this by measuring a claim I had already published, not by reading the code again. The
+reading agreed with the commit message both times.
 
 **Why this is top of the list.** It is the hottest read path in the service and it feeds
 `_enforce_env_reachable_gate`, which decides whether a managed agent reads `offline`. A wrong answer

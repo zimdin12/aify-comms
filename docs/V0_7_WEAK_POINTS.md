@@ -411,6 +411,30 @@ agent_sessions row a dict — and nothing mixes them. The COUNTS move while the 
 session rows when first measured, 291 an hour later); what does not move is that no row of either
 table has ever held the other shape. A gate here would only assert that types are types.
 
+**A roster takes ceil(N/8) polls to settle after a bulk registration, and the 8 has no rationale
+written down.** `LIST_AGENTS_REFRESH_LIMIT = 8` bounds how many expired live-status entries one
+`GET /api/v1/agents` recomputes. It is the only constant in its block of `tuning.py` with no comment
+saying why, and it is not exposed as a setting.
+
+MEASURED 2026-08-26, 25 identically-registered managed agents on one host, polling the roster
+repeatedly with no other activity:
+
+    poll 1: available 8,  online 17
+    poll 2: available 16, online 9
+    poll 3: available 24, online 1
+    poll 4: available 25
+
+Exactly 8 per poll, converging on the 4th. So an operator watching a dashboard after a mass restart
+sees a roster that is part-stale for ceil(N/8) polls -- at the default 15s that is about a minute for
+25 agents and roughly three minutes for 100. The mix is convergence, not disagreement, and an agent
+reading `online` there is a not-yet-recomputed registration value rather than a wrong answer.
+
+NOT CHANGED. Raising the cap trades dashboard settling time for CPU on the hottest read path, and I
+have measured the first and not the second, so picking a new number would be choosing the half I can
+see. Worth noting that the threading fix in this round makes each refreshed agent cheaper -- two
+environment lookups per agent became a shared one per request -- so the trade is better than it was,
+which is an argument for re-measuring it, not for guessing.
+
 ## Left alone on purpose, with the reason recorded in code
 
 **`terminateProcessTree`'s callers keep an unreachable `catch`.** Its own last act is
