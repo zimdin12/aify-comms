@@ -513,8 +513,15 @@ export class TerminalProcessManager {
         // Through the environment. terminateProcessTree here would signal a pid we do not own.
         try { state.term?.kill(); } catch { /* already gone */ }
       }
+      // The catch below is UNREACHABLE and deliberately empty. terminateProcessTree swallows every
+      // error it meets, so nothing propagates here -- and its own last act is `proc.kill(signal)` on
+      // the very object a fallback would retry, so the old `catch { state.term?.kill(); }` duplicated
+      // a call that had already happened. Worse than redundant in one branch: terminateProcessTree
+      // REFUSES to kill a self-protected pid and returns, and a reachable fallback would have killed
+      // it anyway, bypassing the guard that stops the bridge terminating itself. The try stays so a
+      // future throw cannot escape into a timer callback as an unhandled rejection.
       else if (state.kind === "pty") {
-        try { terminateProcessTree(state.term, "SIGTERM"); } catch { try { state.term?.kill(); } catch {} }
+        try { terminateProcessTree(state.term, "SIGTERM"); } catch { /* it already ends in state.term.kill(); see below */ }
       }
       else terminateProcessTree(state.proc, "SIGTERM");
     }
@@ -546,8 +553,15 @@ export class TerminalProcessManager {
         // Through the environment. terminateProcessTree here would signal a pid we do not own.
         try { state.term?.kill(); } catch { /* already gone */ }
       }
+      // The catch below is UNREACHABLE and deliberately empty. terminateProcessTree swallows every
+      // error it meets, so nothing propagates here -- and its own last act is `proc.kill(signal)` on
+      // the very object a fallback would retry, so the old `catch { state.term?.kill(); }` duplicated
+      // a call that had already happened. Worse than redundant in one branch: terminateProcessTree
+      // REFUSES to kill a self-protected pid and returns, and a reachable fallback would have killed
+      // it anyway, bypassing the guard that stops the bridge terminating itself. The try stays so a
+      // future throw cannot escape into a timer callback as an unhandled rejection.
       else if (state.kind === "pty") {
-        try { terminateProcessTree(state.term, "SIGTERM"); } catch { try { state.term?.kill(); } catch {} }
+        try { terminateProcessTree(state.term, "SIGTERM"); } catch { /* it already ends in state.term.kill(); see below */ }
       }
       else terminateProcessTree(state.proc, "SIGTERM");
     }, hermesResumeStallHealMs());

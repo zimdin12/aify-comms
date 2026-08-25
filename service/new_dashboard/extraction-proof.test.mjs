@@ -2755,7 +2755,10 @@ test("the five bridge classes are measurable, and the sizes are cross-checked", 
   // operator which of their agents that is. Four lines: the value and the note explaining that the
   // string is displayed and never interpreted. Re-measured by brace-matching from the class header,
   // and the arithmetic agrees with the diff.
-  ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 803],
+  // 817 as of 2026-08-25, and the +14 is accounted for rather than copied out of the failure:
+  // two 7-line comments explaining why an unreachable catch is deliberately empty. Re-measured
+  // with declarationSpan before changing this, per the cross-check rule in CLAUDE.md.
+  ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 817],
   ];
   for (const [rel, name, expected] of cases) {
     const span = declarationSpan(read(rel), name);
