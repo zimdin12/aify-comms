@@ -2775,7 +2775,12 @@ test("the five bridge classes are measurable, and the sizes are cross-checked", 
   // 817 as of 2026-08-25, and the +14 is accounted for rather than copied out of the failure:
   // two 7-line comments explaining why an unreachable catch is deliberately empty. Re-measured
   // with declarationSpan before changing this, per the cross-check rule in CLAUDE.md.
-  ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 817],
+    // 817 -> 826 on 2026-08-25: the delegated spawn now strips the never-inherited markers at the
+    // boundary instead of relying on `terminalChildEnv` having run upstream. Nine lines: the changed
+    // env argument plus the note explaining why the strip is repeated here and why an absent env is
+    // passed through rather than normalised to {}. Re-measured with declarationSpan (826), and the
+    // arithmetic agrees with the diff -- one line replaced by ten.
+    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 826],
   ];
   for (const [rel, name, expected] of cases) {
     const span = declarationSpan(read(rel), name);

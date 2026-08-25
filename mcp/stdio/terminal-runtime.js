@@ -1,3 +1,4 @@
+import { withoutInheritedMarkers } from "./child-env-hygiene.mjs";
 import { spawn } from "child_process";
 import { createRequire } from "module";
 import { readFileSync } from "node:fs";
@@ -315,7 +316,16 @@ export class TerminalProcessManager {
       launcher,
       args: parts.slice(1),
       cwd: expandUserHome(cwd) || process.cwd(),
-      env,
+        // STRIPPED AGAIN AT THE BOUNDARY, and not because the caller forgot. `terminalChildEnv`
+        // already removes the never-inherited markers and this branch sits downstream of it, so the
+        // env arriving here is clean today. That is an accident of ORDERING, not a property of this
+        // path: a future delegated call site building its own env would hand the bridge's identity to
+        // a worker with nothing to say so. Idempotent, so it costs nothing when the caller was right.
+        //
+        // undefined passes through UNCHANGED rather than becoming {}. An empty object is not a safe
+        // default here: aify-env forwards it to spawn, which would give the child an environment with
+        // no PATH instead of an inherited one.
+        env: env === undefined ? undefined : withoutInheritedMarkers(env),
     });
     if (!started?.ok) {
       throw new Error(`aify-env refused terminal ${id}: ${started?.error ?? "no answer"}`);

@@ -108,6 +108,37 @@ def meaningful_lines(raw: str) -> list[str]:
     return out
 
 
+#: Codepoint ranges that only ever appear as terminal DECORATION: box drawing, block elements,
+#: geometric shapes and dingbats. A runtime reporting why it died writes words; a full-screen TUI
+#: paints these. Arrows are deliberately NOT here -- "->" appears in real messages.
+_DECORATIVE_RANGES = (
+    (0x2500, 0x257F),  # box drawing
+    (0x2580, 0x259F),  # block elements
+    (0x25A0, 0x25FF),  # geometric shapes
+    (0x2700, 0x27BF),  # dingbats
+)
+
+
+def is_terminal_decoration(line: str) -> bool:
+    """True when a line carries characters that only a drawing terminal emits.
+
+    Used to decide whether the LAST line of a dead terminal may stand as its cause. The
+    fallback below assumes a runtime that dies without a fatal marker still printed something
+    explaining itself -- true of a piped process, false of a TUI, where the last line is simply
+    whatever happened to be on screen.
+
+    Captured 2026-08-25 from a real spawn failure: three cold-starts for one agent each reported
+    "Worker terminal ... is stopped: <the agent's own conversation text, spinner glyphs and a
+    compaction percentage>". The operator was told the worker died and handed a progress meter as
+    the reason, three times over. Nothing in that line is wrong about the words -- a
+    letters-based heuristic accepts it happily -- so the signal has to be the glyphs.
+    """
+    return any(
+        any(low <= ord(char) <= high for low, high in _DECORATIVE_RANGES)
+        for char in str(line or "")
+    )
+
+
 def meaningful_failure_line(raw: str, *, max_chars: int = DEFAULT_MAX_CHARS) -> str:
     """The ONE line that best explains why a terminal died. "" when nothing usable.
 
@@ -134,7 +165,15 @@ def meaningful_failure_line(raw: str, *, max_chars: int = DEFAULT_MAX_CHARS) -> 
             chosen = line
             break
     if not chosen:
-        chosen = lines[-1]
+        # ONLY a line that a runtime could plausibly have written as its own epitaph. A drawing
+        # terminal's last line is the screen, not the cause, and returning it produces a diagnosis
+        # that is confidently about nothing. "" is the honest answer, and the caller already renders
+        # it differently ("no output was recorded") -- that branch was simply unreachable for any TUI
+        # runtime, because there is always SOME last line.
+        for line in reversed(lines):
+            if not is_terminal_decoration(line):
+                chosen = line
+                break
     limit = max(16, int(max_chars or DEFAULT_MAX_CHARS))
     if len(chosen) > limit:
         return chosen[: limit - 1].rstrip() + "…"
