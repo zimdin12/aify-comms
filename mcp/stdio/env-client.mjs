@@ -79,7 +79,10 @@ export class EnvClient {
    * delegate would have to keep a local pty for the writing, which defeats delegating at all.
    */
   async write(id, data) {
-    return this.#request("POST", `/processes/${encodeURIComponent(id)}/input`, { data: String(data ?? "") }, 200);
+    // 204, which is what the server actually answers. This said 200 until 2026-08-25 and worked only
+    // because #request short-circuits every 204 to success BEFORE comparing against `expected` —
+    // so the declaration was wrong, inert, and waiting for whoever removes that short-circuit.
+    return this.#request("POST", `/processes/${encodeURIComponent(id)}/input`, { data: String(data ?? "") }, 204);
   }
 
   /**
@@ -90,7 +93,8 @@ export class EnvClient {
    * nothing anywhere saying why.
    */
   async resize(id, cols, rows) {
-    return this.#request("POST", `/processes/${encodeURIComponent(id)}/resize`, { cols, rows }, 200);
+    // 204 for the same reason as write() above.
+    return this.#request("POST", `/processes/${encodeURIComponent(id)}/resize`, { cols, rows }, 204);
   }
 
   async list() {
@@ -222,7 +226,15 @@ export class EnvClient {
       return { ok: false, error: `aify-env unreachable: ${error.cause?.code ?? error.name ?? error.message}` };
     }
 
-    if (response.status === 204) return { ok: true, handle: null };
+    // NO 204 SHORT-CIRCUIT. There was one here, returning success before `expected` was ever
+    // consulted, and it made every declaration on a 204 route decorative: write() and resize() both
+    // said 200 against a server that answers 204, and neither ever failed. A parameter that looks
+    // like a contract and is skipped for the routes that use it is worse than no parameter, because
+    // it reads as checked.
+    //
+    // Falling through is behaviour-preserving: a 204 carries no body, response.json() throws, payload
+    // stays null, the status matches its declared 204, and the caller gets the same
+    // { ok: true, handle: null } as before. What changes is that a WRONG declaration now fails.
 
     let payload = null;
     try {

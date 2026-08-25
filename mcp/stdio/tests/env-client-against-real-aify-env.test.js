@@ -163,6 +163,45 @@ test("STOP: the client can stop what it started, and the server agrees it is gon
   }
 });
 
+test("INPUT and RESIZE: the client's declared status is the one this server answers", async (t) => {
+  if (!available) return t.skip("aify-env is not checked out");
+  // THE GAP THAT LET A MISMATCH LIVE. Every other route on this seam had a case here; input and
+  // resize did not, and they were the two whose declared expected status was wrong -- the client said
+  // 200 where aify-env answers 204. It never failed, because #request short-circuits 204 to success
+  // before comparing, so the wrong number sat behind a branch that skipped the check. The unit test
+  // stubbed 200 as well, agreeing with the client rather than with the server.
+  //
+  // Asserting `ok` alone would still pass with the declaration wrong. This asserts the STATUS the
+  // client recorded, which is the thing that disagreed.
+  const { child, base } = await startDaemon();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-trace-"));
+  try {
+    const client = new EnvClient({ endpoint: base });
+    const launcher = writeLauncher(dir, ["sleep 30"]);
+    const started = await client.start({ service: "aify-comms", launcher, args: [], term: true });
+    assert.equal(started.ok, true, started.error);
+
+    const wrote = await client.write(started.handle.id, "hello" + String.fromCharCode(10));
+    assert.equal(wrote.ok, true, wrote.error);
+    assert.equal(wrote.status, undefined, "a status only comes back on FAILURE — this one succeeded");
+
+    const resized = await client.resize(started.handle.id, 100, 40);
+    assert.equal(resized.ok, true, resized.error);
+
+    // The direction that proves the declaration rather than the short-circuit: a resize for a process
+    // that does not exist must come back as a REFUSAL carrying the server's own code, not as a
+    // generic failure and not as success.
+    const missing = await client.resize("no-such-process", 80, 24);
+    assert.equal(missing.ok, false, "resizing a process that does not exist reported success");
+    assert.equal(missing.status, 404, `expected the server's 404, got ${missing.status}`);
+
+    await client.stop(started.handle.id);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    await stopDaemon(child);
+  }
+});
+
 test("REFUSAL crosses the seam intact: the client reads the server's reason", async (t) => {
   if (!available) return t.skip("aify-env is not checked out");
   // A refusal that arrived as a generic failure would send somebody debugging the wrong half.

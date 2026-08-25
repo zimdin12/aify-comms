@@ -34,7 +34,10 @@ const ok = (status, body) => ({ ok: status < 400, status, json: async () => body
 const client = (fetchImpl) => new EnvClient({ endpoint: "http://127.0.0.2:1", fetchImpl });
 
 test("write posts the data to the process's input endpoint", async () => {
-  const f = fakeFetch(ok(200, { ok: true }));
+  // 204 is what aify-env answers for input and resize. This file stubbed 200 — the same wrong number
+  // the client declared — so the unit test agreed with the client and both disagreed with the server.
+  // Two copies of one assumption, neither checked against the producer.
+  const f = fakeFetch(ok(204, null));
   const res = await client(f).write("p1", "hello\n");
 
   assert.equal(res.ok, true);
@@ -44,13 +47,13 @@ test("write posts the data to the process's input endpoint", async () => {
 });
 
 test("an id needing encoding is encoded, not concatenated", async () => {
-  const f = fakeFetch(ok(200, { ok: true }));
+  const f = fakeFetch(ok(204, null));
   await client(f).write("a/b c", "x");
   assert.match(f.calls[0].url, /\/processes\/a%2Fb%20c\/input$/);
 });
 
 test("resize sends the dimensions it was given", async () => {
-  const f = fakeFetch(ok(200, { ok: true }));
+  const f = fakeFetch(ok(204, null));
   const res = await client(f).resize("p1", 120, 40);
 
   assert.equal(res.ok, true);
