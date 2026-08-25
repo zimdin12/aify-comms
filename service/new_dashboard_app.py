@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -19,6 +20,26 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
 )
+
+# COMPRESSION, and this app is where most of the page's bytes actually are.
+#
+# The service on :8800 got GZipMiddleware first, and that covered the polling API and none of this.
+# Chrome's own trace of a cold load said so plainly -- Document request latency, 'Compression was
+# applied: FAILED' -- and a direct check agreed: /assets/app.js returned 54,605 bytes whether or not
+# the client offered gzip.
+#
+# Measured over the 73 files this app serves, 2026-08-25: 753,268 bytes raw against 258,748 gzipped,
+# so 482 KB per cold load, 2.9x. The 60-plus ES modules are the bulk of it -- the SPA loads them by
+# relative path with no bundling, which is a deliberate trade this does not change.
+#
+# NOT A LATENCY WIN ON LOCALHOST, and the trace is explicit: estimated savings FCP 0 ms, LCP 0 ms,
+# against a measured LCP of 131 ms. There is no round-trip time here to give back. It is a bandwidth
+# win, and it only becomes a latency win for a browser that is not on this machine.
+#
+# Ordered BEFORE the revalidate_static middleware below so the ETag that middleware relies on is
+# computed by StaticFiles over the uncompressed file, exactly as it is today; gzip then negotiates
+# on the way out and a 304 still short-circuits both.
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 app.mount("/assets", StaticFiles(directory=APP_DIR), name="new-dashboard-assets")
 
