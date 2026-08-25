@@ -2546,7 +2546,13 @@ test("the five bridge classes are measurable, and the sizes are cross-checked", 
     // returns the generated .cmd shim, which carries no shebang and no HARNESS_WRAPPER_VERSION, so
     // aify-env refused every delegated spawn while the command resolved and the file existed. The 14
     // lines are the selection and its refusal message. Cause, count and measurement agree.
-    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 799],
+    //
+  // 799 -> 803 on 2026-08-25: the delegated spawn now sends a `label` -- the agent id -- so aify-env's
+  // view can name the row instead of showing `p2  pid 129340  aify-comms`, which cannot tell an
+  // operator which of their agents that is. Four lines: the value and the note explaining that the
+  // string is displayed and never interpreted. Re-measured by brace-matching from the class header,
+  // and the arithmetic agrees with the diff.
+  ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 803],
   ];
   for (const [rel, name, expected] of cases) {
     const span = declarationSpan(read(rel), name);

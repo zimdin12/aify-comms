@@ -308,6 +308,10 @@ export class TerminalProcessManager {
 
     const started = await this.envDelegation.client.start({
       service: "aify-comms",
+      // WHO THIS IS, so aify-env's view can name the row. Without it that view shows
+      // `p2  pid 129340  aify-comms` and an operator cannot tell which of their agents it is --
+      // exactly the question asked of it. The string is displayed, never interpreted.
+      label: String(agentId || id || ""),
       launcher,
       args: parts.slice(1),
       cwd: expandUserHome(cwd) || process.cwd(),

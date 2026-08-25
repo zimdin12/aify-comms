@@ -59,6 +59,31 @@ TURN_ENDED_WITHOUT_REPLY = (
     "a stall. Failed by reconcile so the run isn't stranded as 'delivered'."
 )
 
+#: Failed because somebody INTERRUPTED the turn, and we know because we recorded doing it.
+#:
+#: The undetermined string above lists "a mid-turn interrupt" among four possibilities -- and for an
+#: interrupt this service issued itself, seconds earlier, guessing is inexcusable. `terminal_controls`
+#: holds the action, the requester and the time. A cause we can look up must never be reported as a
+#: cause we could not determine.
+#:
+#: Observed 2026-08-25: a run was interrupted through comms_interrupt and the failure that followed
+#: still read "Cause NOT DETERMINED", inviting a reader to suspect a provider throttle or a policy
+#: refusal for something an operator had just done on purpose.
+def turn_interrupted(requested_by: str, at: str) -> str:
+    who = str(requested_by or "").strip() or "an operator"
+    when = str(at or "").strip()
+    return (
+        f"Turn was INTERRUPTED by {who}"
+        + (f" at {when}" if when else "")
+        + ". The run is failed because the turn did not reach a reply, not because anything went "
+        "wrong upstream — there is no throttle, refusal or stall to investigate."
+    )
+
+
+#: Recognised after wrapping or truncation, same as the fragment below it.
+_INTERRUPTED_FRAGMENT = "Turn was INTERRUPTED by"
+
+
 #: Every reason in this tuple was written by aify-comms about its own reconciliation. Add a string here
 #: when the SERVICE authors a run failure; do not add text a runtime or provider produced, because the
 #: whole point of the registry is to tell those two apart.
@@ -71,6 +96,7 @@ SERVICE_AUTHORED_FAILURE_REASONS: tuple[str, ...] = (
 #: a run id or clips for display — both of which happen on the notification path.
 _FRAGMENTS: tuple[str, ...] = (
     "Failed by reconcile so the run isn't stranded",
+    _INTERRUPTED_FRAGMENT,
 )
 
 

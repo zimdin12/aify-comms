@@ -37,6 +37,15 @@ export function terminalChildEnv({
     AIFY_AGENT_CWD: workspace || "",
     AIFY_SESSION_HANDLE: handle,
     CLAUDE_SESSION_ID: baseEnv.CLAUDE_SESSION_ID || "",
+    // CLEARED, for the same reason AIFY_AGENT_ROLE is cleared above: `...baseEnv` spreads the
+    // environment bridge's own environment, and a bridge started from inside a Claude Code session
+    // carries this marker. Every agent it spawned then inherited it and ran with TRANSCRIPT SAVING
+    // OFF -- silently, behind a one-line notice in a TUI nobody reads, and with no way to recover the
+    // session afterwards.
+    //
+    // Observed on a real spawn: "Transcript saving is off - inherited CLAUDE_CODE_CHILD_SESSION
+    // marker". A managed agent is never a child of whatever process happened to launch the bridge.
+    CLAUDE_CODE_CHILD_SESSION: "",
     CODEX_THREAD_ID: baseEnv.CODEX_THREAD_ID || "",
     HERMES_SESSION_ID: baseEnv.HERMES_SESSION_ID || "",
     PI_SESSION_ID: baseEnv.PI_SESSION_ID || "",

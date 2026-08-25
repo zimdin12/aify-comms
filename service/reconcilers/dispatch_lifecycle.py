@@ -30,7 +30,7 @@ from typing import Optional
 
 from service.api_core.orphaned_runs_query import _select_orphaned_managed_runs
 from service.api_core.dispatch_run_state import _mark_dispatch_run_answered
-from service.api_core.authored_failures import TURN_ENDED_WITHOUT_REPLY
+from service.api_core.authored_failures import TURN_ENDED_WITHOUT_REPLY, turn_interrupted
 from service.api_core.settings import _load_settings, DEFAULT_SETTINGS  # v0.5.1g: the leaf owner
 from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
 from service.api_core.live_process_probes import ACTIVE_RUN_BRIDGE_STALE_SECONDS
@@ -103,6 +103,25 @@ async def _fail_stranded_delivered_reply_runs(db, *, stale_minutes: Optional[int
     # a determined fact. The real cause was a provider safety refusal — a branch this list did not
     # even name. One source, so the writer and the consumer that must recognise it cannot drift.
     reason = TURN_ENDED_WITHOUT_REPLY
+    # ONE QUERY, so attributing a cause costs a single read for the whole sweep rather than one per
+    # run. Interrupts are rare; the map is almost always empty.
+    interrupts: dict[str, tuple[str, str]] = {}
+    for control in (await (await db.execute(
+        """
+        SELECT t.agent_id AS agent_id, c.requested_by AS requested_by, c.requested_at AS requested_at
+        FROM terminal_controls c
+        JOIN terminal_sessions t ON t.id = c.terminal_id
+        WHERE c.action = 'interrupt'
+          AND datetime(COALESCE(c.requested_at, '')) >= datetime('now', '-1 hour')
+        ORDER BY c.requested_at ASC
+        """,
+    )).fetchall() or []):
+        agent = str(control["agent_id"] or "").strip()
+        if agent:
+            # LAST one wins: a turn interrupted twice was ended by the second.
+            interrupts[agent] = (
+                str(control["requested_by"] or ""), str(control["requested_at"] or ""),
+            )
     for row in (rows or []):
         run_id = str(row["id"] or "").strip()
         target = str(row["target_agent"] or "").strip()
@@ -117,17 +136,25 @@ async def _fail_stranded_delivered_reply_runs(db, *, stale_minutes: Optional[int
         )).fetchone()
         if turn is not None and int(turn["turn_busy"] or 0) == 1 and str(turn["turn_run_id"] or "").strip() == run_id:
             continue
+        # A CAUSE WE RECORDED IS NEVER A CAUSE WE COULD NOT DETERMINE. If this agent's turn was
+        # interrupted while this run was open, say so: the undetermined text lists a throttle and a
+        # policy refusal beside "a mid-turn interrupt", and sending a reader to investigate a provider
+        # for something an operator did on purpose is the failure this lookup removes.
+        run_reason = reason
+        interrupted = interrupts.get(target)
+        if interrupted and str(row["requested_at"] or "") <= interrupted[1]:
+            run_reason = turn_interrupted(interrupted[0], interrupted[1])
         cur = await db.execute(
             """
             UPDATE dispatch_runs
             SET status = 'failed', finished_at = ?, summary = ?, error_text = ?
             WHERE id = ? AND status = 'delivered' AND COALESCE(result_message_id, '') = ''
             """,
-            (now, reason, reason, run_id),
+            (now, run_reason, run_reason, run_id),
         )
         if (cur.rowcount or 0) == 0:
             continue  # a reply / other transition won the race
-        await _append_dispatch_event(db, run_id, "stranded_reply_failed", reason)
+        await _append_dispatch_event(db, run_id, "stranded_reply_failed", run_reason)
         await _invalidate_agent_live_state(db, target)
         failed.append({"runId": run_id, "agentId": target})
     return failed

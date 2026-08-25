@@ -61,8 +61,11 @@ export class EnvClient {
    * make "the environment refused" and "the environment is not there" look the same to a catch block
    * that then does the wrong one.
    */
-  async start({ service, launcher, args = [], cwd, env }) {
-    return this.#request("POST", "/processes", { service, launcher, args, cwd, env }, 201);
+  async start({ service, launcher, args = [], cwd, env, label = "" }) {
+    // `label` is the caller's own name for the work -- an agent id here. aify-env stores and displays
+    // it and reads no meaning into it, which is what keeps "what is an agent" on this side of the
+    // seam while still letting its view name the row.
+    return this.#request("POST", "/processes", { service, launcher, args, cwd, env, label }, 201);
   }
 
   async stop(id) {
