@@ -512,6 +512,15 @@ export function openAiUsageVerdict({
   apiOk = false,
   now = 0,
 } = {}) {
+  // UNREACHABLE FROM THE ONLY PRODUCTION CALLER, and deliberately kept. usage-collector.js calls the
+  // API itself and returns `ok` directly when the response is good, so it reaches this function ONLY
+  // after a failed call and passes a literal `apiOk: false`. The branch is exercised by
+  // doctor-openai-token-staleness.test.js and states the contract: real API evidence outranks
+  // anything read out of auth.json.
+  //
+  // Do not 'wire it up' by making the caller compute apiOk and fall through to here — that moves the
+  // success decision into a function whose whole remaining job is classifying FAILURES, and the
+  // 2026-08-09 incident recorded below is about getting that classification right.
   if (apiOk) return { ok: true, code: "ok", detail: "OpenAI/ChatGPT quota is connected", fix: "" };
   if (!hasToken) {
     return {
