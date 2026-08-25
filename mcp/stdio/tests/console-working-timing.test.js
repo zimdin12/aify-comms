@@ -33,15 +33,17 @@ import {
   TERMINAL_TURN_BUSY_REMIT_MS,
 } from "../terminal-manager.mjs";
 import { TerminalProcessManager } from "../terminal-runtime.js";
+import { TURN_BUSY_HEARTBEAT_MS } from "../turn-busy-heartbeat.js";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const LIVENESS_PY = path.join(REPO, "service", "api_core", "liveness.py");
+const LIVE_PROBES_PY = path.join(REPO, "service", "api_core", "live_process_probes.py");
 
 /** Read an integer constant from the service module that owns it. */
-function pythonInt(name) {
-  const source = readFileSync(LIVENESS_PY, "utf-8");
+function pythonInt(name, file = LIVENESS_PY) {
+  const source = readFileSync(file, "utf-8");
   const line = source.split("\n").find((l) => l.startsWith(`${name} = `));
-  assert.ok(line, `${name} not found in service/api_core/liveness.py — moved or renamed?`);
+  assert.ok(line, `${name} not found in ${path.basename(file)} — moved or renamed?`);
   const value = Number(line.slice(line.indexOf("=") + 1).split("#")[0].trim());
   assert.ok(Number.isFinite(value) && value > 0, `${name} parsed as ${value}`);
   return value;
@@ -128,4 +130,30 @@ test("the idle re-probe re-detects a quiet turn before the service lease lapses"
   // PTY, the console has to repaint, and only then does a pulse POST, all inside the lease. Tightening
   // it is a tuning change to a live status path and belongs to whoever can validate it against a real
   // agent; this assertion pins the direction so nobody widens the gap by accident in the meantime.
+});
+
+test("the mid-turn heartbeat refreshes the bridge lease well inside the server's stale window", () => {
+  // A SECOND CROSS-LANGUAGE PAIR, found by censusing which service constants the bridge names in
+  // prose. While a native controller is mid-turn, server.js beats /turn-start + /heartbeat every
+  // TURN_BUSY_HEARTBEAT_MS to keep bridge_instances.last_seen fresh. The server reaps an active run
+  // whose owning bridge has been quiet for ACTIVE_RUN_BRIDGE_STALE_SECONDS. If the beat ever grows
+  // past that window — or the window shrinks below the beat — a tool call simply longer than the
+  // window gets its live run reaped as a dead bridge, mid-turn. That is not hypothetical: the comment
+  // beside the call site records it happening, which is why the heartbeat exists at all.
+  //
+  // The interval used to be a literal inside server.js, where nothing could reach it: importing the
+  // bridge entrypoint to read a number would start a bridge. It is now a named export on the pure
+  // module, which is what makes this assertion possible at all.
+  const staleMs = pythonInt("ACTIVE_RUN_BRIDGE_STALE_SECONDS", LIVE_PROBES_PY) * 1000;
+
+  assert.ok(
+    TURN_BUSY_HEARTBEAT_MS < staleMs,
+    `the bridge beats every ${TURN_BUSY_HEARTBEAT_MS}ms and the server reaps an active run after `
+      + `${staleMs}ms of bridge silence — a turn longer than that window is reaped while it is alive`,
+  );
+  assert.ok(
+    staleMs >= TURN_BUSY_HEARTBEAT_MS * 2,
+    `${staleMs}ms of stale window against a ${TURN_BUSY_HEARTBEAT_MS}ms beat leaves no room for one `
+      + "dropped or slow POST, which on a loaded host is the normal case rather than an exceptional one",
+  );
 });

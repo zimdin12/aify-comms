@@ -78,7 +78,11 @@ import {
   localAgentNeedsDispatchHosting,
 } from "./managed-teardown-ownership.js";
 import { startSessionHandleHeartbeat, makeDefaultHandlePoster } from "./session-handle-heartbeat.js";
-import { startTurnBusyHeartbeat, makeDefaultTurnBusyPoster } from "./turn-busy-heartbeat.js";
+import {
+  TURN_BUSY_HEARTBEAT_MS,
+  makeDefaultTurnBusyPoster,
+  startTurnBusyHeartbeat,
+} from "./turn-busy-heartbeat.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
 import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
 import { gatewayIndexUrlFromWs, makeGatewayReachabilityProbe, reportGatewayDead } from "./hermes-gateway.mjs";
@@ -319,7 +323,7 @@ if (
 let __stopGatewayProbe = () => {};
 if (AIFY_HERMES_GATEWAY_URL && AIFY_AGENT_ID) {
   __stopGatewayProbe = startGatewayLivenessProbe({
-    intervalMs: 30_000,
+    intervalMs: TURN_BUSY_HEARTBEAT_MS,
     threshold: Math.max(1, Number(process.env.AIFY_HERMES_GATEWAY_PROBE_THRESHOLD || 3)),
     probe: makeGatewayReachabilityProbe({ indexUrl: gatewayIndexUrlFromWs(AIFY_HERMES_GATEWAY_URL) }),
     reportDead: async ({ consecutiveFailures } = {}) => {

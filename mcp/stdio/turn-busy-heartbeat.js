@@ -6,6 +6,16 @@
 //
 // File budget per 500-line rule: <=200 lines.
 
+//: How often a mid-turn bridge refreshes its own liveness, in milliseconds.
+//:
+//: NAMED HERE rather than left as a literal at the call site in server.js, because it has to stay
+//: well under the server's `ACTIVE_RUN_BRIDGE_STALE_SECONDS` (api_core/live_process_probes.py) and
+//: nothing could check that while it lived inside the bridge entrypoint -- importing server.js to
+//: read a number would START a bridge. The comment below this one describes what happens when the
+//: relationship breaks: a tool call longer than the server's window gets the live run reaped as a
+//: dead bridge, mid-turn. `console-working-timing.test.js` now holds the two together.
+export const TURN_BUSY_HEARTBEAT_MS = 30_000;
+
 export function startTurnBusyHeartbeat({ agentId, intervalMs, isActive, postFn }) {
   const noop = () => {};
   if (!agentId || typeof isActive !== "function" || typeof postFn !== "function"
