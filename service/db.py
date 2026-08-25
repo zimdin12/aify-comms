@@ -269,6 +269,19 @@ async def _backfill_native_managed_capability(db: aiosqlite.Connection):
     `native-managed-run` carry stale capabilities, so the post-upgrade bridge
     refuses to claim their `managed` dispatch runs and they queue forever.
 
+    THAT CONSEQUENCE NO LONGER HOLDS, and the sentence above is kept because it explains why this
+    backfill was written. supportedExecutionModes now reads
+
+        capabilities.includes("native-managed-run") || NATIVE_MANAGED_RUNTIMES.has(runtime)
+
+    so the runtime check carries every agent the capability would have, and a missing capability
+    strands nothing. Do NOT remove that `||` as redundant on the strength of this docstring:
+    measured on the live database 2026-08-25, six of ten managed hermes agents carried the
+    capability and four did not, because runtimes.js defaultCapabilitiesForRuntime never emits it
+    and re-register is a full state refresh -- so this backfill's work is undone between service
+    restarts, routinely. The fallback is what makes that harmless.
+    mcp/stdio/tests/native-managed-run-fallback-is-load-bearing.test.js fails if it goes.
+
     Backfill `native-managed-run` (right after `managed-run`) for any managed
     codex/pi/opencode/hermes agent missing it. Idempotent, runtime-scoped,
     matches defaultCapabilitiesForRuntime intent. claude-code is untouched
