@@ -49,11 +49,30 @@ managed agent and looked like an unindexed scan; it is not -- `idx_terminal_sess
 `SELECT * FROM environments WHERE id = ?` per live managed agent (19 of the 47) for a table holding
 2 rows, which is wasteful but cannot account for 5.9 ms each on an indexed primary key.
 
-NOT FIXED, deliberately. Batching those 19 lookups into one preloaded map is obvious and safe, but I
-could not measure that it helps: attributing the 5.9 ms needs a profile of the loop against the real
-database, and the only honest place to take that is a host where the fleet is idle. Refactoring the
-hottest read path in the service on a guess, with no way to verify the result, is how a performance
-fix becomes an outage. The measurement is the deliverable; the attribution is the next step.
+ATTRIBUTED AND PARTLY FIXED, 2026-08-25 (`5c45ab44`). The profile the entry above deferred was taken
+against a SYNTHETIC 50-agent database rather than the live one, which turned out to be enough: the
+shape reproduces (marginal cost per agent rises with roster size) and the attribution transfers. One
+roster call issues 285 SQL statements at 50 agents, and cProfile puts the time in asyncio event-loop
+machinery and socket I/O rather than in SQL -- every `await db.execute` is a hop to aiosqlite's worker
+thread and back, 5,730 of them across five calls. That is why an indexed primary-key lookup still
+costs milliseconds, and it means the number that matters is ROUND-TRIPS, not query plans.
+
+The three repeats, per roster call at 50 agents:
+
+| count | statement |
+|---|---|
+| 66 | `SELECT environment_id FROM agent_sessions WHERE agent_id = ?` |
+| 66 | `SELECT * FROM environments WHERE machine_id = ? ORDER BY last_seen DESC` (a two-row table) |
+| 58 | `SELECT * FROM agents WHERE id = ?` (rows the handler already holds) |
+
+The third is fixed: `_enforce_env_reachable_gate` takes the row its caller has. 285 -> 235
+statements, that query 58 -> 8, harness median 43.2 -> 28.5 ms at 50 agents.
+
+The other two are left. Both want a per-request preload -- resolve every agent's owning environment
+once instead of per agent -- which is a real change to how the gate obtains its inputs rather than one
+extra parameter, and it should be measured against the live database before it lands. The harness that
+took these numbers is worth rebuilding when someone picks it up: build N agents through the real
+registration endpoint, then count `aiosqlite.core.Connection.execute` calls per request.
 
 **A metric the service computes on every stats call and shows nobody.**
 `orphan_unread_messages` is 1,889 right now -- unread inbox rows addressed to agents that have since
