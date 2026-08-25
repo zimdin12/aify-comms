@@ -28,6 +28,34 @@ VIEW = REPO / "service" / "api_core" / "terminal_snapshot_view.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "get_terminal_before_split.py"
 
 SOURCE_FUNCTION = "get_terminal"
+
+#: Edits made SINCE the split, as (NOW, WAS): the helper rewrites today's text back to the original
+#: before comparing, so the current block comes first. Declared rather than folded into the fixture,
+#: which is history -- editing that would prove the wrong thing while staying green.
+_EVENTS_QUERY_NOW = chr(10).join([
+    "        # THE LAST 200, not the first. `ORDER BY id ASC LIMIT 200` returned a terminal's OLDEST",
+    '        # events, so for any console busier than 200 rows everything recent -- including whatever',
+    '        # it was doing when it died -- was unreachable through the one endpoint that exists to',
+    '        # explain a terminal. Measured on a live console: the cap was hit exactly, which is what',
+    '        # being truncated looks like from outside.',
+    '        #',
+    '        # Selected DESC and reversed so the response stays in chronological order: the shape does',
+    '        # not change, only which 200 rows it carries.',
+    '        events = list(reversed(await (await db.execute(',
+    '            "SELECT * FROM terminal_events WHERE terminal_id = ? ORDER BY id DESC LIMIT 200",',
+    '            (terminal_id,),',
+    '        )).fetchall()))',
+])
+
+_EVENTS_QUERY_WAS = chr(10).join([
+    '        events = await (await db.execute(',
+    '            "SELECT * FROM terminal_events WHERE terminal_id = ? ORDER BY id ASC LIMIT 200",',
+    '            (terminal_id,),',
+    '        )).fetchall()',
+])
+
+EDITED_SINCE = [(_EVENTS_QUERY_NOW, _EVENTS_QUERY_WAS)]
+
 EXTRACTIONS = ["_attach_terminal_snapshot"]
 
 #: Where each helper is expected to be declared. PER HELPER, over every module below.
@@ -56,7 +84,8 @@ class GetTerminalSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS,
+            edited_since=EDITED_SINCE)
 
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""

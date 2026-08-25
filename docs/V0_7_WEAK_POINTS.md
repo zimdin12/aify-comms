@@ -33,6 +33,23 @@ costs one `editedSince` entry, and the thing to budget is getting the bytes righ
 
 ## Worth doing, needs an operator decision
 
+**36% of the console's polled payload is an events array nothing reads.**
+Measured on the live console fetch `GET /terminals/{id}?cols=100&rows=28`, the request the dashboard
+polls while a console is open: 133,878 bytes total, of which the `events` array is 48,116 across 200
+rows. The console renderer uses `terminal.snapshot` and never touches `events` -- `xterm-mount.mjs`
+reads `data.terminal.snapshot` and `fresh.terminal.snapshot`, and no dashboard or bridge source
+mentions the key at all.
+
+The rows are not useless -- they are the only way to ask what a terminal did, and this round used them
+to investigate the operator's incident. They are just not what the CONSOLE needs, and it is the console
+that fetches this endpoint on a timer.
+
+NOT CHANGED, because it is a response-shape change rather than an internal one. Making `events` opt-in
+(`?events=1`) would cut a third off a hot payload, and `test_api_v2_regressions.py` pins the key's
+presence today -- that test failing is the point, not an obstacle, but the decision belongs to whoever
+can weigh an API consumer outside this repo breaking. The ordering half of the same query WAS fixed,
+since which 200 rows come back is not part of the contract.
+
 **The roster endpoint costs 5.9 ms per agent and is the dashboard's slowest poll slice.**
 Measured against the live service 2026-08-25, five samples each: `GET /api/v1/agents/{one}` is 10.2 ms;
 `GET /api/v1/agents` for the 47-agent roster is 282.9 ms (471 ms median on an earlier, busier sample,

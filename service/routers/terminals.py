@@ -122,10 +122,18 @@ async def get_terminal(terminal_id: str, cols: Optional[int] = None, rows: Optio
         terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
         if not terminal:
             raise HTTPException(404, f'Terminal "{terminal_id}" not found')
-        events = await (await db.execute(
-            "SELECT * FROM terminal_events WHERE terminal_id = ? ORDER BY id ASC LIMIT 200",
+        # THE LAST 200, not the first. `ORDER BY id ASC LIMIT 200` returned a terminal's OLDEST
+        # events, so for any console busier than 200 rows everything recent -- including whatever
+        # it was doing when it died -- was unreachable through the one endpoint that exists to
+        # explain a terminal. Measured on a live console: the cap was hit exactly, which is what
+        # being truncated looks like from outside.
+        #
+        # Selected DESC and reversed so the response stays in chronological order: the shape does
+        # not change, only which 200 rows it carries.
+        events = list(reversed(await (await db.execute(
+            "SELECT * FROM terminal_events WHERE terminal_id = ? ORDER BY id DESC LIMIT 200",
             (terminal_id,),
-        )).fetchall()
+        )).fetchall()))
         term_dict = _terminal_session_to_dict(terminal)
         # The agent's ROLE travels with the terminal, so a launch never depends on a second call.
         #
