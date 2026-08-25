@@ -1425,11 +1425,48 @@ const EXTRACTIONS = [
       },
       {
         name: "requestSessionControl",
+          // The failure toast names the session now, and the bulk caller's own toast is gone: the
+          // callee swallows, so that catch could never run and a bulk failure was unattributable.
+          editedSince: [
+            {
+              was: [
+                "  } catch (err) { toast(`Session ${action} failed: ${err?.message || err}`, 'error'); }",
+              ],
+              now: [
+                "  // NAMES THE SESSION. This handler is the only one that ever runs -- it swallows, so the bulk",
+                "  // caller's own catch below can never fire, and the message that named the failing id lived",
+                "  // there. Over one session the operator knows which; over twenty they had no way to tell.",
+                "  } catch (err) { toast(`Session ${sessionId} ${action} failed: ${err?.message || err}`, 'error'); }",
+              ],
+            },
+          ],
         at: 3882,
         marker: "// requestSessionControl moved to ./agent-session-actions.mjs in v0.5.4.",
       },
       {
         name: "requestBulkSessionControl",
+          // The failure toast names the session now, and the bulk caller's own toast is gone: the
+          // callee swallows, so that catch could never run and a bulk failure was unattributable.
+          editedSince: [
+            {
+              was: [
+                "      // Isolate per-item failures so one bad session doesn't abort the rest of the batch",
+              ],
+              now: [
+                "      // Isolation comes from requestSessionControl swallowing its own error, not from this catch:",
+                "// it cannot throw, so the loop continues either way and the catch below never runs. Kept as",
+                "// defence in depth for the day that changes; the failing id is named by the callee now.",
+              ],
+            },
+            {
+              was: [
+                "      try { await requestSessionControl(id, action, false, false); } catch (err) { toast(`${action} ${id} failed: ${err?.message || err}`, 'error'); }",
+              ],
+              now: [
+                "      try { await requestSessionControl(id, action, false, false); } catch (_) { /* the callee reported it, and names the session */ }",
+              ],
+            },
+          ],
         at: 3903,
         marker: "// requestBulkSessionControl moved to ./agent-session-actions.mjs in v0.5.4.",
       },
