@@ -15,6 +15,7 @@ import { api } from './api-client.mjs';
 import { asAgentArray, asArray } from './record-fields.mjs';
 import { chatLoadChannels, chatLoadConversation } from './message-transport.mjs';
 import { loadFiles } from './shared-files.mjs';
+import { shouldLoadFiles } from "./files-page.mjs";
 import { noteSliceFailure, refreshChipState } from './refresh-status.mjs';
 import { refreshActiveTerminalTheme } from './settings-panel.mjs';
 import { runQueryPath } from './run-helpers.mjs';
@@ -105,7 +106,13 @@ export async function runRefreshCycle({
     else if (sel.startsWith('channel:') && Array.isArray(state.chat.channels)
       && !state.chat.channels.some((c) => c && c.name === sel.slice('channel:'.length))) chatController.close();
   }
-  try { await loadFiles(); } catch (_) { noteSliceFailure('files'); /* keep prior files */ }
+  // Only when someone can see it. `state.files` is read by the Files page alone, and /shared is
+  // 113,854 bytes for 388 files (34,839 gzipped), fetched every cycle whether or not the page is
+  // open: 8.0 MB an hour per tab at the default 15s refresh, 23.9 at the 5s floor. navigateToPage
+  // loads it on open, so the page shows a fetched list rather than a cached one.
+  if (shouldLoadFiles()) {
+    try { await loadFiles(); } catch (_) { noteSliceFailure('files'); /* keep prior files */ }
+  }
   // Only flip to "loaded" once the roster actually arrived: with the server fully down all
   // slices reject, and loaded=true made the rail show a misleading "No agents." while the
   // chip said reconnecting (review finding #12). Until then the rail keeps its loading state.

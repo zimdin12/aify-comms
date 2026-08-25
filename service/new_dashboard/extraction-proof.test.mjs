@@ -823,6 +823,15 @@ const EXTRACTIONS = [
       },
       {
         name: "navigateToPage",
+        editedSince: [{
+          was: [],
+          now: [
+            "    // Files is polled only while its page is open (see files-page.mjs), so opening it must fetch once.",
+            "    // Without this the page would show whatever was last seen -- or nothing at all on a first open --",
+            "    // for up to a full refresh interval, 15 seconds by default.",
+            "    if (page === 'files') loadFiles().then(renderFiles);",
+          ],
+        }],
         at: 4521,
         marker: "    navigateToPage(page, setPage, loadAnalytics);",
         wrapper: {
@@ -1174,7 +1183,15 @@ const EXTRACTIONS = [
           now: "    try { await chatLoadConversation(state.chat.selected.slice('channel:'.length)); } catch (_) { noteSliceFailure('conversation'); /* keep prior view */ }",
         }, {
           was: "  try { await loadFiles(); } catch (_) { /* keep prior files */ }",
-          now: "  try { await loadFiles(); } catch (_) { noteSliceFailure('files'); /* keep prior files */ }",
+          now: [
+            "  // Only when someone can see it. `state.files` is read by the Files page alone, and /shared is",
+            "  // 113,854 bytes for 388 files (34,839 gzipped), fetched every cycle whether or not the page is",
+            "  // open: 8.0 MB an hour per tab at the default 15s refresh, 23.9 at the 5s floor. navigateToPage",
+            "  // loads it on open, so the page shows a fetched list rather than a cached one.",
+            "  if (shouldLoadFiles()) {",
+            "    try { await loadFiles(); } catch (_) { noteSliceFailure('files'); /* keep prior files */ }",
+            "  }",
+          ],
         }, {
 
           // The connection chip stopped lying about a sustained partial refresh. It read 'live' in

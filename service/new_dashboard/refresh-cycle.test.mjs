@@ -47,7 +47,7 @@ function makeElements() {
  * Run one cycle with `reject` naming the path prefixes whose fetch should fail.
  * Returns the recorded calls plus the status-chip element.
  */
-async function cycle({ reject = [], extraDeps = {} } = {}) {
+async function cycle({ reject = [], extraDeps = {}, filesPage = null } = {}) {
   const els = makeElements();
   const saved = {
     document: globalThis.document,
@@ -59,7 +59,15 @@ async function cycle({ reject = [], extraDeps = {} } = {}) {
   const calls = { renderAll: 0, evaluateFlowGates: 0, refreshOpenInspector: 0, armRefreshTimer: 0, loadContractsForState: 0 };
 
   globalThis.document = {
-    getElementById: (id) => els.get(id) || null,
+    getElementById: (id) => {
+      // The Files page exists only when a test asks for it. Absent is the honest default and means
+      // "cannot tell", which shouldLoadFiles answers by fetching -- so every other test in this file
+      // keeps its ten slices.
+      if (id === "page-files" && filesPage) {
+        return { classList: { contains: (c) => c === "active" && filesPage === "open" } };
+      }
+      return els.get(id) || null;
+    },
     querySelector: () => null,
     querySelectorAll: () => [],
     documentElement: { style: { setProperty() {} }, dataset: {}, setAttribute() {}, classList: { add() {}, remove() {}, toggle() {} } },
@@ -259,4 +267,20 @@ test("the six injected names are NOT imported — that is what keeps app.js out 
     "loadContractsForState", "refreshOpenInspector", "renderAll"]) {
     assert.doesNotMatch(src, new RegExp(`^import .*\\b${name}\\b`, "m"), `${name} must be injected`);
   }
+});
+
+test("the closed Files page is not polled", async () => {
+  // THE CALL SITE, not the predicate. shouldLoadFiles has its own tests and every one of them would
+  // still pass with this guard deleted -- what has to hold is that the cycle actually asks it. /shared
+  // is 113,854 bytes for 388 files against the live service, so polling it unseen costs 8.0 MB an hour
+  // per tab at the default 15s refresh.
+  const { requested } = await cycle({ filesPage: "closed" });
+  assert.equal(requested.filter((u) => u.includes("/shared")).length, 0, "fetched a list nobody can see");
+});
+
+test("the open Files page is still polled", async () => {
+  // The other half, and the one that fails if the guard is inverted -- a skip that never un-skips looks
+  // exactly like a working optimisation until somebody opens the page.
+  const { requested } = await cycle({ filesPage: "open" });
+  assert.equal(requested.filter((u) => u.includes("/shared")).length, 1, "the visible page went unfetched");
 });

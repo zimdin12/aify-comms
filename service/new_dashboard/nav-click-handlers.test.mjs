@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { rangeDef } from "./analytics.js";
+import { setApiBase } from "./api-client.mjs";
 import { state } from "./state.mjs";
 import {
   navigateToPage,
@@ -183,4 +184,47 @@ test("a row with NO url opens nothing rather than a blank tab", () => {
     openHermesTabFromRow({ dataset: { url: "" } });
     assert.deepEqual(calls, []);
   });
+});
+
+/**
+ * Navigate with a stubbed document and fetch, recording the paths that went out.
+ *
+ * The document answers every lookup with null on purpose: `renderFiles` returns early on a missing
+ * host, so this exercises the navigation's fetch without pulling a DOM into the test.
+ */
+async function navigateWithStubs(page) {
+  const saved = { document: globalThis.document, fetch: globalThis.fetch, files: state.files };
+  const requested = [];
+  globalThis.document = { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [] };
+  globalThis.fetch = async (url) => {
+    requested.push(String(url));
+    return { ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify({ files: [] }) };
+  };
+  setApiBase("");
+  try {
+    navigateToPage(page, () => {}, () => {});
+    // The fetch goes out synchronously, but the .then(renderFiles) does not; drain it so an error there
+    // surfaces as a failure here rather than as an unhandled rejection in a later test.
+    await new Promise((r) => setTimeout(r, 0));
+  } finally {
+    globalThis.document = saved.document;
+    globalThis.fetch = saved.fetch;
+    state.files = saved.files;
+  }
+  return requested;
+}
+
+test("opening the Files page fetches the list it is about to show", async () => {
+  // The poll skips /shared while the page is closed (files-page.mjs), so this navigation is the ONLY
+  // thing that fills the page. Without it the Files page shows the last thing seen, or nothing at all
+  // on a first open, for up to a full 15s refresh interval -- a page that loads nothing looks exactly
+  // like a working button.
+  const requested = await navigateWithStubs("files");
+  assert.equal(requested.filter((u) => u.includes("/shared")).length, 1, "opened Files and fetched nothing");
+});
+
+test("opening a different page fetches no file list", async () => {
+  // The saving depends on this half: a load-on-open that fires on every page would put the poll back.
+  const requested = await navigateWithStubs("chat");
+  assert.equal(requested.filter((u) => u.includes("/shared")).length, 0, "fetched files for another page");
 });
