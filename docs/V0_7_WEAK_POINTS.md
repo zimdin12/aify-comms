@@ -66,6 +66,28 @@ costs one `editedSince` entry, and the thing to budget is getting the bytes righ
 
 ## Worth doing, needs an operator decision
 
+**Terminals cannot be enumerated through the API, which is why terminal-level questions keep
+needing the database.**
+Every route is keyed by id -- `GET /terminals/{id}` plus input, output, resize, stop, report-dead and
+the two control routes. There is no route that LISTS them. To ask "which terminals exist", "how many
+are in `stopping`", or "what did this environment have open", you must already know the ids.
+
+This is not a theoretical tidiness point; it blocked three separate questions in one night:
+
+* The operator's incident -- what stopped two workers in the same second -- ended at "the
+  terminal_events rows would say, and there is no way to read them in bulk".
+* Bounding the batch-stop reconciler's worst case needed the count of rows in `terminal_sessions`
+  with `status='stopping'`. Unreachable, so that risk is recorded as unmeasured in the review dossier.
+* Two attempts to approximate it failed for DIFFERENT reasons, which is the tell that the data is
+  genuinely not exposed rather than merely awkward: `/api/v1/sessions` carries `terminalStatus` on the
+  AGENT-SESSION row (a different table from the reconciler's predicate), and its `terminalId` column
+  is empty on all 100 rows right now, so the id-based fallback has nothing to walk.
+
+A `GET /api/v1/terminals` with a status filter would answer all three. It is a new route rather than a
+shape change, so it breaks nothing -- but it is still an API addition, and every API decision this
+session has been left to the operator. Worth pairing with the `events` opt-in question, since both are
+about making terminal state readable without a database client.
+
 **What the dashboard poll actually costs, measured from the browser rather than the source.**
 Loaded the live dashboard in an isolated browser context and read its network log -- the first honest
 picture of the cycle, after three earlier attempts that used source scanners and were wrong each time.

@@ -43,8 +43,18 @@ session-environment binding in one query.
 including a dead session that is NEWER than every live one — but it is my test of my own change, and
 "the map matches the query" is exactly the property I would have assumed if I had not written it down.
 
-**Least confident about:** the request-scoped caches are correct only because nothing writes
-`environments` or `agent_sessions` mid-request on this path. I checked; I did not prove it.
+**~~Least confident about~~ — CLOSED, `test_the_roster_never_writes_what_it_caches.py`.** The
+request-scoped caches are correct only if nothing changes their subject during the request. That
+originally rested on a reading of the handler: its write phase runs before the caches are built. A
+reading is not a guarantee, and nothing stopped a later edit from moving a write into the per-agent
+loop, where one agent's answer would depend on whether it was reached before or after.
+
+Now asserted end-to-end: across the whole roster request, no INSERT, UPDATE or DELETE touches
+`environments` or `agent_sessions`. Stronger than "no writes after the cache was built", and easier to
+read. Proven by mutation — a write injected into the per-agent loop fails it by name. Two positive
+controls guard it, because every assertion in that file is an absence: one that the spy sees the
+request at all, one that the gates actually ran, since a request that never consults the caches would
+satisfy the write assertion while proving nothing.
 
 ### 2. The batch terminal stop — `c8dd39e3`
 
@@ -52,9 +62,22 @@ including a dead session that is NEWER than every live one — but it is my test
 UPDATE and recorded nothing. It now selects the ids first so each closure carries a reason and an
 event. **This changes one statement into three per sweep**, and the sweep runs on the reconcile loop.
 
-**What I would check.** That the id list cannot grow unbounded (it is capped by the same predicate,
-not by a LIMIT), and that appending an event per closed terminal is acceptable at whatever scale a
-backlog could reach. I did not measure the worst case.
+**What I would check.** The change converts an O(1)-statement operation into O(N): the old bulk
+UPDATE closed any number of rows in one statement, and the new form issues a SELECT, an UPDATE and one
+event INSERT per closed terminal. There is no LIMIT, so one sweep drains the whole backlog.
+
+**Still open, and I want to be exact about why.** I tried to bound the worst case and measured the
+wrong noun: `/api/v1/sessions` reports `terminalStatus` on the AGENT-SESSION row (0 of 100 in
+`stopping` right now), while the reconciler predicates on `terminal_sessions.status`, a different
+table with no list endpoint. The proxy is suggestive and is not the population in question, so it does
+not settle anything. What is known: the function's own docstring records a PTY stuck `stopping` for 17
+days, so the state does accumulate.
+
+If a reviewer wants this bounded without measuring first, the pattern already exists in this repo --
+`reconcilers/terminal_history.py` drains in chunks with a `max_chunks` ceiling and lets the periodic
+sweep finish the job. A `LIMIT` here would be the same shape. I did not add one, because adding a
+ceiling for a backlog nobody has measured is how a tuning constant enters a codebase without a reason
+attached to it.
 
 ### 3. The delegation seam — `740c7d06`
 

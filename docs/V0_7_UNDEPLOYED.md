@@ -14,7 +14,7 @@ and a snapshot of a moving thing is wrong the moment something moves.
 | service container | `curl -s localhost:8800/health` → `build` | what is RUNNING as the API |
 | live environment bridge | `/api/v1/environments` → `metadata.bridgeBuild` | what is RUNNING as the bridge |
 
-Measured at the time of writing: HEAD `347b959d`, container `1a3de61a`, bridge `579dd546` — **three
+Measured 2026-08-26: HEAD `71781055`, container `1a3de61a`, bridge `579dd546` — **three
 different shas**, and the bridge is behind even the container. `bridgeCurrentVerdict` called on that
 live data returns `code: "stale-process"`, not `unknown-all`: the bridge does report a build, and it
 is old. Its own remedy line is the one to follow — *RESTART those bridges/wrappers; re-running
@@ -24,7 +24,9 @@ in memory.*
 ## Two deploy paths, and they are not interchangeable
 
 Run `git diff --name-only <container-build-sha>..HEAD -- mcp/stdio/ | grep -v tests/` to re-derive the
-second list. At the time of writing it was 21 commits and three files.
+second list. Re-measured 2026-08-26: **55 commits since the container build, 10 of which touch
+`mcp/stdio/` outside tests, across 13 files.** It read "21 commits and three files" when this
+file was written, which is what a snapshot of a moving thing is worth a day later.
 
 **1. Container rebuild** — everything under `service/`, including `service/new_dashboard/`.
 
@@ -40,7 +42,10 @@ assets mount that stops publishing the test tree, and every dashboard module cha
     bash install.sh --client claude <endpoint>     # re-copies mcp/stdio into ~/.aify-comms
     # then relaunch each wrapper; `aify-comms doctor` should turn bridge-current green
 
-Carries `child-env-hygiene.mjs`, `terminal-env.js`, `terminal-runtime.js`.
+Carries thirteen files: `child-env-hygiene.mjs`, `doctor-predicates.js`, `doctor.js`,
+`env-client.mjs`, `hermes-channel.js`, `hermes-delivery-loop.mjs`, `hermes-delivery-run.mjs`,
+`hermes-gateway-liveness.js`, `hermes-gateway.mjs`, `server.js`, `terminal-env.js`,
+`terminal-runtime.js`, `turn-busy-heartbeat.js`.
 
 **A container rebuild does not deploy the bridge fix.** `install.sh` copies `mcp/stdio` into a native
 dotfolder and every wrapper runs THAT copy, so a bridge change reaches nothing until the copy is
