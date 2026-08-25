@@ -488,6 +488,56 @@ subject, so it proves the function works on an element that production does not 
 the interrupt attribution this round already retracted: six green tests, all of them exercising the
 pure builder rather than the call site that never ran.
 
+**A live bridge's turn-start is still attributed to `user-prompt-submit`, which keeps the row out of
+the dead-bridge sweeper.** `/turn-start` hardcodes `turn_bridge_id = 'user-prompt-submit'` for every
+caller, and `_clear_turn_busy_for_dead_bridges` skips `('', 'user-prompt-submit')` ON PURPOSE
+(`dispatch_lifecycle.py:219`, and `claim_gating.py:288-292` explains why): a hook-driven turn has no
+owning bridge whose liveness could be tested, so there is nothing for that sweeper to check.
+
+The three sibling paths all use the real id. `/turn-end` guards on it, and the heartbeat path records
+it when it sets (`turn_busy_signal.py:62`) and guards ownership when it clears (`:83`). `/turn-start`
+alone treats every caller as the hook -- including the claude, codex and hermes detectors, which each
+send `bridgeId`, `turnRuntime` and `source` on every post.
+
+CONSEQUENCE, stated against the reader rather than in the abstract: if the bridge that started a turn
+dies, that turn is not cleared by the sweeper built for exactly that case. It waits for the 30-minute
+`TURN_BUSY_BACKSTOP_SECONDS` ceiling instead.
+
+NOT FIXED IN THIS ROUND. Recording the real id changes which rows a reaper touches, and that reaper
+kills in-flight state -- a different blast radius from refusing a stale write, which is what the
+supersession guard shipped alongside this note does. It also interacts with the carve-outs in
+`bridge_registration.py` (complementary sidecar/wrapper-child pairs) in ways worth measuring before
+changing. The two halves were found together and are deliberately not shipped together.
+
+`turnRuntime` and `source` are discarded on the same path. `turnRuntime` is harmless today -- the
+handler derives runtime from the agent row and the two agree -- but `source` is the only thing that
+could ever distinguish the three detectors from the hook in a stored record, and nothing keeps it.
+
+**Two of the four declared status-event kinds have no emitter, and the endpoint that could emit them
+is called only by tests.** `status_engine.EVENT_KINDS` declares
+`("turn_start", "turn_end", "blocked", "unblocked")`. Censused across the repo: every
+`_apply_status_event` caller emits `turn_start` or `turn_end` and nothing else, and
+`POST /agents/{id}/status-event` appears in `service/tests/` and nowhere in the bridge or the service.
+
+This is unused capability rather than a defect, and worth knowing precisely because the obvious worry
+is wrong: `blocked` IS reachable. It comes from `status_inputs.py:127`, where `awaiting_input` is
+`awaiting_stored or (in_turn and _agent_awaiting_input(...))` -- a terminal-text hint -- so the status
+the dashboard renders has a live producer that is not the event.
+
+One consistency gap goes with it: `AgentStatusEventRequest.kind` is a free `str`, so an unrecognised
+kind is folded by `apply_event` into no change while still being recorded as `last_event`. That is the
+same shape this repo already closed for terminal status in `75ea52dc` (undeclared statuses refused
+rather than passed through). Low value while the endpoint has no production caller, which is why it is
+recorded rather than done.
+
+**A detector turn-start now reads `bridge_instances` twice in one request.** Measured at steady state:
+a hook post (no body) issues 11 SQL round-trips including ONE
+`SELECT superseded_by FROM bridge_instances`, and a detector post issues 12 including TWO -- the
+supersession guard's own lookup plus one the status derivation was already doing. The guard's cost is
+that single indexed primary-key read, once per 45s per working resident agent, which is why it shipped
+as-is. Collapsing the pair would mean threading a value across two phases of the handler for one
+indexed read, and the phases have different owners.
+
 ## Left alone on purpose, with the reason recorded in code
 
 **`terminateProcessTree`'s callers keep an unreachable `catch`.** Its own last act is

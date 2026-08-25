@@ -67,6 +67,33 @@ async def agent_turn_start(agent_id: str, request: Request):
         )).fetchone()
         if not agent_row:
             raise HTTPException(404, f'Agent "{agent_id}" not found')
+        # SYMMETRIC WITH /turn-end, which has carried this guard since WS-4a. A turn-start carrying a
+        # bridgeId comes from a bridge-side turn DETECTOR; the harness UserPromptSubmit hook posts no
+        # body, so it can never be refused here and stays authoritative.
+        #
+        # WHY THE SET NEEDED IT TOO. `claude-turn-end-detector.js` re-stamps /turn-start every 45s for
+        # as long as its transcript reads in-flight, and a superseded bridge is never told to stop --
+        # supersession is a server-side fact and `stopClaudeTurnEndDetector` runs at process exit. So a
+        # session abandoned mid-turn kept setting turn_busy=1 on the live successor's row AND kept
+        # refreshing turn_updated_at, which is the column TURN_BUSY_BACKSTOP_SECONDS measures: the
+        # 30-minute ceiling meant to catch a latched turn never fired, because the stale poster kept
+        # moving it. With the guard already on the clear side, a replaced bridge could only ever push an
+        # agent TOWARD `working`.
+        #
+        # Returning BEFORE any write is the point: refusing the set but stamping the clock anyway would
+        # postpone the same ceiling.
+        try:
+            _body = await request.json()
+        except Exception:
+            _body = {}
+        _posting_bridge = str((_body or {}).get("bridgeId") or "").strip()
+        if _posting_bridge:
+            _sup = await (await db.execute(
+                "SELECT superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
+                (_posting_bridge, agent_id),
+            )).fetchone()
+            if _sup and str((_sup["superseded_by"] if "superseded_by" in _sup.keys() else "") or "").strip():
+                return {"ok": True, "agentId": agent_id, "ignored": "superseded_bridge"}
         now = _now()
         runtime = _normalize_runtime(agent_row["runtime"] or "claude-code")
         # If a managed dispatch is already in flight (turn_run_id set,

@@ -81,8 +81,11 @@ class TurnBoundaryTestCase(FastApiTestCase):
             (agent_id, busy, run_id, bridge_id, "claude-code", updated_at),
         )
 
-    def _turn_start(self, agent_id: str = AGENT):
-        return self.client.post(f"/api/v1/agents/{agent_id}/turn-start")
+    def _turn_start(self, agent_id: str = AGENT, **body):
+        # A body is OPTIONAL and that is the contract, not a convenience: the harness
+        # UserPromptSubmit hook posts none, and the bridge-side detectors post a bridgeId. The
+        # handler has to be able to tell them apart, so the helper has to be able to send both.
+        return self.client.post(f"/api/v1/agents/{agent_id}/turn-start", json=body or {})
 
     def _turn_end(self, agent_id: str = AGENT, **body):
         return self.client.post(f"/api/v1/agents/{agent_id}/turn-end", json=body or {})
@@ -302,3 +305,119 @@ class TurnBoundaryRefusalTests(TurnBoundaryTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TurnStartSupersededBridgeTests(TurnBoundaryTestCase):
+    """`/turn-start` accepted a stale detector's set, while `/turn-end` refused its clear.
+
+    WS-4a gave `/turn-end` a supersession guard for a named symptom: "the F5 working→idle flap on
+    bridge restart mid-turn". A turn-end carrying a `bridgeId` comes from a bridge-side DETECTOR
+    rather than from the harness Stop hook, which posts no body — so a detector belonging to a
+    replaced bridge must not clear the live successor's turn.
+
+    THE SAME DETECTOR POSTS TURN-START, and `/turn-start` never read the body at all. Three
+    producers send `bridgeId` on every set (`claude-turn-detector-state.mjs`, and the codex and
+    hermes detectors in `server.js`), and all three were discarded.
+
+    WHY THAT IS WORSE THAN AN IGNORED FIELD. `claude-turn-end-detector.js` re-stamps `/turn-start`
+    every `workingRefreshMs` (45s) for as long as its transcript reads in-flight, and a superseded
+    bridge is not told to stop — `stopClaudeTurnEndDetector` runs at process exit, and supersession
+    is a server-side fact its process never learns. So a resident session abandoned mid-turn keeps
+    setting `turn_busy=1` on the live successor's row, and keeps refreshing `turn_updated_at` while
+    doing it, which is the column TURN_BUSY_BACKSTOP_SECONDS measures. The 30-minute ceiling that is
+    supposed to catch a latched turn never fires, because the stale poster keeps moving it.
+
+    Combined with the guard that already exists on the other end, a superseded bridge could only ever
+    push an agent TOWARD `working`: its sets were honoured and its clears refused.
+
+    THE THREE SIBLINGS ALL USED THE FIELD. `/turn-end` guards on it; the heartbeat path
+    (`turn_busy_signal.py`) records the real `bridge_id` when it sets and guards ownership when it
+    clears. `/turn-start` alone treated every caller as the hook.
+
+    NOT CHANGED HERE, and recorded instead: a live bridge's turn-start is still attributed
+    `user-prompt-submit` rather than its own id, which keeps the row out of
+    `_clear_turn_busy_for_dead_bridges` — that sweeper skips `('', 'user-prompt-submit')` on purpose,
+    because a hook-driven turn has no owning bridge to test for liveness. Recording the real id would
+    change which rows a reaper touches, which is a different change with a different blast radius.
+    """
+
+    def _seed_bridge(self, bridge_id: str, agent_id: str, superseded_by: str = "") -> None:
+        self._write(
+            "INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode,"
+            " registered_at, last_seen, superseded_by) VALUES (?,?,?,?,?,?,?,?)",
+            (bridge_id, agent_id, "linux:test", "claude-code", "resident",
+             "2026-08-17T00:00:00Z", "2026-08-17T00:00:00Z", superseded_by),
+        )
+
+    def test_a_SUPERSEDED_bridges_turn_start_is_ignored_and_says_so(self):
+        self._seed_bridge("b-old", AGENT, superseded_by="b-new")
+        response = self._turn_start(bridgeId="b-old")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json().get("ignored"), "superseded_bridge")
+        self.assertEqual(
+            self._turn_state(), {},
+            "a replaced bridge's detector set a turn on the live successor's row",
+        )
+
+    def test_it_does_not_RE_SET_a_turn_the_live_bridge_already_ended(self):
+        """The shape that actually reaches an operator. The live bridge ends the turn, and 45s later
+        the abandoned session's KEEP-FRESH re-stamp puts it back — for as long as that process
+        lives."""
+        self._seed_turn_state(busy=0, run_id="", bridge_id="")
+        self._seed_bridge("b-old", AGENT, superseded_by="b-new")
+        self._turn_start(bridgeId="b-old")
+        self.assertEqual(
+            int(self._turn_state()["turn_busy"]), 0,
+            "a stale detector re-armed working on an idle agent",
+        )
+
+    def test_the_stale_poster_cannot_hold_the_backstop_open(self):
+        """TURN_BUSY_BACKSTOP_SECONDS is measured from `turn_updated_at`, so a refusal has to leave
+        that column alone. Refusing the set but stamping the clock anyway would postpone the very
+        ceiling that is supposed to catch a latched turn."""
+        self._seed_turn_state(busy=1, run_id="run-1", bridge_id="b-new",
+                              updated_at="2020-01-01T00:00:00Z")
+        self._seed_bridge("b-old", AGENT, superseded_by="b-new")
+        self._turn_start(bridgeId="b-old")
+        self.assertEqual(
+            self._turn_state()["turn_updated_at"], "2020-01-01T00:00:00Z",
+            "the ignored post still moved the staleness clock the ceiling reads",
+        )
+
+    def test_a_LIVE_bridges_turn_start_still_sets(self):
+        """The direction that would hurt more: refusing a real set leaves a working agent reading
+        idle, and no ceiling ever corrects that one."""
+        self._seed_bridge("b-live", AGENT)
+        response = self._turn_start(bridgeId="b-live")
+        self.assertNotIn("ignored", response.json())
+        self.assertEqual(int(self._turn_state()["turn_busy"]), 1)
+
+    def test_an_UNKNOWN_bridge_id_does_not_block_the_set(self):
+        """No row means no proof the poster was replaced. Mirrors the same rule on `/turn-end`."""
+        response = self._turn_start(bridgeId="b-unknown")
+        self.assertNotIn("ignored", response.json())
+        self.assertEqual(int(self._turn_state()["turn_busy"]), 1)
+
+    def test_ANOTHER_AGENTS_superseded_bridge_does_not_block_this_one(self):
+        """The lookup carries `AND agent_id = ?`; bridge ids are not unique across agents in this
+        schema, so without it one agent's replaced bridge would veto another agent's turns."""
+        self._seed_bridge("b-shared", OTHER, superseded_by="b-newer")
+        response = self._turn_start(bridgeId="b-shared")
+        self.assertNotIn("ignored", response.json())
+        self.assertEqual(int(self._turn_state()["turn_busy"]), 1)
+
+    def test_a_BLANK_superseded_by_is_not_supersession(self):
+        """The column exists on every row and is empty for a live bridge. Reading its PRESENCE rather
+        than its content would ignore every turn-start that named its bridge."""
+        self._seed_bridge("b-live", AGENT, superseded_by="   ")
+        response = self._turn_start(bridgeId="b-live")
+        self.assertNotIn("ignored", response.json())
+        self.assertEqual(int(self._turn_state()["turn_busy"]), 1)
+
+    def test_the_HOOK_which_posts_no_body_is_still_authoritative(self):
+        """What makes the guard safe to add: the harness UserPromptSubmit hook sends no bridgeId, so
+        it can never be mistaken for a detector and can never be refused."""
+        self._seed_bridge("b-old", AGENT, superseded_by="b-new")
+        response = self._turn_start()
+        self.assertNotIn("ignored", response.json())
+        self.assertEqual(int(self._turn_state()["turn_busy"]), 1)
