@@ -371,7 +371,7 @@ test("a hidden console pane is not painted into", () => {
   assert.equal(written, "");
 });
 
-test("the coarse event list refetches, and an unlisted event does nothing", () => {
+test("the coarse event list still refetches", () => {
   const listed = ["message_sent", "dispatch_queued", "dispatch_claimed", "dispatch_updated",
     "dispatch_control_requested", "dispatch_control_updated", "contract_reminders_sent",
     "settings_updated", "session_control_requested", "session_deleted", "agent_registered"];
@@ -381,10 +381,35 @@ test("the coarse event list refetches, and an unlisted event does nothing", () =
     applyRealtimeEvent(event, {});
     assert.equal(calls.refreshSoon, 1, `${event} must pull fresh data`);
   }
+});
+
+test("an event nobody classified refetches rather than vanishing", () => {
+  // REVERSED DELIBERATELY, and the old assertion here was "an unknown event must not cost a
+  // refetch". That was a real concern -- refresh() fires a ten-request bundle -- but it was paid
+  // for by silence: measured 2026-08-25, the service broadcasts 49 event names and 35 of them fell
+  // off the end of applyRealtimeEvent with no branch and no log, including channel_message,
+  // terminal_stopped, message_deleted, conversation_cleared, file_shared and all three
+  // spawn_request_*. A chat message could sit a full poll behind because nobody had decided it
+  // should not.
+  //
+  // What makes the reversal affordable is already in app.js: refreshSoon debounces 250ms, and a
+  // second guard runs at most one bundle at a time and queues exactly one more. So a burst of
+  // events costs one refetch, not one per event.
+  //
+  // The rate evidence is one sample and is stated as such: 4 events in 60s over a live websocket
+  // with the fleet idle. There is no busy-fleet measurement, which is why environment_heartbeat --
+  // the only event observed at any rate -- stays ignored rather than being swept in with the rest.
   const calls = harness();
   seedState();
   applyRealtimeEvent("something_nobody_handles", {});
-  assert.equal(calls.refreshSoon, 0, "an unknown event must not cost a refetch");
+  assert.equal(calls.refreshSoon, 1, "an unclassified event was silently dropped again");
+});
+
+test("the measured-noisy event is still not refetching", () => {
+  const calls = harness();
+  seedState();
+  applyRealtimeEvent("environment_heartbeat", {});
+  assert.equal(calls.refreshSoon, 0, "the highest-frequency event now costs a refetch each time");
 });
 
 test("the page-resume rationale travelled WITH the code it explains", async () => {

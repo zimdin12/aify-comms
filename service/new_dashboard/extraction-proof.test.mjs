@@ -1241,6 +1241,38 @@ const EXTRACTIONS = [
       { name: "wireRealtimeResumeReconnect", at: 584, marker: null },
       {
         name: "applyRealtimeEvent",
+        editedSince: [{
+          // The eleven-name refresh allowlist became a declared disposition per event. Anything
+          // not in that array fell off the end of this function and was dropped -- 35 of the 49
+          // names the service broadcasts. realtime-dispositions.mjs now answers for every one, and
+          // realtime-dispositions.test.mjs reads the python producer so the two cannot drift.
+          was: [
+            "  if ([",
+            "    'message_sent',",
+            "    'dispatch_queued',",
+            "    'dispatch_claimed',",
+            "    'dispatch_updated',",
+            "    'dispatch_control_requested',",
+            "    'dispatch_control_updated',",
+            "    'contract_reminders_sent',",
+            "    'settings_updated',",
+            "    'session_control_requested',",
+            "    'session_deleted',",
+            "    'agent_registered',",
+            "  ].includes(event)) {",
+          ],
+          now: [
+            "  // EVERY event has a declared disposition, in realtime-dispositions.mjs. This used to be an inline",
+            "  // array of eleven names, and anything not in it fell off the end of this function and was dropped",
+            "  // -- 35 of the 49 names the service broadcasts, among them channel_message, terminal_stopped,",
+            "  // message_deleted, conversation_cleared, file_shared and all three spawn_request_*. The default is",
+            "  // now to refresh rather than to discard, and an event that IS discarded has to say why.",
+            "  //",
+            "  // Safe because refreshSoon debounces 250ms AND app.js coalesces while a bundle is in flight, so a",
+            "  // burst of events collapses into one refetch rather than stacking bundles.",
+            "  if (dispositionOf(event) === 'refresh') {",
+          ],
+        }],
         at: 629,
         marker: "// applyRealtimeEvent moved to ./realtime-socket.mjs in v0.5.4, with the socket it is wired to.",
       },

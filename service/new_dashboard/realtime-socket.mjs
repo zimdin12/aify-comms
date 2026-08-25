@@ -17,6 +17,7 @@
 
 import { apiOrigin } from './api-client.mjs';
 import { state } from './state.mjs';
+import { dispositionOf } from './realtime-dispositions.mjs';
 import { updateAwaitPill } from './console-await.mjs';
 
 let dashboardNotifier = { handle() {} };
@@ -186,19 +187,15 @@ export function applyRealtimeEvent(event, data = {}) {
     refreshSoon(); // unknown agent — a registration we haven't loaded yet
     return;
   }
-  if ([
-    'message_sent',
-    'dispatch_queued',
-    'dispatch_claimed',
-    'dispatch_updated',
-    'dispatch_control_requested',
-    'dispatch_control_updated',
-    'contract_reminders_sent',
-    'settings_updated',
-    'session_control_requested',
-    'session_deleted',
-    'agent_registered',
-  ].includes(event)) {
+  // EVERY event has a declared disposition, in realtime-dispositions.mjs. This used to be an inline
+  // array of eleven names, and anything not in it fell off the end of this function and was dropped
+  // -- 35 of the 49 names the service broadcasts, among them channel_message, terminal_stopped,
+  // message_deleted, conversation_cleared, file_shared and all three spawn_request_*. The default is
+  // now to refresh rather than to discard, and an event that IS discarded has to say why.
+  //
+  // Safe because refreshSoon debounces 250ms AND app.js coalesces while a bundle is in flight, so a
+  // burst of events collapses into one refetch rather than stacking bundles.
+  if (dispositionOf(event) === 'refresh') {
     refreshSoon();
   }
 }
