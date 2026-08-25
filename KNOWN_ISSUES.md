@@ -499,3 +499,35 @@ Branch `feature/managed-hermes-lifecycle` made managed runtimes bridge-owned wit
 
 - **Hermes gateway-host resolve-session logging doesn't reliably land on disk.** The fresh-session-on-restart root cause (durable vs ephemeral marker, fixed 2026-06-05) would have been a one-grep diagnosis if `~/.local/state/aify-comms/hermes-gateway-host-*.log` captured the `resolve-session` `err(...)` lines, but those files were absent. The resolve path logs to stderr; the gateway-host stderr isn't consistently redirected to that file. Low priority but worth wiring so the next resume regression is observable.
 - **The claude console rules/classifier are TUI-version-dependent.** `claude-console-spinner.js` (spinner footer) and `claude-console-prompts.js` (resume/compaction/perms/channel prompts) match claude's current TUI text/glyphs. The shipped test fixtures under `mcp/stdio/tests/fixtures/claude-console/` are REPRESENTATIVE, not captured from the exact live build — re-capture real frames and re-tune the regexes when claude updates. Failure mode is safe (no auto-answer / no spinner-`working`, never a misfire), but the boot-prompt and under-report fixes silently stop working if a claude UI change drifts the patterns. Auto-answer additionally requires a menu cursor `❯` and `consoleClass!=='working'`, so a drift in the cursor glyph disables auto-answer rather than misfiring.
+
+## The codex console input is named only by a placeholder
+
+`service/new_dashboard/session-console.mjs` renders, inside the form marked
+`data-action="codex-console-send"`,
+
+```
+<input type="text" placeholder="${codexThreadId ? 'Type to send turn/start into this thread...'
+                                               : 'No threadId — read-only.'}" ...>
+```
+
+with no `aria-label` and no wrapping label. A placeholder is erased once the field has content, so a
+screen-reader user who tabs back into a half-typed console line hears nothing. Worse here than
+usual: the placeholder is doing double duty as a STATE message, so the field's announced name
+changes depending on whether a thread exists.
+
+Grep for that `data-action` rather than a line: this file's own gate refuses line numbers,
+because a line is the thing that does not survive the next refactor.
+
+Found 2026-08-25 by reading the modules after fixing the four static cases in `index.html`. It did
+not appear in the live-page audit because the codex console only renders while a console is
+attached.
+
+**Not fixed, and the reason is cost rather than doubt.** `session-console.mjs` is an extraction-
+tracked module with four references in `extraction-proof.test.mjs`, so a one-attribute edit requires
+a declared `editedSince` entry attached to the owning item and de-indented by its wrapper — a cycle
+that took roughly fifteen steps the last time. Worth doing alongside the next intentional change to
+that module, not on its own.
+
+The fix is one attribute: `aria-label="Console input"` on that input, leaving the placeholder as the
+state hint it already is. `index-controls-are-named.test.mjs` explains why its own scan stops at
+`index.html` and cannot gate this.

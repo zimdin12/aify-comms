@@ -95,7 +95,7 @@
                 <button type="button" class="chat-tool-tab" data-chat-tool="channels" role="tab" aria-selected="false">Channels</button>
               </div>
               <div class="chat-tool-panel" data-chat-tool-panel="find" role="tabpanel">
-                <input id="chat-filter" type="search" placeholder="Search conversations + messages">
+                <input id="chat-filter" type="search" aria-label="Search conversations and messages" placeholder="Search conversations + messages">
               </div>
               <div class="chat-tool-panel" data-chat-tool-panel="filters" role="tabpanel" hidden>
                 <div class="chat-chip-group scope-group" role="group" aria-label="Scope">
@@ -138,7 +138,7 @@
                   <select id="chat-identity" title="Send and read as this identity"></select>
                 </label>
                 <form id="chat-new-channel-form" class="chat-new-channel">
-                  <input id="chat-new-channel" type="text" placeholder="New channel name" autocomplete="off">
+                  <input id="chat-new-channel" type="text" aria-label="New channel name" placeholder="New channel name" autocomplete="off">
                   <button type="submit" class="ghost" title="Create a channel and join as the viewing identity">+ Channel</button>
                 </form>
                 <button type="button" class="ghost" id="chat-identity-directory" title="Audit agent identities: roles, runtime, session mode, environment, and live status">Identity directory</button>
@@ -149,7 +149,7 @@
           <section class="chat-conversation">
             <div class="chat-conv-head">
               <h2 id="chat-conv-title">Select a conversation</h2>
-              <input id="chat-msg-search" class="chat-msg-search" type="search" placeholder="Search this chat" hidden>
+              <input id="chat-msg-search" class="chat-msg-search" type="search" aria-label="Search this conversation" placeholder="Search this chat" hidden>
               <div id="chat-conv-actions" class="chat-conv-actions"></div>
             </div>
             <div class="chat-timeline-wrap">
@@ -192,7 +192,7 @@
                 </div>
               </details>
               <div class="composer-send-row">
-                <textarea id="chat-composer-body" placeholder="Select a conversation"></textarea>
+                <textarea id="chat-composer-body" aria-label="Message" placeholder="Select a conversation"></textarea>
                 <!-- Split control: Send is the default act; Queue is the same send with
                      queueIfBusy forced on for THIS message only, so the common "let it run after
                      the current turn" case no longer requires opening Options and hunting a
