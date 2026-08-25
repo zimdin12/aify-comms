@@ -173,6 +173,37 @@ alongside the next intentional change to the file. Recorded in KNOWN_ISSUES.md.
 
 ## Worth knowing, not worth doing
 
+**The cross-language constant census: 19 service constants are named from JS, 5 carry a timing
+relationship, and two of those were enforced only by a comment.**
+Measured 2026-08-25 by scanning `service/**` for named constants and `mcp/stdio` + `service/new_dashboard`
+for files that mention them. The vocabulary ones (`AGENT_STATUSES`, `RUNTIME_ALIASES`,
+`NOTIFIABLE_EVENTS`, `MODEL_PLACEHOLDERS`, ...) are already bound by the twins census. The interesting
+class is the TIMING pairs, where a bridge cadence has to stay inside a service window:
+
+| service constant | bridge side | headroom | gate |
+|---|---|---|---|
+| `CONSOLE_WORKING_LEASE_SECONDS` 20s | idle re-probe 16s | 1.25x | added `4f47f616` |
+| `ACTIVE_RUN_BRIDGE_STALE_SECONDS` 120s | `TURN_BUSY_HEARTBEAT_MS` 30s | 4x | added `9933246b` |
+| `TURN_BUSY_BACKSTOP_SECONDS` 30min | hermes-env.mjs | n/a | already `test_turn_busy_delivery_ceiling.py` |
+| `TURN_BUSY_STALE_SECONDS` 120s | `REPULSE_MS` 45s | 2.7x | none |
+| `MAX_WAIT_S` 25s | server.js long-poll | not measured | none |
+
+NOT GATING THE LAST TWO, and the reason is not laziness. `REPULSE_MS` has 2.7x of headroom and is
+`Math.max(5000, env)` -- a floor with no ceiling, so an operator setting
+`AIFY_HERMES_TURN_REPULSE_MS=200000` would exceed the 120s window silently. A test can only pin the
+DEFAULT, which is already comfortable; it cannot police the override, and pinning the default would
+read as protection the operator does not actually have. The honest fix there is a ceiling in the
+`Math.max` expression itself, derived from the window, which is a behaviour change to hermes turn
+detection and wants an owner. `MAX_WAIT_S` needs its bridge-side counterpart measured before anyone
+can say what the relationship even is.
+
+THE SHAPE WORTH REMEMBERING. Both gated pairs were stated correctly in a code comment and enforced by
+nothing -- "the re-probe interval must stay BELOW that lease", "a turn longer than that window is
+reaped as a dead bridge". Prose on a join is where this repo's defects keep living, and a comment that
+states an invariant is a test that has not been written yet. The heartbeat one also needed the literal
+moved out of `server.js` first: a constant inside a bridge entrypoint is untestable by construction,
+because importing the entrypoint to read it starts a bridge.
+
 **The managed-claude status flap happens on a bridge that HAS both of #224's fixes.**
 Reported live 2026-08-25: sc-designer went `working` -> `online` -> `working` mid-task, then
 `available` when it finished, then back to `working` on the next message.
