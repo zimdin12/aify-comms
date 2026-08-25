@@ -20,6 +20,18 @@
 // cannot know it, and its failure mode is a worker that mysteriously cannot reach something. This
 // list's failure mode is bounded: a variable nobody has been bitten by yet gets through.
 //
+// WHY STRIPPING, AND NOT SETTING A SAFE VALUE, IS THE FIX -- proven the hard way on 2026-08-25.
+//
+// terminal-env.js neutralises the ROLE FLAGS by setting them to "0", and that works: their consumer
+// tests `["1","true","yes"].includes(value)`, for which "0" is a definitive no. It sets the ROLE
+// STRING to "" for the same reason, and that does NOT work: its consumer is
+// `AIFY_AGENT_ROLE || AIFY_COMMS_AGENT_ROLE || "coder"`, and "" is falsy, so the chain falls through
+// to the inherited alias. Measured: a bridge holding AIFY_COMMS_AGENT_ROLE=manager spawned a worker
+// with an unknown role, and the worker resolved its role as "manager" instead of its own default.
+//
+// So a value only neutralises inheritance when the CONSUMER treats that value as definitive. Removing
+// the name is definitive for every consumer, which is why this list removes rather than assigns.
+//
 // STRIPPED, never blanked to "". An empty string is a value, and a runtime asking "is this set?" reads
 // it as yes. `terminal-env.js` sets some of these to "" ON PURPOSE for a different reason -- it wants
 // the child to fall back to its own default rather than inherit a wrong one -- and that stays, because
@@ -39,6 +51,10 @@ export const NEVER_INHERITED = Object.freeze({
   AIFY_AGENT_ID:
     "the bridge's identity would become the worker's, so the worker reports as, and can be addressed "
     + "as, the process that started it.",
+  AIFY_COMMS_AGENT_ROLE:
+    "the same role by its other name, and the one this list originally missed. launch-identity reads "
+    + "`AIFY_AGENT_ROLE || AIFY_COMMS_AGENT_ROLE || 'coder'`, so stripping only the first leaves the "
+    + "bridge's role reachable through the alias.",
   AIFY_COMMS_AGENT_ID:
     "the same identity by its other name; stripping one and not the other leaves the child holding two "
     + "answers to who it is.",
