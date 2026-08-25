@@ -63,6 +63,14 @@ residue is counted continuously, never surfaced, and cannot be acted on by anyon
 the JSON by hand. Surfacing it means adding a control that DELETES messages, which is the operator's
 call to make, not mine to add unprompted.
 
+SHARPENED, and this is the actionable half. `/api/v1/stats` cannot be deferred the way `/shared` was:
+its consumer is `#metrics` in the always-visible topbar, not a page. But the dashboard reads exactly
+TWO fields from it -- `dispatch_runs_by_status` and `run_failures_24h` -- while the endpoint computes
+24 top-level keys for every call, including a per-agent message histogram over 32,929 messages and the
+1,889-row orphan scan above. 203 ms every 15 seconds per open tab, to render two numbers. A narrow
+projection for the topbar's two fields is the obvious shape; like the roster, it wants a profile
+against the real database before anyone writes it.
+
 While measuring: `shared_size_bytes` is 383,021,022 -- 383 MB across the 388 shared files behind the
 `/shared` payload this round already deferred.
 
