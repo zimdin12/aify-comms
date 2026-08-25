@@ -33,6 +33,39 @@ costs one `editedSince` entry, and the thing to budget is getting the bytes righ
 
 ## Worth doing, needs an operator decision
 
+**The roster endpoint costs 5.9 ms per agent and is the dashboard's slowest poll slice.**
+Measured against the live service 2026-08-25, five samples each: `GET /api/v1/agents/{one}` is 10.2 ms;
+`GET /api/v1/agents` for the 47-agent roster is 282.9 ms (471 ms median on an earlier, busier sample,
+996 ms worst). The difference is 272.7 ms across 46 extra agents -- **5.9 ms of marginal cost per
+agent**, so it scales linearly with fleet size and this fleet is not large.
+
+It is not payload size: `/api/v1/sessions` returns 107,626 bytes in 41.9 ms while this returns 63,965
+in 282.9. The whole poll -- ten slices -- sums to 953 ms of medians, and this one endpoint is half of
+it.
+
+WHAT I RULED OUT, so the next person does not repeat it. `_has_live_terminal_session` runs per live
+managed agent and looked like an unindexed scan; it is not -- `idx_terminal_sessions_agent
+(agent_id, status)` covers that query exactly. `_enforce_env_reachable_gate` issues
+`SELECT * FROM environments WHERE id = ?` per live managed agent (19 of the 47) for a table holding
+2 rows, which is wasteful but cannot account for 5.9 ms each on an indexed primary key.
+
+NOT FIXED, deliberately. Batching those 19 lookups into one preloaded map is obvious and safe, but I
+could not measure that it helps: attributing the 5.9 ms needs a profile of the loop against the real
+database, and the only honest place to take that is a host where the fleet is idle. Refactoring the
+hottest read path in the service on a guess, with no way to verify the result, is how a performance
+fix becomes an outage. The measurement is the deliverable; the attribution is the next step.
+
+**A metric the service computes on every stats call and shows nobody.**
+`orphan_unread_messages` is 1,889 right now -- unread inbox rows addressed to agents that have since
+been removed. `/api/v1/stats` recomputes it on every call (203.0 ms median), a cleanup endpoint
+exists (`POST /messages/cleanup/orphan-unread`), and no dashboard source mentions either. So the
+residue is counted continuously, never surfaced, and cannot be acted on by anyone who does not read
+the JSON by hand. Surfacing it means adding a control that DELETES messages, which is the operator's
+call to make, not mine to add unprompted.
+
+While measuring: `shared_size_bytes` is 383,021,022 -- 383 MB across the 388 shared files behind the
+`/shared` payload this round already deferred.
+
 **Every agent can read every other agent's hermes gateway credential, and the fix is an
 access-control decision rather than a redaction.**
 Measured 2026-08-25 against the live service: `/api/v1/agents` returns
