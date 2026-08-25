@@ -6,26 +6,32 @@ and a judgement. **The judgement is the point**: a list of everything wrong is a
 Fixed items are in git and not repeated here — `git log 1a3de61a..HEAD` has them. This file is what
 was found and *not* fixed, plus what was deliberately left alone.
 
+## Shipped this round
+
+**Defer the shared-files fetch while the Files page is hidden. SHIPPED 2026-08-25, `2c2da14b`.**
+`/shared` is 113,854 bytes for 388 files, 34,839 gzipped, fetched every cycle whether or not the page
+is open. At the default 15s refresh that is 8.0 MB an hour per tab after compression, 23.9 at the 5s
+floor. `state.files` is read by the Files page alone. The poll now asks `files-page.mjs` first, and
+`navigateToPage` loads the list on open so nothing is ever shown stale.
+
+CORRECTION, and the reason this entry is worth reading. An earlier version of it said the change had
+been attempted four times, left the reconstruction between 169 and 828 characters off, and cost more
+to land than the bandwidth was worth. **That conclusion was wrong, and it blamed the wrong thing.**
+The gate is cheap. A controlled experiment — one line added to one tracked declaration, declared as
+`editedSince` and nothing else — passed first time. What had failed every previous attempt was my own
+editing: python that matched an anchor by an indentation I had copied out of my own terminal output,
+where a display prefix had added two spaces. The same slip broke four more edits while landing this
+change, each time as an assertion rather than a wrong result.
+
+The one real piece of knowledge is that `wrapper.dedent` is the prefix reconstruct **adds back**, so a
+declared edit on a wrapped item is written with that prefix INCLUDED, not stripped. Both readings of
+that are silent: the edit is simply "not found verbatim". `unwrapBody` says so in a comment; I guessed
+twice before reading it.
+
+So the standing advice is the opposite of what stood here: an edit to an extracted dashboard module
+costs one `editedSince` entry, and the thing to budget is getting the bytes right, not the gate.
+
 ## Worth doing, needs an operator decision
-
-**Defer the shared-files fetch while the Files page is hidden.**
-`/shared` returns 113,854 bytes every poll — 388 artifacts, metadata-only and capped at 2000 by a
-2026-07-03 fix, so bounded but the fourth-largest payload in the cycle. `state.files` has exactly two
-readers and both are the Files page. At one poll per 15s that is roughly 26 MB/hour per open tab for a
-panel that is usually not on screen.
-ATTEMPTED AND REVERTED 2026-08-25, and the reason is a measured cost rather than a doubt about the
-change. The staleness objection turns out to be avoidable: a MutationObserver on the page element's
-class loads the list the moment it becomes visible, so nothing is ever shown stale. The blocker is
-extraction-proof. shared-files.mjs is reconstructed byte-for-byte from the pre-extraction app.js, so
-every edit needs a declared `editedSince`, and this change touches TWO tracked declarations plus a
-module-scope import. Four structurally different attempts each left the reconstruction between 169
-and 828 characters off, including a minimal version with one changed line per declaration and the
-helper in a new file. Roughly 25 steps went into the plan mechanics and none into the change.
-
-So the honest state is: the optimisation is correct, the staleness trade does not exist, and landing
-it costs more than 26 MB/hour of localhost bandwidth is worth on its own. Worth doing as part of a
-change that already has to open that file — the same conclusion the codex console input reached, and
-for the same reason. If it is done alone, budget the declaration work, not the code.
 
 **The codex console input is named only by a placeholder.**
 `session-console.mjs`, inside the form marked `data-action="codex-console-send"`. A placeholder is
