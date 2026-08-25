@@ -13,7 +13,7 @@
 
 import { api } from './api-client.mjs';
 import { asAgentArray, asArray } from './record-fields.mjs';
-import { chatLoadChannels, chatLoadConversation } from './message-transport.mjs';
+import { chatLoadChannels, chatLoadConversation, loadInboxMessages } from './message-transport.mjs';
 import { loadFiles } from './shared-files.mjs';
 import { shouldLoadFiles, shouldLoadForPage } from "./files-page.mjs";
 import { noteSliceFailure, refreshChipState } from './refresh-status.mjs';
@@ -54,7 +54,7 @@ export async function runRefreshCycle({
   const settled = await Promise.allSettled([
     api('/agents'),                                                       // 0
     api('/contracts?limit=80'),                                           // 1
-    api('/messages/inbox/dashboard?filter=all&peek=true&limit=80'),       // 2
+    Promise.resolve(null),                                                // 2 — fetched below, only if needed
     api('/messages/recent?limit=80'),                                     // 3
     api(runQueryPath()),                                                  // 4
     api('/sessions?limit=80'),                                            // 5
@@ -77,8 +77,25 @@ export async function runRefreshCycle({
     try { await loadContractsForState(contractStateSel, false); } catch (_) { noteSliceFailure('contract filter'); /* keep base */ }
   }
   // messages: prefer recent, fall back to inbox, then keep prior — only touch if either succeeded.
-  if (ok(2) || ok(3)) {
-    state.messages = (ok(3) && val(3).messages) || (ok(2) && val(2).messages) || state.messages || [];
+  //
+  // THE INBOX WAS A FALLBACK IN THE CODE AND NOT ONE ON THE WIRE. `/messages/recent` wins whenever
+  // it returns a `messages` array, so on every healthy cycle the inbox response was fetched, parsed
+  // and thrown away: 300,154 bytes of a measured 1,419,728-byte cycle, 21% of it, confirmed against
+  // the running service. It is a pure read — the route's `peek=true` skips `_settle_inbox_read`
+  // entirely — so not sending it changes nothing but the traffic.
+  //
+  // Its SLOT stays in the array, resolving null, because ok(i)/val(i) index by POSITION: removing
+  // the entry would shift every slice after it onto the wrong data. The request is now made only
+  // when the primary did not hand us messages, and it reports its own failure the way the other
+  // out-of-band fetches do — a null slot resolves as `fulfilled`, so the chip would otherwise read
+  // a fallback that failed as a slice that succeeded.
+  const recentUsable = ok(3) && val(3).messages;
+  let inboxMessages = null;
+  if (!recentUsable) {
+    try { inboxMessages = await loadInboxMessages(); } catch (_) { noteSliceFailure('inbox'); /* keep prior messages */ }
+  }
+  if (recentUsable || inboxMessages) {
+    state.messages = recentUsable || inboxMessages || state.messages || [];
   }
   if (ok(4)) state.runs = val(4).runs || [];
   if (ok(5)) {

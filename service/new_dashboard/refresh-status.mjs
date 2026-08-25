@@ -51,6 +51,11 @@ export const AGENTS_SLICE = 0;
 // They cannot join `settled` without serialising differently, so they report themselves instead.
 export const OUT_OF_BAND_SLICES = Object.freeze([
   'contract filter', 'channels', 'conversation', 'files',
+  // 'inbox' is BOTH: it keeps its slot in the settled array so ok(i)/val(i) still index by
+  // position, and that slot now resolves null while the fetch itself happens after the settle, only
+  // when /messages/recent did not hand us messages. A null slot is `fulfilled`, so the array can
+  // never report this one -- the request has to speak for itself like the other four.
+  'inbox',
 ]);
 
 /** Failures reported by the out-of-band awaits since the last chip paint. */

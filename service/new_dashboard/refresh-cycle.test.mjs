@@ -112,11 +112,16 @@ async function cycle({ reject = [], extraDeps = {}, filesPage = null, environmen
   return { calls, requested, chip: els.get("api-status") };
 }
 
-test("a clean cycle fetches all ten slices and renders", async () => {
+test("a clean cycle fetches every slice it still needs, and renders", async () => {
   const { calls, requested, chip } = await cycle();
-  // TWELVE, not ten: the ten parallel slices plus the two sequential follow-ups the cycle also owns
+  // ELEVEN. Nine of the ten parallel slices plus the two sequential follow-ups the cycle also owns
   // (chat channels and shared files), each wrapped in its own try/catch so it keeps prior data.
-  assert.equal(requested.length, 12, `expected twelve fetches, got ${requested.length}`);
+  //
+  // It was twelve until the inbox stopped being fetched on a healthy cycle: it is the FALLBACK for
+  // /messages/recent and the primary wins whenever it returns messages, so the request was 300,154
+  // bytes fetched and discarded. Re-measured here rather than adjusted by arithmetic -- the whole
+  // point of pinning a count is that it is read off a run.
+  assert.equal(requested.length, 11, `expected eleven fetches, got ${requested.length}`);
   for (const path of ["/agents", "/sessions", "/settings", "/shared"]) {
     assert.ok(requested.some((r) => r.includes(path)), `${path} must be fetched each cycle`);
   }
@@ -307,6 +312,51 @@ test("the closed Environments page is not polled for spawn requests", async () =
 test("the open Environments page is still polled", async () => {
   const { requested } = await cycle({ environmentsPage: "open" });
   assert.equal(requested.filter((u) => u.includes("/spawn-requests")).length, 1);
+});
+
+test("a healthy cycle does not fetch the inbox it would throw away", async () => {
+  // THE CALL SITE. `/messages/recent` wins whenever it returns a messages array, so the inbox
+  // response was parsed and discarded every cycle -- 300,154 bytes of 1,419,728 measured against the
+  // running service, 21% of the payload, for a fallback that was never reached.
+  const { requested } = await cycle();
+  assert.equal(
+    requested.filter((u) => u.includes("/messages/inbox")).length, 0,
+    "fetched the fallback inbox even though the primary answered",
+  );
+  assert.ok(
+    requested.some((u) => u.includes("/messages/recent")),
+    "the primary was not fetched, so this proves nothing about the fallback",
+  );
+  assert.deepEqual(
+    state.messages, [{ id: "m-recent" }],
+    "the primary's messages are what the cycle must keep when it skips the fallback",
+  );
+});
+
+test("the inbox IS fetched when the primary fails, and its messages are used", async () => {
+  // The other half, and the one that fails if the guard is inverted. A fallback that never fires
+  // looks exactly like a working optimisation until the primary goes down -- which is the cycle
+  // where the dashboard most needs to still show messages.
+  const { requested } = await cycle({ reject: ["/messages/recent"] });
+  assert.equal(
+    requested.filter((u) => u.includes("/messages/inbox")).length, 1,
+    "the primary failed and the fallback was never asked",
+  );
+  assert.deepEqual(
+    state.messages, [{ id: "m-inbox" }],
+    "the fallback was fetched but its messages were not applied",
+  );
+});
+
+test("a failing fallback reports itself rather than passing as a healthy slice", async () => {
+  // The inbox slot resolves null so the positional indices below it do not shift, and a null slot is
+  // `fulfilled` -- so without an explicit report the chip would read a fallback that failed as a
+  // slice that succeeded. Both message fetches are rejected here, which is the only way to reach it.
+  const { chip } = await cycle({ reject: ["/messages/recent", "/messages/inbox"] });
+  assert.match(
+    chip.textContent, /stale|reconnecting|polling|degraded|partial/i,
+    `both message fetches failed and the chip said ${JSON.stringify(chip.textContent)}`,
+  );
 });
 
 test("a skipped spawn-request slice leaves the previous list alone", async () => {

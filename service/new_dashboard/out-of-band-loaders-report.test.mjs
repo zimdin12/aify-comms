@@ -35,6 +35,7 @@ const LOADERS = [
   { fn: 'chatLoadChannels', module: 'message-transport.mjs', slice: 'channels' },
   { fn: 'loadContractsForState', module: 'work-loop-actions.mjs', slice: 'contract filter' },
   { fn: 'chatLoadConversation', module: 'message-transport.mjs', slice: 'conversation' },
+  { fn: 'loadInboxMessages', module: 'message-transport.mjs', slice: 'inbox' },
 ];
 
 test('every slice the chip can name has a loader that owns it', () => {

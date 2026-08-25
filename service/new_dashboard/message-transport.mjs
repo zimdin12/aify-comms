@@ -15,6 +15,24 @@ export async function chatLoadChannels() {
     state.chat.channels = res.channels || res || [];
   } catch (_) { noteSliceFailure('channels'); /* keep prior list */ }
 }
+export async function loadInboxMessages() {
+  // The FALLBACK for /messages/recent, and until 2026-08-26 it was a fallback in name only: it sat
+  // in the poll's allSettled array and was fetched EVERY cycle, then discarded whenever the primary
+  // returned messages -- which is every healthy cycle. 300,154 bytes of a measured 1,419,728-byte
+  // cycle, 21% of the payload, confirmed against the running service.
+  //
+  // Safe to skip because it is a pure read: the route's `peek=true` makes `_settle_inbox_read` a
+  // no-op, so nothing is marked read by asking. Returns null when there is nothing usable, which is
+  // the poll's signal to keep the messages it already had.
+  //
+  // It reports its own failure rather than leaving that to the call site -- the reason this module
+  // owns the fetch at all. See out-of-band-loaders-report.test.mjs for the dead call-site reports
+  // that rule replaced.
+  try {
+    const res = await api('/messages/inbox/dashboard?filter=all&peek=true&limit=80');
+    return (res && res.messages) || null;
+  } catch (_) { noteSliceFailure('inbox'); /* keep prior messages */ return null; }
+}
 export async function chatLoadConversation(name) {
   const res = await api(`/channels/${encodeURIComponent(name)}?limit=80&agentId=${encodeURIComponent(state.chat.identity)}`);
   state.chat.channelMessages[name] = res.messages || res.channel?.messages || [];

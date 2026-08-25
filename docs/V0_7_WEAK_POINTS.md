@@ -435,6 +435,59 @@ see. Worth noting that the threading fix in this round makes each refreshed agen
 environment lookups per agent became a shared one per request -- so the trade is better than it was,
 which is an argument for re-measuring it, not for guessing.
 
+**/stats computes 24 keys in 20 SQL round-trips so one page can show two numbers.** Measured
+2026-08-26 against the running service and by counting `aiosqlite` calls:
+
+| | |
+|---|---|
+| keys returned | 24 |
+| SQL round-trips per call | 20 (12.7% of a 157-round-trip poll cycle) |
+| response size | 2,400 bytes -- so this is a ROUND-TRIP cost, not a bandwidth one |
+| keys any consumer reads | 2 (`dispatch_runs_by_status`, `run_failures_24h`) |
+| where they are read | `summary-tiles.mjs` `renderDiagnosticsSummary`, which writes `#diagnostics-summary` |
+| where that element lives | inside `<section id="page-diagnostics">` -- one page |
+
+So the same shape as `/spawn-requests`, which this round page-gated. **It was NOT gated, and the
+reason is a coupling that the spawn-requests slice did not have.** `app.js:107` uses
+`state.stats.dispatch_runs_by_status !== undefined` as a RENDER GATE for the runs section, so a
+page-gated `/stats` would leave `state.stats` empty off the Diagnostics page and change whether that
+section renders -- a behaviour change wearing the clothes of an optimisation. Gating it needs that
+gate rewritten first, which is a different change with a different risk.
+
+Two smaller things found in the same trace, both left alone:
+
+- `app.js:346` passes the WHOLE `state.stats` object as the render-memo signature for
+  `renderMetrics`, which reads `state.agents` and `state.contracts` and none of `state.stats`. Any of
+  the 24 counters moving re-renders tiles that cannot have changed because of it.
+- Only 2 of the 24 keys have a reader anywhere in the dashboard. The other 22 are a public API
+  surface (`/api/v1/stats` is advertised in `meta.py`), so trimming them is a breaking change and an
+  operator decision rather than a cleanup.
+
+**`updateStaticLinks()` cannot do anything, and its test manufactures the element that would let
+it.** The whole body is `const legacy = byId('legacy-dashboard-link'); if (legacy) legacy.href = ...`.
+That id appears NOWHERE in any HTML in the repo -- only in the lookup itself, in the pre-extraction
+fixture, and in `static-links.test.mjs`, which builds a stub element with that id and then asserts the
+href was set. The function is called at boot from `boot-wiring.mjs:371` and has been a no-op since the
+markup lost the link.
+
+It is obsolete rather than merely unwired: `/api/v1/dashboard` is now a RedirectResponse
+(`meta.py:61`, live check returns 307), so the link's destination bounces to the page the link would
+have been sitting on.
+
+Found by censusing every id the dashboard's JS looks up against every id that exists -- 110 lookups,
+103 static ids, 22 built at runtime, three unaccounted, two of those false positives (one element is
+created in JS, one id is built as `set-${key}`).
+
+NOT REMOVED. Deleting it means touching `extraction-proof.test.mjs`, whose plan declares
+`updateStaticLinks` with a marker comment in app.js; that gate is built for MOVES, and a deletion is a
+different kind of edit to teach it. Four dead lines are not worth reopening a byte-identity gate for
+without a reason to be in there anyway.
+
+The part worth carrying forward is not the dead function, it is the test: it fabricates its own
+subject, so it proves the function works on an element that production does not have. Same shape as
+the interrupt attribution this round already retracted: six green tests, all of them exercising the
+pure builder rather than the call site that never ran.
+
 ## Left alone on purpose, with the reason recorded in code
 
 **`terminateProcessTree`'s callers keep an unreachable `catch`.** Its own last act is
