@@ -103,25 +103,37 @@ async def _fail_stranded_delivered_reply_runs(db, *, stale_minutes: Optional[int
     # a determined fact. The real cause was a provider safety refusal — a branch this list did not
     # even name. One source, so the writer and the consumer that must recognise it cannot drift.
     reason = TURN_ENDED_WITHOUT_REPLY
-    # ONE QUERY, so attributing a cause costs a single read for the whole sweep rather than one per
-    # run. Interrupts are rare; the map is almost always empty.
+    # ATTRIBUTED FROM WHERE THE EVIDENCE ACTUALLY IS, which is not where the first version of this
+    # looked. It queried `terminal_controls WHERE action = 'interrupt'` -- a combination NOTHING
+    # writes, so it could never fire. Two paths issue an interrupt and neither produces that row:
+    #
+    #   * the dashboard writes `dispatch_controls` with action 'interrupt', carrying the run_id and
+    #     the requester;
+    #   * `comms_interrupt` posts a raw Ctrl+C to /console/input, which lands as a terminal control
+    #     with action 'input'.
+    #
+    # COVERAGE, checked rather than assumed: the two paths that interrupt a RUN both land in
+    # dispatch_controls with run_id -- the dashboard, and `comms_run_interrupt`, which posts to
+    # /dispatch/runs/{id}/control and reaches the same `_append_dispatch_control`. So both are
+    # attributed. `comms_interrupt` is not, and should not be: it is a terminal-level Ctrl+C with
+    # no run attached, so there is nothing for it to name.
+    #
+    # The first is exact and needs no join: it names the very run being failed. Found by counting rows
+    # rather than by re-reading the query -- terminal_controls held ten rows, all 'start'.
     interrupts: dict[str, tuple[str, str]] = {}
     for control in (await (await db.execute(
         """
-        SELECT t.agent_id AS agent_id, c.requested_by AS requested_by, c.requested_at AS requested_at
-        FROM terminal_controls c
-        JOIN terminal_sessions t ON t.id = c.terminal_id
-        WHERE c.action = 'interrupt'
-          AND datetime(COALESCE(c.requested_at, '')) >= datetime('now', '-1 hour')
-        ORDER BY c.requested_at ASC
+        SELECT run_id, from_agent, requested_at
+        FROM dispatch_controls
+        WHERE action = 'interrupt'
+          AND datetime(COALESCE(requested_at, '')) >= datetime('now', '-6 hours')
+        ORDER BY requested_at ASC
         """,
     )).fetchall() or []):
-        agent = str(control["agent_id"] or "").strip()
-        if agent:
-            # LAST one wins: a turn interrupted twice was ended by the second.
-            interrupts[agent] = (
-                str(control["requested_by"] or ""), str(control["requested_at"] or ""),
-            )
+        run = str(control["run_id"] or "").strip()
+        if run:
+            # LAST one wins: a run interrupted twice was ended by the second.
+            interrupts[run] = (str(control["from_agent"] or ""), str(control["requested_at"] or ""))
     for row in (rows or []):
         run_id = str(row["id"] or "").strip()
         target = str(row["target_agent"] or "").strip()
@@ -141,8 +153,8 @@ async def _fail_stranded_delivered_reply_runs(db, *, stale_minutes: Optional[int
         # policy refusal beside "a mid-turn interrupt", and sending a reader to investigate a provider
         # for something an operator did on purpose is the failure this lookup removes.
         run_reason = reason
-        interrupted = interrupts.get(target)
-        if interrupted and str(row["requested_at"] or "") <= interrupted[1]:
+        interrupted = interrupts.get(run_id)
+        if interrupted:
             run_reason = turn_interrupted(interrupted[0], interrupted[1])
         cur = await db.execute(
             """

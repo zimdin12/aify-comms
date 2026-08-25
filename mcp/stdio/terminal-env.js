@@ -1,4 +1,5 @@
 import { normalizeRuntime, prepareManagedCodexHome, sessionEnvVarsForRuntime } from "./runtimes.js";
+import { withoutInheritedMarkers } from "./child-env-hygiene.mjs";
 
 export function terminalChildEnv({
   baseEnv = process.env,
@@ -17,7 +18,14 @@ export function terminalChildEnv({
   const managedModel = String(agentInfo?.model || runtimeConfig.model || "").trim();
   const managedEffort = String(runtimeConfig.effort || runtimeConfig.thinking || "").trim();
   const env = {
-    ...baseEnv,
+    // STRIPPED FIRST, then the values this function owns are set below. The spread is how a bridge's
+    // own ancestry reaches everything it starts, and it has been discovered one symptom at a time --
+    // a role that overwrote every spawn's, a marker that turned off every transcript. The list lives
+    // in child-env-hygiene.mjs so the third one is refused rather than found.
+    //
+    // The explicit assignments further down are NOT redundant with it: those set a value this
+    // function is responsible for, which is a different act from removing one that leaked in.
+    ...withoutInheritedMarkers(baseEnv),
     AIFY_RUNTIME: key,
     AIFY_AGENT_ID: terminal.agentId || "",
     AIFY_COMMS_AGENT_ID: terminal.agentId || "",
@@ -37,15 +45,6 @@ export function terminalChildEnv({
     AIFY_AGENT_CWD: workspace || "",
     AIFY_SESSION_HANDLE: handle,
     CLAUDE_SESSION_ID: baseEnv.CLAUDE_SESSION_ID || "",
-    // CLEARED, for the same reason AIFY_AGENT_ROLE is cleared above: `...baseEnv` spreads the
-    // environment bridge's own environment, and a bridge started from inside a Claude Code session
-    // carries this marker. Every agent it spawned then inherited it and ran with TRANSCRIPT SAVING
-    // OFF -- silently, behind a one-line notice in a TUI nobody reads, and with no way to recover the
-    // session afterwards.
-    //
-    // Observed on a real spawn: "Transcript saving is off - inherited CLAUDE_CODE_CHILD_SESSION
-    // marker". A managed agent is never a child of whatever process happened to launch the bridge.
-    CLAUDE_CODE_CHILD_SESSION: "",
     CODEX_THREAD_ID: baseEnv.CODEX_THREAD_ID || "",
     HERMES_SESSION_ID: baseEnv.HERMES_SESSION_ID || "",
     PI_SESSION_ID: baseEnv.PI_SESSION_ID || "",

@@ -13,6 +13,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from service.config import get_config
@@ -220,6 +221,30 @@ def create_app() -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
     )
+
+    # COMPRESSION. Measured against this instance on 2026-08-25: one dashboard poll cycle fetches
+    # 1,093,414 bytes across its six largest endpoints, and the service offered no encoding at all --
+    # `curl --compressed` returned the identical byte count, because nothing was there to negotiate
+    # with. The same bytes gzip to 243,370, a 4.5x cut, which takes 250 MB/hour down to 55 MB/hour
+    # per OPEN TAB at the ~15s poll. Per endpoint the ratio runs 2x (message bodies, already prose)
+    # to 12x (/sessions, which is mostly repeated keys and ids).
+    #
+    # 500 bytes as the floor: below that a gzip header costs more than it saves, and the small
+    # responses here (/settings at 1,477 and /stats at 2,395) are the ones latency shows up on.
+    #
+    # This does not touch the larger waste beside it. 935 KB of that cycle was BYTE-IDENTICAL across
+    # a six-second gap -- spawn-requests, messages/recent and the inbox -- and the service supports
+    # no conditional request, so `If-None-Match` returns a full 200 rather than a 304. Compression
+    # makes re-sending unchanged data cheaper; it does not stop it.
+    # CHECKED BEFORE ADDING, because a middleware over EVERY response is the kind of change whose
+    # damage shows up somewhere nobody was looking:
+    #   * the dashboard console is a WEBSOCKET, and this handles only scope 'http', so the visible
+    #     TUI is untouched. That requirement is not negotiable and was verified, not assumed.
+    #   * the one StreamingResponse (service/containers/proxy.py) strips content-encoding and
+    #     httpx has already decoded the body, so nothing is compressed twice; and starlette 1.6.0
+    #     asks zlib for a sync flush on each streamed chunk, so a proxied stream is not held back
+    #     waiting for a deflate block to fill.
+    app.add_middleware(GZipMiddleware, minimum_size=500)
 
     # CORS
     origins = config.cors_origins

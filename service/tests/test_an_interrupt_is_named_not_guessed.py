@@ -4,11 +4,18 @@
 mid-turn interrupt and a stall, and says the cause is undetermined. That is right when it is true.
 
 It was not true here. aify-comms issues interrupts itself through `comms_interrupt`, and records each
-one in `terminal_controls` with the action, the requester and the time. Observed 2026-08-25: a turn was
+one in `dispatch_controls` with the action, the requester and the time. Observed 2026-08-25: a turn was
 interrupted deliberately and the failure that followed still read "Cause NOT DETERMINED", which invites
 a reader to go and investigate a model provider for something an operator had just done on purpose.
 
 A cause we can look up must never be reported as a cause we could not determine.
+
+WHAT THIS FILE DOES NOT PROVE, stated because for one afternoon it read as though it did. Every test
+here exercises the pure reason-builder. The reconciler that CALLS it queried a table-and-action
+combination nothing writes, so the feature could never fire -- and this file was green throughout,
+because a builder works identically whether or not anything reaches it. Proving a producer and
+calling the feature proven is the gap; `test_the_interrupt_reader_matches_a_writer.py` covers the
+join, and the two are only meaningful together.
 """
 from __future__ import annotations
 

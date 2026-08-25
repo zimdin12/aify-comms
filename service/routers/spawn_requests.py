@@ -127,11 +127,31 @@ async def list_spawn_requests(
             (*params, limit),
         )
         rows = await cursor.fetchall()
+        # ONE query for every spec, not one per row. This loop used to run a separate
+        # `SELECT * FROM spawn_specs WHERE id = ?` for each row -- at the dashboard's limit=200 that
+        # is 200 extra round trips on EVERY poll, and the dashboard polls about every 15 seconds.
+        # Measured 2026-08-25 before the change: 6.1ms at limit=1 against 74.3ms at limit=200, so
+        # roughly 0.35ms per row of purely per-row work on a service that is deliberately
+        # single-worker and whose recurring failure is write-lock contention.
+        #
+        # The JOIN above already reaches spawn_specs and keeps only `ss.id AS spec_row_id`. Widening
+        # it to `ss.*` would be fewer queries still, but sr and ss share column names (id,
+        # created_at), and in a sqlite Row the later duplicate wins silently -- a spec's id landing
+        # in the request's id is the kind of corruption that reads as data, not as an error. A
+        # second batched read costs one round trip and cannot collide.
+        spec_ids = [row["spawn_spec_id"] for row in rows if row["spawn_spec_id"]]
+        specs: dict[Any, Any] = {}
+        if spec_ids:
+            unique = list(dict.fromkeys(spec_ids))  # order-stable, and one bind per distinct id
+            placeholders = ",".join("?" * len(unique))
+            spec_cursor = await db.execute(
+                f"SELECT * FROM spawn_specs WHERE id IN ({placeholders})", unique,
+            )
+            for spec_row in await spec_cursor.fetchall():
+                specs[spec_row["id"]] = _spawn_spec_to_dict(spec_row)
         result = []
         for row in rows:
-            spec_cursor = await db.execute("SELECT * FROM spawn_specs WHERE id = ?", (row["spawn_spec_id"],))
-            spec_row = await spec_cursor.fetchone()
-            result.append(_spawn_request_to_dict(row, _spawn_spec_to_dict(spec_row) if spec_row else None))
+            result.append(_spawn_request_to_dict(row, specs.get(row["spawn_spec_id"])))
         return {"ok": True, "spawnRequests": result}
     finally:
         await db.close()

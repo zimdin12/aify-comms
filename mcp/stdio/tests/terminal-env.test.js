@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { terminalChildEnv } from "../terminal-env.js";
+import { NEVER_INHERITED } from "../child-env-hygiene.mjs";
 
 const codexHome = path.join("C:", "Users", "Admin", ".local", "state", "aify-comms", "managed-codex-home");
 const env = terminalChildEnv({
@@ -169,6 +170,58 @@ assert.equal(piEnv.AIFY_MANAGED_VIA_WRAPPER, "0", "bridge-spawned pi env must st
     agentInfo: { role: "  tester  " },
   });
   assert.equal(whitespace.AIFY_AGENT_ROLE, "tester");
+}
+
+// ── the bridge's own ancestry reaches nothing it spawns ───────────────────────
+//
+// AT THE CALL SITE, not on the helper. child-env-hygiene.test.js proves withoutInheritedMarkers
+// strips the list; that is a different claim from terminalChildEnv actually calling it, and the
+// difference is not academic -- an interrupt-attribution feature shipped this same week that was
+// fully unit-tested and queried a table nothing writes, so it could never once have fired.
+//
+// DERIVED from NEVER_INHERITED rather than listing the names again. A hand-written list here would
+// go stale the moment a third marker is added, and it would go stale SILENTLY -- passing, while
+// covering less than it appears to.
+{
+  const hostile = Object.fromEntries(
+    Object.keys(NEVER_INHERITED).map((name) => [name, "leaked-from-the-bridge"]),
+  );
+  const env = terminalChildEnv({
+    baseEnv: { ...hostile, PATH: "/usr/bin", HOME: "/home/dev" },
+    runtime: "hermes",
+    terminal: { agentId: "sc-tester" },
+    agentInfo: { role: "tester" },
+  });
+
+  for (const name of Object.keys(NEVER_INHERITED)) {
+    assert.notEqual(
+      env[name], "leaked-from-the-bridge",
+      `${name} reached the worker from the bridge's own environment`,
+    );
+  }
+
+  // The values this function OWNS are still set. Stripping must not turn into losing.
+  assert.equal(env.AIFY_AGENT_ID, "sc-tester", "the worker lost its own identity");
+  assert.equal(env.AIFY_AGENT_ROLE, "tester", "the worker lost its own role");
+
+  // And an ordinary variable is untouched: a child needs most of what it inherits.
+  assert.equal(env.PATH, "/usr/bin");
+  assert.equal(env.HOME, "/home/dev");
+}
+
+{
+  // REMOVED, not blanked. An empty string is a value, and a runtime asking "is this set?" reads
+  // it as yes -- which is how a half-cleared marker keeps the original bug while looking fixed.
+  const env = terminalChildEnv({
+    baseEnv: { CLAUDE_CODE_CHILD_SESSION: "1" },
+    runtime: "hermes",
+    terminal: { agentId: "sc-tester" },
+    agentInfo: {},
+  });
+  assert.ok(
+    !("CLAUDE_CODE_CHILD_SESSION" in env),
+    "the transcript-loss marker is still present, as an empty value",
+  );
 }
 
 console.log("terminal-env.test.js: all assertions passed");
