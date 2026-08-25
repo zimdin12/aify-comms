@@ -10,6 +10,7 @@
 
 import { httpCall } from "./aify-service-endpoint.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
+import { attachNotice } from "./terminal-attach-notice.js";
 // `noteControlClaimFailure` is called in the catch below and was never imported: the sibling
 // name was, and the failure path is the one no test runs. It would have thrown
 // ReferenceError from inside an error handler — turning a recoverable claim failure into
@@ -121,7 +122,7 @@ export async function runTerminalControlPass({
         await updateTerminalControl(control.id, {
           status: "completed",
           terminalStatus: "attached",
-          output: `[terminal attached pid=${started.pid}]\n`,
+          output: attachNotice(started),
           // Report the PTY root pid so the server persists it
           // (terminal_sessions.process_id). Lets Dashboard Stop/Restart
           // kill-by-pid if THIS bridge later dies and orphans the PTY.

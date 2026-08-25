@@ -538,6 +538,81 @@ that single indexed primary-key read, once per 45s per working resident agent, w
 as-is. Collapsing the pair would mean threading a value across two phases of the handler for one
 indexed read, and the phases have different owners.
 
+**The poll-cycle byte numbers in this round's commits are UNCOMPRESSED, and the running build is why.**
+Measured 2026-08-26 against the live service, which reports build `1a3de61a`: a response to
+`/messages/recent?limit=80` comes back with no `content-encoding` header at all, because the gzip
+commit (`13255b62`) postdates the running container by design -- nothing in this round is deployed.
+
+So "300,154 bytes" for the inbox slice is a true statement about the service as it runs today and a
+misleading one about the service after a rebuild. Both figures, so a later reader can tell which they
+are holding:
+
+| | ten slices | after the two gates | saved per cycle |
+|---|---|---|---|
+| as running (no gzip) | 1,305,436 B | 590,174 B | 715,262 B (54%) |
+| gzipped at -6, modelling post-deploy | 294,403 B | 148,489 B | 145,914 B (49%) |
+
+The inbox slice alone is 300,154 B uncompressed and 105,673 B gzipped. The PROPORTION barely moves --
+54% against 49% -- which is the part that survives the deploy, and the absolute byte figure is the
+part that does not.
+
+What compression does not touch at all: the SQL round-trips and the JSON serialisation behind each
+slice. `/stats` is 2,400 B uncompressed and 983 B gzipped, and 20 SQL round-trips either way.
+
+**The console capability gate asks the BRIDGE whether it has a PTY, and under Phase 8 the PTY is
+opened by aify-env.** The environment heartbeat advertises `terminal` and `pty` from
+`bridgeTerminalSupported()`, which is `!!require("node-pty")` inside the bridge process
+(`terminal-runtime.js`). `console_capability_gate.py` reads those two fields and refuses console work
+with a message that names the cause: node-pty is not installed or built "for that bridge".
+
+Delegation moved the work and the capability check stayed where it was. aify-env runs its own
+independent `terminalSupport()` on its own node-pty, so the two tiers can disagree, and both
+directions are wrong:
+
+* bridge HAS node-pty, aify-env does not -> the gate allows it, aify-env falls back to pipes, and the
+  operator gets a console that renders no TUI with nothing saying why.
+* bridge LACKS node-pty, aify-env has it -> the gate refuses a console that would have worked.
+
+THE CORRECT ANSWER IS PUBLISHED AND UNREAD, in two places. aify-env's `/health` returns
+`terminals: {available, reason}` with a comment that is the whole argument: "Stated rather than
+inferred. A consumer that has to work out whether it got a terminal from output that looks slightly
+wrong is a consumer that will get it wrong." And every spawn response carries `terminal: true|false`.
+`EnvClient.health()` exists in this repo and has ZERO callers.
+
+NOT FIXED. Making the heartbeat advertise the delegated tier's capability means calling aify-env on a
+path that runs constantly, so it needs a caching policy and an answer for "aify-env is unreachable" --
+which is a different fact from "aify-env has no PTY", and collapsing them is how this class of bug
+started. That is a design decision, not a repair.
+
+WHAT DID SHIP is the cheap half: the attach line now states when a console came back without a
+terminal, so the degradation is legible at the moment it happens even while the gate upstream is still
+asking the wrong tier. It reports what actually occurred rather than what was predicted, which is the
+half that cannot be wrong.
+
+**The hook detector refuses to guess `~/.hermes`, and its only caller hands it that guess.**
+`scripts/hook-installed.sh` exits 2 rather than defaulting hermes' config root, and says why: "a guess
+here answers 'no hook' for the one client whose path is not derivable... Unresolved is unanswerable,
+and unanswerable is not 'no'." `install.sh` resolves the root first and passes it -- and
+`hermes_config_root()` ends with `printf '%s' "$HOME/.hermes"`, so it always returns something.
+
+Each component is right on its own. Composed, the property is lost: the detector's exit 2 is
+unreachable from install.sh, and a hermes host whose real root is elsewhere gets a confident "no hook"
+derived from a path nobody checked. `install.sh:2831` would fold exit 2 into `_hook_present=false`
+anyway, so the distinction has no consumer even if it fired.
+
+MEASURED ON THIS HOST, which is why it is recorded rather than fixed: `HERMES_HOME` is set to
+`AppData\Local\hermes`, so `hermes_config_root` takes its first branch and resolves correctly --
+the guess is never reached. Both `~/.hermes/config.yaml` and the AppData config exist, and NEITHER
+contains the `notify-check` marker, so there is no hermes hook here to preserve or lose either way.
+
+The reachable window is narrow: hermes installed, `HERMES_HOME` unset, `hermes config path` failing,
+AND a hook registered somewhere other than `~/.hermes`. Editing a 2,978-line installer to close that
+is not the trade, and the detector's own tests already pin the behaviour it is responsible for
+(`test_hermes_refuses_to_guess_because_its_root_is_not_derivable`).
+
+Worth knowing as a SHAPE more than as a bug: a guard that refuses to guess is only as good as its
+callers' willingness not to guess for it.
+
 ## Left alone on purpose, with the reason recorded in code
 
 **`terminateProcessTree`'s callers keep an unreachable `catch`.** Its own last act is
