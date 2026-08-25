@@ -33,6 +33,28 @@ costs one `editedSince` entry, and the thing to budget is getting the bytes righ
 
 ## Worth doing, needs an operator decision
 
+**Every agent can read every other agent's hermes gateway credential, and the fix is an
+access-control decision rather than a redaction.**
+Measured 2026-08-25 against the live service: `/api/v1/agents` returns
+`agent.runtimeConfig.gatewayUrl` for 16 agents with the auth token in the query string, on the
+endpoint the dashboard polls every 15 seconds and any agent may call. That is more exposure, and more
+continuous, than the seven tokens in stored run errors that `9599d802` fixed.
+
+IT IS NOT THE SAME DEFECT, which is why it was not fixed with it. The token in an error message was
+decoration -- the message needs the address, never the credential. This one is LOAD-BEARING:
+`session-console.mjs` hands `runtimeConfig.gatewayUrl` to `hermesGatewayUrlToHttp`, which pulls the
+token out and puts it in the console URL, and a visible TUI in the dashboard console is a standing
+hard requirement. Redacting the field breaks the console.
+
+So the question is not "strip it" but "who should receive it": the dashboard needs the token for the
+agent whose console is being opened; one agent does not need another agent's. Scoping the field by
+caller identity is an auth change on the hottest endpoint in the service, and the fleet is live.
+Recorded rather than attempted.
+
+Worth knowing before deciding: the seven tokens already written into dispatch-run errors are still in
+the database. New ones stop, old rows do not clean themselves, and purging stored rows is destructive
+and not something this round will do.
+
 **RESOLVED, and my previous entry here was wrong: `available` on a TUI-less hermes lane is correct.**
 The entry this replaces said the teardown "did not fire" and pointed at `countAttachedSessions`
 returning -1. Both were wrong, and I had not read far enough to say either.
