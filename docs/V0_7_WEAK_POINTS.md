@@ -13,9 +13,19 @@ was found and *not* fixed, plus what was deliberately left alone.
 2026-07-03 fix, so bounded but the fourth-largest payload in the cycle. `state.files` has exactly two
 readers and both are the Files page. At one poll per 15s that is roughly 26 MB/hour per open tab for a
 panel that is usually not on screen.
-Not done because it is a trade, not a cleanup: deferring means the page can show data up to one poll
-old when it is opened, unless a navigation hook forces a load — and that hook lives in
-extraction-tracked code. Which side to err on is a product call.
+ATTEMPTED AND REVERTED 2026-08-25, and the reason is a measured cost rather than a doubt about the
+change. The staleness objection turns out to be avoidable: a MutationObserver on the page element's
+class loads the list the moment it becomes visible, so nothing is ever shown stale. The blocker is
+extraction-proof. shared-files.mjs is reconstructed byte-for-byte from the pre-extraction app.js, so
+every edit needs a declared `editedSince`, and this change touches TWO tracked declarations plus a
+module-scope import. Four structurally different attempts each left the reconstruction between 169
+and 828 characters off, including a minimal version with one changed line per declaration and the
+helper in a new file. Roughly 25 steps went into the plan mechanics and none into the change.
+
+So the honest state is: the optimisation is correct, the staleness trade does not exist, and landing
+it costs more than 26 MB/hour of localhost bandwidth is worth on its own. Worth doing as part of a
+change that already has to open that file — the same conclusion the codex console input reached, and
+for the same reason. If it is done alone, budget the declaration work, not the code.
 
 **The codex console input is named only by a placeholder.**
 `session-console.mjs`, inside the form marked `data-action="codex-console-send"`. A placeholder is
