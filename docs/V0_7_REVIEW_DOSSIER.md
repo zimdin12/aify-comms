@@ -1,14 +1,19 @@
-# v0.7 review dossier — the 25 commits of 2026-08-25/26
+# v0.7 review dossier — the 27 commits of 2026-08-25/26
 
 Written because the review is the bottleneck, not the work. Everything below is committed, pushed and
-green on all five suites, and **none of it is running**: the container serves `1a3de61a` (53 commits
-behind) and the environment bridge serves `579dd546`. Nothing here has been read by anyone but its
+green on all five suites, and **none of it is running**: the container serves `1a3de61a` (56 commits
+behind, measured 2026-08-26) and the environment bridge serves `579dd546`. Nothing here has been read by anyone but its
 author.
 
-**13 of the 25 commits touch production code. 12 are documentation.** The docs commits need reading
-for accuracy but cannot break anything, and four of them are retractions of earlier claims in this
-same series — those are the ones worth reading first if you want to calibrate how much to trust the
-rest.
+**13 of the 27 commits touch production code, 3 touch only tests, and 11 are documentation.**
+Classified by what each commit's files actually are, not by its subject line — and the two disagree
+once: `4f47f616` is titled `fix(status):` and changes no production code at all (a test and a
+retraction). A reviewer scanning subjects would budget time for it that it does not need, so read the
+file list, not the verb.
+
+The docs commits need reading for accuracy but cannot break anything, and four of them are retractions
+of earlier claims in this same series — those are the ones worth reading first if you want to
+calibrate how much to trust the rest.
 
 ## Deploying is two separate things, and they are not interchangeable
 
