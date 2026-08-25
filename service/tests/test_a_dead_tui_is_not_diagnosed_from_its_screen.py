@@ -70,15 +70,29 @@ def test_a_fatal_marker_still_wins_even_surrounded_by_chrome() -> None:
     assert meaningful_failure_line(raw) == "Error: ENOENT: no such file or directory"
 
 
+NL = chr(10)
+
+
+def test_prose_on_a_drawing_screen_is_still_not_a_cause() -> None:
+    """NARROWED ON REAL DATA, and the case the first version of this fix got wrong.
+
+    Rejecting only the decorated LINE made the picker fall back to the line above it, which in the
+    captured incident was the agent's own conversation text -- better than reporting a spinner, and
+    still a confident answer about nothing. If ANY line is decoration the terminal was drawing, and
+    no line of a drawn screen is an epitaph. Verified against the real stored output of
+    term_1787683898449_0938b55a: it yields the empty string now and yielded prose before.
+    """
+    raw = NL.join([
+        "takes an existing question and makes its answer more reliable.",
+        "I also answered their two open items. The Co-Authored-By question has a decisive fact:",
+        LIVE_CHROME,
+    ])
+    assert meaningful_failure_line(raw) == "", "conversation text was returned as the cause of death"
+
+
 def test_a_piped_runtime_keeps_its_fallback() -> None:
-    """The behaviour being narrowed, not removed: a process that dies without a fatal marker and
-    prints plain text still gets its last line reported."""
-    raw = "starting up\nconnecting to gateway\nconnection closed by peer"
-    assert meaningful_failure_line(raw) == "connection closed by peer"
-
-
-def test_the_last_NON_decorative_line_is_taken_not_merely_the_last() -> None:
-    """Chrome after a real line must not bury it -- the screen repaints after a runtime's final
-    message, so the informative line is usually not last."""
-    raw = "\n".join(["connection closed by peer", LIVE_CHROME])
+    """The behaviour being narrowed, not removed. A process writing plain text to a pipe usually does
+    say something about its own death, and with no decoration anywhere the last line is still taken.
+    """
+    raw = NL.join(["starting up", "connecting to gateway", "connection closed by peer"])
     assert meaningful_failure_line(raw) == "connection closed by peer"

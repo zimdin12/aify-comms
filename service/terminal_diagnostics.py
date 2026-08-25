@@ -164,16 +164,17 @@ def meaningful_failure_line(raw: str, *, max_chars: int = DEFAULT_MAX_CHARS) -> 
         if any(marker in low for marker in _FATAL_MARKERS):
             chosen = line
             break
-    if not chosen:
-        # ONLY a line that a runtime could plausibly have written as its own epitaph. A drawing
-        # terminal's last line is the screen, not the cause, and returning it produces a diagnosis
-        # that is confidently about nothing. "" is the honest answer, and the caller already renders
-        # it differently ("no output was recorded") -- that branch was simply unreachable for any TUI
-        # runtime, because there is always SOME last line.
-        for line in reversed(lines):
-            if not is_terminal_decoration(line):
-                chosen = line
-                break
+    if not chosen and not any(is_terminal_decoration(line) for line in lines):
+        # THE FALLBACK IS FOR PIPED RUNTIMES ONLY. A process writing plain text to a pipe usually does
+        # say something about its own death, so the last line is worth reporting. A full-screen TUI
+        # says nothing of the sort: its recording is the screen, and every line of it is conversation,
+        # menu chrome or a progress meter.
+        #
+        # Narrowed on real data. The first version rejected only the decorated LINE and fell back to
+        # the one above it, which for the captured incident was the agent's own prose -- an improvement
+        # on reporting a spinner, and still a confident answer about nothing. If ANY line in the
+        # recording is decoration then the terminal was drawing, and no line in it is an epitaph.
+        chosen = lines[-1]
     limit = max(16, int(max_chars or DEFAULT_MAX_CHARS))
     if len(chosen) > limit:
         return chosen[: limit - 1].rstrip() + "…"

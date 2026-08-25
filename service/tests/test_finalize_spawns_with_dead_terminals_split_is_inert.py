@@ -38,6 +38,43 @@ FIXTURE = (Path(__file__).resolve().parent / "data"
            / "finalize_spawns_with_dead_terminals_before_split.py")
 
 SOURCE_FUNCTION = "_finalize_spawns_with_dead_terminals"
+
+#: Edits made to the sweep SINCE the split, declared so the round trip stays exact without the
+#: fixture pretending they never happened. The fixture is the pre-split original and is history; an
+#: edit that quietly rewrote it would prove the wrong thing while staying green.
+#: The block as it stands today. A LITERAL, not a read of the source: reading it would make the
+#: declaration agree with whatever is there and prove nothing. Joined with chr(10) because the
+#: split source is read with universal newlines, so the comparison is against LF.
+_CURRENT_DETAIL_BLOCK = chr(10).join([
+    '        # THREE OUTCOMES, not two. "no output was recorded" was said whenever no cause could be',
+    '        # picked, including for a terminal that recorded plenty -- a drawing TUI whose screen holds',
+    '        # conversation and progress meters but no epitaph. Telling an operator nothing was recorded',
+    '        # sends them looking for a logging fault; telling them the console held no cause sends them',
+    '        # to the console, which is where the answer actually is.',
+    '        # MEANINGFUL content, not raw length. A console that recorded only harness scaffolding',
+    '        # ("[terminal attached]", "[terminal exited]") recorded nothing an operator can use, and',
+    '        # saying its console "recorded no cause" would send them to read two lines of nothing.',
+    '        recorded = bool(_meaningful_lines(str(row["terminal_output"] or "")))',
+    '        if cause:',
+    '            detail = f": {cause}"',
+    '        elif recorded:',
+    '            detail = " (its console recorded no cause; read the console for what it was doing)"',
+    '        else:',
+    '            detail = " (no output was recorded)"',
+])
+
+EDITED_SINCE = [
+    (
+        # A dead TUI records a screen, not an epitaph. Saying "no output was recorded" for a
+        # console holding conversation and progress meters sends an operator hunting a logging
+        # fault; three outcomes tell them where the answer actually is.
+        # (NOW, WAS) -- the helper replaces the current text with the original before comparing,
+        # so the block that exists today comes first.
+        _CURRENT_DETAIL_BLOCK,
+        '        detail = f": {cause}" if cause else " (no output was recorded)"',
+    ),
+]
+
 EXTRACTIONS = [
     "_select_spawns_with_dead_terminals",
     "_count_spawns_masked_by_live_sibling",
@@ -75,7 +112,8 @@ class FinalizeSpawnsWithDeadTerminalsSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS,
+            edited_since=EDITED_SINCE)
 
     def test_the_source_function_is_still_where_this_proof_looks(self):
         """`CALLER` is a location pin, and a relocation is what breaks it.

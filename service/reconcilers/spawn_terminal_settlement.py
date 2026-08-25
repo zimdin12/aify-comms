@@ -40,6 +40,7 @@ from service.reconcilers.status_cache import invalidate_agent_live_state as _inv
 # bodies byte-identical. Copying the reference without the alias resolves nowhere, and the
 # undefined-name sweep is what caught it here — the third alias it has caught in this series.
 from service.terminal_diagnostics import meaningful_failure_line as _terminal_failure_line
+from service.terminal_diagnostics import meaningful_lines as _meaningful_lines
 
 logger = logging.getLogger(__name__)
 
@@ -214,7 +215,21 @@ async def _finalize_spawns_with_dead_terminals(
         if not died_epoch or (now_epoch - died_epoch) < grace:
             continue  # too fresh, or death time undeterminable → leave it (conservative)
         cause = _terminal_failure_line(str(row["terminal_output"] or "")) or str(row["terminal_error"] or "").strip()
-        detail = f": {cause}" if cause else " (no output was recorded)"
+        # THREE OUTCOMES, not two. "no output was recorded" was said whenever no cause could be
+        # picked, including for a terminal that recorded plenty -- a drawing TUI whose screen holds
+        # conversation and progress meters but no epitaph. Telling an operator nothing was recorded
+        # sends them looking for a logging fault; telling them the console held no cause sends them
+        # to the console, which is where the answer actually is.
+        # MEANINGFUL content, not raw length. A console that recorded only harness scaffolding
+        # ("[terminal attached]", "[terminal exited]") recorded nothing an operator can use, and
+        # saying its console "recorded no cause" would send them to read two lines of nothing.
+        recorded = bool(_meaningful_lines(str(row["terminal_output"] or "")))
+        if cause:
+            detail = f": {cause}"
+        elif recorded:
+            detail = " (its console recorded no cause; read the console for what it was doing)"
+        else:
+            detail = " (no output was recorded)"
         message = (
             f"Worker terminal {row['terminal_id']} is {str(row['terminal_status'] or 'dead').lower()}"
             f"{detail}"
