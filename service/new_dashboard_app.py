@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from service.config import get_config
 
@@ -41,7 +42,44 @@ app = FastAPI(
 # on the way out and a 304 still short-circuits both.
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
-app.mount("/assets", StaticFiles(directory=APP_DIR), name="new-dashboard-assets")
+class AssetsOnly(StaticFiles):
+    """Serve the dashboard's assets, and not the test tree that shares their directory.
+
+    The modules the browser loads live beside their own tests and one very large fixture, and the
+    mount published all of it. Measured 2026-08-25 against the running service: 88 `*.test.mjs`
+    files (988 KB) and `fixtures/app.before-settings-fields.js` (273 KB, a whole historical copy of
+    app.js) were reachable at /assets/ and returned 200. That is 1,262 KB of test source on a
+    service compose starts with `--host 0.0.0.0`, so it is not localhost-only.
+
+    No page requests any of it: a cold load traced 126 requests and not one was a test file. So this
+    removes surface rather than changing behaviour.
+
+    A DENY RULE, derived from the two shapes rather than a list of the 89 names, because a list
+    would go stale the moment a test is added -- silently, and in the direction that publishes more.
+    """
+
+    #: Suffixes and directories that are never part of the shipped dashboard.
+    REFUSED_SUFFIXES = (".test.mjs", ".test.js")
+    REFUSED_DIRECTORIES = ("fixtures",)
+
+    @classmethod
+    def is_asset(cls, path: str) -> bool:
+        """Pure, so the rule can be tested without a server. `path` is the URL path under the mount."""
+        parts = [segment for segment in str(path or "").replace(chr(92), "/").split("/") if segment]
+        if not parts:
+            return False
+        if any(segment in cls.REFUSED_DIRECTORIES for segment in parts):
+            return False
+        return not parts[-1].endswith(cls.REFUSED_SUFFIXES)
+
+    async def get_response(self, path, scope):
+        if not self.is_asset(path):
+            # 404 rather than 403: whether the file exists is itself the thing not being published.
+            raise StarletteHTTPException(status_code=404)
+        return await super().get_response(path, scope)
+
+
+app.mount("/assets", AssetsOnly(directory=APP_DIR), name="new-dashboard-assets")
 
 
 @app.middleware("http")
