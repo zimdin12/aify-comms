@@ -425,6 +425,35 @@ the success decision into a function whose remaining job is classifying failures
 **Three poll-cycle catches are kept as defence in depth**, exempted BY NAME in
 `dead-error-reactions.test.mjs` so the exemption cannot quietly widen.
 
+**Two of the four env names that select this service are not declared to the shared registry.** The
+bridge resolves its endpoint from `CLAUDE_MCP_SERVER_URL` / `AIFY_SERVER_URL`, and `SERVER_URLS` also
+takes `CLAUDE_MCP_FALLBACK_URLS` / `AIFY_SERVER_FALLBACK_URLS`. Only the first pair is exported as
+`ENDPOINT_ENV_NAMES` and written into `~/.aify/services.json`, and a runtime's per-server MCP env block
+is key-scoped -- so the fallback pair is INHERITED from whatever launched the runtime.
+
+PROVEN, not read: this repo's declaration run through aify-wrapper's own `mcpEntriesFor()` returns the
+per-server env block as exactly `["CLAUDE_MCP_SERVER_URL", "AIFY_SERVER_URL"]`, with neither fallback
+name in any block.
+
+NOT FIXED, and the reason is the fix itself. `endpointEnv` binds every declared name to the service's
+endpoint VALUE, so declaring the fallback pair would set the fallback list to the primary URL --
+dedupes to nothing -- while silently overriding the operator's documented opt-in ("Set
+AIFY_SERVER_FALLBACK_URLS / CLAUDE_MCP_FALLBACK_URLS to opt into any non-loopback fallback
+explicitly"). Nothing in the repo produces those vars: not `install.sh`, not a wrapper template. Their
+only use today is an operator setting them by hand, which is exactly what declaring them would break.
+One live documented feature traded for one hypothetical is the wrong side of that deal.
+
+WHAT WOULD CHANGE IT: a second registered service. `httpCall` iterates `[ACTIVE_SERVER_URL,
+...SERVER_URLS]` and LATCHES `ACTIVE_SERVER_URL` to the first URL that answers, so an inherited
+fallback pointing at another service becomes that process's endpoint for the rest of its life. The
+comment above `defaultFallbackServerUrls` records this class happening once already -- fallbacks
+"silently failed a local bridge over to a developer's shared server".
+
+Gated by `service-carriers-the-registry-does-not-declare.test.js`, which fails when a NEW
+service-selecting carrier appears in either resolver and hands whoever added it the trade-off above.
+Mutation-proven three ways: a new undeclared carrier, the primary pair re-typed by name, and the CLI
+writing an entry from anything other than the shared list each fail their own test by name.
+
 ## Open questions this round could not settle
 
 **Why two managed claude workers stopped in the SAME SECOND, 2026-08-25 18:52:55Z.**
