@@ -7,7 +7,8 @@
 // without them left a module that `node --check` parses happily and that throws `ReferenceError` on its
 // first real call. That exact failure is recorded in doctor.js's own import block, from the last time
 // it happened.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 //
 // Extracted from doctor.js (v0.2 item B2, done in v0.1) for ONE reason: doctor.js is a top-level
@@ -588,6 +589,38 @@ export function openAiUsageVerdict({
 // It deliberately does NOT prove the fleet is running the new text. A skill is read at session
 // start, so a RUNNING agent keeps whatever it loaded — the fix line says so, because "install.sh
 // succeeded" has been mistaken for "the change is live" in this repo before.
+// WHERE THE SKILL TREES ARE INSTALLED, resolved rather than assumed.
+//
+// Lives here, not in doctor.js, because doctor.js RUNS ITS CHECKS ON IMPORT -- importing it to test
+// one function executes the whole doctor, network calls included. Found the hard way. The repo's own
+// rule already says it: pure helpers move out of the bridges so their logic can fail a test instead
+// of only failing in production.
+//
+// Every dependency is injected -- home, env, and the existence probe -- so a test can describe a host
+// that has Codex but not hermes without creating directories.
+//
+// A destination is returned only when its runtime HOME exists: no CODEX_HOME means Codex is not
+// installed here and nothing can be stale. If the home exists and the skills under it do not, the
+// caller reports them missing. Absence of the RUNTIME is a skip; absence of the SKILLS is a finding.
+export function skillDestinations({ home = homedir(), env = process.env, exists = existsSync } = {}) {
+  const out = [
+    { src: [".claude", "skills"], dst: join(home, ".claude", "skills"), label: "~/.claude/skills" },
+  ];
+  const codexHome = env.CODEX_HOME || join(home, ".codex");
+  if (exists(codexHome)) {
+    out.push({ src: [".agents", "skills"], dst: join(codexHome, "skills"), label: `${codexHome}/skills` });
+  }
+  const hermesHome = env.HERMES_HOME || join(home, ".hermes");
+  if (exists(hermesHome)) {
+    out.push({
+      src: [".agents", "skills"],
+      dst: join(hermesHome, "skills", "autonomous-ai-agents"),
+      label: `${hermesHome}/skills/autonomous-ai-agents`,
+    });
+  }
+  return out;
+}
+
 export function skillsInstallVerdict({ missing = [], differing = [], total = 0, dest = "" } = {}) {
   const miss = Array.isArray(missing) ? missing : [];
   const diff = Array.isArray(differing) ? differing : [];

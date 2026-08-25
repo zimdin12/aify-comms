@@ -38,6 +38,7 @@ import {
   bridgeCurrentVerdict,
   bridgeInstallVerdict,
   serviceBuildVerdict,
+  skillDestinations,
   skillsInstallVerdict,
   // USED IN A SPREAD, at `...SERVICE_RUNTIME_PATHS` / `...SERVICE_RUNTIME_EXCLUDE_PATHS` below.
   // The v0.5.4 dead-import sweep (3d4372a4) deleted both — its detector excluded a name preceded by
@@ -351,10 +352,24 @@ async function checkUsage() {
 }
 
 // Skills are a deploy path too — see skillsInstallVerdict. install.sh copies the skill trees out of
-// the checkout, so editing .claude/skills/ changes nothing for the fleet until it is re-run.
+// the checkout, so editing a skill changes nothing for the fleet until it is re-run.
+//
+// BOTH MIRRORS, as of 2026-08-25. This walked `.claude/skills` only, and the repo keeps a SECOND
+// tree — `.agents/skills`, byte-identical by test_skill_mirror_parity.py — which install.sh copies
+// to $CODEX_HOME/skills and $HERMES_HOME/skills/autonomous-ai-agents. Neither destination was
+// compared against anything, so a Codex or hermes agent could run a stale skill for ever with the
+// check reporting green. A SKILL.md is loaded into every agent's context on every turn, so a stale
+// one is wrong instructions paid for continuously — the failure this check exists for, on half the
+// surface it was covering.
+//
+// A destination is checked only when its RUNTIME HOME exists. That is the honest line: no ~/.codex
+// means Codex is not installed here and there is nothing to be stale. But if the home exists and
+// the skills under it do not, that is a missing install and is reported — absence of the skills is
+// a finding, absence of the runtime is not.
+
 function checkSkillsInstalled() {
   if (!repo) return skip("skills-installed", "no repo checkout to compare against");
-  const dest = join(homedir(), ".claude", "skills");
+  const destinations = skillDestinations();
   const missing = [];
   const differing = [];
   let total = 0;
@@ -372,9 +387,13 @@ function checkSkillsInstalled() {
       } catch { differing.push(here); }
     }
   };
-  for (const name of ["aify-comms", "aify-comms-debug"]) {
-    walk(join(repo.dir, ".claude", "skills", name), join(dest, name), name);
+  for (const { src, dst, label } of destinations) {
+    for (const name of ["aify-comms", "aify-comms-debug"]) {
+      // The label rides on the relative path so a stale file names WHICH mirror it is stale in.
+      walk(join(repo.dir, ...src, name), join(dst, name), `${label}:${name}`);
+    }
   }
+  const dest = destinations.map((d) => d.label).join(", ");
   const v = skillsInstallVerdict({ missing, differing, total, dest });
   return add("skills-installed", v.ok, v.code, v.detail, v.fix);
 }
