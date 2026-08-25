@@ -25,6 +25,7 @@ from service.api_core.runtime import (
     _normalize_session_mode,
     _runtime_capability_for_environment,
 )
+from service.api_core.liveness import _LIVE_SESSION_STATUSES
 from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import _load_settings
 from service.clock import iso_to_epoch as _iso_to_epoch
@@ -35,8 +36,39 @@ SPAWN_INFLIGHT_WINDOW_SECONDS = 300
 SPAWN_STARTING_WINDOW_SECONDS = SPAWN_INFLIGHT_WINDOW_SECONDS
 
 
+async def load_session_environment_by_agent(db) -> dict:
+    """Every agent's live-session environment binding, in one query.
+
+    The per-agent form is `ORDER BY last_seen DESC LIMIT 1`; this fetches the same rows under the same
+    ordering and keeps the FIRST per agent, which is the same row that LIMIT 1 would have returned.
+    An agent with no live session is simply absent, and the resolver reads an absent key as "no
+    binding" -- the answer the per-agent query gives when it finds nothing.
+
+    Built by the caller once per request and passed down, for the same reason as the environments
+    cache: a map outliving the request would have to be invalidated by every session write.
+    """
+    # THE CANONICAL SET, imported rather than retyped. The first version of this preload spelled the
+    # five states out again under a new name, and `test_status_set_literal_twins_are_frozen` failed
+    # it on sight -- a second hardcoded copy of a status set is how the copies start disagreeing.
+    # Sorted for a stable placeholder order; the set itself is unordered.
+    states = tuple(sorted(_LIVE_SESSION_STATUSES))
+    placeholders = ", ".join("?" for _ in states)
+    rows = await (await db.execute(
+        "SELECT agent_id, environment_id FROM agent_sessions "
+        f"WHERE status IN ({placeholders}) ORDER BY last_seen DESC",
+        states,
+    )).fetchall()
+    out: dict = {}
+    for row in rows:
+        agent_id = row["agent_id"]
+        if agent_id not in out:
+            out[agent_id] = str(row["environment_id"] or "")
+    return out
+
+
 async def _managed_owning_environment_row(
-    db, agent_row, *, resolved_environment_id: str = "", environments_by_machine=None
+    db, agent_row, *, resolved_environment_id: str = "", environments_by_machine=None,
+    session_environment_by_agent=None,
 ):
     """FIX B (2026-06-02): resolve the OWNING environment row for a MANAGED agent.
 
@@ -75,13 +107,20 @@ async def _managed_owning_environment_row(
     # (the row resolves but its _environment_effective_status is offline → env_reachable False).
     if not env_id:
         try:
-            sess = await (await db.execute(
-                "SELECT environment_id FROM agent_sessions WHERE agent_id = ? "
-                "AND status IN ('starting','running','recovering','restarting','cli-takeover') "
-                "ORDER BY last_seen DESC LIMIT 1",
-                (agent_row["id"],),
-            )).fetchone()
-            env_id = str((sess["environment_id"] if sess else "") or "").strip()
+            if session_environment_by_agent is not None:
+                # PRELOADED by a caller resolving many agents: the roster asked this once per agent,
+                # 50 round-trips at 50 agents. The map is built with the same states and the same
+                # most-recent-first ordering, so an agent absent from it has no live session --
+                # which is the same answer this query gives when it finds no row.
+                env_id = str(session_environment_by_agent.get(agent_row["id"]) or "").strip()
+            else:
+                sess = await (await db.execute(
+                    "SELECT environment_id FROM agent_sessions WHERE agent_id = ? "
+                    "AND status IN ('starting','running','recovering','restarting','cli-takeover') "
+                    "ORDER BY last_seen DESC LIMIT 1",
+                    (agent_row["id"],),
+                )).fetchone()
+                env_id = str((sess["environment_id"] if sess else "") or "").strip()
         except Exception:
             env_id = ""
     if env_id:

@@ -29,6 +29,7 @@ from service.api_core.message_store import _get_unread_count_map
 from service.db_errors import _is_lock_error
 from service.api_core.outbound_activity import _get_outbound_activity_map
 from service.api_core.agent_sessions import _agent_tombstone
+from service.api_core.managed_env import load_session_environment_by_agent
 from service.api_core.dispatch_state import _get_dispatch_state_map
 from service.api_core.records import _agent_record_to_dict
 from service.api_core.runtime import _normalize_session_mode
@@ -82,6 +83,8 @@ async def list_agents(request: Request):
         # `_managed_owning_environment_row`: the environments lookup depends on machine_id alone, so
         # a roster of agents sharing a host repeated the same two-row read once per agent.
         environments_by_machine: dict = {}
+        # One query for every agent's live-session environment binding, instead of one per agent.
+        session_environment_by_agent = await load_session_environment_by_agent(db)
         cursor = await db.execute("SELECT * FROM agents")
         agents = await cursor.fetchall()
         agent_ids = [row["id"] for row in agents]
@@ -101,6 +104,7 @@ async def list_agents(request: Request):
             payload = await _enforce_env_reachable_gate(
                 payload, db, settings, aid, agent_row=row,
                 environments_by_machine=environments_by_machine,
+                session_environment_by_agent=session_environment_by_agent,
             )
             result[aid] = payload
         return {"agents": result}
