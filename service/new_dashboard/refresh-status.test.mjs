@@ -210,3 +210,44 @@ test('no swallowing catch is left unreported', () => {
     'these catches swallow a fetch failure without telling the chip',
   );
 });
+
+test("a healthy poll with a DEAD realtime socket says polling, not live", () => {
+  // state.realtimeConnected had four writers in realtime-socket.mjs and no reader anywhere. When the
+  // WebSocket dropped, the dashboard fell back to the 15s poll and this chip kept saying `live` with
+  // "All data refreshed" — true of the poll, and read as "updates arrive as they happen".
+  const settled = REFRESH_SLICES.map(() => ({ status: "fulfilled", value: {} }));
+  const chip = refreshChipState(settled, { previouslyFailed: [], realtimeConnected: false });
+  assert.equal(chip.text, "polling");
+  assert.equal(chip.className, "status-chip warn");
+  assert.match(chip.title, /[Rr]ealtime/);
+});
+
+test("a healthy poll with a live socket still says live", () => {
+  // The direction that would hurt more: an operator who is told realtime is down whenever it is not
+  // stops reading the chip at all.
+  const settled = REFRESH_SLICES.map(() => ({ status: "fulfilled", value: {} }));
+  const chip = refreshChipState(settled, { previouslyFailed: [], realtimeConnected: true });
+  assert.equal(chip.text, "live");
+  assert.equal(chip.className, "status-chip ok");
+});
+
+test("losing the roster still outranks a dead socket", () => {
+  // `reconnecting` means the service is unreachable, which is the more urgent fact. A dead socket
+  // must not mask it.
+  const settled = REFRESH_SLICES.map((_, i) => (i === AGENTS_SLICE
+    ? { status: "rejected", reason: new Error("down") }
+    : { status: "fulfilled", value: {} }));
+  const chip = refreshChipState(settled, { previouslyFailed: [], realtimeConnected: false });
+  assert.equal(chip.text, "reconnecting");
+});
+
+test("a stale slice still outranks a dead socket", () => {
+  // Two cycles of the same failure is the older, more specific complaint; the socket note would bury it.
+  const settled = REFRESH_SLICES.map((_, i) => (i === 1
+    ? { status: "rejected", reason: new Error("down") }
+    : { status: "fulfilled", value: {} }));
+  const first = refreshChipState(settled, { previouslyFailed: [], realtimeConnected: false });
+  assert.equal(first.text, "polling", "one blip is not yet stale");
+  const second = refreshChipState(settled, { previouslyFailed: first.failed, realtimeConnected: false });
+  assert.match(second.text, /stale/);
+});

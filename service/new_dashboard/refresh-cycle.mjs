@@ -148,7 +148,10 @@ export async function runRefreshCycle({
   // slice's last-good value, so a stale panel renders exactly like one where nothing changed.
   // refresh-status.mjs owns the rule, remembers the previous cycle so a single blip stays green,
   // and names which slices are stale rather than counting them.
-  const chip = refreshChipState(settled);
+  // The realtime flag is PASSED, not read inside: refresh-status.mjs is a pure module and reaching
+  // into `state` from it would make its tests depend on a shared singleton. This is also the half
+  // that was missing -- the flag had four writers and no reader at all.
+  const chip = refreshChipState(settled, { realtimeConnected: state.realtimeConnected });
   const chipEl = byId('api-status');
   if (chipEl) {
     chipEl.textContent = chip.text;

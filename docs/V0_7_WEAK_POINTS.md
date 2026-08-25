@@ -8,6 +8,39 @@ was found and *not* fixed, plus what was deliberately left alone.
 
 ## Shipped this round
 
+**The dashboard tracked whether realtime was connected and showed it nowhere.**
+`state.realtimeConnected` had FOUR writers in `realtime-socket.mjs` and no reader anywhere -- the
+only other mention was its declaration in `state.mjs`. When the WebSocket dropped, the dashboard fell
+back to the 15-second poll and the connection chip went on reading `live`, tooltip "All data
+refreshed": true of the poll, and read by an operator as "updates are arriving as they happen".
+
+The chip had three states -- `reconnecting` (service unreachable), `live`, `N stale` (a slice two
+cycles old). All three answer freshness. None answered whether realtime was working, which is a
+different question with the same symptom-free failure.
+
+It now has a fourth: `polling`, amber, "Realtime updates are disconnected. The view refreshes on the
+poll instead." Amber rather than green because the view behaves differently from how it looks; not
+`reconnecting`, because the data IS current and the service IS reachable. The two existing warnings
+still outrank it -- losing the roster and a two-cycle-stale slice are older, more specific complaints.
+
+FOUND BY LOOKING, not by reading. Loading the page in a browser and asking whether the socket was up
+is what exposed a flag with no consumer; four rounds of source scanning over this same file did not.
+
+THE SERVER IS BLIND TO THE SAME THING, and that half is not fixed. `WSManager` in `service/ws.py`
+has `active_count()` and `online_agents()`; neither has a caller anywhere in production code. So
+nothing on the service side can answer "is any dashboard actually connected", just as nothing on the
+client side could answer "is my socket up" until this round.
+
+Exposing `active_count()` on `/health` is a one-line addition and would make the question answerable
+from outside the browser -- which is where an operator asks it. Not done here because it changes a
+response shape, and every other shape change this session has been left as the operator's call. Worth
+taking together with the chip, since the two halves answer the same question from opposite ends.
+
+One thing it surfaced on the way: `state.mjs` defaults `realtimeConnected` to FALSE, true only once
+the socket opens. So the chip now reads `polling` for the first paint of every session until the
+WebSocket connects. That is accurate rather than wrong, and worth knowing before someone reports it as
+a regression.
+
 **Defer the shared-files fetch while the Files page is hidden. SHIPPED 2026-08-25, `2c2da14b`.**
 `/shared` is 113,854 bytes for 388 files, 34,839 gzipped, fetched every cycle whether or not the page
 is open. At the default 15s refresh that is 8.0 MB an hour per tab after compression, 23.9 at the 5s

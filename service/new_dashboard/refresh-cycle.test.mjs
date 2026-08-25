@@ -88,6 +88,10 @@ async function cycle({ reject = [], extraDeps = {}, filesPage = null, environmen
   Object.assign(state, {
     agents: [], contracts: [], messages: [], runs: [], sessions: [], environments: [],
     spawnRequests: [], stats: {}, settings: {}, loaded: false, terminalOwners: new Map(),
+      // A connected socket is what 'a clean cycle' means. state.mjs defaults realtimeConnected to
+      // FALSE -- true only once the WebSocket opens -- so without this every test here would read
+      // the chip's new `polling` state and call it a regression.
+      realtimeConnected: true,
       ...seed,   // applied AFTER the reset: a test that needs a prior value cannot set it before,
   });
 
@@ -310,4 +314,18 @@ test("a skipped spawn-request slice leaves the previous list alone", async () =>
   // first render after opening the page flash empty before the load-on-open lands.
   await cycle({ environmentsPage: "closed", seed: { spawnRequests: [{ id: "kept-from-before" }] } });
   assert.deepEqual(state.spawnRequests, [{ id: "kept-from-before" }], "the skipped slice wiped the list");
+});
+
+test("THE CALL SITE passes the realtime flag, not just the helper accepting one", async () => {
+  // refresh-status.mjs has its own tests for the `polling` state and every one of them would pass
+  // with this call site still calling refreshChipState(settled) and defaulting the flag to true.
+  // state.realtimeConnected had four writers and no reader; adding a fifth writer-shaped test would
+  // have repeated the defect.
+  const { chip } = await cycle({ seed: { realtimeConnected: false } });
+  assert.equal(chip.textContent, "polling", "the chip claimed live while the socket was down");
+});
+
+test("with the socket up the chip is unchanged", async () => {
+  const { chip } = await cycle({ seed: { realtimeConnected: true } });
+  assert.equal(chip.textContent, "live");
 });

@@ -1183,6 +1183,17 @@ const EXTRACTIONS = [
                 editedSince: [
           {
             was: [
+              "  const chip = refreshChipState(settled);",
+            ],
+            now: [
+              "  // The realtime flag is PASSED, not read inside: refresh-status.mjs is a pure module and reaching",
+              "  // into `state` from it would make its tests depend on a shared singleton. This is also the half",
+              "  // that was missing -- the flag had four writers and no reader at all.",
+              "  const chip = refreshChipState(settled, { realtimeConnected: state.realtimeConnected });",
+            ],
+          },
+          {
+            was: [
             ],
             now: [
               "  // The Environments page is the only reader of state.spawnRequests, and this slice is the LARGEST",

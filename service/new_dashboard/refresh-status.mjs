@@ -101,7 +101,10 @@ export function rejectedSlices(settled, names = REFRESH_SLICES) {
  *   same picture, and guessing between them is what this module exists to stop.
  * @returns {{text: string, className: string, title: string, stale: string[], failed: string[]}}
  */
-export function refreshChipState(settled, { previouslyFailed, names = REFRESH_SLICES } = {}) {
+export function refreshChipState(
+  settled,
+  { previouslyFailed, names = REFRESH_SLICES, realtimeConnected = true } = {},
+) {
   // The caller may pin the history (tests do). Otherwise this module remembers, so no call site
   // has to thread it -- a guard every caller must remember to pass is a guard that stops guarding.
   const before = new Set(previouslyFailed ?? previousFailures);
@@ -131,6 +134,26 @@ export function refreshChipState(settled, { previouslyFailed, names = REFRESH_SL
   }
 
   if (!stale.length) {
+    // REALTIME IS A SEPARATE QUESTION FROM FRESHNESS, and the chip answered only one of them.
+    // `state.realtimeConnected` was written in four places by realtime-socket.mjs and read in
+    // none: when the WebSocket dropped, the dashboard fell back to the 15s poll and this chip
+    // went on saying `live` with the tooltip "All data refreshed" -- true of the poll, and read
+    // by an operator as "updates are arriving as they happen". They were arriving up to a
+    // refresh interval late, with nothing on screen to say so.
+    //
+    // Amber rather than green, because the view is behaving differently from how it looks; not
+    // `reconnecting`, because the data IS current and the service IS reachable.
+    if (realtimeConnected === false) {
+      return {
+        text: 'polling',
+        className: 'status-chip warn',
+        title: failed.length
+          ? `Realtime updates are disconnected; refreshing on the poll. Retrying: ${failed.join(', ')}.`
+          : 'Realtime updates are disconnected. The view refreshes on the poll instead.',
+        stale: [],
+        failed,
+      };
+    }
     return {
       text: 'live',
       className: 'status-chip ok',
