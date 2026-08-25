@@ -25,8 +25,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { readFileSync } from 'node:fs';
+
 import {
-  AGENTS_SLICE, REFRESH_SLICES, refreshChipState, rejectedSlices,
+  AGENTS_SLICE, OUT_OF_BAND_SLICES, REFRESH_SLICES, noteSliceFailure, refreshChipState,
+  rejectedSlices, resetRefreshHistory,
 } from './refresh-status.mjs';
 
 const OK = { status: 'fulfilled' };
@@ -134,4 +137,76 @@ test('missing or empty input does not throw', () => {
   assert.equal(refreshChipState([]).text, 'live');
   assert.equal(refreshChipState(undefined).text, 'live');
   assert.deepEqual(rejectedSlices(undefined), []);
+});
+
+// ── the fetches that are not in the allSettled array ───────────────────────────────────────────
+//
+// The cycle issues MORE requests than the ten it settles together. Observed on the running dashboard
+// 2026-08-25 by watching the browser's network panel rather than reading the array: twelve to thirteen
+// requests per cycle. The contracts re-filter, the channel list, an open conversation and the shared
+// files list are separate awaits, each wrapped in `try { ... } catch (_) {}` that swallowed the failure
+// whole. They could fail for ever and the chip would still read `live` — the exact defect the chip was
+// rewritten to end, one layer over, and invisible from the source of refreshChipState.
+
+test('an out-of-band failure is counted like any other slice', () => {
+  resetRefreshHistory();
+  const clean = REFRESH_SLICES.map(() => OK);
+  noteSliceFailure('files');
+  assert.equal(refreshChipState(clean).text, 'live', 'a first out-of-band miss should still be a blip');
+  noteSliceFailure('files');
+  const state = refreshChipState(clean);
+  assert.equal(state.text, '1 stale', 'a repeated out-of-band failure never reached the chip');
+  assert.deepEqual(state.stale, ['files']);
+});
+
+test('it is drained per paint, so one failure is not counted twice', () => {
+  // The out-of-band awaits run BEFORE the chip is painted, so what they report belongs to THIS cycle.
+  // Carrying it forward would make a single failure look like two consecutive ones and trip the
+  // two-cycle rule on its own — turning the blip tolerance into no tolerance at all.
+  resetRefreshHistory();
+  const clean = REFRESH_SLICES.map(() => OK);
+  noteSliceFailure('channels');
+  assert.equal(refreshChipState(clean).text, 'live');
+  assert.equal(refreshChipState(clean).text, 'live', 'one failure was counted in a second cycle');
+});
+
+test('out-of-band and settled failures combine', () => {
+  resetRefreshHistory();
+  const withStats = REFRESH_SLICES.map((n) => (n === 'stats' ? NO : OK));
+  noteSliceFailure('files');
+  refreshChipState(withStats);                 // first cycle: both are blips
+  noteSliceFailure('files');
+  const state = refreshChipState(withStats);   // second: both sustained
+  assert.equal(state.text, '2 stale');
+  assert.deepEqual(state.stale.slice().sort(), ['files', 'stats']);
+});
+
+test('every out-of-band name is really reported by a call site', () => {
+  // DERIVED FROM refresh-cycle.mjs, because a hand-written list is what let the alias slip past the
+  // env-hygiene fix earlier today. A name declared here and never reported is a slice nobody watches.
+  const source = readFileSync(new URL('./refresh-cycle.mjs', import.meta.url), 'utf8');
+  const reported = new Set(
+    [...source.matchAll(/noteSliceFailure\(\s*'([^']+)'\s*\)/g)].map((m) => m[1]),
+  );
+  assert.ok(reported.size >= 4, `only ${reported.size} call sites found; the scan is broken`);
+  for (const name of OUT_OF_BAND_SLICES) {
+    assert.ok(reported.has(name), `${name} is declared out-of-band but no catch reports it`);
+  }
+  for (const name of reported) {
+    assert.ok(OUT_OF_BAND_SLICES.includes(name), `${name} is reported but not declared`);
+  }
+});
+
+test('no swallowing catch is left unreported', () => {
+  // The other half, and the one that would have caught this: a `catch (_) {}` inside the cycle that
+  // does NOT report is a fetch whose failure is invisible again.
+  const source = readFileSync(new URL('./refresh-cycle.mjs', import.meta.url), 'utf8');
+  const silent = source
+    .split(String.fromCharCode(10))
+    .map((line, i) => [i + 1, line])
+    .filter(([, line]) => /catch\s*\(_\)/.test(line) && !line.includes('noteSliceFailure'));
+  assert.deepEqual(
+    silent.map(([n, l]) => `${n}: ${l.trim().slice(0, 70)}`), [],
+    'these catches swallow a fetch failure without telling the chip',
+  );
 });

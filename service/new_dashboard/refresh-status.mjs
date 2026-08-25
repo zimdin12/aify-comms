@@ -39,6 +39,35 @@ export const REFRESH_SLICES = Object.freeze([
 /** The index whose failure means no data is current, rather than that some of it is old. */
 export const AGENTS_SLICE = 0;
 
+// FETCHES THAT ARE NOT IN THE allSettled ARRAY.
+//
+// The cycle issues more requests than the ten it settles together. Observed on the running
+// dashboard 2026-08-25 -- twelve to thirteen per cycle, not ten: the contracts re-filter, the
+// channel list, an open conversation and the shared-files list are separate awaits, each wrapped in
+// `try { ... } catch (_) {}` that swallows the failure entirely. So they could fail for ever while
+// this chip said `live`, which is the exact defect the chip was rewritten to end -- one layer over,
+// and only visible by watching the browser rather than reading the array.
+//
+// They cannot join `settled` without serialising differently, so they report themselves instead.
+export const OUT_OF_BAND_SLICES = Object.freeze([
+  'contract filter', 'channels', 'conversation', 'files',
+]);
+
+/** Failures reported by the out-of-band awaits since the last chip paint. */
+let outOfBandFailures = new Set();
+
+/**
+ * Record that an out-of-band fetch failed this cycle.
+ *
+ * Called from the catch that already exists, so the swallow becomes a report rather than silence.
+ * Unknown names are accepted: a caller inventing one is still better evidence than nothing, and the
+ * test pairs this list against the call sites.
+ */
+export function noteSliceFailure(name) {
+  const slice = String(name || '').trim();
+  if (slice) outOfBandFailures.add(slice);
+}
+
 // ONE CYCLE OF MEMORY, owned here.
 //
 // It lives in this module rather than in `state` or in refresh-cycle's module scope, for two
@@ -51,6 +80,7 @@ let previousFailures = [];
 /** Forget the history. For tests that need a defined starting point rather than the last one's. */
 export function resetRefreshHistory() {
   previousFailures = [];
+  outOfBandFailures = new Set();
 }
 
 /** Which slices this cycle failed to refresh. Exported so the caller can feed it back in. */
@@ -75,7 +105,11 @@ export function refreshChipState(settled, { previouslyFailed, names = REFRESH_SL
   // The caller may pin the history (tests do). Otherwise this module remembers, so no call site
   // has to thread it -- a guard every caller must remember to pass is a guard that stops guarding.
   const before = new Set(previouslyFailed ?? previousFailures);
-  const failed = rejectedSlices(settled, names);
+  // DRAINED, once per paint. The out-of-band awaits run BEFORE the chip is painted, so whatever
+  // they reported belongs to this cycle; carrying it into the next one would report a slice as
+  // stale twice for a single failure and trip the two-cycle rule on its own.
+  const failed = [...rejectedSlices(settled, names), ...outOfBandFailures];
+  outOfBandFailures = new Set();
   const stale = failed.filter((name) => before.has(name));
   previousFailures = failed;
 

@@ -15,7 +15,7 @@ import { api } from './api-client.mjs';
 import { asAgentArray, asArray } from './record-fields.mjs';
 import { chatLoadChannels, chatLoadConversation } from './message-transport.mjs';
 import { loadFiles } from './shared-files.mjs';
-import { refreshChipState } from './refresh-status.mjs';
+import { noteSliceFailure, refreshChipState } from './refresh-status.mjs';
 import { refreshActiveTerminalTheme } from './settings-panel.mjs';
 import { runQueryPath } from './run-helpers.mjs';
 import { applyTheme } from './theme.js';
@@ -65,7 +65,7 @@ export async function runRefreshCycle({
   // contractsBase keeps the open set for the metrics; state.contracts follows the filter.
   const contractStateSel = byId('contract-state')?.value || '';
   if (ok(1) && contractStateSel && contractStateSel !== 'open') {
-    try { await loadContractsForState(contractStateSel, false); } catch (_) { /* keep base */ }
+    try { await loadContractsForState(contractStateSel, false); } catch (_) { noteSliceFailure('contract filter'); /* keep base */ }
   }
   // messages: prefer recent, fall back to inbox, then keep prior — only touch if either succeeded.
   if (ok(2) || ok(3)) {
@@ -89,12 +89,12 @@ export async function runRefreshCycle({
     refreshActiveTerminalTheme(); // keep a mounted console's accent in sync
     armRefreshTimer(); // honor dashboard_refresh_seconds (no-op unless it changed)
   }
-  try { await chatLoadChannels(); } catch (_) { /* keep prior channels */ }
+  try { await chatLoadChannels(); } catch (_) { noteSliceFailure('channels'); /* keep prior channels */ }
   // Keep an OPEN channel conversation live: channel messages are otherwise fetched only on
   // open/send, so the rail badge ticked up while the open timeline stayed frozen (review
   // finding #5). The conversation sig covers the re-render.
   if (String(state.chat.selected || '').startsWith('channel:')) {
-    try { await chatLoadConversation(state.chat.selected.slice('channel:'.length)); } catch (_) { /* keep prior view */ }
+    try { await chatLoadConversation(state.chat.selected.slice('channel:'.length)); } catch (_) { noteSliceFailure('conversation'); /* keep prior view */ }
   }
   // Stale-selection guard (review finding #10): if the open conversation's agent/channel was
   // removed (here or by another client), close back to the overview — otherwise the header,
@@ -105,7 +105,7 @@ export async function runRefreshCycle({
     else if (sel.startsWith('channel:') && Array.isArray(state.chat.channels)
       && !state.chat.channels.some((c) => c && c.name === sel.slice('channel:'.length))) chatController.close();
   }
-  try { await loadFiles(); } catch (_) { /* keep prior files */ }
+  try { await loadFiles(); } catch (_) { noteSliceFailure('files'); /* keep prior files */ }
   // Only flip to "loaded" once the roster actually arrived: with the server fully down all
   // slices reject, and loaded=true made the rail show a misleading "No agents." while the
   // chip said reconnecting (review finding #12). Until then the rail keeps its loading state.

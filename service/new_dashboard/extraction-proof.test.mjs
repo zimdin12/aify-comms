@@ -1132,7 +1132,23 @@ const EXTRACTIONS = [
           "  renderAll,",
           "});",
         ],
-        editedSince: [{
+                editedSince: [{
+          // The four out-of-band awaits stopped swallowing their failures. Each was
+          // `catch (_) {}`, so a fetch outside the allSettled array could fail for ever while the
+          // connection chip read `live` -- 12 to 13 requests per cycle, only 10 of them accounted.
+          was: "    try { await loadContractsForState(contractStateSel, false); } catch (_) { /* keep base */ }",
+          now: "    try { await loadContractsForState(contractStateSel, false); } catch (_) { noteSliceFailure('contract filter'); /* keep base */ }",
+        }, {
+          was: "  try { await chatLoadChannels(); } catch (_) { /* keep prior channels */ }",
+          now: "  try { await chatLoadChannels(); } catch (_) { noteSliceFailure('channels'); /* keep prior channels */ }",
+        }, {
+          was: "    try { await chatLoadConversation(state.chat.selected.slice('channel:'.length)); } catch (_) { /* keep prior view */ }",
+          now: "    try { await chatLoadConversation(state.chat.selected.slice('channel:'.length)); } catch (_) { noteSliceFailure('conversation'); /* keep prior view */ }",
+        }, {
+          was: "  try { await loadFiles(); } catch (_) { /* keep prior files */ }",
+          now: "  try { await loadFiles(); } catch (_) { noteSliceFailure('files'); /* keep prior files */ }",
+        }, {
+
           // The connection chip stopped lying about a sustained partial refresh. It read 'live' in
           // green whenever /agents succeeded, whatever else had failed -- so nine of ten fetches could
           // fail and the view still claimed to be current, while the resilient poll quietly showed each
