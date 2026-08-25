@@ -33,24 +33,29 @@ costs one `editedSince` entry, and the thing to budget is getting the bytes righ
 
 ## Worth doing, needs an operator decision
 
-**The terminal-event LIMIT and the retention keep-count are both 200, and neither knows about the
-other.**
-`GET /terminals/{id}` returns `LIMIT 200`; `terminal_history`'s pruner keeps
-`keep_events_per_terminal = 200` newest rows. Two independent literals that happen to match.
+**Three independent caps bound terminal_events, and one of them is justified by prose about another.**
+Corrected 2026-08-26: an earlier version of this entry named two. There are three.
 
-This sharpens the ordering fix rather than undermining it. Immediately after a prune the two sets
-coincide, so oldest-200 and newest-200 return the same rows and the fix changes nothing. It matters in
-the window BETWEEN prunes, when a chatty console has accumulated past 200 -- which for a busy console
-is most of the time.
+| where | value | what it does |
+|---|---|---|
+| `api_core/events.py` `_TERMINAL_EVENT_CAP` | 500 | the WRITER's amortised prune, every 200 inserts |
+| `reconcilers/terminal_history.py` `keep_events_per_terminal` | 200 | the sweep's retention |
+| `routers/terminals.py` | 200 | what the detail endpoint returns |
 
-It matters much more if either number ever moves. Raise retention to 1000 and the OLD query would have
-served the oldest 200 of 1000: a console's first minutes, permanently, while the pruner faithfully kept
-ten times more recent history that nothing could reach. The fix makes the endpoint's answer correct
-independently of what retention keeps, which is the property worth having when two constants are
-coupled by coincidence rather than by reference.
+None references another. The writer's comment justifies its number in prose -- "terminal_events ... is
+only ever read back LIMIT ~200" -- which is a claim about a constant in a different module, stated
+approximately, so the stale-value gate added in `392a2c99` cannot check it (it matches
+`NAME = number`, not "~200").
 
-Not unified into one constant here: they belong to different layers (a read cap and a storage policy)
-and are legitimately allowed to differ. Naming the coupling is the useful part.
+NO DEFECT TODAY, and that is the finding rather than a complaint. The tightest cap wins, the ordering
+is writer(500) > sweep(200) = read(200), and every layer is generous enough for the one below it. The
+risk is entirely in movement: raise the read limit past 200 and the sweep silently truncates the
+answer; raise the sweep past 500 and the writer does. Recorded so the next person changing one knows
+there are two others and that the only thing tying them together is a comment.
+
+The ordering fix in `d2538e26` is what makes this survivable: the endpoint now returns the NEWEST rows
+under whatever cap it has, so a mismatch costs history rather than costing the recent events that
+explain a death.
 
 **36% of the console's polled payload is an events array nothing reads.**
 Measured on the live console fetch `GET /terminals/{id}?cols=100&rows=28`, the request the dashboard
