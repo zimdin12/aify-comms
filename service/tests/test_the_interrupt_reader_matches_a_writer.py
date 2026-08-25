@@ -77,3 +77,56 @@ def test_the_lookup_uses_the_run_being_failed():
     assert "interrupts.get(run_id)" in source, (
         "the reconciler looks the interrupt up by something other than the run it is failing"
     )
+
+
+#: The verbs that turn a mention of a table into a CLAIM about what it contains.
+HOLDING_VERBS = ("holds", "has ", "carries", "records", "stores")
+
+
+def _claims_terminal_controls_holds_something(line: str) -> bool:
+    """One line asserting that terminal_controls contains interrupt data.
+
+    Deliberately not a regex over prose. A first version of this gate flagged every line naming the
+    table unless it carried one of a handful of negation words, and it failed immediately on a line
+    that correctly EXPLAINS the bug -- a hand-rolled guard policing English it cannot parse.
+    "terminal_controls" plus a holding verb on the same line is the sentence that misled, and is
+    narrow enough to mean something.
+    """
+    lowered = line.lower()
+    if "terminal_controls" not in lowered:
+        return False
+    return any(verb in lowered for verb in HOLDING_VERBS)
+
+
+def test_the_prose_gate_can_actually_fire():
+    """The control. A predicate that matches nothing would pass the test below for ever."""
+    assert _claims_terminal_controls_holds_something(
+        "#: `terminal_controls` holds the action, the requester and the time."
+    ), "the gate no longer recognises the exact sentence that caused the bug"
+    assert not _claims_terminal_controls_holds_something(
+        "# it queried terminal_controls, and every row there was action 'start'"
+    ), "the gate flags prose that correctly explains the defect"
+    assert not _claims_terminal_controls_holds_something("# dispatch_controls holds the action")
+
+
+def test_no_prose_sends_the_next_reader_to_the_wrong_table():
+    """The comment is part of the defect, not commentary on it.
+
+    The first version of the attribution queried terminal_controls because a comment in
+    authored_failures.py said that table 'holds the action, the requester and the time'. It does not,
+    and never did -- measured twice on the live database, it held 10 rows and then 29, every one of
+    them action 'start'. The code was corrected the same day and that sentence was left standing, so
+    the next reader would have been told the same wrong thing by the same file.
+    """
+    suspect = []
+    for path in [
+        ROOT / "service" / "api_core" / "authored_failures.py",
+        ROOT / "service" / "reconcilers" / "dispatch_lifecycle.py",
+    ]:
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if _claims_terminal_controls_holds_something(line):
+                suspect.append(f"{path.name}:{number}: {line.strip()[:90]}")
+    assert suspect == [], (
+        "these lines assert that terminal_controls holds interrupt data, which it does not: "
+        + "; ".join(suspect)
+    )

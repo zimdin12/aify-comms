@@ -62,9 +62,17 @@ TURN_ENDED_WITHOUT_REPLY = (
 #: Failed because somebody INTERRUPTED the turn, and we know because we recorded doing it.
 #:
 #: The undetermined string above lists "a mid-turn interrupt" among four possibilities -- and for an
-#: interrupt this service issued itself, seconds earlier, guessing is inexcusable. `terminal_controls`
-#: holds the action, the requester and the time. A cause we can look up must never be reported as a
-#: cause we could not determine.
+#: interrupt this service issued itself, seconds earlier, guessing is inexcusable. `dispatch_controls`
+#: holds the action, the requester and the run it belongs to. A cause we can look up must never be
+#: reported as a cause we could not determine.
+#:
+#: THIS SENTENCE NAMED `terminal_controls` UNTIL 2026-08-25, AND THAT WAS WRONG. Nothing writes an
+#: interrupt row there: measured twice on the live database, that table held 10 rows and then 29,
+#: every one of them action 'start'. The first version of the reconciler's attribution believed this
+#: comment, queried terminal_controls, and could therefore never fire once -- six green tests and a
+#: feature that had never run. The comment was corrected in the reconciler and its tests the same
+#: day and left standing here, which is its own lesson: a correction that does not grep leaves the
+#: false copy in the file a reader is most likely to open next.
 #:
 #: Observed 2026-08-25: a run was interrupted through comms_interrupt and the failure that followed
 #: still read "Cause NOT DETERMINED", inviting a reader to suspect a provider throttle or a policy
