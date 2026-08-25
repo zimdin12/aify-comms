@@ -32,6 +32,7 @@ import {
   TERMINAL_TURN_BUSY_QUIET_MS,
   TERMINAL_TURN_BUSY_REMIT_MS,
 } from "../terminal-manager.mjs";
+import { TerminalProcessManager } from "../terminal-runtime.js";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const LIVENESS_PY = path.join(REPO, "service", "api_core", "liveness.py");
@@ -94,4 +95,37 @@ test("every one of these is a positive whole number of milliseconds", () => {
     assert.equal(typeof value, "number", `${name} is not a number`);
     assert.ok(Number.isInteger(value) && value > 0, `${name} is ${value}`);
   }
+});
+
+test("the idle re-probe re-detects a quiet turn before the service lease lapses", () => {
+  // THE PATH THIS FILE DID NOT COVER. The pulse assertions above govern a turn that is actively
+  // emitting. This one governs the other half of #224: a managed claude whose console has looked idle
+  // for two minutes drops to a slow re-probe, and if that re-probe is slower than the lease, a turn
+  // that resumed quietly is never re-detected -- the lease lapses and status flips working -> online
+  // while the agent is still working. That is the symptom, on a bridge that contains both of #224's
+  // fixes, reported live on 2026-08-25.
+  //
+  // Constructed with NO overrides on purpose: the defaults are the values that ship, and a test that
+  // passed its own numbers in would assert nothing about them.
+  const manager = new TerminalProcessManager({ onOutput: async () => {} });
+  const reprobeMs = manager.consoleKeepaliveMs * manager.consoleKeepaliveIdleReprobeTicks;
+  const leaseMs = pythonInt("CONSOLE_WORKING_LEASE_SECONDS") * 1000;
+
+  assert.ok(
+    Number.isFinite(reprobeMs) && reprobeMs > 0,
+    `the re-probe interval read as ${reprobeMs}ms, so the comparison below proves nothing`,
+  );
+  assert.ok(
+    reprobeMs < leaseMs,
+    `the idle re-probe fires every ${reprobeMs}ms and the service lease lasts ${leaseMs}ms — a turn `
+      + "that resumes quietly is re-detected only AFTER the lease has lapsed, which is #224 exactly",
+  );
+
+  // NOT asserted at the two-intervals-of-headroom bar the pulse path is held to, and that is a
+  // finding rather than an oversight: 16000ms against a 20000ms lease is 1.25x, where the test above
+  // demands 2x and justifies it as "the normal case on a busy host rather than an exceptional one".
+  // The re-probe path needs MORE headroom than the pulse path, not less — a nudge has to reach the
+  // PTY, the console has to repaint, and only then does a pulse POST, all inside the lease. Tightening
+  // it is a tuning change to a live status path and belongs to whoever can validate it against a real
+  // agent; this assertion pins the direction so nobody widens the gap by accident in the meantime.
 });

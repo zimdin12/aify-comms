@@ -173,28 +173,41 @@ alongside the next intentional change to the file. Recorded in KNOWN_ISSUES.md.
 
 ## Worth knowing, not worth doing
 
-**The managed-claude status flap the operator is seeing is a known issue whose fix is installed but
-not running.**
+**The managed-claude status flap happens on a bridge that HAS both of #224's fixes.**
 Reported live 2026-08-25: sc-designer went `working` -> `online` -> `working` mid-task, then
-`available` when it finished, then straight back to `working` on the next message.
+`available` when it finished, then back to `working` on the next message.
 
-The mid-work flap is KNOWN_ISSUES #224, "Managed claude could read a transient `online` while actually
-working". Its primary cause was fixed in `44073de`; the SECONDARY mechanism -- the console-keepalive
-idle-grace gate in `terminal-runtime.js` pausing its SIGWINCH nudge during a long quiet, so the
-working-lease goes stale and the agent reads `online` -- was fixed in `cf6ef25` and the entry records
-it as "staged via install.sh, pending an env-bridge restart".
+RETRACTION FIRST. The previous version of this entry said the running bridge was executing pre-fix
+code, on the reasoning that the installed `terminal-runtime.js` was written at 07:43 while the bridge
+process started at 04:53. That inference is wrong: an install being newer than the boot proves the
+DISK changed, not that any particular fix is missing from the running process. `cf6ef25` is from
+2026-06-18 and had been installed for two months.
 
-That is exactly the state of this host, measured rather than assumed: the installed
-`~/.aify-comms/mcp/stdio/terminal-runtime.js` contains the fix (`consoleKeepaliveIdleReprobeTicks`,
-3 occurrences) and was written at 07:43, while the environment bridge process has been running since
-04:53. Node loads its modules at boot, so the bridge is executing the pre-fix copy. `bridge-current`
-is red on purpose while the fleet works, and this flap is one of the things that red is standing for.
-No code change is warranted -- the fix exists and is waiting for the restart.
+The instrument for this already exists and I ignored it. Every bridge reports its build sha on
+registration, which is what `aify-comms doctor`'s `bridge-current` compares -- it is in the
+environment row's `metadata.bridgeBuild`, and reading it settles the question in one call. The live
+environment reports **`bridgeBuild=579dd546`** (today, 01:47). `cf6ef25` is an ancestor of it, and
+`git show 579dd546:mcp/stdio/terminal-runtime.js` contains `consoleKeepaliveIdleReprobeTicks` three
+times. The running bridge has BOTH of #224's fixes.
 
-The `available` half is NOT a bug. A managed agent whose worker has exited rests cold-startable and
-keeps reading `available` so the next message can start a fresh session; that behaviour is deliberate
-and pinned by `test_a_managed_worker_rests_COLD_STARTABLE_not_stopped`. sc-designer opened six
-sessions between 15:18 and 17:21, which is six cold starts, not six failures.
+So the symptom is a residual neither fix covers, and the candidate is measurable. The idle re-probe
+fires every `consoleKeepaliveMs` x `consoleKeepaliveIdleReprobeTicks` = 4000 x 4 = **16 s**, against
+`CONSOLE_WORKING_LEASE_SECONDS` = **20 s**. That is 1.25x of headroom -- while
+`console-working-timing.test.js` holds the PULSE path to two full intervals and justifies it as "the
+normal case on a busy host rather than an exceptional one". The re-probe path needs MORE headroom than
+the pulse path, not less: a nudge has to reach the PTY, the console has to repaint, and only then does
+a pulse POST, all inside the same lease. On a host where wall-clock timing was measured varying by a
+factor of two under fleet load, four seconds is thin.
+
+A gate now pins the direction (`re-probe interval < lease`), watched failing at 6 ticks. TIGHTENING it
+-- 4 ticks to 2, 16 s to 8 s -- is the obvious fix and is NOT taken here: it is a tuning change to the
+live status path, the churn argument in the code comment would need re-checking at the new cadence,
+and it wants validating against a real agent by someone who can watch one.
+
+The `available` half is NOT a bug and that part of the previous entry stands. A managed agent whose
+worker exits rests cold-startable and keeps reading `available` so the next message starts a fresh
+session, pinned by `test_a_managed_worker_rests_COLD_STARTABLE_not_stopped`. sc-designer opened six
+sessions between 15:18 and 17:21: six cold starts, not six failures.
 
 **`agent_sessions.process_id` is the environment bridge's pid, not the worker's.**
 Measured: pid 206288 appears on 48 sessions across 8 different agents, and its command line is
