@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  AGENT_STATUSES,
   STATUS_KINDS,
   renderStatusChip,
   renderStatusDot,
@@ -15,13 +16,30 @@ import {
   statusWhyContext,
 } from './status.js';
 
-test("the 8-label agent contract is all mapped (never renders unknown)", () => {
-  for (const s of ["working", "online", "idle", "available", "blocked", "stale", "offline", "stopped"]) {
+test("every status in the vocabulary renders as itself, never as unknown", () => {
+  // DERIVED from AGENT_STATUSES, which is bound to the Python owner and through it to
+  // service/contracts/vocabulary.json. This test used to hand-type its own eight names, and that list
+  // had drifted off the contract in both directions: it still checked `idle` and `stale`, which the
+  // contract's own comment records as removed, and it never checked `starting` or `misconfigured`.
+  // So the one test whose job was "no status renders as unknown" was not looking at two live statuses
+  // -- and `starting` missing from a hand-written map is exactly the bug fixed in chat-select.mjs.
+  assert.ok(AGENT_STATUSES.length >= 6, "the vocabulary came back empty, so this proves nothing");
+  for (const s of AGENT_STATUSES) {
     assert.ok(STATUS_KINDS[s], `STATUS_KINDS must map the contract status '${s}'`);
     assert.equal(resolveStatus(s).kind, s, `'${s}' must resolve to its own kind, not unknown`);
   }
 });
 
+test("the retired time-decay names still resolve, as aliases rather than as states", () => {
+  // `idle` and `stale` left the vocabulary in 2026-06-18 but stayed in STATUS_KINDS on purpose, so an
+  // old row or an older client does not render grey. Asserted as ALIASES, which is what they are --
+  // the previous version of this checked them as if they were contract statuses.
+  assert.equal(resolveStatus("idle").label, "online", "idle must display as online");
+  assert.equal(resolveStatus("stale").label, "offline", "stale must display as offline");
+  for (const retired of ["idle", "stale"]) {
+    assert.ok(!AGENT_STATUSES.includes(retired), `${retired} is retired and must not be back in the vocabulary`);
+  }
+});
 test("ready and active are internal aliases that render as online", () => {
   assert.equal(resolveStatus("ready").label, "online", "ready must display as online");
   assert.equal(resolveStatus("ready").dotKind, "online");

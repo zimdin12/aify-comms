@@ -16,7 +16,7 @@
 // `STATUS_SORT_RANK` IS DERIVED FROM `LIVE_AGENT_STATUSES`, not a hand-copy of it. The dashboard
 // has been bitten by an independent copy of that set before — the comment inside `chat.js` records
 // it — and two lists that must agree will not.
-import { resolveStatus, LIVE_AGENT_STATUSES } from './status.js';
+import { resolveStatus, LIVE_AGENT_STATUSES, NON_LIVE_AGENT_STATUSES } from './status.js';
 
 // Which of state.messages belong to a DM conversation with `agentId`, scoped to the viewing
 // identity. (The server already scopes the dashboard inbox; this is the per-peer filter.)
@@ -49,9 +49,27 @@ export function sortChronological(messages) {
 
 // Rank for the "status" sort + working-first hoist: busy/blocked float up, dead sink.
 // 6-state proof-based model (idle/stale were removed 2026-06-18 and normalize away in status.js).
-const STATUS_SORT_RANK = { working: 0, blocked: 1, online: 2, available: 3, offline: 4, stopped: 5, unknown: 6 };
+// The order the LIVE statuses float in. Busy and blocked first, because the point of the sort is to
+// surface who needs something; the rest of the order is the vocabulary's, not this file's.
+const LIVE_PRIORITY = ['working', 'blocked'];
 
-function statusRank(kind) { return STATUS_SORT_RANK[kind] ?? 6; }
+// DERIVED, which is what the note at the top of this file always claimed it was and it was not: the
+// rank was a hand-written map of seven names, and any status missing from it silently took the
+// `unknown` rank. `starting` was missing, so a booting agent -- LIVE, and drawn with the working dot
+// -- sorted BELOW offline and stopped ones in the rail whose job is to show who is doing something.
+//
+// Built so the failure cannot recur: whatever order the pieces arrive in, every live status ranks
+// above every dead one, and a status added to status.js and forgotten here lands at the end of the
+// live group rather than beneath the dead.
+const STATUS_SORT_ORDER = [
+  ...LIVE_PRIORITY.filter((s) => LIVE_AGENT_STATUSES.includes(s)),
+  ...LIVE_AGENT_STATUSES.filter((s) => !LIVE_PRIORITY.includes(s)),
+  ...NON_LIVE_AGENT_STATUSES,
+];
+const STATUS_SORT_RANK = Object.fromEntries(STATUS_SORT_ORDER.map((s, i) => [s, i]));
+
+// An unrecognised kind sorts last -- below every declared status, rather than tied with a real one.
+function statusRank(kind) { return STATUS_SORT_RANK[kind] ?? STATUS_SORT_ORDER.length; }
 
 // Build rail items (DMs + channels) from state. Pure → unit-tested. Honors sortMode, the
 // live-only / open-only / working-first toggles, the status filter set, and global text search.

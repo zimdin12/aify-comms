@@ -156,3 +156,45 @@ test("chatConversationItems honors scope, unreadOnly, and the status filter set"
   assert.ok(statusF.find((i) => i.id === "off"), "status filter keeps matching-status DMs");
   assert.ok(!statusF.find((i) => i.id === "w" && false), "non-matching plain DM excluded unless unread/fav");
 });
+
+test("a starting agent sorts above dead ones, not below them", () => {
+  // `starting` is a LIVE status -- status.js gives it dotKind 'working' and keeps it out of
+  // NON_LIVE_AGENT_STATUSES -- but the sort rank was a hand-written map that never listed it, so it
+  // fell through to the `unknown` fallback and ranked BELOW offline and stopped. A booting agent sank
+  // beneath dead ones in the rail that exists to surface who is doing something.
+  const items = chatConversationItems({
+    agents: [
+      { id: "gone", status: "offline" },
+      { id: "halted", status: "stopped" },
+      { id: "booting", status: "starting" },
+    ],
+    messages: [],
+    chat: { identity: "dashboard", channels: [], sortMode: "status" },
+  });
+  const order = items.filter((i) => i.kind !== "channel").map((i) => i.id);
+  assert.ok(
+    order.indexOf("booting") < order.indexOf("gone"),
+    `starting sorted below offline: ${order.join(" < ")}`,
+  );
+  assert.ok(
+    order.indexOf("booting") < order.indexOf("halted"),
+    `starting sorted below stopped: ${order.join(" < ")}`,
+  );
+});
+
+test("every live status outranks every dead one, whoever edits the vocabulary next", () => {
+  // The rank is DERIVED now, which is what the note at the top of this file always claimed. A status
+  // added to status.js and forgotten here lands above the dead group instead of beneath it, so the
+  // next `starting` cannot repeat.
+  const live = ["working", "blocked", "online", "available", "starting"];
+  const dead = ["offline", "stopped", "misconfigured"];
+  const items = chatConversationItems({
+    agents: [...dead, ...live].map((s, i) => ({ id: `a${i}-${s}`, status: s })),
+    messages: [],
+    chat: { identity: "dashboard", channels: [], sortMode: "status" },
+  });
+  const order = items.filter((i) => i.kind !== "channel").map((i) => i.id);
+  const worstLive = Math.max(...live.map((s) => order.findIndex((id) => id.endsWith(s))));
+  const bestDead = Math.min(...dead.map((s) => order.findIndex((id) => id.endsWith(s))));
+  assert.ok(worstLive < bestDead, `a dead agent outranked a live one: ${order.join(" < ")}`);
+});
