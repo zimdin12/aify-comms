@@ -8,6 +8,7 @@
 // One injected name: `refresh`. Everything else is already a sibling's export.
 
 import { api } from './api-client.mjs';
+import { noteSliceFailure } from './refresh-status.mjs';
 import { contractCategory } from './record-fields.mjs';
 import { patchRun } from './run-helpers.mjs';
 import { openRunInspector, renderRuns } from './run-inspector.mjs';
@@ -33,7 +34,8 @@ export async function loadContractsForState(stateVal, render = true) {
   let qs = '/contracts?limit=120';
   if (v === 'all') qs = '/contracts?includeClosed=true&limit=300';
   else if (v && v !== 'open') qs = `/contracts?state=${encodeURIComponent(v)}&limit=200`;
-  try { const res = await api(qs); state.contracts = res.contracts || []; } catch (err) { toast(`Load contracts failed: ${err?.message || err}`, 'error'); }
+  try { const res = await api(qs); state.contracts = res.contracts || []; }
+  catch (err) { noteSliceFailure('contract filter'); toast(`Load contracts failed: ${err?.message || err}`, 'error'); }
   if (render) renderContracts();
 }
 

@@ -260,7 +260,19 @@ const EXTRACTIONS = [
     module: "message-transport.mjs",
     importLine: "import { chatLoadChannels, chatLoadConversation, chatSendMessage, sendRunFollowup } from './message-transport.mjs';",
     items: [
-      { name: "chatLoadChannels", at: 141, marker: "// chatLoadChannels moved to ./message-transport.mjs in v0.5.4." },
+      {
+        name: "chatLoadChannels", at: 141, marker: "// chatLoadChannels moved to ./message-transport.mjs in v0.5.4.",
+        // Reports its own failure now: it swallows the error, so the poll cycle's catch could
+        // never see one and the noteSliceFailure added there in 85780f7a was dead code.
+        editedSince: [{
+          was: [
+            "  } catch (_) { /* keep prior list */ }",
+          ],
+          now: [
+            "  } catch (_) { noteSliceFailure('channels'); /* keep prior list */ }",
+          ],
+        }],
+      },
       { name: "chatLoadConversation", at: 149, marker: "// chatLoadConversation moved to ./message-transport.mjs in v0.5.4." },
       { name: "chatSendMessage", at: 153, marker: "// chatSendMessage moved to ./message-transport.mjs in v0.5.4." },
       { name: "sendRunFollowup", at: 4055, marker: "// sendRunFollowup moved to ./message-transport.mjs in v0.5.4." },
@@ -271,7 +283,23 @@ const EXTRACTIONS = [
     module: "shared-files.mjs",
     importLine: "import { attachChatFile, deleteSharedFile, loadFiles, renderFiles, uploadPastedImage, uploadSharedFile } from './shared-files.mjs';",
     items: [
-      { name: "loadFiles", at: 301, marker: "// loadFiles moved to ./shared-files.mjs in v0.5.4." },
+      {
+        name: "loadFiles", at: 301, marker: "// loadFiles moved to ./shared-files.mjs in v0.5.4.",
+        // Reports its own failure now: it swallows the error, so the poll cycle's catch could
+        // never see one and the noteSliceFailure added there in 85780f7a was dead code.
+        editedSince: [{
+          was: [
+            "  try { const res = await api('/shared'); state.files = res.files || res || []; } catch (_) { /* keep prior */ }",
+          ],
+          now: [
+            "  // REPORTED HERE, where the failure is actually seen. The poll cycle wraps this call in its own",
+            "  // catch, but that catch can never run: this function swallows its own error, so `await loadFiles()`",
+            "  // returns normally on failure and the caller has nothing to catch.",
+            "  try { const res = await api('/shared'); state.files = res.files || res || []; }",
+            "  catch (_) { noteSliceFailure('files'); /* keep prior */ }",
+          ],
+        }],
+      },
       { name: "renderFiles", at: 310, marker: "// renderFiles moved to ./shared-files.mjs in v0.5.4." },
       { name: "uploadSharedFile", at: 327, marker: "// uploadSharedFile moved to ./shared-files.mjs in v0.5.4." },
       { name: "attachChatFile", at: 353, marker: "// attachChatFile moved to ./shared-files.mjs in v0.5.4." },
@@ -1448,6 +1476,17 @@ const EXTRACTIONS = [
     items: [
       {
         name: "loadContractsForState",
+          // Reports its own failure now: it swallows the error, so the poll cycle's catch could
+          // never see one and the noteSliceFailure added there in 85780f7a was dead code.
+          editedSince: [{
+            was: [
+              "  try { const res = await api(qs); state.contracts = res.contracts || []; } catch (err) { toast(`Load contracts failed: ${err?.message || err}`, 'error'); }",
+            ],
+            now: [
+              "  try { const res = await api(qs); state.contracts = res.contracts || []; }",
+              "  catch (err) { noteSliceFailure('contract filter'); toast(`Load contracts failed: ${err?.message || err}`, 'error'); }",
+            ],
+          }],
         at: 711,
         leading: 3,
         marker: "// loadContractsForState moved to ./work-loop-actions.mjs in v0.5.4, with the note on why it reloads.",

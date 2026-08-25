@@ -11,6 +11,7 @@
 // invariant rather than an accident.
 
 import { api, apiBase } from './api-client.mjs';
+import { noteSliceFailure } from './refresh-status.mjs';
 import { persistChatDrafts } from './chat-prefs.mjs';
 import { state } from './state.mjs';
 import { byId, toast, uiConfirm } from './ui.js';
@@ -18,7 +19,11 @@ import { esc, fileSizeLabel, relTime } from './util.js';
 import { filtered } from './work-loop-panels.mjs';
 
 export async function loadFiles() {
-  try { const res = await api('/shared'); state.files = res.files || res || []; } catch (_) { /* keep prior */ }
+  // REPORTED HERE, where the failure is actually seen. The poll cycle wraps this call in its own
+  // catch, but that catch can never run: this function swallows its own error, so `await loadFiles()`
+  // returns normally on failure and the caller has nothing to catch.
+  try { const res = await api('/shared'); state.files = res.files || res || []; }
+  catch (_) { noteSliceFailure('files'); /* keep prior */ }
 }
 export function renderFiles() {
   const host = byId('files-list');

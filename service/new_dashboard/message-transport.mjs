@@ -13,7 +13,7 @@ export async function chatLoadChannels() {
     // supplied; without it every channel's unread badge was permanently 0.
     const res = await api(`/channels?agentId=${encodeURIComponent(state.chat.identity)}`);
     state.chat.channels = res.channels || res || [];
-  } catch (_) { /* keep prior list */ }
+  } catch (_) { noteSliceFailure('channels'); /* keep prior list */ }
 }
 export async function chatLoadConversation(name) {
   const res = await api(`/channels/${encodeURIComponent(name)}?limit=80&agentId=${encodeURIComponent(state.chat.identity)}`);
@@ -63,6 +63,7 @@ export async function sendRunFollowup(run, { retry = false, body = '' } = {}) {
   });
 }
 import { api } from './api-client.mjs';
+import { noteSliceFailure } from './refresh-status.mjs';
 import { runTargetAgent } from './record-fields.mjs';
 import { state } from './state.mjs';
 
