@@ -1735,6 +1735,29 @@ const EXTRACTIONS = [
       },
       {
         name: "restorePersistedPreferences",
+        // The Needs-Attention strip's collapsed state stopped living only in a CSS rotation:
+        // this set the class by hand, so its toggle carried no aria-expanded, no aria-controls
+        // and a title that never changed. DE-INDENTED by the wrapper's two spaces, because
+        // undoEdits runs AFTER unwrapBody.
+        editedSince: [
+          {
+            was: [
+              "try {",
+              "  if (localStorage.getItem('aify.next.attentionCollapsed') !== '0') {",
+              "    byId('attention-strip')?.classList.add('collapsed');",
+              "  }",
+              "} catch {",
+              "  byId('attention-strip')?.classList.add('collapsed');",
+              "}",
+            ],
+            now: [
+              "// One call, so the class, aria-expanded, aria-controls and the title cannot disagree. Both",
+              "// branches used to add the class and nothing else, which is how this toggle's state came to be",
+              "// legible as a CSS rotation and in no other way.",
+              "setAttentionCollapsed(preferredAttentionCollapsed());",
+            ],
+          },
+        ],
         at: 4998,
         marker: "// Preference restore + landing paint moved to ./boot-wiring.mjs in v0.5.4.",
         wrapper: {
@@ -1745,6 +1768,21 @@ const EXTRACTIONS = [
       },
       {
         name: "wireSettingsControls",
+        // The Needs-Attention strip's collapsed state stopped living only in a CSS rotation:
+        // this set the class by hand, so its toggle carried no aria-expanded, no aria-controls
+        // and a title that never changed. DE-INDENTED by the wrapper's two spaces, because
+        // undoEdits runs AFTER unwrapBody.
+        editedSince: [
+          {
+            was: [
+              "  const collapsed = strip.classList.toggle('collapsed');",
+              "  try { localStorage.setItem('aify.next.attentionCollapsed', collapsed ? '1' : '0'); } catch { /* ignore */ }",
+            ],
+            now: [
+              "  setAttentionCollapsed(!strip.classList.contains('collapsed'));",
+            ],
+          },
+        ],
         at: 5054,
         marker: "// The Settings page's controls moved to ./boot-wiring.mjs in v0.5.4.",
         wrapper: {

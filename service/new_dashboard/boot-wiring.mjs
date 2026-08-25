@@ -31,7 +31,7 @@ import { openIdentityDirectory } from './identity-directory.mjs';
 import { updateStaticLinks } from './static-links.mjs';
 import { persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';
 import { previewAppearance, refreshActiveTerminalTheme, renderSettings } from './settings-panel.mjs';
-import { preferredNavCollapsed, setNavCollapsed, toggleSessionGroupCollapsed } from './layout-prefs.mjs';
+import { preferredAttentionCollapsed, preferredNavCollapsed, setAttentionCollapsed, setNavCollapsed, toggleSessionGroupCollapsed } from './layout-prefs.mjs';
 import { state } from './state.mjs';
 import { byId, installRejectionToast, toast, uiConfirm } from './ui.js';
 
@@ -362,13 +362,10 @@ export function restorePersistedPreferences({ setPage }) {
   // Default-collapse Needs-Attention so chat is the hero on landing (operator UX request).
   // Honor an explicit user choice either way; with no saved preference, start collapsed (the
   // header + quick-jumps stay visible as a slim one-line banner; the ▾ toggle re-expands).
-  try {
-    if (localStorage.getItem('aify.next.attentionCollapsed') !== '0') {
-      byId('attention-strip')?.classList.add('collapsed');
-    }
-  } catch {
-    byId('attention-strip')?.classList.add('collapsed');
-  }
+  // One call, so the class, aria-expanded, aria-controls and the title cannot disagree. Both
+  // branches used to add the class and nothing else, which is how this toggle's state came to be
+  // legible as a CSS rotation and in no other way.
+  setAttentionCollapsed(preferredAttentionCollapsed());
   loadVersionBadge();
   setPage('chat'); // chat-first landing: sync the page title/subtitle with the default page
   updateStaticLinks();
@@ -394,8 +391,7 @@ export function wireSettingsControls({ saveSettings }) {
   byId('attention-collapse')?.addEventListener('click', () => {
     const strip = byId('attention-strip');
     if (!strip) return;
-    const collapsed = strip.classList.toggle('collapsed');
-    try { localStorage.setItem('aify.next.attentionCollapsed', collapsed ? '1' : '0'); } catch { /* ignore */ }
+    setAttentionCollapsed(!strip.classList.contains('collapsed'));
   });
   byId('settings-save')?.addEventListener('click', () => {
     saveSettings().catch((err) => toast(`Save failed: ${err?.message || err}`, 'error'));

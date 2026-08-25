@@ -27,10 +27,20 @@ function recordingDom({ storage = {}, throwing = false } = {}) {
   const make = (id) => ({
     id, innerHTML: "", textContent: "", className: "", value: "", hidden: false, checked: false,
     dataset: {}, style: {}, children: [], firstElementChild: null,
+    // A FAITHFUL classList, because a stub that models only `add` decides what the code under test
+    // is allowed to call. `toggle` was `() => false` and `contains` `() => false`, so a caller that
+    // set the same class through toggle recorded nothing, and this file then reported the class as
+    // never added -- a true assertion about the stub and a false one about the boot.
     classList: {
       added: [],
-      add(c) { this.added.push(c); },
-      remove() {}, toggle: () => false, contains: () => false,
+      add(c) { if (!this.added.includes(c)) this.added.push(c); },
+      remove(c) { this.added = this.added.filter((x) => x !== c); },
+      toggle(c, on) {
+        const next = on === undefined ? !this.added.includes(c) : Boolean(on);
+        if (next) this.add(c); else this.remove(c);
+        return next;
+      },
+      contains(c) { return this.added.includes(c); },
     },
     querySelector: () => null, querySelectorAll: () => [],
     addEventListener: (type, fn, opts) => bound.push({ on: id, type, fn, opts }),

@@ -7,7 +7,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { preferredNavCollapsed, setNavCollapsed, toggleSessionGroupCollapsed } from "./layout-prefs.mjs";
+import {
+  preferredAttentionCollapsed, preferredNavCollapsed, setAttentionCollapsed, setNavCollapsed,
+  toggleSessionGroupCollapsed,
+} from "./layout-prefs.mjs";
 
 /** Storage + DOM stubs. `refuse` makes every write throw, as private mode does. */
 function withPrefs({ stored = {}, refuse = false, matchMedia = false, missing = false } = {}, run) {
@@ -21,6 +24,16 @@ function withPrefs({ stored = {}, refuse = false, matchMedia = false, missing = 
   const els = {
     "app-shell": { classes: new Map(), classList: { toggle(c, on) { els["app-shell"].classes.set(c, on); } } },
     "toggle-nav": { attrs: {}, setAttribute(k, v) { els["toggle-nav"].attrs[k] = v; } },
+    // The Needs-Attention strip. classList needs `contains` as well as `toggle`, because the click
+    // handler asks the strip what it currently is before setting the opposite.
+    "attention-strip": {
+      classes: new Map(),
+      classList: {
+        toggle(c, on) { els["attention-strip"].classes.set(c, on); },
+        contains(c) { return els["attention-strip"].classes.get(c) === true; },
+      },
+    },
+    "attention-collapse": { attrs: {}, setAttribute(k, v) { els["attention-collapse"].attrs[k] = v; } },
   };
   globalThis.localStorage = {
     setItem: (k, v) => { if (refuse) throw new Error("private mode"); store.set(k, v); },
@@ -235,4 +248,73 @@ test("setNavCollapsed persists normally when storage works", () => {
     setNavCollapsed(false);
     assert.deepEqual(h.writes, [["aify.next.navCollapsed", "0"]]);
   } finally { h.restore(); }
+});
+
+
+// --- setAttentionCollapsed ---------------------------------------------------------------------
+//
+// Read off the LIVE page 2026-08-25: `#attention-collapse` carried no aria-expanded, no
+// aria-pressed and no aria-controls, and its title never changed. The strip's collapsed state
+// existed only as `.attention-strip.collapsed .attention-collapse { transform: rotate(-90deg); }`
+// -- a glyph rotation. Open or shut was legible to a sighted mouse user and to nobody else.
+//
+// setNavCollapsed above had answered the identical question correctly since v0.5.4. This toggle
+// never learned it: two boot branches and a click handler each set the class by hand.
+
+test("collapsing the strip says so in a way assistive tech can read", () => {
+  withPrefs({}, (h) => {
+    setAttentionCollapsed(true);
+    assert.equal(h.els["attention-strip"].classes.get("collapsed"), true);
+    assert.equal(h.els["attention-collapse"].attrs["aria-expanded"], "false",
+      "the collapsed state is still unreadable to a screen reader");
+    assert.equal(h.els["attention-collapse"].attrs["aria-controls"], "attention-list",
+      "the button discloses a region without naming it");
+    assert.equal(h.els["attention-collapse"].attrs.title, "Expand Needs Attention");
+    assert.equal(h.store.get("aify.next.attentionCollapsed"), "1");
+
+    setAttentionCollapsed(false);
+    assert.equal(h.els["attention-strip"].classes.get("collapsed"), false);
+    assert.equal(h.els["attention-collapse"].attrs["aria-expanded"], "true");
+    assert.equal(h.els["attention-collapse"].attrs.title, "Collapse Needs Attention");
+    assert.equal(h.store.get("aify.next.attentionCollapsed"), "0");
+  });
+});
+
+test("aria-expanded, not aria-pressed, because this is a disclosure", () => {
+  // toggle-nav uses aria-pressed and is right to: it changes the layout. This one reveals a region,
+  // and a screen reader announces a disclosure differently from a toggle button.
+  withPrefs({}, (h) => {
+    setAttentionCollapsed(true);
+    assert.equal(h.els["attention-collapse"].attrs["aria-pressed"], undefined);
+  });
+});
+
+test("the strip still collapses when the preference cannot be stored", () => {
+  // Same degradation as setNavCollapsed: a private window costs the operator the MEMORY of the
+  // choice, never the control itself. The DOM update is deliberately outside the try.
+  withPrefs({ refuse: true }, (h) => {
+    setAttentionCollapsed(true);
+    assert.equal(h.els["attention-strip"].classes.get("collapsed"), true);
+    assert.equal(h.els["attention-collapse"].attrs["aria-expanded"], "false");
+  });
+});
+
+test("a missing strip or button does not throw", () => {
+  // The boot calls this unconditionally, so a page that has not painted the strip must not stop the
+  // rest of the boot -- the failure mode this file's header already documents for localStorage.
+  withPrefs({ missing: true }, () => {
+    setAttentionCollapsed(true);
+    setAttentionCollapsed(false);
+  });
+});
+
+test("the default is collapsed, and only an explicit choice opens it", () => {
+  // Preserves the operator's landing-page request: chat is the hero and the strip stays a slim
+  // banner. A first-time visitor and an unreadable localStorage must give the same answer.
+  withPrefs({ stored: {} }, () => assert.equal(preferredAttentionCollapsed(), true,
+    "a fresh visitor got an expanded strip"));
+  withPrefs({ stored: { "aify.next.attentionCollapsed": "1" } },
+    () => assert.equal(preferredAttentionCollapsed(), true));
+  withPrefs({ stored: { "aify.next.attentionCollapsed": "0" } },
+    () => assert.equal(preferredAttentionCollapsed(), false, "an explicit open choice was ignored"));
 });
