@@ -78,6 +78,7 @@ async def _enforce_env_reachable_gate(
     settings: dict[str, Any],
     agent_id: str,
     agent_row=None,
+    environments_by_machine=None,
 ) -> dict[str, Any]:
     """Read-boundary correction #2 (2026-06-12 status audit): a cached LIVE/available
     status must not outlive its owning ENVIRONMENT. `agent_live_state.refresh_after` is
@@ -120,7 +121,10 @@ async def _enforce_env_reachable_gate(
             )).fetchone()
         if agent_row is None:
             return payload
-        env_row = await _managed_owning_environment_row(db, agent_row, resolved_environment_id="")
+        env_row = await _managed_owning_environment_row(
+            db, agent_row, resolved_environment_id="",
+            environments_by_machine=environments_by_machine,
+        )
         if env_row is None:
             return payload
     offline_seconds = max(30, int(settings.get("environment_offline_seconds", 90) or 90))

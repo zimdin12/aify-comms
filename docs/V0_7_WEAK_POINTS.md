@@ -65,8 +65,28 @@ The three repeats, per roster call at 50 agents:
 | 66 | `SELECT * FROM environments WHERE machine_id = ? ORDER BY last_seen DESC` (a two-row table) |
 | 58 | `SELECT * FROM agents WHERE id = ?` (rows the handler already holds) |
 
-The third is fixed: `_enforce_env_reachable_gate` takes the row its caller has. 285 -> 235
-statements, that query 58 -> 8, harness median 43.2 -> 28.5 ms at 50 agents.
+Two of the three are now fixed. `_enforce_env_reachable_gate` takes the row its caller already has,
+and the roster hands every gate call one request-scoped `environments_by_machine` cache, since that
+lookup depends on machine_id alone and a fleet's agents share a host. Per roster call at 50 agents:
+
+| | statements | `SELECT * FROM agents WHERE id = ?` | `SELECT * FROM environments WHERE machine_id = ?` |
+|---|---|---|---|
+| before | 285 | 58 | 66 |
+| after the row fix | 235 | 8 | 66 |
+| after the cache | 186 | 8 | 17 |
+
+RETRACTION, and it matters more than the fix. `5c45ab44`'s message quotes a harness median of
+43.2 ms -> 28.5 ms at 50 agents. **Do not trust that number, or any wall-clock A/B taken on this
+host.** Measured immediately afterwards: the SAME code, five independent builds, produced 44.3, 47.2,
+46.4 ms in one batch and 22.4, 22.7, 24.5, 24.0, 24.8 ms in the next. Eleven percent spread inside a
+batch and a factor of two across them -- because this machine is running the live fleet, so anything
+timed here is timed against whatever the agents happen to be doing. The before/after samples in that
+commit were taken minutes apart and the difference between them is indistinguishable from load.
+
+What survives is the count, which is derived from the code rather than the clock and reproduces
+exactly: 285 -> 186 round-trips, and each is an event-loop hop to aiosqlite's worker thread. That is
+the honest claim. The wall-clock consequence needs an idle host, and the entry above already says the
+same thing about the live measurement it started from.
 
 The other two are left. Both want a per-request preload -- resolve every agent's owning environment
 once instead of per agent -- which is a real change to how the gate obtains its inputs rather than one

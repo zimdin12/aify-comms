@@ -35,7 +35,9 @@ SPAWN_INFLIGHT_WINDOW_SECONDS = 300
 SPAWN_STARTING_WINDOW_SECONDS = SPAWN_INFLIGHT_WINDOW_SECONDS
 
 
-async def _managed_owning_environment_row(db, agent_row, *, resolved_environment_id: str = ""):
+async def _managed_owning_environment_row(
+    db, agent_row, *, resolved_environment_id: str = "", environments_by_machine=None
+):
     """FIX B (2026-06-02): resolve the OWNING environment row for a MANAGED agent.
 
     A managed agent can only be spawned/hosted by its environment bridge, so its
@@ -92,10 +94,28 @@ async def _managed_owning_environment_row(db, agent_row, *, resolved_environment
     runtime = _normalize_runtime(agent_row["runtime"] or "")
     if not machine_id:
         return None
-    candidates = await (await db.execute(
-        "SELECT * FROM environments WHERE machine_id = ? ORDER BY last_seen DESC",
-        (machine_id,),
-    )).fetchall()
+    # REQUEST-SCOPED CACHE, supplied by callers that resolve many agents in a row. The roster
+    # resolves one environment per agent, and this query depends on nothing but machine_id -- on a
+    # fleet where the agents share a host it is the same answer every time. Measured at 50 agents:
+    # 50 identical reads of a two-row table, each an event-loop hop to aiosqlite's worker thread.
+    #
+    # Passed in rather than held on the module or the connection, deliberately. A cache with a
+    # lifetime longer than the caller's own loop would have to be invalidated by whatever writes
+    # `environments` -- heartbeats do, constantly -- and a stale environment here reads as a managed
+    # agent being gated against a host that no longer exists. The caller owns the dict, so the
+    # lifetime is visible at the call site instead of being a property of this module.
+    if environments_by_machine is None:
+        candidates = await (await db.execute(
+            "SELECT * FROM environments WHERE machine_id = ? ORDER BY last_seen DESC",
+            (machine_id,),
+        )).fetchall()
+    else:
+        if machine_id not in environments_by_machine:
+            environments_by_machine[machine_id] = await (await db.execute(
+                "SELECT * FROM environments WHERE machine_id = ? ORDER BY last_seen DESC",
+                (machine_id,),
+            )).fetchall()
+        candidates = environments_by_machine[machine_id]
     for row in candidates:
         environment = _environment_record_to_dict(row)
         if _runtime_capability_for_environment(environment, runtime):

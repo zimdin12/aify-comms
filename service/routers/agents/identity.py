@@ -78,6 +78,10 @@ async def list_agents(request: Request):
                 await db.rollback()
             except Exception:
                 pass
+        # One cache for this request only, handed to every gate call below. See
+        # `_managed_owning_environment_row`: the environments lookup depends on machine_id alone, so
+        # a roster of agents sharing a host repeated the same two-row read once per agent.
+        environments_by_machine: dict = {}
         cursor = await db.execute("SELECT * FROM agents")
         agents = await cursor.fetchall()
         agent_ids = [row["id"] for row in agents]
@@ -94,7 +98,10 @@ async def list_agents(request: Request):
             # _enforce_live_worker_gate for full rationale. (In-memory correction
             # only; the writeback was removed 2026-06-18 to cut read-path writes.)
             payload = await _enforce_live_worker_gate(payload, db, settings, aid)
-            payload = await _enforce_env_reachable_gate(payload, db, settings, aid, agent_row=row)
+            payload = await _enforce_env_reachable_gate(
+                payload, db, settings, aid, agent_row=row,
+                environments_by_machine=environments_by_machine,
+            )
             result[aid] = payload
         return {"agents": result}
     finally:
