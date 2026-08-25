@@ -173,6 +173,41 @@ alongside the next intentional change to the file. Recorded in KNOWN_ISSUES.md.
 
 ## Worth knowing, not worth doing
 
+**The managed-claude status flap the operator is seeing is a known issue whose fix is installed but
+not running.**
+Reported live 2026-08-25: sc-designer went `working` -> `online` -> `working` mid-task, then
+`available` when it finished, then straight back to `working` on the next message.
+
+The mid-work flap is KNOWN_ISSUES #224, "Managed claude could read a transient `online` while actually
+working". Its primary cause was fixed in `44073de`; the SECONDARY mechanism -- the console-keepalive
+idle-grace gate in `terminal-runtime.js` pausing its SIGWINCH nudge during a long quiet, so the
+working-lease goes stale and the agent reads `online` -- was fixed in `cf6ef25` and the entry records
+it as "staged via install.sh, pending an env-bridge restart".
+
+That is exactly the state of this host, measured rather than assumed: the installed
+`~/.aify-comms/mcp/stdio/terminal-runtime.js` contains the fix (`consoleKeepaliveIdleReprobeTicks`,
+3 occurrences) and was written at 07:43, while the environment bridge process has been running since
+04:53. Node loads its modules at boot, so the bridge is executing the pre-fix copy. `bridge-current`
+is red on purpose while the fleet works, and this flap is one of the things that red is standing for.
+No code change is warranted -- the fix exists and is waiting for the restart.
+
+The `available` half is NOT a bug. A managed agent whose worker has exited rests cold-startable and
+keeps reading `available` so the next message can start a fresh session; that behaviour is deliberate
+and pinned by `test_a_managed_worker_rests_COLD_STARTABLE_not_stopped`. sc-designer opened six
+sessions between 15:18 and 17:21, which is six cold starts, not six failures.
+
+**`agent_sessions.process_id` is the environment bridge's pid, not the worker's.**
+Measured: pid 206288 appears on 48 sessions across 8 different agents, and its command line is
+`server.js --environment-bridge`. `terminal_sessions.process_id` IS the worker's pid -- two columns
+with the same name meaning different things, one table apart.
+
+Not fixed, and worth being explicit about why: nothing is broken by it. The safety check in
+`terminal_lifecycle.py` that matches a supplied `processId` against the stored one reads the TERMINAL
+column, which is the per-worker one; the dashboard never displays the session column at all. It is a
+trap for whoever reads the API next, and it caught me for several minutes while answering the report
+above -- "one process, six sessions" is a compelling and completely wrong story if you do not check
+what the pid names.
+
 **`mcp/stdio/pi-session.js` is 993 lines against a 1000-line gate.**
 Seven lines of headroom, and tighter than either file CLAUDE.md named as the watch-item. The gate is a
 red test, not a silent failure, so nothing is at risk — but the next small edit there goes red for a
