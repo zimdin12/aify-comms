@@ -231,6 +231,29 @@ export const SERVICE_RUNTIME_EXCLUDE_PATHS = [
 // rather than simply omitted, so `doctor-service-staleness.test.js` can still assert that every
 // Dockerfile COPY source is accounted for SOMEWHERE. Silent omission would let a new COPY of
 // genuinely-runtime code slip in with doctor reporting clean — a false green, the worse direction.
+// FOURTH INSTANCE OF THE CLASS ABOVE, and the reasoning was already written one paragraph up.
+//
+// `bridge-installed` counts commits since the installed marker that touched `mcp/stdio`, and it
+// counted test-only commits. install.sh copies the whole directory into ~/.aify-comms -- 349 test
+// files at the time of writing -- and NOTHING ever executes them from there; the suites run from
+// the checkout. So a commit under mcp/stdio/tests cannot change a single byte the bridge runs.
+//
+// What made it worth fixing rather than noting is the REMEDY. bridge-installed's fix line is
+// `re-run install.sh AND relaunch the wrappers`, and relaunching the environment bridge reaps its
+// managed workers. So a test-only commit could ask the operator to kill the running fleet for a
+// change with no runtime effect -- a false alarm whose cost is measured in lost sessions, from a
+// check whose own documentation says it must not cry wolf on every commit.
+//
+// Measured on the real repo: 4 commits since the installed sha touched mcp/stdio, 3 with runtime
+// files and 1 (e19ae974) touching only mcp/stdio/tests. With this exclusion the count is 3.
+//
+// An EXCLUDE list for the same reason the service one is: the safe default for a new directory
+// under mcp/stdio is 'this is runtime, demand a reinstall'. Opt-out beats opt-in when the wrong
+// answer is a false green.
+export const BRIDGE_RUNTIME_EXCLUDE_PATHS = [
+  "mcp/stdio/tests",
+];
+
 export const SERVICE_IMAGE_NON_RUNTIME_PATHS = {
   "mcp": "partially runtime: mcp/ is listed in SERVICE_RUNTIME_PATHS, so anything added beside "
     + "sse_server.py is runtime by default; mcp/stdio is excluded there as host-side bridge code "

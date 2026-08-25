@@ -46,6 +46,7 @@ import {
   // undefined-name sweep, so `aify-comms doctor` threw `ReferenceError: SERVICE_RUNTIME_PATHS is not
   // defined` on its FIRST line of real work — found only by running it against a real deploy.
   SERVICE_RUNTIME_PATHS,
+  BRIDGE_RUNTIME_EXCLUDE_PATHS,
   SERVICE_RUNTIME_EXCLUDE_PATHS,
   // Moved out of THIS file in v0.5.4 so they could be tested — see the note where they used to sit.
   readBoundAgentId,
@@ -156,7 +157,10 @@ function checkNativeBridge() {
   // verdict itself is pure and unit-tested.
   const totalCommits = repo ? sh("git", ["rev-list", "--count", `${sha}..HEAD`], repo.dir) : "";
   const bridgeCommits = repo
-    ? sh("git", ["rev-list", "--count", `${sha}..HEAD`, "--", "mcp/stdio"], repo.dir)
+    ? sh("git", ["rev-list", "--count", `${sha}..HEAD`, "--", "mcp/stdio",
+        // Test-only commits change nothing the bridge executes, and this check's remedy is a
+        // wrapper relaunch that reaps managed workers. See BRIDGE_RUNTIME_EXCLUDE_PATHS.
+        ...BRIDGE_RUNTIME_EXCLUDE_PATHS.map((p) => `:(exclude)${p}`)], repo.dir)
     : "";
   const verdict = bridgeInstallVerdict({
     installedSha: sha,
