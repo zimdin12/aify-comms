@@ -33,40 +33,34 @@ costs one `editedSince` entry, and the thing to budget is getting the bytes righ
 
 ## Worth doing, needs an operator decision
 
-**A hermes lane whose TUI never attached still reads `available`, and the teardown that exists to
-correct that did not fire.**
-Measured on the live fleet 2026-08-25. `sc-architect` (gateway :9147), `sc-tester` (:9511),
-`sc-coder` (:9313) and `graph-senior-dev` (:8822) each failed a dispatch with `No visible hermes TUI
-attached to gateway ... (session.active_list empty across 5 consecutive delivery attempts)`, while the
-control plane showed every one of them `available`. graph-senior-dev failed most recently, 14:56;
-sc-architect and sc-tester at 14:36 and 14:38, and both still read `available` at 14:57.
+**RESOLVED, and my previous entry here was wrong: `available` on a TUI-less hermes lane is correct.**
+The entry this replaces said the teardown "did not fire" and pointed at `countAttachedSessions`
+returning -1. Both were wrong, and I had not read far enough to say either.
 
-THE DELIVERY LAYER IS THE PART BEHAVING WELL. It bounds the wait, fails the run rather than requeuing
-for ever, mirrors an actionable message to the sender, and names both the remedy and the variable
-(`HERMES_TUI_GATEWAY_URL`). The old misleading version of this error -- a cached dead socket producing
-it falsely -- was fixed on 2026-06-10 and is not what is happening here.
+What actually happens: the loop reports the gateway dead, the server receives it at
+`/agents/{id}/resident-lost`, and for a `session_mode='managed'` agent it deliberately sets
+`status='active'` -- which derives `available` -- plus `launch_mode='detached'`, so the next message
+cold-starts a fresh session. That is not a leak in the status; it is the FIX for a worse one.
+Resting a managed worker at `stopped` was the 2026-07-06/07 defect: the send-gate rejects `stopped`
+outright, so a dead-gateway hermes could never wake and a whole team sat unreachable. Pinned by
+`test_a_managed_worker_rests_COLD_STARTABLE_not_stopped`.
 
-THE LANES ARE NOT PERMANENTLY DEAD, which is what makes this a status question rather than an
-operational one: sc-tester completed seven runs between 04:43 and 05:59 and failed at 05:00 and 14:38.
-The condition comes and goes.
+So `available` on a managed agent means COLD-STARTABLE, never ATTACHED. The dispatch that follows is
+supposed to start a fresh session; on the lanes measured 2026-08-25 it produced a gateway whose
+visible TUI never attached, which is an operational condition with an operator remedy (relaunch
+hermes-aify), not a control-plane defect.
 
-THE OPEN QUESTION, and it is a real one. `runDeliveryLoop` already has a loop-level remedy:
-`NO_TUI_TEARDOWN_CYCLES` (10) consecutive polls at `POLL_MS` (3000) with zero attached sessions is
-meant to `reportGatewayDeadOnce`, tear the host down, and in its own words "self-correct off
-'available' (resident-lost)". Thirty seconds. These agents sat `available` for twenty minutes after a
-delivery path had ALREADY read `session.active_list` as empty -- successfully, five times running, so
-the read works and the answer is zero. Those two facts are in tension and I could not resolve which
-side gives without instrumenting a live loop, which this round may not do.
+WHAT THE ROUND ACTUALLY FOUND is in `9599d802`: those messages carried the gateway's auth token into
+stored run errors and status notes, and two of them told the operator the agent was "self-correcting
+off available" while the server was deliberately resting it AT available. The false sentence is what
+sent me down this path for most of a round -- prose on a join, describing the resident case and read
+as if it covered both.
 
-The candidate worth checking first is `countAttachedSessions`, which returns `-1` both when
-`wsClient` is falsy and on any request error, and `-1` deliberately leaves `noTuiCycles` UNCHANGED --
-correct as "no evidence is not a pass", but it means a persistently failing read never tears down and
-never corrects the badge, while the per-run counter beside it goes on failing runs on evidence it did
-gather. Two readers of "is a TUI attached", one concluding zero and one concluding nothing.
-
-One correction for whoever reads a report of this: `EMPTY_ATTACH_FAIL_THRESHOLD` = 5 is a bridge
-constant, so "failed 5/5 attempts" is ONE run hitting its bound, not five independent tries. It has
-been misread that way once already.
+Two internal comments still make that claim (`hermes-delivery-loop.mjs` ~596,
+`hermes-delivery-run.mjs` ~329) and one more sits in `hermes-managed-host.js` ~373. Left alone
+deliberately: all three are inside declarations under the byte-identity extraction gate, so a
+comment-only fix costs a declared edit each. Worth doing when that file is next opened for a real
+change, not on its own.
 
 **The codex console input is named only by a placeholder.**
 `session-console.mjs`, inside the form marked `data-action="codex-console-send"`. A placeholder is
