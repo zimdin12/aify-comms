@@ -293,6 +293,39 @@ the success decision into a function whose remaining job is classifying failures
 
 ## Open questions this round could not settle
 
+**Why two managed claude workers stopped in the SAME SECOND, 2026-08-25 18:52:55Z.**
+Operator-reported: the sc- team looked lost, two runs sat `delivered / reply=awaiting` with reminders
+firing, and no agent read `online`. Most of that turned out to be the system behaving correctly. What
+does not have an explanation is the timing.
+
+WHAT IS ESTABLISHED, from live rows rather than inference:
+
+* `term_1787683898449_0938b55a` (sc-claude) and `term_1787683959637_a53b46af` (sc-designer) both have
+  `stoppedAt = 2026-08-25T18:52:55Z`. To the second.
+* Their spawns were created 18:51:38 and 18:52:38 — 77 s and 17 s before that shared instant. Different
+  ages, same death. That is one event reaping both, not two workers failing.
+* Six cold-starts across the two agents (18:18, 18:31/32, 18:51/52) all settled `failed`.
+* The environment bridge did NOT restart: `bridgeId` is still `5fdddb0f-489b-...` and
+  `metadata.bridgeBuild` still `579dd546`, the same instance running hours earlier. A superseded bridge
+  reaping its managed workers is the usual cause of a simultaneous stop and it is ruled out here.
+* The system RECOVERED on its own. sc-designer holds an `attached` terminal created 19:17:51 and reads
+  `online`; `available` on the others is cold-startable, not lost.
+
+WHAT WAS RULED OUT, so nobody re-runs it:
+
+* The headless-orphan reaper (`reconcilers/managed_workers.py`) is a CONSEQUENCE, not the cause. It only
+  fires when the last non-virtual terminal is ALREADY `stopped` or `failed`; it kills the orphaned
+  sidecar afterwards. It cannot stop a live console.
+* `cols: 0, rows: 0` on the dead terminal rows is NOT a 0x0 PTY. The healthy live terminal carries the
+  same values with `renderedCols/Rows = 100/28`; it is an unset column, not a dimension.
+* The delegated spawn does not lose its terminal dimensions. `start()` builds its spec from
+  defaulted locals, so `startDelegated` receives 100x28 and never falls through to aify-env's own
+  120x30 defaults. The two paths would disagree if it did, and it does not.
+
+WHAT WOULD SETTLE IT: the terminal_events rows for those two ids around 18:52:55, which record who
+asked. There is no read endpoint for them, so this needs a query against the database rather than the
+API. That is the first thing to look at, not another read of the reaper.
+
 **A managed shell can still convert its agent to resident.** The JS `normalizeSessionMode` fails
 toward `resident`, so only a literal `sessionMode:"managed"` is refused. Known, reported, awaiting an
 operator ruling — untouched here. The Python side is gated by
