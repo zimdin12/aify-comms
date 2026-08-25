@@ -21,9 +21,26 @@
  * @param {Document|null} doc  injected so a test can pin it; defaults to the real document when there
  *   is one, and to null under Node, where "cannot tell" is the honest answer.
  */
-export function shouldLoadFiles(doc = (typeof document === "undefined" ? null : document)) {
-  const el = doc && typeof doc.getElementById === "function" ? doc.getElementById("page-files") : null;
+/**
+ * True when the page with this id is open, OR when its state cannot be determined.
+ *
+ * Generalised from `shouldLoadFiles` when a SECOND page-gated slice turned up. Measured on the live
+ * service 2026-08-26: one poll cycle moves 1,419,728 bytes, and `/spawn-requests` is 414,690 of it --
+ * the single largest item, rendered only by the Environments page's table. `/shared` was 113,854.
+ * Two slices, one rule, so the fail-closed reasoning lives in one place instead of being retyped.
+ *
+ * @param {string} pageId  the `data-page` name, e.g. "files" or "environments"
+ * @param {Document|null} doc  injected so a test can pin it
+ */
+export function shouldLoadForPage(pageId, doc = (typeof document === "undefined" ? null : document)) {
+  const id = String(pageId || "").trim();
+  if (!id) return true;
+  const el = doc && typeof doc.getElementById === "function" ? doc.getElementById(`page-${id}`) : null;
   // Missing element or missing classList is not evidence of a closed page.
   if (!el || !el.classList || typeof el.classList.contains !== "function") return true;
   return el.classList.contains("active");
+}
+
+export function shouldLoadFiles(doc = (typeof document === "undefined" ? null : document)) {
+  return shouldLoadForPage("files", doc);
 }

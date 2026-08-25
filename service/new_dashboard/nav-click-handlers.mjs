@@ -8,6 +8,7 @@
 // Parameters of the same names leave every body byte-identical to the branch it left.
 
 import { loadFiles, renderFiles } from './shared-files.mjs';
+import { loadSpawnRequests } from './environments-panels.mjs';
 import { rangeDef } from './analytics.js';
 import { state } from './state.mjs';
 import { byId } from './ui.js';
@@ -25,6 +26,10 @@ export function navigateToPage(page, setPage, loadAnalytics) {
   // Without this the page would show whatever was last seen -- or nothing at all on a first open --
   // for up to a full refresh interval, 15 seconds by default.
   if (page === 'files') loadFiles().then(renderFiles);
+  // Same rule, larger slice: /spawn-requests is polled only while the Environments page is open
+  // (414,690 of a 1,419,728 byte cycle), so opening it must fetch once or the table shows its
+  // previous contents -- or nothing at all on a first open -- for up to a full refresh interval.
+  if (page === 'environments') loadSpawnRequests();
 }
 
 export function openEnvironmentSpawn(envSpawn, setPage, renderEnvironmentSpawnOptions) {

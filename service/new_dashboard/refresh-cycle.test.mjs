@@ -47,7 +47,7 @@ function makeElements() {
  * Run one cycle with `reject` naming the path prefixes whose fetch should fail.
  * Returns the recorded calls plus the status-chip element.
  */
-async function cycle({ reject = [], extraDeps = {}, filesPage = null } = {}) {
+async function cycle({ reject = [], extraDeps = {}, filesPage = null, environmentsPage = null, seed = {} } = {}) {
   const els = makeElements();
   const saved = {
     document: globalThis.document,
@@ -63,6 +63,9 @@ async function cycle({ reject = [], extraDeps = {}, filesPage = null } = {}) {
       // The Files page exists only when a test asks for it. Absent is the honest default and means
       // "cannot tell", which shouldLoadFiles answers by fetching -- so every other test in this file
       // keeps its ten slices.
+      if (id === "page-environments" && environmentsPage) {
+        return { classList: { contains: (c) => c === "active" && environmentsPage === "open" } };
+      }
       if (id === "page-files" && filesPage) {
         return { classList: { contains: (c) => c === "active" && filesPage === "open" } };
       }
@@ -85,6 +88,7 @@ async function cycle({ reject = [], extraDeps = {}, filesPage = null } = {}) {
   Object.assign(state, {
     agents: [], contracts: [], messages: [], runs: [], sessions: [], environments: [],
     spawnRequests: [], stats: {}, settings: {}, loaded: false, terminalOwners: new Map(),
+      ...seed,   // applied AFTER the reset: a test that needs a prior value cannot set it before,
   });
 
   try {
@@ -283,4 +287,27 @@ test("the open Files page is still polled", async () => {
   // exactly like a working optimisation until somebody opens the page.
   const { requested } = await cycle({ filesPage: "open" });
   assert.equal(requested.filter((u) => u.includes("/shared")).length, 1, "the visible page went unfetched");
+});
+
+test("the closed Environments page is not polled for spawn requests", async () => {
+  // The LARGEST slice in the cycle: 414,690 bytes of 1,419,728 measured against the live service on
+  // 2026-08-26, for a table whose only reader is the Environments page. Absent from the stub means
+  // "cannot tell", which fetches -- so every other test in this file keeps its ten slices.
+  const { requested } = await cycle({ environmentsPage: "closed" });
+  assert.equal(
+    requested.filter((u) => u.includes("/spawn-requests")).length, 0,
+    "fetched 400KB of spawn requests for a page nobody is looking at",
+  );
+});
+
+test("the open Environments page is still polled", async () => {
+  const { requested } = await cycle({ environmentsPage: "open" });
+  assert.equal(requested.filter((u) => u.includes("/spawn-requests")).length, 1);
+});
+
+test("a skipped spawn-request slice leaves the previous list alone", async () => {
+  // The slot is kept and resolves to null; assigning asArray(null) would blank the list and make the
+  // first render after opening the page flash empty before the load-on-open lands.
+  await cycle({ environmentsPage: "closed", seed: { spawnRequests: [{ id: "kept-from-before" }] } });
+  assert.deepEqual(state.spawnRequests, [{ id: "kept-from-before" }], "the skipped slice wiped the list");
 });

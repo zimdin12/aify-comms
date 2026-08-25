@@ -23,85 +23,102 @@ function withAnalytics(run) {
   const saved = state.analytics;
   state.analytics = { ...(state.analytics ?? {}), range: "24h" };
   try {
-    return run();
+      return run();
+    } finally {
+      state.analytics = saved;
+    }
+  }
+
+  /** Install a DOM stub for the handlers that focus a field. */
+  function withDom(run) {
+    const had = "document" in globalThis;
+    const prev = globalThis.document;
+    let focused = 0;
+    globalThis.document = {
+      getElementById: (id) => (id === "env-spawn-agent-id" ? { focus: () => { focused += 1; } } : null),
+      querySelector: () => null,
+      querySelectorAll: () => [],
+    };
+    try {
+      return run({ focused: () => focused });
+    } finally {
+      if (had) globalThis.document = prev; else delete globalThis.document;
+    }
+  }
+
+  // --- selectAnalyticsRange ----------------------------------------------------------------------
+
+  test("selectAnalyticsRange stores the NORMALISED key, not the raw attribute", () => {
+    // `rangeDef(raw).key`. Storing the attribute verbatim would let a typo'd or aliased value into
+    // `state.analytics.range`, which is sent to the API as a window — and the chart would come back empty
+    // rather than erroring.
+    withAnalytics(() => {
+      let loads = 0;
+      const raw = "24h";
+      selectAnalyticsRange({ dataset: { analyticsRange: raw } }, () => { loads += 1; });
+      assert.equal(state.analytics.range, rangeDef(raw).key);
+      assert.equal(loads, 1, "changing the range must refetch, or the chart keeps the old window");
+    });
+  });
+
+  test("an UNKNOWN range still resolves to a valid key rather than storing junk", () => {
+    // `rangeDef` owns the fallback. This asserts the handler defers to it instead of guarding itself,
+    // which is what keeps one definition of the valid windows.
+    withAnalytics(() => {
+      selectAnalyticsRange({ dataset: { analyticsRange: "no-such-range" } }, () => {});
+      assert.equal(state.analytics.range, rangeDef("no-such-range").key);
+      assert.ok(state.analytics.range, "never empty");
+    });
+  });
+
+  test("selectAnalyticsRange forces the reload rather than letting a cache answer", () => {
+    // `loadAnalytics(true)`. The range just changed, so a cached response is by definition the wrong
+    // window — this is the argument that makes the click do anything at all.
+    withAnalytics(() => {
+      const args = [];
+      selectAnalyticsRange({ dataset: { analyticsRange: "24h" } }, (...a) => args.push(a));
+      assert.deepEqual(args, [[true]]);
+    });
+  });
+
+  // --- navigateToPage ----------------------------------------------------------------------------
+
+  test("navigateToPage switches the page", () => {
+    const pages = [];
+    navigateToPage("sessions", (p) => pages.push(p), () => {});
+    assert.deepEqual(pages, ["sessions"]);
+  });
+
+  test("OPENING ANALYTICS LAZY-LOADS IT; no other page triggers the ANALYTICS load", async () => {
+    // The analytics page refetches on RE-open; without the branch it renders whatever was last loaded,
+    // most visibly nothing at all on a fresh session. Loading it for every page would put an analytics
+    // fetch behind every nav click instead.
+    //
+    // RETITLED 2026-08-26: it used to say "every other page does not [lazy-load]", which is no longer
+    // true and was never quite what this asserts. Files and Environments now fetch their own slice on
+    // open, because the poll skips those slices while their page is closed — they are the two largest
+    // things a cycle moves. What is asserted here is narrower and still worth pinning: none of them
+    // reaches for the ANALYTICS loader.
+    const saved = { document: globalThis.document, fetch: globalThis.fetch };
+    globalThis.document = { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [] };
+    globalThis.fetch = async () => ({ ok: true, status: 200, statusText: "OK", text: async () => "{}" });
+    try {
+    const loads = [];
+    navigateToPage("analytics", () => {}, (...a) => loads.push(a));
+    assert.deepEqual(loads, [[true]], "forced, so re-opening refreshes rather than reusing");
+
+    loads.length = 0;
+    for (const page of ["sessions", "work", "chat", "environments", "settings"]) {
+      navigateToPage(page, () => {}, (...a) => loads.push(a));
+    }
+    assert.deepEqual(loads, [], "another page reached for the analytics loader");
+    // Files and Environments fetch on open and do not await; drain the queue so their promises
+    // settle against the stub above rather than after it is restored.
+    await new Promise((resolve) => setTimeout(resolve, 0));
   } finally {
-    state.analytics = saved;
+    globalThis.document = saved.document;
+    globalThis.fetch = saved.fetch;
   }
-}
-
-/** Install a DOM stub for the handlers that focus a field. */
-function withDom(run) {
-  const had = "document" in globalThis;
-  const prev = globalThis.document;
-  let focused = 0;
-  globalThis.document = {
-    getElementById: (id) => (id === "env-spawn-agent-id" ? { focus: () => { focused += 1; } } : null),
-    querySelector: () => null,
-    querySelectorAll: () => [],
-  };
-  try {
-    return run({ focused: () => focused });
-  } finally {
-    if (had) globalThis.document = prev; else delete globalThis.document;
-  }
-}
-
-// --- selectAnalyticsRange ----------------------------------------------------------------------
-
-test("selectAnalyticsRange stores the NORMALISED key, not the raw attribute", () => {
-  // `rangeDef(raw).key`. Storing the attribute verbatim would let a typo'd or aliased value into
-  // `state.analytics.range`, which is sent to the API as a window — and the chart would come back empty
-  // rather than erroring.
-  withAnalytics(() => {
-    let loads = 0;
-    const raw = "24h";
-    selectAnalyticsRange({ dataset: { analyticsRange: raw } }, () => { loads += 1; });
-    assert.equal(state.analytics.range, rangeDef(raw).key);
-    assert.equal(loads, 1, "changing the range must refetch, or the chart keeps the old window");
-  });
-});
-
-test("an UNKNOWN range still resolves to a valid key rather than storing junk", () => {
-  // `rangeDef` owns the fallback. This asserts the handler defers to it instead of guarding itself,
-  // which is what keeps one definition of the valid windows.
-  withAnalytics(() => {
-    selectAnalyticsRange({ dataset: { analyticsRange: "no-such-range" } }, () => {});
-    assert.equal(state.analytics.range, rangeDef("no-such-range").key);
-    assert.ok(state.analytics.range, "never empty");
-  });
-});
-
-test("selectAnalyticsRange forces the reload rather than letting a cache answer", () => {
-  // `loadAnalytics(true)`. The range just changed, so a cached response is by definition the wrong
-  // window — this is the argument that makes the click do anything at all.
-  withAnalytics(() => {
-    const args = [];
-    selectAnalyticsRange({ dataset: { analyticsRange: "24h" } }, (...a) => args.push(a));
-    assert.deepEqual(args, [[true]]);
-  });
-});
-
-// --- navigateToPage ----------------------------------------------------------------------------
-
-test("navigateToPage switches the page", () => {
-  const pages = [];
-  navigateToPage("sessions", (p) => pages.push(p), () => {});
-  assert.deepEqual(pages, ["sessions"]);
-});
-
-test("OPENING ANALYTICS LAZY-LOADS IT; every other page does not", () => {
-  // The analytics page is the only one that fetches on open, and it refetches on RE-open. Without the
-  // branch the page renders whatever was last loaded — most visibly, nothing at all on a fresh session.
-  // Loading it for every page would put an analytics fetch behind every nav click instead.
-  const loads = [];
-  navigateToPage("analytics", () => {}, (...a) => loads.push(a));
-  assert.deepEqual(loads, [[true]], "forced, so re-opening refreshes rather than reusing");
-
-  loads.length = 0;
-  for (const page of ["sessions", "work", "chat", "environments", "settings"]) {
-    navigateToPage(page, () => {}, (...a) => loads.push(a));
-  }
-  assert.deepEqual(loads, [], "no other page triggers a load");
 });
 
 test("the analytics check is exact — a page merely CONTAINING the word does not load", () => {

@@ -44,7 +44,7 @@ export function renderEnvironmentSpawnOptions(selectedEnvId = byId('env-spawn-en
 
 import { api } from './api-client.mjs';
 import { environmentStartCommand } from './environment-start-command.mjs';
-import { environmentRoots, environmentRuntimes } from './record-fields.mjs';
+import { asArray, environmentRoots, environmentRuntimes } from './record-fields.mjs';
 import { state } from './state.mjs';
 import { renderStatusChip, resolveStatus, statusWhyContext } from './status.js';
 import { metric } from './summary-tiles.mjs';
@@ -71,6 +71,26 @@ export function renderRuntime() {
       </div>
     </article>`).join('') || '<div class="empty-state"><span class="empty-icon">🔌</span><strong>No environments connected</strong><p>Start an aify-comms bridge on a host to see it here.</p></div>';
 }
+/**
+ * Fetch the spawn requests this page renders, and draw them.
+ *
+ * The poll only asks for them while the Environments page is open (see `shouldLoadForPage`), because
+ * the slice is the largest thing a cycle moves -- 414,690 of 1,419,728 bytes measured on 2026-08-26 --
+ * and this table is its only reader. That makes OPENING the page the moment the data is needed, and
+ * the next poll is up to a full refresh interval away (15s by default), which on a first open would
+ * show "No spawn requests" for a table that has plenty.
+ *
+ * Errors are swallowed on purpose and the previous list kept: this runs on a navigation, and a failed
+ * fetch should leave the page as it was rather than empty it. The poll reports its own slice failures.
+ */
+export async function loadSpawnRequests() {
+  try {
+    const res = await api('/spawn-requests?limit=200');
+    state.spawnRequests = asArray(res, 'spawnRequests');
+  } catch (_) { /* keep the prior list */ }
+  renderSpawnRequests();
+}
+
 export function renderSpawnRequests() {
   const el = byId('spawn-requests-list');
   if (!el) return;

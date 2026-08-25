@@ -823,7 +823,18 @@ const EXTRACTIONS = [
       },
       {
         name: "navigateToPage",
-        editedSince: [{
+        editedSince: [
+          {
+            was: [
+            ],
+            now: [
+              "    // Same rule, larger slice: /spawn-requests is polled only while the Environments page is open",
+              "    // (414,690 of a 1,419,728 byte cycle), so opening it must fetch once or the table shows its",
+              "    // previous contents -- or nothing at all on a first open -- for up to a full refresh interval.",
+              "    if (page === 'environments') loadSpawnRequests();",
+            ],
+          },
+          {
           was: [],
           now: [
             "    // Files is polled only while its page is open (see files-page.mjs), so opening it must fetch once.",
@@ -1169,7 +1180,40 @@ const EXTRACTIONS = [
           "  renderAll,",
           "});",
         ],
-                editedSince: [{
+                editedSince: [
+          {
+            was: [
+            ],
+            now: [
+              "  // The Environments page is the only reader of state.spawnRequests, and this slice is the LARGEST",
+              "  // thing the poll moves: 414,690 bytes of a 1,419,728 byte cycle measured against the live service",
+              "  // on 2026-08-26 -- 29% of it, for a table nobody is looking at. Same rule as /shared, same",
+              "  // fail-closed predicate.",
+              "  //",
+              "  // The SLOT is kept rather than the entry dropped: ok(i) and val(i) index this array by position,",
+              "  // so omitting one would silently shift every slice after it onto the wrong data.",
+              "  const wantSpawnRequests = shouldLoadForPage('environments');",
+            ],
+          },
+          {
+            was: [
+              "    api('/spawn-requests?limit=200'),                                     // 7",
+            ],
+            now: [
+              "    wantSpawnRequests ? api('/spawn-requests?limit=200') : Promise.resolve(null), // 7",
+            ],
+          },
+          {
+            was: [
+              "  if (ok(7)) state.spawnRequests = asArray(val(7), 'spawnRequests');",
+            ],
+            now: [
+              "  // Guarded on the REQUEST, not just the result: a skipped slice resolves to null, and assigning",
+              "  // asArray(null) would wipe the list rather than leave it alone. Nothing reads it while the page is",
+              "  // closed, but wiping it would make the first render after opening flash empty.",
+              "  if (wantSpawnRequests && ok(7)) state.spawnRequests = asArray(val(7), 'spawnRequests');",
+            ],
+          },{
           // The four out-of-band awaits stopped swallowing their failures. Each was
           // `catch (_) {}`, so a fetch outside the allSettled array could fail for ever while the
           // connection chip read `live` -- 12 to 13 requests per cycle, only 10 of them accounted.

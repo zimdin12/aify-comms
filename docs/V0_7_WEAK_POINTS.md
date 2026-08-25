@@ -33,6 +33,44 @@ costs one `editedSince` entry, and the thing to budget is getting the bytes righ
 
 ## Worth doing, needs an operator decision
 
+**What the dashboard poll actually costs, measured from the browser rather than the source.**
+Loaded the live dashboard in an isolated browser context and read its network log -- the first honest
+picture of the cycle, after three earlier attempts that used source scanners and were wrong each time.
+One poll, 2026-08-26:
+
+| bytes | share | endpoint |
+|---|---|---|
+| 414,690 | 29.2% | `/spawn-requests` |
+| 362,094 | 25.5% | `/messages/recent` |
+| 300,154 | 21.1% | `/messages/inbox/dashboard` |
+| 113,854 | 8.0% | `/shared` |
+| 82,620 | 5.8% | `/sessions` |
+| 70,840 | 5.0% | `/dispatch/runs` |
+| 63,937 | 4.5% | `/agents` |
+| 5,042 | 0.4% | `/environments` |
+| 2,400 | 0.2% | `/stats` |
+| 1,507 | 0.1% | `/contracts` |
+| 1,477 | 0.1% | `/settings` |
+| 1,113 | 0.1% | `/channels` |
+| **1,419,728** | | **one cycle -- 5.4 MB/min, 325 MB/hour per open tab at the 15s default** |
+
+This re-ranked the work. `/shared`, fixed earlier today, is 8% of the problem. `/spawn-requests` is the
+largest single item and had grown 3.5x since it measured 118,424 bytes a few hours earlier, because the
+fleet spawns all evening -- a reminder that a payload measured once is a payload measured at one moment.
+
+`/spawn-requests` is now page-gated like `/shared`: its only reader is the Environments table. Together
+the two gated slices are 37% of the cycle.
+
+THE MESSAGES PAIR IS THE REMAINING 47%, AND IS NOT A CLIENT FIX. `/messages/recent` is 83% `body`
+(296,038 of 358,177 bytes) and already carries a `preview` field beside it. But bodies are genuinely
+read: `chat-render.mjs` renders the open conversation from `m.body`, and `chat-select.mjs` searches
+across them. Serving previews in the list and bodies for the open conversation means a `fields=`
+parameter or a second endpoint -- an API change, and the search behaviour would need somewhere to go.
+Worth doing, worth designing first.
+
+Settings, channels and contracts are 1-1.5 KB each. Not worth touching, named here so nobody spends a
+round on them.
+
 **Three independent caps bound terminal_events, and one of them is justified by prose about another.**
 Corrected 2026-08-26: an earlier version of this entry named two. There are three.
 

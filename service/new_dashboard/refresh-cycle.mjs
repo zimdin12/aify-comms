@@ -15,7 +15,7 @@ import { api } from './api-client.mjs';
 import { asAgentArray, asArray } from './record-fields.mjs';
 import { chatLoadChannels, chatLoadConversation } from './message-transport.mjs';
 import { loadFiles } from './shared-files.mjs';
-import { shouldLoadFiles } from "./files-page.mjs";
+import { shouldLoadFiles, shouldLoadForPage } from "./files-page.mjs";
 import { noteSliceFailure, refreshChipState } from './refresh-status.mjs';
 import { refreshActiveTerminalTheme } from './settings-panel.mjs';
 import { runQueryPath } from './run-helpers.mjs';
@@ -43,6 +43,14 @@ export async function runRefreshCycle({
   // (incl. every agent's status) froze on its last render and looked stale/"wrong". Now each slice
   // applies independently; a slice whose fetch blipped keeps its last-good value, and we always
   // re-render with whatever fresh data arrived this cycle.
+  // The Environments page is the only reader of state.spawnRequests, and this slice is the LARGEST
+  // thing the poll moves: 414,690 bytes of a 1,419,728 byte cycle measured against the live service
+  // on 2026-08-26 -- 29% of it, for a table nobody is looking at. Same rule as /shared, same
+  // fail-closed predicate.
+  //
+  // The SLOT is kept rather than the entry dropped: ok(i) and val(i) index this array by position,
+  // so omitting one would silently shift every slice after it onto the wrong data.
+  const wantSpawnRequests = shouldLoadForPage('environments');
   const settled = await Promise.allSettled([
     api('/agents'),                                                       // 0
     api('/contracts?limit=80'),                                           // 1
@@ -51,7 +59,7 @@ export async function runRefreshCycle({
     api(runQueryPath()),                                                  // 4
     api('/sessions?limit=80'),                                            // 5
     api('/environments'),                                                 // 6
-    api('/spawn-requests?limit=200'),                                     // 7
+    wantSpawnRequests ? api('/spawn-requests?limit=200') : Promise.resolve(null), // 7
     api('/stats'),                                                        // 8
     api('/settings'),                                                     // 9
   ]);
@@ -82,7 +90,10 @@ export async function runRefreshCycle({
     });
   }
   if (ok(6)) state.environments = asArray(val(6), 'environments');
-  if (ok(7)) state.spawnRequests = asArray(val(7), 'spawnRequests');
+  // Guarded on the REQUEST, not just the result: a skipped slice resolves to null, and assigning
+  // asArray(null) would wipe the list rather than leave it alone. Nothing reads it while the page is
+  // closed, but wiping it would make the first render after opening flash empty.
+  if (wantSpawnRequests && ok(7)) state.spawnRequests = asArray(val(7), 'spawnRequests');
   if (ok(8)) state.stats = val(8) || {};
   if (ok(9) && val(9) && typeof val(9) === 'object') {
     state.settings = val(9);
