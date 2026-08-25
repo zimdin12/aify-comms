@@ -71,7 +71,7 @@ could make one of them true.
 | `service/control_plane.py` | **v0.5.3.** The live control plane: ~140 helpers, constants and the two queue classes shared across status, dispatch, terminals, spawn and console. This was `service/routers/api_v2.py` — 20,545 lines at its peak — until the route domains moved out and it was left declaring ZERO routes. It is NOT a router: `service/routers/api_v2.py` is now nothing but the 15 `include_router` calls, and there is deliberately no compatibility re-export, so a stale `from service.routers.api_v2 import <helper>` fails loudly instead of resolving. **v0.5.4 took it to 879 lines and it is OFF `oversized-allowlist.json`** — it is **893 on 2026-08-24**, so the regrowth this paragraph warns about has started — the "still far too big, a v0.6 question" note that stood here is retired as done. It is now an ordinary file under the 1000-line gate, so the risk it carries is REGROWTH: it is still the shared home for status, dispatch, terminal, spawn and console helpers, and the gate will not warn until it has already crossed back over. |
 | `service/reconcilers/` | **v0.5.** The reconcilers extracted out of what is now `service/control_plane.py` — one module per responsibility (`status_cache`, `spawn_lifecycle`, `sessions`, `terminals`, `terminal_runs`, `terminal_consistency`, `dispatch_queue`, `dispatch_lifecycle`, `managed_workers`, `console_binding`). Leaf modules: they may import `service/clock.py`, `service/env_status.py` and each other, but must NOT import the control plane at all. **The borrow debt is PAID: reconciler imports of the control plane are ZERO**, measured by `test_leaves_do_not_import_the_carrier.py`, whose ceiling is now 0 and which fails if that ceiling is ever left slack above the real count. The function-scope "borrow shim" this table used to describe is retired — do not reintroduce one; a reconciler needing a control-plane helper means the helper is in the wrong layer. Two function-scope imports remain in `reconcilers/`, but they read `api_core` leaves, not the carrier, and each documents the cycle that forces it. |
 | `service/clock.py`, `service/env_status.py` | Leaf helpers with no service dependencies, created so the reconcilers could stop importing the router for a timestamp or an environment status. |
-| `service/new_dashboard/*.mjs` | Dashboard modules with their own `*.test.mjs` — 61 modules, 84 test files, 1135 tests (`api-client`, `shared-files`, `message-transport`, `state`, `session-rail`, `terminal-input`, …). **`app.js` is 987 lines (was 5,081) and is UNDER the 1000-line gate** — the "3,612 lines / only reachable by source-regex tests" note that stood here is retired twice over: the extracted modules import and run in Node, so they are tested by CALLING them, and the boot wiring, the delegated click dispatcher and the per-page actions have all left. Still put new behaviour in a module here rather than in `app.js`: what remains is the render orchestrator, and it is 13 lines from going red. |
+| `service/new_dashboard/*.mjs` | Dashboard modules with their own `*.test.mjs` — 63 modules, 87 test files, 1166 tests (`api-client`, `shared-files`, `message-transport`, `state`, `session-rail`, `terminal-input`, …). **`app.js` is 987 lines (was 5,081) and is UNDER the 1000-line gate** — the "3,612 lines / only reachable by source-regex tests" note that stood here is retired twice over: the extracted modules import and run in Node, so they are tested by CALLING them, and the boot wiring, the delegated click dispatcher and the per-page actions have all left. Still put new behaviour in a module here rather than in `app.js`: what remains is the render orchestrator, and it is 13 lines from going red. |
 | `service/new_dashboard/extraction-proof.mjs` + `.test.mjs` | **The gate that makes app.js safe to slice.** It RECONSTRUCTS the pre-extraction app.js from the current file plus every extracted module and requires byte-identity with a tracked pristine fixture — so a slice cannot quietly change anything outside the spans it declared. Moving a declaration out of `app.js` means appending an entry to its `EXTRACTIONS` plan **in the same change**: `importLine` (and `importWas` only if the slice EDITED an existing import — a module created by an earlier extraction has none in the fixture, so its line is deleted instead), plus one item per declaration with `at` = the 0-indexed line in the FIXTURE, not the live file. `marker` may be several lines and each is verified verbatim, which is what lets a slice leave a seeding call behind. |
 | `mcp/stdio/` | Host-side MCP bridges (`server.js`, `claude-channel.js`, `runtimes.js`, `runtime-markers.js`, `notify-check.js`). Restart client wrapper after changes. |
 | `mcp/stdio/service-registry.mjs`, `register-service-cli.mjs` | **v0.6 Phase 6.** Writing this service's entry into the SHARED registry at `~/.aify/services.json`, which is how a launcher learns aify-comms exists. Installing a SERVICE registers it; installing the wrapper package is never the goal. aify-comms owns its own key and leaves every other service's alone — an unreadable or wrong-version registry is REFUSED, never rewritten, because overwriting would uninstall another service at the moment somebody reinstalls something unrelated. The reader lives in the aify-wrapper package (`lib/registry.mjs`); `endpointEnv` is exported from `aify-service-endpoint.mjs` as `ENDPOINT_ENV_NAMES` rather than typed twice, because a name the bridge reads but the registry does not declare gets INHERITED from whatever launched the runtime. |
@@ -196,9 +196,9 @@ on a module that referenced an undefined name and threw on its first real call, 
 a test.
 
 ```bash
-python -m pytest service/tests -q                      # 4271 tests (+8656 subtests)
-cd mcp/stdio && node tests/run-all.mjs                 # 351 suites, 1 skipped test (named in its output)
-cd service/new_dashboard && node --test *.test.mjs     # 1135 tests
+python -m pytest service/tests -q                      # 4319 tests (+8786 subtests)
+cd mcp/stdio && node tests/run-all.mjs                 # 355 suites, 1 skipped test (named in its output)
+cd service/new_dashboard && node --test *.test.mjs     # 1166 tests
 ```
 
 **The bridge suite uses TWO idioms, and counting one of them gives a third the answer.** 233 files use
@@ -220,7 +220,7 @@ delegated one does too now — for a cross-repo proof, "unverified" must not rea
 
 Those counts are a **measured snapshot** (2026-08-17), not a target: they are there so a wrong invocation is
 obvious (a `node --test` that reports 200 did not discover the suite). They rot with every slice — the run is
-the authority, never the number written here. They were 3991/318/1097 on 2026-08-17, 4165/332/1109 on 2026-08-19, 4183/342/1135 and then 4226/349/1135 on 2026-08-20, and are the figures above on 2026-08-24 -- five readings in a week, which is the argument. Four readings, two of them hours apart, is the point. **Until that last update this file carried TWO different dashboard counts** -- 1097 in the layout table and 1109 here -- which is the failure this paragraph warns about, sitting inside the warning. Before that they read 955/219/541 and 1576 while the real
+the authority, never the number written here. They were 3991/318/1097 on 2026-08-17, 4165/332/1109 on 2026-08-19, 4183/342/1135 and then 4226/349/1135 on 2026-08-20, 4271/351/1135 on 2026-08-24, and are the figures above on 2026-08-25 -- six readings in eight days, which is the argument -- five readings in a week, which is the argument. Four readings, two of them hours apart, is the point. **Until that last update this file carried TWO different dashboard counts** -- 1097 in the layout table and 1109 here -- which is the failure this paragraph warns about, sitting inside the warning. Before that they read 955/219/541 and 1576 while the real
 figures were already these, which is the whole reason for this paragraph.
 
 Editing `service/new_dashboard/app.js` also means updating `extraction-proof.test.mjs` in the SAME change
@@ -245,6 +245,14 @@ copying the number out of the failure message: that number is whatever the chang
 true.
 
 ### The 1000-line gate fails your change — read this before "fixing" it
+
+**Measured 2026-08-25, closest to the limit first.** `mcp/stdio/pi-session.js` is **993** — SEVEN
+lines of headroom, and tighter than either file this document used to name as the watch-item.
+`service/new_dashboard/app.js` is 987 and `service/control_plane.py` is 893, both exactly as written
+elsewhere here; the gap was that nobody had measured the whole population and pi-session.js was never
+on anyone's list. Nothing is broken — the gate is a red test, not a silent failure — but the next
+small edit to pi-session.js goes red for a reason unrelated to that edit, and its author should hear
+it from this paragraph rather than from the suite.
 
 No product source file may reach 1000 lines. Two tests enforce it:
 `service/tests/test_no_new_oversized_source_file.py` (Python) and
