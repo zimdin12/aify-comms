@@ -15639,6 +15639,150 @@ class TerminalSessionMigrationTests(unittest.TestCase):
         self.assertTrue(row[1])
         self.assertIn("bridge is no longer current", row[2])
 
+    def test_a_control_NOBODY_claimed_says_so(self):
+        """The first question asked of a control that did not run is whether anything picked it up,
+        and the two answers send an operator to different places.
+
+        MEASURED ON THE OPERATOR'S LIVE DATABASE: of 165 `environment_controls` carrying the old
+        single message, **156 had no `claimed_at` at all** -- so it named a claim-time check they never
+        reached, and read as "a bridge asked for this and was refused". Across the whole table, 380 of
+        407 controls are failed `stop`s from `server:superseded-bridge`; the sibling drain in
+        `superseded_bridge_stops.py` already says "target bridge never claimed", and this path said
+        the same words for both cases.
+        """
+        db_path = self._seed_terminal_control_db()
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            """
+            INSERT INTO environment_controls (
+                id, environment_id, bridge_id, action, status, requested_at
+            ) VALUES (?,?,?,?,?,?)
+            """,
+            ("envctl-unclaimed", "env-1", "bridge-old", "stop", "pending", "2026-07-15T00:00:00Z"),
+        )
+        conn.commit()
+        conn.close()
+
+        asyncio.run(init_db(db_path))
+
+        conn = sqlite3.connect(str(db_path))
+        error = conn.execute(
+            "SELECT error FROM environment_controls WHERE id = 'envctl-unclaimed'"
+        ).fetchone()[0]
+        conn.close()
+        self.assertIn("no bridge ever claimed this control", error)
+        self.assertNotIn("went away", error)
+
+    def test_a_control_that_WAS_claimed_says_that_instead(self):
+        """A control something took and then abandoned is a different fault: a bridge existed, asked
+        for the work, and died holding it. Reporting both as one message loses exactly the
+        distinction an operator needs."""
+        db_path = self._seed_terminal_control_db()
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            """
+            INSERT INTO environment_controls (
+                id, environment_id, bridge_id, action, status, requested_at, claimed_at
+            ) VALUES (?,?,?,?,?,?,?)
+            """,
+            ("envctl-claimed", "env-1", "bridge-old", "stop", "claimed",
+             "2026-07-15T00:00:00Z", "2026-07-15T00:00:05Z"),
+        )
+        conn.commit()
+        conn.close()
+
+        asyncio.run(init_db(db_path))
+
+        conn = sqlite3.connect(str(db_path))
+        error = conn.execute(
+            "SELECT error FROM environment_controls WHERE id = 'envctl-claimed'"
+        ).fetchone()[0]
+        conn.close()
+        self.assertIn("claimed, then its bridge went away", error)
+        self.assertNotIn("never claimed", error)
+
+    def test_the_claimed_STATUS_counts_even_with_no_claimed_at(self):
+        """BOTH SIGNALS, because either can be absent on its own. `claimed_at` is what a claim writes;
+        `status = 'claimed'` is the state it moves to. The pre-existing test beside this one seeds
+        exactly that shape -- status `claimed`, no timestamp -- so keying on the timestamp alone would
+        have called a claimed control unclaimed, which is the same confident wrong answer in a new
+        place."""
+        db_path = self._seed_terminal_control_db()
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            """
+            INSERT INTO environment_controls (
+                id, environment_id, bridge_id, action, status, requested_at
+            ) VALUES (?,?,?,?,?,?)
+            """,
+            ("envctl-status-only", "env-1", "bridge-old", "stop", "claimed", "2026-07-15T00:00:00Z"),
+        )
+        conn.commit()
+        conn.close()
+
+        asyncio.run(init_db(db_path))
+
+        conn = sqlite3.connect(str(db_path))
+        error = conn.execute(
+            "SELECT error FROM environment_controls WHERE id = 'envctl-status-only'"
+        ).fetchone()[0]
+        conn.close()
+        self.assertNotIn("never claimed", error)
+
+    def test_an_error_already_written_is_never_overwritten(self):
+        """The drain is a last resort. A control that already recorded WHY it failed knows more than
+        this sweep does, and the CASE has always preserved it -- pinned here because the branch this
+        change adds sits directly above it."""
+        db_path = self._seed_terminal_control_db()
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            """
+            INSERT INTO environment_controls (
+                id, environment_id, bridge_id, action, status, requested_at, error
+            ) VALUES (?,?,?,?,?,?,?)
+            """,
+            ("envctl-has-error", "env-1", "bridge-old", "stop", "pending",
+             "2026-07-15T00:00:00Z", "the launcher refused: no wrapper marker"),
+        )
+        conn.commit()
+        conn.close()
+
+        asyncio.run(init_db(db_path))
+
+        conn = sqlite3.connect(str(db_path))
+        error = conn.execute(
+            "SELECT error FROM environment_controls WHERE id = 'envctl-has-error'"
+        ).fetchone()[0]
+        conn.close()
+        self.assertEqual(error, "the launcher refused: no wrapper marker")
+
+    def test_terminal_controls_get_the_SAME_distinction(self):
+        """The two tables share one predicate and one message by design -- "is this environment's
+        bridge reachable?" must not depend on which table the control lives in. A fix applied to one
+        would recreate the same-rule-two-answers defect the shared rule exists to remove."""
+        db_path = self._seed_terminal_control_db(terminal_status="running")
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            """
+            INSERT INTO terminal_controls (
+                id, terminal_id, environment_id, bridge_id, action, status, requested_at
+            ) VALUES (?,?,?,?,?,?,?)
+            """,
+            ("termctl-unclaimed", "term-1", "env-1", "bridge-old", "input", "pending",
+             "2026-07-15T00:00:00Z"),
+        )
+        conn.commit()
+        conn.close()
+
+        asyncio.run(init_db(db_path))
+
+        conn = sqlite3.connect(str(db_path))
+        error = conn.execute(
+            "SELECT error FROM terminal_controls WHERE id = 'termctl-unclaimed'"
+        ).fetchone()[0]
+        conn.close()
+        self.assertIn("no bridge ever claimed this control", error)
+
     def test_init_db_fails_terminal_controls_for_superseded_environment_bridge(self):
         db_path = self._seed_terminal_control_db(terminal_status="running")
         conn = sqlite3.connect(str(db_path))

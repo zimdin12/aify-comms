@@ -202,9 +202,23 @@ async def _reconcile_terminal_controls(db: aiosqlite.Connection):
         UPDATE terminal_controls
         SET status = 'failed',
             handled_at = COALESCE(handled_at, ?),
-            error = CASE WHEN COALESCE(error, '') = ''
-                         THEN 'environment bridge is no longer current'
-                         ELSE error END
+            error = CASE
+                WHEN COALESCE(error, '') != '' THEN error
+                -- WHETHER ANYTHING EVER PICKED IT UP, because that is the first question asked of a
+                -- control that did not run, and the two answers send an operator to different places.
+                -- Measured on the live database: of 165 environment_controls carrying the old single
+                -- message, 156 had NO `claimed_at` -- so the message named a claim-time check they
+                -- never reached, and reads as "a bridge asked for this and was refused". The sibling
+                -- drain in `superseded_bridge_stops.py` already distinguishes the two cases; this one
+                -- said the same words for both.
+                -- BOTH SIGNALS, because either one alone can be absent. `claimed_at` is the
+                -- timestamp a claim writes; `status = 'claimed'` is the state it moves to. A row
+                -- carrying one without the other is still a row something picked up, and calling it
+                -- unclaimed would be the same kind of confident wrong answer this message replaces.
+                WHEN COALESCE(claimed_at, '') = '' AND COALESCE(status, '') != 'claimed'
+                    THEN 'environment bridge is no longer current; no bridge ever claimed this control'
+                ELSE 'environment bridge is no longer current; claimed, then its bridge went away'
+            END
         WHERE status IN ('pending', 'claimed')
           AND NOT EXISTS (
               SELECT 1 FROM environments
@@ -224,9 +238,23 @@ async def _reconcile_terminal_controls(db: aiosqlite.Connection):
         UPDATE environment_controls
         SET status = 'failed',
             handled_at = COALESCE(handled_at, ?),
-            error = CASE WHEN COALESCE(error, '') = ''
-                         THEN 'environment bridge is no longer current'
-                         ELSE error END
+            error = CASE
+                WHEN COALESCE(error, '') != '' THEN error
+                -- WHETHER ANYTHING EVER PICKED IT UP, because that is the first question asked of a
+                -- control that did not run, and the two answers send an operator to different places.
+                -- Measured on the live database: of 165 environment_controls carrying the old single
+                -- message, 156 had NO `claimed_at` -- so the message named a claim-time check they
+                -- never reached, and reads as "a bridge asked for this and was refused". The sibling
+                -- drain in `superseded_bridge_stops.py` already distinguishes the two cases; this one
+                -- said the same words for both.
+                -- BOTH SIGNALS, because either one alone can be absent. `claimed_at` is the
+                -- timestamp a claim writes; `status = 'claimed'` is the state it moves to. A row
+                -- carrying one without the other is still a row something picked up, and calling it
+                -- unclaimed would be the same kind of confident wrong answer this message replaces.
+                WHEN COALESCE(claimed_at, '') = '' AND COALESCE(status, '') != 'claimed'
+                    THEN 'environment bridge is no longer current; no bridge ever claimed this control'
+                ELSE 'environment bridge is no longer current; claimed, then its bridge went away'
+            END
         WHERE status IN ('pending', 'claimed')
           AND NOT EXISTS (
               SELECT 1 FROM environments
