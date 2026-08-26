@@ -9,7 +9,7 @@ was found and *not* fixed, plus what was deliberately left alone.
 ## What actually needs you, ranked
 
 SEVENTEEN genuine decisions; everything else in the file is a recorded judgement that needed no ruling.
-This list exists because the file is 1,951 lines and a decision buried on line 900 is a decision nobody
+This list exists because the file is 1,967 lines and a decision buried on line 900 is a decision nobody
 makes -- and because the list itself proved the point: it stood at eight for a full day of rounds while
 six more decisions were being written below it.
 
@@ -18,6 +18,23 @@ six more decisions were being written below it.
    key in `.env` so the middleware is never installed, listeners on `::` rather than `::1`, and the
    token is LOAD-BEARING for the dashboard console so it cannot simply be redacted. Bind the port,
    set a key, or scope the credential -- only the third fixes the field itself.
+
+   **RE-MEASURED 2026-08-26 evening, and the number is unchanged for a reason worth knowing.**
+   `9599d802` stopped storing gateway auth tokens in the control plane, and it worked: the standalone
+   token field is gone, and the 13 agents carrying anything named `*token*` now carry only
+   `gatewayTokenEnv`, which is an environment-variable NAME and not a credential. But 16 of 47 agents
+   still embed `ws://...?token=<live token>` inside `gatewayUrl`, and `GET /api/v1/agents` is
+   unauthenticated. The credential moved out of its own field and stayed in the URL beside it.
+
+   MEASURE IT WITH A RECURSIVE WALK. `gatewayUrl` is NESTED, so a scan over each row's top-level keys
+   returns a clean zero and reads exactly like a fix. That zero was produced during this
+   re-measurement and believed for a minute; the walk over every string value in the payload, with a
+   positive and a negative control in the same run, is what corrected it.
+
+   That is worth stating plainly because a reader glancing at `9599d802` would reasonably conclude the
+   exposure was closed. Half of it was. The remaining half is the load-bearing half -- the dashboard
+   turns that ws URL into the console's "Open in new tab" target -- so it is still the same decision,
+   with the same three options, and no smaller than it was.
 2. **A DM survives a transient blip and a channel message does not.** `/channels/{name}/send` has no
    `clientNonce`, and the index that protects the DM path does not cover the channel row's NULL
    `to_agent`. A schema decision, not an edit -- and the honest first move is a counter, since nothing

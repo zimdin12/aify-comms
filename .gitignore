@@ -88,3 +88,4 @@ Screenshot_*.png
 # Local HTTPS CA export (docker compose --profile https). Regenerable from the caddy-data volume;
 # not a secret, but not source either.
 certs/
+.monitor/
