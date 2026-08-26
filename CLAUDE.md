@@ -197,10 +197,26 @@ on a module that referenced an undefined name and threw on its first real call, 
 a test.
 
 ```bash
-python -m pytest service/tests -q                      # 4413 tests (+8972 subtests)
-cd mcp/stdio && node tests/run-all.mjs                 # 364 suites, 1 skipped test (named in its output)
-cd service/new_dashboard && node --test *.test.mjs     # 1221 tests
+python -m pytest service/tests -q                      # 4541 tests (+9123 subtests)
+cd mcp/stdio && node tests/run-all.mjs                 # 372 suites, 1 skipped test (named in its output)
+cd service/new_dashboard && node --test *.test.mjs     # 1254 tests
 ```
+
+**AND THE TWO SIBLING REPOS, because a change here can redden them and a change there can redden this
+one.** They are not optional extras: `env-client-against-real-aify-env.test.js` and
+`delegated-terminal-against-real-aify-env.test.js` in the BRIDGE suite start a real aify-env from the
+checkout, so an aify-env edit is verified by running aify-comms' tests, and an aify-comms edit to the
+seam is only verified by having aify-env present.
+
+```bash
+cd ~/projects/aify-wrapper && node --test tests/*.test.js   # 149 tests
+cd ~/projects/aify-env    && node --test tests/*.test.js    # 376 tests, 1 skipped
+```
+
+PROVEN ON 2026-08-26, and it cost the operator's fleet three times before it was understood: an
+aify-env fix (`908981b`, `cf92c57`) and the aify-comms test that drives it (`9a909c4a`) had to land as
+a matched pair, and the evidence that the pair works is an aify-comms suite run with an aify-env
+checkout present. Running three suites instead of five would have reported all of it green.
 
 **The bridge suite uses TWO idioms, and counting one of them gives a third the answer.** 233 files use
 `node:test` with `test(...)` blocks; 109 use plain top-level assertions and print "all assertions
@@ -221,7 +237,7 @@ delegated one does too now — for a cross-repo proof, "unverified" must not rea
 
 Those counts are a **measured snapshot** (2026-08-26), not a target: they are there so a wrong invocation is
 obvious (a `node --test` that reports 200 did not discover the suite). They rot with every slice — the run is
-the authority, never the number written here. They were 3991/318/1097 on 2026-08-17, 4165/332/1109 on 2026-08-19, 4183/342/1135 and then 4226/349/1135 on 2026-08-20, 4271/351/1135 on 2026-08-24, 4413/364/1221 on 2026-08-26 -- seven readings in nine days, which is the argument. Each of those readings was taken because somebody was about to quote the previous one. **Until that last update this file carried TWO different dashboard counts** -- 1097 in the layout table and 1109 here -- which is the failure this paragraph warns about, sitting inside the warning. Before that they read 955/219/541 and 1576 while the real
+the authority, never the number written here. They were 3991/318/1097 on 2026-08-17, 4165/332/1109 on 2026-08-19, 4183/342/1135 and then 4226/349/1135 on 2026-08-20, 4271/351/1135 on 2026-08-24, and 4413/364/1221 then 4541/372/1254 on 2026-08-26 -- eight readings in nine days, TWO of them the same day, which is the argument. The last pair is the sharpest version of it: a figure written into this file in the morning was wrong by the evening, without anyone doing anything unusual. Each of those readings was taken because somebody was about to quote the previous one. **Until that last update this file carried TWO different dashboard counts** -- 1097 in the layout table and 1109 here -- which is the failure this paragraph warns about, sitting inside the warning. Before that they read 955/219/541 and 1576 while the real
 figures were already these, which is the whole reason for this paragraph.
 
 Editing `service/new_dashboard/app.js` also means updating `extraction-proof.test.mjs` in the SAME change

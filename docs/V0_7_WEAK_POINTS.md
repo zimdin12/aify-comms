@@ -9,7 +9,7 @@ was found and *not* fixed, plus what was deliberately left alone.
 ## What actually needs you, ranked
 
 NINETEEN genuine decisions; everything else in the file is a recorded judgement that needed no ruling.
-This list exists because the file is 2,003 lines and a decision buried on line 900 is a decision nobody
+This list exists because the file is 2,038 lines and a decision buried on line 900 is a decision nobody
 makes -- and because the list itself proved the point: it stood at eight for a full day of rounds while
 six more decisions were being written below it.
 
@@ -195,6 +195,41 @@ that stopped covering its own subject.
     at once rather than one hand-written assertion at a time. Until it exists, the honest status of the
     POSIX reap path is ASSUMED, not proven -- and the Windows half of that same file spent v0.5.4
     silently enumerating nothing, which is what an unexercised path buys you.
+
+
+## Checked and found HEALTHY, 2026-08-26 — do not re-walk these
+
+A review round that only records defects teaches the next reader nothing about where NOT to look. Each
+of these was investigated far enough to be certain, against the live system, and each cost real time.
+
+| what | measurement | verdict |
+|---|---|---|
+| **Failed steers lose the message** | 137 failed dispatch controls; of the 136 with a source message, **0 rows missing and 0 unread** -- every one has a read receipt | NO. The steer is a fast-path injection into a live turn; when the run ends first the message falls back to normal delivery and lands. 96 of the 137 are "the run ended before the steer landed". |
+| **Dangling references across the tables** | 3,578 messages to agents that no longer exist, 3,897 from them, 1,759 orphan read receipts, 104 dispatch_runs targeting a missing agent | BY DESIGN. Removing an agent keeps their history. The one that would matter -- an OPEN run targeting a missing agent -- is **0**. |
+| **Tombstoned agents resurrect** | 71 tombstones joined against `agents` | **0** resurrections. |
+| **Dispatch runs stuck open** | 21,528 completed, 181 failed, **1** `delivered` | Healthy. The one open row is a reply contract, which reminders own. |
+| **The service is erroring** | 12h of container logs: `REQ-ERROR`, `REQ-5XX`, `DB-LOCK` | **0 lines.** 709 reconciles (one per ~61s, correct), 20 WS connections, 4 WAL-checkpoint warnings (3 at 1071-1754ms). |
+| **The dashboard drops realtime events** | service broadcasts **51** event names; the dashboard names 5 | ALREADY GATED. `realtime-dispositions.mjs` gives every event a declared disposition and defaults to refresh; `realtime-dispositions.test.mjs` fails on a name with no entry. A first count of 45 was MY undercount -- a one-line `broadcast("x")` grep. Their scan is the authority. |
+| **MCP tools declare parameters nothing reads** | 32 tools with a zod shape | **0** unread parameters, and now gated by `every-tool-parameter-has-a-reader.test.js`. |
+| **`/messages/recent` ships bodies nobody needs** | 135,603 bytes, 67.2% `body` | NEEDED. DM conversations render from that list with no second fetch. |
+
+TWO INSTRUMENTS THAT DID NOT EARN THEIR KEEP, recorded so the next person does not rebuild them:
+
+- **Strict-subset SQL siblings** (statements against one table whose WHERE conditions are a subset of
+  another's). It generalises a real defect found this round, and produced **64 candidates** of which
+  the two highest-signal ones -- the same file pair as the real defect -- are both legitimately
+  different questions. The rest are scoping predicates, not guards. A gate would need ~60 exemptions,
+  which is not a gate.
+- **Fields a JS consumer reads that Python never emits.** First run 339 findings; after fixing a
+  per-file "locally defined" set that made cross-module state look unknown, **187** -- still dominated
+  by vendored xterm, DOM builtins, and fields that pass through the service as opaque JSON and are
+  therefore never named in Python at all. The class is real (it caught the `spawnSpec.metadata`
+  defect) but not mechanically separable at this signal-to-noise.
+
+**THE METHOD THAT WORKED, stated because it is the transferable part.** Every defect found in this
+round came from OBSERVING THE RUNNING SYSTEM -- the live accessibility tree, a measured HTTP payload,
+the container's own log, the live database -- and none from scanning source. Both source scans above
+produced noise. When a round stalls, go and look at the thing running.
 
 ## The mass-worker-death investigation, and what it has RULED OUT
 
