@@ -133,6 +133,70 @@ class OtherRuntimeShapesTests(unittest.TestCase):
         raw = "listen EADDRINUSE: address already in use 127.0.0.1:9147\n"
         self.assertIn("address already in use", meaningful_failure_line(raw))
 
+class DecoratedMarkerLineIsNotAnEpitaphTests(unittest.TestCase):
+    """A fatal MARKER on a line the terminal DREW is still the screen, not a cause.
+
+    MEASURED 2026-08-26 over 83 real dead consoles from the operator's database. One produced 870
+    characters of a tool-call tree as its cause, matched on `cannot ` occurring inside the agent's own
+    English: "source movement occurred between snapshot but CANNOT BE claimed as the cause of the
+    numerical...". Box drawing, a caret and a bullet, reported as why the terminal died.
+
+    `is_terminal_decoration` already records this exact failure -- "the operator was told the worker
+    died and handed a progress meter as the reason, three times over" -- but its guard was wired into
+    the FALLBACK path only, so a marker match walked straight past it.
+
+    THE FIXTURES ARE TRIMMED CAPTURES, not inventions: the decorative prefix and the marker phrase are
+    the shape that was actually recorded. The agent's analysis text itself is not reproduced here --
+    it is the operator's work, and the defect is in the glyphs and the marker, not in what was said.
+    """
+
+    def test_a_marker_inside_a_drawn_line_is_refused(self):
+        raw = "\u2514\u2500 \u25be Tool calls (3) Search Files(...) cannot be claimed as the cause\n"
+        self.assertEqual(meaningful_failure_line(raw), "")
+
+    def test_an_undecorated_fatal_line_LATER_in_the_capture_still_wins(self):
+        """CONTINUE, not break. A decorated match is no evidence that no real one follows, and a
+        runtime often paints a frame before writing its own fatal line."""
+        raw = (
+            "\u2514\u2500 \u25be Tool calls (3) cannot be claimed as the cause\n"
+            "[hermes-managed-host] fatal: dashboard did not become ready within 60000ms\n"
+        )
+        self.assertEqual(
+            meaningful_failure_line(raw),
+            "[hermes-managed-host] fatal: dashboard did not become ready within 60000ms",
+        )
+
+    def test_a_bullet_counts_as_drawing_too(self):
+        raw = "\u25cf Baked for 1m 54s - cannot continue\n"
+        self.assertEqual(meaningful_failure_line(raw), "")
+
+    def test_the_founding_incident_is_UNCHANGED(self):
+        """The acceptance test for this whole module, re-asserted from this angle.
+
+        The guard is per LINE, not per recording, precisely so this keeps working: a plain-text fatal
+        line stands even when a spinner was painted elsewhere in the same capture. Measured: the
+        captured frame carries no decoration at all, so a per-recording rule would ALSO have passed
+        here -- which is why the choice between them had to be made on the losing case (a TUI that
+        dies after painting) rather than on this one.
+        """
+        self.assertEqual(meaningful_failure_line(REAL_DEAD_HERMES_OUTPUT), EXPECTED_ROOT_CAUSE)
+
+    def test_a_plain_fatal_line_beside_a_drawn_one_is_unaffected(self):
+        raw = (
+            "[hermes-aify] FATAL: managed gateway host did not come up.\n"
+            "\u2514\u2500 \u25be Tool calls (3) cannot be claimed\n"
+        )
+        self.assertEqual(
+            meaningful_failure_line(raw),
+            "[hermes-aify] FATAL: managed gateway host did not come up.",
+        )
+
+    def test_decoration_anywhere_still_blocks_the_FALLBACK(self):
+        """Unchanged behaviour, pinned because the two paths now share a signal and a later edit
+        could easily collapse them into one rule."""
+        raw = "\u2514\u2500 \u25be drawing something\nordinary conversation with no marker at all\n"
+        self.assertEqual(meaningful_failure_line(raw), "")
+
 
 if __name__ == "__main__":
     unittest.main()

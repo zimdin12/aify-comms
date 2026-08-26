@@ -161,9 +161,31 @@ def meaningful_failure_line(raw: str, *, max_chars: int = DEFAULT_MAX_CHARS) -> 
     chosen = ""
     for line in lines:
         low = line.lower()
-        if any(marker in low for marker in _FATAL_MARKERS):
-            chosen = line
-            break
+        if not any(marker in low for marker in _FATAL_MARKERS):
+            continue
+        # A DECORATED LINE IS THE SCREEN, NOT AN EPITAPH -- and until now that reasoning was applied
+        # to the FALLBACK path only, so a marker match on a TUI frame walked straight past it.
+        #
+        # Measured 2026-08-26 over 83 real dead consoles from the operator's database: one produced
+        # 870 characters of a tool-call tree as its cause, matched on `cannot ` occurring inside the
+        # agent's own English -- "source movement occurred between snapshot but CANNOT BE claimed as
+        # the cause of the numerical...". Box-drawing, a caret and a bullet, reported as why the
+        # terminal died. That is the same failure this module already records in
+        # `is_terminal_decoration` -- "the operator was told the worker died and handed a progress
+        # meter as the reason, three times over" -- reached by the other route.
+        #
+        # PER LINE, not per recording, and the difference matters. The fallback rejects the whole
+        # recording when ANY line is decoration, because it is guessing. This path is not guessing:
+        # it has a marker. So a plain-text fatal line still stands even when a spinner was painted
+        # elsewhere in the same capture -- which is the founding incident's shape, and its acceptance
+        # test would fail on the stricter rule.
+        #
+        # CONTINUE rather than break: a decorated match is not evidence that no undecorated one
+        # follows, and a runtime often paints a frame before writing its own fatal line.
+        if is_terminal_decoration(line):
+            continue
+        chosen = line
+        break
     if not chosen and not any(is_terminal_decoration(line) for line in lines):
         # THE FALLBACK IS FOR PIPED RUNTIMES ONLY. A process writing plain text to a pipe usually does
         # say something about its own death, so the last line is worth reporting. A full-screen TUI
