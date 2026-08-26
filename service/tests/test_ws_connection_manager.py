@@ -20,6 +20,7 @@ NO REAL SOCKETS. The fakes record what they were sent and can be told to fail; `
 from __future__ import annotations
 
 import asyncio
+import time
 import json
 import unittest
 
@@ -206,3 +207,103 @@ class ConnectionManagerTests(unittest.TestCase):
         run(self.manager.connect(ws, "lc-coder"))
         run(self.manager.notify_agent("lc-coder", "dispatch_queued"))
         self.assertEqual(json.loads(ws.sent[0]), {"event": "dispatch_queued", "data": {}})
+
+
+class BroadcastIsConcurrentTests(unittest.TestCase):
+    """The fan-out costs the SLOWEST client, not the sum of all of them.
+
+    `broadcast` awaited each `send_text` in a loop, so every client waited for the one in front of it
+    and the CALLER waited for all of them -- and every caller is an HTTP request handler on a
+    single-worker event loop. Measured before the change, three runs, median:
+
+        clients x 20ms each      1      2      4      8
+        broadcast took        30.8   62.2  124.0  248.2  ms
+
+    Exactly linear. On `POST /terminals/{id}/output`, which runs at roughly 40 a second per live
+    terminal, that is the ingest path paying for the slowest browser tab. After: 31.0 ms at every size.
+
+    THE BOUNDS BELOW ARE GENEROUS ON PURPOSE. Windows' timer floor is ~15ms, so a 50ms sleep measures
+    nearer 60; a test that budgets less than the work costs is the flake this repo has already paid for
+    twice. What separates sum from max here is a FACTOR of eight, so the assertion sits in the middle
+    of that gap rather than close to either end.
+    """
+
+    SLOW = 0.05
+    CLIENTS = 8
+
+    def _manager_with_slow_clients(self, count, delay):
+        manager = ConnectionManager()
+        async def sleep_first(_ws):
+            await asyncio.sleep(delay)
+        clients = [FakeWebSocket(f"slow-{i}", on_send=sleep_first) for i in range(count)]
+        for client in clients:
+            manager._connections.append(client)
+        return manager, clients
+
+    def test_eight_slow_clients_cost_about_one_slow_client(self):
+        manager, clients = self._manager_with_slow_clients(self.CLIENTS, self.SLOW)
+        started = time.perf_counter()
+        run(manager.broadcast("terminal_output", {"terminalId": "t-1"}))
+        elapsed = time.perf_counter() - started
+
+        self.assertTrue(all(len(c.sent) == 1 for c in clients), "a client was skipped")
+        sequential = self.CLIENTS * self.SLOW
+        self.assertLess(
+            elapsed, sequential / 2,
+            f"{self.CLIENTS} clients that each take {self.SLOW * 1000:.0f}ms took {elapsed * 1000:.0f}ms; "
+            "sequentially they would take about "
+            f"{sequential * 1000:.0f}ms, so the fan-out is still one-at-a-time",
+        )
+
+    def test_a_slow_client_does_not_hold_up_a_fast_one(self):
+        """The shape that matters in production: ONE stalled tab among healthy ones."""
+        manager = ConnectionManager()
+        finished = {}
+
+        async def slow(ws):
+            await asyncio.sleep(self.SLOW)
+            finished[ws.name] = time.perf_counter()
+
+        async def fast(ws):
+            finished[ws.name] = time.perf_counter()
+
+        stalled = FakeWebSocket("stalled", on_send=slow)
+        healthy = FakeWebSocket("healthy", on_send=fast)
+        # The stalled one FIRST, so a sequential loop would make the healthy one wait behind it.
+        manager._connections.extend([stalled, healthy])
+
+        started = time.perf_counter()
+        run(manager.broadcast("agent_status", {"agentId": "a"}))
+
+        self.assertIn("healthy", finished, "the healthy client never received the frame")
+        self.assertLess(
+            finished["healthy"] - started, self.SLOW / 2,
+            "the healthy client waited behind the stalled one",
+        )
+
+    def test_a_client_that_dies_mid_fanout_is_still_the_one_disconnected(self):
+        """The gather results are matched back to the snapshot POSITIONALLY. Getting that mapping
+        wrong would disconnect a healthy client and keep the dead one -- silently, because both
+        outcomes look like 'one client went away'."""
+        manager = ConnectionManager()
+        async def sleep_first(_ws):
+            await asyncio.sleep(0.01)
+        good_a = FakeWebSocket("good-a", on_send=sleep_first)
+        broken = FakeWebSocket("broken", fail_after=0, on_send=sleep_first)
+        good_b = FakeWebSocket("good-b", on_send=sleep_first)
+        for client in (good_a, broken, good_b):
+            manager._connections.append(client)
+
+        run(manager.broadcast("agent_status", {"agentId": "a"}))
+
+        self.assertEqual(manager.active_count(), 2, "the wrong number of clients was dropped")
+        self.assertNotIn(broken, manager._connections, "the dead client kept its slot")
+        self.assertIn(good_a, manager._connections, "a healthy client was disconnected")
+        self.assertIn(good_b, manager._connections, "a healthy client was disconnected")
+        self.assertEqual(len(good_a.sent), 1)
+        self.assertEqual(len(good_b.sent), 1)
+
+    def test_no_connections_is_a_no_op(self):
+        manager = ConnectionManager()
+        run(manager.broadcast("agent_status", {"agentId": "a"}))
+        self.assertEqual(manager.active_count(), 0)

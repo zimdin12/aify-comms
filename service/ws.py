@@ -1,4 +1,5 @@
 """WebSocket connection manager for real-time dashboard updates and agent presence."""
+import asyncio
 import json
 from fastapi import WebSocket
 
@@ -26,19 +27,41 @@ class ConnectionManager:
         return len(self._connections)
 
     async def broadcast(self, event: str, data: dict = None):
+        """Send one event to every connected client, CONCURRENTLY.
+
+        THE COST WAS THE SUM OF THE CLIENTS, NOT THE MAX. `await send_text` in a loop makes every
+        client wait for the one in front of it, and the caller wait for all of them -- and every caller
+        is an HTTP request handler on a single-worker event loop. Measured 2026-08-26 with an injected
+        delay, three runs, median:
+
+            clients x 20ms each      1      2      4      8
+            broadcast took        30.8   62.2  124.0  248.2  ms
+
+        Exactly linear: one slow or stalled client sets a floor under every other client AND under the
+        request that triggered the send. On the hot path -- `POST /terminals/{id}/output` at roughly 40
+        a second per live terminal -- that is the request handler paying for the slowest browser tab.
+
+        `gather` makes it the max instead. Nothing is traded away: ordering BETWEEN sockets was never
+        meaningful, and ordering between successive broadcasts was never guaranteed either, since every
+        `await` in the old loop was already a yield point another broadcast could interleave with. The
+        dashboard's seq-based dedup and gap-resync exist because of that, and are unchanged.
+
+        Iterate a SNAPSHOT (bughunt 2026-07-03): a concurrent disconnect() does an in-place
+        list.remove during our `await send_text`, shifting the list under an index-based iterator and
+        silently SKIPPING a live client -- for streamed terminal_output that is a sequence gap, and a
+        transient scrambled console. The snapshot is taken here, once, and the results are matched back
+        to it positionally so a client that went away mid-send is still the one disconnected.
+        """
         msg = json.dumps({"event": event, "data": data or {}})
-        dead = []
-        # Iterate a SNAPSHOT (bughunt 2026-07-03): a concurrent disconnect() does an
-        # in-place list.remove during our `await send_text`, shifting the list under an
-        # index-based iterator and silently SKIPPING a live client — for streamed
-        # terminal_output (~40/s) that's a sequence gap → transient scrambled console.
-        for ws in list(self._connections):
-            try:
-                await ws.send_text(msg)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.disconnect(ws)
+        targets = list(self._connections)
+        if not targets:
+            return
+        results = await asyncio.gather(
+            *(ws.send_text(msg) for ws in targets), return_exceptions=True
+        )
+        for ws, result in zip(targets, results):
+            if isinstance(result, BaseException):
+                self.disconnect(ws)
 
     async def notify_agent(self, agent_id: str, event: str, data: dict = None):
         """Send to one agent's socket -- and NOTHING HAS EVER CONNECTED AS ONE.
