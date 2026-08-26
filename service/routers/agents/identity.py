@@ -74,6 +74,10 @@ async def list_agents(request: Request):
         # that is asserted end-to-end by test_the_roster_never_writes_what_it_caches.py, and the
         # ceiling itself by test_the_roster_looks_up_an_environment_once.py.
         environments_by_machine: dict = {}
+        # One query for every agent's live-session environment binding, instead of one per agent --
+        # and built HERE, above the refresh, for the reason the dict above is: the live-state refresh
+        # runs first and resolved the same binding per agent because this map did not exist yet.
+        session_environment_by_agent = await load_session_environment_by_agent(db)
         # The cache refresh/repair below is BEST-EFFORT: a SELECT never takes SQLite's write
         # lock (WAL), so when the single writer is briefly contended we serve slightly-stale
         # cached rows instead of 503ing the whole roster — a 503 here broke the dashboard load
@@ -84,6 +88,7 @@ async def list_agents(request: Request):
             refreshed_live_states = await _refresh_expired_agent_live_states(
                 db, settings=settings, limit=_borrowed_list_agents_refresh_limit(),
                 environments_by_machine=environments_by_machine,
+                session_environment_by_agent=session_environment_by_agent,
             )
             if repaired_active_runs or refreshed_live_states:
                 await db.commit()
@@ -94,8 +99,6 @@ async def list_agents(request: Request):
                 await db.rollback()
             except Exception:
                 pass
-        # One query for every agent's live-session environment binding, instead of one per agent.
-        session_environment_by_agent = await load_session_environment_by_agent(db)
         cursor = await db.execute("SELECT * FROM agents")
         agents = await cursor.fetchall()
         agent_ids = [row["id"] for row in agents]

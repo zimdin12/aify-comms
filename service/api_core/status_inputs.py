@@ -176,7 +176,7 @@ async def engine_status(db, agent_row, *, settings=None) -> str:
 OFFLINE_CACHE_REVALIDATE_SECONDS = 180
 
 
-async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[str, Any]] = None, now: Optional[str] = None, environments_by_machine=None) -> dict[str, Any]:
+async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[str, Any]] = None, now: Optional[str] = None, environments_by_machine=None, session_environment_by_agent=None) -> dict[str, Any]:
     settings = settings or await _load_settings(db)
     now = now or _now()
     manual_status = str(agent_row["status"] or "").strip().lower()
@@ -329,6 +329,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         owning_env_row = await _managed_owning_environment_row(
             db, agent_row, resolved_environment_id=environment_id,
             environments_by_machine=environments_by_machine,
+            session_environment_by_agent=session_environment_by_agent,
         )
         if owning_env_row is not None:
             owning_env_status = _environment_effective_status(
@@ -524,7 +525,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         or str(agent_row["launch_mode"] or "").lower() == "none"
     )
     if agent_session_mode == "managed":
-        _si_env_row = await _managed_owning_environment_row(db, agent_row, resolved_environment_id="",
+        _si_env_row = await _managed_owning_environment_row(db, agent_row, resolved_environment_id="", session_environment_by_agent=session_environment_by_agent,
                                                               environments_by_machine=environments_by_machine)
         _si_env_reachable = _managed_env_reachable(agent_row, _si_env_row, settings)
         # WS-12 parity: booting-console → display online (same helper as _gather_status_inputs).

@@ -416,16 +416,21 @@ Per-agent coefficients, measured at N=20 by counting `aiosqlite` execute() calls
 
 | multiple | statement | roster precedent |
 |---|---|---|
-| 2.0N | `SELECT environment_id FROM agent_sessions WHERE agent_id = ?` | `f7d64900` -- `load_session_environment_by_agent` |
+| ~~2.0N~~ DONE | `SELECT environment_id FROM agent_sessions WHERE agent_id = ?` | `f7d64900` -- now preloaded in the sweep too |
 | 1.0N | `SELECT * FROM agents WHERE id = ?` | `5c45ab44` -- pass the row the caller already holds |
 | 2.0N | `SELECT last_seen FROM bridge_instances WHERE agent_id = ?` | none |
 | 2.0N | `SELECT created_at FROM terminal_sessions WHERE agent_id = ?` | none |
 
-The first two are the cheap ones and together are 3.0N -- 150 of 795 round-trips at 50 agents. Both
-mechanisms exist and are already tested: `_managed_owning_environment_row` ALREADY accepts a
-`session_environment_by_agent` map and falls back to the per-agent query only when it is absent, and
-`status_refresh.py` selects `id` from every agent and then re-selects `*` per agent one function
-later.
+The session binding SHIPPED: the sweep now builds the preload once and threads it, and the roster's
+map moved above its refresh phase for the same ordering reason the environments dict did. The sweep's
+shape went 44 + 17N -> 45 + 15N -> 46 + 13N, each step trading one fixed query for 2N per-agent ones,
+all three models exact at four points. At 50 agents that is 894 -> 696 round-trips per pass.
+
+What remains is the agent-row re-read at 1.0N: `status_refresh.py` selects `id` from every agent and
+then re-selects `*` per agent one function later, which `5c45ab44` already fixed on the roster by
+passing the row the caller holds. It needs `_refresh_agent_live_state` to accept an optional row,
+which is a wider signature change than a kwarg because that function is also called directly with an
+id and no row.
 
 NOT DONE IN THE SAME COMMIT, deliberately: each is its own threading change through the same three
 signatures, and shipping them separately means a regression names which one. The remaining 4.0N

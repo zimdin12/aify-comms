@@ -81,6 +81,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     )
     from service.api_core.settings import _load_settings
     from service.api_core.status_refresh import _refresh_expired_agent_live_states
+    from service.api_core.managed_env import load_session_environment_by_agent
     from service.api_core.dispatch_sweeps import _run_contract_reminders_once
 
     db = await _get_db()
@@ -283,7 +284,13 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # so today two agents in one sweep can disagree about the same environment; a snapshot
         # taken once cannot.
         environments_by_machine: dict = {}
-        await _refresh_expired_agent_live_states(db, environments_by_machine=environments_by_machine)
+        # The SECOND map the roster already builds, for the same reason and on the same terms: the
+        # resolver falls back to a per-agent `ORDER BY last_seen DESC LIMIT 1` when it is absent, and
+        # this pass asks it twice per agent. One query instead of 2N -- and a PRELOAD rather than a
+        # cache: built before the work and never written during it.
+        session_environment_by_agent = await load_session_environment_by_agent(db)
+        await _refresh_expired_agent_live_states(db, environments_by_machine=environments_by_machine,
+                                               session_environment_by_agent=session_environment_by_agent)
         await db.commit()
         # WAL checkpoint hygiene (2026-06-18). WAL mode + connection-per-request +
         # CONTINUOUS dashboard polling (~40 short reads/s across both dashboards) means

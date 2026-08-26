@@ -112,6 +112,30 @@ class SweepEnvironmentLookupTests(FastApiTestCase):
             "the sweep needs a sweep-scoped one, threaded the same way.",
         )
 
+    def test_the_session_binding_is_preloaded_not_asked_per_agent(self) -> None:
+        """The second map, gated the same way as the first.
+
+        `_managed_owning_environment_row` resolves an agent's live-session environment with
+        `SELECT environment_id FROM agent_sessions WHERE agent_id = ? ... ORDER BY last_seen DESC
+        LIMIT 1` whenever no preload is supplied, and this pass asks it twice per agent.
+        `load_session_environment_by_agent` fetches the same rows under the same ordering and keeps
+        the first per agent -- the row LIMIT 1 would have returned -- which
+        `test_session_environment_preload_matches_the_query.py` already holds it to.
+
+        A PRELOAD, not a cache: built before the work and never written during it, so it does not
+        need the lifetime argument the environments dict does.
+        """
+        per_agent = [
+            s for s in self._sweep_statements()
+            if s.startswith("SELECT environment_id FROM agent_sessions WHERE agent_id = ?")
+        ]
+        self.assertEqual(
+            per_agent, [],
+            f"the sweep resolved the session binding per agent {len(per_agent)} times for "
+            f"{AGENTS} agents. The roster preloads every agent's binding in one query and the "
+            "resolver already accepts the map; the sweep needs to build it once and pass it.",
+        )
+
     def test_the_sweep_writes_no_environment_row(self) -> None:
         """The licence for caching across the pass, asserted rather than assumed. A sweep-scoped cache
         is correct exactly when nothing changes its subject during the sweep."""
