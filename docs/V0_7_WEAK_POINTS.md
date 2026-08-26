@@ -281,6 +281,36 @@ Measured 2026-08-25 against the live service: `/api/v1/agents` returns
 endpoint the dashboard polls every 15 seconds and any agent may call. That is more exposure, and more
 continuous, than the seven tokens in stored run errors that `9599d802` fixed.
 
+RE-MEASURED 2026-08-26, a day later and on the same running service: 16 of 47 agents in the roster
+carry a `?token=` in `runtimeConfig.gatewayUrl`. The same count on a different day makes this a
+standing exposure rather than a momentary artefact of whoever happened to be registered.
+
+THE SCOPE IS WIDER THAN "ANY AGENT", and this is the part that needs the operator rather than a
+commit. Three facts, each measured on 2026-08-26 rather than inferred:
+
+* `service/main.py` installs its auth only under `if config.api_key:` -- and no `*_API_KEY` line is
+  set in `.env`, so `APIKeyMiddleware` is never added. A `GET /api/v1/agents` with no credentials
+  succeeds; that is how the counts above were taken.
+* The container publishes `"${SERVICE_PORT:-8800}:8800"` with no host-IP prefix, and
+  `Get-NetTCPConnection -LocalPort 8800` shows listeners on `::1` AND `::` -- the wildcard, not
+  loopback only.
+* That endpoint returns the tokens.
+
+So the reachable set is not "registered agents" but "whatever can open port 8800 on this host". What
+that resolves to depends on a host firewall this check cannot see, so the honest statement is that
+nothing in the SERVICE narrows it.
+
+THE DASHBOARD IS THE SAME SHAPE, checked while there: `service/new_dashboard_app.py` adds only
+`GZipMiddleware` -- no auth of any kind -- port 8801 listens on `::` like 8800, and `GET /` returns
+200. Its markup carries `data-default-api-port="8800"`, so a browser that reaches it then queries the
+API described above. The two together are an operational console over the fleet rather than a
+read-only leak.
+
+THE OPERATOR'S CALL, not a code change, and the options differ in cost rather than in difficulty:
+bind the published port to 127.0.0.1, set an API key, or give the dashboard console a scoped
+credential so the field stops needing to carry a live one. The third is the only one that fixes the
+field itself; the first two shrink who can ask.
+
 IT IS NOT THE SAME DEFECT, which is why it was not fixed with it. The token in an error message was
 decoration -- the message needs the address, never the credential. This one is LOAD-BEARING:
 `session-console.mjs` hands `runtimeConfig.gatewayUrl` to `hermesGatewayUrlToHttp`, which pulls the
