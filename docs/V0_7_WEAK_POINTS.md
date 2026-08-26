@@ -385,6 +385,84 @@ an edit.
 WHAT WOULD SETTLE THE PRIORITY: how often a channel send actually fails. Nothing counts it today --
 the error goes to the calling agent and nowhere else -- so the first move is a counter, not a nonce.
 
+**The reconcile sweep still re-asks per agent two more things the roster already batches.** With the
+environments cache landed, one sweep costs `45 + 15N` round-trips -- measured exactly at N=5, 20, 25
+and 50 (120, 345, 420, 795). It runs every 60 seconds and is UNCAPPED: the roster refreshes at most
+`LIST_AGENTS_REFRESH_LIMIT` (8) live states per call, this one passes `limit=None` and recomputes
+every agent. So this is the load that grows with the fleet.
+
+THE COEFFICIENT'S NOUN, because it is easy to carry the number somewhere it does not belong: 15N was
+measured on uniformly MANAGED CLAUDE agents. The per-agent cost is not one number -- measured
+separately on the same fixture, adding agents to an empty roster:
+
+    empty roster sweep       44-45 round-trips (varies by one with fixture state; the
+                             four-point fit gives an intercept of 45)
+    +20 MANAGED claude        15.1 per agent
+    +20 RESIDENT claude       10.2 per agent
+
+The floor is 45 DISTINCT statements with no duplicates -- one per reconciler concern -- so the fixed
+half is irreducible without removing a reconciler, not a batching opportunity.
+
+Managed costs about half again what resident does, which follows from the path:
+`_managed_owning_environment_row` returns early for a resident agent and the channel-sidecar probe is
+managed-only. So a mixed fleet lands between 10N and 15N by its mix, and `45 + 15N` is the
+worst-case shape rather than a prediction for the real roster. Count against a representative mix
+rather than multiplying.
+
+The uncapped-ness is DELIBERATE and not a defect: this sweep is the backstop that keeps every agent's
+status fresh when no dashboard is polling, which is exactly what a cap would break.
+
+Per-agent coefficients, measured at N=20 by counting `aiosqlite` execute() calls:
+
+| multiple | statement | roster precedent |
+|---|---|---|
+| 2.0N | `SELECT environment_id FROM agent_sessions WHERE agent_id = ?` | `f7d64900` -- `load_session_environment_by_agent` |
+| 1.0N | `SELECT * FROM agents WHERE id = ?` | `5c45ab44` -- pass the row the caller already holds |
+| 2.0N | `SELECT last_seen FROM bridge_instances WHERE agent_id = ?` | none |
+| 2.0N | `SELECT created_at FROM terminal_sessions WHERE agent_id = ?` | none |
+
+The first two are the cheap ones and together are 3.0N -- 150 of 795 round-trips at 50 agents. Both
+mechanisms exist and are already tested: `_managed_owning_environment_row` ALREADY accepts a
+`session_environment_by_agent` map and falls back to the per-agent query only when it is absent, and
+`status_refresh.py` selects `id` from every agent and then re-selects `*` per agent one function
+later.
+
+NOT DONE IN THE SAME COMMIT, deliberately: each is its own threading change through the same three
+signatures, and shipping them separately means a regression names which one. The remaining 4.0N
+(`bridge_instances`, `terminal_sessions`) have no precedent and are harder than they look. Attributed
+at N=6, the sidecar probe's 2.0N is NOT one function asking twice -- it is
+`managed_workers.py:296` and `channel_delivery.py:305`, two different reconcilers each asking once per
+agent from its own pass. Sharing an answer between them means crossing the leaf-module boundary the
+reconcilers were deliberately split along, so it is an architecture question rather than a cache.
+(`channel_delivery.py:214` and `dispatch_queue.py:351` each already keep a per-loop `sidecar_cache`,
+which is the same idea at the scope where it does not cross that boundary.)
+
+A MEASUREMENT TRAP worth recording with them, because it cost me a wrong number first: calling
+`GET /api/v1/agents` to count agents before a sweep REFRESHES live states, so the sweep then skips
+them as already fresh and reports 64 round-trips instead of 345. Measure the sweep with the
+live-state cache cleared and without touching the roster, or the comparison is against a sweep that
+did not run.
+
+**One status derivation asks "is this console booting?" twice for the same agent, and the obvious fix
+is already rejected on the record.** Measured at N=6 in a sweep, attributing each call to its true
+caller (excluding the file that DEFINES the probe, which is what made my first two attributions point
+at the function's own line): `_managed_console_is_booting` runs 2.0N, from
+`status_inputs.py:533` inside `_compute_live_status_cache` and `status_decision.py:234` inside
+`_decide_effective_status` -- which `_compute_live_status_cache` itself calls at line 398. Same
+function, same agent, same question, twice.
+
+IT IS NOT UNCONDITIONAL REDUNDANCY, which is why this is a note rather than a fix. The two probes sit
+behind different conditions and coincided because every agent in the fixture was managed with no live
+worker and a reachable environment. And `_decide_effective_status`'s own docstring already weighed the
+tempting change and refused it: "Hoisting it would make this a pure function of plain values and
+trivially testable, and it would also add a database query to EVERY status computation on a hot path."
+
+So the only acceptable shape is a per-call MEMO -- computed lazily, at most once per agent per
+derivation -- which keeps the conditionality that hoisting would destroy. That means threading a
+holder through `_decide_effective_status`, whose three outputs are already also parameters, on the
+hot path that serves every status. Worth about 1.0N (50 round-trips per sweep at 50 agents, ~6%), and
+worth doing carefully or not at all.
+
 ## Worth knowing, not worth doing
 
 **The cross-language constant census: 19 service constants are named from JS, 5 carry a timing

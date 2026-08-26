@@ -268,7 +268,22 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # dashboard is actively polling — e.g. a transient env-offline blip
         # sticking for 10+ minutes. Recomputes only rows whose refresh_after
         # has passed, so it is cheap.
-        await _refresh_expired_agent_live_states(db)
+        # ONE cache for this sweep. `_managed_owning_environment_row` falls back to a lookup keyed
+        # on machine_id ALONE, and this pass asks it twice per agent -- measured 2.0N, against a
+        # sweep that costs 44 + 17N round-trips and, unlike the roster, is UNCAPPED: the roster
+        # refreshes at most LIST_AGENTS_REFRESH_LIMIT live states per call, this passes limit=None
+        # and recomputes every agent every 60s.
+        #
+        # Safe on the same terms as the request-scoped dict in `list_agents`, not by analogy with
+        # it: the resolver's docstring requires a cache no longer-lived than its caller's loop, a
+        # dict created here dies when this sweep returns, and one sweep issues ZERO writes to
+        # `environments` -- asserted, not argued.
+        #
+        # It also makes the pass SELF-CONSISTENT. The 2.0N separate reads can straddle a heartbeat,
+        # so today two agents in one sweep can disagree about the same environment; a snapshot
+        # taken once cannot.
+        environments_by_machine: dict = {}
+        await _refresh_expired_agent_live_states(db, environments_by_machine=environments_by_machine)
         await db.commit()
         # WAL checkpoint hygiene (2026-06-18). WAL mode + connection-per-request +
         # CONTINUOUS dashboard polling (~40 short reads/s across both dashboards) means
