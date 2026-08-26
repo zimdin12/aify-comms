@@ -25,6 +25,25 @@ from service.terminal_ansi import _screen_to_ansi
 import re
 from typing import Any, Optional
 
+# ONE max for the terminal grid (C1, 2026-07-26). The RENDERER is the binding constraint — a pyte
+# screen is allocated cols*rows cells — so the ceiling lives here and the resize endpoint imports it
+# rather than carrying its own. They used to disagree: resize clamped to 2000x1000 while the live
+# screen clamped to 500x200, so a console wider than 500 columns was rendered at the WRONG WIDTH,
+# which is exactly the woven-rows garbling the server-rendered snapshot exists to prevent.
+# Generous vs any real terminal (500 cols is ~4000px at a normal font); it is crash insurance for a
+# bogus TIOCSWINSZ, not a target.
+TERMINAL_MAX_COLS = 500
+TERMINAL_MAX_ROWS = 200
+TERMINAL_MIN_COLS = 20
+TERMINAL_MIN_ROWS = 5
+#
+# HOISTED ABOVE THEIR FIRST USE, 2026-08-26. They were declared at the BOTTOM of this module, below
+# the two functions that clamp with the same numbers -- so `infer_source_width` and `render_snapshot`
+# wrote `500`, `200`, `20` and `5` as literals because at their line the names did not yet exist.
+# A module that declares TERMINAL_MAX_COLS = 500 and then types 500 twice more has three places to
+# change and one that anybody would think to look at. Nothing here depends on order: they are ints.
+
+
 try:
     import pyte  # type: ignore
     _HAVE_PYTE = True
@@ -113,8 +132,8 @@ def infer_source_width(raw_output: str, probe: int = 400, rows: int = 120) -> in
     """
     if not raw_output or not _HAVE_PYTE:
         return 0
-    probe = max(80, min(int(probe or 400), 500))
-    rows = max(5, min(int(rows or 120), 200))
+    probe = max(80, min(int(probe or 400), TERMINAL_MAX_COLS))
+    rows = max(TERMINAL_MIN_ROWS, min(int(rows or 120), TERMINAL_MAX_ROWS))
     screen = pyte.Screen(probe, rows)
     stream = pyte.Stream(screen)
     try:
@@ -159,8 +178,8 @@ def render_snapshot(raw_output: str, cols: int, rows: int) -> str:
     """
     if not raw_output:
         return ""
-    cols = max(20, min(int(cols or 80), 500))
-    rows = max(5, min(int(rows or 24), 200))
+    cols = max(TERMINAL_MIN_COLS, min(int(cols or 80), TERMINAL_MAX_COLS))
+    rows = max(TERMINAL_MIN_ROWS, min(int(rows or 24), TERMINAL_MAX_ROWS))
     if not _HAVE_PYTE:
         return raw_output
 
@@ -305,17 +324,6 @@ class _LiveScreen:
             self.__init__(cols, rows)  # type: ignore[misc]  # never carry a corrupt screen
 
 
-# ONE max for the terminal grid (C1, 2026-07-26). The RENDERER is the binding constraint — a pyte
-# screen is allocated cols*rows cells — so the ceiling lives here and the resize endpoint imports it
-# rather than carrying its own. They used to disagree: resize clamped to 2000x1000 while the live
-# screen clamped to 500x200, so a console wider than 500 columns was rendered at the WRONG WIDTH,
-# which is exactly the woven-rows garbling the server-rendered snapshot exists to prevent.
-# Generous vs any real terminal (500 cols is ~4000px at a normal font); it is crash insurance for a
-# bogus TIOCSWINSZ, not a target.
-TERMINAL_MAX_COLS = 500
-TERMINAL_MAX_ROWS = 200
-TERMINAL_MIN_COLS = 20
-TERMINAL_MIN_ROWS = 5
 
 
 def _clamp_grid(cols: Any, rows: Any) -> tuple[int, int]:

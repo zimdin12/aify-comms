@@ -54,7 +54,28 @@ _EVENTS_QUERY_WAS = chr(10).join([
     '        )).fetchall()',
 ])
 
-EDITED_SINCE = [(_EVENTS_QUERY_NOW, _EVENTS_QUERY_WAS)]
+#: The grid clamp, after the bounds moved from literals to the constants that already owned them.
+#: `TERMINAL_MAX_COLS = 500` and its three siblings were declared at the BOTTOM of
+#: `terminal_snapshot.py`, below the functions that clamp with the same numbers -- so those functions,
+#: and this call site, wrote the values out. Same numbers, four homes. Behaviour is unchanged, which
+#: is precisely why it has to be declared here rather than left to look like a divergence.
+_GRID_CLAMP_NOW = chr(10).join([
+    '                # THE BOUNDS COME FROM THE RENDERER, which is the binding constraint -- a pyte',
+    '                # screen is allocated cols*rows cells. Typed here as literals they were a fourth copy',
+    '                # of numbers the snapshot module already declares.',
+    '                eff_cols = max(TERMINAL_MIN_COLS, min(max(int(cols), int(src_w or 0)), TERMINAL_MAX_COLS))',
+    '                eff_rows = max(TERMINAL_MIN_ROWS, min(int(rows), TERMINAL_MAX_ROWS))',
+])
+
+_GRID_CLAMP_WAS = chr(10).join([
+    '                eff_cols = max(20, min(max(int(cols), int(src_w or 0)), 500))',
+    '                eff_rows = max(5, min(int(rows), 200))',
+])
+
+EDITED_SINCE = [
+    (_EVENTS_QUERY_NOW, _EVENTS_QUERY_WAS),
+    (_GRID_CLAMP_NOW, _GRID_CLAMP_WAS),
+]
 
 EXTRACTIONS = ["_attach_terminal_snapshot"]
 

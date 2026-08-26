@@ -27,7 +27,13 @@ from __future__ import annotations
 
 import asyncio
 
-from service.terminal_snapshot import infer_source_width as _infer_terminal_source_width
+from service.terminal_snapshot import (
+    TERMINAL_MAX_COLS,
+    TERMINAL_MAX_ROWS,
+    TERMINAL_MIN_COLS,
+    TERMINAL_MIN_ROWS,
+    infer_source_width as _infer_terminal_source_width,
+)
 from service.terminal_snapshot import render_live_screen as _render_live_terminal_screen
 from service.terminal_snapshot import render_snapshot as _render_terminal_snapshot
 
@@ -70,8 +76,11 @@ async def _attach_terminal_snapshot(term_dict, cols, rows) -> None:
                     src_w = stored_cols
                 else:
                     src_w = await loop.run_in_executor(None, _infer_terminal_source_width, raw)
-                eff_cols = max(20, min(max(int(cols), int(src_w or 0)), 500))
-                eff_rows = max(5, min(int(rows), 200))
+                # THE BOUNDS COME FROM THE RENDERER, which is the binding constraint -- a pyte
+                # screen is allocated cols*rows cells. Typed here as literals they were a fourth copy
+                # of numbers the snapshot module already declares.
+                eff_cols = max(TERMINAL_MIN_COLS, min(max(int(cols), int(src_w or 0)), TERMINAL_MAX_COLS))
+                eff_rows = max(TERMINAL_MIN_ROWS, min(int(rows), TERMINAL_MAX_ROWS))
                 term_dict["snapshot"] = await loop.run_in_executor(
                     None, _render_terminal_snapshot, raw, eff_cols, eff_rows
                 )
