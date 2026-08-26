@@ -64,6 +64,33 @@ twice before reading it.
 So the standing advice is the opposite of what stood here: an edit to an extracted dashboard module
 costs one `editedSince` entry, and the thing to budget is getting the bytes right, not the gate.
 
+**A superseded bridge could set a turn it was not allowed to clear. SHIPPED 2026-08-26, `c71b0fe4`.**
+`/turn-end` has refused a superseded bridge since WS-4a; `/turn-start` never read the body at all, so
+the same detector's SET was honoured while its CLEAR was refused -- a one-way ratchet toward
+`working`. Its 45s KEEP-FRESH re-post also refreshed `turn_updated_at`, the column the 30-minute
+ceiling measures, so the backstop meant to catch a latched turn never fired. Eight tests, three
+watched red first, four mutations.
+
+**The roster's environments cache served one of the two phases that needed it. SHIPPED 2026-08-26,
+`fab4204c`.** Measured against a claim I had already published: 17 machine lookups per request at 50
+agents, 16 of them from the live-state refresh, which runs before the cache was created. 137 -> 121
+round-trips per call; the poll cycle 173 -> 157.
+
+**The inbox was a fallback in the code and not one on the wire. SHIPPED 2026-08-26, `106e8e18`.**
+`/messages/recent` wins whenever it returns messages, so the inbox response was fetched and discarded
+every healthy cycle -- 300,154 bytes uncompressed, 105,673 gzipped. Now a real loader that reports its
+own failure, with the positional slot preserved.
+
+**A console that came back without a terminal said nothing. SHIPPED 2026-08-26, `e128cf11`.** aify-env
+answers `terminal: true|false` on every spawn so the caller can tell; the flag reached
+`startDelegated`, became `pty`, and died one line short of `[terminal attached pid=N]`. The attach
+line now names the cause, in the console the operator is already watching.
+
+**Two service-selecting env carriers are read by the bridge and not declared to the registry. GATED
+2026-08-26, `9ae4037d`.** Not a fix -- a decision gate. Declaring them would override the operator's
+documented fallback opt-in, so the test fails when a NEW carrier appears and hands whoever added it
+the trade-off.
+
 ## Worth doing, needs an operator decision
 
 **Terminals cannot be enumerated through the API, which is why terminal-level questions keep
@@ -304,6 +331,29 @@ erased once the field has content, and this one doubles as a state message, so t
 name changes with the thread. One attribute fixes it. Deferred only because that module is
 extraction-tracked and a one-attribute edit there costs a declared `editedSince` cycle — worth doing
 alongside the next intentional change to the file. Recorded in KNOWN_ISSUES.md.
+
+**A DM survives a transient blip and a channel message does not.** `/messages/send` carries a
+`clientNonce` (`send-tools.mjs` generates a `randomUUID()`), `isRetriableRequest` gates the retry on
+that nonce being present, and the server collapses a retry to the original message by
+`(from_agent, client_nonce)`. `/channels/{name}/send` has none of it: no nonce in the body, no
+retriable rule, and the route inserts into `messages` without the column.
+
+That asymmetry meets a failure mode this codebase documents in its own poll comment -- "The
+single-worker service can transiently drop a request under poll load" -- so the two paths behave
+differently on exactly the event both were built to survive. It is not silent: the tool returns
+`isError: true` and the agent is told. It is still a message that needed one retry and did not get it.
+
+WHY THIS IS NOT A CHEAP FIX, which is why it sits here rather than being done. Adding a nonce
+client-side WITHOUT server support would make a retry double-post, which is worse than the current
+failure. Server support means the route accepting the field, short-circuiting on a prior
+`(from_agent, client_nonce)`, and carrying the column through BOTH inserts -- `channel_send.py`
+writes a channel row with no `to_agent` and then a row per recipient. The uniqueness that protects
+the DM path is an index on `(from_agent, client_nonce, to_agent)`, and SQLite treats NULLs as
+distinct, so the channel row's NULL `to_agent` is not covered by it. That is a schema decision, not
+an edit.
+
+WHAT WOULD SETTLE THE PRIORITY: how often a channel send actually fails. Nothing counts it today --
+the error goes to the calling agent and nowhere else -- so the first move is a counter, not a nonce.
 
 ## Worth knowing, not worth doing
 
@@ -612,6 +662,39 @@ is not the trade, and the detector's own tests already pin the behaviour it is r
 
 Worth knowing as a SHAPE more than as a bug: a guard that refuses to guess is only as good as its
 callers' willingness not to guess for it.
+
+**The installed bridge copy has CRLF where the repo has LF, and a future content check would call
+that a difference.** Comparing `~/.aify-comms/mcp/stdio/*` against the checkout on 2026-08-26: 16
+files differ, 15 of which git also reports as changed since the install marker
+(`.aify-version`, sha `1a3de61a`). The sixteenth is `aify-service-endpoint.mjs`, and
+`diff --strip-trailing-cr` shows its content is IDENTICAL -- 12,202 installed bytes against 11,959 in
+the repo, the difference being 243 carriage returns.
+
+Harmless today: `bridge-installed` compares the marker sha, not content, so nothing looks. It matters
+because `doctor-predicates.js` argues content comparison is "strictly stronger than the bridge check"
+where it does use one for skills, which is an open invitation to do the same for the bridge. Whoever
+takes it must strip CR first or the check reports a permanently-stale file that is not stale --
+crying wolf on the one instrument whose whole job is to be believed.
+
+Checked while there: all 17 installed skill files are byte-identical to the checkout, so the skills
+check is accurate here and this is a bridge-only artefact.
+
+**Why a run sits at "delivered / reply expected" with a fixed number of reminders and then goes
+quiet.** The operator asked this about two sc- runs. Reminders are bounded by AGE, not by count:
+`_run_contract_reminders_once` filters with
+`AND datetime(r.requested_at) >= datetime('now', -contract_stale_hours)` (default 24), so a run stops
+being reminded once it is a day old. Nothing counts reminders and gives up, and nothing closes the run.
+
+So the state the operator saw is the contract behaving as specified and simply not being fulfilled:
+the reminders stopped because the run aged out, and the run stays open because a reply never arrived.
+Not a defect -- but "reminders stopped" and "we gave up on this" look identical from the dashboard,
+and only the first is true.
+
+NOT CHANGED. Whether an unfulfilled reply contract should auto-close, or say "no longer reminding"
+rather than "reply expected", is a policy question for the operator rather than a repair. The cheap
+half -- distinguishing "still chasing" from "aged out" in what the dashboard shows -- would need the
+age comparison the sweep already does, and belongs with whoever decides what the second state should
+be called.
 
 ## Left alone on purpose, with the reason recorded in code
 
