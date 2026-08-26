@@ -7,6 +7,7 @@ import hmac
 import json
 import logging
 import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -16,12 +17,77 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from service.longpoll import attributable_ms, begin_wait_accounting
+
 from service.config import get_config
 from service.routers import health, containers as containers_router
 from service.routers.api_v2 import router as api_router
 from service.db import init_db
 from service.ws import ConnectionManager
 from service.ntfy import get_relay
+
+
+class RequestTimingMiddleware(BaseHTTPMiddleware):
+    """Pinpoint "database is locked" and slow handlers, without crying wolf at long polls.
+
+    Diagnostic (2026-06-29): a lock error only fires after the 5s busy_timeout, so the offending
+    request shows up as a ~5s request to a specific endpoint. Logging method+path+duration lets the
+    wide-transaction source be fixed precisely instead of guessed. Cheap: one monotonic clock per
+    request.
+
+    A CLASS RATHER THAN A `@app.middleware("http")` CLOSURE, for the same reason `APIKeyMiddleware`
+    is one: a closure defined inside `create_app` can only be exercised by building the whole
+    application, and `create_app()` opens a real database at a config-derived path, mounts the MCP
+    SSE server and runs a startup reconcile. A test wanting to check a log line should not have to do
+    any of that -- and a test that opens a database whose path comes from configuration is one
+    misconfiguration away from opening the operator's.
+
+    A LONG POLL IS NOT A SLOW REQUEST. It holds the connection open on purpose, and every one of them
+    tripped the old flat 1000ms threshold: measured over six hours of the live service's logs, 10,587
+    of 14,062 SLOW-REQ lines (75.3%) were `/claim` polls returning at their own wait budget, and
+    `/api/v1/environments/controls/claim` had a MINIMUM of 20,002ms. The lines that mattered --
+    `/api/v1/agents` reaching 5,578ms -- were buried three-to-one in the one log the debug skill sends
+    an operator to read.
+
+    NO PATH LIST, because none could be right: the budget is per-REQUEST (`waitMs` in the body, capped
+    by `MAX_WAIT_S`), so the same endpoint is an immediate return for one caller and a 20-second hold
+    for another. The waiting reports ITSELF through `begin_wait_accounting`, and what remains is work.
+    """
+
+    #: Work, in milliseconds, at or above which a request is worth a line. Not the wall clock.
+    SLOW_MS = 1000
+
+    async def dispatch(self, request: Request, call_next):
+        start = time.monotonic()
+        wait_holder = begin_wait_accounting()
+        try:
+            response = await call_next(request)
+        except Exception as exc:  # noqa: BLE001 — log + re-raise, behavior unchanged
+            dur_ms = int((time.monotonic() - start) * 1000)
+            if "database is locked" in str(exc).lower() or "locked" in str(exc).lower():
+                logger.error(f"DB-LOCK {request.method} {request.url.path} after {dur_ms}ms: {exc}")
+            else:
+                logger.error(
+                    f"REQ-ERROR {request.method} {request.url.path} after {dur_ms}ms: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+            raise
+        dur_ms = int((time.monotonic() - start) * 1000)
+        work_ms = attributable_ms(dur_ms, wait_holder)
+        if work_ms >= self.SLOW_MS:
+            waited = dur_ms - work_ms
+            # BOTH NUMBERS WHEN THERE WAS A WAIT. "3200ms" on a request that slept 20s of its 23s
+            # tells an operator the wrong thing about where the time went.
+            detail = f" (waited {waited}ms of {dur_ms}ms)" if waited else ""
+            logger.warning(
+                f"SLOW-REQ {request.method} {request.url.path} {work_ms}ms"
+                f"{detail} status={response.status_code}"
+            )
+        if response.status_code >= 500:
+            logger.error(
+                f"REQ-5XX {request.method} {request.url.path} {dur_ms}ms status={response.status_code}"
+            )
+        return response
 
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
@@ -210,6 +276,8 @@ async def lifespan(app: FastAPI):
     logger.info(f"Shutting down {config.name}")
 
 
+
+
 def create_app() -> FastAPI:
     config = get_config()
 
@@ -261,29 +329,7 @@ def create_app() -> FastAPI:
         app.add_middleware(APIKeyMiddleware, api_key=config.api_key)
         logger.info("API key auth enabled")
 
-    # Diagnostic (2026-06-29): pinpoint "database is locked" + slow handlers. A lock error only
-    # fires after the 5s busy_timeout, so the offending request shows up as a ~5s request to a
-    # specific endpoint — this logs the method+path+duration so the wide-transaction/contention
-    # source can be fixed precisely instead of guessed. Cheap (one monotonic clock per request).
-    @app.middleware("http")
-    async def _timing_and_lock_logger(request: Request, call_next):
-        import time as _t
-        start = _t.monotonic()
-        try:
-            response = await call_next(request)
-        except Exception as exc:  # noqa: BLE001 — log + re-raise, behavior unchanged
-            dur_ms = int((_t.monotonic() - start) * 1000)
-            if "database is locked" in str(exc).lower() or "locked" in str(exc).lower():
-                logger.error(f"DB-LOCK {request.method} {request.url.path} after {dur_ms}ms: {exc}")
-            else:
-                logger.error(f"REQ-ERROR {request.method} {request.url.path} after {dur_ms}ms: {type(exc).__name__}: {exc}")
-            raise
-        dur_ms = int((_t.monotonic() - start) * 1000)
-        if dur_ms >= 1000:
-            logger.warning(f"SLOW-REQ {request.method} {request.url.path} {dur_ms}ms status={response.status_code}")
-        if response.status_code >= 500:
-            logger.error(f"REQ-5XX {request.method} {request.url.path} {dur_ms}ms status={response.status_code}")
-        return response
+    app.add_middleware(RequestTimingMiddleware)
 
     app.include_router(health.router)
     app.include_router(api_router, prefix="/api/v1")

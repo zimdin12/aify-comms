@@ -35,6 +35,7 @@ from __future__ import annotations
 
 from service.db_errors import _is_lock_error
 import asyncio
+import contextvars
 import time
 from collections import defaultdict
 from typing import Awaitable, Callable, Optional
@@ -55,6 +56,49 @@ DEFAULT_FALLBACK_S = 3.0
 # past the client deadline and surface as a spurious "claim timed out" on the bridge. Pairs with
 # the short claim busy_timeout so the final per-iteration attempt can't overshoot this by >~1.2s.
 MAX_WAIT_S = 25.0
+
+# TIME SPENT DELIBERATELY WAITING, so a diagnostic can tell it from time spent working.
+#
+# `SLOW-REQ` warned on any request over 1000ms. A long poll HOLDS THE CONNECTION OPEN ON PURPOSE, so
+# every one of them tripped it: measured over six hours on the operator's live service, 14,062
+# SLOW-REQ lines of which 10,587 (75.3%) were `/claim` long-polls, and
+# `/api/v1/environments/controls/claim` had a MINIMUM of 20,002ms -- not one of its 1,020 lines was a
+# genuine slow request. The lines that mattered (`/api/v1/agents` reaching 5,578ms) were buried under
+# them, in the one log the debug skill tells an operator to read.
+#
+# A MUTABLE HOLDER RATHER THAN A PLAIN ContextVar VALUE, and the difference is load-bearing.
+# Starlette's BaseHTTPMiddleware runs the downstream app in its own task, which COPIES the context --
+# so a value `set()` below the middleware is invisible above it. The copy shares the holder's
+# reference, so mutating the object does propagate. The middleware also keeps its own reference, which
+# makes the read independent of the contextvar surviving at all.
+_WAITED: contextvars.ContextVar = contextvars.ContextVar("aify_longpoll_waited", default=None)
+
+
+def begin_wait_accounting() -> dict:
+    """Start counting deliberate waiting for this request. Returns the holder to read later."""
+    holder = {"ms": 0.0}
+    _WAITED.set(holder)
+    return holder
+
+
+def note_waited(seconds: float) -> None:
+    """Record time this request spent asleep waiting for work, never time spent doing it."""
+    holder = _WAITED.get()
+    if holder is None:
+        return
+    holder["ms"] += max(0.0, float(seconds)) * 1000.0
+
+
+def attributable_ms(total_ms: int, holder: Optional[dict]) -> int:
+    """How much of a request's wall time is WORK rather than deliberate waiting.
+
+    Pure, so the threshold decision can be tested without a server. Clamped at zero: a holder that
+    somehow out-counts the request is a bug in the accounting, and a negative duration would read as
+    a very fast request rather than as the fault it is.
+    """
+    waited = float((holder or {}).get("ms", 0.0) or 0.0)
+    return max(0, int(round(float(total_ms) - waited)))
+
 
 # Wildcard scope: a waiter on "*" wakes on every notify; a notify("*") wakes everyone.
 GLOBAL_SCOPE = "*"
@@ -139,7 +183,13 @@ async def longpoll(
                     return result
             except Exception:
                 pass
+        # ONLY THE SLEEP is counted as waiting. The retry `attempt()` below is real work and must
+        # keep counting against the slow-request threshold, or a claim that is slow to EXECUTE would
+        # hide inside a long poll -- which is the failure this accounting exists to make visible, not
+        # a second place to bury it.
+        slept_at = time.monotonic()
         await _wait_once(scope, min(remaining, fallback_s))
+        note_waited(time.monotonic() - slept_at)
         result = await _try()
         if not is_empty(result):
             return result
