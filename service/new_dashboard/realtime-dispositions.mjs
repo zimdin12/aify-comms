@@ -2,7 +2,10 @@
 //
 // THE DEFECT THIS REPLACES. applyRealtimeEvent ended with an inline array of eleven event names that
 // triggered a refresh. Anything else fell off the end of the function and was dropped — no branch, no
-// log, nothing. Measured 2026-08-25: the service broadcasts 49 distinct event names, three were handled
+// log, nothing. Measured 2026-08-26: the service broadcasts 51 distinct event names -- 49 to every
+// connection via broadcast(), and 2 (new_message, dispatch_request) addressed to a single agent
+// socket via notify_agent(). The gate's producer scan read only the first sender until 2026-08-26,
+// which is why the figure here was 49. Of those 49, three were handled
 // in place, eleven were in the array, and THIRTY-FIVE were silently discarded, among them
 // channel_message, terminal_stopped, message_deleted, conversation_cleared, file_shared and all three
 // spawn_request_*. Not data loss — the ~15s poll catches up — but a realtime channel that mostly is not.

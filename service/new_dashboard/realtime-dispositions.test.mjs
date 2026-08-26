@@ -2,7 +2,7 @@
 //
 // THE DEFECT. applyRealtimeEvent ended with an inline array of eleven event names; anything else fell
 // off the end of the function and was dropped with no branch and no log. Measured 2026-08-25 by reading
-// both sides: the service broadcasts 49 distinct names, three were handled in place, eleven were in the
+// both sides: the service broadcasts 51 distinct names, three were handled in place, eleven were in the
 // array, and 35 were discarded — channel_message, terminal_stopped, message_deleted,
 // conversation_cleared, file_shared and all three spawn_request_* among them.
 //
@@ -40,10 +40,17 @@ function broadcastNames() {
   const names = new Set();
   const quoted = /["']event["']\s*:\s*["']([a-z][a-z0-9_]{2,40})["']/g;
   const called = /broadcast(?:_event)?\(\s*["']([a-z][a-z0-9_]{2,40})["']/g;
+  // notify_agent puts the SAME frame on the wire -- ConnectionManager builds {"event", "data"} in both
+  // methods -- and differs only in addressing one agent socket instead of every connection. Reading only
+  // broadcast() made two real events, new_message and dispatch_request, invisible to every test below.
+  // The cost was not a missed refresh (unclassified already defaults to refresh); it was the ghost tests
+  // REJECTING a correct declaration for either name with "ignored but never broadcast", which is false.
+  const notified = /notify_agent\(\s*[^,()]{1,60},\s*["']([a-z][a-z0-9_]{2,40})["']/g;
   for (const path of pythonSources()) {
     const text = readFileSync(path, 'utf8');
     for (const m of text.matchAll(quoted)) names.add(m[1]);
     for (const m of text.matchAll(called)) names.add(m[1]);
+    for (const m of text.matchAll(notified)) names.add(m[1]);
   }
   return names;
 }
@@ -59,6 +66,30 @@ test('the producer scan finds the broadcasts', () => {
 
 test('the producer scan can say no', () => {
   assert.ok(!broadcastNames().has('zzz_not_an_event'));
+});
+
+test('the scan sees the events addressed to ONE agent, not just the ones sent to everybody', () => {
+  // ConnectionManager has two senders and they put an identical frame on the wire: broadcast() writes
+  // {"event", "data"} to every connection, notify_agent() writes {"event", "data"} to one agent's socket.
+  // The scan read only the first, so new_message and dispatch_request were invisible here -- and the
+  // ghost tests below then REJECTED a correct declaration for either with "ignored but never broadcast".
+  // That message was false, and it points its reader at the wrong side: the event is real, the scan was
+  // not looking. Proven by mutation before the fix -- declaring new_message failed the suite 9/1.
+  const names = broadcastNames();
+  assert.ok(names.has('new_message'), 'notify_agent("new_message") is sent from two routers');
+  assert.ok(names.has('dispatch_request'), 'notify_agent("dispatch_request") is sent from the dispatch router');
+  // The control that keeps this honest: broadcast() must still be read. A scan that traded one sender
+  // for the other would satisfy the two assertions above and lose 49 names.
+  assert.ok(names.has('agent_status'), 'teaching the scan notify_agent cost it the broadcast names');
+  assert.ok(names.size >= 51, `expected at least 51 producer names, found ${names.size}`);
+});
+
+test('a declaration for an agent-addressed event is accepted rather than called a ghost', () => {
+  // The failure this fixes, stated as the behaviour rather than as the scan. Both names must be
+  // classifiable; before the fix either one produced `ignored but never broadcast: <name>`.
+  for (const name of ['new_message', 'dispatch_request']) {
+    assert.ok(broadcastNames().has(name), `${name} would still be rejected as a ghost declaration`);
+  }
 });
 
 test('every broadcast event has a disposition, and none falls through silently', () => {
