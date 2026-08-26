@@ -52,6 +52,32 @@ Everything else in this file is recorded with a judgement and needs nothing from
 
 ## Shipped this round
 
+**A round that found no new defect, which is itself the finding.** Seven consecutive rounds widened a
+gate; this one checked three more and they were sound. Recorded with the reasoning so the next pass
+does not re-walk them, and so the run of clean results is visible rather than inferred:
+
+| gate | question asked | answer |
+|---|---|---|
+| `test_comments_do_not_cache_a_stale_value.py` | does its scan recurse, and can a TEST's constant shadow a product one? | `rglob` recurses, so subdirectories are covered. The `setdefault` collection does not exclude tests, so a name declared in both could resolve to the test's value -- measured: 70 product constants, 27 test constants, **ZERO** names declared in both with different values. Latent, not live |
+| `handler-imports.test.mjs` | is `WATCHED` narrower than the modules it should cover? | its own docstring records this scope being corrected once already, and the complementary standard -- a test that CALLS every export -- is the gate widened last round, whose dashboard backlog is empty. No gap provable |
+| `test_environment_upsert_columns_agree.py` | (previous round) | sound in scope and coverage |
+
+**And one hunt that came back nearly empty, deliberately reported.** The orphaned controller suggested
+a class: prose asserting a structural relationship the imports do not have. A first scan over the
+bridge returned 17 candidates and was mostly noise -- "moved to X" MEANS the code left, so not
+importing it is correct, and `test_moved_to_comments_are_true.py` already covers that verb. Worse, the
+scan was single-line and would have MISSED the case that prompted it, whose claim wraps across two
+comment lines: the hunt for narrow scans had a narrow scan.
+
+Corrected to the real shape -- a claim naming several modules where some are imported and one is not --
+it returns **exactly one** instance across the whole bridge: the one already found by reading. A gate
+for a one-instance class whose instance is already declared is not worth its load, so none was added.
+
+**What WAS worth doing: the false sentence is gone.** `hermes-controller.js` said mode-specific
+implementations live in two files and imported one. The comment now says what is true and names the
+open decision, because a comment asserting a wiring the imports lack is how a reader concludes a code
+path exists and builds on it.
+
 **An empty backlog that was reporting on 236 modules while 32 were out of scope -- and an orphaned
 controller behind it.** Seventh instance, same method: derive each gate's population independently
 instead of trusting its list.
