@@ -47,7 +47,21 @@ RENAME_WRITES = REPO / "service" / "api_core" / "agent_rename_writes.py"
 #: Column names that hold an agent id. `requested_by` and `removed_by` are audit trails of WHO asked
 #: rather than references to the subject, so they are not in scope; they are recorded in LEFT_BEHIND
 #: where they belong to a table that is otherwise in scope.
-AGENT_COLUMNS = {"agent_id", "from_agent", "to_agent", "target_agent", "created_by", "managed_by"}
+#: THREE MORE NAMES SINCE 2026-08-26, and they were not a guess. This set is what the whole file
+#: measures, so a column holding an agent id under a name absent here is a reference the gate cannot
+#: see -- and the gate's claim is completeness over agent references. The three were found by deriving
+#: the schema's agent-referencing columns two ways: every FOREIGN KEY into `agents` (7 columns, all
+#: already covered by the six above), and then every column whose WRITER stores an agent id:
+#:
+#:   requested_by  <- `req.from_agent` (channel_coldstart.py:63, agent_stop_resume.py:70)
+#:   handled_by    <- `agentId` (mcp/stdio/run-controls.mjs:61 and three siblings)
+#:   removed_by    <- an agent id or the literal "api" (agent_removal.py:48, identity.py:195)
+#:
+#: Widening the set is what makes the newly-visible pairs demand a bucket rather than stay unseen.
+AGENT_COLUMNS = {
+    "agent_id", "from_agent", "to_agent", "target_agent", "created_by", "managed_by",
+    "requested_by", "handled_by", "removed_by",
+}
 
 REPOINTED = {
     ("agents", "managed_by"),
@@ -100,6 +114,29 @@ UNRESOLVED: dict[tuple[str, str], str] = {
     #:
     #: The bucket stays, empty. It is the honest home for the next column somebody finds and
     #: cannot yet decide about, and deleting it would make the next finder invent it again.
+    #:
+    #: FIVE FOUND 2026-08-26, by widening `AGENT_COLUMNS` (see the note there). They are here rather
+    #: than in LEFT_BEHIND because nobody has DECIDED about them -- they were invisible to this file,
+    #: which is not the same as blessed, and blessing them silently is what this bucket exists to
+    #: prevent.
+    #:
+    #: THE ARGUMENT RUNS BOTH WAYS, which is why it is the operator's:
+    #:   leave them  -- each records WHO ACTED at a moment in the past. An audit trail that rewrites
+    #:                  itself when someone is renamed no longer says what was true at the time.
+    #:   repoint them -- it is the same identity under a new name, and every OTHER reference to that
+    #:                  identity moves in the one transaction meant to move them together. A trail
+    #:                  pointing at a tombstoned name is not more truthful, only less usable.
+    #:
+    #: Whichever way it goes, one of these entries becomes a LEFT_BEHIND line with a reason or a
+    #: REPOINTED pair, and this test fails until it does -- which is the point of recording it.
+    ("terminal_sessions", "requested_by"): "who asked for this terminal; `req.from_agent` reaches it",
+    ("terminal_controls", "requested_by"): "who asked for this terminal control",
+    ("environment_controls", "requested_by"): "who asked for this environment control",
+    ("dispatch_controls", "handled_by"): "which agent handled the control; the bridge sends `agentId`",
+    ("agent_tombstones", "removed_by"): (
+        "who removed the agent. Sometimes the literal 'api' rather than an id, so a repoint here has "
+        "to tolerate a non-agent value -- which is itself part of the decision"
+    ),
 }
 
 
