@@ -20,6 +20,7 @@ import {
   _spawnReqSig,
   renderSection,
 } from "./render-memo.mjs";
+import { refreshChipState, resetRefreshHistory } from "./refresh-status.mjs";
 
 /** Distinct keys per test — the signature store is module-global and shared across this file. */
 let n = 0;
@@ -229,4 +230,89 @@ test("_chatConvSig moves when a conversation gains a message, and survives no ch
   } finally {
     state.chat = saved;
   }
+});
+
+// ── a section that throws must not take the others, or itself, down ─────────────────────────────
+// TWO THINGS WERE WRONG, and both only appear on a render that throws.
+//
+// The signature was recorded BEFORE the render ran, so a throwing renderer left the memo saying
+// "this state is already drawn" for a state that never was -- and the section stayed blank until its
+// data changed AGAIN, because the next cycle compared equal and returned early.
+//
+// And there was no try/catch, in a loop of ELEVEN sections called in order. A throw in section 2
+// meant sections 3 to 11 never rendered that cycle. `renderAttention` carries the comment "never let
+// a missing node throw out of the unconditional renderAll loop"; measured across the loop, 7 of 11
+// guard their host node and 3 do not. Guarding those three fixes the missing-node case only; this
+// covers every way a render can throw.
+
+test("a throwing section does NOT record its signature, so the next cycle retries it", () => {
+  const k = key();
+  let attempts = 0;
+  const flaky = () => { attempts += 1; if (attempts === 1) throw new Error("bad frame"); };
+
+  renderSection(k, ["same"], flaky);
+  assert.equal(attempts, 1, "the first render must be attempted");
+
+  // SAME signature. Before the fix this returned early forever and the panel stayed blank.
+  renderSection(k, ["same"], flaky);
+  assert.equal(attempts, 2, "an identical signature was treated as already drawn after a failure");
+});
+
+test("and once it succeeds, the memo goes back to skipping", () => {
+  // The retry must not become a permanent re-render: that would defeat the memo for any section that
+  // ever hiccupped, repainting DOM under the operator on every poll.
+  const k = key();
+  let attempts = 0;
+  const flaky = () => { attempts += 1; if (attempts === 1) throw new Error("bad frame"); };
+
+  renderSection(k, ["same"], flaky);
+  renderSection(k, ["same"], flaky);
+  assert.equal(attempts, 2);
+  renderSection(k, ["same"], flaky);
+  assert.equal(attempts, 2, "a recovered section must be memoised again");
+});
+
+test("a throwing section does not stop the NEXT section rendering", () => {
+  // The loop calls eleven of these in order. This is the whole blast radius.
+  const bad = key();
+  const good = key();
+  let painted = 0;
+  const renderAll = () => {
+    renderSection(bad, ["x"], () => { throw new Error("boom"); });
+    renderSection(good, ["y"], () => { painted += 1; });
+  };
+  assert.doesNotThrow(renderAll, "a section's failure escaped the loop");
+  assert.equal(painted, 1, "the section after the failure never rendered");
+});
+
+test("the failure is REPORTED, not swallowed", () => {
+  // A silently blank panel is the failure this repo keeps finding. The out-of-band list is what the
+  // connection chip drains, so a render failure has to reach it under a name that says WHICH section
+  // -- "something did not draw" sends an operator nowhere.
+  const k = key();
+  resetRefreshHistory();
+  renderSection(k, ["x"], () => { throw new Error("boom"); });
+  const chip = refreshChipState([]);
+  assert.ok(
+    chip.failed.includes(`render:${k}`),
+    `the failed section was not reported; chip reported ${chip.failed.join(", ") || "nothing"}`,
+  );
+});
+
+test("a successful render reports nothing", () => {
+  const k = key();
+  resetRefreshHistory();
+  renderSection(k, ["x"], () => {});
+  assert.deepEqual(refreshChipState([]).failed, []);
+});
+
+test("a section that throws EVERY time is retried every time", () => {
+  // Noisy and correct. The alternative is the latch this replaces: one bad frame and the panel is
+  // dark until unrelated data happens to move.
+  const k = key();
+  let attempts = 0;
+  for (let i = 0; i < 4; i += 1) {
+    renderSection(k, ["same"], () => { attempts += 1; throw new Error("always"); });
+  }
+  assert.equal(attempts, 4);
 });

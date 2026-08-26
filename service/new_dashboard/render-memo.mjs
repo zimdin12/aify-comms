@@ -8,12 +8,54 @@
 
 export const _sectionSig = Object.create(null);
 
+import { noteSliceFailure } from './refresh-status.mjs';
 import { state } from './state.mjs';
+/**
+ * Render one section if its inputs moved, and never let it take the others with it.
+ *
+ * **THE SIGNATURE IS RECORDED BEFORE THE RENDER, DELIBERATELY.** A renderer that synchronously
+ * re-enters `renderSection` for its own key would recurse forever otherwise, and the test directly
+ * below provokes exactly that rather than reasoning about it. My first attempt at this fix moved the
+ * write after the render and that test caught it -- which is the test doing its job, and the reason
+ * the ordering is now stated here instead of merely being true.
+ *
+ * WHAT WAS ACTUALLY WRONG was that nothing UNDID the record when the render threw. The memo then said
+ * "this state is already drawn" for a state that never was, and the section stayed blank until its
+ * data changed AGAIN, because every following cycle compared equal and returned early. One bad frame
+ * latched a panel off, and the fix for the operator was to wait for unrelated data to move.
+ *
+ * AND THERE WAS NO try/catch, in a loop of eleven sections called in order. A throw in section two
+ * meant sections three to eleven never rendered that cycle: metrics, attention, activity, contracts,
+ * environments, runtime, spawn requests, runs, files, settings. One malformed row blanked most of the
+ * dashboard, and the memo then hid the recovery.
+ *
+ * `renderAttention` carries the comment "never let a missing node throw out of the unconditional
+ * renderAll loop" and guards its host node accordingly. Measured across the loop: 7 of the 11 sections
+ * do that and 3 write a node without checking it exists. Guarding those three would cover the
+ * missing-node case alone; this covers every way a render can throw, which is the class that comment
+ * is really about.
+ *
+ * A FAILED SECTION IS RETRIED next cycle rather than remembered as done. One that throws every time
+ * reports every time -- noisy and correct, because a silently blank panel is the failure this repo
+ * keeps finding and noise can at least be read.
+ */
 export function renderSection(key, signature, renderFn) {
   const sig = JSON.stringify(signature);
   if (_sectionSig[key] === sig) return;
+  // BEFORE the render: the re-entrancy guard. See above.
   _sectionSig[key] = sig;
-  renderFn();
+  try {
+    renderFn();
+  } catch (error) {
+    // A render that did not finish is not drawn. DELETE rather than restore the previous value: the
+    // old signature would also compare unequal next cycle, but only until the data drifted back to
+    // it, and "retry until it works" must not depend on that.
+    delete _sectionSig[key];
+    noteSliceFailure(`render:${key}`);
+    // Reported AND named. The slice list is what the connection chip drains, so the operator learns
+    // which section failed; the console line is the only place the actual error survives.
+    try { console.error(`[dashboard] section "${key}" failed to render:`, error); } catch { /* no console */ }
+  }
 }
 
 // The signature builders `renderSection` compares, moved out of app.js in v0.5.4. They belong beside it

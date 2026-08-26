@@ -1090,7 +1090,42 @@ const EXTRACTIONS = [
     importLine: "import { renderSection } from './render-memo.mjs';",
     items: [
       { name: "_sectionSig", at: 930, marker: "// _sectionSig moved to ./render-memo.mjs in v0.5.4." },
-      { name: "renderSection", at: 931, marker: "// renderSection moved to ./render-memo.mjs in v0.5.4." },
+      {
+        name: "renderSection",
+        at: 931,
+        marker: "// renderSection moved to ./render-memo.mjs in v0.5.4.",
+        // A SECTION THAT THREW USED TO LATCH ITSELF OFF. The signature is recorded BEFORE the render
+        // on purpose -- a renderer re-entering its own key would recurse otherwise -- but nothing
+        // undid that record when the render threw, so the memo reported a state as drawn that never
+        // was. The try/catch also stops one section taking the ten after it down.
+        editedSince: [
+        {
+          was: [],
+          now: [
+          "  // BEFORE the render: the re-entrancy guard. See above.",
+        ],
+        },
+        {
+          was: [
+          "  renderFn();",
+        ],
+          now: [
+          "  try {",
+          "    renderFn();",
+          "  } catch (error) {",
+          "    // A render that did not finish is not drawn. DELETE rather than restore the previous value: the",
+          "    // old signature would also compare unequal next cycle, but only until the data drifted back to",
+          "    // it, and \"retry until it works\" must not depend on that.",
+          "    delete _sectionSig[key];",
+          "    noteSliceFailure(`render:${key}`);",
+          "    // Reported AND named. The slice list is what the connection chip drains, so the operator learns",
+          "    // which section failed; the console line is the only place the actual error survives.",
+          "    try { console.error(`[dashboard] section \"${key}\" failed to render:`, error); } catch { /* no console */ }",
+          "  }",
+        ],
+        },
+      ],
+      },
     ],
   },
   {
