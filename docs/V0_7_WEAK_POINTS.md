@@ -52,6 +52,30 @@ Everything else in this file is recorded with a judgement and needs nothing from
 
 ## Shipped this round
 
+**A live-data probe, and the two numbers on that dashboard that look like defects and are not.** The
+gate seam was worked out, so this round changed instrument entirely: read the RUNNING system for rows
+in states the code says are impossible. Today's most valuable finding came from live evidence rather
+than from reading, so it was worth trying again.
+
+Three checks, no defect -- and the two alarming-looking figures explained with their thresholds, which
+is the durable part:
+
+**`dispatch_runs_by_status` shows 8 `delivered`, three of them 10.0h, 15.2h and 19.0h old with
+`requireReply=false`.** That reads as the stranded-row shape this review fixed twice in code: a
+non-terminal status nothing closes. It is not. Two reconcilers cover `delivered`, and the second one
+names this exact case -- "require_reply=0 runs older than `stale_hours` (info-only, no reply expected,
+should have been auto-completed)" -- with `stale_hours` defaulting to 24 and the sweep calling it
+without an override. All three are INSIDE the window. Caught mid-flight, not stranded.
+
+**`dispatch_reply_pending: 115` is a historical tally, not a backlog.** It counts runs that are
+already terminal (`completed`/`failed`/`cancelled`), required a reply, and never received one: 115 of
+21,535 lifetime runs, 0.53%. Nothing is waiting on those.
+
+**And two clean joins on live rows:** all 47 registered agents hold a status inside
+`VALID_STATUSES`, and every session carrying a terminal id agrees with that terminal's own status --
+though only 2 sessions currently carry one, so that check has thin signal and is reported as such
+rather than as reassurance.
+
 **A round that found no new defect, which is itself the finding.** Seven consecutive rounds widened a
 gate; this one checked three more and they were sound. Recorded with the reasoning so the next pass
 does not re-walk them, and so the run of clean results is visible rather than inferred:
