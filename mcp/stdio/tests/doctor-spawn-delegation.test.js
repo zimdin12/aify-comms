@@ -78,7 +78,7 @@ test("a launcher predating the setting is the default, not a failure", () => {
 });
 
 test("a baked-on setting with no endpoint still reports, rather than rendering undefined", () => {
-  const text = 'export AIFY_COMMS_DELEGATE_SPAWNS="1"\n';
+  const text = '#!/usr/bin/env bash\nexport AIFY_COMMS_DELEGATE_SPAWNS="1"\n';
   const v = spawnDelegationVerdict({ launcherText: text, endpointAnswered: false });
   assert.equal(v.code, "unreachable");
   assert.match(v.detail, /no endpoint baked/);
@@ -86,6 +86,18 @@ test("a baked-on setting with no endpoint still reports, rather than rendering u
 });
 
 test("whitespace is not a setting", () => {
-  const text = 'export AIFY_COMMS_DELEGATE_SPAWNS="   "\n';
+  const text = '#!/usr/bin/env bash\nexport AIFY_COMMS_DELEGATE_SPAWNS="   "\n';
   assert.equal(spawnDelegationVerdict({ launcherText: text }).code, "local");
+});
+
+test("a file that is not a launcher body cannot testify about the launcher", () => {
+  // The Windows .cmd shim. `doctor.js` falls back to it when the bash launcher will not read, and it
+  // carries no settings at all -- so parsing it looked exactly like an old launcher and returned
+  // ok:true, "the bridge hosts managed spawns itself". Delegation makes aify-env REQUIRED, so that
+  // answer sends an operator chasing spawn failures in the wrong tier.
+  const shim = '@echo off\nsetlocal\n\"bash.exe\" \"%~dp0aify-comms\" %*\n';
+  const v = spawnDelegationVerdict({ launcherText: shim, endpointAnswered: null });
+  assert.equal(v.ok, false);
+  assert.equal(v.code, "unknown-all");
+  assert.doesNotMatch(v.detail, /predates|hosts managed spawns itself/);
 });

@@ -53,6 +53,7 @@ import {
   readBoundAgentId,
   readProcEnv,
   managedOrphanVerdict,
+  launcherDelegation,
   spawnDelegationVerdict,
 } from "./doctor-predicates.js";
 
@@ -458,12 +459,11 @@ async function checkSpawnDelegation() {
     }
   }
   let endpointAnswered = null;
-  const endpoint = launcherText
-    ? (/^export AIFY_ENV_ENDPOINT="([^"]*)"/m.exec(launcherText) ?? [, ""])[1]
-    : "";
-  const delegating = launcherText
-    ? (/^export AIFY_COMMS_DELEGATE_SPAWNS="([^"]*)"/m.exec(launcherText) ?? [, ""])[1].trim() !== ""
-    : false;
+  // PARSED ONCE, by the module that also renders the verdict. These were two more copies of regexes
+  // that already lived in doctor-predicates.js, and the copy here decides whether to PROBE while the
+  // copy there decides the ANSWER -- so fixing this one alone would have bought a real probe and then
+  // handed it to a verdict that ignored it and reported ok:true.
+  const { on: delegating, endpoint } = launcherDelegation(launcherText);
   if (delegating && endpoint) {
     try {
       const response = await fetch(`${endpoint}/health`, { signal: AbortSignal.timeout(3000) });

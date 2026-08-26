@@ -719,6 +719,42 @@ export function readProcEnv(pid, { procRoot = "/proc", readFile = readFileSync }
  *   launcherText: the installed `aify-comms` launcher, or null if it could not be read.
  *   endpointAnswered: whether aify-env replied; null when it was not asked (delegation off).
  */
+/**
+ * Read the delegation settings out of an installed `aify-comms` launcher. THE ONE PARSER.
+ *
+ * This question had THREE implementations: this module, `doctor.js` (which re-ran both regexes to
+ * decide whether to probe the endpoint), and `scripts/installed-delegation.sh`. The comment further
+ * down this file says why that is a defect -- "a second implementation of one question does not agree
+ * for free, it agrees until one of them is fixed" -- and it was written about four checks that left
+ * this tool for exactly that reason.
+ *
+ * The asymmetry is what makes it worth fixing rather than noting. If the launcher's shape drifts and
+ * only `doctor.js` is updated, it probes aify-env, gets a real answer, and hands it to a verdict whose
+ * own stale regex reports `pre-contract` -- ok: TRUE. A false green, built from a probe it paid for
+ * and discarded.
+ *
+ * THE SHEBANG CHECK IS A CONTROL ON THE INSTRUMENT, not a style rule. `doctor.js` reads
+ * `~/.local/bin/aify-comms` and falls back to `aify-comms.cmd`, which on Windows is a six-line shim
+ * that execs the bash file. It carries no settings at all, so parsing it yields "no delegation line
+ * found" -- indistinguishable from a genuinely old launcher, and reported as `pre-contract`, ok:true.
+ * A file that is not the launcher body cannot testify about the launcher: that is `unknown-all`.
+ */
+export function launcherDelegation(launcherText) {
+  const text = typeof launcherText === "string" ? launcherText : "";
+  // A rendered launcher is a bash script. The .cmd shim starts `@echo off` and a pre-contract
+  // launcher still starts `#!`, so this separates "wrong file" from "old file" without reclassifying
+  // any real launcher.
+  const isLauncher = /^#!/.test(text);
+  const setting = /^export AIFY_COMMS_DELEGATE_SPAWNS="([^"]*)"/m.exec(text);
+  return {
+    isLauncher,
+    present: Boolean(setting),
+    on: Boolean(setting) && setting[1].trim() !== "",
+    endpoint: (/^export AIFY_ENV_ENDPOINT="([^"]*)"/m.exec(text) ?? [, ""])[1],
+  };
+}
+
+
 export function spawnDelegationVerdict({ launcherText = null, endpointAnswered = null } = {}) {
   if (launcherText === null) {
     return {
@@ -729,8 +765,18 @@ export function spawnDelegationVerdict({ launcherText = null, endpointAnswered =
       fix: "Run install.sh for any client; it writes the environment-bridge launcher.",
     };
   }
-  const setting = /^export AIFY_COMMS_DELEGATE_SPAWNS="([^"]*)"/m.exec(launcherText);
-  if (!setting) {
+  const parsed = launcherDelegation(launcherText);
+  if (!parsed.isLauncher) {
+    return {
+      ok: false,
+      code: "unknown-all",
+      detail: "The file read in place of the aify-comms launcher is not a launcher body (no shebang), "
+        + "so it cannot say where spawns run. On Windows this is the .cmd shim, which carries no "
+        + "settings. Nothing was verified.",
+      fix: "Check ~/.local/bin/aify-comms is readable, then re-run.",
+    };
+  }
+  if (!parsed.present) {
     // A launcher rendered before the setting existed. Not a failure: it hosts spawns itself, which is
     // the behaviour every host had before v0.6 and still the default.
     return {
@@ -741,8 +787,7 @@ export function spawnDelegationVerdict({ launcherText = null, endpointAnswered =
       fix: "",
     };
   }
-  const on = setting[1].trim() !== "";
-  if (!on) {
+  if (!parsed.on) {
     return {
       ok: true,
       code: "local",
@@ -751,7 +796,7 @@ export function spawnDelegationVerdict({ launcherText = null, endpointAnswered =
       fix: "",
     };
   }
-  const endpoint = (/^export AIFY_ENV_ENDPOINT="([^"]*)"/m.exec(launcherText) ?? [, ""])[1];
+  const endpoint = parsed.endpoint;
   if (endpointAnswered === true) {
     return {
       ok: true,
