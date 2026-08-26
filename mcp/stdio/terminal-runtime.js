@@ -371,7 +371,10 @@ export class TerminalProcessManager {
     const unsubscribe = await this.envDelegation.client.subscribeOutput(
       started.handle.id,
       (text) => { this._handleOutput(id, state, text).catch(() => {}); },
-      (code) => { this._handleExit(id, state, { code, signal: null }).catch(() => {}); },
+      // THE SIGNAL ARRIVES HERE NOW. This passed `signal: null` unconditionally, which was honest at
+      // the time -- aify-env had no signal to give -- and became a lie the moment it did. A delegated
+      // death is the case the operator asks about most, because every managed agent is delegated.
+      (code, signal) => { this._handleExit(id, state, { code, signal }).catch(() => {}); },
     );
 
     // FAIL CLOSED ON A DEAF TERMINAL. subscribeOutput answers null when there is no endpoint, the

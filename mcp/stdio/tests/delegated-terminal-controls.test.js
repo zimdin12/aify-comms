@@ -163,3 +163,66 @@ test("a delegated terminal is not listed as a locally owned OS process", async (
     "a delegated pid was reported as an OS process this bridge owns",
   );
 });
+
+test("a delegated death carries its SIGNAL to the exit hook, not a hardcoded null", async () => {
+  // THE CALL SITE, driven rather than read. This callback was
+  // `(code) => this._handleExit(id, state, { code, signal: null })` -- honest while aify-env had no
+  // signal to give, and a lie from the moment it did. Every managed agent's terminal is delegated, so
+  // this one line decided the answer to "why did my agent die" for the entire fleet.
+  //
+  // A pure test of `exitReport` cannot see this: the builder would happily format a signal it is never
+  // handed. This repo has already shipped a feature whose six tests all passed against a builder
+  // nothing called, so the callback is invoked here for real.
+  const exits = [];
+  let deliverExit;
+  const client = {
+    async start() { return { ok: true, handle: { id: "env-x", pid: 99, terminal: true } }; },
+    async subscribeOutput(id, onOutput, onExit) { deliverExit = onExit; return () => {}; },
+    async stop() { return { ok: true }; },
+  };
+  const manager = new TerminalProcessManager({
+    envDelegation: { isEnabled: () => true, client },
+    onExit: async (id, detail) => { exits.push([id, detail]); },
+  });
+  await manager.start({
+    id: "t-sig", command: writeLauncherFixture("probe-aify"),
+    argv: [writeLauncherFixture("probe-aify"), "--version"],
+    cwd: process.cwd(), runtime: "claude-code", sessionMode: "managed",
+  });
+
+  assert.equal(typeof deliverExit, "function", "the manager never subscribed for an exit");
+  deliverExit(null, "SIGKILL");
+  await new Promise((r) => setTimeout(r, 50));
+
+  assert.equal(exits.length, 1, "the delegated exit never reached the exit hook");
+  const [, detail] = exits[0];
+  assert.equal(detail.signal, "SIGKILL", "the signal was dropped at the delegated call site");
+  assert.equal(detail.code, null, "a signalled death was given an exit code it never had");
+});
+
+test("a delegated CLEAN exit still reports its zero and no signal", async () => {
+  // The control beside it. Zero is the most common exit in the fleet and a fix that lost it would be
+  // the same defect from the other side.
+  const exits = [];
+  let deliverExit;
+  const client = {
+    async start() { return { ok: true, handle: { id: "env-y", pid: 98, terminal: true } }; },
+    async subscribeOutput(id, onOutput, onExit) { deliverExit = onExit; return () => {}; },
+    async stop() { return { ok: true }; },
+  };
+  const manager = new TerminalProcessManager({
+    envDelegation: { isEnabled: () => true, client },
+    onExit: async (id, detail) => { exits.push(detail); },
+  });
+  await manager.start({
+    id: "t-clean", command: writeLauncherFixture("probe-aify"),
+    argv: [writeLauncherFixture("probe-aify"), "--version"],
+    cwd: process.cwd(), runtime: "claude-code", sessionMode: "managed",
+  });
+  deliverExit(0, "");
+  await new Promise((r) => setTimeout(r, 50));
+
+  assert.equal(exits.length, 1);
+  assert.equal(exits[0].code, 0);
+  assert.ok(!exits[0].signal, "a process nothing killed was given a signal");
+});

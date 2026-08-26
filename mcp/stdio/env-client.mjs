@@ -139,13 +139,13 @@ export class EnvClient {
     // Told ONCE, whichever way the stream ends. A `null` code means "we stopped being able to see it"
     // -- distinct from 0, which would tell the heal path the agent finished normally.
     let ended = false;
-    const finish = (code) => {
+    const finish = (code, signal = "") => {
       if (ended) return;
       ended = true;
       stopped = true;
       if (typeof onExit !== "function") return;
       try {
-        onExit(code);
+        onExit(code, signal);
       } catch {
         // A broken consumer does not get to break the teardown.
       }
@@ -188,7 +188,15 @@ export class EnvClient {
           // THE `event:` LINE DECIDES, not the payload. An agent that prints something exit-shaped
           // must not be able to end its own terminal, which it could if this matched on content.
           if (lines.some((l) => l === "event: exit")) {
-            finish(Number(payload?.code ?? 0));
+            // BOTH FIELDS, AND NEITHER COERCED. This read `Number(payload?.code ?? 0)`, which turned
+            // a signalled death into a clean exit -- but the value it was defending against had
+            // ALREADY been manufactured inside aify-env, so nothing here could have recovered it. Both
+            // halves are fixed together (aify-env keeps the null and adds `signal`; this reads them),
+            // and both are written to tolerate the other side being old: an older environment sends a
+            // 0 and no signal, which arrives as exactly what it always did.
+            const rawCode = payload?.code;
+            const exitCode = typeof rawCode === "number" && Number.isFinite(rawCode) ? rawCode : null;
+            finish(exitCode, payload?.signal == null ? "" : String(payload.signal).trim());
             return;
           }
 

@@ -126,3 +126,75 @@ test("an exit frame still wins over the stream simply ending", async () => {
   await new Promise((r) => setTimeout(r, 40));
   assert.deepEqual(exits, [3], "a real exit code was lost or reported twice");
 });
+
+// ---------------------------------------------------------------------------------------------
+// THE SIGNAL, added 2026-08-26 with the aify-env half that finally has one to send.
+//
+// The frame carried `{code}` alone and this reader did `Number(payload?.code ?? 0)`. Both halves were
+// defending a value that had already been destroyed upstream: aify-env's `finish` wrote
+// `stream.exitCode = code ?? 0`, so a signalled death arrived here as a manufactured clean exit and
+// there was no signal beside it to say otherwise. Every managed agent's terminal is delegated, so this
+// was the answer to "why did my agent die" for the whole fleet, and the answer was a lie shaped like
+// evidence.
+//
+// BOTH SIDES TOLERATE THE OTHER BEING OLD, which matters because the environment and the bridge are
+// separately deployed on a live host: an older aify-env sends `{code: 0}` and no signal, which arrives
+// exactly as it always did.
+// ---------------------------------------------------------------------------------------------
+
+test("a signalled exit keeps its NULL code and carries the signal", async () => {
+  const exits = [];
+  const frames = [`event: exit${LF}data: ${JSON.stringify({ code: null, signal: "SIGKILL" })}${FRAME}`];
+  await client(streamingFetch(frames)).subscribeOutput(
+    "p1", () => {}, (code, signal) => exits.push([code, signal]));
+  await new Promise((r) => setTimeout(r, 30));
+
+  assert.deepEqual(exits, [[null, "SIGKILL"]],
+    "a signalled death was reported as an exit code, which is what `?? 0` used to do here");
+});
+
+test("a clean exit is still 0 with no signal", async () => {
+  // The control. A repair that turned every death into null would be the same defect mirrored, and 0
+  // is the most common exit in the fleet.
+  const exits = [];
+  const frames = [`event: exit${LF}data: ${JSON.stringify({ code: 0 })}${FRAME}`];
+  await client(streamingFetch(frames)).subscribeOutput(
+    "p1", () => {}, (code, signal) => exits.push([code, signal]));
+  await new Promise((r) => setTimeout(r, 30));
+
+  assert.deepEqual(exits, [[0, ""]]);
+});
+
+test("a frame from an OLDER aify-env, with no signal field, reads as it always did", async () => {
+  const exits = [];
+  const frames = [`event: exit${LF}data: ${JSON.stringify({ code: 3 })}${FRAME}`];
+  await client(streamingFetch(frames)).subscribeOutput(
+    "p1", () => {}, (code, signal) => exits.push([code, signal]));
+  await new Promise((r) => setTimeout(r, 30));
+
+  assert.deepEqual(exits, [[3, ""]], "an older environment's frame changed meaning");
+});
+
+test("a code that is not a number is not forwarded as one", async () => {
+  // Defensive on a wire boundary: a string or a NaN would become a bogus integer in the terminal row,
+  // and a wrong exit code is worse than none because it reads as evidence.
+  for (const code of ["0", "abc", true, {}]) {
+    const exits = [];
+    const frames = [`event: exit${LF}data: ${JSON.stringify({ code })}${FRAME}`];
+    await client(streamingFetch(frames)).subscribeOutput(
+      "p1", () => {}, (c, s) => exits.push([c, s]));
+    await new Promise((r) => setTimeout(r, 30));
+    assert.deepEqual(exits, [[null, ""]], `forwarded a non-numeric code: ${JSON.stringify(code)}`);
+  }
+});
+
+test("a stream that ends with NO exit frame still reports null, and claims no signal", async () => {
+  // The environment went away rather than the process finishing. That is a third answer and must not
+  // be dressed up as either of the other two.
+  const exits = [];
+  await client(streamingFetch([`data: ${JSON.stringify("x")}${FRAME}`])).subscribeOutput(
+    "p1", () => {}, (code, signal) => exits.push([code, signal]));
+  await new Promise((r) => setTimeout(r, 30));
+
+  assert.deepEqual(exits, [[null, ""]]);
+});

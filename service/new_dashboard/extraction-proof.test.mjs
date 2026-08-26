@@ -2872,7 +2872,13 @@ test("the five bridge classes are measurable, and the sizes are cross-checked", 
     // env argument plus the note explaining why the strip is repeated here and why an absent env is
     // passed through rather than normalised to {}. Re-measured with declarationSpan (826), and the
     // arithmetic agrees with the diff -- one line replaced by ten.
-    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 826],
+    // 826 -> 829 on 2026-08-26: the DELEGATED exit callback now takes `(code, signal)` and forwards
+    // both, instead of passing a hardcoded `signal: null`. Three lines: the changed callback plus the
+    // note saying why the old form was honest when written and stopped being so once aify-env had a
+    // signal to send. Re-measured TWO ways before this number was touched -- `declarationSpan` says
+    // 829, and a brace-match from the class header gives lines 71..899, which is 829 -- rather than
+    // copying the 829 out of the failure message, which is what CLAUDE.md's cross-check rule forbids.
+    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 829],
   ];
   for (const [rel, name, expected] of cases) {
     const span = declarationSpan(read(rel), name);
