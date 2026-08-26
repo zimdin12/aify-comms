@@ -92,6 +92,35 @@ that stopped covering its own subject.
 
 ## Shipped this round
 
+**I audited my own work from today and found a vacuous test I had shipped hours earlier.** Three
+rounds had produced no defect in other people's code, and the one defect I did find was in my own
+document -- so the least-reviewed code in this repo is what I wrote today. That is where I looked.
+
+`test_analytics_resolves_the_fleet_once.py` proves a per-machine cache returns the same answers as an
+uncached lookup. Every fixture in it registered ONE environment on ONE machine. The cache is keyed by
+`machine_id`, so a single-host fixture passes against a cache that ignores its key entirely and hands
+back whatever it cached first -- **a wrong answer rather than a missing one**, which is the harder kind
+to notice.
+
+**It took three attempts to write a test that could see the mutation**, and each failure was a
+different flavour of the same mistake:
+
+1. Compared the live-state result's `environmentId`. That key does not exist -- it is `environment_id`
+   -- so the lookup returned nothing, fell through to `status`, and compared two identical maps.
+2. Compared `environment_id` correctly. Still passed: that field does not come from this resolver at
+   all, so the mutation is invisible at that level.
+3. Compared what the RESOLVER itself returns, per agent, in call order. This one fails against the
+   key-blind cache and passes when it is restored.
+
+The fixture also gained a control that would have caught all three: it asserts the agents resolve to
+MORE THAN ONE distinct environment, because a fixture where every agent resolves identically cannot
+tell a per-machine cache from a key-blind one -- which is the only thing it exists to tell.
+
+**The optimisation itself was correct throughout.** This changed no product behaviour: it was verified
+correct for multi-host BEFORE the test was written, and the test was written because being correct by
+accident is not the same as being pinned. What was wrong was my evidence, twice, in a file whose
+subject is measuring things properly.
+
 **A live-data probe, and the two numbers on that dashboard that look like defects and are not.** The
 gate seam was worked out, so this round changed instrument entirely: read the RUNNING system for rows
 in states the code says are impossible. Today's most valuable finding came from live evidence rather
