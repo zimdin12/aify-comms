@@ -52,6 +52,69 @@ Everything else in this file is recorded with a judgement and needs nothing from
 
 ## Shipped this round
 
+**Nothing recorded HOW a terminal ended, and the bridge knew.** This closes the half of the sc-claude
+question I could not answer on 2026-08-26: the console tail could show what the agent had been DOING
+when it stopped and nothing whatsoever about the stopping.
+
+node-pty hands the bridge `{exitCode, signal}`. `terminal-runtime.js` spreads both into the exit
+detail on ALL FOUR exit paths -- the PTY (line 257), the DELEGATED aify-env process (374), the piped
+child (446) and a forced stop (836). `terminal-manager.mjs` then read `detail.error.message`, posted
+an output marker and a status, and dropped both numbers. `TerminalOutputRequest` had nowhere to put
+them anyway, and `terminal_sessions` had no column for them. Four components, and the data died at
+the third.
+
+The delegated path mattered here specifically: sc-architect was a delegated terminal, so a fix that
+only covered the local PTY would have missed the case that prompted it.
+
+**NULL IS NOT ZERO, and that is the whole design of the two new columns.** Zero is a clean exit and
+the most common value there is. A column that cannot tell "exited cleanly" from "nobody told me"
+answers the question wrongly rather than not at all. So: the migration defaults to NULL, the model
+types `exitCode` as an int rather than coercing a string, the route tests `is not None` rather than
+truthiness, and the bridge OMITS the field instead of sending null. Four places, and a truthiness
+test at any one of them would have destroyed exactly the most common case. The console tail keeps the
+three answers distinct -- killed by a signal, exited with a code, or nothing recorded.
+
+The exit is written straight to the row rather than through the output write queue. That queue exists
+to COALESCE a high-frequency stream, and an exit is reported once; threading it through the pending
+state would complicate the hot path to carry a field it forwards unchanged. Writing it separately
+also means a later output chunk cannot blank it -- bytes still arrive after the exit POST on a busy
+terminal -- and the queue's UPDATE names only output, seq and status, so it cannot clobber these
+columns. Both properties are pinned by tests.
+
+**The terminal-status census had the same blind spot, and caught me with it.** Extracting the exit
+body into `terminal-exit-report.js` moved two status literals out of `terminal-manager.mjs`, and
+`test_terminal_status_vocabulary.py` went red: its frozen census said that file sends
+`{attached, failed, stopped}` and the scan now found only `attached`.
+
+The gate was right and its scan was incomplete. It reads two shapes -- a `POST .../output` body and
+`_pushTerminalFrame`'s second argument -- and the body is now SPREAD from a helper, which is a third.
+Left alone it would have reported the exit vocabulary as GONE rather than moved, which is the same
+failure the realtime dispositions gate had this morning: a scan that reads one shape of producer
+reports honestly about that shape and silently about the rest.
+
+Fixed by teaching it to follow the spread and attribute the literals to the module they live in, so
+the census stays DERIVED rather than gaining a hand-listed exception. The frozen list was then
+re-measured with the gate's OWN scan rather than copied out of the failure message -- which mattered:
+a looser rule I tried first (any object literal carrying both `output:` and `status:`) reported two
+extra files, and both were false positives -- `terminal-control-loop.mjs`'s `completed` is a CONTROL
+status that sets `terminalStatus` separately, and `hermes-apiserver-client.js`'s is an RPC result.
+Three different objects, one careless pattern.
+
+Its positive control moved with the ternary rather than being deleted: the property being checked is
+that a two-literal ternary is read whole, and that ternary now lives in the helper. Left pointing at
+the old file it would have been a control over nothing, passing on a scan that had stopped reading
+ternaries entirely.
+
+**Only the bridge's own exit report fills these columns, and that is correct.** A terminal can also
+be marked dead by a reconciler that noticed the process is gone -- the orphan reaper did exactly that
+to sc-claude at 01:29 and 01:30. Those paths never OBSERVED an exit, so they leave both columns NULL,
+which reads as "nobody told me" rather than inventing a code. A death nobody watched still cannot
+explain itself; what changes is that a death the bridge watched now does.
+
+**Still not answered: WHY those two PTYs died.** This records the exit code from now on; it cannot
+retrofit one onto a death that already happened. sc-claude and sc-architect remain unexplained, and
+the next one of these will explain itself.
+
 **The console tail told the operator nothing was recorded, while 14,773 characters sat one store
 over.** This one was found by the operator asking a live question -- why did sc-claude die -- not by
 reading code, and the endpoint that exists to answer exactly that question answered it wrongly for the
@@ -649,6 +712,15 @@ is not worth it at that price. Recorded so the next person weighing it starts fr
 rather than rediscovering them.
 
 ## Worth knowing, not worth doing
+
+**Showing the exit code in the dashboard too -- NOT worth it, and the reason is where the data
+would have to travel.** The two new columns camelCase onto `GET /terminals/{id}` for free, so a
+dashboard that fetched a terminal could display them today. It does not fetch one: the dashboard
+reads a terminal's end state off the SESSION object (`session.terminalStatus` in
+`session-console.mjs:95`), and there is no dead-terminal detail panel to put an exit code in.
+Surfacing it there means threading two more fields onto the session payload and inventing a place to
+render them -- new surface, for a display-only gain on a question `comms_console_tail` now answers
+directly. Revisit if a terminal detail view ever exists for its own reasons.
 
 **The cross-language constant census: 19 service constants are named from JS, 5 carry a timing
 relationship, and two of those were enforced only by a comment.**
