@@ -22,6 +22,7 @@ import path from "node:path";
 import { test } from "node:test";
 
 import { EnvClient } from "../env-client.mjs";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 /** Where aify-env lives. Overridable, because a sibling checkout is a convention and not a fact. */
 const AIFY_ENV = process.env.AIFY_ENV_REPO || path.join(os.homedir(), "projects", "aify-env");
@@ -30,7 +31,28 @@ const available = fs.existsSync(DAEMON);
 
 function startDaemon() {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [DAEMON, "--port", "0"], { stdio: ["ignore", "pipe", "pipe"] });
+    // THE RECORD IS SEALED TO A TEMP FILE, and this file killed the operator's fleet three times in one
+    // evening for want of it. aify-env REAPS FROM THE RECORD AT STARTUP, and an unset
+    // `AIFY_ENV_PROCESS_RECORD` defaults to `~/.aify/env-processes.json` -- the LIVE instance's record.
+    // So this daemon read the running environment's list of owned processes, confirmed each one alive
+    // and verifiably "ours", killed its tree, and cleared the file. Measured: the shared record's mtime
+    // is the same minute as the deaths, and it is `[]` afterwards.
+    //
+    // The daemon's own guard did not save it. `bin/aify-env.mjs` reaps only once it HOLDS THE PORT,
+    // reasoning that holding it proves nobody else is serving -- and `--port 0` is an ephemeral port,
+    // always free, so the guard passes for an instance that owns nothing.
+    //
+    // Its sibling `delegated-terminal-against-real-aify-env.test.js` already sealed this, and its
+    // comment names the hazard exactly. Only one of the two files was fixed.
+    const record = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "aify-envclient-rec-")), "owned.json");
+    const child = spawn(process.execPath, [DAEMON, "--port", "0"], {
+      stdio: ["ignore", "pipe", "pipe"],
+      // SEALED for the same reason the sibling is: spreading `process.env` hands the daemon the
+      // operator's service URL, API key, hermes session and agent identity on any machine where a
+      // wrapper has set them, and passes silently everywhere they are unset -- which is every
+      // developer shell and no wrapper.
+      env: sealedChildEnv({ AIFY_ENV_PROCESS_RECORD: record }),
+    });
     let output = "";
     const timer = setTimeout(() => reject(new Error(`aify-env did not start:\n${output}`)), 20_000);
     child.stdout.on("data", (chunk) => {
