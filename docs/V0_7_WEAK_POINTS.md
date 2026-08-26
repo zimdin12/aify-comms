@@ -52,6 +52,36 @@ Everything else in this file is recorded with a judgement and needs nothing from
 
 ## Shipped this round
 
+**A dispatch run's status was written raw while everything downstream assumed lowercase.** Found by
+pulling the thread I left last round: I recorded that `dispatch_runs.status` has no vocabulary gate,
+and went to check whether a real defect sat behind that absence. One did.
+
+`update_dispatch_run` lowercased the REQUESTED status for its monotonic guard and then wrote the RAW
+one. Three consumers each test that written value against a lowercase literal:
+
+    params.append(effective_status)                     the column every reconciler queries
+    if effective_status == "running"                    stamps started_at
+    if effective_status in _DISPATCH_TERMINAL_STATUSES  stamps finished_at and settles the run
+
+A status of `Completed` passed the guard (which compared `completed`), was written verbatim, matched
+neither check, and then matched no reconciler either -- every dispatch sweep selects on lowercase
+(`dispatch_lifecycle.py:88, 367, 400`, `dispatch_queue.py:258, 337`). The row is finished to its
+caller and unfinished to the system: `require_reply` never settles and cleanup never deletes it. That
+is the `lost` incident's exact shape on a table with no gate to catch it.
+
+**No live defect today, and the reason is measured rather than assumed:** across `mcp/stdio` with
+`tests/` and `fixtures/` pruned, the bridge sends exactly five status literals on
+`/dispatch/runs/{id}` -- completed, delivered, failed, queued, running -- and all five are lowercase.
+(The first pass of that census walked the fixtures directory and attributed three of them partly to a
+pristine pre-extraction snapshot; re-measured against live sources only, the set is identical.) What made it worth fixing anyway is that `status` is `Optional[str]` with no
+validator, the bridge is host-side and routinely a different build from the service, and the guard one
+line above already lowercases -- the author expecting case to vary in the same expression that then
+did not handle it.
+
+Four of the nine tests fail against the old write and five pass, which is the right split: the five
+are the controls, the lowercase path and the monotonic guard, and normalising must not buy its
+correctness by weakening that guard.
+
 **One defect class appeared three times in a day, so I went looking for the rest of it.** The shape:
 a gate scans for producers using one call pattern, another pattern exists, and the gate reports
 honestly about what it reads and silently about the rest -- which is indistinguishable from having
