@@ -53,9 +53,39 @@ def _candidate_files() -> list[pathlib.Path]:
         rel = path.relative_to(REPO)
         if PRUNE & set(rel.parts):
             continue
-        if path.name in LAUNCH_NAMES or path.suffix in LAUNCH_SUFFIXES:
+        if _is_launch_capable(path):
             found.append(path)
     return found
+
+
+#: Suffixes that make a file a TEMPLATE of something else. Stripping one and re-testing is what keeps
+#: `docker-compose.override.yml.example` in scope: its suffix is `.example`, so a plain suffix test
+#: skipped it entirely -- and it is a compose override, which is precisely where somebody adds
+#: `--workers` while adapting the example they were invited to copy. It carries a commented-out
+#: uvicorn command line today, with `--reload` and no workers, so nothing is wrong right now; what was
+#: wrong is that the gate could not have told us either way.
+TEMPLATE_SUFFIXES = {".example", ".template", ".sample", ".dist"}
+
+
+def _is_launch_capable(path: pathlib.Path) -> bool:
+    """Whether a file could start a server, by shape rather than by a list of names.
+
+    Three ways in, and the first two were the only ones until 2026-08-26:
+      * a launch suffix (`.yml`, `.sh`, `.py`, ...)
+      * the exact name `Dockerfile`
+      * NEW: a template of either -- `x.yml.example` -- or a Dockerfile VARIANT such as
+        `Dockerfile.dev`, which the exact-name test would also have missed. Neither exists in the tree
+        today except the compose override example, which is the point: this gate guards an invariant
+        whose violation silently corrupts the in-memory live-status cache, so it should be complete
+        BEFORE the file that breaks it arrives, not after.
+    """
+    if path.name in LAUNCH_NAMES or path.suffix in LAUNCH_SUFFIXES:
+        return True
+    if path.name.startswith("Dockerfile"):
+        return True
+    if path.suffix in TEMPLATE_SUFFIXES and pathlib.Path(path.stem).suffix in LAUNCH_SUFFIXES:
+        return True
+    return False
 
 
 def _read(path: pathlib.Path) -> str:
@@ -105,6 +135,28 @@ def test_the_scan_actually_sees_the_real_launch_commands():
     assert "Dockerfile" in launchers, "the service Dockerfile is not being scanned"
     assert any(name.startswith("docker-compose") for name in launchers), "no compose file scanned"
     assert len(launchers) >= 3, f"only {launchers} carry a uvicorn command — the walk is too narrow"
+    # THE TEMPLATE, named because it was outside the walk until 2026-08-26. A compose OVERRIDE is
+    # where an operator adapting the example would add `--workers`, and `.example` is not a launch
+    # suffix, so the walk skipped the one file most likely to acquire the flag this gate forbids.
+    assert "docker-compose.override.yml.example" in launchers, (
+        "the compose override EXAMPLE is not being scanned. It carries a uvicorn command line and is "
+        "meant to be copied, so it is where the forbidden flag would arrive first."
+    )
+
+
+def test_a_dockerfile_variant_and_a_template_are_both_in_scope():
+    """The shapes the walk now covers, asserted directly rather than through what happens to exist.
+
+    Neither `Dockerfile.dev` nor a `.sh.example` is in the tree today, so the assertion above cannot
+    speak for them — and a gate guarding an invariant whose violation silently corrupts the
+    live-status cache should be complete BEFORE such a file arrives.
+    """
+    assert _is_launch_capable(REPO / "Dockerfile.dev"), "a Dockerfile variant would not be scanned"
+    assert _is_launch_capable(REPO / "entrypoint.sh.template"), "a shell template would not be scanned"
+    assert _is_launch_capable(REPO / "docker-compose.override.yml.example")
+    # And the walk must not widen into everything: a template of a non-launch file stays out.
+    assert not _is_launch_capable(REPO / ".env.example"), "the walk now matches non-launch templates"
+    assert not _is_launch_capable(REPO / "README.md"), "the walk now matches prose"
 
 
 def test_the_patterns_detect_the_shapes_they_claim_to():
