@@ -138,10 +138,28 @@ def _router_terminal_status_writes() -> dict[str, set[str]]:
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or not node.args:
                 continue
+            # AN F-STRING IS A WRITER TOO, and reading only `ast.Constant` was silent about them.
+            # `terminal_runs.py:356` writes `status = 'stopped'` inside an f-string -- it has to be
+            # one, because the WHERE clause interpolates a placeholder list -- so the scan below could
+            # not see it, and the guarantee this file claims ("if either writer ever needs a new
+            # status, this fails by file and value BEFORE the refusal could drop it silently") did
+            # not hold for that shape. No live defect: `stopped` is already a member. But the shape is
+            # in use, so a NEW literal added the same way would have passed unnoticed and stranded the
+            # row exactly as the `lost` incident in this file's docstring describes.
+            #
+            # Only the CONSTANT parts are joined. An interpolated value is not a literal and cannot be
+            # judged here; `terminal_output.py` builds its whole SET clause that way and correctly
+            # contributes nothing.
             sql = node.args[0]
-            if not (isinstance(sql, ast.Constant) and isinstance(sql.value, str)):
+            if isinstance(sql, ast.Constant) and isinstance(sql.value, str):
+                text = sql.value
+            elif isinstance(sql, ast.JoinedStr):
+                text = "".join(
+                    part.value for part in sql.values
+                    if isinstance(part, ast.Constant) and isinstance(part.value, str)
+                )
+            else:
                 continue
-            text = sql.value
             if not re.search(r"\bUPDATE\s+terminal_sessions\b|\bINSERT\s+INTO\s+terminal_sessions\b", text, re.I):
                 continue
             for value in re.findall(r"\bstatus\s*=\s*'([a-z_-]+)'", text, re.I):
@@ -249,6 +267,19 @@ class TerminalStatusVocabularyTests(unittest.TestCase):
             "running", literals.get("mcp/stdio/codex-session.js", set()),
             "`_pushTerminalFrame(text, \"running\")` reaches the same column through the virtual "
             "terminal sink — a scan that only reads direct POSTs misses four files",
+        )
+        # THE PYTHON SIDE HAS THE SAME KIND OF SECOND SHAPE, and it was unread until 2026-08-26.
+        # `terminal_runs.py` writes `status = 'stopped'` inside an F-STRING -- it has to be one,
+        # because the WHERE clause interpolates a placeholder list -- and a scan that accepts only
+        # `ast.Constant` SQL cannot see it. That is the third instance in one day of one class: a
+        # scan reads one shape of producer and is silent about the rest, which reads exactly like
+        # having checked.
+        writes = _router_terminal_status_writes()
+        self.assertGreaterEqual(len(writes), 15, "the router scan found almost no writers")
+        self.assertIn(
+            "stopped", writes.get("service/reconcilers/terminal_runs.py", set()),
+            "an f-string UPDATE is invisible to this scan again. A NEW literal added that way would "
+            "pass unnoticed and strand the row exactly as the `lost` incident above describes",
         )
 
     def test_an_unrecognised_status_is_refused_and_the_reason_is_what_it_would_have_cost(self):
