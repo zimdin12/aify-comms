@@ -19,6 +19,7 @@ from service.api_core.events import _append_terminal_event
 from service.api_core.terminal_controls_io import _clear_console_terminal_binding
 from service.clock import now as _now
 from service.reconcilers.terminal_runs import _close_active_terminal_runs_for_terminal
+from service.terminal_diagnostics import terminal_end_summary
 
 
 async def _settle_bridge_takeover_for_output(db, terminal, terminal_id: str, new_bridge_id: str,
@@ -104,7 +105,27 @@ async def _close_out_terminal_on_end_status(db, terminal, terminal_id: str, stat
         """
         if status in _TERMINAL_END_STATUSES:
             now = _now()
-            summary = f"Terminal {status} before an explicit reply was recorded."
+            # HOW IT ENDED, read back rather than assumed. `_record_terminal_exit` wrote and committed
+            # the exit code and signal on this same connection a few lines earlier in the request, so
+            # this SELECT sees them; the `terminal` row in hand was read BEFORE that write and does
+            # not carry them.
+            #
+            # ONE EXTRA QUERY, ON THE ENDING PATH ONLY. This branch runs when a terminal-ending status
+            # arrives -- once per terminal, not per output chunk -- so it does not touch the hot
+            # ingest path this module's high-frequency half lives on.
+            #
+            # Read here instead of threaded down from the caller because the caller's values are
+            # expressions (`req.exitCode`), and the extract-method gate that proves this helper still
+            # inlines back into `append_terminal_output` refuses a call whose argument name differs
+            # from the parameter it fills. Reading the row keeps the signature, and with it the proof.
+            exit_row = await (await db.execute(
+                "SELECT exit_code, exit_signal FROM terminal_sessions WHERE id = ?", (terminal_id,),
+            )).fetchone()
+            summary = terminal_end_summary(
+                status,
+                exit_row["exit_code"] if exit_row is not None else None,
+                str((exit_row["exit_signal"] if exit_row is not None else "") or ""),
+            )
             await _close_active_terminal_runs_for_terminal(db, terminal, status, now=now, reason=summary)
             await db.execute(
                 """

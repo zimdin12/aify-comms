@@ -62,7 +62,41 @@ _EXIT_RECORD_WAS = chr(10).join([
     '        status = str(req.status or "").strip()',
 ]) + chr(10)
 
-EDITED_SINCE = [(_EXIT_RECORD_NOW, _EXIT_RECORD_WAS)]
+#: THE SECOND EDIT, 2026-08-26. The sentence a requesting agent reads when a terminal ended under
+#: its run said `Terminal stopped ...` for every ending that is not a spawn failure -- a clean
+#: exit, a crash and a kill alike -- while the code and signal that say which sat in the same row,
+#: written moments earlier in the same request. The block reads them back and builds the sentence
+#: from what happened. Read here rather than threaded down because the caller's values are
+#: expressions and this gate refuses a call whose argument name differs from its parameter.
+_END_SUMMARY_NOW = chr(10).join([
+    '            # HOW IT ENDED, read back rather than assumed. `_record_terminal_exit` wrote and committed',
+    '            # the exit code and signal on this same connection a few lines earlier in the request, so',
+    '            # this SELECT sees them; the `terminal` row in hand was read BEFORE that write and does',
+    '            # not carry them.',
+    '            #',
+    '            # ONE EXTRA QUERY, ON THE ENDING PATH ONLY. This branch runs when a terminal-ending status',
+    '            # arrives -- once per terminal, not per output chunk -- so it does not touch the hot',
+    "            # ingest path this module's high-frequency half lives on.",
+    '            #',
+    "            # Read here instead of threaded down from the caller because the caller's values are",
+    '            # expressions (`req.exitCode`), and the extract-method gate that proves this helper still',
+    '            # inlines back into `append_terminal_output` refuses a call whose argument name differs',
+    '            # from the parameter it fills. Reading the row keeps the signature, and with it the proof.',
+    '            exit_row = await (await db.execute(',
+    '                "SELECT exit_code, exit_signal FROM terminal_sessions WHERE id = ?", (terminal_id,),',
+    '            )).fetchone()',
+    '            summary = terminal_end_summary(',
+    '                status,',
+    '                exit_row["exit_code"] if exit_row is not None else None,',
+    '                str((exit_row["exit_signal"] if exit_row is not None else "") or ""),',
+    '            )',
+]) + chr(10)
+
+_END_SUMMARY_WAS = chr(10).join([
+    '            summary = f"Terminal {status} before an explicit reply was recorded."',
+]) + chr(10)
+
+EDITED_SINCE = [(_EXIT_RECORD_NOW, _EXIT_RECORD_WAS), (_END_SUMMARY_NOW, _END_SUMMARY_WAS)]
 EXTRACTIONS = ["_settle_bridge_takeover_for_output", "_close_out_terminal_on_end_status"]
 
 #: Where each helper is expected to be declared. PER HELPER, over every module below.

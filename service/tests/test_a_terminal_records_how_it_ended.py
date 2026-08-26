@@ -196,6 +196,89 @@ class TerminalRecordsHowItEndedTests(FastApiTestCase):
         self.assertEqual(terminal["exitCode"], 0)
         self.assertNotEqual(terminal["exitCode"], None, "a clean exit serialised as no exit at all")
 
+
+    def test_the_run_summary_says_a_KILLED_worker_was_killed(self) -> None:
+        """THE SENTENCE THE REQUESTER ACTUALLY READS, and it was making a claim nobody checked.
+
+        When a terminal ends under an open run, the run is closed with
+        `f"Terminal {status} before an explicit reply was recorded."` -- and the bridge reports
+        `stopped` for every ending that is not a spawn failure. So a worker something SIGKILLed
+        mid-turn told its requester its terminal had STOPPED, which is the word for a deliberate
+        shutdown, while the signal that says otherwise sat in the same row, written moments earlier
+        in the same request. On 2026-08-26 the operator asked why agents kept dropping and every
+        instance of this sentence said `stopped`.
+        """
+        run_id = self._open_run()
+        self.assertEqual(self._post_exit(exitSignal="SIGKILL").status_code, 200)
+        summary = self._run_summary(run_id)
+        self.assertIn("KILLED by SIGKILL", summary, f"the run still says: {summary!r}")
+        self.assertNotIn("Terminal stopped", summary)
+
+    def test_the_run_summary_carries_a_non_zero_exit_code(self) -> None:
+        run_id = self._open_run()
+        self.assertEqual(self._post_exit(exitCode=137).status_code, 200)
+        self.assertIn("exited with code 137", self._run_summary(run_id))
+
+    def test_a_terminal_that_reported_NOTHING_keeps_the_original_wording(self) -> None:
+        """The control, and the honest case. An older bridge sends no exit fields at all, and
+        inventing a cause for a death nobody described would be the defect this repo keeps finding."""
+        run_id = self._open_run()
+        self.assertEqual(self._post_exit().status_code, 200)
+        summary = self._run_summary(run_id)
+        self.assertIn("Terminal stopped before an explicit reply was recorded", summary)
+
+    def test_a_clean_exit_under_an_open_run_says_it_was_clean(self) -> None:
+        """Zero is not silence. A worker that exited 0 without replying still failed to reply, and
+        saying "exited cleanly" is a different diagnosis from "we do not know"."""
+        run_id = self._open_run()
+        self.assertEqual(self._post_exit(exitCode=0).status_code, 200)
+        self.assertIn("exited cleanly (code 0)", self._run_summary(run_id))
+
+    def _open_run(self) -> str:
+        """A dispatch run claimed against this agent's terminal, so the exit has something to close.
+
+        Inserted directly: opening one through the dispatch API would need a live claimer, and this
+        test is about what the CLOSING writes, not about how the run got there.
+        """
+        import asyncio
+
+        from service.db import get_db
+
+        run_id = f"run_probe_{len(self.TERMINAL)}"
+
+        async def go():
+            db = await get_db()
+            try:
+                await db.execute(
+                    "INSERT INTO dispatch_runs (id, target_agent, from_agent, subject, body, status, "
+                    "dispatch_mode, execution_mode, requested_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (run_id, self.AGENT, "requester", "probe", "body", "running", "terminal",
+                     "managed", "2026-08-26T02:00:00Z"),
+                )
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(go())
+        return run_id
+
+    def _run_summary(self, run_id: str) -> str:
+        import asyncio
+
+        from service.db import get_db
+
+        async def go():
+            db = await get_db()
+            try:
+                row = await (await db.execute(
+                    "SELECT status, summary, error_text FROM dispatch_runs WHERE id = ?", (run_id,),
+                )).fetchone()
+                return f"{row['summary'] or ''} {row['error_text'] or ''}".strip()
+            finally:
+                await db.close()
+
+        return asyncio.run(go())
+
     def test_the_console_tail_says_so_when_nothing_was_reported(self) -> None:
         """A terminal that ended without reporting is a real answer and must read as one, not as a
         clean exit and not as silence."""

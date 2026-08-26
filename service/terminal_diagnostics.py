@@ -262,3 +262,39 @@ def richest_recording(streamed: str, replayed: str) -> tuple[str, str]:
     if says_what_it_was_doing(replayed):
         return str(replayed or ""), "events"
     return "", ""
+
+
+def terminal_end_summary(status: str, exit_code=None, exit_signal: str = "") -> str:
+    """The sentence a requesting agent reads when a terminal ended under its run.
+
+    THE WORD "STOPPED" IS A CLAIM, and it was being made about deaths nobody chose. Until this
+    existed the sentence was `f"Terminal {status} before an explicit reply was recorded."`, and the
+    bridge reports `stopped` for every ending that is not a spawn failure -- a clean exit, a non-zero
+    exit, and a kill alike. So a worker something SIGKILLed mid-turn told its requester that its
+    terminal had stopped, which is the word for a deliberate shutdown.
+
+    On 2026-08-26 the operator asked why their agents kept dropping. This sentence, in the run list,
+    is the first place anyone looks, and every instance of it said `stopped`. The exit code and signal
+    that say what actually happened were written to the same row moments earlier, in the same request.
+
+    THE THREE ANSWERS, kept apart because they are different facts:
+
+      * a SIGNAL means something killed it. Named, because "killed by SIGKILL" is the answer.
+      * a NON-ZERO code means it fell over on its own. The number is the evidence.
+      * code 0, or nothing recorded, keeps the original wording. A clean exit under an open run is
+        still a failure to reply, and inventing a cause for it would be worse than saying only what
+        happened.
+
+    Zero is passed through rather than defaulted, and the check is `is not None` rather than
+    truthiness, for the reason the column exists: 0 is a clean exit and the most common value there
+    is, while NULL means nobody reported one, and `if exit_code:` collapses the two.
+    """
+    label = str(status or "").strip().lower() or "ended"
+    signal = str(exit_signal or "").strip()
+    if signal:
+        return f"Terminal was KILLED by {signal} before an explicit reply was recorded."
+    if exit_code is not None and int(exit_code) != 0:
+        return f"Terminal exited with code {int(exit_code)} before an explicit reply was recorded."
+    if exit_code is not None:
+        return f"Terminal exited cleanly (code 0) before an explicit reply was recorded."
+    return f"Terminal {label} before an explicit reply was recorded."
