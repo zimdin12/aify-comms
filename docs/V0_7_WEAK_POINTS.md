@@ -35,11 +35,114 @@ decision nobody makes.
    `build, ntfy, status, version`. So "how many dashboards are connected" is unanswerable without
    opening a browser -- which is exactly why I could not size the sequential WebSocket broadcast this
    round. One line on `/health` would give the method its only consumer.
+
+   It is larger than one method. `WSManager` has a whole agent-addressed half -- `online_agents()`,
+   `notify_agent()`, and the `?agent_id=` parameter on `/ws` -- and **nothing in this repo connects
+   that way**. Measured 2026-08-26 by widening past the bridge to every `/ws` reference repo-wide:
+   every client is the dashboard's own `new WebSocket(`${wsOrigin}/ws`)`, with no agent id, and the
+   only connection that supplies one is `test_main_websocket_auth.py`. So the two events sent through
+   `notify_agent` -- `new_message` from `channel_send.py:218` and `messages.py:274`, `dispatch_request`
+   from `dispatch.py:233` -- are delivered to an audience that is empty. **The decision is whether
+   `/ws?agent_id=` is an intended external-client API or dead weight**, and it is yours because
+   deleting a public endpoint on my own judgement is not a bughunt finding. Nothing is broken either
+   way: an event nobody receives costs one dictionary lookup.
 8. **The codex console input is named only by a placeholder**, which typing erases.
 
 Everything else in this file is recorded with a judgement and needs nothing from you.
 
 ## Shipped this round
+
+**The console tail told the operator nothing was recorded, while 14,773 characters sat one store
+over.** This one was found by the operator asking a live question -- why did sc-claude die -- not by
+reading code, and the endpoint that exists to answer exactly that question answered it wrongly for the
+agent next to it.
+
+`comms_console_tail` reads `terminal_sessions.output`. A terminal's bytes also persist as
+`terminal_events` rows. Usually the column is the fuller of the two. Measured on two real deaths,
+2026-08-26, characters per store:
+
+| agent | `terminal_sessions.output` | `terminal_events` rebuilt |
+|---|---|---|
+| sc-claude | 63,423 | 10,913 |
+| sc-architect | **18** | **14,773** |
+
+sc-architect's eighteen characters are its own `[terminal exited]` marker. Non-empty, so the
+`.strip()` gate passed it, the tail rendered a line saying only THAT it ended, and the operator read
+"(nothing was recorded)" -- while the events held the screen it died on, ending on
+`Search Files("build_terrain_heat_source")` and a note about tuning a test timestep to recover green.
+
+This is the endpoint whose own docstring exists because of this exact shape: "the cause of a failed
+managed hermes launch sat in `terminal_sessions.output` for 2.5 hours ... The bytes were never
+missing; nothing would serve them." It recurred one store over, which is the argument for
+`says_what_it_was_doing` over `.strip()`: **non-empty is not informative**.
+
+Fixed by falling back to the events when the column says nothing, naming the store that answered in
+`recordedFrom`, and reading the events ONLY on that path so the common case costs no extra query.
+`[terminal failed] <error>` is deliberately not treated as self-reporting -- that marker carries the
+reason after it, and filtering it would delete the most useful line a dying terminal writes.
+
+The MCP tool says when it recovered. `comms_console_tail` renders `r.output`, so the service fix
+alone would have shown the recovered text with no indication of where it came from -- a field with no
+reader, which is the defect this round has caught in other people's code twice. The tool now prints
+"Recovered from the terminal's recorded events; the output column held only its exit marker" on that
+path and NOTHING on the ordinary one, because a line that appears every time trains its reader to skip
+it. A bridge carrying this change will meet a service that predates it, so an absent `recordedFrom`
+reads as the ordinary case rather than as a recovery; that skew is pinned by a test.
+
+**Scope, stated so this is not read as more than it is.** `_prune_terminal_history` expires the
+output column and the events on the SAME 24-hour schedule (`ended_output_ttl_hours` and
+`terminal_event_ttl_hours`, both 24), so the fallback does not extend how far back a death can be
+explained -- it fixes the case WITHIN that window, which is when anyone actually asks. The pruner did
+not cause sc-architect's near-empty column either: that terminal was 42 minutes old, so nothing had
+expired. Its eighteen characters are all the column ever received.
+
+**The same handler also called a dead terminal idle.** With both stores silent it fell through to
+"has no live console (it lazy-starts on a message)" -- which describes an agent waiting by design, not
+one whose terminal ended. A silent death is itself a finding and now reads as one.
+
+**A schema trap found while writing that fixture, and NOT fixed.** `agent_sessions.spawn_spec_id` and
+`spawn_request_id` are nullable FOREIGN KEYs whose column DEFAULT is the empty string. NULL is exempt
+from a foreign key; `''` is not, and no `spawn_specs` or `spawn_requests` row has id `''` -- so an
+insert that OMITS those columns takes a default guaranteed to violate the constraint, and SQLite
+reports `FOREIGN KEY constraint failed` naming no column. All three production writers name both, so
+nothing is broken today. **The decision is whether to migrate the defaults to NULL**, and it is yours:
+it is a schema change against a live database, which is not something to do unilaterally while the
+fleet is running. Pinned meanwhile by a test that derives the offending columns from the schema, so a
+newly-added one is named rather than left to ambush the next writer.
+
+**FOUR callers derive one status, and none of them found the others.** The reconcile sweep, the
+roster and the analytics page all resolve the same two questions per agent -- which environment owns
+it, and which environment its session runs in -- and each answered them once PER AGENT rather than once
+per pass. `fab4204c` fixed the roster months ago with a request-scoped dict. Nothing carried that to
+the other two, because nothing named the shape: the fix lived in the roster's own handler as a local
+variable, so it read as a detail of listing agents rather than as a rule about the derivation.
+
+Both are fixed this round, and both were measured the same way -- counting `aiosqlite` execute() calls,
+never wall clock, because wall clock on this host is unusable (the same code timed 44-47ms and then
+22-25ms minutes apart; the live fleet is the load).
+
+| path | before | after | at 47 agents |
+|---|---|---|---|
+| `_run_dispatch_reconcile_once()` | 17N + 44 | 12N + 46 | 843 -> 610 |
+| `GET /api/v1/analytics` (cold cache) | 16N + 79 | 11N + 81 | 831 -> 598 |
+| `GET /api/v1/analytics/pulse` (cold cache) | 16N + 6 | 11N + 8 | 758 -> 525 |
+
+The pulse board was found only BECAUSE the analytics page was fixed first: once the shape had a name,
+the fourth instance was one grep away. That is the argument for naming a shape rather than fixing an
+endpoint -- three rounds of reading this code did not surface it, and the fix that did took a minute.
+
+Every model is exact at four measured fleet sizes, not fitted. Analytics costs two extra fixed queries
+for five fewer per agent, so it wins from a single agent.
+
+The analytics measurement had to be taken on a COLD live-state cache and that distinction matters: a
+warm request costs a flat 79 and was never the problem. What this removes is the spike paid by
+whichever request happens to arrive first after the cache expires -- an arbitrary caller, on a
+single-worker SQLite service whose lock contention has its own DECISIONS.md entry.
+
+My first attempt at the analytics numbers reused one fixture across fleet sizes and the agents
+accumulated, which reported a 16-per-agent slope from a fleet that was not the size the loop said it
+was. The figures above come from a fresh database per size with the agent count read back from the API
+and printed beside each measurement.
 
 **The dashboard tracked whether realtime was connected and showed it nowhere.**
 `state.realtimeConnected` had FOUR writers in `realtime-socket.mjs` and no reader anywhere -- the
@@ -60,7 +163,10 @@ FOUND BY LOOKING, not by reading. Loading the page in a browser and asking wheth
 is what exposed a flag with no consumer; four rounds of source scanning over this same file did not.
 
 THE SERVER IS BLIND TO THE SAME THING, and that half is not fixed. `WSManager` in `service/ws.py`
-has `active_count()` and `online_agents()`; neither has a caller anywhere in production code. So
+has `active_count()` and `online_agents()`; neither has a caller anywhere in production code, and
+`online_agents()` reads a map that only a `?agent_id=` connection can populate -- which nothing in
+this repo makes. (`analytics.py` has a LOCAL variable of the same name, which is not this method; the
+first scan that conflated them would have reported a consumer that does not exist.) So
 nothing on the service side can answer "is any dashboard actually connected", just as nothing on the
 client side could answer "is my socket up" until this round.
 
@@ -954,7 +1060,34 @@ reading the producer AND the consumer, or by constructing the case.
 | dead schema state | every column of all 25 tables, write-shaped vs read-shaped references | exactly ONE unread column, in `agent_live_state` -- the table CLAUDE.md already calls vestigial, and that claim is accurate: its only real references are the CREATE, its index and a comment (everything else is a FUNCTION whose name contains the phrase) |
 | share / unshare | actor, ownership, idempotence, file unlink order | mandatory actor fails closed; file unlinked BEFORE the row, so a failed unlink is retryable |
 | channel join / leave | both handlers | symmetric on membership; historical unread is kept, which is defensible |
+| dashboard API calls | all 52 `api()` paths vs all 103 declared routes | every one resolves; the two apparent misses were my normaliser -- `/messages/inbox/dashboard` binds "dashboard" to `{agent_id}`, and `/agents/{id}/{path}` is a dynamic dispatcher |
+| destructive UI actions | all 8 destructive `data-*` dispatch targets traced to the function that performs the write | every one calls `uiConfirm` first, the shared-file delete with `tone: 'danger'`. Two apparent gaps were the delegation trap: the confirm sits one call deeper than the handler the dispatcher names |
+| icon-only buttons | all 164 `<button>` elements in the 78 non-test dashboard sources | ONE unlabelled -- fixed, and gated by a derived scan rather than a pin |
+| realtime event dispositions | all 51 broadcast names vs the disposition table AND its gate | the table is complete; the GATE was not -- see below |
+| aify-env spawn seam (Phase 8) | the request AND the response, both directions, across two repos | CLEAN. aify-comms sends `{service, launcher, args, cwd, env, label}`; aify-env's `startProcess` consumes exactly those six. aify-env returns `{id, pid, terminal, service}`; aify-comms reads three, and `service` is an echo of what it sent. The one asymmetry: `pty: started.handle.terminal === true` cannot distinguish ABSENT from false, so a version-skewed aify-env would produce a spurious "no pty" line -- visible and harmless, worth knowing, not worth changing |
+| agent registration | every key the five registration modules build vs `AgentRegister`'s 23 fields | CLEAN. The two apparent extras were correctly scoped: `appServerUrl` is nested inside `runtimeConfig` (a declared field), and `runtimeState` goes to its own `PATCH /agents/{id}/runtime-state` with its own model. The model ignores extras by default, so an actual stray key WOULD be dropped silently -- which is why this was worth checking rather than assuming |
+| `terminal_output` WS payload | all 5 fields the service broadcasts vs what the dashboard reads | `seq` IS sent (`terminal_write_queue.py:255`), so the console's dedup and gap-resync are live rather than silently disabled -- which is what a missing `seq` would have produced, since `Number.isFinite(seq)` simply skips both. `status` rides along with no reader in that branch, but `terminal_stopped` is its own event and defaults to refresh, so the case is covered twice rather than not at all |
 | paginated limits | all 16 numeric query params in `service/routers/`, and each unclamped one traced to its consumer | 12 clamped at the route by `Query(..., ge=, le=)`; the other four are clamped where they are USED (`lines` at `max(1, min(int(lines or 40), 200))`, `cols`/`rows` by the snapshot view's `max(20, min(..., 500))`) or harmless (`offset`, which SQLite floors at 0) |
+
+**The realtime gate could not see half its own producer.** `realtime-dispositions.test.mjs` exists to
+compare the dashboard's disposition table against the events the service actually sends, and it reads
+the producer's own source rather than a copy -- which is the right design. Its scan matched
+`broadcast(` only. `ConnectionManager` has two senders that put an IDENTICAL frame on the wire:
+`broadcast()` writes `{"event", "data"}` to every connection, `notify_agent()` writes the same shape to
+one agent's socket. So two real events -- `new_message` from `channel_send.py:218` and
+`messages.py:274`, `dispatch_request` from `dispatch.py:233` -- were invisible to every assertion in
+the file, and the "49 distinct names" figure quoted in three places was the blind scan's number, not
+the producer's.
+
+The consequence is not a missed refresh: an unclassified name already defaults to refresh, which is
+the fix that file shipped. It is that the two GHOST tests would REJECT a correct declaration. Proven
+by mutation before touching anything -- declaring `new_message` in `IGNORED` failed the suite 9 pass /
+1 fail with `ignored but never broadcast: new_message`, a message that is false and that points its
+reader at the wrong side. The event is real; the scan was not looking.
+
+Fixed by teaching the scan the second sender, with two tests that go red without it (watched: 10 pass /
+2 fail with the scanner blinded, 12 / 0 with it). The counts in both files now say 51 and say which
+sender each half comes from.
 
 **Timestamps are compared LEXICALLY in SQL on purpose, and that is safe here.** It looks like the
 classic bug, and this repo has paid for that class before, so it is worth writing down rather than

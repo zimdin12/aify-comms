@@ -196,9 +196,9 @@ on a module that referenced an undefined name and threw on its first real call, 
 a test.
 
 ```bash
-python -m pytest service/tests -q                      # 4319 tests (+8786 subtests)
-cd mcp/stdio && node tests/run-all.mjs                 # 355 suites, 1 skipped test (named in its output)
-cd service/new_dashboard && node --test *.test.mjs     # 1166 tests
+python -m pytest service/tests -q                      # 4413 tests (+8972 subtests)
+cd mcp/stdio && node tests/run-all.mjs                 # 364 suites, 1 skipped test (named in its output)
+cd service/new_dashboard && node --test *.test.mjs     # 1221 tests
 ```
 
 **The bridge suite uses TWO idioms, and counting one of them gives a third the answer.** 233 files use
@@ -218,9 +218,9 @@ skips, not as a skip, because 109 of them print none. Its sibling
 `env-client-against-real-aify-env.test.js` goes further and FAILS when the checkout is missing, and the
 delegated one does too now — for a cross-repo proof, "unverified" must not read as green.
 
-Those counts are a **measured snapshot** (2026-08-17), not a target: they are there so a wrong invocation is
+Those counts are a **measured snapshot** (2026-08-26), not a target: they are there so a wrong invocation is
 obvious (a `node --test` that reports 200 did not discover the suite). They rot with every slice — the run is
-the authority, never the number written here. They were 3991/318/1097 on 2026-08-17, 4165/332/1109 on 2026-08-19, 4183/342/1135 and then 4226/349/1135 on 2026-08-20, 4271/351/1135 on 2026-08-24, and are the figures above on 2026-08-25 -- six readings in eight days, which is the argument -- five readings in a week, which is the argument. Four readings, two of them hours apart, is the point. **Until that last update this file carried TWO different dashboard counts** -- 1097 in the layout table and 1109 here -- which is the failure this paragraph warns about, sitting inside the warning. Before that they read 955/219/541 and 1576 while the real
+the authority, never the number written here. They were 3991/318/1097 on 2026-08-17, 4165/332/1109 on 2026-08-19, 4183/342/1135 and then 4226/349/1135 on 2026-08-20, 4271/351/1135 on 2026-08-24, 4413/364/1221 on 2026-08-26 -- seven readings in nine days, which is the argument. Each of those readings was taken because somebody was about to quote the previous one. **Until that last update this file carried TWO different dashboard counts** -- 1097 in the layout table and 1109 here -- which is the failure this paragraph warns about, sitting inside the warning. Before that they read 955/219/541 and 1576 while the real
 figures were already these, which is the whole reason for this paragraph.
 
 Editing `service/new_dashboard/app.js` also means updating `extraction-proof.test.mjs` in the SAME change
@@ -246,13 +246,31 @@ true.
 
 ### The 1000-line gate fails your change — read this before "fixing" it
 
-**Measured 2026-08-25, closest to the limit first.** `mcp/stdio/pi-session.js` is **993** — SEVEN
-lines of headroom, and tighter than either file this document used to name as the watch-item.
-`service/new_dashboard/app.js` is 987 and `service/control_plane.py` is 893, both exactly as written
-elsewhere here; the gap was that nobody had measured the whole population and pi-session.js was never
-on anyone's list. Nothing is broken — the gate is a red test, not a silent failure — but the next
-small edit to pi-session.js goes red for a reason unrelated to that edit, and its author should hear
-it from this paragraph rather than from the suite.
+**Measured 2026-08-26, closest to the limit first**, counted two ways (`wc -l` and `grep -c ""`,
+agreeing on every row):
+
+| lines | file | headroom |
+|---|---|---|
+| 993 | `mcp/stdio/pi-session.js` | 7 |
+| 987 | `service/new_dashboard/app.js` | 13 |
+| 961 | `mcp/stdio/server.js` | 39 |
+| 896 | `mcp/stdio/terminal-runtime.js` | 104 |
+| 893 | `service/control_plane.py` | 107 |
+
+Nothing is broken — the gate is a red test, not a silent failure — but the next small edit to
+pi-session.js goes red for a reason unrelated to that edit, and its author should hear it from this
+paragraph rather than from the suite.
+
+**This list was wrong in exactly the way it warns about, twice over.** Until 2026-08-25 it named only
+`app.js` and `control_plane.py`, and pi-session.js at 993 was on nobody's list. The correction that
+added pi-session.js then claimed to be the whole population and still SKIPPED `server.js` (961) and
+`terminal-runtime.js` (896) — ranks three and four, both tighter than the `control_plane.py` it did
+name. A ranked list that omits its own middle is worse than no list, because it reads as complete. The
+table above came from one walk using the GATES' OWN parameters -- their `SKIP_DIRS`
+(`node_modules`, `tests`, `fixtures`, `__pycache__`, `.git`, `.pytest_cache`, `.venv`, `venv`), their
+extensions, and their `wc -l` counting convention -- so it is the population the gates actually judge,
+not a similar one. That walk sees 504 files and none is at or over the limit. The next person to edit
+this should re-run that walk rather than amend a row.
 
 No product source file may reach 1000 lines. Two tests enforce it:
 `service/tests/test_no_new_oversized_source_file.py` (Python) and
