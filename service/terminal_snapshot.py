@@ -52,6 +52,39 @@ def _strip_balanced_alt_screens(raw_output: str) -> str:
     return _BALANCED_ALT_SCREEN_RE.sub("", raw_output)
 
 
+#: A PRIVATE-PARAMETER CSI THAT ENDS IN `m` IS NOT A TEXT ATTRIBUTE, and pyte reads it as one.
+#:
+#: `CSI > 4 ; 2 m` is XTMODKEYS -- "set modifyOtherKeys level 2" -- which Claude Code emits when it
+#: turns on its keyboard protocol, right beside the Kitty `CSI < u` and `CSI > 1 u` sequences. The
+#: leading `>` makes it private; it says nothing about how text should look. pyte drops the prefix and
+#: dispatches it as SGR 4;2, so UNDERLINE goes on and never comes off, and every character written
+#: afterwards carries it.
+#:
+#: MEASURED 2026-08-26 on the operator's live console, and reproduced offline from the captured bytes:
+#: a 70,871-character stream containing ZERO real SGR sequences produced 45 underline runs, and every
+#: one of the 5,722 cells on the screen had `underscore=True` while `screen.default_char` did not. The
+#: dashboard drew a full-width rule under every row. In isolation, `CSI >4;2m` and a real `CSI 4m`
+#: leave pyte in exactly the same state.
+#:
+#: ONLY THE PRIVATE FORMS ARE REMOVED. `?`, `>`, `<` and `=` all mark a CSI as private, and none of
+#: them has an `m` final that means "render like this". A bare `CSI 4m` is untouched, which the tests
+#: assert both ways -- a sanitiser that ate real attributes would strip every colour in the fleet.
+_PRIVATE_SGR_RE = re.compile("\x1b" + r"\[[<>=?][0-9;:]*m")
+#: HELD BACK WHEN A CHUNK ENDS MID-SEQUENCE. A live PTY chunk boundary can fall inside
+#: `ESC [ > 4 ; 2 m`, and feeding the halves separately puts the underline back on for the life
+#: of that screen -- the bug this file is fixing, arriving by the back door.
+_UNTERMINATED_PRIVATE_CSI_RE = re.compile("\x1b" + r"(?:\[(?:[<>=?][0-9;:]*)?)?$")
+
+
+def strip_private_sgr(raw_output: str) -> str:
+    """Remove SGR-SHAPED sequences that carry a private parameter prefix.
+
+    Applied wherever bytes are fed to pyte, because the emulator cannot be trusted to ignore them and
+    the alternative -- patching a vendored parser -- is a fork with a slow fuse.
+    """
+    return _PRIVATE_SGR_RE.sub("", raw_output)
+
+
 
 
 
@@ -76,7 +109,7 @@ def infer_source_width(raw_output: str, probe: int = 400, rows: int = 120) -> in
     screen = pyte.Screen(probe, rows)
     stream = pyte.Stream(screen)
     try:
-        stream.feed(_strip_balanced_alt_screens(raw_output))
+        stream.feed(strip_private_sgr(_strip_balanced_alt_screens(raw_output)))
     except Exception:
         return 0
     max_col = 0
@@ -125,7 +158,7 @@ def render_snapshot(raw_output: str, cols: int, rows: int) -> str:
     screen = pyte.Screen(cols, rows)
     stream = pyte.Stream(screen)
     try:
-        stream.feed(_strip_balanced_alt_screens(raw_output))
+        stream.feed(strip_private_sgr(_strip_balanced_alt_screens(raw_output)))
     except Exception:
         # A corrupt/clipped byte log must never break replay — fall back to raw.
         return raw_output
@@ -171,7 +204,7 @@ _ALT_LEAVE_RE = re.compile(r"\x1b\[\?(?:1049|1047|47)l")
 
 
 class _LiveScreen:
-    __slots__ = ("cols", "rows", "screen", "stream", "alt_screen", "alt_stream", "in_alt")
+    __slots__ = ("cols", "rows", "screen", "stream", "alt_screen", "alt_stream", "in_alt", "_pending")
 
     def __init__(self, cols: int, rows: int) -> None:
         self.cols = cols
@@ -183,6 +216,8 @@ class _LiveScreen:
         self.alt_screen = None
         self.alt_stream = None
         self.in_alt = False
+        # Bytes held back from the previous chunk: an unterminated private CSI, and nothing else.
+        self._pending = ""
 
     def _enter_alt(self) -> None:
         self.alt_screen = pyte.Screen(self.cols, self.rows)
@@ -196,6 +231,22 @@ class _LiveScreen:
 
     def feed(self, chunk: str) -> None:
         # Route bytes to the main or alt screen, splitting exactly at the switch sequences.
+        #
+        # PRIVATE SGR IS REMOVED FIRST, at the one funnel both streams pass through. `CSI >4;2m` is a
+        # keyboard-protocol sequence pyte dispatches as SGR 4 -- underline on, forever -- and a live
+        # console is where the operator saw it: a full-width rule under every row.
+        #
+        # A CHUNK CAN END MID-SEQUENCE, so an unterminated private CSI is HELD BACK and prepended to
+        # the next chunk rather than fed broken. Without this the split case would leave the underline
+        # stuck for the life of that screen, which is the exact bug being fixed. Only that shape is
+        # held: a partial anything-else is fed as it always was.
+        chunk = self._pending + chunk
+        self._pending = ""
+        held = _UNTERMINATED_PRIVATE_CSI_RE.search(chunk)
+        if held:
+            self._pending = chunk[held.start():]
+            chunk = chunk[: held.start()]
+        chunk = strip_private_sgr(chunk)
         while chunk:
             if self.in_alt:
                 m = _ALT_LEAVE_RE.search(chunk)

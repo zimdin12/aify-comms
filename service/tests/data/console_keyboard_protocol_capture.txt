@@ -1,0 +1,48 @@
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  ⚠ Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker · restart with CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 to keep future transc…  
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt[K[23;3H[?25h[<u[>1u[>4;2m[?1000h[?1002h[?1003h[?1006h[?1000h[?1002h[?1003h[?1006h[?25l[H[K
+[K
+  Ran 2 shell commands[K
+[K
+● Both 955 and 956 derive expected = T0 ± ledger_energy / heat_capacity — the exact mixed-balance shape. Checking the remaining two and the production    
+  write path.[K
+[K
+  Ran 2 shell commands[K
+[K
+● 1012's own comment says it exists to be able to return ABSENT — and it fired. Now the discriminator that decides what "NEW" means: newly-failing, or    
+  newly-added?[K
+[K
+  Ran 2 shell commands[K
+[K
+● Both controls behaved. That splits "new" two ways — and it also corrects the headline number. Writing the classification.[K
+[K
+  Running 1 shell command…[K
+[K
+✽ Concocting… (7m 2s · ↓ 26.3k tokens)[K
+  ⎿  Tip: Use Plan Mode to prepare for a complex request before making changes. Press shift+tab twice to enable.[K
+[K
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── ❯ [K
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────   ⚠ Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker · restart with CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 to keep future transc…   
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt[K[23;3H[?25h[?2026h[?25l[2J[?2026l[H[K
+[K
+  Ran 2 shell commands[K
+[K
+● Both 955 and 956 derive expected = T0 ± ledger_energy / heat_capacity — the exact mixed-balance shape. Checking the remaining two and the production    
+  write path.[K
+[K
+  Ran 2 shell commands[K
+[K
+● 1012's own comment says it exists to be able to return ABSENT — and it fired. Now the discriminator that decides what "NEW" means: newly-failing, or    
+  newly-added?[K
+[K
+  Ran 2 shell commands[K
+[K
+● Both controls behaved. That splits "new" two ways — and it also corrects the headline number. Writing the classification.[K
+[K
+  Running 1 shell command…[K
+[K
+✻ Concocting… (7m 3s · ↓ 26.3k tokens)[K
+  ⎿  Tip: Use Plan Mode to prepare for a complex request before making changes. Press shift+tab twice to enable.[K
+[K
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────❯ [K
+───────────────────────────────────────────────────────────────────────────────
