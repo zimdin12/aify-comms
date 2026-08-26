@@ -89,6 +89,29 @@ export async function resolveFreshManagedTeardownTargets({
   }
 }
 
+//: Has this PROCESS already run its boot survivor sweep?
+//:
+//: THE SWEEP IS DESTRUCTIVE AND THE BOOTSTRAP IS RETRIED, which is a combination nothing should have.
+//: `ensureEnvironmentHeartbeat` calls the bootstrap again on every heartbeat tick -- every 30 seconds
+//: by default -- for as long as `environmentBridgeBootstrapped` is false, and that flag is only set
+//: when the bootstrap returns `{started: true}`. Every step AFTER the sweep can prevent that:
+//: `sweepTombstones`, `syncManagedAgents` and `startSpawnLoop` can each throw, and the caller's
+//: `.catch` turns a throw into `{started: false}`.
+//:
+//: So a bootstrap that fails after the sweep re-reaps the whole managed fleet every thirty seconds,
+//: indefinitely. This file's own history records the shape: on 2026-08-18 a dependency-bag mistake
+//: made `syncManagedAgents` throw and "the environment bridge reaped its boot survivors and then
+//: never came up". That incident was closed by fixing the thrower. The structure that turned one
+//: throw into a repeating fleet-kill was left exactly as it was.
+//:
+//: A BOOT sweep runs at boot. Once per process, whatever the retry does.
+let bootSurvivorSweepDone = false;
+
+/** Reset for tests. Module state is per-process in production, which is the whole point of it. */
+export function resetBootSurvivorSweepForTests() {
+  bootSurvivorSweepDone = false;
+}
+
 export async function bootstrapManagedEnvironmentBridge({
   registerEnvironment,
   sweepSurvivors,
@@ -101,7 +124,15 @@ export async function bootstrapManagedEnvironmentBridge({
     return { started: false, skipped: "registration-unavailable" };
   }
 
-  const swept = await sweepSurvivors?.();
+  // NOT SWEPT AGAIN ON A RETRY. The guard is set BEFORE the call, not after: a sweep that throws has
+  // still reaped whatever it reached, and re-running it would be the same fleet-kill this exists to
+  // stop. Registration is deliberately still re-attempted above -- that one is idempotent and is what
+  // a retry is genuinely for.
+  let swept;
+  if (!bootSurvivorSweepDone) {
+    bootSurvivorSweepDone = true;
+    swept = await sweepSurvivors?.();
+  }
   if (swept === false) {
     return { started: false, skipped: "survivor-sweep-unavailable" };
   }
