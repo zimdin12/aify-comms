@@ -92,6 +92,33 @@ that stopped covering its own subject.
 
 ## Shipped this round
 
+**A slack ceiling in my own test, and an audit whose instrument measured the wrong thing.** Continuing
+the self-audit: the lesson from the vacuous analytics fixture generalises -- a mutation proving the FIX
+is load-bearing does not prove the FIXTURE can distinguish the case the test names -- so it was worth
+asking of every test written today.
+
+**The audit's own instrument was weak, and saying so is the point.** It scanned for control LANGUAGE
+("positive control", "proves nothing") across the 31 test files added recently and flagged one of mine
+as having none: `terminal-exit-report.test.js`, ten tests, zero mentions. Reading it, the substance was
+there all along -- `assert.ok(calls.length >= 4)` is an anti-vacuity control whatever it is called. The
+scan measured vocabulary and reported it as presence.
+
+**But reading it found a real weakness underneath.** That test asserts "every exit path in the runtime
+supplies something to report", and its scan matches a BRACE-LITERAL detail argument. A call site
+passing a variable matches nothing and is skipped in silence -- while `>= 4` against a real 5 leaves
+room for exactly one path to disappear with nothing going red. That is the slack this repo's own size
+gates refuse: the MEASURED value, never a comfortable margin above it.
+
+Replaced with two instruments required to AGREE: the detail-reading scan, and a second count of the
+call sites by the call itself. A path this file cannot read now fails rather than being quietly
+excluded from the guarantee above it. Proven by making one call site pass a variable -- the test then
+reports "5 exit paths exist but only 4 have a detail this test can read".
+
+**The cross-check immediately caught my error rather than the code's.** My first counter matched a bare
+`_handleExit(`, which also matches the method DEFINITION, so it reported 6 against 5 and failed on a
+disagreement of its own making. Narrowed to the call form, the two agree at 5. That is what a second
+instrument is for, and it is more useful than the assertion it guards.
+
 **I audited my own work from today and found a vacuous test I had shipped hours earlier.** Three
 rounds had produced no defect in other people's code, and the one defect I did find was in my own
 document -- so the least-reviewed code in this repo is what I wrote today. That is where I looked.
