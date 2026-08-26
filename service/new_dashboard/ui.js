@@ -40,16 +40,24 @@ export function toast(message, tone = 'info', { timeout = 4200 } = {}) {
 }
 
 // Promise-based modal. Resolves to: confirm → boolean; prompt → string|null (null = cancel).
+//
+// The prompt input is NAMED by the dialog's own message. Without that association a screen reader
+// announces it as a bare edit field: the message is the only thing that says what to type, and it
+// sits in a sibling paragraph the input does not point at. Counter-based ids rather than random
+// ones so the markup is deterministic and a test can assert the pair.
+let dialogSeq = 0;
+
 function openDialog({ title = '', message = '', kind = 'confirm', defaultValue = '', confirmLabel = 'Confirm', cancelLabel = 'Cancel', tone = '' }) {
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
     overlay.className = 'dialog-overlay';
     const isPrompt = kind === 'prompt';
+    const messageId = `dialog-message-${++dialogSeq}`;
     overlay.innerHTML = `
-      <div class="dialog${tone ? ' dialog-' + esc(tone) : ''}" role="dialog" aria-modal="true">
+      <div class="dialog${tone ? ' dialog-' + esc(tone) : ''}" role="dialog" aria-modal="true" aria-labelledby="${messageId}">
         ${title ? `<h3 class="dialog-title">${esc(title)}</h3>` : ''}
-        <p class="dialog-message">${esc(message)}</p>
-        ${isPrompt ? '<input class="dialog-input" type="text" autocomplete="off">' : ''}
+        <p class="dialog-message" id="${messageId}">${esc(message)}</p>
+        ${isPrompt ? `<input class="dialog-input" type="text" autocomplete="off" aria-labelledby="${messageId}">` : ''}
         <div class="dialog-actions">
           <button class="ghost dialog-cancel" type="button">${esc(cancelLabel)}</button>
           <button class="primary dialog-confirm${tone === 'danger' ? ' danger' : ''}" type="button">${esc(confirmLabel)}</button>
