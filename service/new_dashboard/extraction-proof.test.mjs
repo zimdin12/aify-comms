@@ -2911,7 +2911,11 @@ test("the five bridge classes are measurable, and the sizes are cross-checked", 
     // belief had just cost a day one tier down, so the correction is fourteen lines and worth them.
     // Re-measured TWO ways rather than copied from the failure: `declarationSpan` says 843, and a
     // brace-match from the class header gives lines 71..913, which is 843.
-    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 843],
+    // 843 -> 849 on 2026-08-26: the delegated spawn's `label` stopped falling back to the TERMINAL id.
+    // Six lines: the changed expression plus the note saying why a `term_...` string under a column
+    // headed AGENT is worse than an empty one. Re-measured two ways -- `declarationSpan` says 849 and
+    // a brace-match from the class header gives lines 71..919, which is 849.
+    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 849],
   ];
   for (const [rel, name, expected] of cases) {
     const span = declarationSpan(read(rel), name);

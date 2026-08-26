@@ -312,7 +312,13 @@ export class TerminalProcessManager {
       // WHO THIS IS, so aify-env's view can name the row. Without it that view shows
       // `p2  pid 129340  aify-comms` and an operator cannot tell which of their agents it is --
       // exactly the question asked of it. The string is displayed, never interpreted.
-      label: String(agentId || id || ""),
+      //
+      // THE AGENT ID OR NOTHING. This fell back to the TERMINAL id (`agentId || id`), which puts
+      // `term_1787745672834_79e59600` in a column headed AGENT -- a string that is not an agent name,
+      // under a heading that says it is. The operator's requirement, stated 2026-08-26, is the agent
+      // name and only for managed; an empty label is the honest answer for anything else, and
+      // aify-env renders it as a dash rather than inventing one.
+      label: String(agentId || "").trim(),
       launcher,
       args: parts.slice(1),
       cwd: expandUserHome(cwd) || process.cwd(),

@@ -226,3 +226,38 @@ test("a delegated CLEAN exit still reports its zero and no signal", async () => 
   assert.equal(exits[0].code, 0);
   assert.ok(!exits[0].signal, "a process nothing killed was given a signal");
 });
+
+test("the delegated spawn labels the row with the AGENT id, or nothing", () => {
+  // WHAT THE COLUMN IS FOR. aify-env's PROCESSES view has an AGENT column and fills it from the
+  // `label` the caller sends. The operator's requirement, stated 2026-08-26: the agent name, and only
+  // for managed work.
+  //
+  // The fallback was `agentId || id`, so a spawn with no agent id put the TERMINAL id --
+  // `term_1787745672834_79e59600` -- under a heading that says AGENT. A string that is not an agent
+  // name, presented as one. An empty label is the honest answer, and aify-env renders it as a dash.
+  const started = [];
+  const client = {
+    async start(spec) { started.push(spec); return { ok: true, handle: { id: "env-1", pid: 1, terminal: true } }; },
+    async subscribeOutput() { return () => {}; },
+    async stop() { return { ok: true }; },
+  };
+  const manager = new TerminalProcessManager({ envDelegation: { isEnabled: () => true, client } });
+  const launcher = writeLauncherFixture("probe-aify");
+
+  return manager.start({
+    id: "t-labelled", command: launcher, argv: [launcher, "--version"],
+    cwd: process.cwd(), runtime: "claude-code", sessionMode: "managed", agentId: "sc-coder",
+  }).then(async () => {
+    assert.equal(started.at(-1).label, "sc-coder", "the AGENT column would not name the agent");
+
+    await manager.start({
+      id: "t-anonymous", command: launcher, argv: [launcher, "--version"],
+      cwd: process.cwd(), runtime: "claude-code", sessionMode: "managed",
+    });
+    assert.equal(
+      started.at(-1).label, "",
+      `a spawn with no agent id sent ${JSON.stringify(started.at(-1).label)} as the AGENT name`,
+    );
+    assert.doesNotMatch(started.at(-1).label, /^term_/, "a terminal id was sent as an agent name");
+  });
+});
