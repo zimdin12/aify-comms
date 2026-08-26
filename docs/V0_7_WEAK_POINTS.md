@@ -52,6 +52,33 @@ Everything else in this file is recorded with a judgement and needs nothing from
 
 ## Shipped this round
 
+**One defect class appeared three times in a day, so I went looking for the rest of it.** The shape:
+a gate scans for producers using one call pattern, another pattern exists, and the gate reports
+honestly about what it reads and silently about the rest -- which is indistinguishable from having
+checked.
+
+The three that turned up on their own: `realtime-dispositions.test.mjs` read `broadcast(` and not
+`notify_agent(`; `test_terminal_status_vocabulary.py`'s bridge scan read a POST body and not a spread;
+and the same file's ROUTER scan accepted only `ast.Constant` SQL, so an f-string `UPDATE` was
+invisible. `service/reconcilers/terminal_runs.py:356` writes `status = 'stopped'` inside an f-string
+-- it has to be one, the WHERE clause interpolates a placeholder list -- so a real writer proves the
+shape is in use. No live defect (`stopped` is already a member), but the guarantee that file claims,
+that a new status fails here by file and value BEFORE it can strand a row, did not hold for that
+shape. Fixed; the router census goes 16 files to 17.
+
+Then I checked the siblings rather than assuming they shared it:
+
+| gate | same limitation? | real gap today | action |
+|---|---|---|---|
+| `test_environment_status_vocabulary.py` | yes, `ast.Constant` only | **ZERO** f-string writes to `environments` | left alone -- no measurement supports a change |
+| `test_stored_statuses_are_canonical_or_normalized.py` | no -- scans RAW TEXT, so f-strings are visible | none | none needed |
+| `agent_sessions.status`, `dispatch_runs.status` | n/a | 3 f-string literals across 3 files | **no vocabulary gate exists for either table** |
+
+That last row is a coverage question, not a blind spot, and it is a DECISION rather than a fix:
+`agent_sessions` and `dispatch_runs` have no status vocabulary gate at all, so nothing catches a new
+literal on either. Building two more is a larger commitment than repairing a scan, and the agents gate
+explicitly scopes itself out of judging other tables' vocabularies on purpose.
+
 **Nothing recorded HOW a terminal ended, and the bridge knew.** This closes the half of the sc-claude
 question I could not answer on 2026-08-26: the console tail could show what the agent had been DOING
 when it stopped and nothing whatsoever about the stopping.
@@ -1139,6 +1166,7 @@ reading the producer AND the consumer, or by constructing the case.
 | aify-env spawn seam (Phase 8) | the request AND the response, both directions, across two repos | CLEAN. aify-comms sends `{service, launcher, args, cwd, env, label}`; aify-env's `startProcess` consumes exactly those six. aify-env returns `{id, pid, terminal, service}`; aify-comms reads three, and `service` is an echo of what it sent. The one asymmetry: `pty: started.handle.terminal === true` cannot distinguish ABSENT from false, so a version-skewed aify-env would produce a spurious "no pty" line -- visible and harmless, worth knowing, not worth changing |
 | agent registration | every key the five registration modules build vs `AgentRegister`'s 23 fields | CLEAN. The two apparent extras were correctly scoped: `appServerUrl` is nested inside `runtimeConfig` (a declared field), and `runtimeState` goes to its own `PATCH /agents/{id}/runtime-state` with its own model. The model ignores extras by default, so an actual stray key WOULD be dropped silently -- which is why this was worth checking rather than assuming |
 | `terminal_output` WS payload | all 5 fields the service broadcasts vs what the dashboard reads | `seq` IS sent (`terminal_write_queue.py:255`), so the console's dedup and gap-resync are live rather than silently disabled -- which is what a missing `seq` would have produced, since `Number.isFinite(seq)` simply skips both. `status` rides along with no reader in that branch, but `terminal_stopped` is its own event and defaults to refresh, so the case is covered twice rather than not at all |
+| dashboard accessibility sweep | live regions, empty states and control naming, across all 78 non-test sources | SOUND, and better than expected. Toasts announce (`role=alert` for error/warn, `role=status` otherwise, chosen deliberately in a comment); five other live regions cover the api chip, settings, the console stream and the session-changed banner; empty states are a convention (`nothing here` x7 plus specific ones). Two apparent gaps were my grep: a literal-markup pattern cannot see `setAttribute('role', ...)`. Only two real defects existed and both are fixed above -- one unlabelled glyph button of 164, and the prompt dialog's unnamed input |
 | paginated limits | all 16 numeric query params in `service/routers/`, and each unclamped one traced to its consumer | 12 clamped at the route by `Query(..., ge=, le=)`; the other four are clamped where they are USED (`lines` at `max(1, min(int(lines or 40), 200))`, `cols`/`rows` by the snapshot view's `max(20, min(..., 500))`) or harmless (`offset`, which SQLite floors at 0) |
 
 **The realtime gate could not see half its own producer.** `realtime-dispositions.test.mjs` exists to
