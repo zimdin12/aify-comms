@@ -214,6 +214,20 @@ async def _managed_console_is_booting(db, agent_id: str) -> bool:
         SELECT created_at FROM terminal_sessions
         WHERE agent_id = ?
           AND status IN ('starting','attached','running','active','idle','recovering')
+          -- SYNTHETIC ROWS ARE NOT A CONSOLE, and this query was the odd one out. Six other queries
+          -- asking "does agent ? have a live terminal row" carry this exclusion; measured
+          -- 2026-08-26, this was the only one asking that question without it. Plan 4 deprecated
+          -- `vterm_` terminals, and pre-Plan-4 rows persist in operator DBs with status='running'
+          -- and no cleanup path outside a resident takeover -- which is how sc-coder and
+          -- sc-architect kept reading `online` over a dead worker on 2026-05-26.
+          --
+          -- WHAT IT COSTS HERE: this takes the most-recently-UPDATED live row's `created_at` as
+          -- "when the console started". A stale synthetic row that out-ranks a real console on
+          -- `updated_at` therefore supplies an OLD start time, which makes any past sidecar look
+          -- like it registered after this console came up -- reporting a genuinely BOOTING worker
+          -- as not-booting. Whether a `vterm_` row can win that ORDER BY today is unproven; the
+          -- alignment is worth having either way, since the other six settled the question.
+          AND id NOT LIKE 'vterm_%'
         ORDER BY updated_at DESC LIMIT 1
         """,
         (agent_id,),
