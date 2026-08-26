@@ -1151,10 +1151,37 @@ const EXTRACTIONS = [
           "const renderSessionConsole = (session, targetEl, opts) =>",
           "  renderSessionConsoleImpl(session, targetEl, opts, { mountXtermForTerminal, refresh, resyncActiveConsole });",
         ],
-        editedSince: [{
-          was: "function renderSessionConsole(session, targetEl, opts = {}) {",
-          now: "function renderSessionConsole(session, targetEl, opts = {}, { mountXtermForTerminal, refresh, resyncActiveConsole } = {}) {",
-        }],
+        editedSince: [
+          {
+            was: "function renderSessionConsole(session, targetEl, opts = {}) {",
+            now: "function renderSessionConsole(session, targetEl, opts = {}, { mountXtermForTerminal, refresh, resyncActiveConsole } = {}) {",
+          },
+          // 2026-08-26: the dead-session card now says WHY it is dead. It is built from the SESSION
+          // row, which has a terminal status and no exit columns, so it could say "stopped" and
+          // nothing about a worker something killed. A placeholder in the label, filled after the
+          // paint from `GET /agents/{id}/console` -- which has had the code, the signal and the last
+          // failure line since earlier the same day and was being asked by nothing.
+          {
+            was: "         <div class=\"console-embed-label\"><span>This session is ${esc(status || 'stopped')} \u2014 no live console. The agent stays <em>available</em>: a message wakes it, or start it now.</span></div>",
+            now: "         <div class=\"console-embed-label\"><span>This session is ${esc(status || 'stopped')} \u2014 no live console. The agent stays <em>available</em>: a message wakes it, or start it now.<span class=\"console-dead-cause\" data-dead-cause-agent=\"${esc(agentIdForCodex || '')}\"></span></span></div>",
+          },
+          {
+            was: ["  host.innerHTML = `${headerCard}${ptyEmbed}${startConsoleEmbed}${residentConsoleNote}${hermesIframe}${codexConsole}`;"],
+            now: [
+              "  host.innerHTML = `${headerCard}${ptyEmbed}${startConsoleEmbed}${residentConsoleNote}${hermesIframe}${codexConsole}`;",
+              "",
+              "  // WHY IT IS DEAD, asked of the endpoint that already knows. The card above is built from the SESSION",
+              "  // row, which carries a terminal STATUS and no exit columns -- so it can say \"stopped\" and nothing",
+              "  // about a worker something killed. `GET /agents/{id}/console` has the code, the signal and the last",
+              "  // failure line; this fills them in after the paint. Best effort and only on the dead branch: the",
+              "  // placeholder does not exist otherwise, and a failed fetch leaves the card exactly as rendered.",
+              "  const deadCauseEl = host.querySelector('.console-dead-cause[data-dead-cause-agent]');",
+              "  if (deadCauseEl) {",
+              "    fillDeadConsoleCause(deadCauseEl, deadCauseEl.dataset.deadCauseAgent, { api }).catch(() => {});",
+              "  }"
+            ],
+          },
+        ],
       },
     ],
   },
@@ -2878,7 +2905,13 @@ test("the five bridge classes are measurable, and the sizes are cross-checked", 
     // signal to send. Re-measured TWO ways before this number was touched -- `declarationSpan` says
     // 829, and a brace-match from the class header gives lines 71..899, which is 829 -- rather than
     // copying the 829 out of the failure message, which is what CLAUDE.md's cross-check rule forbids.
-    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 829],
+    // 829 -> 843 on 2026-08-26: a comment correction, no code change. The B3 descendant reap said
+    // "Harmless no-op if the root is already gone", which is false on Windows -- the root is gone by
+    // definition there and `taskkill /T` on a recycled number takes a stranger's tree. The same wrong
+    // belief had just cost a day one tier down, so the correction is fourteen lines and worth them.
+    // Re-measured TWO ways rather than copied from the failure: `declarationSpan` says 843, and a
+    // brace-match from the class header gives lines 71..913, which is 843.
+    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 843],
   ];
   for (const [rel, name, expected] of cases) {
     const span = declarationSpan(read(rel), name);

@@ -681,8 +681,22 @@ export class TerminalProcessManager {
     }
     // B3 (visible-TUI): when a managed console PTY exits, best-effort reap any
     // descendant worker tree (claude.exe + channel-sidecar + MCP children) that
-    // Windows may have left reparented/alive. Harmless no-op if the root is
-    // already gone. The authoritative backstop is the sidecar self-exit guard.
+    // Windows may have left reparented/alive. The authoritative backstop is the
+    // sidecar self-exit guard.
+    //
+    // "HARMLESS NO-OP IF THE ROOT IS ALREADY GONE" is what this comment said until 2026-08-26, and it
+    // is not true on Windows. The root is gone BY DEFINITION here -- this runs because the process
+    // exited -- and `terminateProcessTree` then issues `taskkill /PID <root> /T /F`. If Windows has
+    // recycled that number, and on a host spawning agents continuously it recycles them quickly, `/T`
+    // takes the tree of whatever now owns it. `pidIsSelfProtected` covers this bridge, its parent and
+    // init; it does not and cannot cover another agent's worker.
+    //
+    // Left as it is, deliberately, and recorded as a decision rather than patched: the exposure needs
+    // a recycle inside a short window, this branch is skipped entirely for DELEGATED terminals (which
+    // is the whole managed fleet while Phase 8 is on), and the only change that removes the risk --
+    // refusing to reap a dead root -- also removes the feature, since a dead root is the only state
+    // this ever runs in. The same wrong belief shipped one tier down in aify-env's reaper and cost a
+    // day, so the correction belongs here even though the code does not change.
     // Reached ONLY on the final-exit path — the hermes resume-heal restart
     // branch above returns before here, so a healthy re-spawn is never reaped.
     if (state.kind === "pty" && state.term) {
