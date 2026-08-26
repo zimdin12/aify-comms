@@ -53,7 +53,21 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..", "..");
 const SELF = path.basename(fileURLToPath(import.meta.url));
 
-const MODULE_DIRS = ["mcp/stdio", "service/new_dashboard"];
+// THE TWO SUBDIRECTORIES WERE OUTSIDE THIS UNTIL 2026-08-26, and the backlog below being EMPTY read
+// as "every export is named by a test" while 32 modules were never in scope. `mcp/stdio/adapters/`
+// and `mcp/stdio/controllers/` are not helpers: they are the per-runtime product code, 24 exports
+// between them, and three of those are named by no running test.
+//
+// The list stays explicit rather than becoming a recursive walk. `mcp/stdio/scripts/` is a developer
+// tool and `mcp/stdio/tests/` holds fixtures that are not product surface, so recursing would pull in
+// files whose exports nobody should be asked to test — and a gate that demands the wrong thing gets
+// weakened rather than obeyed.
+const MODULE_DIRS = [
+  "mcp/stdio",
+  "mcp/stdio/adapters",
+  "mcp/stdio/controllers",
+  "service/new_dashboard",
+];
 //: Where a test that RUNS lives, per the two runners: `mcp/stdio/tests/*.test.js` via run-all.mjs,
 //: and `service/new_dashboard/*.test.mjs` via `node --test`. The extensions are opposite, which is
 //: how a file can look like a test and never execute — the reason its neighbour encodes the same
@@ -76,7 +90,23 @@ const WORD_BOUNDARY = String.raw`\b`;
 //: entries paid down along the way turned out to be broken rather than merely untested
 //: (`wrapper-pool.js#disposeAll`, and the `data`/`threads` shape read behind this last pair), which is
 //: the argument for the ratchet: an export nothing names is an export nothing checks.
+//: THREE ADDED 2026-08-26, and not because anything regressed. `MODULE_DIRS` gained
+//: `mcp/stdio/adapters/` and `mcp/stdio/controllers/`, which had never been in scope -- so the empty
+//: list above was reporting on 236 modules while 24 exports of per-runtime product code sat outside
+//: it. These three are what the widened scan found. The ratchet still only shrinks: paying one down
+//: means deleting its line.
 const UNTESTED_EXPORT_BACKLOG = [
+  // Legacy codex timer/thread helpers. Reachable product code -- three non-declaring references each
+  // -- so this is untested surface rather than dead surface.
+  "mcp/stdio/controllers/codex-legacy-helpers.js#createCodexLegacyTimers",
+  "mcp/stdio/controllers/codex-legacy-helpers.js#resolveActiveCodexThread",
+  // ORPHANED, which is a different problem from untested and is recorded rather than fixed here.
+  // Nothing imports this class. Its only reference outside its own file is a COMMENT in
+  // hermes-controller.js:23 listing it as a mode-specific implementation -- and that file imports
+  // HermesManagedController alone. No mode routes to it, and no other "single-shot controller" exists
+  // to have replaced it. Deleting product code is the operator's call, so it sits here meanwhile: a
+  // test naming it would prove a class nothing constructs still works, which is not worth writing.
+  "mcp/stdio/controllers/hermes-single-shot-controller.js#HermesSingleShotController",
 ];
 
 function moduleFiles() {
