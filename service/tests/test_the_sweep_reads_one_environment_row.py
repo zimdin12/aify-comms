@@ -136,6 +136,27 @@ class SweepEnvironmentLookupTests(FastApiTestCase):
             "resolver already accepts the map; the sweep needs to build it once and pass it.",
         )
 
+    def test_no_agent_row_is_re_read_that_the_batch_already_holds(self) -> None:
+        """The third of the same family, and the cheapest: no extra query at all.
+
+        `_refresh_expired_agent_live_states` reads every agent to decide who is stale, then
+        `_refresh_agent_live_state` re-selected each one by id -- 1.0N round-trips for rows the caller
+        was holding. Widening that one `SELECT id FROM agents` to `SELECT *` carries the seven columns
+        `_compute_live_status_cache` reads, so the per-agent re-select disappears without adding
+        anything. It is `5c45ab44`'s move ("stop re-reading agent rows the handler is already
+        holding") on the path that does it once per agent rather than eight times per poll.
+
+        The parameter is OPTIONAL and falls back, because `_refresh_agent_live_state` is also called
+        with an id and no row -- from `_compute_agent_status`, whose own row cannot safely be passed
+        through without auditing every caller for partial selects.
+        """
+        re_reads = [s for s in self._sweep_statements() if s.startswith("SELECT * FROM agents WHERE id = ?")]
+        self.assertEqual(
+            re_reads, [],
+            f"the sweep re-read {len(re_reads)} agent rows it had already selected, for {AGENTS} "
+            "agents. The batch reads them to sort by staleness; it should hand each one over.",
+        )
+
     def test_the_sweep_writes_no_environment_row(self) -> None:
         """The licence for caching across the pass, asserted rather than assumed. A sweep-scoped cache
         is correct exactly when nothing changes its subject during the sweep."""

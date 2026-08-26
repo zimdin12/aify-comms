@@ -45,14 +45,20 @@ from service.status_engine import derive
 logger = logging.getLogger("aify_comms.api_v2")
 
 
-async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dict[str, Any]] = None, now: Optional[str] = None, environments_by_machine=None, session_environment_by_agent=None):
-    row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dict[str, Any]] = None, now: Optional[str] = None, environments_by_machine=None, session_environment_by_agent=None, agent_row=None):
+    # `agent_row` is the row the CALLER already holds, the same move `5c45ab44` made on the roster.
+    # The batch caller below reads every agent row to decide who is stale; re-selecting each one here
+    # is 1.0N round-trips for rows it is holding. Optional and falling back, because this function is
+    # also called with an id and nothing else.
+    row = agent_row if agent_row is not None else await (
+        await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
+    ).fetchone()
     if not row:
         return None
     settings = settings or await _load_settings(db)
     cache = await _compute_live_status_cache(db, row, settings=settings, now=now,
                                             environments_by_machine=environments_by_machine,
-                                                session_environment_by_agent=session_environment_by_agent)
+                                            session_environment_by_agent=session_environment_by_agent)
     # status v2 flag-branch (2026-06-04). The served status is the cache `status`.
     # Under `status_engine=new` the event-driven engine becomes authoritative for
     # the served value; under `old` (default) the legacy derivation is unchanged.
@@ -95,11 +101,15 @@ async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str,
     the oldest, so the most-stale agents recompute soonest under the cap."""
     settings = settings or await _load_settings(db)
     now = _now()
+    rows_by_id: dict = {}
     if agent_ids:
         ids = [str(a or "").strip() for a in agent_ids if str(a or "").strip()]
     else:
-        rows = await (await db.execute("SELECT id FROM agents")).fetchall()
+        # `*` rather than `id`: the same one query, and it carries the seven columns
+        # `_compute_live_status_cache` reads, so the per-agent re-select below disappears.
+        rows = await (await db.execute("SELECT * FROM agents")).fetchall()
         ids = [r["id"] for r in rows]
+        rows_by_id = {str(r["id"]): r for r in rows}
     # Order: missing-from-cache first, then by oldest refresh_after — so the most-stale recompute
     # soonest when `limit` caps the batch.
     def _sort_key(aid: str):
@@ -114,8 +124,9 @@ async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str,
             break
         if _live_state_fresh(aid, now=now) is None:
             await _refresh_agent_live_state(db, aid, settings=settings, now=now,
-                                           environments_by_machine=environments_by_machine,
-                                               session_environment_by_agent=session_environment_by_agent)
+                                            environments_by_machine=environments_by_machine,
+                                            session_environment_by_agent=session_environment_by_agent,
+                                            agent_row=rows_by_id.get(aid))
             refreshed += 1
     return refreshed
 

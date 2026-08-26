@@ -417,7 +417,7 @@ Per-agent coefficients, measured at N=20 by counting `aiosqlite` execute() calls
 | multiple | statement | roster precedent |
 |---|---|---|
 | ~~2.0N~~ DONE | `SELECT environment_id FROM agent_sessions WHERE agent_id = ?` | `f7d64900` -- now preloaded in the sweep too |
-| 1.0N | `SELECT * FROM agents WHERE id = ?` | `5c45ab44` -- pass the row the caller already holds |
+| ~~1.0N~~ DONE | `SELECT * FROM agents WHERE id = ?` | `5c45ab44` -- the batch now hands over the row |
 | 2.0N | `SELECT last_seen FROM bridge_instances WHERE agent_id = ?` | none |
 | 2.0N | `SELECT created_at FROM terminal_sessions WHERE agent_id = ?` | none |
 
@@ -426,11 +426,16 @@ map moved above its refresh phase for the same ordering reason the environments 
 shape went 44 + 17N -> 45 + 15N -> 46 + 13N, each step trading one fixed query for 2N per-agent ones,
 all three models exact at four points. At 50 agents that is 894 -> 696 round-trips per pass.
 
-What remains is the agent-row re-read at 1.0N: `status_refresh.py` selects `id` from every agent and
-then re-selects `*` per agent one function later, which `5c45ab44` already fixed on the roster by
-passing the row the caller holds. It needs `_refresh_agent_live_state` to accept an optional row,
-which is a wider signature change than a kwarg because that function is also called directly with an
-id and no row.
+The agent-row re-read SHIPPED too, and cost nothing: the batch already read every agent to sort by
+staleness, so widening that one `SELECT id FROM agents` to `SELECT *` and handing each row over
+removes 1.0N without adding a query. The optional parameter falls back for the other caller,
+`_compute_agent_status`, whose own row cannot safely be passed through -- `_compute_live_status_cache`
+reads seven columns and that row's provenance is not audited.
+
+Final shape: 46 + 12N, against 44 + 17N at the start of the round. At 50 agents a pass is 894 -> 646,
+27.7% fewer round-trips; the roster is 105 -> 97 at N=20, exactly its 8-agent refresh cap.
+
+What is left is the 4.0N with no precedent, below.
 
 NOT DONE IN THE SAME COMMIT, deliberately: each is its own threading change through the same three
 signatures, and shipping them separately means a regression names which one. The remaining 4.0N
@@ -851,6 +856,34 @@ Gated by `service-carriers-the-registry-does-not-declare.test.js`, which fails w
 service-selecting carrier appears in either resolver and hands whoever added it the trade-off above.
 Mutation-proven three ways: a new undeclared carrier, the primary pair re-typed by name, and the CLI
 writing an entry from anything other than the shared list each fail their own test by name.
+
+## Audited and found sound, so nobody re-walks them
+
+Negative results, listed once so a reviewer knows where the evidence already is. Each was checked by
+reading the producer AND the consumer, or by constructing the case.
+
+| join | how it was checked | result |
+|---|---|---|
+| dispatch claim | 5 bridge fields vs `DispatchClaimRequest` | all declared; `bridgeKind` sent by both named sidecars |
+| terminal output / report-dead | payloads vs models, and `req.reason` traced to its write | every field consumed |
+| spawn-request claim + 3 PATCHes | payloads vs `SpawnRequestClaim` / `SpawnRequestUpdate` | all declared; `capabilities` and `telemetry` read in `running_spawn.py` |
+| terminal-control claim + update | payloads vs models, readers traced across modules | all five consumed; `terminalStatus` via `terminal_control_status.py` |
+| aify-env expected-status contract | all six `EnvClient` declarations vs aify-env's routes | all six agree; `subscribeOutput` validates its response |
+| realtime dispositions | server broadcast names vs client handling | fails OPEN to `refresh`; gated by a producer-derived test |
+| skill tool names | 36 in the skill vs 36 registered | exact match, and already gated |
+| route wiring | 44 route-declaring modules vs their aggregators | all reachable; `/channels/{n}/send` confirmed live |
+| sweep step ordering | recovery-before-reaping pairs | holds, and `test_reconcile_sweep_ordering.py` gates each pair with its incident |
+| send preflight | constructed both `misconfigured` paths and ran it | both refused, by `_agent_execution_mode` and the channel gate |
+| terminal `cols = 0` | both readers | handled deliberately (`or 100`, and inference) |
+| dashboard markup | labels, duplicate ids, dead lookups, dead data-attrs, nav/page/title, focus, empty states | one dead function found (recorded); the rest clean |
+| form buttons | every `<button>` inside the 4 `<form>`s | all 5 declare a `type`, so none implicitly submits |
+| stale capabilities | the recorded deadlock's remedy | present: one-time backfill (`db.py:263`) plus read-time correction in `_row_capabilities` |
+
+FIVE of my own leads died here rather than in a commit, which is the number worth carrying: a
+scoped grep that missed a reader one delegation away, a stack attribution that returned the helper's
+own frame, a "hand-written duplicate" that was two different data shapes sharing a name, a "gap"
+between two status lists that is a documented distinction, and a `misconfigured` status the preflight
+refuses through a different gate. The instrument was wrong every time, never the code.
 
 ## Open questions this round could not settle
 
