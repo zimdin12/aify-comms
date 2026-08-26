@@ -7,7 +7,9 @@
 // orchestrator app.js still owns. Importing any of them here would pull the whole render web across,
 // which is exactly what kept this function in place until the mount moved out ahead of it.
 
+import { api } from './api-client.mjs';
 import { codexConsoleClose } from './codex-console.mjs';
+import { fillDeadConsoleCause } from './dead-console-cause.mjs';
 import { chooseSessionConsoleWidget, hermesGatewayUrlToHttp } from './console-chooser.js';
 import { sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
 import { agentForSession, renderModeSwitchChip, renderSessionModeLabel } from './session-rail.mjs';
@@ -162,7 +164,7 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
        </div>`
     : canStartDeadSession
     ? `<div class="console-embed" data-kind="console-start">
-         <div class="console-embed-label"><span>This session is ${esc(status || 'stopped')} — no live console. The agent stays <em>available</em>: a message wakes it, or start it now.</span></div>
+         <div class="console-embed-label"><span>This session is ${esc(status || 'stopped')} — no live console. The agent stays <em>available</em>: a message wakes it, or start it now.<span class="console-dead-cause" data-dead-cause-agent="${esc(agentIdForCodex || '')}"></span></span></div>
          <div class="console-start-actions">
            <button class="primary" data-session-control="restart" data-session-id="${esc(id)}" title="Spawn a fresh worker for this agent (resumes its saved session when one exists)">Start agent</button>
          </div>
@@ -240,6 +242,16 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
   if (agentIdForCodex) { try { codexConsoleClose(agentIdForCodex); } catch {} }
 
   host.innerHTML = `${headerCard}${ptyEmbed}${startConsoleEmbed}${residentConsoleNote}${hermesIframe}${codexConsole}`;
+
+  // WHY IT IS DEAD, asked of the endpoint that already knows. The card above is built from the SESSION
+  // row, which carries a terminal STATUS and no exit columns -- so it can say "stopped" and nothing
+  // about a worker something killed. `GET /agents/{id}/console` has the code, the signal and the last
+  // failure line; this fills them in after the paint. Best effort and only on the dead branch: the
+  // placeholder does not exist otherwise, and a failed fetch leaves the card exactly as rendered.
+  const deadCauseEl = host.querySelector('.console-dead-cause[data-dead-cause-agent]');
+  if (deadCauseEl) {
+    fillDeadConsoleCause(deadCauseEl, deadCauseEl.dataset.deadCauseAgent, { api }).catch(() => {});
+  }
 
   // Mount xterm.js into the terminal container we just rendered. If a
   // different terminal was previously mounted, dispose its xterm first.
