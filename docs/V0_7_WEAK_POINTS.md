@@ -52,6 +52,41 @@ Everything else in this file is recorded with a judgement and needs nothing from
 
 ## Shipped this round
 
+**The same class again, found by hunting it rather than tripping over it.** Last round's dispatch
+finding gave the shape a name -- a value normalised for a comparison and then used RAW for the write
+-- so this round searched the service tree for it with the AST rather than waiting for the next one.
+
+The first pass returned 83 hits and was useless: it counted the normalising assignment's own source as
+a "raw use". Narrowed to the shape that actually costs something -- the raw value reaching a DATABASE
+WRITE while a normalised twin exists in the same function -- it returned TWO. One was a
+self-reassignment (`dispatch_mode = dispatch_mode.lower()`), a false positive. The other was real.
+
+`_apply_terminal_status_from_control` computes `terminal_status_norm` and uses it for exactly one
+thing: the end-status membership check. The two UPDATEs beneath it bound the UNNORMALISED value four
+times, and both statements compare that same parameter against lowercase literals:
+
+| binding | consequence of a mixed-case value |
+|---|---|
+| `terminal_sessions.status = ?` | stored verbatim, so every reaper's `status IN (...)` misses the row |
+| `stopped_at = CASE WHEN ? IN (...)` | never stamped, so nothing can age the row |
+| `agent_sessions.terminal_status = ?` | stored verbatim |
+| `owner_mode = CASE WHEN ? IN (...)` | never returns to `managed` -- the session stays owned by a console that has gone |
+
+Four consequences from one missing `.lower()`, against one for the dispatch run. Three of the six
+tests fail against the old bindings; the whitespace one passes both ways and says so in its own
+docstring, because `.strip()` was already applied and a test that cannot discriminate the fix should
+not be read as proving it.
+
+**No live defect today, measured:** the bridge sends four `terminalStatus` literals across live
+sources -- attached, failed, running, stopped -- all lowercase.
+
+**Recorded and NOT fixed: this path bypasses the status allowlist.**
+`_terminal_status_transition` refuses any status outside `TERMINAL_SESSION_STATUSES` and returns the
+normalised value; it was added on 2026-08-16 for exactly that reason. These two UPDATEs do not go
+through it, so an undeclared status could reach the column here. Routing them through would ALSO
+start refusing writes the monotonic guard rejects, which is a live behaviour change on a control
+path -- a decision, not a repair. **That one is yours.**
+
 **A dispatch run's status was written raw while everything downstream assumed lowercase.** Found by
 pulling the thread I left last round: I recorded that `dispatch_runs.status` has no vocabulary gate,
 and went to check whether a real defect sat behind that absence. One did.
