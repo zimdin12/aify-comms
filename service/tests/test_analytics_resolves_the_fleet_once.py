@@ -218,6 +218,108 @@ class PulseBoardResolvesTheFleetOnceTests(AnalyticsResolvesTheFleetOnceTests):
     CARDS = ("onlineAgents", "workingNow", "fleetUtilizationPct")
 
 
+class TheSharedLookupIsKeyedPerMachineTests(FastApiTestCase):
+    """The case every other fixture in this file misses: MORE THAN ONE HOST.
+
+    `environments_by_machine` is a dict keyed by `machine_id`, and a cache keyed wrongly returns
+    another host's environment rather than no environment -- a wrong answer, not a missing one, which
+    is the harder kind to notice. Every fixture above registers one environment on one machine, so
+    they would ALL pass against a cache that ignored the key entirely and returned whatever it cached
+    first.
+
+    Added 2026-08-26 while auditing my own work from that day. The optimisation was already correct --
+    this was verified before the test was written, not after -- but it was correct by accident as far
+    as the suite was concerned, and an accident nobody pinned is one the next edit can undo.
+    """
+
+    LEGACY_SETTINGS = {"managed_via_wrapper": ["codex", "hermes"]}
+
+    HOSTS = (("linux:host-a", "linux:host-a:default", "bridge-a"),
+             ("linux:host-b", "linux:host-b:default", "bridge-b"))
+    AGENTS = 6
+
+    def setUp(self) -> None:
+        super().setUp()
+        for machine, environment, bridge in self.HOSTS:
+            response = self.client.post("/api/v1/environments/heartbeat", json={
+                "id": environment, "machineId": machine, "os": "linux", "kind": "linux",
+                "bridgeId": bridge, "cwdRoots": ["/workspace"],
+                "runtimes": [{"runtime": "claude-code", "modes": ["managed-warm"], "capabilities": {}}],
+                "metadata": {},
+            })
+            self.assertEqual(response.status_code, 200, response.text)
+        for index in range(self.AGENTS):
+            machine, _, bridge = self.HOSTS[index % len(self.HOSTS)]
+            response = self.client.post("/api/v1/agents", json={
+                "agentId": f"multi-host-{index}", "role": "coder", "runtime": "claude-code",
+                "sessionMode": "managed", "machineId": machine, "bridgeId": bridge,
+                "capabilities": ["managed-run"],
+            })
+            self.assertEqual(response.status_code, 200, response.text)
+
+    def _resolved_per_agent(self, *, shared: bool) -> list:
+        """Every environment the RESOLVER hands back, per agent, in call order.
+
+        MEASURED AT THE RESOLVER, not at the endpoint's output, and the difference is the whole test.
+        The first two versions of this compared the live-state cache's `environment_id` and both PASSED
+        against a cache mutated to ignore its key -- once because they read `environmentId` (camelCase,
+        a key that does not exist) and once because that field does not come from this lookup at all.
+        A test that cannot see the mutation it names is worse than no test: it reports the property as
+        held.
+        """
+        from service.api_core import registration_gates, status_inputs
+        from service.reconcilers import status_cache
+
+        seen: list = []
+        originals = {module: module._managed_owning_environment_row
+                     for module in (registration_gates, status_inputs)}
+
+        def recorder(original):
+            async def call(db, agent_row, **kwargs):
+                if not shared:
+                    kwargs.pop("environments_by_machine", None)
+                    kwargs.pop("session_environment_by_agent", None)
+                row = await original(db, agent_row, **kwargs)
+                seen.append((str(agent_row["id"]), None if row is None else str(row["id"])))
+                return row
+            return call
+
+        for module, original in originals.items():
+            module._managed_owning_environment_row = recorder(original)
+        try:
+            status_cache._LIVE_STATE_CACHE.clear()
+            response = self.client.get("/api/v1/analytics")
+            self.assertEqual(response.status_code, 200, response.text)
+        finally:
+            for module, original in originals.items():
+                module._managed_owning_environment_row = original
+        return seen
+
+    def test_both_hosts_are_actually_in_play(self) -> None:
+        """The control. With one environment registered, or one host's agents missing, the comparison
+        below would hold for a cache that ignored its key -- which is the failure it exists to catch."""
+        environments = self.client.get("/api/v1/environments").json().get("environments") or []
+        registered = {str(e.get("machineId") or "") for e in environments}
+        for machine, _, _ in self.HOSTS:
+            self.assertIn(machine, registered, "a host is missing, so this fixture is single-host again")
+
+    def test_every_agent_resolves_the_same_with_and_without_the_shared_dict(self) -> None:
+        shared = self._resolved_per_agent(shared=True)
+        alone = self._resolved_per_agent(shared=False)
+        self.assertTrue(shared, "the resolver was never reached, so this compared two empty lists")
+        self.assertGreater(
+            len({environment for _, environment in shared}), 1,
+            "every agent resolved to the SAME environment, so this fixture cannot tell a per-machine "
+            "cache from a key-blind one -- which is the only thing it exists to tell",
+        )
+        self.assertEqual(
+            shared, alone,
+            "an agent resolved differently once the per-machine dict was shared across the loop. A "
+            "cache keyed wrongly hands one host's environment to another host's agent -- a WRONG "
+            "answer rather than a missing one.",
+        )
+
+
 if __name__ == "__main__":
     import unittest
 
