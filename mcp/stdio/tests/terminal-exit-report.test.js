@@ -103,7 +103,28 @@ test("every exit path in the runtime supplies something to report", () => {
   // code nor a signal nor an error, this file's guarantee quietly stops holding for it.
   const runtime = readFileSync(join(STDIO, "terminal-runtime.js"), "utf8");
   const calls = [...runtime.matchAll(/_handleExit\([^,]+,\s*[^,]+,\s*(\{[^}]*\})/g)].map((m) => m[1]);
-  assert.ok(calls.length >= 4, `expected at least 4 exit call sites, found ${calls.length}`);
+  // TWO INSTRUMENTS, REQUIRED TO AGREE, rather than one with slack under it. The regex above reads a
+  // BRACE-LITERAL detail; a call site passing a variable, or a literal containing a nested object,
+  // matches nothing and is skipped in silence. This counts the call sites a second way -- by the call
+  // itself, whatever its argument shape -- and demands the same number, so a path this file cannot
+  // read fails here instead of being quietly excluded from the guarantee above it.
+  //
+  // It replaces `calls.length >= 4` against a real 5. That ceiling had room for one exit path to
+  // disappear without anything going red, which is the shape this repo's own size gates refuse: the
+  // MEASURED value, not a comfortable margin above it.
+  // `this._handleExit(` -- the CALL form. A bare `_handleExit(` also matches the method DEFINITION,
+  // which made the first version of this cross-check report 6 against 5 and fail on a disagreement
+  // that was its own. The cross-check caught my error rather than the code's, which is what a second
+  // instrument is for.
+  const everyCall = [...runtime.matchAll(/this\._handleExit\(/g)].length;
+  assert.ok(everyCall >= 4, `only ${everyCall} _handleExit call sites found; the scan is broken`);
+  assert.equal(
+    calls.length,
+    everyCall,
+    `${everyCall} exit paths exist but only ${calls.length} have a detail this test can read. The `
+      + "unread one is outside the guarantee this test claims to make -- widen the pattern rather "
+      + "than lowering the count.",
+  );
   for (const detail of calls) {
     assert.match(
       detail,
