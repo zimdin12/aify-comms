@@ -52,6 +52,38 @@ Everything else in this file is recorded with a judgement and needs nothing from
 
 ## Shipped this round
 
+**A cross-vocabulary literal in eleven terminal filters -- pinned, NOT deleted, and the operator had
+already ruled on the member once.** Third application of the AST hunt, this time to a different class:
+a status column filtered against a literal its own vocabulary does not contain, which is the `lost`
+incident's actual cause.
+
+Eleven SQL clauses compare `terminal_sessions.status` against `recovering`. That value is not in
+`TERMINAL_SESSION_STATUSES`, `_terminal_status_transition` REFUSES anything outside that set, and
+nothing writes it -- so the clauses are inert. `recovering` IS a real status of the other table:
+`_LIVE_SESSION_STATUSES` holds it for `agent_sessions.status`, where most of the tree's `recovering`
+comparisons live and are entirely correct.
+
+**The member was adjudicated in `44299eb6`**, whose subject reads "`recovering` is live but not
+active, on purpose -- do not unify them" and which says outright: "I found it with my own near-miss
+scan and had to establish it was intentional; the next reader running that scan will find it too."
+That is exactly what happened, three rounds later, to me. Nothing here unifies anything.
+
+**Pinned rather than deleted, and the reason is the failure mode.** Removing the literal from eleven
+clauses changes no behaviour and risks being wrong about one of them. The trap worth closing is the
+reader who sees `recovering` in a terminal filter, concludes a terminal can be recovering, writes it
+-- and has the write SILENTLY DROPPED, because the transition returns "" rather than raising. The new
+gate derives every literal compared against `terminal_sessions.status`, requires each to be a terminal
+status or a DECLARED foreign one with a reason, and fails if a declared one stops appearing so the
+list cannot rot. It also asserts the transition still refuses each declared literal -- if that ever
+changes, the clauses become live and the declaration is wrong.
+
+**Three instrument corrections on the way, all mine.** The first scan compared against
+`TERMINAL_SESSION_STATUSES` alone and reported 20 offenders, most of which were other tables' columns
+in joined queries. Attributing by qualifier cut it to eleven. Then `UPDATE terminal_controls` -- whose
+subquery mentions terminal_sessions -- had its OWN unqualified `status` attributed to the terminal
+vocabulary, because the alias map read FROM and JOIN but not UPDATE. Each correction made the gate
+narrower and correct rather than merely quieter.
+
 **The same class again, found by hunting it rather than tripping over it.** Last round's dispatch
 finding gave the shape a name -- a value normalised for a comparison and then used RAW for the write
 -- so this round searched the service tree for it with the AST rather than waiting for the next one.
