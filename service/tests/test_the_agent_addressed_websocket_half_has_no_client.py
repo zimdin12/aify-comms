@@ -116,19 +116,30 @@ class AgentAddressedWebsocketTests(unittest.TestCase):
         }
         self.assertEqual(callers, NOTIFY_AGENT_CALL_SITES)
 
-    def test_the_two_reporting_methods_still_have_no_product_caller(self):
-        """`online_agents()` and `active_count()` are exercised only by the manager's own suite.
+    def test_online_agents_still_has_no_product_caller(self):
+        """The other half of the pair, and the one still unused.
 
-        Recorded rather than deleted, and worth a line in the weak-points doc: `active_count()` on
-        /health would answer "how many dashboards are connected", which was unanswerable during this
-        review without opening a browser.
+        `active_count()` was in this test until 2026-08-26 and came out DELIBERATELY: it now answers
+        `sockets` on /health, which is asserted below. `online_agents()` remains what it was -- a
+        method with a suite and no consumer -- because its answer is always the empty set while
+        nothing connects as an agent, so serving it anywhere would report a fact rather than a state.
         """
-        for method in ("online_agents()", "active_count()"):
-            callers = sorted(
-                name for name, text in self.texts.items()
-                if name.endswith(".py") and method in text and not name.endswith("service/ws.py")
-            )
-            self.assertEqual(callers, [], f"{method} now has a product caller: {callers}")
+        callers = sorted(
+            name for name, text in self.texts.items()
+            if name.endswith(".py") and "online_agents()" in text and not name.endswith("service/ws.py")
+        )
+        self.assertEqual(callers, [], f"online_agents() now has a product caller: {callers}")
+
+    def test_active_count_is_served_on_health(self):
+        """The half that was worth wiring, pinned so it is not quietly dropped again.
+
+        It is the denominator for every claim about the broadcast path: a fan-out cost means nothing
+        without the number of sockets it fans out to, and this review could not size that cost because
+        the number was unobtainable without opening a browser.
+        """
+        health = self.texts.get("service/routers/health.py", "")
+        self.assertIn("active_count()", health, "/health no longer reports the socket count")
+        self.assertIn('payload["sockets"]', health)
 
 
 if __name__ == "__main__":

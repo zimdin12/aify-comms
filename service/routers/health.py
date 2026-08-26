@@ -92,7 +92,7 @@ def _check_update(sha: str) -> dict:
 
 
 @router.get("/health")
-async def health():
+async def health(request: Request = None):
     """Health check endpoint. Returns 200 if service is running.
 
     The `ntfy` block is v0.4 C4, and it is here because review pointed out that a send-failure
@@ -126,6 +126,25 @@ async def health():
         payload["build"] = _config.build_short
     except Exception as exc:  # pragma: no cover - defensive by intent
         logger.warning("build identity unavailable in /health (%s)", type(exc).__name__)
+
+    # HOW MANY DASHBOARDS ARE WATCHING. `WSManager.active_count()` has existed and been tested since
+    # the manager was written and had NO product caller at all -- measured 2026-08-26 -- so the
+    # question "is anyone actually connected" could only be answered by opening a browser. It is the
+    # denominator for every claim about the broadcast path: a fan-out cost means nothing without the
+    # number of sockets it fans out to, and this review could not size that cost for exactly this
+    # reason.
+    #
+    # Wrapped like the two blocks around it, and for the same reason: this endpoint is the container's
+    # healthcheck, and an observability field must never be able to restart a container that is
+    # serving the fleet perfectly well.
+    # OPTIONAL, and that is not laziness. Two existing tests call `health()` DIRECTLY as a function to
+    # prove the ntfy block cannot fail the container healthcheck, and a required parameter broke both.
+    # FastAPI still injects the request when serving, so the field is present in every real response;
+    # a direct call simply gets no socket count, which is the honest answer when there is no app.
+    try:
+        payload["sockets"] = request.app.state.ws_manager.active_count()
+    except Exception as exc:  # pragma: no cover - defensive by intent
+        logger.warning("socket count unavailable in /health (%s)", type(exc).__name__)
 
     try:
         from service.ntfy import get_relay
