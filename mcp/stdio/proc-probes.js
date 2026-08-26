@@ -22,7 +22,11 @@
 // process; too tightly leaves an orphan holding a session.
 //
 // Bodies byte-identical to what stood in `reap-managed-survivors.js`.
-import { spawnSync } from "child_process";
+// ALIASED, and the alias is load-bearing. `defaultListProcesses` names its PARAMETER `spawnSync`,
+// so a plain `import { spawnSync }` is shadowed inside the very function whose default needs it.
+// The v0.5.4 extraction rewrote this line to the plain form while leaving that signature
+// byte-identical, and `nodeSpawnSync` stopped existing -- see the fix's test for what that cost.
+import { spawnSync as nodeSpawnSync } from "node:child_process";
 
 import { PS_UTF8_PRELUDE } from "./win32-text.js";
 import { terminateProcessTree } from "./runtimes.js";
