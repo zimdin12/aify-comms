@@ -167,6 +167,19 @@ def _terminal_session_to_dict(row) -> dict[str, Any]:
         "updatedAt": row["updated_at"] or "",
         "stoppedAt": row["stopped_at"] or "",
         "error": row["error"] or "",
+        # HOW IT ENDED, and it was missing from this serialiser for a day. The columns landed on
+        # 2026-08-26 with a producer and a writer, and `GET /agents/{id}/console` reads them -- but
+        # THIS is the terminal record every other consumer gets: `GET /terminals/{id}`, the console
+        # start/stop payloads, the virtual-terminal ensure, the session-ops rows the dashboard
+        # renders. All of them said `status: "stopped"` and nothing more, so the operator asking why
+        # an agent died in the UI got the same silence the column was added to end.
+        #
+        # `exitCode` is passed through, NEVER defaulted: NULL means nobody reported one and 0 means
+        # a clean exit, and `or 0` would turn the first into the second -- the exact collapse this
+        # column exists to prevent. `"exit_code" in keys` guards the narrower SELECTs, the same way
+        # `argv` above does.
+        "exitCode": (row["exit_code"] if "exit_code" in keys else None),
+        "exitSignal": str((row["exit_signal"] if "exit_signal" in keys else "") or ""),
     }
 
 

@@ -166,6 +166,36 @@ class TerminalRecordsHowItEndedTests(FastApiTestCase):
         self.assertTrue(body.get("historical"), body.get("message"))
         self.assertEqual(body.get("exitCode"), 137)
 
+    def test_the_terminal_record_every_other_consumer_gets_carries_the_exit(self) -> None:
+        """THE OTHER READER, and it was missing for a day.
+
+        `GET /agents/{id}/console` is one consumer of these columns. `_terminal_session_to_dict` is
+        the OTHER, and it is the one almost everything gets: `GET /terminals/{id}`, the console
+        start and stop payloads, the virtual-terminal ensure, the session-ops rows the dashboard
+        renders. It serialised `status` and `error` and dropped both new columns, so every one of
+        those consumers still said 'stopped' and nothing more -- the same silence the columns were
+        added to end, one serialiser over. Found by auditing the feature's own readers rather than
+        by anything going red.
+        """
+        before = self.client.get(f"/api/v1/terminals/{self.TERMINAL}").json()["terminal"]
+        # The control: the field must be PRESENT and null before the exit, so the assertion below
+        # can fail. A serialiser that omitted the key entirely would also read as None from .get().
+        self.assertIn("exitCode", before, "the terminal record does not carry the field at all")
+        self.assertIsNone(before["exitCode"], "a terminal that has not exited claims a code")
+
+        self.assertEqual(self._post_exit(exitCode=137, exitSignal="SIGKILL").status_code, 200)
+        after = self.client.get(f"/api/v1/terminals/{self.TERMINAL}").json()["terminal"]
+        self.assertEqual(after["exitCode"], 137)
+        self.assertEqual(after["exitSignal"], "SIGKILL")
+
+    def test_a_clean_exit_reaches_that_record_as_zero_rather_than_as_silence(self) -> None:
+        """The truthiness trap again, at the serialiser. `row["exit_code"] or None` and
+        `... or ""` both turn the most common death in the fleet back into 'nobody said'."""
+        self.assertEqual(self._post_exit(exitCode=0).status_code, 200)
+        terminal = self.client.get(f"/api/v1/terminals/{self.TERMINAL}").json()["terminal"]
+        self.assertEqual(terminal["exitCode"], 0)
+        self.assertNotEqual(terminal["exitCode"], None, "a clean exit serialised as no exit at all")
+
     def test_the_console_tail_says_so_when_nothing_was_reported(self) -> None:
         """A terminal that ended without reporting is a real answer and must read as one, not as a
         clean exit and not as silence."""
