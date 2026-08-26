@@ -6,6 +6,39 @@ and a judgement. **The judgement is the point**: a list of everything wrong is a
 Fixed items are in git and not repeated here — `git log 1a3de61a..HEAD` has them. This file is what
 was found and *not* fixed, plus what was deliberately left alone.
 
+## What actually needs you, ranked
+
+Eight of the entries below are genuine decisions; the rest are recorded judgements that needed no
+ruling. This list exists because the file is a thousand lines and a decision buried on line 400 is a
+decision nobody makes.
+
+1. **The API and dashboard are unauthenticated and not bound to loopback**, and 16 of 47 agents
+   return a live hermes gateway token through `GET /api/v1/agents`. Measured, not inferred: no API
+   key in `.env` so the middleware is never installed, listeners on `::` rather than `::1`, and the
+   token is LOAD-BEARING for the dashboard console so it cannot simply be redacted. Bind the port,
+   set a key, or scope the credential -- only the third fixes the field itself.
+2. **A DM survives a transient blip and a channel message does not.** `/channels/{name}/send` has no
+   `clientNonce`, and the index that protects the DM path does not cover the channel row's NULL
+   `to_agent`. A schema decision, not an edit -- and the honest first move is a counter, since nothing
+   measures how often a channel send fails.
+3. **Nothing lists terminals.** Every terminal route is keyed by id, which blocked four separate
+   questions in this round alone, including "what stopped these two workers in the same second".
+4. **48,116 of a 133,878-byte console payload is an events array nothing reads.** A response-shape
+   change that an existing regression test pins, so it needs someone who can weigh breaking a
+   consumer.
+5. **Three independent caps bound `terminal_events`, and one is justified by prose about another.**
+6. **`/stats` computes 24 keys in 20 SQL round-trips so one page can show two of them**, and the
+   obvious page-gate is blocked by a render gate that reads the same field. See the entry for why it
+   was not simply done.
+7. **`active_count()` is defined and called by NOTHING.** Verified 2026-08-26: it exists at
+   `service/ws.py:25` with zero callers anywhere in the service, and `/health` returns only
+   `build, ntfy, status, version`. So "how many dashboards are connected" is unanswerable without
+   opening a browser -- which is exactly why I could not size the sequential WebSocket broadcast this
+   round. One line on `/health` would give the method its only consumer.
+8. **The codex console input is named only by a placeholder**, which typing erases.
+
+Everything else in this file is recorded with a judgement and needs nothing from you.
+
 ## Shipped this round
 
 **The dashboard tracked whether realtime was connected and showed it nowhere.**
@@ -184,6 +217,13 @@ rows. The console renderer uses `terminal.snapshot` and never touches `events` -
 reads `data.terminal.snapshot` and `fresh.terminal.snapshot`, and no dashboard or bridge source
 mentions the key at all.
 
+RE-VERIFIED 2026-08-26 with a widened search, because a scoped one would have missed a reader: the
+only `.events` reads anywhere in the dashboard or bridge are `state.inspector.events` and
+`run.events`, both DISPATCH-RUN events from a different endpoint. Nothing reads the terminal detail's
+array, and the control holds -- `terminal.snapshot` is read in `console-actions.mjs` and
+`xterm-mount.mjs`. The byte figures cannot be re-measured today, because nothing lists terminals and
+the id from that incident is gone -- which is decision 3 in the list at the top of this file.
+
 The rows are not useless -- they are the only way to ask what a terminal did, and this round used them
 to investigate the operator's incident. They are just not what the CONSOLE needs, and it is the console
 that fetches this endpoint on a timer.
@@ -194,7 +234,25 @@ presence today -- that test failing is the point, not an obstacle, but the decis
 can weigh an API consumer outside this repo breaking. The ordering half of the same query WAS fixed,
 since which 200 rows come back is not part of the contract.
 
-**The roster endpoint costs 5.9 ms per agent and is the dashboard's slowest poll slice.**
+**LARGELY ADDRESSED, and the timings below rest on a method I later retracted.**
+Two corrections to my own entry, in the order they matter:
+
+1. THE NUMBERS ARE UNRELIABLE ON THIS HOST. Everything below is wall-clock against the live service,
+   and wall-clock here is dominated by the fleet's own load: the SAME code measured 44-47 ms and then
+   22-25 ms minutes later. I retracted a published speed-up for exactly this and moved to counting SQL
+   round-trips, which are deterministic and attributable. Read the millisecond figures as "this felt
+   slow once", not as a rate.
+2. THE COST IS LARGELY GONE, measured the way that survives load. `GET /api/v1/agents` went from 285
+   round-trips per call at 50 agents to 97, and it is now FLAT -- 97 at 20 agents and 97 at 50 --
+   because the refresh is capped at 8 and every per-agent lookup in the gate loop is batched
+   (`5c45ab44`, `43188723`, `f7d64900`, `fab4204c`, `e34de257`, `ea150ba3`). The "scales linearly with
+   fleet size" claim below is no longer true of the code.
+
+What remains true and useful is the ruled-out list at the end: the index that already covers
+`_has_live_terminal_session` is worth knowing before anyone re-investigates.
+
+The original entry, kept because its ruled-out section is still the useful part:
+
 Measured against the live service 2026-08-25, five samples each: `GET /api/v1/agents/{one}` is 10.2 ms;
 `GET /api/v1/agents` for the 47-agent roster is 282.9 ms (471 ms median on an earlier, busier sample,
 996 ms worst). The difference is 272.7 ms across 46 extra agents -- **5.9 ms of marginal cost per
@@ -385,7 +443,7 @@ an edit.
 WHAT WOULD SETTLE THE PRIORITY: how often a channel send actually fails. Nothing counts it today --
 the error goes to the calling agent and nowhere else -- so the first move is a counter, not a nonce.
 
-**The reconcile sweep still re-asks per agent two more things the roster already batches.** With the
+**BOTH SHIPPED. The reconcile sweep re-asked per agent two things the roster already batched.** With the
 environments cache landed, one sweep costs `45 + 15N` round-trips -- measured exactly at N=5, 20, 25
 and 50 (120, 345, 420, 795). It runs every 60 seconds and is UNCAPPED: the roster refreshes at most
 `LIST_AGENTS_REFRESH_LIMIT` (8) live states per call, this one passes `limit=None` and recomputes
@@ -467,11 +525,22 @@ worker and a reachable environment. And `_decide_effective_status`'s own docstri
 tempting change and refused it: "Hoisting it would make this a pure function of plain values and
 trivially testable, and it would also add a database query to EVERY status computation on a hot path."
 
-So the only acceptable shape is a per-call MEMO -- computed lazily, at most once per agent per
-derivation -- which keeps the conditionality that hoisting would destroy. That means threading a
-holder through `_decide_effective_status`, whose three outputs are already also parameters, on the
-hot path that serves every status. Worth about 1.0N (50 round-trips per sweep at 50 agents, ~6%), and
-worth doing carefully or not at all.
+BOTH OBVIOUS SHAPES CONFLICT WITH A RECORDED DESIGN DECISION, which is why this is left alone rather
+than merely deferred:
+
+* HOISTING is refused by `_decide_effective_status`'s own docstring -- it "would add a database query
+  to EVERY status computation on a hot path". The probe is on a late branch precisely so it does not.
+* A LAZY MEMO carried in `StatusFacts` is refused by that class's docstring: it is FROZEN and holds
+  "facts about a moment, already read from the database by the caller". A deferred read is not a fact
+  already read, and putting one there would let the decision trigger its own query -- "folding them in
+  would make a frozen container a lie" is the argument the class already makes about a different
+  member.
+
+So the remaining shape is a memo threaded as a separate parameter alongside the three IN/OUT
+accumulators, on the hot path that serves every status, for 1.0N -- about 50 round-trips per sweep at
+50 agents, 7.7% of the post-fix pass. That is a design addition rather than a threading change, and it
+is not worth it at that price. Recorded so the next person weighing it starts from the two refusals
+rather than rediscovering them.
 
 ## Worth knowing, not worth doing
 
@@ -885,6 +954,7 @@ reading the producer AND the consumer, or by constructing the case.
 | dead schema state | every column of all 25 tables, write-shaped vs read-shaped references | exactly ONE unread column, in `agent_live_state` -- the table CLAUDE.md already calls vestigial, and that claim is accurate: its only real references are the CREATE, its index and a comment (everything else is a FUNCTION whose name contains the phrase) |
 | share / unshare | actor, ownership, idempotence, file unlink order | mandatory actor fails closed; file unlinked BEFORE the row, so a failed unlink is retryable |
 | channel join / leave | both handlers | symmetric on membership; historical unread is kept, which is defensible |
+| paginated limits | all 16 numeric query params in `service/routers/`, and each unclamped one traced to its consumer | 12 clamped at the route by `Query(..., ge=, le=)`; the other four are clamped where they are USED (`lines` at `max(1, min(int(lines or 40), 200))`, `cols`/`rows` by the snapshot view's `max(20, min(..., 500))`) or harmless (`offset`, which SQLite floors at 0) |
 
 **Timestamps are compared LEXICALLY in SQL on purpose, and that is safe here.** It looks like the
 classic bug, and this repo has paid for that class before, so it is worth writing down rather than
