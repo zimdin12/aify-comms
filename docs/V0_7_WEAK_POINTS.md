@@ -8,8 +8,8 @@ was found and *not* fixed, plus what was deliberately left alone.
 
 ## What actually needs you, ranked
 
-FIFTEEN genuine decisions; everything else in the file is a recorded judgement that needed no ruling.
-This list exists because the file is 1,648 lines and a decision buried on line 900 is a decision nobody
+SIXTEEN genuine decisions; everything else in the file is a recorded judgement that needed no ruling.
+This list exists because the file is 1,834 lines and a decision buried on line 900 is a decision nobody
 makes -- and because the list itself proved the point: it stood at eight for a full day of rounds while
 six more decisions were being written below it.
 
@@ -82,7 +82,15 @@ down; these are the one-line versions, because the front of the file is the only
    files unguarded. Preventive rather than urgent: building two more gates is a larger commitment than
    repairing a scan, and the agents gate deliberately scopes itself out of judging other tables.
 
-15. **A signal-killed DELEGATED terminal is recorded as "exited with code 0".** aify-env drops the
+15. **FIXED 2026-08-26** (aify-env `0043275`, aify-comms `963352db`), and the write-up below stands
+   because it records the reasoning. **One correction, measured after the fix**: on WINDOWS an
+   external kill reports `(1, null)`, not a null code, so `1 ?? 0` left it as 1 and the coercion never
+   destroyed the case this fleet actually suffers. It destroyed every NULL code -- a signalled death on
+   POSIX, and a kill aify-env issues itself anywhere. The repair is still right and still worth having;
+   the claim that it explains these particular drops was mine and was too strong. **Not deployed**:
+   aify-env must restart, which reaps the live fleet.
+
+   The original entry: **a signal-killed DELEGATED terminal is recorded as "exited with code 0".** aify-env drops the
    signal at `runner.mjs:284` (Node's `close` event is `(code, signal)`) and coerces the resulting null
    code to 0 at `runner.mjs:185`, so the exit frame carries a manufactured clean exit and no signal.
    Every hop on the aify-comms side is correct and none of it helps. The fix is small on both sides but
@@ -90,6 +98,17 @@ down; these are the one-line versions, because the front of the file is the only
    is made, the exit code this review added is trustworthy for a local pty and only for a
    self-terminating delegated process -- and sc-architect, the death that prompted the feature, was
    delegated.
+
+16. **The dashboard still cannot tell you why a console died, and it is where you looked first.** The
+   service records the exit code and signal, and as of this round every terminal payload carries them.
+   The Console tab of a dead session does not read a terminal payload: it renders from the SESSION
+   row, which says `This session is stopped -- no live console` and nothing else. `agent_sessions`
+   has `terminal_status` but no exit columns, so closing this means either joining `terminal_sessions`
+   into the sessions query -- a per-request join for a field read only when something died -- or
+   having the dead-console branch fetch `GET /agents/{id}/console`, which already returns the cause,
+   the exit phrase and which store answered. The second is cheaper and needs no schema change, and it
+   puts one extra request on a branch that only renders for a dead session. It is a UI shape call, so
+   it is yours: today the answer exists and only an MCP tool shows it.
 
 **If you spend attention on only three, spend it on 1, 9 and 11**: the first is exposure, the second is
 a failure shape this codebase has already paid for once, and the third is the only one carrying a
@@ -100,6 +119,46 @@ on claiming there were none -- the same defect this review spent the day finding
 that stopped covering its own subject.
 
 ## Shipped this round
+
+**The exit columns had a SECOND reader and it was still dropping them.** `GET /agents/{id}/console`
+was the reader I built and tested. `_terminal_session_to_dict` is the one almost everything else gets
+-- `GET /terminals/{id}`, the console start and stop payloads, the virtual-terminal ensure, the
+session-ops rows the dashboard renders -- and it serialised `status` and `error` and nothing about how
+the process ended. Every one of those consumers still answered "stopped". Nothing was red: the suite
+was green, the feature's own eight tests were green, and the column had data in it. Found by walking
+the readers rather than by anything failing, which is the only way this class ever surfaces. Fixed,
+with two tests watched red against the old serialiser -- one of which has to assert the KEY IS
+PRESENT rather than that its value is null, because an absent key and a null value read identically
+through `.get()`.
+
+**One test's terminal output was arriving in the next test's database, and nothing was failing.**
+`_base.setUp` clears two process-globals with a comment each saying why -- the derived live-status
+cache and the settings cache -- because production has one process and one database while the suite
+keeps the process and gives every test a fresh database. `TERMINAL_OUTPUT_WRITES` is the third and
+nobody reset it. A POST appends to a per-terminal deque and schedules its flush through `call_later`,
+which has not run when the request returns; the database is deleted and the deque is not. Measured
+directly: a terminal seeded with `output=''` read back nine `[terminal exited]` markers and
+`outputSeq: 11`, none of which its own test wrote. Two independent fields, same story.
+
+The direction matters. A test whose own bytes go missing fails loudly. The silent case is the
+opposite -- a test handed output it never produced, concluding a write path worked. The proof needs
+two tests sharing one terminal id, because a single test cannot observe a leak between tests, and it
+was watched red with the reset disabled: the second test read the first's bytes verbatim.
+
+**The bridge-to-service body contract now has a gate, and today it is clean.** The only thing between
+the host bridge and the container service is a JSON body, and pydantic's default `extra` is "ignore",
+so a key the route's model does not declare is discarded with no error on either side. Measured: 98
+write call sites across `mcp/stdio` and its two subdirectories, 88 with a body the scan can read, all
+88 resolving to a route that exists, ZERO undeclared keys. The zero is the finding -- and it is only
+worth having because the scan carries both controls: a declared key must be recognised and an
+impossible name must be reported, in the same run.
+
+Two things about that measurement are worth keeping. Comments are stripped file-wide before any walk,
+because an apostrophe inside a comment opens a string for the argument parser and swallows the rest of
+the call -- which is how `if`, `catch` and `const` arrived as body keys on the second run. And the ten
+call sites whose body is a VARIABLE are named in the gate with the builder that produces each, rather
+than silently skipped: a blind spot written into the source beats a clean number that reads as full
+coverage. The five of those whose route binds a model were checked by hand.
 
 **Auditing my own feature found that its headline promise is FALSE for one important case, because of
 a defect one tier down.** I told the operator that a terminal death would now explain itself. For a
@@ -1197,6 +1256,36 @@ is not worth it at that price. Recorded so the next person weighing it starts fr
 rather than rediscovering them.
 
 ## Worth knowing, not worth doing
+
+**One dashboard poll costs 134 database round-trips, and `GET /agents` is 98 of them.** Counted with
+an `aiosqlite.core.Connection.execute` spy, per slice of the poll bundle, with a twelve-agent fleet
+seeded through the real registration route. The rest: `/stats` 20, `/sessions` 8, `/contracts` 2,
+`/environments` 2, and one each for `/messages/recent`, `/dispatch/runs`, `/spawn-requests` and
+`/settings`. Round-trips rather than milliseconds, because wall-clock on this host is unmeasurable
+while the fleet is working -- the same code timed 44-47ms and then 22-25ms minutes apart.
+
+**`GET /agents` is NOT linear in fleet size, which is the answer to the question I went in with.**
+Four agents cost 54 statements and twenty-four cost 98 -- 2.2 per agent, not the 12 per agent the
+twelve-agent reading suggests. `LIST_AGENTS_REFRESH_LIMIT = 8` caps the per-request status
+recompute, and the selection is missing-from-cache first then oldest `refresh_after`, so a large
+fleet round-robins rather than starving its tail; the 60s reconcile sweep runs the same refresh
+unbounded as a backstop. That was the failure I expected to find and it is not there.
+
+**The remaining lever is real and I did not pull it.** Of the 98, seventy-two are the eight-agent
+status refresh at nine per-agent queries each -- `agent_turn_state`, `agent_console_signal`,
+`bridge_instances`, `agent_sessions`, two `dispatch_runs` reads and two `terminal_sessions` reads,
+one row at a time. Batching them the way `environments_by_machine` and `session_environment_by_agent`
+already are would take the poll from 134 to roughly 70. The reason it is not this round's commit:
+those nine queries live in seven different `api_core` modules, each owning one, and threading
+prefetch maps through all seven touches the status engine while the fleet is live on it. It is a
+decision about appetite, not a repair.
+
+**And one duplicate inside that, deliberately left.** `_managed_console_is_booting` runs TWICE per
+refreshed agent in one request -- once from `status_inputs` and once from `status_decision`, two
+paths that both need the answer -- at two queries a call, which is the `16x` in the measurement.
+Memoising it would save 8 of 134 round-trips, 6%, in exchange for threading a cache through the two
+most safety-sensitive modules in the service. Not worth it; the number is here so nobody has to
+re-measure to reach the same conclusion.
 
 **Showing the exit code in the dashboard too -- NOT worth it, and the reason is where the data
 would have to travel.** The two new columns camelCase onto `GET /terminals/{id}` for free, so a
