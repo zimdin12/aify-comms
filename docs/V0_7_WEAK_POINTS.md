@@ -9,7 +9,7 @@ was found and *not* fixed, plus what was deliberately left alone.
 ## What actually needs you, ranked
 
 SEVENTEEN genuine decisions; everything else in the file is a recorded judgement that needed no ruling.
-This list exists because the file is 1,910 lines and a decision buried on line 900 is a decision nobody
+This list exists because the file is 1,951 lines and a decision buried on line 900 is a decision nobody
 makes -- and because the list itself proved the point: it stood at eight for a full day of rounds while
 six more decisions were being written below it.
 
@@ -142,6 +142,47 @@ Everything else in this file is recorded with a judgement and needs nothing from
 FALSE between the rounds of 2026-08-26 and this edit: six decisions were added below it while it went
 on claiming there were none -- the same defect this review spent the day finding in code, a summary
 that stopped covering its own subject.
+
+## The mass-worker-death investigation, and what it has RULED OUT
+
+Unsolved. Written down because eight hypotheses have been eliminated with evidence and re-walking any
+of them would cost the same day twice.
+
+**The shape.** Managed workers die in SAME-SECOND CLUSTERS -- five at 10:12:51-56, seven at
+12:06:37-39, eight around 13:12 -- across BOTH runtimes at once, on win32:stevenz-l. Lifetimes inside a
+cluster vary from 4m41s to 10m12s, so it is not an age limit: whatever is alive dies together.
+
+**Ruled out, each by its own evidence:**
+
+| candidate | how it was eliminated |
+|---|---|
+| aify-env's reaper killing already-dead pids | fixed in `2bac2c7`, DEPLOYED, deaths continued |
+| the 5-minute stale-run reaper | every run in the 12:06 window finished `completed`, not one `failed` |
+| `worker_idle_close_enabled` | off, and it stamps `Auto-closed: idle longer than...` into `error`; every dead row had an empty error |
+| the bridge ordering a teardown | its log carries a teardown line for individually-stopped agents and NOTHING for any cluster |
+| aify-env crashing or restarting | same pid across every cluster |
+| the aify-env TUI | no stdin handling at all; a read-only view |
+| a kill by image name | no `taskkill /IM` anywhere in the three repos; every kill path is by pid |
+| `managedClaudeMaxTurns` | exported from `runtimes.js` and called by nothing -- a dead knob, not a limit |
+
+**TWO DISTINCT SHAPES, which is why it reads as inconsistent.** The operator suspected two bugs before
+the instrument could show it, and the panel now does:
+
+* `exited 1` through the child's own close event, eight at once. **On Windows an externally terminated
+  process and a program that returned 1 report the same `(1, null)`** -- measured here. The code alone
+  cannot separate them.
+* `no exit reported`, which appears only when the entry was REMOVED by `stop()` or the reaper. A
+  process that ends on its own always arrives through the close event carrying a code or a signal.
+
+**The instrument, and where it lives.** aify-env `83cbb71`, `aa4ec41` and `da4dc9d` put a per-death
+record on `/health` and a RECENT EXITS panel in the TUI: id, pid, label, time, exit code, signal, WHICH
+PATH removed it, and the process's last 200 characters with the terminal chrome stripped. aify-env is
+the ONLY tier carrying it -- the service (`1a3de61a`) and the environment bridge (`579dd546`) on that
+host are days behind and drop the fields before anything stores them.
+
+**How to read the next one.** An empty `lastOutput` across a whole cluster means abrupt external
+termination and the cause is not in aify-comms. A provider or gateway error there means the runtime,
+and the answer is upstream of this project entirely.
 
 ## Shipped this round
 
