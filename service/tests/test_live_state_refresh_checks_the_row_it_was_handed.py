@@ -55,8 +55,20 @@ class LiveStateRefreshChecksTheRowTests(FastApiTestCase):
         })
         self.assertEqual(resident.status_code, 200, resident.text)
 
-    @staticmethod
-    def _refresh(agent_id: str, *, agent_row=None):
+    #: THE CLOCK IS FROZEN, because every assertion in this file compares two derived states for
+    #: equality and the derived state carries `updated_at`, stamped from `service.clock.now()` at
+    #: ONE-SECOND resolution. Two calls that straddle a second boundary differ in that field and
+    #: nothing else -- so the comparison was of the clock, not of the row that was handed over. It
+    #: failed exactly that way inside the full suite on 2026-08-27 while passing alone, because the
+    #: gap between the two calls widens under load.
+    #:
+    #: It also repaired the file's own control. `test_the_two_agents_derive_differently` asserts the
+    #: two agents derive DIFFERENTLY, and a differing timestamp satisfied that on its own -- so the
+    #: one check standing between this file and vacuity could not fail. Frozen, it compares statuses.
+    FROZEN_NOW = "2026-08-27T00:00:00Z"
+
+    @classmethod
+    def _refresh(cls, agent_id: str, *, agent_row=None):
         from service.api_core.status_refresh import _refresh_agent_live_state
         from service.db import get_db
         from service.reconcilers import status_cache
@@ -65,11 +77,13 @@ class LiveStateRefreshChecksTheRowTests(FastApiTestCase):
             status_cache._LIVE_STATE_CACHE.clear()
             db = await get_db()
             try:
+                row = None
                 if agent_row is not None:
                     cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (agent_row,))
                     row = await cursor.fetchone()
-                    return await _refresh_agent_live_state(db, agent_id, agent_row=row)
-                return await _refresh_agent_live_state(db, agent_id)
+                return await _refresh_agent_live_state(
+                    db, agent_id, agent_row=row, now=cls.FROZEN_NOW,
+                )
             finally:
                 await db.close()
 

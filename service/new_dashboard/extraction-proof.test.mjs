@@ -505,7 +505,16 @@ const EXTRACTIONS = [
           "    const mode = m.splitIdentity ? 'Continue-as' : m.compactMode === 'handoff' ? 'Compact' : 'Spawn';",
         ],
           now: [
-          "    const { mode, fromAgentId, fromSessionId } = spawnRecordLineage(r);",
+          "    const { mode, fromAgentId, fromSessionId, requestedBy, selfRequested } = spawnRecordLineage(r);",
+        ],
+        },
+        {
+          was: [
+          "        <dt>New agent</dt><dd>${esc(r.agentId || r.agent_id || '—')}</dd>",
+        ],
+          now: [
+          "        <dt>New agent</dt><dd>${esc(r.agentId || r.agent_id || '—')}</dd>",
+          "        <dt>Requested by</dt><dd>${esc(requestedBy || 'not recorded')}${selfRequested ? ' <span class=\"subtle\">(itself)</span>' : ''}</dd>",
         ],
         },
         {

@@ -142,8 +142,20 @@ export function spawnRecordLineage(record = {}) {
   const mode = meta.splitIdentity
     ? 'Continue-as'
     : meta.compactMode === 'handoff' ? 'Compact' : 'Spawn';
+  // WHO ASKED. `createdBy` is serialised onto every spawn request and nothing rendered it, which left
+  // the panel unable to answer the one question an operator brings to it: I did not start this, so who
+  // did? MEASURED on the live database, the answer is usually the agent itself -- of the six spawn
+  // requests on 2026-08-26 for the three long-running hermes agents, three were `dashboard` (the
+  // operator) and three named the agent being spawned, about fifty seconds later. An agent re-spawning
+  // itself and an operator restarting it look identical in this panel, and send you to opposite places.
+  const requestedBy = String(record.createdBy || record.created_by || '').trim();
+  const subject = String(record.agentId || record.agent_id || '').trim();
   return {
     mode,
+    requestedBy,
+    // Called out rather than left for the reader to compare two ids, because that comparison is the
+    // whole finding and it is easy to skim past.
+    selfRequested: Boolean(requestedBy) && requestedBy === subject,
     fromAgentId: meta.continuedFromAgentId || meta.compactedFromAgentId || '',
     fromSessionId: meta.continuedFromSessionId || meta.compactedFromSessionId || '',
   };
@@ -168,12 +180,13 @@ export async function openCompactionHistory(agentId) {
     return;
   }
   const body = rows.length ? rows.map((r) => {
-    const { mode, fromAgentId, fromSessionId } = spawnRecordLineage(r);
+    const { mode, fromAgentId, fromSessionId, requestedBy, selfRequested } = spawnRecordLineage(r);
     return `<div class="history-row">
       <div class="history-head"><strong>${esc(mode)}</strong>${renderStatusChip(r.status || 'queued', { label: esc(r.status || 'queued'), why: `Spawn request ${r.status || 'queued'}.` })}</div>
       <dl class="agent-drawer-kv">
         <dt>When</dt><dd>${esc(relTime(r.createdAt || r.created_at))} ago</dd>
         <dt>New agent</dt><dd>${esc(r.agentId || r.agent_id || '—')}</dd>
+        <dt>Requested by</dt><dd>${esc(requestedBy || 'not recorded')}${selfRequested ? ' <span class="subtle">(itself)</span>' : ''}</dd>
         ${fromAgentId ? `<dt>From agent</dt><dd>${esc(fromAgentId)}</dd>` : ''}
         ${fromSessionId ? `<dt>From session</dt><dd class="clip">${esc(fromSessionId)}</dd>` : ''}
         ${r.subject ? `<dt>Subject</dt><dd class="clip">${esc(r.subject)}</dd>` : ''}

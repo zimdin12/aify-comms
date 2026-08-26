@@ -277,7 +277,7 @@ test("the payload may be {spawnRequests}, {requests} or a bare array", async () 
 test('lineage comes from spawnSpec.metadata, which is where the serialiser puts it', () => {
   const record = { spawnSpec: { metadata: { splitIdentity: true, continuedFromAgentId: 'alpha', continuedFromSessionId: 'sess-1' } } };
   assert.deepEqual(spawnRecordLineage(record), {
-    mode: 'Continue-as', fromAgentId: 'alpha', fromSessionId: 'sess-1',
+    mode: 'Continue-as', requestedBy: '', selfRequested: false, fromAgentId: 'alpha', fromSessionId: 'sess-1',
   });
 });
 
@@ -286,13 +286,13 @@ test('a compaction is labelled Compact and keeps its OWN lineage vocabulary', ()
   // Labelling them correctly while showing no origin would be half a fix.
   const record = { spawnSpec: { metadata: { compactMode: 'handoff', compactedFromAgentId: 'beta', compactedFromSessionId: 'sess-2' } } };
   assert.deepEqual(spawnRecordLineage(record), {
-    mode: 'Compact', fromAgentId: 'beta', fromSessionId: 'sess-2',
+    mode: 'Compact', requestedBy: '', selfRequested: false, fromAgentId: 'beta', fromSessionId: 'sess-2',
   });
 });
 
 test('a plain spawn is Spawn, with no origin invented', () => {
   assert.deepEqual(spawnRecordLineage({ spawnSpec: { metadata: { createdBy: 'dashboard' } } }), {
-    mode: 'Spawn', fromAgentId: '', fromSessionId: '',
+    mode: 'Spawn', requestedBy: '', selfRequested: false, fromAgentId: '', fromSessionId: '',
   });
 });
 
