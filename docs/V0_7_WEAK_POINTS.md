@@ -52,6 +52,35 @@ Everything else in this file is recorded with a judgement and needs nothing from
 
 ## Shipped this round
 
+**The single-worker gate could not see the one file most likely to break it.** Sixth instance of the
+class, found by the method that is now routine: census the gates that pair a declaration with a scan,
+then derive each scan's population independently instead of trusting its list.
+
+`test_single_uvicorn_worker.py` forbids `--workers > 1`, and that invariant is load-bearing --
+`_LIVE_STATE_CACHE` is a process-global dict, so a second worker gets its own copy and the derived
+agent status silently diverges. The gate walks files by suffix: `.yml`, `.yaml`, `.sh`, `.py`, plus the
+exact name `Dockerfile`.
+
+Deriving the population -- every file in the tree that mentions uvicorn -- returned 32, of which 22
+were outside that filter. Nearly all are prose or caches. **One is a launch file:**
+`docker-compose.override.yml.example`, whose suffix is `.example`. A compose OVERRIDE is exactly where
+an operator adapting the example would add `--workers`, and it already carries a commented-out uvicorn
+command line inviting exactly that edit.
+
+**Proven rather than argued.** Planting `--workers 4` in that file and running the gate:
+
+| scanner | result |
+|---|---|
+| old filter (suffix + exact `Dockerfile`) | **PASSES** -- a false green on the invariant |
+| widened filter | fails, naming the file |
+
+Fixed by shape rather than by adding a filename: a template suffix (`.example`, `.template`,
+`.sample`, `.dist`) is stripped and the inner suffix re-tested, and `Dockerfile*` now matches variants
+like `Dockerfile.dev`. Neither a Dockerfile variant nor a `.sh.example` exists today -- which is the
+argument for doing it now, since a gate guarding a silent-corruption invariant should be complete
+before the file that breaks it arrives. The widening is bounded by its own test: `.env.example` and
+`README.md` must stay OUT.
+
 **The parity gate could not see the tools most worth declaring -- fourth instance of one class.** I
 went looking for drift between the two MCP transports and found that a gate already exists and already
 declares all 14 stdio-only tools with reasons. That is the THIRD time this review has rediscovered
