@@ -13,3 +13,4 @@
 # warned it was about to normalise them.
 service/tests/data/console_keyboard_protocol_capture.txt -text
 mcp/stdio/tests/fixtures/claude-generating-console-tail.txt -text
+service/tests/data/console_kitty_keyboard_capture.txt -text

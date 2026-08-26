@@ -52,37 +52,46 @@ def _strip_balanced_alt_screens(raw_output: str) -> str:
     return _BALANCED_ALT_SCREEN_RE.sub("", raw_output)
 
 
-#: A PRIVATE-PARAMETER CSI THAT ENDS IN `m` IS NOT A TEXT ATTRIBUTE, and pyte reads it as one.
+#: A CSI WITH A `<`, `>` OR `=` PREFIX IS TERMINAL CAPABILITY NEGOTIATION, NOT SCREEN CONTENT --
+#: and pyte, which implements none of them, corrupts the screen with two of the four the fleet emits.
 #:
-#: `CSI > 4 ; 2 m` is XTMODKEYS -- "set modifyOtherKeys level 2" -- which Claude Code emits when it
-#: turns on its keyboard protocol, right beside the Kitty `CSI < u` and `CSI > 1 u` sequences. The
-#: leading `>` makes it private; it says nothing about how text should look. pyte drops the prefix and
-#: dispatches it as SGR 4;2, so UNDERLINE goes on and never comes off, and every character written
-#: afterwards carries it.
+#: MEASURED 2026-08-26 across seven live terminals, 304,604 characters, by walking the real streams
+#: rather than a list of sequences somebody remembered. Every private CSI they contain, and what pyte
+#: does with each:
 #:
-#: MEASURED 2026-08-26 on the operator's live console, and reproduced offline from the captured bytes:
-#: a 70,871-character stream containing ZERO real SGR sequences produced 45 underline runs, and every
-#: one of the 5,722 cells on the screen had `underscore=True` while `screen.default_char` did not. The
-#: dashboard drew a full-width rule under every row. In isolation, `CSI >4;2m` and a real `CSI 4m`
-#: leave pyte in exactly the same state.
+#:     407x  CSI > 4;2 m   XTMODKEYS (modifyOtherKeys)   -> dispatched as SGR 4: UNDERLINE ON, forever
+#:     406x  CSI < u       Kitty keyboard, pop flags     -> PRINTS A LITERAL `u` into the screen
+#:     406x  CSI > 1 u     Kitty keyboard, push flags    -> inert
+#:       1x  CSI > 0 q     cursor-style query            -> inert
 #:
-#: ONLY THE PRIVATE FORMS ARE REMOVED. `?`, `>`, `<` and `=` all mark a CSI as private, and none of
-#: them has an `m` final that means "render like this". A bare `CSI 4m` is untouched, which the tests
-#: assert both ways -- a sanitiser that ate real attributes would strip every colour in the fleet.
-_PRIVATE_SGR_RE = re.compile("\x1b" + r"\[[<>=?][0-9;:]*m")
-#: HELD BACK WHEN A CHUNK ENDS MID-SEQUENCE. A live PTY chunk boundary can fall inside
-#: `ESC [ > 4 ; 2 m`, and feeding the halves separately puts the underline back on for the life
-#: of that screen -- the bug this file is fixing, arriving by the back door.
-_UNTERMINATED_PRIVATE_CSI_RE = re.compile("\x1b" + r"(?:\[(?:[<>=?][0-9;:]*)?)?$")
+#: The first was the operator's screenshot: a full-width rule under every row of a live console. On a
+#: 70,871-character stream containing ZERO real SGR sequences, all 5,722 cells came out with
+#: `underscore=True` while `screen.default_char` did not. The second is quieter and was found in the
+#: same walk: `A` + `CSI < u` + `B` renders `AuB`. Four hundred stray characters were being injected
+#: into the fleet's rendered consoles, at whatever column the cursor happened to be in.
+#:
+#: `?` IS DELIBERATELY NOT IN THIS SET. It is also a private prefix, but pyte implements `?...h` and
+#: `?...l` -- DEC mode set/reset -- and they carry the alternate screen and cursor visibility that the
+#: balanced-alt-screen handling above depends on. 12,861 of them cross this function in that sample
+#: and every one must reach the emulator. `?...m` is stripped separately below because it is the same
+#: SGR-shaped mistake wearing a different prefix, and the fleet emits none of them.
+#:
+#: A BARE `CSI 4m` IS UNTOUCHED, asserted both ways in the tests: a sanitiser that ate real attributes
+#: would strip every colour in the fleet, which is a worse bug than the one it fixes.
+_PRIVATE_CSI_RE = re.compile("" + r"\[(?:[<>=][0-9;:]*[@-~]|\?[0-9;:]*m)")
+#: HELD BACK WHEN A CHUNK ENDS MID-SEQUENCE. A live PTY chunk boundary can fall inside one of these,
+#: and feeding the halves separately restores the exact defect this file removes -- for the whole life
+#: of that screen, because the underline never comes back off.
+_UNTERMINATED_PRIVATE_CSI_RE = re.compile("" + r"(?:\[(?:[<>=?][0-9;:]*)?)?$")
 
 
 def strip_private_sgr(raw_output: str) -> str:
-    """Remove SGR-SHAPED sequences that carry a private parameter prefix.
+    """Remove CSI sequences that negotiate terminal capabilities rather than paint the screen.
 
     Applied wherever bytes are fed to pyte, because the emulator cannot be trusted to ignore them and
     the alternative -- patching a vendored parser -- is a fork with a slow fuse.
     """
-    return _PRIVATE_SGR_RE.sub("", raw_output)
+    return _PRIVATE_CSI_RE.sub("", raw_output)
 
 
 

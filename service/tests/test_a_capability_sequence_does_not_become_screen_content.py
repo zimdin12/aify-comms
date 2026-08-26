@@ -1,4 +1,18 @@
-"""A keyboard-protocol sequence must not underline every row of the console.
+"""A terminal-capability sequence must not become screen content.
+
+TWO DEFECTS, ONE CLASS, and the second was found by walking the fleet's real streams after the
+first was fixed: 304,604 characters across seven live terminals, every private CSI they contain,
+and what pyte does with each.
+
+    407x  CSI > 4;2 m   XTMODKEYS (modifyOtherKeys)   -> dispatched as SGR 4: UNDERLINE ON, forever
+    406x  CSI < u       Kitty keyboard, pop flags     -> PRINTS A LITERAL `u` into the screen
+    406x  CSI > 1 u     Kitty keyboard, push flags    -> inert
+      1x  CSI > 0 q     cursor-style query            -> inert
+
+The `u` one is the quiet half: `A` + `CSI < u` + `B` renders `AuB`, so four hundred stray characters
+were being injected into rendered consoles at whatever column the cursor was in. It lands on the
+HERMES agents -- 120, 109 and 177 occurrences in three live streams -- which is why the operator's
+claude screenshot did not show it.
 
 WHAT THE OPERATOR SAW. A full-width rule under every line of a live agent console, blank lines
 included. Reported with a screenshot on 2026-08-26.
@@ -63,11 +77,26 @@ class PrivateSgrIsNotATextAttributeTests(unittest.TestCase):
         self.assertEqual(strip_private_sgr(f"a{ESC}[4mb"), f"a{ESC}[4mb", "a REAL underline was eaten")
         self.assertEqual(strip_private_sgr(f"a{ESC}[0;1;31mb"), f"a{ESC}[0;1;31mb", "colour was eaten")
 
-    def test_a_private_mode_that_is_not_an_SGR_is_untouched(self):
-        """`?25l` hides the cursor and `?1049h` switches screens. Both are private CSIs and neither
-        ends in `m`, so widening the pattern to all private CSIs would break cursor and alt-screen
-        handling that other tests in this suite depend on."""
-        for keep in (f"{ESC}[?25l", f"{ESC}[?1049h", f"{ESC}[?2026h", f"{ESC}[<u", f"{ESC}[>1u"):
+    def test_a_capability_sequence_with_any_final_is_removed(self):
+        """The widening, 2026-08-26. The first version of this stripped only the SGR-shaped form and
+        left `CSI < u` printing a `u` into every hermes console. `<`, `>` and `=` all mark a CSI as
+        capability negotiation and pyte implements none of them, so the final character does not
+        matter -- enumerating finals would leave the next one to be discovered the same way."""
+        for seq in (f"{ESC}[<u", f"{ESC}[>1u", f"{ESC}[>0q", f"{ESC}[>4;2m", f"{ESC}[=3c"):
+            self.assertEqual(strip_private_sgr(f"A{seq}B"), "AB", seq)
+
+    def test_a_DEC_MODE_is_untouched_because_pyte_implements_it(self):
+        """`?` IS A PRIVATE PREFIX TOO, and is deliberately not in the removed set.
+
+        pyte implements `?...h` and `?...l` -- DEC mode set/reset -- and they carry the alternate
+        screen and cursor visibility that the balanced-alt-screen handling depends on. 12,861 of them
+        crossed this function in the measured sample and every one must reach the emulator.
+
+        This test listed `CSI < u` and `CSI > 1 u` among the KEPT sequences until 2026-08-26, which is
+        how the narrow rule was pinned: the `u` forms were assumed harmless because they are not
+        SGR-shaped, and one of them was printing a literal `u` into every hermes console. The
+        assertion changed deliberately when the measurement showed otherwise."""
+        for keep in (f"{ESC}[?25l", f"{ESC}[?1049h", f"{ESC}[?2026h", f"{ESC}[?1002h"):
             self.assertEqual(strip_private_sgr(f"x{keep}y"), f"x{keep}y", keep)
 
 
@@ -141,6 +170,70 @@ class TheLiveScreenHandlesASplitSequenceTests(unittest.TestCase):
         self.assertIn("before", rendered)
         self.assertIn("after", rendered)
         self.assertEqual(_underline_runs(rendered), 0)
+
+
+@unittest.skipUnless(_HAVE_PYTE, "pyte is not installed")
+class TheKittyKeyboardSequenceDoesNotPrintItselfTests(unittest.TestCase):
+    """`CSI < u` against a real hermes console's bytes.
+
+    Separate from the underline capture because it is a different agent, a different runtime and a
+    different failure: the underline is an attribute that should not be set, this is a CHARACTER that
+    should not exist. One fixture proving both would prove neither cleanly.
+    """
+
+    CAPTURE = Path(__file__).resolve().parent / "data" / "console_kitty_keyboard_capture.txt"
+
+    def setUp(self):
+        self.capture = self.CAPTURE.read_text(encoding="utf-8", errors="surrogatepass")
+
+    def test_the_capture_still_contains_the_sequence(self):
+        self.assertIn(f"{ESC}[<u", self.capture, "the capture no longer holds the kitty sequence")
+
+    def test_pyte_prints_a_u_for_it_when_it_is_not_stripped(self):
+        """The positive control for the whole fix: this is the defect, demonstrated. Without it the
+        test below could pass because the sequence never mattered, rather than because it was removed.
+        """
+        import pyte
+
+        screen = pyte.Screen(20, 3)
+        pyte.Stream(screen).feed(f"A{ESC}[<uB")
+        rendered = "".join(
+            (screen.buffer.get(0, {}).get(x).data if screen.buffer.get(0, {}).get(x) else " ")
+            for x in range(20)
+        ).rstrip()
+        self.assertEqual(rendered, "AuB", "pyte no longer mis-renders it; this fix may be obsolete")
+
+    def test_the_sanitiser_changes_what_a_real_hermes_console_renders(self):
+        """A DIFFERENTIAL against the same bytes: render with the sanitiser, and without it.
+
+        WHAT THIS DOES AND DOES NOT SHOW, because the two halves of the class do not both reach the
+        screen on this capture. The UNDERLINE does -- the unsanitised render carries underline runs
+        through the hermes status bar that the sanitised one does not, and that is asserted below. The
+        injected `u` is proven in isolation two tests up but is OVERWRITTEN by later repaints on all
+        three live streams that contain the sequence, so nothing here claims to have caught it on a
+        real screen. Removing a sequence the emulator cannot parse is right either way; overstating
+        which half was observed would not be.
+        """
+        import service.terminal_snapshot as snapshot_module
+
+        original = snapshot_module.strip_private_sgr
+        try:
+            snapshot_module.strip_private_sgr = lambda text: text
+            unsanitised = render_snapshot(self.capture, 180, 40)
+        finally:
+            snapshot_module.strip_private_sgr = original
+        sanitised = render_snapshot(self.capture, 180, 40)
+
+        self.assertNotEqual(
+            unsanitised, sanitised,
+            "the sanitiser makes no difference to this capture, so this test proves nothing about it "
+            "-- the fixture no longer contains a sequence pyte mis-renders",
+        )
+        self.assertGreater(len(sanitised), 100, "the snapshot painted nothing, so this proves nothing")
+        # And the DIFFERENCE is the defect, not merely a difference: the unsanitised render carries
+        # underline attributes the sanitised one does not.
+        self.assertGreater(_underline_runs(unsanitised), 0, "the unsanitised render is already clean")
+        self.assertEqual(_underline_runs(sanitised), 0)
 
 
 if __name__ == "__main__":
