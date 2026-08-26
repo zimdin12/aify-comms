@@ -272,3 +272,37 @@ TERMINAL_OUTPUT_WRITES = TerminalOutputWriteQueue()
 
 async def flush_terminal_output_writes_for_tests() -> None:
     await TERMINAL_OUTPUT_WRITES.flush_all()
+
+
+def discard_terminal_output_writes_for_tests() -> None:
+    """Drop everything the queue is still holding, as a process restart would.
+
+    THE HAZARD THIS CLOSES, measured 2026-08-26. The queue is a process-global and the suite is one
+    process, but each test gets a FRESH DATABASE -- so the two disagree about what a process is. A
+    terminal's exit POST schedules its flush through `call_later`, which does not run before the
+    request returns; the pending chunks and the `_seq_floor` then survive into the NEXT test and
+    flush into ITS database. Observed directly: a terminal seeded with `output=''` in setUp read
+    back nine `[terminal exited]` markers and `outputSeq: 11`, none of which that test wrote.
+
+    Nothing was wrong when this was found -- the suite was green, and the sibling flush hook above
+    exists for tests that DO want their own bytes drained. The danger is the other direction: a test
+    can be handed output it never produced and conclude a write path worked. That is the shape this
+    project keeps paying for, so the reset is routine rather than triggered by a surprise.
+
+    NOT A PRODUCT PATH. One service process, one database, one loop: there the pending writes always
+    reach the row they were queued for, which is the whole design of the batching. This exists
+    because a test suite simulates a process boundary the class was never told about.
+    """
+    queue = TERMINAL_OUTPUT_WRITES
+    for handles in (queue._idle_handles, queue._max_handles):
+        for handle in handles.values():
+            handle.cancel()
+        handles.clear()
+    for task in queue._flush_tasks.values():
+        task.cancel()
+    queue._flush_tasks.clear()
+    queue._pending.clear()
+    # The seq floor goes too. It is monotonic ACROSS a terminal's lifetime, and carrying a previous
+    # database's high-water mark into a fresh one makes the first frame of a new terminal claim a
+    # sequence eleven ahead of anything written -- which is exactly what the measurement showed.
+    queue._seq_floor.clear()

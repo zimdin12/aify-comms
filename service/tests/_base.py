@@ -189,6 +189,13 @@ class FastApiTestCase(unittest.TestCase):
         from service.reconcilers.status_cache import _LIVE_STATE_CACHE
         from service.api_core.settings import _invalidate_settings_cache
         _LIVE_STATE_CACHE.clear()
+        # THE THIRD PROCESS-GLOBAL, and it was the one nobody reset (2026-08-26). The terminal
+        # output write queue batches through `call_later`, so a flush scheduled by one test has not
+        # run when its database is thrown away -- and the pending chunks plus the seq floor then
+        # land in the NEXT test's fresh file. Measured: a terminal seeded with `output=''` read back
+        # nine exit markers and `outputSeq: 11` that its own test never wrote.
+        from service.terminal_write_queue import discard_terminal_output_writes_for_tests
+        discard_terminal_output_writes_for_tests()
         # The production process has one database, but this unittest base points
         # the shared app at a fresh SQLite file for every test.  Do not let a
         # previous test class's LEGACY_SETTINGS snapshot bleed into this file.
