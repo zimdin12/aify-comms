@@ -878,12 +878,51 @@ reading the producer AND the consumer, or by constructing the case.
 | dashboard markup | labels, duplicate ids, dead lookups, dead data-attrs, nav/page/title, focus, empty states | one dead function found (recorded); the rest clean |
 | form buttons | every `<button>` inside the 4 `<form>`s | all 5 declare a `type`, so none implicitly submits |
 | stale capabilities | the recorded deadlock's remedy | present: one-time backfill (`db.py:263`) plus read-time correction in `_row_capabilities` |
+| agent deletion | all 13 `agent_id` tables vs cascades, explicit deletes and the handler | nothing orphans -- see below |
+| runtime adapters | all 5 adapters vs the 8 base members that throw unless overridden | all 5 implement the 6 JS-side ones; `wrapperName`/`consoleCommand` are deliberately server-side ("owned by the Python adapter package") and NO JS caller reaches those stubs |
+| MCP tool surface | all 36 tools: schema keys vs what the handler reads | none reads an undeclared name; three registration patterns, and `from` is INJECTED from process identity rather than declared, so a caller cannot spoof the actor |
+| lexical timestamps | every producer and every comparison in `service/` | correct BY DESIGN -- see below |
+| dead schema state | every column of all 25 tables, write-shaped vs read-shaped references | exactly ONE unread column, in `agent_live_state` -- the table CLAUDE.md already calls vestigial, and that claim is accurate: its only real references are the CREATE, its index and a comment (everything else is a FUNCTION whose name contains the phrase) |
+| share / unshare | actor, ownership, idempotence, file unlink order | mandatory actor fails closed; file unlinked BEFORE the row, so a failed unlink is retryable |
+| channel join / leave | both handlers | symmetric on membership; historical unread is kept, which is defensible |
 
-FIVE of my own leads died here rather than in a commit, which is the number worth carrying: a
+**Timestamps are compared LEXICALLY in SQL on purpose, and that is safe here.** It looks like the
+classic bug, and this repo has paid for that class before, so it is worth writing down rather than
+re-investigating. `service/clock.py` states the contract: "UTC, second resolution, `Z`-suffixed -- the
+format every timestamp column in this service stores and every comparison assumes. Changing it is a
+data migration, not a formatting choice."
+
+Measured across `service/**` (non-test): 21 comparisons wrapped in `datetime()`, 6 bare textual ones,
+and every one of the 9 timestamp-producing `strftime` calls uses the identical
+`%Y-%m-%dT%H:%M:%SZ` -- including `_iso_from_ms`. So the bare six are correct, because there is only
+one shape to compare.
+
+The drift risk is a SECOND producer, which is the shape that found six defects in the install audit.
+There are exactly two `isoformat()` calls and neither reaches a column: `_timestamp_sort_key` is an
+in-memory ordering key whose own docstring says it "is not a trust boundary" and points decisions at
+`_parsed_timestamp`, and the other is a COMMENT in `reconcilers/terminal_controls.py` warning that
+"isoformat() adds sub-second" precision, beside a line that uses the canonical `strftime` instead.
+
+MY FIRST SCAN OF THIS WAS WRONG and its control caught it: the guarded-comparison counter read ZERO,
+which is impossible in a codebase that uses `datetime()` 21 times. The regex could never match a
+column sitting INSIDE `datetime(...)`. A control that cannot fire reports a clean sweep exactly like
+a real one.
+
+**Agent deletion, in full, because a direct-FK census gets it wrong.** Seven tables cascade from
+`agents(id)`. `channel_members` and `bridge_instances` are deleted explicitly by
+`_remove_agent_record`. `terminal_sessions` has an `agent_id` column with NO foreign key and still
+cannot orphan: it cascades TRANSITIVELY through `session_id -> agent_sessions(id) -> agents(id)`, and
+`session_id` is `NOT NULL`, so the chain always fires -- which is what `unregister_agent`'s own
+comment says ("cascades agents -> agent_sessions -> terminal_sessions -> terminal_controls").
+`agent_tombstones` is retained on purpose. What genuinely survives is history: `read_receipts` (which
+cascade from `messages`, not agents) and `spawn_specs` / `spawn_requests`, none of which can
+resurrect an agent because every consumer joins `agents`.
+
+SIX of my own leads died here rather than in a commit, which is the number worth carrying: a
 scoped grep that missed a reader one delegation away, a stack attribution that returned the helper's
 own frame, a "hand-written duplicate" that was two different data shapes sharing a name, a "gap"
 between two status lists that is a documented distinction, and a `misconfigured` status the preflight
-refuses through a different gate. The instrument was wrong every time, never the code.
+refuses through a different gate. The instrument was wrong every time, never the code. The sixth was this one: a census that looked only for a DIRECT foreign key and called four tables orphans, when the cascade it needed runs through a second table.
 
 ## Open questions this round could not settle
 
