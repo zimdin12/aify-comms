@@ -52,6 +52,34 @@ Everything else in this file is recorded with a judgement and needs nothing from
 
 ## Shipped this round
 
+**The parity gate could not see the tools most worth declaring -- fourth instance of one class.** I
+went looking for drift between the two MCP transports and found that a gate already exists and already
+declares all 14 stdio-only tools with reasons. That is the THIRD time this review has rediscovered
+something the operator had already adjudicated, and the right answer each time was to stop.
+
+What was genuinely open was narrower. `transport-parity.test.js` asserts "every SSE tool also exists
+in stdio" -- its own words for the accident that matters most -- and its scan matches
+`^async def (comms_[a-z_]+)`. SEVEN tools sat outside that prefix, reachable over a LIVE transport
+(`/mcp/sse` answers 200 on the running service), absent from stdio, and declared nowhere:
+
+| tool | where |
+|---|---|
+| `list_containers`, `start_container`, `stop_container`, `gpu_status`, `container_logs` | `service/sse/container_tools.py`, registered at `mcp/sse_server.py:97` |
+| `service_info`, `service_health` | decorated in the transport itself |
+
+Two of them are destructive. The gate whose subject is undeclared difference could not see them,
+because the scan read one shape of NAME while its assertion claimed completeness -- the same failure as
+`broadcast(` vs `notify_agent(`, a POST body vs a spread, and `ast.Constant` vs an f-string.
+
+Fixed by widening the scan to every tool name, declaring all seven with reasons, and adding a control
+that fails if the wide scan ever stops being wider than the narrow one. My own first derivation --
+reading `TOOLS` tuples -- found only five; the widened gate found `service_info` and `service_health`
+that I had missed, which is the gate doing to me what it now does for everyone.
+
+Two stale numbers corrected in passing, both measured rather than guessed: the file's own header said
+"twenty tools are implemented in BOTH" against a measured 22, and my first comment said five tools sat
+in the gap when the gate then found seven.
+
 **A cross-vocabulary literal in eleven terminal filters -- pinned, NOT deleted, and the operator had
 already ruled on the member once.** Third application of the AST hunt, this time to a different class:
 a status column filtered against a literal its own vocabulary does not contain, which is the `lost`
@@ -444,6 +472,21 @@ BODIES to assemble a handoff packet, and it is reached from `openContinueForm` -
 a chat one. Page-gating the fetch would leave it reading an empty store and producing an EMPTY PACKET
 with no error: the silent-degradation shape this review has spent the day removing, reintroduced to
 save bandwidth.
+
+**THREE CHEAPER ANGLES WERE TRIED FIRST AND ALL LAND ON THE SAME BLOCKER**, so nobody needs to
+re-explore them:
+
+- *Drop a duplicated field.* Per-field measurement of the live payload: `body` is 260,784 bytes
+  (85.8%), `preview` 22,267 (7.3%), `subject` 9,875, everything else under 2 KB. All 80 messages carry
+  both `body` and `preview`, and in all 80 the preview is a PREFIX of the body (median 244 chars
+  against 2,772) -- which looks like pure duplication and is not. `chat-select.mjs:123` prefers
+  `preview` for the conversation-list subtitle, so removing it falls through to `body` and renders a
+  2,772-character subtitle. Both fields are load-bearing, for different surfaces.
+- *Ask the endpoint for less.* `recent_messages` does `SELECT m.*` and exposes only `limit`; there is
+  no field selection to use.
+- *Add one.* A `?bodies=false` parameter is additive and safe -- and would have no consumer, because
+  the dashboard still needs bodies for `buildHandoffPacket`. A parameter with no reader is the defect
+  this review keeps finding in other people's code.
 
 The dashboard already has the right tool: `shouldLoadForPage` gates `/spawn-requests` and FAILS OPEN
 when the page element or classList is missing, which is the correct guard direction. The safe version
