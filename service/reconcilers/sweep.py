@@ -341,6 +341,9 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "ended_run_controls_closed": len(closed_ended_controls),
             "managed_ghost_rows_reaped": managed_hygiene.get("managed_ghost_rows_reaped", 0),
             "orphan_workers_reaped": managed_hygiene.get("orphan_workers_reaped", 0),
+            # Reported ALONGSIDE the reap count, not folded into it. "2 reaped" every minute for
+            # three hours read as continuous cleanup; it was two agents stuck in one state.
+            "orphan_workers_still_orphaned": managed_hygiene.get("orphan_workers_still_orphaned", 0),
             "resurrected_consoles": resurrected_consoles,
             "reaped_orphan_bridges": reaped_orphan_bridges,
             "pruned_superseded_bridges": pruned_bridges,

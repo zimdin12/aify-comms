@@ -2893,6 +2893,130 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertIsNotNone(event, "reconciled_managed_orphan_worker event must be appended")
 
+    def test_managed_hygiene_reaps_each_orphan_ONCE(self):
+        """A second sweep over the SAME orphan must not repeat the reap.
+
+        NOTHING THIS RECONCILER DOES CAN MAKE ITS OWN PREDICATE FALSE. It clears a console pointer,
+        appends an event and invalidates a cache; the terminal stays `stopped`, the sidecar keeps
+        beating, and the actual process kill is host-side. So a genuine orphan re-matched every
+        60-second sweep, forever.
+
+        MEASURED ON THE OPERATOR'S LIVE DATABASE: 1,664 `reconciled_managed_orphan_worker` events
+        across 70 terminals -- one terminal alone had 200 of them over 3h22m, and two current ones
+        had 91 each. That is 12.1% of all 13,699 terminal_events rows, written by a reaper that
+        should fire once per orphan and then pruned again by `pruned_terminal_events_capped` in the
+        same sweep. `orphan_workers_reaped` appeared in 284 of 355 reconcile lines over six hours,
+        which reads as continuous cleanup and was two agents stuck in one state.
+        """
+        terminal_id = "term_orphan_once"
+        self._seed_managed_claude_with_attached_terminal("once-claude", terminal_id)
+        self._stamp_live_channel_sidecar("once-claude")
+        old = "2000-01-01T00:00:00Z"
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'stopped', stopped_at = ?, updated_at = ? WHERE id = ?",
+            (old, old, terminal_id),
+        )
+
+        first = self._run_managed_worker_hygiene()
+        self.assertEqual(first["orphan_workers_reaped"], 1, first)
+        self.assertEqual(first["orphan_workers_still_orphaned"], 0, first)
+
+        # The orphan is UNCHANGED: still a live sidecar, still no console. Every input to the
+        # predicate is exactly what it was, which is the whole point -- the reap cannot fix it.
+        self._stamp_live_channel_sidecar("once-claude")
+        second = self._run_managed_worker_hygiene()
+
+        self.assertEqual(second["orphan_workers_reaped"], 0, second)
+        self.assertEqual(
+            second["orphan_workers_still_orphaned"], 1,
+            f"a standing orphan must be reported, not silently dropped: {second}",
+        )
+
+    def test_a_repeat_sweep_appends_no_SECOND_event(self):
+        """The cost, asserted directly. One event per orphan is a record; one per minute is a leak
+        that the event pruner then has to clean up in the same sweep."""
+        terminal_id = "term_orphan_one_event"
+        self._seed_managed_claude_with_attached_terminal("oneevent-claude", terminal_id)
+        self._stamp_live_channel_sidecar("oneevent-claude")
+        old = "2000-01-01T00:00:00Z"
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'stopped', stopped_at = ?, updated_at = ? WHERE id = ?",
+            (old, old, terminal_id),
+        )
+
+        def event_count() -> int:
+            row = self._fetchone(
+                "SELECT COUNT(*) AS n FROM terminal_events WHERE terminal_id = ? AND event_type = ?",
+                (terminal_id, "reconciled_managed_orphan_worker"),
+            )
+            return int(row["n"])
+
+        self._run_managed_worker_hygiene()
+        self.assertEqual(event_count(), 1, "the first sweep must record the orphan")
+
+        for _ in range(3):
+            self._stamp_live_channel_sidecar("oneevent-claude")
+            self._run_managed_worker_hygiene()
+        self.assertEqual(
+            event_count(), 1,
+            "three more sweeps over the same orphan appended more events; this is the 200-in-3h22m shape",
+        )
+
+    def test_a_repeat_sweep_does_not_reinvalidate_the_live_state(self):
+        """The other repeated cost: a cache invalidation forces a COLD status recompute for that
+        agent, and the cold path is the expensive one. Doing it once is correct; doing it every
+        minute forever is not, and derive() returns the same answer either way."""
+        terminal_id = "term_orphan_no_reinvalidate"
+        self._seed_managed_claude_with_attached_terminal("reinval-claude", terminal_id)
+        self._stamp_live_channel_sidecar("reinval-claude")
+        old = "2000-01-01T00:00:00Z"
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'stopped', stopped_at = ?, updated_at = ? WHERE id = ?",
+            (old, old, terminal_id),
+        )
+        self._run_managed_worker_hygiene()
+
+        # Re-stamp a cache entry. A second sweep must LEAVE IT ALONE -- the first sweep already
+        # corrected the status, and nothing has re-broken it.
+        status_cache._LIVE_STATE_CACHE["reinval-claude"] = {
+            "status": "available", "reason": "settled", "environment_id": "",
+            "session_id": "", "terminal_id": "", "active_run_id": "",
+            "refresh_after": "2099-01-01T00:00:00Z", "updated_at": _now(),
+        }
+        self._stamp_live_channel_sidecar("reinval-claude")
+        self._run_managed_worker_hygiene()
+
+        self.assertIsNotNone(
+            _live_state_fresh("reinval-claude"),
+            "a repeat sweep dropped the cache entry again, forcing a cold recompute every minute",
+        )
+
+    def test_a_DIFFERENT_orphan_is_still_reaped_after_the_first(self):
+        """The guard is per TERMINAL, not a latch. A second agent going headless must still be
+        recorded -- otherwise this fix would trade a noisy reaper for a deaf one."""
+        first_terminal = "term_orphan_a"
+        self._seed_managed_claude_with_attached_terminal("orphan-a", first_terminal)
+        self._stamp_live_channel_sidecar("orphan-a")
+        old = "2000-01-01T00:00:00Z"
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'stopped', stopped_at = ?, updated_at = ? WHERE id = ?",
+            (old, old, first_terminal),
+        )
+        self.assertEqual(self._run_managed_worker_hygiene()["orphan_workers_reaped"], 1)
+
+        second_terminal = "term_orphan_b"
+        self._seed_managed_claude_with_attached_terminal("orphan-b", second_terminal)
+        self._stamp_live_channel_sidecar("orphan-b")
+        self._stamp_live_channel_sidecar("orphan-a")
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'stopped', stopped_at = ?, updated_at = ? WHERE id = ?",
+            (old, old, second_terminal),
+        )
+
+        result = self._run_managed_worker_hygiene()
+        self.assertEqual(result["orphan_workers_reaped"], 1, f"the NEW orphan was not recorded: {result}")
+        self.assertEqual(result["orphan_workers_still_orphaned"], 1, result)
+
     def test_managed_hygiene_keeps_online_console(self):
         # MANAGED claude, FRESH sidecar + live `attached` console → NOT an orphan.
         terminal_id = "term_orphan_keep"
