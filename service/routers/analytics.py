@@ -52,6 +52,7 @@ router.include_router(_agent_analytics_router)
 # module level without a cycle. It moved to service/api_core/status_refresh.py in v0.5.4, so
 # a plain import works.
 from service.api_core.status_refresh import _compute_agent_status  # noqa: E402
+from service.api_core.managed_env import load_session_environment_by_agent  # noqa: E402
 from service.api_core.analytics_series import (
     _agent_leaderboard,
     _build_online_agent_board,
@@ -154,11 +155,32 @@ async def get_analytics(request: Request, analytics_range: str = Query("hour", a
         live_agents = 0
         online_agents = 0
         working_agents = 0
+        # Built ONCE for the whole loop, not once per agent. Every status below resolves the same
+        # two questions, and both answers are constant across a single request: the owning
+        # environment depends on machine_id alone, and the session environment is one table read for
+        # the whole fleet. Measured 2026-08-26 by counting aiosqlite execute() calls through one
+        # GET /api/v1/analytics on a COLD live-state cache: 463 round-trips at 24 agents, of which
+        # `SELECT * FROM environments WHERE machine_id = ?` and `SELECT environment_id FROM
+        # agent_sessions ...` were 48 each and `SELECT * FROM agents WHERE id = ?` 24 -- five per
+        # agent, re-reading answers this request already had. `GET /api/v1/agents` was given the same
+        # request-scoped dicts in fab4204c and the reconcile sweep a sweep-scoped pair; this is the
+        # third caller of the same derivation and the last one still asking per agent.
+        #
+        # `agent_row=row` is safe HERE specifically: these rows come from the `SELECT * FROM agents`
+        # four lines above, which is the same query the refresh would issue for itself.
+        environments_by_machine: dict = {}
+        session_environment_by_agent = await load_session_environment_by_agent(db)
         for row in agent_rows:
             mode = _agent_wake_mode(row)
             if mode != "message-only" and mode != "disabled":
                 live_agents += 1
-            status = await _compute_agent_status(row, db)
+            status = await _compute_agent_status(
+                row,
+                db,
+                environments_by_machine=environments_by_machine,
+                session_environment_by_agent=session_environment_by_agent,
+                agent_row=row,
+            )
             if not status.startswith("offline") and not status.startswith("stale"):
                 online_agents += 1
             if status.startswith("working"):

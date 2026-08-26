@@ -50,6 +50,16 @@ async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dic
     # The batch caller below reads every agent row to decide who is stale; re-selecting each one here
     # is 1.0N round-trips for rows it is holding. Optional and falling back, because this function is
     # also called with an id and nothing else.
+    #
+    # The id is CHECKED rather than trusted. This function writes the live-state cache under
+    # `agent_id`, so a caller handing over a row for a different agent would file one agent's derived
+    # status under another's key -- wrong data, silently, with no error anywhere. Every caller today
+    # passes a correctly-keyed row (the batch below uses `rows_by_id[aid]`, and the two analytics
+    # loops pass the row they are iterating), so this guards a future caller, not a present bug. It
+    # fails toward the QUERY rather than raising: re-reading is always correct, and a status endpoint
+    # is a poor place to turn a caller's mistake into a 500.
+    if agent_row is not None and str(_row_get(agent_row, "id", "")) != str(agent_id):
+        agent_row = None
     row = agent_row if agent_row is not None else await (
         await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
     ).fetchone()
@@ -131,7 +141,22 @@ async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str,
     return refreshed
 
 
-async def _compute_agent_status(row, db=None):
+async def _compute_agent_status(
+    row,
+    db=None,
+    *,
+    environments_by_machine=None,
+    session_environment_by_agent=None,
+    agent_row=None,
+):
+    # The three kwargs are OPT-IN and default to None, which is the pre-existing behaviour exactly.
+    # They exist for callers that compute a status for EVERY agent in a loop: without them each
+    # iteration re-reads the agent row it already holds, re-reads `environments` by machine_id (an
+    # answer that depends on machine_id alone) and re-reads the session environment. `GET
+    # /api/v1/analytics` was doing all three per agent. Eleven other call sites compute ONE status
+    # after a write and pass nothing, so they are unchanged -- and `agent_row` is opt-in rather than
+    # `row` itself precisely because those callers pass a row re-read after an update, which is not
+    # always the same shape as `SELECT * FROM agents`.
     # Single source of truth: delegate to the live-state engine that
     # list_agents/get_agent already use, so write endpoints (heartbeat,
     # register, dispatch status) never disagree with the dashboard about
@@ -150,7 +175,14 @@ async def _compute_agent_status(row, db=None):
         cached = _live_state_fresh(row["id"])
         if cached:
             return cached["status"]
-        cache = await _refresh_agent_live_state(db, row["id"], settings=settings)
+        cache = await _refresh_agent_live_state(
+            db,
+            row["id"],
+            settings=settings,
+            environments_by_machine=environments_by_machine,
+            session_environment_by_agent=session_environment_by_agent,
+            agent_row=agent_row,
+        )
         if cache:
             return cache["status"]
 

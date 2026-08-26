@@ -49,6 +49,52 @@ FIXTURE = Path(__file__).resolve().parent / "data" / "get_analytics_before_split
 #: helpers back and comparing once against the TRUE original is both a stronger claim and the one
 #: that keeps working as more blocks come out.
 SOURCE_FUNCTION = "get_analytics"
+
+#: Edits made SINCE the split, as (NOW, WAS): the helper rewrites today's text back to the original
+#: before comparing, so the current block comes first. Declared rather than folded into the fixture,
+#: which is history -- editing that would prove the wrong thing while staying green.
+#:
+#: THE EDIT. The per-agent status loop was given the shared context `GET /api/v1/agents` and the
+#: reconcile sweep already had, so the request resolves the fleet's environment once instead of once
+#: per agent. Measured cold: 16N + 79 round-trips before, 11N + 81 after, exact at four fleet sizes.
+_FLEET_LOOP_NOW = chr(10).join([
+    '        # Built ONCE for the whole loop, not once per agent. Every status below resolves the same',
+    '        # two questions, and both answers are constant across a single request: the owning',
+    '        # environment depends on machine_id alone, and the session environment is one table read for',
+    '        # the whole fleet. Measured 2026-08-26 by counting aiosqlite execute() calls through one',
+    '        # GET /api/v1/analytics on a COLD live-state cache: 463 round-trips at 24 agents, of which',
+    '        # `SELECT * FROM environments WHERE machine_id = ?` and `SELECT environment_id FROM',
+    '        # agent_sessions ...` were 48 each and `SELECT * FROM agents WHERE id = ?` 24 -- five per',
+    '        # agent, re-reading answers this request already had. `GET /api/v1/agents` was given the same',
+    '        # request-scoped dicts in fab4204c and the reconcile sweep a sweep-scoped pair; this is the',
+    '        # third caller of the same derivation and the last one still asking per agent.',
+    '        #',
+    '        # `agent_row=row` is safe HERE specifically: these rows come from the `SELECT * FROM agents`',
+    '        # four lines above, which is the same query the refresh would issue for itself.',
+    '        environments_by_machine: dict = {}',
+    '        session_environment_by_agent = await load_session_environment_by_agent(db)',
+    '        for row in agent_rows:',
+    '            mode = _agent_wake_mode(row)',
+    '            if mode != "message-only" and mode != "disabled":',
+    '                live_agents += 1',
+    '            status = await _compute_agent_status(',
+    '                row,',
+    '                db,',
+    '                environments_by_machine=environments_by_machine,',
+    '                session_environment_by_agent=session_environment_by_agent,',
+    '                agent_row=row,',
+    '            )',
+]) + chr(10)
+
+_FLEET_LOOP_WAS = chr(10).join([
+    '        for row in agent_rows:',
+    '            mode = _agent_wake_mode(row)',
+    '            if mode != "message-only" and mode != "disabled":',
+    '                live_agents += 1',
+    '            status = await _compute_agent_status(row, db)',
+]) + chr(10)
+
+EDITED_SINCE = [(_FLEET_LOOP_NOW, _FLEET_LOOP_WAS)]
 EXTRACTIONS = [
     "_hourly_message_series",
     "_append_daily_message_buckets",
@@ -70,7 +116,8 @@ class AnalyticsSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), split_src, EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), split_src, EXTRACTIONS,
+            edited_since=EDITED_SINCE)
 
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""

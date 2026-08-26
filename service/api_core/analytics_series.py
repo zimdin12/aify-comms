@@ -15,6 +15,7 @@ import time
 from typing import Any
 
 from service.api_core.serialization import _iso_from_ms
+from service.api_core.managed_env import load_session_environment_by_agent
 from service.api_core.status_refresh import _compute_agent_status
 
 async def _fleet_median_reply_minutes(db, run_where, run_params):
@@ -249,10 +250,26 @@ async def _build_online_agent_board(
         online_count = 0
         working_now = 0
         fleet_working = 0.0
+        # Resolved once for the board, not once per agent -- the same shared context `GET
+        # /api/v1/analytics` and the reconcile sweep were given. Measured 2026-08-26 through
+        # `GET /api/v1/analytics/pulse` on a COLD live-state cache: 102 round-trips at 6 agents and
+        # 390 at 24, a slope of 16 per agent, of which `SELECT * FROM environments WHERE machine_id`
+        # was 2 per agent and `SELECT * FROM agents WHERE id = ?` was 1 -- re-reading, for every
+        # agent, answers this request already had. `agent_row=row` is safe because these rows come
+        # from the `SELECT * FROM agents` directly above, which is the query the refresh would
+        # otherwise issue for itself.
+        environments_by_machine: dict = {}
+        session_environment_by_agent = await load_session_environment_by_agent(db)
         for row in await agents_c.fetchall():
             if row["id"] == "dashboard":
                 continue
-            status = await _compute_agent_status(row, db)
+            status = await _compute_agent_status(
+                row,
+                db,
+                environments_by_machine=environments_by_machine,
+                session_environment_by_agent=session_environment_by_agent,
+                agent_row=row,
+            )
             if status.startswith("offline") or status.startswith("stopped"):
                 continue
             online_count += 1

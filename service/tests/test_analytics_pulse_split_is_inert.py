@@ -39,6 +39,45 @@ MODULES = (ANALYTICS, SERIES)
 FIXTURE = Path(__file__).resolve().parent / "data" / "get_analytics_pulse_before_split.py"
 
 SOURCE_FUNCTION = "get_analytics_pulse"
+
+#: Edits made SINCE the split, as (NOW, WAS): the helper rewrites today's text back to the original
+#: before comparing, so the current block comes first. Declared rather than folded into the fixture,
+#: which is history -- editing that would prove the wrong thing while staying green.
+#:
+#: THE EDIT. The board's per-agent status loop was given the shared context `GET /api/v1/agents` and
+#: the reconcile sweep already had, so one request resolves the fleet's environment once instead of
+#: once per agent. Measured cold: 16N + 6 round-trips before, 11N + 8 after, exact at four sizes.
+_BOARD_LOOP_NOW = chr(10).join([
+    '        # Resolved once for the board, not once per agent -- the same shared context `GET',
+    '        # /api/v1/analytics` and the reconcile sweep were given. Measured 2026-08-26 through',
+    '        # `GET /api/v1/analytics/pulse` on a COLD live-state cache: 102 round-trips at 6 agents and',
+    '        # 390 at 24, a slope of 16 per agent, of which `SELECT * FROM environments WHERE machine_id`',
+    '        # was 2 per agent and `SELECT * FROM agents WHERE id = ?` was 1 -- re-reading, for every',
+    '        # agent, answers this request already had. `agent_row=row` is safe because these rows come',
+    '        # from the `SELECT * FROM agents` directly above, which is the query the refresh would',
+    '        # otherwise issue for itself.',
+    '        environments_by_machine: dict = {}',
+    '        session_environment_by_agent = await load_session_environment_by_agent(db)',
+    '        for row in await agents_c.fetchall():',
+    '            if row["id"] == "dashboard":',
+    '                continue',
+    '            status = await _compute_agent_status(',
+    '                row,',
+    '                db,',
+    '                environments_by_machine=environments_by_machine,',
+    '                session_environment_by_agent=session_environment_by_agent,',
+    '                agent_row=row,',
+    '            )',
+]) + chr(10)
+
+_BOARD_LOOP_WAS = chr(10).join([
+    '        for row in await agents_c.fetchall():',
+    '            if row["id"] == "dashboard":',
+    '                continue',
+    '            status = await _compute_agent_status(row, db)',
+]) + chr(10)
+
+EDITED_SINCE = [(_BOARD_LOOP_NOW, _BOARD_LOOP_WAS)]
 EXTRACTIONS = ["_build_online_agent_board"]
 OWNERS = {"_build_online_agent_board": SERIES}
 
@@ -55,7 +94,8 @@ class AnalyticsPulseSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS,
+            edited_since=EDITED_SINCE)
 
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         names = {
