@@ -58,7 +58,14 @@ async def _apply_terminal_status_from_control(db, req, control, terminal, status
                     error = CASE WHEN ? = 'failed' THEN ? ELSE error END
                 WHERE id = ?
                 """,
-                (terminal_status, now, terminal_status, now, status, req.error or "", terminal["id"]),
+                # NORMALISED, because the statement itself compares against lowercase literals and so
+                # does every reader. `terminal_status` is stripped but not lowered; the normalised
+                # twin two lines up was built for the end-status membership check and then not used
+                # for the writes. A `terminalStatus` of "Stopped" would be stored verbatim, fail the
+                # `? IN ('stopped','failed')` CASE so `stopped_at` is never stamped, and then match
+                # no reaper -- every one selects on the lowercase members. Same defect as the
+                # dispatch-run status, one path over, and here with four consequences instead of one.
+                (terminal_status_norm, now, terminal_status_norm, now, status, req.error or "", terminal["id"]),
             )
             await db.execute(
                 """
@@ -68,7 +75,10 @@ async def _apply_terminal_status_from_control(db, req, control, terminal, status
                     last_seen = ?
                 WHERE id = ?
                 """,
-                (terminal_status, terminal_status, now, terminal["session_id"]),
+                # Same normalisation, and the second binding is why it matters here: `owner_mode`
+                # only returns to 'managed' when this CASE matches, so a mixed-case stop left the
+                # session owned by a console that has gone.
+                (terminal_status_norm, terminal_status_norm, now, terminal["session_id"]),
             )
         if terminal_status in {"stopped", "failed"}:
             await _clear_console_terminal_binding(db, terminal["agent_id"], terminal["id"], now=now)

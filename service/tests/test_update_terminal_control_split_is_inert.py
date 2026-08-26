@@ -33,6 +33,47 @@ CONTROL_STATUS = REPO / "service" / "api_core" / "terminal_control_status.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "update_terminal_control_before_split.py"
 
 SOURCE_FUNCTION = "update_terminal_control"
+
+#: Edits made SINCE the split, as (NOW, WAS): the helper rewrites today's text back to the original
+#: before comparing, so the current block comes first. Declared rather than folded into the fixture,
+#: which is history -- editing that would prove the wrong thing while staying green.
+#:
+#: THE EDIT, in two places. The terminal status bound into both UPDATEs is now the NORMALISED twin
+#: that was already being computed two lines above and used only for the end-status membership check.
+#: Both statements compare the same parameter against lowercase literals, so a mixed-case value was
+#: stored verbatim, failed those CASE expressions, and then matched no reaper. See
+#: test_a_control_writes_the_terminal_status_its_own_sql_compares.py.
+
+_STATUS_PARAMS_NOW_A = chr(10).join([
+    '                # NORMALISED, because the statement itself compares against lowercase literals and so',
+    '                # does every reader. `terminal_status` is stripped but not lowered; the normalised',
+    '                # twin two lines up was built for the end-status membership check and then not used',
+    '                # for the writes. A `terminalStatus` of "Stopped" would be stored verbatim, fail the',
+    "                # `? IN ('stopped','failed')` CASE so `stopped_at` is never stamped, and then match",
+    '                # no reaper -- every one selects on the lowercase members. Same defect as the',
+    '                # dispatch-run status, one path over, and here with four consequences instead of one.',
+    '                (terminal_status_norm, now, terminal_status_norm, now, status, req.error or "", terminal["id"]),',
+]) + chr(10)
+
+_STATUS_PARAMS_WAS_A = chr(10).join([
+    '                (terminal_status, now, terminal_status, now, status, req.error or "", terminal["id"]),',
+]) + chr(10)
+
+_STATUS_PARAMS_NOW_B = chr(10).join([
+    '                # Same normalisation, and the second binding is why it matters here: `owner_mode`',
+    "                # only returns to 'managed' when this CASE matches, so a mixed-case stop left the",
+    '                # session owned by a console that has gone.',
+    '                (terminal_status_norm, terminal_status_norm, now, terminal["session_id"]),',
+]) + chr(10)
+
+_STATUS_PARAMS_WAS_B = chr(10).join([
+    '                (terminal_status, terminal_status, now, terminal["session_id"]),',
+]) + chr(10)
+
+EDITED_SINCE = [
+    (_STATUS_PARAMS_NOW_A, _STATUS_PARAMS_WAS_A),
+    (_STATUS_PARAMS_NOW_B, _STATUS_PARAMS_WAS_B),
+]
 EXTRACTIONS = ["_apply_terminal_status_from_control"]
 
 #: Where each helper is expected to be declared. PER HELPER, over every module below.
@@ -68,7 +109,8 @@ class UpdateTerminalControlSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS,
+            edited_since=EDITED_SINCE)
 
     def test_the_source_function_is_still_where_this_proof_looks(self):
         """`CALLER` is a location pin, and a relocation is what breaks it.
