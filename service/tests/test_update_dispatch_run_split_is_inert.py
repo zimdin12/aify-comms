@@ -34,6 +34,45 @@ SETTLEMENT = REPO / "service" / "api_core" / "dispatch_run_settlement.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "update_dispatch_run_before_split.py"
 
 SOURCE_FUNCTION = "update_dispatch_run"
+
+#: Edits made SINCE the split, as (NOW, WAS): the helper rewrites today's text back to the original
+#: before comparing, so the current block comes first. Declared rather than folded into the fixture,
+#: which is history -- editing that would prove the wrong thing while staying green.
+#:
+#: THE EDIT. The status that gets WRITTEN is now normalised, as the guard beside it always was. Three
+#: consumers test it against lowercase literals -- the column, the started_at stamp and the terminal
+#: membership -- so a mixed-case status was written verbatim, matched none of them, and matched no
+#: reconciler either. See test_a_dispatch_status_is_normalised_before_it_is_stored.py.
+_STATUS_NORMALISE_NOW = chr(10).join([
+    '        requested_status = str(req.status or "").strip().lower()',
+    '        # NORMALISED, because everything downstream assumes it already is. The guard below has always',
+    '        # lowercased for its comparison; the value that gets WRITTEN did not, and it has three',
+    '        # consumers that each test it against a lowercase literal: the column itself, the',
+    '        # `== "running"` check that stamps started_at, and the `in _DISPATCH_TERMINAL_STATUSES`',
+    '        # membership that settles the run. A status of "Completed" passed the guard, was written',
+    '        # verbatim, matched neither check, and then matched no reconciler either -- every dispatch',
+    '        # sweep in `service/reconcilers/dispatch_lifecycle.py` and `dispatch_queue.py` selects on the',
+    '        # lowercase members of `_DISPATCH_TERMINAL_STATUSES` and its siblings. The run is stranded:',
+    '        # require_reply never settles and cleanup never deletes it.',
+    '        #',
+    '        # The members are NAMED rather than quoted here on purpose: a comment that spells a status set',
+    '        # out is a second copy of it, which is how the `lost` incident happened, and',
+    '        # `test_status_set_literal_twins_are_frozen.py` catches exactly that -- it caught this comment.',
+    '        #',
+    '        # No live defect today -- the bridge sends five lowercase literals (completed, delivered,',
+    '        # failed, queued, running) and nothing else writes here. But `status` is `Optional[str]` on',
+    '        # the model with no validator, the bridge is host-side and routinely a different build, and',
+    '        # the guard one line up already proves the author expected case to vary. This is the `lost`',
+    "        # incident's exact shape on a table that has no status vocabulary gate to catch it.",
+    '        effective_status = requested_status or None',
+]) + chr(10)
+
+_STATUS_NORMALISE_WAS = chr(10).join([
+    '        requested_status = str(req.status or "").strip().lower()',
+    '        effective_status = req.status',
+]) + chr(10)
+
+EDITED_SINCE = [(_STATUS_NORMALISE_NOW, _STATUS_NORMALISE_WAS)]
 EXTRACTIONS = ["_settle_terminated_dispatch_run"]
 
 #: Where each helper is expected to be declared. PER HELPER, over every module below.
@@ -66,7 +105,8 @@ class UpdateDispatchRunSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS,
+            edited_since=EDITED_SINCE)
 
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""

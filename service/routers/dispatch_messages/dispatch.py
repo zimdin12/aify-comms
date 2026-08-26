@@ -267,7 +267,26 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
         now = _now()
         current_status = str(row["status"] or "").strip().lower()
         requested_status = str(req.status or "").strip().lower()
-        effective_status = req.status
+        # NORMALISED, because everything downstream assumes it already is. The guard below has always
+        # lowercased for its comparison; the value that gets WRITTEN did not, and it has three
+        # consumers that each test it against a lowercase literal: the column itself, the
+        # `== "running"` check that stamps started_at, and the `in _DISPATCH_TERMINAL_STATUSES`
+        # membership that settles the run. A status of "Completed" passed the guard, was written
+        # verbatim, matched neither check, and then matched no reconciler either -- every dispatch
+        # sweep in `service/reconcilers/dispatch_lifecycle.py` and `dispatch_queue.py` selects on the
+        # lowercase members of `_DISPATCH_TERMINAL_STATUSES` and its siblings. The run is stranded:
+        # require_reply never settles and cleanup never deletes it.
+        #
+        # The members are NAMED rather than quoted here on purpose: a comment that spells a status set
+        # out is a second copy of it, which is how the `lost` incident happened, and
+        # `test_status_set_literal_twins_are_frozen.py` catches exactly that -- it caught this comment.
+        #
+        # No live defect today -- the bridge sends five lowercase literals (completed, delivered,
+        # failed, queued, running) and nothing else writes here. But `status` is `Optional[str]` on
+        # the model with no validator, the bridge is host-side and routinely a different build, and
+        # the guard one line up already proves the author expected case to vary. This is the `lost`
+        # incident's exact shape on a table that has no status vocabulary gate to catch it.
+        effective_status = requested_status or None
         if current_status in _DISPATCH_TERMINAL_STATUSES and requested_status != current_status:
             effective_status = None
 
