@@ -779,3 +779,90 @@ export function spawnDelegationVerdict({ launcherText = null, endpointAnswered =
     fix: "Start aify-env on this host, or reinstall without --delegate-spawns to host spawns locally.",
   };
 }
+/**
+ * Managed delivery loops running for agents that no longer belong to the live environment bridge.
+ *
+ * WHY THIS IS A CHECK AND NOT A REAPER. An orphaned loop is a `hermes-managed-host.js run <agent>`
+ * process, launched detached under nohup so it deliberately OUTLIVES whatever started it. Nothing
+ * collects one during normal operation: the survivor sweep runs at bridge BOOT, so a loop orphaned
+ * mid-session accumulates until the next relaunch. Six were alive on the operator's host on
+ * 2026-08-26, the oldest at 96 minutes, each holding a hermes gateway.
+ *
+ * They are also INVISIBLE from the control plane, which is the reason this belongs in doctor rather
+ * than the dashboard: the agent reads `available` because it has no live channel sidecar, and its
+ * `lastSeen` keeps refreshing because the orphan itself is heartbeating. The liveness signal that
+ * would prove it dead is the one the orphan keeps emitting. An operator reading the dashboard sees
+ * "not running" beside a process that is running -- the operator asked exactly this on 2026-08-26,
+ * having watched agents "seem to be running still" after the panel reported them dead.
+ *
+ * IT REPORTS AND NEVER KILLS. Deciding to kill needs ownership this predicate does not have, and the
+ * repo already has one env-scoped reaper that does it correctly at the only moment it is safe.
+ *
+ * @param {object}   input
+ * @param {Array|null} input.loops  [{agentId, pid}] enumerated loops, or null if unreadable.
+ * @param {object|null} input.agents  {agentId: {sessionMode, runtimeState}}, or null if unreachable.
+ * @param {string|null} input.liveBridgeId  The ONLINE environment's bridgeId, or null if unknown.
+ */
+export function managedOrphanVerdict({ loops = null, agents = null, liveBridgeId = null } = {}) {
+  // NO EVIDENCE IS NOT A PASS. Each of the three inputs can be absent for its own reason -- an
+  // unreadable process table, a service that is down, no bridge online -- and every one of them makes
+  // the answer unknown rather than clean. `env-bridge` and `bridge-current` both shipped as
+  // green-by-default and both were wrong the same way (`a2f9e42`, `756f3a5`).
+  const missing = [];
+  if (loops === null) missing.push("the process table could not be read");
+  if (agents === null) missing.push("the service did not answer");
+  if (!liveBridgeId) missing.push("no environment bridge is online");
+  if (missing.length) {
+    return {
+      ok: false,
+      code: "unknown-all",
+      detail: `Orphaned managed workers could not be counted: ${missing.join("; ")}. Nothing was `
+        + "verified, so this is not a clean result.",
+      fix: "Fix the named condition, then re-run. `aify-comms doctor` reports each of them separately.",
+    };
+  }
+
+  // ONE LOGICAL LOOP PER AGENT. Enumeration matches on the command line, and the launcher is
+  // `nohup node hermes-managed-host.js run <agent>` -- so the nohup parent AND its node child both
+  // match, and counting pids would report every loop twice.
+  const byAgent = new Map();
+  for (const loop of loops) {
+    const agentId = String(loop?.agentId || "").trim();
+    if (!agentId) continue;
+    if (!byAgent.has(agentId)) byAgent.set(agentId, []);
+    byAgent.get(agentId).push(loop.pid);
+  }
+  if (byAgent.size === 0) {
+    return { ok: true, code: "none", detail: "No managed delivery loops are running on this host.", fix: "" };
+  }
+
+  const orphans = [];
+  for (const [agentId, pids] of byAgent) {
+    const row = agents[agentId];
+    // A loop for an agent the service does not know is orphaned by definition: nothing can address it.
+    const boundTo = String(row?.runtimeState?.bridgeInstanceId || "").trim();
+    if (boundTo && boundTo === liveBridgeId) continue;
+    orphans.push({ agentId, pids: pids.slice().sort((a, b) => a - b), boundTo: boundTo || "(none)" });
+  }
+  if (orphans.length === 0) {
+    return {
+      ok: true,
+      code: "ok",
+      detail: `${byAgent.size} managed delivery loop(s) running, all bound to the live environment `
+        + "bridge.",
+      fix: "",
+    };
+  }
+  const named = orphans
+    .map((o) => `${o.agentId} (pid ${o.pids.join("+")}, bound to ${o.boundTo})`)
+    .join(", ");
+  return {
+    ok: false,
+    code: "orphaned",
+    detail: `${orphans.length} of ${byAgent.size} managed delivery loop(s) belong to no live bridge, `
+      + `so they hold a gateway and a session that nothing can address: ${named}. Their agents read `
+      + "`available` on the dashboard while these processes are running.",
+    fix: "Restart each named agent -- the wrapper reaps that agent's prior loop as it spawns -- or "
+      + "relaunch the environment bridge, whose boot survivor sweep collects them all.",
+  };
+}

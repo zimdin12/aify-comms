@@ -159,6 +159,7 @@ It proves each claim against the running system rather than checking that a file
 | `bridge-current` | a **live** bridge whose self-reported `bridgeBuild` ≠ repo HEAD → it is *running* old code even though the files on disk are current. Platform-independent (the bridge reports its build on registration), which is what makes it the answer to the Windows gap below. Says RESTART, never reinstall. Fails as `unknown-all` when **no** live bridge reports a build: that is no evidence, and a check that verified nothing must not read as a pass — it was green-by-default until `a2f9e42`, the same false green as `env-bridge` below. |
 | `skills-installed` | a skill edited in the checkout and never installed. `install.sh` COPIES the skill trees out to `~/.claude/skills`, so editing `.claude/skills/` changes nothing for the fleet until it is re-run — the same silent-deploy shape as the bridge, on a path nobody thinks of as a deploy |
 | `spawn-delegation` | where managed spawns run, read from the installed launcher rather than by running it. Delegation makes aify-env REQUIRED — the bridge refuses rather than silently hosting spawns itself, because two spawners on one host is the collision the environment tier exists to end — so a down aify-env presents as spawns failing with no cause attached. Reports `local` (the default), `delegated`, `unreachable` (FAIL), or `pre-contract` for a launcher rendered before the setting existed |
+| `managed-orphans` | managed delivery loops (`hermes-managed-host.js run <agent>`) running for an agent that belongs to NO live bridge. Nothing collects one during normal operation -- the survivor sweep runs at bridge BOOT, so a loop orphaned mid-session accumulates until the next relaunch -- and the control plane cannot see it: the agent reads `available` because it has no live sidecar, while its `lastSeen` keeps refreshing because the orphan itself is heartbeating. **Reports, never kills.** Six were alive on 2026-08-26, oldest 96 minutes |
 | `env-bridge` | no environment bridge is actually **ONLINE** → dashboard-managed spawns cannot run. Keys on each row's server-derived `status`, and names the registered-but-dead ones with their `lastSeen`. (Until `756f3a5` it counted *registered* rows and reported "2 connected" with zero bridges alive — the exact false green this tool exists to prevent.) |
 | `usage-openai` | the ChatGPT quota token works — by calling the API, since an expired token passes a file check |
 
@@ -254,8 +255,9 @@ agreeing on every row):
 | 993 | `mcp/stdio/pi-session.js` | 7 |
 | 987 | `service/new_dashboard/app.js` | 13 |
 | 961 | `mcp/stdio/server.js` | 39 |
-| 896 | `mcp/stdio/terminal-runtime.js` | 104 |
+| 919 | `mcp/stdio/terminal-runtime.js` | 81 |
 | 893 | `service/control_plane.py` | 107 |
+| 868 | `mcp/stdio/doctor-predicates.js` | 132 |
 
 Nothing is broken — the gate is a red test, not a silent failure — but the next small edit to
 pi-session.js goes red for a reason unrelated to that edit, and its author should hear it from this
@@ -269,7 +271,9 @@ name. A ranked list that omits its own middle is worse than no list, because it 
 table above came from one walk using the GATES' OWN parameters -- their `SKIP_DIRS`
 (`node_modules`, `tests`, `fixtures`, `__pycache__`, `.git`, `.pytest_cache`, `.venv`, `venv`), their
 extensions, and their `wc -l` counting convention -- so it is the population the gates actually judge,
-not a similar one. That walk sees 504 files and none is at or over the limit. The next person to edit
+not a similar one. That walk sees 506 files and none is at or over the limit. A walk that FORGETS to exclude
+`.test.` by NAME reports `service/new_dashboard/extraction-proof.test.mjs` at 2,925 as the worst offender: the
+gates prune a `tests` DIRECTORY, and that file does not live in one. The next person to edit
 this should re-run that walk rather than amend a row.
 
 No product source file may reach 1000 lines. Two tests enforce it:

@@ -8,8 +8,8 @@ was found and *not* fixed, plus what was deliberately left alone.
 
 ## What actually needs you, ranked
 
-SEVENTEEN genuine decisions; everything else in the file is a recorded judgement that needed no ruling.
-This list exists because the file is 1,967 lines and a decision buried on line 900 is a decision nobody
+NINETEEN genuine decisions; everything else in the file is a recorded judgement that needed no ruling.
+This list exists because the file is 2,003 lines and a decision buried on line 900 is a decision nobody
 makes -- and because the list itself proved the point: it stood at eight for a full day of rounds while
 six more decisions were being written below it.
 
@@ -159,6 +159,42 @@ Everything else in this file is recorded with a judgement and needs nothing from
 FALSE between the rounds of 2026-08-26 and this edit: six decisions were added below it while it went
 on claiming there were none -- the same defect this review spent the day finding in code, a summary
 that stopped covering its own subject.
+
+18. **Nothing collects an orphaned managed worker while the bridge is running, and the control plane
+    cannot see one.** A delivery loop is `nohup node hermes-managed-host.js run <agent>` -- detached on
+    purpose, so it outlives its launcher. The only thing that reaps it is the survivor sweep at bridge
+    BOOT, so a loop orphaned mid-session accumulates until the next relaunch. Measured on the operator's
+    host 2026-08-26: six alive, oldest 96 minutes, each holding a hermes gateway.
+
+    **The invisibility is the interesting half.** Its agent reads `available` -- correctly, since
+    `available` means "no live channel sidecar" -- while its `lastSeen` refreshes every few seconds,
+    because the orphan itself is heartbeating. *The liveness signal that would prove it dead is the one
+    the orphan keeps emitting.* An operator reading the dashboard sees "not running" beside a process
+    that is running, which is exactly what the operator reported that day, in those words.
+
+    **Half done, and the remaining half is yours.** `aify-comms doctor`'s new `managed-orphans` check
+    now NAMES them, read-only. What it deliberately does not do is kill: a periodic reaper is a
+    process-killer running unattended against ownership rules that have already been wrong twice in
+    this repo's history, and the blast radius of a wrong answer is somebody's live session. Adding one
+    is a decision, not a repair. The cheap alternative is that nothing changes and the orphans clear at
+    the next bridge relaunch, which is what happens today.
+
+19. **The POSIX branches of the kill and reap paths have never run, and cannot be run here.** Sixteen
+    bridge modules branch on `process.platform`; twelve have no test that forces the other side.
+    `runtimes-process.js` is the one that matters: its POSIX half kills a process GROUP (`kill(-pid)`)
+    and walks `descendantPids` via `ps`, and none of that executes on Windows. The operator plans a
+    Linux deployment and has a macOS user, so this is not hypothetical.
+
+    **What is NOT worth doing: more reading.** I read the branch and it looks right, and that sentence
+    is worth nothing -- `defaultListProcesses` also looked right for a whole release. A test asserting
+    "it calls `killPid(-pid)`" would be a location pin: it proves a line was written, which is the
+    class of test this repo has already converted away from once.
+
+    **What IS worth doing: one Linux CI job that runs the three suites.** That is the only instrument
+    that can distinguish a correct POSIX branch from an untested one, and it answers all twelve modules
+    at once rather than one hand-written assertion at a time. Until it exists, the honest status of the
+    POSIX reap path is ASSUMED, not proven -- and the Windows half of that same file spent v0.5.4
+    silently enumerating nothing, which is what an unexercised path buys you.
 
 ## The mass-worker-death investigation, and what it has RULED OUT
 

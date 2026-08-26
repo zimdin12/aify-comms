@@ -52,6 +52,7 @@ import {
   // Moved out of THIS file in v0.5.4 so they could be tested — see the note where they used to sit.
   readBoundAgentId,
   readProcEnv,
+  managedOrphanVerdict,
   spawnDelegationVerdict,
 } from "./doctor-predicates.js";
 
@@ -409,6 +410,40 @@ checkNativeBridge();
 //
 // The launcher is READ, never run: a bare `aify-comms` starts an environment bridge and supersedes the
 // live one, which is how this fleet lost nine managed agents.
+// Managed delivery loops running for agents that belong to no live bridge. READ-ONLY: it enumerates
+// and names them, and never kills. See `managedOrphanVerdict` for why reporting is the whole job.
+async function checkManagedOrphans() {
+  // The enumerator is imported lazily so a host that cannot list processes fails HERE, with the
+  // reason, rather than taking doctor's module load with it.
+  let loops = null;
+  try {
+    const probes = await import("./proc-probes.js");
+    const rows = probes.defaultListProcesses();
+    // An EMPTY process table is not an empty answer. `defaultListProcesses` returns [] both when the
+    // host genuinely has no processes -- impossible -- and when its enumeration failed, and that
+    // conflation is exactly what hid a broken default for a whole release (`b57abc9e`). This process
+    // is running, so a table that does not contain it did not read the host.
+    if (!rows.some((row) => row && row.pid === process.pid)) throw new Error("enumeration did not include this process");
+    loops = rows
+      .map((row) => ({ agentId: probes.cmdlineDeliveryLoopAgent(row.commandLine), pid: row.pid }))
+      .filter((row) => row.agentId);
+  } catch {
+    loops = null;
+  }
+
+  const agentsBody = await get("/api/v1/agents");
+  const agents = agentsBody && agentsBody.agents && typeof agentsBody.agents === "object"
+    ? agentsBody.agents
+    : null;
+
+  const envs = await get("/api/v1/environments");
+  const online = (envs && envs.environments ? envs.environments : []).filter(envIsOnline);
+  const liveBridgeId = online.length === 1 ? String(online[0].bridgeId || "") : "";
+
+  const verdict = managedOrphanVerdict({ loops, agents, liveBridgeId });
+  return add("managed-orphans", verdict.ok, verdict.code, verdict.detail, verdict.fix);
+}
+
 async function checkSpawnDelegation() {
   let launcherText = null;
   for (const candidate of [
@@ -452,6 +487,7 @@ async function checkSpawnDelegation() {
 // terminal. See docs/AIFY_ENV_BOUNDARY.md for the table that assigns them.
 checkSkillsInstalled();
 await checkSpawnDelegation();
+await checkManagedOrphans();
 checkRunningBridges();
 await checkAgentIdentity();
 await checkEnvBridge();
