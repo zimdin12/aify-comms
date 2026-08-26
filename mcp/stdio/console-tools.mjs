@@ -39,13 +39,23 @@ export async function commsConsoleTailHandler({ agentId, lines }, { httpCall: ca
       // the one-line cause, and say plainly that this is a RECORDING, so nobody
       // reads it as the state of a running session.
       const head = r.failureLine ? `Cause: ${r.failureLine}\n\n` : "";
+      // WHICH STORE ANSWERED, said out loud only when it is the surprising one. Two stores hold a
+      // terminal's output: the accumulated `terminal_sessions.output` column and the
+      // `terminal_events` rows. The column is normal and needs no remark. Falling back to the events
+      // means the column held nothing but the terminal's own exit marker -- which is the shape that
+      // made this tool answer "(nothing was recorded)" for sc-architect on 2026-08-26 while 14,773
+      // characters of its last screen sat in the events. A reader deciding how much to trust a
+      // reconstruction should know it is one.
+      const store = r.recordedFrom === "events"
+        ? "Recovered from the terminal's recorded events; the output column held only its exit marker.\n\n"
+        : "";
       return {
         content: [{
           type: "text",
           text:
             `NOT LIVE — last recorded console of ${agentId} (terminal ${r.terminalId}, ${r.status}` +
             `${r.stoppedAt ? ` at ${r.stoppedAt}` : ""}). This worker is gone; the output below is history.\n\n` +
-            `${head}${r.output || "(nothing was recorded)"}`,
+            `${store}${head}${r.output || "(nothing was recorded)"}`,
         }],
       };
     }

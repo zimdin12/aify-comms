@@ -196,3 +196,69 @@ def failure_tail(raw: str, *, max_lines: int = 12, max_chars: int = 1200) -> str
     if len(text) > limit:
         text = "…" + text[-(limit - 1):]
     return text
+
+
+#: What a dying terminal writes about ITSELF. These say THAT it ended, never why -- so a recording
+#: containing nothing else explains nothing, however non-empty it looks to `.strip()`.
+#:
+#: `[terminal failed] <error>` is deliberately NOT here: `terminal-manager.mjs` writes the reason
+#: after that marker, so the line carries real content and must survive.
+_SELF_REPORT_ONLY = ("[terminal exited]", "[terminal closed]", "[terminal attached")
+
+
+def is_self_report_only(line: str) -> bool:
+    """True when a line is a terminal reporting its own state and nothing more."""
+    stripped = str(line or "").strip().lower()
+    if not stripped:
+        return True
+    return any(stripped.startswith(marker) and stripped[len(marker):].strip(" ]") == ""
+               for marker in _SELF_REPORT_ONLY)
+
+
+def says_what_it_was_doing(raw: str) -> bool:
+    """True when a recording holds at least one line that is not the terminal talking about itself.
+
+    THE DISTINCTION THIS DRAWS, and why `.strip()` could not draw it. sc-architect died on
+    2026-08-26 with `terminal_sessions.output` holding exactly `'[terminal exited]\n'` -- eighteen
+    characters, non-empty, truthy. The console tail took its historical branch, rendered that marker,
+    and the operator read "(nothing was recorded)" while 5,308 characters of the rendered screen sat
+    in the `snapshot` column of the same row, ending on the search the agent was running when it
+    died. Non-empty is not the same as informative.
+    """
+    return any(not is_self_report_only(line) for line in meaningful_lines(raw))
+
+
+
+
+def richest_recording(streamed: str, replayed: str) -> tuple[str, str]:
+    """The recording that explains a dead terminal, and the name of the store it came from.
+
+    TWO PERSISTED STORES HOLD ONE TERMINAL'S OUTPUT, and they do not always agree about how much.
+    `streamed` is `terminal_sessions.output`, the accumulated column. `replayed` is the same bytes
+    rebuilt from the `terminal_events` rows. For most terminals the column is the fuller of the two;
+    for some it holds almost nothing while the events hold everything.
+
+    MEASURED on two real deaths, 2026-08-26, characters in each store:
+
+        agent          terminal_sessions.output   terminal_events rebuilt
+        sc-claude                        63,423                    10,913
+        sc-architect                         18                    14,773
+
+    sc-architect's eighteen characters are its own exit marker. Non-empty, so a `.strip()` gate
+    passed it and the console tail rendered a line that says only THAT it ended -- while 14,773
+    characters describing what it was doing sat in the events of the same terminal. The operator
+    asked why the agent died and was told nothing was recorded.
+
+    `streamed` is preferred whenever it says anything beyond the terminal's own markers: it is the
+    column every path writes to, and reading it costs a query already being made. The events are the
+    fallback, and they are named in the result because the caller should be able to say which store
+    answered.
+
+    Returns ("", "") when neither says anything, which is a real answer -- the terminal ended and
+    left no account of itself -- and a different one from "nothing was recorded".
+    """
+    if says_what_it_was_doing(streamed):
+        return str(streamed or ""), "output"
+    if says_what_it_was_doing(replayed):
+        return str(replayed or ""), "events"
+    return "", ""

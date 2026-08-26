@@ -32,6 +32,7 @@ import re
 from service.terminal_diagnostics import (
     failure_tail as _terminal_failure_tail,
     meaningful_failure_line as _terminal_failure_line,
+    richest_recording as _richest_recording,
 )
 from service.terminal_snapshot import (
     render_live_screen as _render_live_terminal_screen,
@@ -49,6 +50,28 @@ from service.api_core.agent_terminal_ops import (
 )
 
 router = domain_router()
+
+#: How many recorded output rows to replay when the accumulated column came up empty. The same 200
+#: `get_terminal` uses, and for the same reason: this is a TAIL, so the newest rows are the ones that
+#: matter and an unbounded read of a chatty terminal would serve megabytes to answer "why did it die".
+_REPLAY_EVENT_LIMIT = 200
+
+
+async def _replayed_terminal_output(db, terminal_id: str) -> str:
+    """The terminal's output rebuilt from `terminal_events`, oldest-first.
+
+    Selected DESC and reversed so the newest rows survive the limit while the text stays in the order
+    it was written -- rendering a tail out of order would produce a screen that never existed.
+    """
+    if not terminal_id:
+        return ""
+    rows = await (await db.execute(
+        "SELECT body FROM terminal_events WHERE terminal_id = ? AND event_type = 'terminal_output' "
+        "ORDER BY id DESC LIMIT ?",
+        (terminal_id, _REPLAY_EVENT_LIMIT),
+    )).fetchall()
+    return "".join(str(row["body"] or "") for row in reversed(rows))
+
 
 @router.get("/agents/{agent_id}/console")
 async def get_agent_console(agent_id: str, lines: int = 40):
@@ -86,7 +109,26 @@ async def get_agent_console(agent_id: str, lines: int = 40):
                 """,
                 (agent_id,),
             )).fetchone()
-            recorded = str((past["output"] if past is not None else "") or "")
+            # TWO PERSISTED STORES HOLD ONE TERMINAL'S OUTPUT, and reading only the first answered a
+            # real question wrongly. `terminal_sessions.output` is the accumulated column;
+            # `terminal_events` holds the same bytes as rows. Usually the column is the fuller of the
+            # two, which is why it is read first and the events are not fetched at all on that path.
+            #
+            # On 2026-08-26 sc-architect died mid-turn with `output` holding exactly its own exit
+            # marker -- eighteen characters, non-empty, so the `.strip()` gate below said yes and the
+            # tail rendered a line saying only THAT it ended. The operator asked why the agent died
+            # and this endpoint said nothing was recorded, while 14,773 characters describing the
+            # work it was doing sat in the events of that same terminal. This is the docstring above
+            # happening a second time, one store over: the bytes were never missing.
+            #
+            # The events are read ONLY when the column says nothing, so the common path costs no
+            # extra query. `recordedFrom` names the store that answered, because "the column was
+            # nearly empty and the events were not" is itself worth seeing.
+            streamed = str((past["output"] if past is not None else "") or "")
+            recorded, recorded_from = _richest_recording(streamed, "")
+            if past is not None and not recorded:
+                replayed = await _replayed_terminal_output(db, str(past["id"] or ""))
+                recorded, recorded_from = _richest_recording(streamed, replayed)
             if past is not None and (recorded.strip() or str(past["error"] or "").strip()):
                 tail_lines = max(1, min(int(lines or 40), _borrowed_console_tail_max_lines()))
                 output = _terminal_failure_tail(recorded, max_lines=tail_lines)
@@ -102,6 +144,7 @@ async def get_agent_console(agent_id: str, lines: int = 40):
                     "stoppedAt": died_at,
                     "command": str(past["command"] or ""),
                     "failureLine": cause,
+                    "recordedFrom": recorded_from,
                     "lines": len(output.splitlines()) if output else 0,
                     "output": output,
                     "message": (
@@ -109,6 +152,33 @@ async def get_agent_console(agent_id: str, lines: int = 40):
                         f"terminal {past['id']} ({status}"
                         + (f" at {died_at}" if died_at else "")
                         + "), not a running session."
+                    ),
+                }
+            # A TERMINAL THAT ENDED AND ONE THAT NEVER RAN ARE DIFFERENT ANSWERS. Falling through to
+            # "it lazy-starts on a message" tells the reader the agent is idle by design; if the row
+            # above exists and is stopped, the agent DIED and left no account of itself. Saying so is
+            # the honest version of the same nil result, and it is the difference between "nothing to
+            # see" and "it died silently, which is itself the finding".
+            if past is not None:
+                ended_at = str(past["stopped_at"] or past["updated_at"] or "")
+                past_status = str(past["status"] or "").strip().lower() or "unknown"
+                return {
+                    "ok": True,
+                    "live": False,
+                    "historical": True,
+                    "terminalId": str(past["id"] or ""),
+                    "status": past_status,
+                    "stoppedAt": ended_at,
+                    "command": str(past["command"] or ""),
+                    "failureLine": "",
+                    "recordedFrom": "",
+                    "lines": 0,
+                    "output": "",
+                    "message": (
+                        f"{agent_id}'s last terminal {past['id']} is {past_status}"
+                        + (f" (since {ended_at})" if ended_at else "")
+                        + " and recorded NOTHING -- neither streamed output nor a rendered screen. "
+                        "It did not report why it ended."
                     ),
                 }
             return {
