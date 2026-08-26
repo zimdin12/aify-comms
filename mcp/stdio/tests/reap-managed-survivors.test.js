@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   enumerateManagedSurvivors,
   reapManagedSurvivors,
+  stopRequestReason,
 } from "../reap-managed-survivors.js";
 // The marker-file read side moved to `runtime-marker-files.js` in v0.5.4; imported from its OWNER.
 import { sweepTombstonedMarkers, tombstonedMarkerAgentIds } from "../runtime-marker-files.js";
@@ -275,6 +276,58 @@ import { cmdlineDeliveryLoopAgent, cmdlineResidentAgent } from "../proc-probes.j
     log: () => {},
   });
   assert.ok(res3.errors.length >= 1, "rm failure recorded in errors");
+}
+
+// ---------------------------------------------------------------------------
+// stopRequestReason: the teardown reason names who actually asked.
+//
+// It was the literal string "dashboard stop/remove", hardcoded at the call site whatever the control
+// said. MEASURED on the operator's live database: of 13 stop controls ever recorded, ZERO came from
+// the dashboard and ALL 13 were requested by the agent being stopped. The one log line an operator
+// reads about a dying worker named the wrong actor every time -- and an operator who had not touched
+// the dashboard reasonably concluded that something else had.
+//
+// `requestedBy` was available the whole way: the service serialises it onto every control, and
+// `environment-control-loop.mjs` already reads it.
+// ---------------------------------------------------------------------------
+{
+  // The case that caused the confusion. "stopped on request" and "the agent asked to be stopped"
+  // send an operator to completely different places.
+  assert.equal(
+    stopRequestReason({ requestedBy: "graph-senior-dev", agentId: "graph-senior-dev" }),
+    "stop requested by the agent itself (graph-senior-dev)",
+  );
+
+  assert.equal(
+    stopRequestReason({ requestedBy: "dashboard", agentId: "sc-coder" }),
+    "stop requested by dashboard",
+  );
+  assert.equal(
+    stopRequestReason({ requestedBy: "sc-manager", agentId: "sc-coder" }),
+    "stop requested by sc-manager",
+  );
+
+  // A control with no requester SAYS so rather than inventing one. The old string was a confident
+  // answer about an actor nobody recorded; an honest gap is readable, a wrong name is not.
+  for (const control of [{}, { agentId: "x" }, { requestedBy: "", agentId: "x" }, { requestedBy: "   " }]) {
+    assert.equal(
+      stopRequestReason(control),
+      "stop control, requester not recorded",
+      `expected the no-requester answer for ${JSON.stringify(control)}`,
+    );
+  }
+
+  // It runs inside the control loop; a throw here would fail the stop it was explaining.
+  for (const control of [null, undefined, 0, "stop", []]) {
+    assert.equal(typeof stopRequestReason(control), "string");
+  }
+
+  // THE REGRESSION THAT MATTERS. Reintroducing a hardcoded default would pass every assertion above
+  // that supplies a requester, so the absence is asserted directly.
+  assert.ok(
+    !stopRequestReason({ requestedBy: "mc-senior-dev", agentId: "mc-senior-dev" }).includes("dashboard"),
+    "the reason still mentions the dashboard for a self-requested stop",
+  );
 }
 
 console.log("reap-managed-survivors.test.js: all assertions passed");

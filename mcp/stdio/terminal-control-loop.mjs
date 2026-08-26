@@ -26,6 +26,7 @@ import { DEFAULT_CWD } from "./registration-inputs.mjs";
 import { normalizeRuntime } from "./runtimes.js";
 import { normalizeSessionMode } from "./session-mode.mjs";
 import { runSingleAgentManagedTeardown } from "./single-agent-teardown.mjs";
+import { stopRequestReason } from "./reap-managed-survivors.js";
 import { orphanPidReapAllowed, orphanPidToKill, terminalControlFailurePatch } from "./terminal-control.js";
 import { terminalChildEnv } from "./terminal-env.js";
 import { TERMINAL_MANAGER, reportDeadOwnedTerminals } from "./terminal-manager.mjs";
@@ -172,7 +173,12 @@ export async function runTerminalControlPass({
         // returns null and is never touched.
         const triadAgentId = stopControlTriadAgentId(control);
         if (triadAgentId && IS_ENVIRONMENT_BRIDGE) {
-          await runSingleAgentManagedTeardown(triadAgentId, "dashboard stop/remove");
+          // THE REASON COMES FROM THE CONTROL, not from a guess about who is usually pressing
+          // buttons. This said "dashboard stop/remove" unconditionally; measured on the live
+          // database, 0 of 13 stop controls came from the dashboard and all 13 were the agent
+          // stopping itself. The log was the operator's only attribution and it named the wrong
+          // actor every time.
+          await runSingleAgentManagedTeardown(triadAgentId, stopRequestReason(control));
         }
         await updateTerminalControl(control.id, { status: "completed", terminalStatus: "stopped" });
       } else {

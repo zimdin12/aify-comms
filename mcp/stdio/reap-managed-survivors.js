@@ -170,6 +170,31 @@ export const REAP_TRIAD_BODY_SENTINEL = "__aify_reap_triad__";
 //     unresolvable then; the sentinel is the explicit triad-reap flag). A RESIDENT
 //     hermes carries neither → NEVER reaped (operator's own session).
 //   - agentId must be present (no id → nothing to scope → no reap)
+/**
+ * WHO ASKED for this stop, in words, for the one log line an operator reads about a dead worker.
+ *
+ * The teardown reason was the literal string "dashboard stop/remove", hardcoded at the call site
+ * whatever the control said. MEASURED on the operator's live database: of 13 stop controls ever
+ * recorded, **ZERO** came from the dashboard and **all 13** were requested by the agent being
+ * stopped. So the only attribution available for a dying worker named the wrong actor, every time --
+ * and an operator who never touched the dashboard reasonably concluded something else had.
+ *
+ * `requestedBy` was there the whole way: the service serialises it onto every control
+ * (`terminal_controls_io.py`), and `environment-control-loop.mjs` already reads it.
+ *
+ * THE SELF-STOP GETS ITS OWN SENTENCE because it is the confusing one. "stopped on request" and
+ * "the agent asked to be stopped" send an operator to completely different places -- one to their own
+ * actions, the other to the agent's.
+ */
+export function stopRequestReason(control) {
+  const who = String(control?.requestedBy || "").trim();
+  const agent = String(control?.agentId || "").trim();
+  if (!who) return "stop control, requester not recorded";
+  if (agent && who === agent) return `stop requested by the agent itself (${who})`;
+  return `stop requested by ${who}`;
+}
+
+
 export function stopControlTriadAgentId(control) {
   if (!control || typeof control !== "object") return null;
   if (String(control.action || "").trim().toLowerCase() !== "stop") return null;
