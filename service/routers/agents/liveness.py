@@ -42,6 +42,10 @@ from service.routers.agents.shared import (
     logger,
 )
 from service.api_core.agent_sessions import _adopt_live_resident_driver
+from service.status_engine import (
+    KNOWN_EVENT_KINDS as _KNOWN_STATUS_EVENT_KINDS,
+    is_known_event_kind as _is_known_status_event_kind,
+)
 
 # Domain-local MODEL: defined in api_v2 rather than models.py, and its only user is the handler
 # below. It moves with the handler instead of becoming a cross-module import.
@@ -308,7 +312,18 @@ async def post_status_event(agent_id: str, req: AgentStatusEventRequest, request
         settings = await _load_settings(db)
         ws = await _get_ws(request)
         await _broadcast_engine_status(ws, db, agent_id, settings=settings)
-        return {"ok": True, "agentId": agent_id, "kind": req.kind}
+        # ACCEPTED EITHER WAY, and SAID either way. A bridge may run a newer version than this
+        # service, so a kind we have never heard of is tolerated rather than rejected -- but it used
+        # to be tolerated in total silence: 200 OK, a row recording the kind, and no state change.
+        # `applied` is the difference between "we did what you asked" and "we filed your request".
+        applied = _is_known_status_event_kind(req.kind)
+        if not applied:
+            logger.warning(
+                "status-event kind %r from agent %s is not one this service applies (%s); "
+                "the event was recorded and no turn state changed",
+                req.kind, agent_id, ", ".join(_KNOWN_STATUS_EVENT_KINDS),
+            )
+        return {"ok": True, "agentId": agent_id, "kind": req.kind, "applied": applied}
     finally:
         await db.close()
 

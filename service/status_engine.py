@@ -115,24 +115,64 @@ def derive(i: StatusInputs) -> str:
 
 EVENT_KINDS = ("turn_start", "turn_end", "blocked", "unblocked")
 
+def _on_turn_start(s: dict, event: dict) -> None:
+    s["in_turn"] = 1
+    s["turn_run_id"] = str(event.get("runId") or "")
+    s["awaiting_input"] = 0
+
+
+def _on_turn_end(s: dict, event: dict) -> None:
+    s["in_turn"] = 0
+    s["turn_run_id"] = ""
+    s["awaiting_input"] = 0
+
+
+def _on_blocked(s: dict, event: dict) -> None:
+    s["awaiting_input"] = 1
+
+
+def _on_unblocked(s: dict, event: dict) -> None:
+    s["awaiting_input"] = 0
+
+
+#: The event vocabulary, as a table rather than an if-chain, so the KEYS are the vocabulary and
+#: nothing has to restate it. "Derive allowed values, never list them" -- a second list of kinds kept
+#: beside the handler is a defect with a delay on it, and this engine's whole job is agreeing with
+#: itself about what an agent is doing.
+_EVENT_HANDLERS = {
+    "turn_start": _on_turn_start,
+    "turn_end": _on_turn_end,
+    "blocked": _on_blocked,
+    "unblocked": _on_unblocked,
+}
+
+KNOWN_EVENT_KINDS = tuple(_EVENT_HANDLERS)
+
+
+def is_known_event_kind(kind) -> bool:
+    """Whether `apply_event` would do anything with this kind.
+
+    Exists because ACCEPTING an unknown kind is correct and SILENTLY dropping it is not. The endpoint
+    takes `kind: str` unconstrained and must keep doing so: a bridge is operator-launched and may run
+    a NEWER version than the service, so a kind this service has never heard of has to be tolerated
+    rather than rejected. What was missing is any way to tell the two apart -- an unrecognised kind
+    returned `{"ok": true}`, wrote itself into `agent_status_state.last_event`, changed nothing, and
+    said nothing. Debugging that means reading this function.
+    """
+    return str(kind or "") in _EVENT_HANDLERS
+
+
 def apply_event(state: dict, event: dict) -> dict:
     """Fold an event into the per-agent turn sub-state (dict copy returned).
     Liveness / worker_present / env_reachable are NOT stored here — they are
     gathered live (heartbeat lease, bridge rows) at derive() time. This only
     tracks turn flags driven by push events.
+
+    An unknown kind returns the state unchanged, deliberately -- see `is_known_event_kind` for why
+    that is tolerance rather than negligence, and for what now reports it.
     """
     s = dict(state)
-    kind = str(event.get("kind") or "")
-    if kind == "turn_start":
-        s["in_turn"] = 1
-        s["turn_run_id"] = str(event.get("runId") or "")
-        s["awaiting_input"] = 0
-    elif kind == "turn_end":
-        s["in_turn"] = 0
-        s["turn_run_id"] = ""
-        s["awaiting_input"] = 0
-    elif kind == "blocked":
-        s["awaiting_input"] = 1
-    elif kind == "unblocked":
-        s["awaiting_input"] = 0
+    handler = _EVENT_HANDLERS.get(str(event.get("kind") or ""))
+    if handler is not None:
+        handler(s, event)
     return s
