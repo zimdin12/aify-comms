@@ -52,6 +52,38 @@ Everything else in this file is recorded with a judgement and needs nothing from
 
 ## Shipped this round
 
+**An empty backlog that was reporting on 236 modules while 32 were out of scope -- and an orphaned
+controller behind it.** Seventh instance, same method: derive each gate's population independently
+instead of trusting its list.
+
+`every-export-is-named-by-a-test.test.js` holds `UNTESTED_EXPORT_BACKLOG`, and that list was EMPTY --
+which reads as "every export is named by a test". Its `MODULE_DIRS` is two directories read
+NON-recursively. Deriving the population found 268 non-test JS modules, of which **32 sat outside**,
+including `mcp/stdio/adapters/` (7) and `mcp/stdio/controllers/` (11) -- the per-runtime product code,
+not helpers.
+
+Measured independently before touching the gate: 24 exports in those two subdirectories, **three named
+by no running test**. Widening `MODULE_DIRS` made the gate report exactly those three, which is the
+agreement that makes both measurements trustworthy.
+
+Two are untested-but-live (`createCodexLegacyTimers`, `resolveActiveCodexThread` -- three
+non-declaring references each). **The third is ORPHANED**, which is a different problem:
+`HermesSingleShotController` is imported by nothing. Its only reference outside its own file is a
+COMMENT at `hermes-controller.js:23` listing it as a mode-specific implementation -- and that file
+imports `HermesManagedController` alone. No mode routes to it, and no other single-shot controller
+exists to have replaced it. The prose asserts a wiring that the imports do not have.
+
+**Deleting product code is yours, so it is recorded rather than removed.** A test naming it would
+prove a class nothing constructs still works, which is not worth writing. The scope stays an explicit
+list rather than becoming a recursive walk: `mcp/stdio/scripts/` is a developer tool and
+`mcp/stdio/tests/` holds fixtures, and a gate that demands the wrong thing gets weakened rather than
+obeyed.
+
+**One gate checked and found sound this round**, recorded so nobody re-walks it:
+`test_environment_upsert_columns_agree.py` reads one helper, and that is the CORRECT scope -- it is the
+only writer of `environments` doing an upsert, the other three are single-purpose targeted UPDATEs, and
+all 15 table columns are written by the upsert it reads. No gap in either direction.
+
 **The single-worker gate could not see the one file most likely to break it.** Sixth instance of the
 class, found by the method that is now routine: census the gates that pair a declaration with a scan,
 then derive each scan's population independently instead of trusting its list.
