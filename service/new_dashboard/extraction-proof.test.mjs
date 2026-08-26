@@ -477,7 +477,49 @@ const EXTRACTIONS = [
     items: [
       { name: "openAgentEditForm", at: 3609, marker: "// openAgentEditForm moved to ./inspector-forms.mjs in v0.5.4." },
       { name: "openMessageDetail", at: 3696, marker: "// openMessageDetail moved to ./inspector-forms.mjs in v0.5.4." },
-      { name: "openCompactionHistory", at: 3575, marker: "// openCompactionHistory moved to ./inspector-forms.mjs in v0.5.4." },
+      {
+        name: "openCompactionHistory",
+        at: 3575,
+        marker: "// openCompactionHistory moved to ./inspector-forms.mjs in v0.5.4.",
+        // THE PANEL READ ITS METADATA AT THE WRONG LEVEL. `_spawn_request_to_dict` emits no
+        // top-level `metadata`; the spec's metadata arrives as `spawnSpec.metadata`, so
+        // `r.metadata || {}` was always empty and every branch it drove was dead. Measured against
+        // the live service over 200 spawn records: top-level `metadata` on 0, `spawnSpec.metadata`
+        // on 149. The logic moved to the exported `spawnRecordLineage`, which is a NEW declaration
+        // in the module and therefore not part of any span here.
+        editedSince: [
+        {
+          was: [
+          "      const m = r.metadata || {};",
+          "      return m.continuedFromAgentId === agentId || r.agentId === agentId || r.agent_id === agentId;",
+        ],
+          now: [
+          "      // An agent's history is the records it CAME FROM as well as the ones that produced it.",
+          "      const { fromAgentId } = spawnRecordLineage(r);",
+          "      return fromAgentId === agentId || r.agentId === agentId || r.agent_id === agentId;",
+        ],
+        },
+        {
+          was: [
+          "    const m = r.metadata || {};",
+          "    const mode = m.splitIdentity ? 'Continue-as' : m.compactMode === 'handoff' ? 'Compact' : 'Spawn';",
+        ],
+          now: [
+          "    const { mode, fromAgentId, fromSessionId } = spawnRecordLineage(r);",
+        ],
+        },
+        {
+          was: [
+          "        ${m.continuedFromAgentId ? `<dt>From agent</dt><dd>${esc(m.continuedFromAgentId)}</dd>` : ''}",
+          "        ${m.continuedFromSessionId ? `<dt>From session</dt><dd class=\"clip\">${esc(m.continuedFromSessionId)}</dd>` : ''}",
+        ],
+          now: [
+          "        ${fromAgentId ? `<dt>From agent</dt><dd>${esc(fromAgentId)}</dd>` : ''}",
+          "        ${fromSessionId ? `<dt>From session</dt><dd class=\"clip\">${esc(fromSessionId)}</dd>` : ''}",
+        ],
+        },
+      ],
+      },
       { name: "buildHandoffPacket", at: 3723, marker: "// buildHandoffPacket moved to ./inspector-forms.mjs in v0.5.4." },
       { name: "openContinueForm", at: 3731, marker: "// openContinueForm moved to ./inspector-forms.mjs in v0.5.4." },
     ],

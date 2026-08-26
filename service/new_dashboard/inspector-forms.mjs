@@ -117,6 +117,38 @@ export function openContinueForm(sid, splitIdentity) {
 // one that fetches. Extracted from app.js in v0.5.4, joining the owner of the other inspector panels
 // rather than starting a parallel module for one more of them.
 
+/**
+ * What a spawn record says about where the agent came from.
+ *
+ * THE METADATA IS NESTED AND THIS PANEL READ IT FLAT. `_spawn_request_to_dict` emits no `metadata`
+ * key at all -- the spec's metadata arrives as `spawnSpec.metadata`. So `const m = r.metadata || {}`
+ * was ALWAYS `{}`, and everything it drove was dead: the mode label fell through to "Spawn" for every
+ * record, both lineage rows were never rendered, and the filter's `continuedFromAgentId` arm could
+ * never match. Measured against the live service on 2026-08-26 over 200 spawn records: top-level
+ * `metadata` on 0 of them, `spawnSpec.metadata` on 149, `compactMode` on 82, and the three
+ * continue-as keys on 10 each. The panel is subtitled "Compact/continue lineage from spawn records"
+ * and could not show lineage for any of the 92 records that had it.
+ *
+ * BOTH LINEAGE VOCABULARIES, because the panel claims both. A continue-as record carries
+ * `continuedFrom*`; a compaction carries `compactedFrom*` (72 of the 200), which nothing here read
+ * even by the right path. Reading only the first would relabel those 82 records correctly and still
+ * show them with no origin.
+ *
+ * `r.metadata` is still consulted as a fallback: it costs one `??` and means a future serialiser that
+ * DOES flatten the field needs no change here.
+ */
+export function spawnRecordLineage(record = {}) {
+  const meta = (record.spawnSpec && record.spawnSpec.metadata) || record.metadata || {};
+  const mode = meta.splitIdentity
+    ? 'Continue-as'
+    : meta.compactMode === 'handoff' ? 'Compact' : 'Spawn';
+  return {
+    mode,
+    fromAgentId: meta.continuedFromAgentId || meta.compactedFromAgentId || '',
+    fromSessionId: meta.continuedFromSessionId || meta.compactedFromSessionId || '',
+  };
+}
+
 export async function openCompactionHistory(agentId) {
   byId('inspector-content').innerHTML = `<div class="agent-drawer"><div class="agent-drawer-head"><strong>History · ${esc(agentId)}</strong></div><p class="subtle">Loading…</p></div>`;
   byId('inspector')?.classList.add('open');
@@ -127,23 +159,23 @@ export async function openCompactionHistory(agentId) {
     const res = await api('/spawn-requests');
     const reqs = res.spawnRequests || res.requests || res || [];
     rows = (Array.isArray(reqs) ? reqs : []).filter((r) => {
-      const m = r.metadata || {};
-      return m.continuedFromAgentId === agentId || r.agentId === agentId || r.agent_id === agentId;
+      // An agent's history is the records it CAME FROM as well as the ones that produced it.
+      const { fromAgentId } = spawnRecordLineage(r);
+      return fromAgentId === agentId || r.agentId === agentId || r.agent_id === agentId;
     }).sort((a, b) => String(b.createdAt || b.created_at || '').localeCompare(String(a.createdAt || a.created_at || '')));
   } catch (err) {
     byId('inspector-content').innerHTML = `<div class="agent-drawer"><div class="agent-drawer-head"><strong>History · ${esc(agentId)}</strong></div><p class="subtle">Could not load spawn records: ${esc(String(err?.message || err))}</p></div>`;
     return;
   }
   const body = rows.length ? rows.map((r) => {
-    const m = r.metadata || {};
-    const mode = m.splitIdentity ? 'Continue-as' : m.compactMode === 'handoff' ? 'Compact' : 'Spawn';
+    const { mode, fromAgentId, fromSessionId } = spawnRecordLineage(r);
     return `<div class="history-row">
       <div class="history-head"><strong>${esc(mode)}</strong>${renderStatusChip(r.status || 'queued', { label: esc(r.status || 'queued'), why: `Spawn request ${r.status || 'queued'}.` })}</div>
       <dl class="agent-drawer-kv">
         <dt>When</dt><dd>${esc(relTime(r.createdAt || r.created_at))} ago</dd>
         <dt>New agent</dt><dd>${esc(r.agentId || r.agent_id || '—')}</dd>
-        ${m.continuedFromAgentId ? `<dt>From agent</dt><dd>${esc(m.continuedFromAgentId)}</dd>` : ''}
-        ${m.continuedFromSessionId ? `<dt>From session</dt><dd class="clip">${esc(m.continuedFromSessionId)}</dd>` : ''}
+        ${fromAgentId ? `<dt>From agent</dt><dd>${esc(fromAgentId)}</dd>` : ''}
+        ${fromSessionId ? `<dt>From session</dt><dd class="clip">${esc(fromSessionId)}</dd>` : ''}
         ${r.subject ? `<dt>Subject</dt><dd class="clip">${esc(r.subject)}</dd>` : ''}
       </dl></div>`;
   }).join('') : '<div class="empty-state"><span class="empty-icon">🕮</span><strong>No history</strong><p>No compaction or continuation records found for this agent.</p></div>';

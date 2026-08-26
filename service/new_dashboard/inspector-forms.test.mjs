@@ -18,6 +18,7 @@ import {
   openAgentEditForm,
   openCompactionHistory,
   openMessageDetail,
+  spawnRecordLineage,
 } from "./inspector-forms.mjs";
 
 function el() {
@@ -262,5 +263,62 @@ test("the payload may be {spawnRequests}, {requests} or a bare array", async () 
     state.inspector = {};
     const { html } = await renderAsync(() => openCompactionHistory("coder-1"));
     assert.ok(!html.includes("Could not load"), `shape ${JSON.stringify(payload).slice(0, 24)} must be accepted`);
+  }
+});
+
+// ── a spawn record's lineage is read from where the server puts it ──────────────────────────────
+// `_spawn_request_to_dict` emits NO `metadata` key; the spec's metadata arrives as
+// `spawnSpec.metadata`. `openCompactionHistory` read `r.metadata`, so its `m` was always `{}` and
+// every branch it drove was dead. Measured against the live service on 2026-08-26 across 200 spawn
+// records: top-level `metadata` on 0, `spawnSpec.metadata` on 149, `compactMode` on 82, and each of
+// the three continue-as keys on 10. A panel subtitled "Compact/continue lineage" could not show
+// lineage for any of the 92 records that had it.
+
+test('lineage comes from spawnSpec.metadata, which is where the serialiser puts it', () => {
+  const record = { spawnSpec: { metadata: { splitIdentity: true, continuedFromAgentId: 'alpha', continuedFromSessionId: 'sess-1' } } };
+  assert.deepEqual(spawnRecordLineage(record), {
+    mode: 'Continue-as', fromAgentId: 'alpha', fromSessionId: 'sess-1',
+  });
+});
+
+test('a compaction is labelled Compact and keeps its OWN lineage vocabulary', () => {
+  // 72 of the 200 live records carry `compactedFrom*`, which nothing read even by the right path.
+  // Labelling them correctly while showing no origin would be half a fix.
+  const record = { spawnSpec: { metadata: { compactMode: 'handoff', compactedFromAgentId: 'beta', compactedFromSessionId: 'sess-2' } } };
+  assert.deepEqual(spawnRecordLineage(record), {
+    mode: 'Compact', fromAgentId: 'beta', fromSessionId: 'sess-2',
+  });
+});
+
+test('a plain spawn is Spawn, with no origin invented', () => {
+  assert.deepEqual(spawnRecordLineage({ spawnSpec: { metadata: { createdBy: 'dashboard' } } }), {
+    mode: 'Spawn', fromAgentId: '', fromSessionId: '',
+  });
+});
+
+test('reading it at the TOP level -- the old path -- yields nothing, which is the whole defect', () => {
+  // The exact shape the live service returns: no top-level metadata at all. If this ever produced a
+  // mode other than 'Spawn', the old code was not broken and this change was unnecessary.
+  const liveShape = { id: 'sr_1', agentId: 'gamma', status: 'failed', spawnSpec: { metadata: {} } };
+  assert.equal(spawnRecordLineage(liveShape).mode, 'Spawn');
+  assert.equal(spawnRecordLineage(liveShape).fromAgentId, '');
+});
+
+test('a flattened metadata field still works, so a future serialiser needs no change here', () => {
+  assert.equal(spawnRecordLineage({ metadata: { splitIdentity: true } }).mode, 'Continue-as');
+});
+
+test('spawnSpec.metadata WINS over a top-level one', () => {
+  // Both present is not a case the server produces today. If it ever does, the nested one is the
+  // spec's own record and the authority; picking the other way would silently prefer a shim.
+  const record = { metadata: { compactMode: 'handoff' }, spawnSpec: { metadata: { splitIdentity: true } } };
+  assert.equal(spawnRecordLineage(record).mode, 'Continue-as');
+});
+
+test('a record with no metadata anywhere does not throw', () => {
+  // The list contains rows whose spec row was deleted; `specs.get(...)` then yields undefined and the
+  // payload has no `spawnSpec` at all. 51 of the 200 live records had no spec metadata.
+  for (const record of [{}, { spawnSpec: null }, { spawnSpec: {} }, undefined]) {
+    assert.equal(spawnRecordLineage(record).mode, 'Spawn');
   }
 });
