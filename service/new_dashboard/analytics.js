@@ -43,7 +43,12 @@ export function fleetPulseHtml(data, windowMinutes = 60) {
   const util = data.fleetUtilizationPct;
   const utilTone = util == null ? '' : (util >= 50 ? 'good' : util >= 15 ? 'warn' : '');
   const overdue = Number(data.overdueReplyContracts || 0);
-  const card = (n, l, sub, tone) => `<div class="metric${tone ? ` ${tone}` : ''}" data-tone="${tone || ''}">`
+  // `tip` MIRRORS THE ANALYTICS CARD BELOW, which has carried one since it shipped. These four tiles
+  // had none, and two of them are routinely read as broken because they answer different questions
+  // and sit side by side: "Working now 1" beside "0m working" is not a contradiction -- the count is
+  // derived from each agent's STATUS, the minutes come from DISPATCH RUNS -- but nothing on screen
+  // said so, and a resident agent working on its own produces exactly that pair.
+  const card = (n, l, sub, tone, tip) => `<div class="metric${tone ? ` ${tone}` : ''}" data-tone="${tone || ''}"${tip ? ` title="${esc(tip)}"` : ''}>`
     + `<b>${esc(String(n))}</b><span>${esc(l)}</span>${sub ? `<small class="pulse-sub">${esc(sub)}</small>` : ''}</div>`;
   const dot = (k, label) => `<span class="status-dot ${esc(k)}" role="img" title="${esc(label || k)}" aria-label="${esc(label || k)}"></span>`;
   const rows = (data.agents || []).filter((a) => a && a.id).map((a) => {
@@ -53,14 +58,25 @@ export function fleetPulseHtml(data, windowMinutes = 60) {
       + `<span class="pulse-agent-id">${dot(st.dotKind, st.label)}<strong>${esc(a.id)}</strong>`
       + `<small>${esc(a.role || '')}${a.runtime ? ` · ${esc(a.runtime)}` : ''}${a.mode ? ` · ${esc(a.mode)}` : ''}</small></span>`
       + `<span class="pulse-agent-meta"><span class="pulse-worked">${worked}</span>`
-      + `<span class="pulse-counts">${Number(a.messagesInWindow || 0)} msg · ${Number(a.workingMinutesInWindow || 0)}m work</span></span></button>`;
+      + `<span class="pulse-counts" title="Messages in the window, and minutes spent on DISPATCHED work. `
+      + `Work an agent does on its own carries no run, so it counts 0m here while its dot still reads working.">`
+      + `${Number(a.messagesInWindow || 0)} msg · ${Number(a.workingMinutesInWindow || 0)}m work</span></span></button>`;
   }).join('');
   return `<div class="pulse">${head}
     <div class="pulse-cards metric-grid">
-      ${card(m.count ?? 0, `Messages · ${winLabel}`, `${m.perHour ?? 0}/hr`)}
-      ${card(util == null ? '—' : `${util}%`, 'Utilization', `${data.fleetWorkingMinutes || 0}m working`, utilTone)}
-      ${card(data.workingNow ?? 0, 'Working now', `${data.onlineAgents || 0} online`)}
-      ${card(data.openReplyContracts ?? 0, 'Open replies', overdue ? `${overdue} overdue` : 'all current', overdue ? 'bad' : '')}
+      ${card(m.count ?? 0, `Messages · ${winLabel}`, `${m.perHour ?? 0}/hr`, '',
+        `Chat messages sent across the fleet in the last ${winLabel}.`)}
+      ${card(util == null ? '—' : `${util}%`, 'Utilization', `${data.fleetWorkingMinutes || 0}m dispatched`, utilTone,
+        `Dispatched-work minutes divided by online agents x the window `
+        + `(${data.fleetWorkingMinutes || 0}m / ${data.onlineAgents || 0} agents x ${winLabel}). `
+        + `An agent that is online but idle is in the denominator, so a fleet with many idle agents `
+        + `reads low however hard the busy ones are working.`)}
+      ${card(data.workingNow ?? 0, 'Working now', `${data.onlineAgents || 0} online`, '',
+        `Agents whose STATUS is working right now. Counted differently from Utilization, which sums `
+        + `DISPATCH RUN minutes -- so an agent working on its own, with no run, shows here and adds `
+        + `nothing there.`)}
+      ${card(data.openReplyContracts ?? 0, 'Open replies', overdue ? `${overdue} overdue` : 'all current', overdue ? 'bad' : '',
+        'Dispatch runs that asked for a reply and have not had one. Overdue is older than 30 minutes.')}
     </div>
     <div class="pulse-board-head"><h4>Online agents</h4><span class="em">${data.onlineAgents || 0} online · working first</span></div>
     <div class="pulse-board">${rows || '<p class="em">No online agents right now.</p>'}</div>

@@ -155,3 +155,78 @@ test('fleetPulseHtml is safe on loading / error / empty states', () => {
   assert.match(fleetPulseHtml({ ok: false }, 60), /Pulse unavailable/);
   assert.match(fleetPulseHtml({ ok: true, agents: [] }, 30), /No online agents/);
 });
+
+// ── the pulse tiles say what they count ─────────────────────────────────────────────────────────
+// "Working now 1" beside "0m working" is the pair an operator reads as broken, and it is not: the
+// count derives from each agent's STATUS, the minutes come from DISPATCH RUNS. A resident agent
+// working on its own produces exactly that. Both numbers were right and nothing on screen said so.
+
+test('the Utilization subtitle says DISPATCHED, because that is what the minutes are', () => {
+  const data = {
+    ok: true, windowMinutes: 60, messages: { count: 0, perHour: 0 },
+    onlineAgents: 27, workingNow: 1, fleetWorkingMinutes: 0, fleetUtilizationPct: 0,
+    openReplyContracts: 0, overdueReplyContracts: 0, agents: [],
+  };
+  const html = fleetPulseHtml(data, 60);
+  assert.match(html, /0m dispatched/);
+  assert.doesNotMatch(html, /0m working<\/small>/, 'the old wording contradicts the tile beside it');
+});
+
+test('the Utilization tooltip names the denominator that keeps it low', () => {
+  // The number is structurally small and that is not a bug: an agent that is online but IDLE is in
+  // the denominator, so 27 online agents make 1620 agent-minutes an hour. Three agents working the
+  // whole hour would read 11%. An operator who cannot see the denominator reads 0% as broken -- and
+  // this figure has already been "fixed" once for reading zero.
+  const html = fleetPulseHtml({
+    ok: true, windowMinutes: 60, messages: { count: 0, perHour: 0 },
+    onlineAgents: 27, workingNow: 1, fleetWorkingMinutes: 0, fleetUtilizationPct: 0,
+    openReplyContracts: 0, overdueReplyContracts: 0, agents: [],
+  }, 60);
+  assert.match(html, /0m \/ 27 agents/, 'the tooltip does not show the arithmetic');
+  assert.match(html, /online but idle is in the denominator/);
+});
+
+test('the Working now tooltip says it is counted differently from Utilization', () => {
+  const html = fleetPulseHtml({
+    ok: true, windowMinutes: 60, messages: { count: 0, perHour: 0 },
+    onlineAgents: 3, workingNow: 1, fleetWorkingMinutes: 0, fleetUtilizationPct: 0,
+    openReplyContracts: 0, overdueReplyContracts: 0, agents: [],
+  }, 60);
+  assert.match(html, /STATUS is working/);
+  assert.match(html, /DISPATCH RUN minutes/);
+});
+
+test('every pulse tile carries a tooltip, not just the two that confused', () => {
+  // A half-explained row of four is its own trap: the reader learns that a tile without a tooltip is
+  // self-evident, which is exactly the assumption that made these two misread.
+  const html = fleetPulseHtml({
+    ok: true, windowMinutes: 60, messages: { count: 5, perHour: 5 },
+    onlineAgents: 3, workingNow: 1, fleetWorkingMinutes: 2, fleetUtilizationPct: 4,
+    openReplyContracts: 1, overdueReplyContracts: 0, agents: [],
+  }, 60);
+  const tiles = html.match(/<div class="metric[^"]*" data-tone="[^"]*"[^>]*>/g) || [];
+  assert.equal(tiles.length, 4, `expected 4 pulse tiles, found ${tiles.length}`);
+  for (const tile of tiles) assert.match(tile, /title="/, `a pulse tile has no tooltip: ${tile}`);
+});
+
+test('the per-agent row explains its 0m the same way', () => {
+  // The row repeats the tile's ambiguity per agent: a working dot beside "0m work".
+  const html = fleetPulseHtml({
+    ok: true, windowMinutes: 60, messages: { count: 0, perHour: 0 },
+    onlineAgents: 1, workingNow: 1, fleetWorkingMinutes: 0, fleetUtilizationPct: 0,
+    openReplyContracts: 0, overdueReplyContracts: 0,
+    agents: [{ id: 'solo', role: 'coder', runtime: 'claude-code', mode: 'resident', status: 'working', lastWorkedAt: null, workingNow: true, messagesInWindow: 0, workingMinutesInWindow: 0 }],
+  }, 60);
+  assert.match(html, /0 msg · 0m work/, 'the visible counter changed, which other tests depend on');
+  assert.match(html, /Work an agent does on its own carries no run/);
+});
+
+test('the tooltips are escaped like every other attribute here', () => {
+  // The window label reaches the Messages tooltip, and a label is data even when today it is "1h".
+  const html = fleetPulseHtml({
+    ok: true, windowMinutes: 60, messages: { count: 0, perHour: 0 },
+    onlineAgents: 0, workingNow: 0, fleetWorkingMinutes: 0, fleetUtilizationPct: null,
+    openReplyContracts: 0, overdueReplyContracts: 0, agents: [],
+  }, 60);
+  assert.doesNotMatch(html, /title="[^"]*<[^"]*"/, 'raw markup reached a title attribute');
+});

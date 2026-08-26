@@ -229,3 +229,45 @@ test("deliveryToastFor does NOT claim 'queued' when a queueIfBusy send actually 
   const queued = deliveryToastFor({ dispatchRuns: [{ status: 'queued' }] }, 'peer');
   assert.match(queued.text, /Queued behind peer's active work/);
 });
+// ── a conversation row names its own action ───────────────────────────────────────────────
+// A button with no aria-label is named from its CONTENT, and this row contains another control: the
+// favourite star, a `role="button"` span with its own label. Read off the LIVE page's a11y tree on
+// 2026-08-26, every row announced as "Unfavorite <agent> available <agent> 1 coder · available ·
+// <last message>" -- the star's verb first, for a button whose action is to open the conversation.
+//
+// `title` was already there and does not fix it: a title is a name of last resort, used only when
+// there is no content. With content present it lands as the DESCRIPTION, which is what the tree
+// showed.
+
+test("a DM row is named for opening the chat, not for the star inside it", () => {
+  const html = railItemHtml(item({ favorited: true }), "none", {}, false);
+  assert.match(html, /aria-label="Chat with coder"/);
+  // The star keeps its own label; the row simply stops borrowing it.
+  assert.match(html, /aria-label="Unfavorite coder"/);
+});
+
+test("the unread count is IN the name, because it is why the row matters", () => {
+  const html = railItemHtml(item({ unread: 3 }), "none");
+  assert.match(html, /aria-label="Chat with coder, 3 unread"/);
+});
+
+test("a channel row says channel, since its action is not a DM", () => {
+  const html = railItemHtml(item({ kind: "channel", key: "ch:status", id: "status" }), "none");
+  assert.match(html, /aria-label="Open channel status"/);
+});
+
+test("the name is escaped like every other attribute here", () => {
+  // Agent ids come from registration, which is a bridge talking to the API -- not a trusted field.
+  // This is the same argument the id-escaping test above makes, applied to the attribute this change
+  // ADDS. A new attribute fed by the same untrusted string needs its own assertion, not an
+  // assumption that the neighbouring one covers it.
+  const html = railItemHtml(item({ id: 'x" onmouseover="steal()' }), "none");
+  assert.doesNotMatch(html, /aria-label="[^"]*" onmouseover="steal\(\)/);
+});
+
+test("title stays as well -- it is the hover affordance, not the name", () => {
+  // Keeping both is deliberate: the tooltip a sighted operator hovers and the name a screen reader
+  // announces are different jobs. Removing `title` to "avoid duplication" would cost the first.
+  const html = railItemHtml(item(), "none");
+  assert.match(html, /title="coder"/);
+});

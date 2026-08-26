@@ -50,7 +50,18 @@ export function railItemHtml(item, selectedKey, drafts = {}, readOnly = false) {
     ? [item.role, resolveStatus(item.status).label].filter(Boolean).join(' · ')
     : '';
   const sub = [meta, item.preview || ''].filter(Boolean).join(' · ');
-  return `<button class="chat-rail-item${active}${favClass}" data-chat-open="${esc(item.key)}" title="${esc(item.id)}">
+  // AN EXPLICIT NAME, because this button's content includes ANOTHER control. A button with no
+  // `aria-label` is named from its content, and this one contains the favourite star (a
+  // `role="button"` span), the status dot's label, the unread count and the preview line -- so the
+  // row announced itself as "Unfavorite ef-manager available ef-manager 1 coder · available ·
+  // <whatever the last message said>". Measured from the live page's a11y tree, 2026-08-26: the
+  // FIRST words of every conversation row were the star's verb, for a button whose action is
+  // "open this conversation".
+  //
+  // `title` does not fix it. A title is a name of last resort, used only when there is no content;
+  // with content present it lands as the DESCRIPTION instead, which is exactly what the tree showed.
+  const label = `${item.kind === 'dm' ? 'Chat with' : 'Open channel'} ${item.id}${item.unread > 0 ? `, ${item.unread} unread` : ''}`;
+  return `<button class="chat-rail-item${active}${favClass}" data-chat-open="${esc(item.key)}" aria-label="${esc(label)}" title="${esc(item.id)}">
     <span class="chat-rail-head">${fav}${dot}<span class="chat-rail-name clip">${esc(item.id)}</span>${awaitBadge}${draftBadge}${unread}</span>
     <span class="chat-rail-preview clip">${esc(sub)}</span>
   </button>`;
