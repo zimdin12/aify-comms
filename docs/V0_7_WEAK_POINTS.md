@@ -8,7 +8,7 @@ was found and *not* fixed, plus what was deliberately left alone.
 
 ## What actually needs you, ranked
 
-FOURTEEN genuine decisions; everything else in the file is a recorded judgement that needed no ruling.
+FIFTEEN genuine decisions; everything else in the file is a recorded judgement that needed no ruling.
 This list exists because the file is 1,648 lines and a decision buried on line 900 is a decision nobody
 makes -- and because the list itself proved the point: it stood at eight for a full day of rounds while
 six more decisions were being written below it.
@@ -82,6 +82,15 @@ down; these are the one-line versions, because the front of the file is the only
    files unguarded. Preventive rather than urgent: building two more gates is a larger commitment than
    repairing a scan, and the agents gate deliberately scopes itself out of judging other tables.
 
+15. **A signal-killed DELEGATED terminal is recorded as "exited with code 0".** aify-env drops the
+   signal at `runner.mjs:284` (Node's `close` event is `(code, signal)`) and coerces the resulting null
+   code to 0 at `runner.mjs:185`, so the exit frame carries a manufactured clean exit and no signal.
+   Every hop on the aify-comms side is correct and none of it helps. The fix is small on both sides but
+   changes the exit frame's shape, which is a wire contract between two repos on a LIVE tier. Until it
+   is made, the exit code this review added is trustworthy for a local pty and only for a
+   self-terminating delegated process -- and sc-architect, the death that prompted the feature, was
+   delegated.
+
 **If you spend attention on only three, spend it on 1, 9 and 11**: the first is exposure, the second is
 a failure shape this codebase has already paid for once, and the third is the only one carrying a
 measured number large enough to feel.
@@ -91,6 +100,44 @@ on claiming there were none -- the same defect this review spent the day finding
 that stopped covering its own subject.
 
 ## Shipped this round
+
+**Auditing my own feature found that its headline promise is FALSE for one important case, because of
+a defect one tier down.** I told the operator that a terminal death would now explain itself. For a
+delegated terminal killed by a SIGNAL it will say "exited with code 0" -- a clean exit -- which is
+worse than the silence it replaced.
+
+The chain was traced end to end across two repos, and it is correct until the last hop:
+
+    aify-env  child.on("close", (code) => finish(code))     runner.mjs:284
+              Node's close event is (code, SIGNAL). The signal is discarded AT THE CALL SITE.
+    aify-env  stream.exitCode = code ?? 0                    runner.mjs:185
+              Node gives code === null for a signal kill. `?? 0` turns that into a CLEAN EXIT.
+    aify-env  response.write("event: exit
+data: " + JSON.stringify({ code }))
+              The frame carries `code` and no signal -- there is nothing left to carry.
+    comms     finish(Number(payload?.code ?? 0))             env-client.mjs:191
+    comms     _handleExit(id, state, { code, signal: null }) terminal-runtime.js:374
+    comms     exitReport(detail) -> exitCode: 0              terminal-exit-report.js
+
+The PTY path drops it the same way at `runner.mjs:278`, using `event?.exitCode` and ignoring
+node-pty's signal.
+
+**Everything on the aify-comms side is right**, which is what makes this worth writing down rather
+than patching blind: `exitReport` refuses a non-numeric code, keeps `exitCode` and `exitSignal` as
+separate fields precisely because a signalled process reports a null code, and the column defaults to
+NULL so "nobody said" stays distinct from "exited 0". None of that helps when the value arriving is a
+0 that was manufactured two hops earlier.
+
+**THE FIX SPANS TWO REPOS AND CHANGES A WIRE CONTRACT**, so it is the operator's: aify-env would keep
+the signal from `close(code, signal)`, stop coercing null to 0, and add a `signal` field to the exit
+frame; aify-comms' `env-client` would read it and pass it through the detail it already builds. Both
+halves are small. The seam between them is live, and a protocol change on a live tier is not something
+to make quietly.
+
+**Until then the limitation is disclosed rather than implied.** A LOCAL pty death records a true code
+and signal today -- that half works. A DELEGATED death records a code that is only trustworthy when
+the process exited of its own accord, and sc-architect, the death that prompted the whole feature, was
+delegated.
 
 **A slack ceiling in my own test, and an audit whose instrument measured the wrong thing.** Continuing
 the self-audit: the lesson from the vacuous analytics fixture generalises -- a mutation proving the FIX
