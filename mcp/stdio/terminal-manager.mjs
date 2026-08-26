@@ -28,6 +28,7 @@
 
 import { reportTurnBusy } from "./agent-heartbeat.mjs";
 import { IS_REMOTE, httpCall, logTransientOrError } from "./aify-service-endpoint.mjs";
+import { exitReport } from "./terminal-exit-report.js";
 import { REMOTE_AGENT_STATE } from "./bridge-agent-state.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
 import { decideConsolePulse } from "./console-pulse.mjs";
@@ -126,11 +127,14 @@ export const TERMINAL_MANAGER = new TerminalProcessManager({
     } catch {}
   },
   onExit: async (terminalId, detail = {}) => {
-    const error = detail?.error?.message || "";
+    // HOW IT ENDED, forwarded instead of dropped. This hook read only `detail.error.message` until
+    // 2026-08-26, so the exit code and signal node-pty had already handed us died one hop short of
+    // the row. The body is built in `terminal-exit-report.js` because this hook calls a
+    // module-scoped httpCall and nothing built inline here can be asserted without killing a real
+    // terminal.
     await httpCall("POST", `/terminals/${encodeURIComponent(terminalId)}/output`, {
       bridgeId: BRIDGE_INSTANCE_ID,
-      output: error ? `\n[terminal failed] ${error}\n` : `\n[terminal exited]\n`,
-      status: error ? "failed" : "stopped",
+      ...exitReport(detail),
     });
   },
   onHeal: async (_terminalId, detail = {}) => {

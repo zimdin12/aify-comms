@@ -32,6 +32,37 @@ SETTLEMENT = REPO / "service" / "api_core" / "terminal_output_settlement.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "append_terminal_output_before_split.py"
 
 SOURCE_FUNCTION = "append_terminal_output"
+
+#: Edits made SINCE the split, as (NOW, WAS): the helper rewrites today's text back to the original
+#: before comparing, so the current block comes first. Declared rather than folded into the fixture,
+#: which is history -- editing that would prove the wrong thing while staying green.
+#:
+#: THE EDIT. A terminal now records HOW its process ended. node-pty gives the bridge the exit code and
+#: signal and both were being dropped one hop short of this table, so a death recorded `stopped`, an
+#: empty error, and nothing else. Written straight to the row rather than through the coalescing
+#: output queue, which exists to batch a high-frequency stream an exit is not part of.
+_EXIT_RECORD_NOW = chr(10).join([
+    '        status = str(req.status or "").strip()',
+    '        # HOW IT ENDED, written straight to the row rather than through the output queue.',
+    '        #',
+    '        # The queue exists to COALESCE a high-frequency stream: many chunks collapse into one write.',
+    '        # An exit is reported once and its two values have nothing to do with that batching, so',
+    '        # threading them through the pending state would complicate the hot path to carry a field it',
+    '        # would forward unchanged. Writing here also means the exit survives a later output chunk --',
+    "        # bytes can still arrive after the exit POST on a busy terminal, and the queue's UPDATE names",
+    '        # only output, seq and status, so it cannot clobber these columns.',
+    '        #',
+    '        # `is not None` rather than truthiness: 0 is a clean exit and the most common value, and',
+    '        # `if req.exitCode:` would drop exactly the case this exists to record.',
+    '        if req.exitCode is not None or str(req.exitSignal or "").strip():',
+    '            await _record_terminal_exit(db, terminal_id, req.exitCode, req.exitSignal)',
+]) + chr(10)
+
+_EXIT_RECORD_WAS = chr(10).join([
+    '        status = str(req.status or "").strip()',
+]) + chr(10)
+
+EDITED_SINCE = [(_EXIT_RECORD_NOW, _EXIT_RECORD_WAS)]
 EXTRACTIONS = ["_settle_bridge_takeover_for_output", "_close_out_terminal_on_end_status"]
 
 #: Where each helper is expected to be declared. PER HELPER, over every module below.
@@ -56,7 +87,8 @@ class AppendTerminalOutputSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS,
+            edited_since=EDITED_SINCE)
 
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""

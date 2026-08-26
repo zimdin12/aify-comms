@@ -69,7 +69,12 @@ BRIDGE_SENDERS = {
     "mcp/stdio/hermes-managed-gateway-session.js": {"running"},
     "mcp/stdio/hermes-session.js": {"failed", "running"},
     "mcp/stdio/pi-session.js": {"running", "stopped"},
-    "mcp/stdio/terminal-manager.mjs": {"attached", "failed", "stopped"},
+    # `attached` only since 2026-08-26: the exit body moved to `terminal-exit-report.js` when the
+    # exit code and signal were added to it, so the two end statuses now live one file over. The
+    # scan follows the spread rather than being told, which is why that file appears below on its
+    # own rather than as an exception here.
+    "mcp/stdio/terminal-manager.mjs": {"attached"},
+    "mcp/stdio/terminal-exit-report.js": {"failed", "stopped"},
 }
 
 
@@ -92,6 +97,30 @@ def _bridge_terminal_status_literals() -> dict[str, set[str]]:
             args = match.group(1)
             for value in re.findall(r'"([a-z-]+)"', args[args.rfind(","):]):
                 found.setdefault(key, set()).add(value)
+        # A THIRD SHAPE: the body is SPREAD from a helper. `terminal-manager.mjs` posts
+        # `{bridgeId, ...exitReport(detail)}`, and the two exit statuses live in the helper's module
+        # rather than at the call site -- so the two scans above see `attached` there and nothing
+        # else, and would have reported the exit vocabulary as GONE rather than moved.
+        #
+        # This is the same blind spot `realtime-dispositions.test.mjs` had on 2026-08-26: a scan that
+        # reads one shape of producer reports honestly about that shape and silently about the rest.
+        # Following the spread keeps the census DERIVED. Attribution goes to the module the literal
+        # lives in, because "which file can introduce a status" is what this census is for.
+        for match in re.finditer(r"/output`,\s*\{([\s\S]*?)\n\s*\}\)", src):
+            for helper in re.findall(r"\.\.\.\s*([A-Za-z_$][\w$]*)\s*\(", match.group(1)):
+                imported = re.search(
+                    rf'import\s*\{{[^}}]*\b{re.escape(helper)}\b[^}}]*\}}\s*from\s*"\./([^"]+)"', src
+                )
+                if not imported:
+                    continue
+                helper_path = path.parent / imported.group(1)
+                if not helper_path.exists():
+                    continue
+                helper_key = helper_path.resolve().relative_to(REPO.resolve()).as_posix()
+                helper_src = helper_path.read_text(encoding="utf-8")
+                for field in re.findall(r"^\s*status:\s*([^\n]*)", helper_src, re.M):
+                    for value in re.findall(r'"([a-z-]+)"', field):
+                        found.setdefault(helper_key, set()).add(value)
     return found
 
 
@@ -201,10 +230,20 @@ class TerminalStatusVocabularyTests(unittest.TestCase):
         literals = _bridge_terminal_status_literals()
         self.assertGreaterEqual(len(literals), 5, "the bridge scan found almost no senders")
         self.assertIn("attached", literals.get("mcp/stdio/terminal-manager.mjs", set()))
+        # The ternary MOVED on 2026-08-26 and this control moved with it. It is the same property --
+        # a two-literal ternary must be read whole -- checked where the ternary now lives. Leaving it
+        # pointed at the old file would have made it a control over nothing, passing on a scan that
+        # had stopped reading ternaries entirely.
+        exit_report = literals.get("mcp/stdio/terminal-exit-report.js", set())
         self.assertIn(
-            "stopped", literals.get("mcp/stdio/terminal-manager.mjs", set()),
+            "stopped", exit_report,
             "the ternary `status: error ? \"failed\" : \"stopped\"` carries TWO literals in one "
             "field; a scan that reads only the first sees half the senders",
+        )
+        self.assertIn(
+            "failed", exit_report,
+            "the exit body is SPREAD into the POST from a helper module. A scan that reads only the "
+            "call site sees `attached` and concludes the exit statuses are gone rather than moved",
         )
         self.assertIn(
             "running", literals.get("mcp/stdio/codex-session.js", set()),

@@ -515,6 +515,15 @@ class TerminalOutputRequest(BaseModel):
     bridgeId: Optional[str] = None
     output: Optional[str] = None
     status: Optional[str] = None
+    #: How the process ended, reported once on the exit POST. Optional because only the exit call
+    #: carries them and every streaming output POST leaves them unset -- and because a bridge older
+    #: than this field must keep working, which is what `None` means here: not told.
+    #:
+    #: `exitCode` is an int and NOT coerced from a string: 0 is a clean exit and "" is silence, and a
+    #: model that turned one into the other would answer "why did it die" with a number nobody
+    #: reported.
+    exitCode: Optional[int] = None
+    exitSignal: Optional[str] = None
 
 
 class VirtualTerminalEnsureRequest(BaseModel):

@@ -178,6 +178,34 @@ async def get_terminal(terminal_id: str, cols: Optional[int] = None, rows: Optio
         await db.close()
 
 
+async def _record_terminal_exit(db, terminal_id: str, exit_code, exit_signal) -> None:
+    """Persist how a terminal's process ended.
+
+    NOTHING RECORDED THIS UNTIL 2026-08-26. node-pty gives the bridge `{exitCode, signal}`,
+    `terminal-runtime.js` spreads both into the exit detail, and `terminal-manager.mjs` then posted
+    only an output marker and a status -- so both numbers were dropped at the last hop. When two
+    managed workers died mid-turn the operator asked why, and every row said `status='stopped'`, an
+    empty `error`, and nothing else. A terminal that dies takes its reason with it.
+
+    Written with COALESCE so a later streaming chunk cannot blank a recorded exit, and so a second
+    exit report (a retry, a duplicate flush) cannot turn a known code back into unknown.
+    """
+    updates = []
+    params: list = []
+    if exit_code is not None:
+        updates.append("exit_code = COALESCE(exit_code, ?)")
+        params.append(int(exit_code))
+    signal = str(exit_signal or "").strip()
+    if signal:
+        updates.append("exit_signal = COALESCE(NULLIF(exit_signal, ''), ?)")
+        params.append(signal)
+    if not updates:
+        return
+    params.append(terminal_id)
+    await db.execute(f"UPDATE terminal_sessions SET {', '.join(updates)} WHERE id = ?", tuple(params))
+    await db.commit()
+
+
 @router.post("/terminals/{terminal_id}/output")
 async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, request: Request):
     db = await get_db()
@@ -215,6 +243,19 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
             db, terminal, terminal_id, new_bridge_id, existing_bridge_id, is_virtual_rpc,
         )
         status = str(req.status or "").strip()
+        # HOW IT ENDED, written straight to the row rather than through the output queue.
+        #
+        # The queue exists to COALESCE a high-frequency stream: many chunks collapse into one write.
+        # An exit is reported once and its two values have nothing to do with that batching, so
+        # threading them through the pending state would complicate the hot path to carry a field it
+        # would forward unchanged. Writing here also means the exit survives a later output chunk --
+        # bytes can still arrive after the exit POST on a busy terminal, and the queue's UPDATE names
+        # only output, seq and status, so it cannot clobber these columns.
+        #
+        # `is not None` rather than truthiness: 0 is a clean exit and the most common value, and
+        # `if req.exitCode:` would drop exactly the case this exists to record.
+        if req.exitCode is not None or str(req.exitSignal or "").strip():
+            await _record_terminal_exit(db, terminal_id, req.exitCode, req.exitSignal)
         next_seq = await TERMINAL_OUTPUT_WRITES.enqueue(
             terminal_id,
             req.output or "",

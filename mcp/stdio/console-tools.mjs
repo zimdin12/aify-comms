@@ -49,13 +49,22 @@ export async function commsConsoleTailHandler({ agentId, lines }, { httpCall: ca
       const store = r.recordedFrom === "events"
         ? "Recovered from the terminal's recorded events; the output column held only its exit marker.\n\n"
         : "";
+      // HOW IT ENDED, on the line above the output, because it is the answer to the question that
+      // brings anyone here. Three distinct cases and they must not be collapsed: a signal means
+      // something killed it, a code means it chose to stop, and nothing recorded means the record
+      // cannot say -- which is what every terminal said before 2026-08-26, and is still what an
+      // older bridge produces. `exitCode === 0` is a clean exit and must print, so this tests for
+      // null/undefined rather than truthiness.
+      const exit = r.exitSignal
+        ? `Killed by ${r.exitSignal}.\n`
+        : (r.exitCode === null || r.exitCode === undefined ? "" : `Exited with code ${r.exitCode}.\n`);
       return {
         content: [{
           type: "text",
           text:
             `NOT LIVE — last recorded console of ${agentId} (terminal ${r.terminalId}, ${r.status}` +
             `${r.stoppedAt ? ` at ${r.stoppedAt}` : ""}). This worker is gone; the output below is history.\n\n` +
-            `${store}${head}${r.output || "(nothing was recorded)"}`,
+            `${exit}${store}${head}${r.output || "(nothing was recorded)"}`,
         }],
       };
     }

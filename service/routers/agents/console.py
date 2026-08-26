@@ -57,6 +57,22 @@ router = domain_router()
 _REPLAY_EVENT_LIMIT = 200
 
 
+def _exit_phrase(exit_code, exit_signal) -> str:
+    """One sentence about how the process ended, or an honest admission that nobody said.
+
+    Kept separate from the message it joins because the three cases read differently and each is a
+    real answer: a signal means something killed it, a code means it chose to stop, and NULL means
+    the record cannot say. Collapsing the third into "exited 0" is the failure this whole column
+    exists to prevent.
+    """
+    signal = str(exit_signal or "").strip()
+    if signal:
+        return f" The process was killed by {signal}."
+    if exit_code is not None:
+        return f" The process exited with code {int(exit_code)}."
+    return " It did not report why it ended, and no exit code was recorded."
+
+
 async def _replayed_terminal_output(db, terminal_id: str) -> str:
     """The terminal's output rebuilt from `terminal_events`, oldest-first.
 
@@ -101,7 +117,8 @@ async def get_agent_console(agent_id: str, lines: int = 40):
             # outrank the genuinely newest attempt.
             past = await (await db.execute(
                 """
-                SELECT id, status, output, error, stopped_at, updated_at, command
+                SELECT id, status, output, error, stopped_at, updated_at, command,
+                       exit_code, exit_signal
                 FROM terminal_sessions
                 WHERE agent_id = ?
                 ORDER BY datetime(COALESCE(NULLIF(created_at, ''), '1970-01-01')) DESC, rowid DESC
@@ -145,6 +162,10 @@ async def get_agent_console(agent_id: str, lines: int = 40):
                     "command": str(past["command"] or ""),
                     "failureLine": cause,
                     "recordedFrom": recorded_from,
+                    # NULL means nobody reported one, which is a different answer from 0 -- a clean
+                    # exit. Passed through rather than defaulted so the reader can tell them apart.
+                    "exitCode": past["exit_code"],
+                    "exitSignal": str(past["exit_signal"] or ""),
                     "lines": len(output.splitlines()) if output else 0,
                     "output": output,
                     "message": (
@@ -172,13 +193,15 @@ async def get_agent_console(agent_id: str, lines: int = 40):
                     "command": str(past["command"] or ""),
                     "failureLine": "",
                     "recordedFrom": "",
+                    "exitCode": past["exit_code"],
+                    "exitSignal": str(past["exit_signal"] or ""),
                     "lines": 0,
                     "output": "",
                     "message": (
                         f"{agent_id}'s last terminal {past['id']} is {past_status}"
                         + (f" (since {ended_at})" if ended_at else "")
-                        + " and recorded NOTHING -- neither streamed output nor a rendered screen. "
-                        "It did not report why it ended."
+                        + " and recorded NOTHING -- neither streamed output nor replayable events."
+                        + _exit_phrase(past["exit_code"], past["exit_signal"])
                     ),
                 }
             return {
