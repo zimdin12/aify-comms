@@ -228,7 +228,7 @@ export function createChatController(deps) {
         banner.className = 'chat-reply-banner';
         composer?.parentNode?.insertBefore(banner, composer);
       }
-      banner.innerHTML = `<span class="clip">↳ Replying to <strong>${esc(reply.from)}</strong>: ${esc((reply.subject || reply.preview || '').slice(0, 60))}</span><button class="ghost" type="button" data-chat-reply-clear>✕</button>`;
+      banner.innerHTML = `<span class="clip">↳ Replying to <strong>${esc(reply.from)}</strong>: ${esc((reply.subject || reply.preview || '').slice(0, 60))}</span><button class="ghost" type="button" data-chat-reply-clear aria-label="Cancel reply" title="Cancel reply">✕</button>`;
     } else if (banner) {
       banner.remove();
     }
