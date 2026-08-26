@@ -419,6 +419,41 @@ the trade-off.
 
 ## Worth doing, needs an operator decision
 
+**The dashboard's biggest payload is 294 KB every 15 seconds, and one function is why it cannot
+simply be page-gated.** Measured against the RUNNING service, bytes per refresh slice:
+
+| slice | bytes |
+|---|---|
+| `/messages/recent?limit=80` | **294,226** |
+| `/sessions?limit=80` | 80,224 |
+| `/agents` | 63,748 |
+| `/environments` | 5,042 |
+| `/contracts?limit=80` | 2,569 |
+| `/stats` | 2,409 |
+| `/settings` | 1,477 |
+
+That one slice is 66% of the cycle. The interval is `dashboard_refresh_seconds`, default 15 and
+floored at 5, so it is ~1.18 MB per minute per open tab, and it is fetched on EVERY page.
+
+`state.messages` is the DM store. Its readers are the chat surface -- select, render, click handlers,
+message actions -- plus the message inspector. The unread badges elsewhere do NOT read it; they come
+from the `agents` payload (`a.unread`), which is why gating looks safe at first glance.
+
+**IT IS NOT SAFE, and the blocker is `buildHandoffPacket`.** It reads `state.messages` for message
+BODIES to assemble a handoff packet, and it is reached from `openContinueForm` -- an agent action, not
+a chat one. Page-gating the fetch would leave it reading an empty store and producing an EMPTY PACKET
+with no error: the silent-degradation shape this review has spent the day removing, reintroduced to
+save bandwidth.
+
+The dashboard already has the right tool: `shouldLoadForPage` gates `/spawn-requests` and FAILS OPEN
+when the page element or classList is missing, which is the correct guard direction. The safe version
+of this change gates the fetch AND makes `buildHandoffPacket` fetch on demand. It has exactly one
+caller, so it is contained -- but that caller is synchronous and renders a form from the packet, so it
+means making an operator-facing action async. **That is a behaviour change on a live UI, which is
+yours rather than mine.** The measurement above is what makes it worth your attention: 66% of every
+poll, for a store two surfaces read.
+
+
 **Terminals cannot be enumerated through the API, which is why terminal-level questions keep
 needing the database.**
 Every route is keyed by id -- `GET /terminals/{id}` plus input, output, resize, stop, report-dead and
@@ -1264,6 +1299,8 @@ reading the producer AND the consumer, or by constructing the case.
 | agent registration | every key the five registration modules build vs `AgentRegister`'s 23 fields | CLEAN. The two apparent extras were correctly scoped: `appServerUrl` is nested inside `runtimeConfig` (a declared field), and `runtimeState` goes to its own `PATCH /agents/{id}/runtime-state` with its own model. The model ignores extras by default, so an actual stray key WOULD be dropped silently -- which is why this was worth checking rather than assuming |
 | `terminal_output` WS payload | all 5 fields the service broadcasts vs what the dashboard reads | `seq` IS sent (`terminal_write_queue.py:255`), so the console's dedup and gap-resync are live rather than silently disabled -- which is what a missing `seq` would have produced, since `Number.isFinite(seq)` simply skips both. `status` rides along with no reader in that branch, but `terminal_stopped` is its own event and defaults to refresh, so the case is covered twice rather than not at all |
 | dashboard accessibility sweep | live regions, empty states and control naming, across all 78 non-test sources | SOUND, and better than expected. Toasts announce (`role=alert` for error/warn, `role=status` otherwise, chosen deliberately in a comment); five other live regions cover the api chip, settings, the console stream and the session-changed banner; empty states are a convention (`nothing here` x7 plus specific ones). Two apparent gaps were my grep: a literal-markup pattern cannot see `setAttribute('role', ...)`. Only two real defects existed and both are fixed above -- one unlabelled glyph button of 164, and the prompt dialog's unnamed input |
+| hot write paths | round-trips through the four highest-frequency writes, at three fleet sizes | ALL CONSTANT. `POST /dispatch/claim` 9, agent heartbeat 9, `turn-start` 18, environment heartbeat 3 -- identical at N=4, 12 and 24, so none carries an N+1. turn-start is the heaviest and its 18 are 18 DISTINCT statements, so there is nothing duplicated to remove either. Nothing to optimise on the paths a bridge actually hammers |
+| bridge write bodies | every identifier lowercased anywhere in a file, against every value sent raw in an httpCall body | ZERO. The defect class fixed twice on the service side does not exist on the bridge. The first run of this scan reported zero because its pattern skipped the path argument and parsed NO bodies at all -- the control caught it, and the corrected scan parses 85 bodies before reporting the same zero |
 | paginated limits | all 16 numeric query params in `service/routers/`, and each unclamped one traced to its consumer | 12 clamped at the route by `Query(..., ge=, le=)`; the other four are clamped where they are USED (`lines` at `max(1, min(int(lines or 40), 200))`, `cols`/`rows` by the snapshot view's `max(20, min(..., 500))`) or harmless (`offset`, which SQLite floors at 0) |
 
 **The realtime gate could not see half its own producer.** `realtime-dispositions.test.mjs` exists to
