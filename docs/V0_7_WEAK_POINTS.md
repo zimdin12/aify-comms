@@ -447,6 +447,35 @@ the trade-off.
 
 ## Worth doing, needs an operator decision
 
+**Five attribution columns a rename leaves pointing at a tombstoned name -- newly VISIBLE, and the
+ruling is yours.** `test_agent_rename_covers_every_agent_reference.py` claims completeness over agent
+references and measured them with a hardcoded set of six column NAMES. Three more names demonstrably
+store agent ids, found by deriving the population two ways rather than trusting the list:
+
+- every FOREIGN KEY into `agents` -- 7 columns, all already covered by the six, so this direction was clean
+- every column whose WRITER stores an agent id -- which found `requested_by` (`req.from_agent`),
+  `handled_by` (`agentId`, from the bridge) and `removed_by`
+
+Widening the set made five pairs visible, now sitting in that file's `UNRESOLVED` bucket:
+`terminal_sessions.requested_by`, `terminal_controls.requested_by`,
+`environment_controls.requested_by`, `dispatch_controls.handled_by`, `agent_tombstones.removed_by`.
+
+**The argument runs both ways, which is exactly why it is not mine to settle.** Leaving them keeps an
+audit trail that says who acted at the time; repointing them keeps one identity consistent across the
+single transaction meant to move every other reference together. `removed_by` complicates it further
+by sometimes holding the literal `"api"`, so any repoint has to tolerate a non-agent value -- which is
+part of the decision rather than an obstacle to it.
+
+They are in UNRESOLVED rather than LEFT_BEHIND deliberately: nobody has DECIDED about them, they were
+invisible, and blessing them quietly is what that bucket exists to prevent. Whichever way it goes, each
+becomes a LEFT_BEHIND line with a reason or a REPOINTED pair, and the test fails until it does.
+
+**A correction to my own record while confirming this.** I reported `terminal_sessions.agent_id` as an
+open rename bug earlier today, from a memory note written on 2026-08-15. It was RESOLVED on 2026-08-19
+(v0.6 Phase 4) and the gate records the resolution in its own bucket. The note has been corrected; the
+gate was right and my note was eleven days stale.
+
+
 **The dashboard's biggest payload is 294 KB every 15 seconds, and one function is why it cannot
 simply be page-gated.** Measured against the RUNNING service, bytes per refresh slice:
 
