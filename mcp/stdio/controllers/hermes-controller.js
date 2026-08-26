@@ -18,9 +18,15 @@
 //     (ACP-backed persistent session, or gateway-backed if
 //     AIFY_HERMES_MANAGED_USE_GATEWAY=1).
 //
-// File budget per 500-line rule: <=400 lines. Mode-specific implementations
-// live in their own files (hermes-managed-controller.js,
-// hermes-single-shot-controller.js).
+// File budget per 500-line rule: <=400 lines. The mode-specific implementation lives in its own file:
+// hermes-managed-controller.js, which this file imports and routes to.
+//
+// `hermes-single-shot-controller.js` USED TO BE NAMED HERE TOO, and that was a claim this file does
+// not keep: nothing imports it, no mode routes to it, and no other single-shot controller exists to
+// have replaced it. Measured 2026-08-26 -- its only reference anywhere outside its own file was this
+// sentence. Whether to delete the module or wire the mode it was extracted for is an open decision;
+// until then the comment says what is true, because a comment asserting a wiring the imports lack is
+// how a reader concludes a code path exists and builds on it.
 
 import { BaseController } from "./base-controller.js";
 import { HermesManagedController } from "./hermes-managed-controller.js";
