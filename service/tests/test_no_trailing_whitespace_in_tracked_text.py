@@ -25,13 +25,39 @@ TEXT_SUFFIXES = (".py", ".js", ".mjs", ".sh", ".md", ".json", ".yml", ".yaml", "
 SKIP_PREFIXES = ("service/new_dashboard/vendor/",)
 
 
+def binary_by_gitattributes() -> set[str]:
+    """Files the repo has DECLARED not to be text, asked of git rather than listed here.
+
+    A captured PTY stream is a `.txt` by extension and a byte log in fact: it ends mid-frame with no
+    newline and carries the trailing spaces the terminal actually emitted. Three such fixtures landed
+    on 2026-08-26 and this gate failed on one of them -- correctly by its own rule, and wrongly about
+    the file. They are already marked `-text` in `.gitattributes` so git stops rewriting their line
+    endings, and that declaration is the single place the exemption should live: a second hardcoded
+    list here would agree with it right up until somebody updated one of the two.
+    """
+    out = subprocess.run(
+        ["git", "-C", str(REPO), "ls-files", "--eol"], capture_output=True, text=True, check=True
+    ).stdout.split("\n")
+    # Each line is `i/<eol> w/<eol> attr/<attrs> \t<path>`; `-text` in the attribute column is git
+    # saying it treats the file as binary and will not touch its bytes.
+    binary = set()
+    for line in out:
+        if not line or "\t" not in line:
+            continue
+        head, path = line.split("\t", 1)
+        if "attr/-text" in head:
+            binary.add(path.strip())
+    return binary
+
+
 def tracked_text_files() -> list[str]:
+    binary = binary_by_gitattributes()
     out = subprocess.run(
         ["git", "-C", str(REPO), "ls-files"], capture_output=True, text=True, check=True
     ).stdout.split("\n")
     return [
         f for f in out
-        if f and f.endswith(TEXT_SUFFIXES) and not f.startswith(SKIP_PREFIXES)
+        if f and f.endswith(TEXT_SUFFIXES) and not f.startswith(SKIP_PREFIXES) and f not in binary
     ]
 
 
@@ -50,6 +76,20 @@ def offences(text: str) -> list[str]:
     if not text.endswith("\n"):
         found.append("no newline at EOF")
     return found
+
+
+def test_the_binary_exemption_is_small_and_specific():
+    """A `.gitattributes` slip could exempt the whole tree from this gate and nothing would say so.
+
+    The exemption exists for captured byte logs, so it must stay the size of that idea. Both bounds
+    matter: an EMPTY set means the declaration stopped being read and the captures will fail the gate
+    again, while a large one means a pattern went too wide and the whitespace rule quietly stopped
+    applying to source.
+    """
+    binary = binary_by_gitattributes()
+    assert binary, "no file is declared -text; the captured PTY fixtures will fail this gate"
+    assert len(binary) < 20, f"{len(binary)} files are exempt from the whitespace gate: {sorted(binary)}"
+    assert all(f.endswith(".txt") for f in binary), f"a non-capture is exempt: {sorted(binary)}"
 
 
 def test_the_scan_finds_the_files_it_claims_to():
