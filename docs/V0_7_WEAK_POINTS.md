@@ -8,8 +8,8 @@ was found and *not* fixed, plus what was deliberately left alone.
 
 ## What actually needs you, ranked
 
-SIXTEEN genuine decisions; everything else in the file is a recorded judgement that needed no ruling.
-This list exists because the file is 1,834 lines and a decision buried on line 900 is a decision nobody
+SEVENTEEN genuine decisions; everything else in the file is a recorded judgement that needed no ruling.
+This list exists because the file is 1,910 lines and a decision buried on line 900 is a decision nobody
 makes -- and because the list itself proved the point: it stood at eight for a full day of rounds while
 six more decisions were being written below it.
 
@@ -110,6 +110,31 @@ down; these are the one-line versions, because the front of the file is the only
    puts one extra request on a branch that only renders for a dead session. It is a UI shape call, so
    it is yours: today the answer exists and only an MCP tool shows it.
 
+17. **Stopping ONE ConPTY can kill every other agent's worker on the host, and the fix shipped today
+   only removes the automatic trigger.** node-pty 1.1.0, `lib/windowsPtyAgent.js:133-150`: under
+   ConPTY, `kill()` forks `conpty_console_list_agent`, calls `GetConsoleProcessList`, and then
+   `consoleProcessList.forEach(pid => process.kill(pid))` -- it kills every pid attached to that
+   console, not only the child being stopped. aify-env's `stop()` calls `child.kill()`, so any stop can
+   take siblings with it.
+
+   MEASURED LIVE on 2026-08-26: seven managed workers died in two clusters, 10:12:51-56 and
+   10:26:00-01, with lifetimes from 4m41s to 10m12s -- so not an age limit, everything alive at once.
+   Each cluster opens with one process ending on its own, which is exactly when the reaper finds a dead
+   entry and calls stop(). aify-env's own process survived both, which is what a console-group kill
+   looks like from outside.
+
+   `2bac2c7` stops the REAPER doing it: a pid the sweep has just proved dead is now released rather
+   than stopped, and releasing kills nothing. That removes the unattended trigger. An EXPLICIT stop --
+   a dashboard Stop, a teardown -- still goes through `child.kill()` and still carries the exposure.
+
+   TWO CANDIDATE FIXES, and both are yours because both change how a live host stops a terminal.
+   Pass `useConptyDll: true` when spawning, which routes `kill()` down the branch that does not
+   enumerate the console at all; or on win32 stop a terminal by tree-killing its own pid and let the
+   exit event drive node-pty's teardown, never calling `kill()`. The first is one line and depends on
+   the DLL being available on this host; the second keeps the current backend and changes the stop
+   path. I did not pick one: getting it wrong means Stop stops working, on the machine your fleet
+   runs on.
+
 **If you spend attention on only three, spend it on 1, 9 and 11**: the first is exposure, the second is
 a failure shape this codebase has already paid for once, and the third is the only one carrying a
 measured number large enough to feel.
@@ -119,6 +144,49 @@ on claiming there were none -- the same defect this review spent the day finding
 that stopped covering its own subject.
 
 ## Shipped this round
+
+**Two defects in the console renderer, one class, and the second was found by walking the fleet's own
+streams rather than by another report.** pyte dispatches private-parameter CSI sequences as if they
+were ordinary ones. Measured across seven live terminals, 304,604 characters:
+
+    407x  CSI > 4;2 m   XTMODKEYS (modifyOtherKeys)   -> dispatched as SGR 4: UNDERLINE ON, forever
+    406x  CSI < u       Kitty keyboard, pop flags     -> PRINTS A LITERAL `u` into the screen
+    406x  CSI > 1 u     Kitty keyboard, push flags    -> inert
+      1x  CSI > 0 q     cursor-style query            -> inert
+
+The first is what the operator screenshotted: a full-width rule under every row of a live console. On
+one 70,871-character stream containing ZERO real SGR sequences, all 5,722 cells came out underlined
+while `screen.default_char` did not. The second lands on the HERMES agents -- 120, 109 and 177
+occurrences in three live streams -- and is why the claude screenshot showed only the underline.
+
+**The honest half: only the underline was observed reaching a screen.** The injected `u` is proven in
+isolation and overwritten by later repaints on all three live streams that carry it. Removing a
+sequence the emulator cannot parse is right either way; claiming both halves were caught in the wild
+would not be.
+
+The rule is now by PREFIX rather than by final character. `<`, `>` and `=` mark capability
+negotiation and pyte implements none of them, so enumerating finals would leave the next one to be
+discovered the same way. `?` stays out: pyte does implement `?...h` / `?...l`, and 12,861 of them
+crossed the sanitiser in that sample carrying the alternate screen and cursor visibility.
+
+**A claude generating for seven minutes read as `online`.** Same screenshot, second arrow. The footer
+`✻ Concocting… (7m 29s · ↓ 27.6k tokens)` matched none of the working rules -- no "esc to interrupt",
+no `for 21s` -- and a glyph-based rule cannot work at all here, because claude repaints the spinner
+CELL with an absolute cursor move between frames, so the glyph and the footer text are never adjacent
+in the flattened tail. The brackets carry the specificity instead: an elapsed timer and a live token
+counter together, which is the discrimination the subagent-row rule already makes.
+
+**A killed worker told its requester the terminal had "stopped".** The run-closing sentence was built
+from the status alone, and the bridge reports `stopped` for every ending that is not a spawn failure.
+The exit code and signal sat in the same row, written moments earlier in the same request.
+
+**And two defects in my own new tests, both caught by controls rather than by luck.** A fixture
+captured through a cp1257 console lost all 129 spinner glyphs and sent me hunting an encoding bug in
+the product that did not exist -- the raw HTTP response had 161 intact sequences throughout. And git
+was rewriting the captures on the way in: the committed blob of one held 46 FEWER carriage returns
+than the file captured, which on Linux would have made a test whose whole claim is "this is the real
+capture" assert on an edited one, silently.
+
 
 **The exit columns had a SECOND reader and it was still dropping them.** `GET /agents/{id}/console`
 was the reader I built and tested. `_terminal_session_to_dict` is the one almost everything else gets
