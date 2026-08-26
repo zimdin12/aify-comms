@@ -8,9 +8,10 @@ was found and *not* fixed, plus what was deliberately left alone.
 
 ## What actually needs you, ranked
 
-Eight of the entries below are genuine decisions; the rest are recorded judgements that needed no
-ruling. This list exists because the file is a thousand lines and a decision buried on line 400 is a
-decision nobody makes.
+FOURTEEN genuine decisions; everything else in the file is a recorded judgement that needed no ruling.
+This list exists because the file is 1,648 lines and a decision buried on line 900 is a decision nobody
+makes -- and because the list itself proved the point: it stood at eight for a full day of rounds while
+six more decisions were being written below it.
 
 1. **The API and dashboard are unauthenticated and not bound to loopback**, and 16 of 47 agents
    return a live hermes gateway token through `GET /api/v1/agents`. Measured, not inferred: no API
@@ -48,7 +49,46 @@ decision nobody makes.
    way: an event nobody receives costs one dictionary lookup.
 8. **The codex console input is named only by a placeholder**, which typing erases.
 
-Everything else in this file is recorded with a judgement and needs nothing from you.
+ADDED 2026-08-26, in the rounds after this list was first written. Each is recorded in full further
+down; these are the one-line versions, because the front of the file is the only part anyone reads.
+
+9. **A terminal control writes `terminal_sessions.status` WITHOUT passing the allowlist.**
+   `_terminal_status_transition` refuses any status outside `TERMINAL_SESSION_STATUSES` and exists for
+   that reason since 2026-08-16; the two UPDATEs in `_apply_terminal_status_from_control` bypass it
+   entirely. Routing them through would ALSO start refusing writes the monotonic guard rejects, which
+   changes live behaviour on a control path -- a decision, not a repair. This is the `lost` incident's
+   shape: an unrecognised status is invisible to every `WHERE status IN (...)` sweep.
+10. **`agent_sessions.spawn_spec_id` and `spawn_request_id` are FOREIGN KEYs whose DEFAULT is `''`.**
+   NULL is exempt from a foreign key; `''` is not, and no row has id `''` -- so an insert that OMITS
+   them takes a default guaranteed to violate the constraint, and SQLite names no column in the error.
+   All three production writers name them, so nothing is broken; the question is whether to migrate
+   the defaults to NULL. It cost me two debugging cycles inside one session.
+11. **`/messages/recent?limit=80` is 294,226 bytes -- 66% of every refresh cycle** -- fetched on every
+   page at a default 15s interval, roughly 1.18 MB per minute per open tab. It cannot simply be
+   page-gated: `buildHandoffPacket` reads the same store for message BODIES and is reached from an
+   agent action, so gating it would produce an EMPTY packet with no error. The safe version makes that
+   function fetch on demand, which means making an operator-facing action async.
+12. **Five attribution columns a rename leaves pointing at a tombstoned name.** `requested_by` (three
+   tables), `handled_by` and `removed_by` all demonstrably store agent ids and none is repointed. They
+   sit in the rename gate's `UNRESOLVED` bucket, and the argument runs both ways: an audit trail should
+   say who acted at the time, but every OTHER reference to that identity moves in one transaction.
+   `removed_by` sometimes holds the literal `"api"`, so a repoint has to tolerate a non-agent value.
+13. **`HermesSingleShotController` is imported by nothing.** No mode routes to it and no replacement
+   exists; its only reference outside its own file was a comment claiming it was wired, now corrected.
+   Delete the module, or wire the mode it was extracted for. Cheap either way -- it is here because
+   deleting product code is not mine to do.
+14. **`agent_sessions.status` and `dispatch_runs.status` have no vocabulary gate**, while
+   `terminal_sessions` and `environments` both do, leaving three f-string status literals across three
+   files unguarded. Preventive rather than urgent: building two more gates is a larger commitment than
+   repairing a scan, and the agents gate deliberately scopes itself out of judging other tables.
+
+**If you spend attention on only three, spend it on 1, 9 and 11**: the first is exposure, the second is
+a failure shape this codebase has already paid for once, and the third is the only one carrying a
+measured number large enough to feel.
+Everything else in this file is recorded with a judgement and needs nothing from you. That sentence was
+FALSE between the rounds of 2026-08-26 and this edit: six decisions were added below it while it went
+on claiming there were none -- the same defect this review spent the day finding in code, a summary
+that stopped covering its own subject.
 
 ## Shipped this round
 
