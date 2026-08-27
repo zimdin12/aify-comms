@@ -131,7 +131,44 @@ test("when the caller's own quota IS known it is reported, and critical is flagg
   const out = text(await tool.handler({}));
   assert.match(out, /agent-a/, "the caller must be named");
   assert.match(out, /anthropic: 5% weekly left/);
-  assert.match(out, /\[CRITICAL\]/, "a critical quota must be flagged, not left to arithmetic");
+  // CASE-INSENSITIVE on purpose. The personal line used to say [CRITICAL] while the pool table
+  // above it said [critical] -- two spellings of one vocabulary in one message. It now renders
+  // the severity the same way the table does, and this assertion pins the FLAG, not the casing.
+  assert.match(out, /\[critical\]/i, "a critical quota must be flagged, not left to arithmetic");
+});
+
+test("CALL SITE: the caller's own WARNING reaches the output, not just critical", async () => {
+  // The mutation that made this necessary: pointing the call site at an empty object left every
+  // assertion in the predicates test green while the handler reported nothing. Testing the formatter
+  // is not testing that anyone calls it.
+  //
+  // The shape is verbatim from the live fleet on 2026-08-27, where 21 of 47 agents carried
+  // poolSeverity "warning" with poolWeeklyPctLeft 16 -- severity driven by the five-hour window while
+  // the line quoted the weekly one, and the warning never appeared at all.
+  routes = {
+    "/api/v1/usage": { pools: [{ source_id: "openai", weekly: { left_pct: 16 }, five_hour: { left_pct: 4 } }] },
+    "/api/v1/agents/agent-a": {
+      agent: { usageSource: "openai", poolWeeklyPctLeft: 16, poolSeverity: "warning", quotaCritical: false },
+    },
+  };
+  const out = text(await tool.handler({}));
+  assert.match(out, /agent-a/, "the caller must be named");
+  assert.match(out, /openai: 16% weekly left/);
+  assert.match(out, /\[warning\]/, "the severity computed for this agent never reached the output");
+});
+
+test("CALL SITE: a normal pool leaves the caller's line unadorned", async () => {
+  // ANTI-VACUITY for the test above: if every line carried a tag, matching one would prove nothing.
+  routes = {
+    "/api/v1/usage": { pools: [{ source_id: "openai", weekly: { left_pct: 80 }, five_hour: { left_pct: 70 } }] },
+    "/api/v1/agents/agent-a": {
+      agent: { usageSource: "openai", poolWeeklyPctLeft: 80, poolSeverity: "normal", quotaCritical: false },
+    },
+  };
+  const out = text(await tool.handler({}));
+  assert.match(out, /agent-a/);
+  const mine = out.split("\n").find((l) => l.includes("agent-a"));
+  assert.doesNotMatch(mine, /\[/, `a healthy pool was tagged: ${mine}`);
 });
 
 test("it is registered exactly once across the bridge, and reaches only owned leaves", () => {
@@ -142,7 +179,9 @@ test("it is registered exactly once across the bridge, and reaches only owned le
   const src = readFileSync(path.join(STDIO_DIR, "usage-tool.mjs"), "utf-8");
   assert.doesNotMatch(src, /^let\s/m, "no module-level mutable state");
   const imports = [...src.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]).sort();
-  assert.deepEqual(imports, ["./aify-service-endpoint.mjs", "./launch-identity.mjs"]);
+  // `usage-predicates.mjs` is an owned leaf holding the pure line formatter, so the tool module
+  // keeps its one-name export surface (asserted above) and the formatter is still unit-testable.
+  assert.deepEqual(imports, ["./aify-service-endpoint.mjs", "./launch-identity.mjs", "./usage-predicates.mjs"]);
 });
 
 process.on("exit", () => { try { server.close(); } catch { /* best effort */ } });

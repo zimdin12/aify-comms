@@ -22,6 +22,7 @@
 
 import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
 import { AIFY_AGENT_ID } from "./launch-identity.mjs";
+import { personalQuotaLine } from "./usage-predicates.mjs";
 
 // Registers the usage tool on an MCP server. A function rather than a module-scope side effect, so a fake
 // server can capture the registration and a test can call the handler without an MCP transport. `z` is the
@@ -54,10 +55,7 @@ export function registerUsageTool(server, z) {
         try {
           const info = await httpCall("GET", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}`);
           const a = (info && info.agent) || {};
-          if (a.usageSource) {
-            const left = a.poolWeeklyPctLeft == null ? "?" : `${a.poolWeeklyPctLeft}%`;
-            mine = `\nYou (${AIFY_AGENT_ID}) → ${a.usageSource}: ${left} weekly left${a.quotaCritical ? " [CRITICAL]" : ""}`;
-          }
+          mine = personalQuotaLine(AIFY_AGENT_ID, a);
         } catch { /* best-effort */ }
       }
       return { content: [{ type: "text", text: `Quota pools (% remaining):\n${pools.map(fmt).join("\n")}${mine}` }] };
