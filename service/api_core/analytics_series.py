@@ -17,6 +17,7 @@ from typing import Any
 from service.api_core.serialization import _iso_from_ms
 from service.api_core.managed_env import load_session_environment_by_agent
 from service.api_core.status_refresh import _compute_agent_status
+from service.api_core.status_signal_prefetch import PrefetchedStatusSignals
 from service.status_engine import is_live_agent_status
 
 async def _fleet_median_reply_minutes(db, run_where, run_params):
@@ -261,7 +262,22 @@ async def _build_online_agent_board(
         # otherwise issue for itself.
         environments_by_machine: dict = {}
         session_environment_by_agent = await load_session_environment_by_agent(db)
-        for row in await agents_c.fetchall():
+        agent_rows = await agents_c.fetchall()
+        # THE SAME PREFETCH THE RECONCILE SWEEP GOT, and this caller was left out of it.
+        # `ed5caf61` batched `agent_status_state` and `agent_console_signal` inside
+        # `_refresh_expired_agent_live_states`, which is the SWEEP's entry point. This board calls
+        # `_compute_agent_status` per agent instead, so it never reached the batch and kept paying
+        # both reads per agent.
+        #
+        # MEASURED through `GET /api/v1/analytics/pulse` on a cold live-state cache, counting
+        # `aiosqlite.Connection.execute` calls: 50 round-trips at 6 agents, 92 at 12 and 176 at 24
+        # -- a slope of exactly 7.0 per agent, with agent_turn_state and agent_console_signal at
+        # 24 each. Skipped below two agents for the same reason the sweep skips it: an IN clause
+        # around the same two reads is not a saving.
+        status_signals = None
+        if len(agent_rows) > 1:
+            status_signals = await PrefetchedStatusSignals.load(db, [r["id"] for r in agent_rows])
+        for row in agent_rows:
             if row["id"] == "dashboard":
                 continue
             status = await _compute_agent_status(
@@ -270,6 +286,7 @@ async def _build_online_agent_board(
                 environments_by_machine=environments_by_machine,
                 session_environment_by_agent=session_environment_by_agent,
                 agent_row=row,
+                status_signals=status_signals,
             )
             # THROUGH THE DECLARED PARTITION, not an inline two-name check. That check counted a
             # MISCONFIGURED agent as live -- an agent the contract defines as one that can never

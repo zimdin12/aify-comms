@@ -161,6 +161,7 @@ async def _compute_agent_status(
     environments_by_machine=None,
     session_environment_by_agent=None,
     agent_row=None,
+    status_signals=None,
 ):
     # The three kwargs are OPT-IN and default to None, which is the pre-existing behaviour exactly.
     # They exist for callers that compute a status for EVERY agent in a loop: without them each
@@ -195,6 +196,7 @@ async def _compute_agent_status(
             environments_by_machine=environments_by_machine,
             session_environment_by_agent=session_environment_by_agent,
             agent_row=agent_row,
+            status_signals=status_signals,
         )
         if cache:
             return cache["status"]

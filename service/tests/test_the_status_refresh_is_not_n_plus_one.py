@@ -352,6 +352,127 @@ class StatusRefreshIsNotNPlusOneTests(FastApiTestCase):
         self.assertIs(status_signals_or_live(sentinel), sentinel)
 
 
+class TheAnalyticsBoardGetsThePrefetchToo(FastApiTestCase):
+    """The OTHER caller, which the first version of this fix left out.
+
+    `ed5caf61` batched the two signals inside `_refresh_expired_agent_live_states` -- the reconcile
+    SWEEP's entry point. `GET /api/v1/analytics/pulse` builds its board by calling
+    `_compute_agent_status` per agent instead, so it never reached the batch and kept paying both
+    reads per agent. Fixing one of two callers is the shape that has caught me repeatedly today.
+
+    MEASURED through the endpoint, counting `aiosqlite.Connection.execute`, on a cold cache:
+
+        agents      6     12     24      slope
+        before     50     92    176      7.0 per agent
+        after      40     70    130      5.0 per agent
+    """
+
+    LEGACY_SETTINGS = {"managed_via_wrapper": ["codex", "hermes"]}
+
+    BATCHED_TABLES = ("FROM agent_status_state", "FROM agent_console_signal")
+
+    def _register(self, n):
+        for i in range(n):
+            response = self.client.post("/api/v1/agents", json={
+                "agentId": "pulse-{}".format(i), "role": "coder", "runtime": "claude-code",
+                "sessionMode": "resident", "machineId": "linux:pulse-host",
+            })
+            self.assertEqual(response.status_code, 200, response.text)
+
+    def _pulse_round_trips(self):
+        from service.reconcilers import status_cache
+
+        status_cache._LIVE_STATE_CACHE.clear()
+        calls = []
+        orig = aiosqlite.Connection.execute
+
+        async def spy(self, sql, *a, **k):
+            calls.append(" ".join(str(sql).split()))
+            return await orig(self, sql, *a, **k)
+
+        aiosqlite.Connection.execute = spy
+        try:
+            response = self.client.get("/api/v1/analytics/pulse?range=1h")
+        finally:
+            aiosqlite.Connection.execute = orig
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(calls, "POSITIVE CONTROL: the pulse made zero round-trips")
+        return calls
+
+    def test_the_batched_tables_are_read_once_for_the_whole_board(self):
+        self._register(6)
+        calls = self._pulse_round_trips()
+        for table in self.BATCHED_TABLES:
+            hits = [c for c in calls if table in c]
+            self.assertEqual(
+                len(hits), 1,
+                "{} was read {} times for 6 agents on the pulse; it must be one batched read".format(
+                    table, len(hits)),
+            )
+
+    def test_that_cost_does_not_grow_with_the_fleet(self):
+        """The property, not a total: an unrelated query added to the pulse must not fail this."""
+        counts = {}
+        for n in (2, 8):
+            self.setUp()
+            self._register(n)
+            calls = self._pulse_round_trips()
+            counts[n] = sum(1 for c in calls if any(t in c for t in self.BATCHED_TABLES))
+        self.assertEqual(counts[2], counts[8], "batched reads grew with the fleet: {}".format(counts))
+
+    def test_a_single_agent_does_not_pay_for_a_batch_of_one(self):
+        self._register(1)
+        calls = self._pulse_round_trips()
+        self.assertNotIn("IN (?)", " ".join(calls), "a batch of one still built an IN clause")
+
+    def test_the_pulse_still_ANSWERS(self):
+        """ANTI-VACUITY: an endpoint that errored would make every count above small and green.
+
+        `onlineAgents` is ZERO here and that is correct, not a broken fixture. A freshly-registered
+        resident agent has no live bridge, so `derive()` returns `offline` -- and the board excludes
+        non-live statuses. My first version asserted 3 and was wrong about the product, not the other
+        way round.
+        """
+        self._register(3)
+        body = self.client.get("/api/v1/analytics/pulse?range=1h").json()
+        self.assertTrue(body.get("ok"))
+        for key in ("onlineAgents", "workingNow", "fleetWorkingMinutes", "agents"):
+            self.assertIn(key, body, "the pulse stopped reporting {}".format(key))
+        self.assertEqual(body.get("onlineAgents"), 0, "a registered-but-offline agent counted as live")
+        self.assertEqual(body.get("agents"), [], "the board listed an agent it does not count")
+
+    def test_the_board_IS_populated_when_an_agent_is_live(self):
+        """The other half: if the board were empty for EVERY input, the counts above would be green
+        for the wrong reason.
+
+        A managed agent on a heartbeated environment derives `available` -- live, and countable --
+        where a resident with no bridge derives `offline`. The only manual status is `stopped`, which
+        is non-live, so there is no shortcut here; the environment has to exist.
+        """
+        heartbeat = self.client.post("/api/v1/environments/heartbeat", json={
+            "id": "linux:pulse-host:default", "machineId": "linux:pulse-host", "os": "linux",
+            "kind": "linux", "bridgeId": "bridge-p", "cwdRoots": ["/workspace"],
+            "runtimes": [{"runtime": "claude-code", "modes": ["managed-warm"], "capabilities": {}}],
+            "metadata": {},
+        })
+        self.assertEqual(heartbeat.status_code, 200, heartbeat.text)
+        for i in range(2):
+            response = self.client.post("/api/v1/agents", json={
+                "agentId": "live-{}".format(i), "role": "coder", "runtime": "claude-code",
+                "sessionMode": "managed", "machineId": "linux:pulse-host", "bridgeId": "bridge-p",
+                "capabilities": ["managed-run"],
+            })
+            self.assertEqual(response.status_code, 200, response.text)
+
+        from service.reconcilers import status_cache
+        status_cache._LIVE_STATE_CACHE.clear()
+        body = self.client.get("/api/v1/analytics/pulse?range=1h").json()
+        self.assertEqual(body.get("onlineAgents"), 2, "a live agent did not reach the board")
+        self.assertEqual(len(body.get("agents") or []), 2)
+        for agent in body["agents"]:
+            self.assertNotIn(agent["status"], ("offline", "stopped", "misconfigured"))
+
+
 if __name__ == "__main__":
     import unittest
 
