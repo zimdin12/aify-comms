@@ -1,15 +1,35 @@
 """Every field `/stats` emits either has a reader, or is on a list that says it does not.
 
-MEASURED. `/api/v1/stats` returns 24 fields and runs 20 DB round-trips to build them, flat in fleet
-size. The dashboard reads exactly TWO: `dispatch_runs_by_status` and `run_failures_24h`, both in
-`summary-tiles.mjs`. Eighteen are computed on every refresh -- the poll fallback alone is four times a
-minute, plus every event-driven refetch -- and read by nothing in this repo.
+`/api/v1/stats` returns 24 fields. Eighteen are not named by any other production file in this repo;
+the dashboard reads exactly TWO, `dispatch_runs_by_status` and `run_failures_24h`, both in
+`summary-tiles.mjs`.
 
-THEY ARE NOT REMOVED HERE, deliberately. `/stats` is a public-ish endpoint, the payload is 2,386
-bytes (0.6% of the dashboard's 424KB refresh bundle), and 20 indexed COUNTs is small beside the 248
-round-trips one reconcile pass makes. Removing emitted fields is a contract change and this is not
-the evidence for one. What this file prevents is the set GROWING: a new field must arrive with a
-reader, or with a deliberate entry saying it has none.
+WHAT "UNREAD" MEANS HERE, precisely, because the looser sentence is the one worth attacking: each of
+those names occurs in at most ONE scanned production file. That is a LEXICAL floor, not proof of
+non-use. Dynamic access (`payload[key]`), whole-object forwarding, code outside the scanned extensions
+or outside this repo, and any external API consumer are all outside this instrument's authority. It
+can say "nothing here spells this name". It cannot say "nothing reads this field".
+
+WHAT REMOVAL WOULD ACTUALLY SAVE -- corrected 2026-08-27 after review, because the first version of
+this file said each unread field costs its own `SELECT COUNT(*)` and that is FALSE IN SOURCE. There
+are 20 `db.execute` sites and 20 distinct source values, one per query, but fields do not map to them
+1:1. Three unread fields are FREE: `dispatch_runs_total` is derived from `dispatch_by_status`, the very
+query that produces the READ field `dispatch_runs_by_status`, and `shared_size_bytes` and
+`shared_size_mb` both come from the `shared_row` that `shared_files` needs anyway. Two more,
+`spawn_requests_total` and `spawn_requests_by_status`, share one query with each other. So deleting all
+eighteen would recover 14 of the 20 round-trips, not 18 -- and deleting `dispatch_runs_total` alone
+would recover nothing whatsoever.
+
+THEY ARE NOT REMOVED HERE, and the reviewer's ruling on 2026-08-27 was firmer than my reasoning:
+in-repo non-use does not prove external non-use on a public-ish endpoint, and a cheap payload does not
+authorise a contract break. Removal needs a compatibility decision -- a deprecation window, evidence
+about external consumers, a release note -- and a lexical scan is not that evidence. What this file
+prevents is the set growing SILENTLY.
+
+(The runtime figures that motivated the look are EXTERNAL measurements, not anything this gate proves:
+20 round-trips at 6, 12 and 24 agents; a 2,386-byte payload against a 424KB refresh bundle; 248
+round-trips in one reconcile pass. They are recorded as context for the judgement, and none of them is
+re-derived here.)
 
 WHY A LEDGER AND NOT A SCAN. A bare "warn on unread fields" test would be red from the day it was
 written and stay red, which teaches everyone to ignore it. Pinning the known set makes the next
@@ -19,8 +39,9 @@ skill-size ratchet, and for the same reason.
 MY OWN INSTRUMENT HID THIS FOR MOST OF A DAY. An earlier sweep excluded a hand-listed set of producer
 files and asked whether anything ELSE mentioned each field. `routers/stats.py` was not on that list,
 so it counted as its own consumer and no field it emits could ever be flagged. The rule here is
-producer-agnostic: a field mentioned in exactly one file is emitted there and read nowhere, whichever
-file that is.
+producer-agnostic: a field mentioned in exactly one file is emitted there and named nowhere else,
+whichever file that is. That is a weaker claim than the sweep was making, and it is the one the
+instrument can actually support.
 """
 
 from __future__ import annotations
@@ -38,11 +59,13 @@ REPO = Path(__file__).resolve().parent.parent.parent
 STATS = REPO / "service" / "routers" / "stats.py"
 SKIP_DIRS = {"node_modules", "__pycache__", ".git", ".pytest_cache", ".venv", "venv", "vendor", "fixtures"}
 
-#: Fields `/stats` emits that NOTHING in this repo reads. Measured 2026-08-27.
+#: Fields `/stats` emits that no OTHER production file in this repo names. Measured 2026-08-27.
 #:
-#: This list may only SHRINK. An entry leaving means somebody wired a reader, which is the good
-#: outcome; an entry arriving means a new field was added with no consumer, which is a decision
-#: someone should make on purpose rather than discover later.
+#: THE INVARIANT IS "NO SILENT GROWTH", not monotonic shrink -- a distinction worth keeping straight,
+#: because the looser phrasing describes something this gate does not enforce. Adding a field AND
+#: adding its name here in the same commit PASSES, on purpose: the point is that the decision is
+#: written down, not that it is forbidden. What cannot happen is a field arriving with no reader and
+#: nobody noticing. Entries leaving is the good direction and is required as soon as it is true.
 KNOWN_UNREAD = {
     "active_dm_pairs_24h",
     "active_sessions",
@@ -133,19 +156,21 @@ class TheStatsEndpointHasADeadFieldLedger(unittest.TestCase):
         new = self.unread - KNOWN_UNREAD
         self.assertEqual(
             new, set(),
-            f"{sorted(new)} are emitted by /stats and read by nothing. Either wire a reader, or add "
-            "them to KNOWN_UNREAD deliberately -- each one costs a DB round-trip on every dashboard "
-            "refresh, four times a minute at the poll fallback alone.",
+            f"{sorted(new)} are emitted by /stats and named by no other production file. Either wire "
+            "a reader, or add them to KNOWN_UNREAD deliberately. Most -- not all -- carry their own DB "
+            "round-trip on every refresh; check whether the value is derived from a query another "
+            "field already needs before assuming it is free or assuming it is not.",
         )
 
     def test_the_ledger_has_not_gone_STALE(self):
-        """It may only shrink. A name here that now HAS a reader is a stale entry, and a ledger that
-        keeps names nobody needs to think about any more rots into an unchecked list."""
+        """A name here that now HAS a reader is a stale entry, and a ledger that keeps names nobody
+        needs to think about any more rots into an unchecked list. This is the half of the invariant
+        that genuinely only moves one way."""
         stale = KNOWN_UNREAD - self.unread
         self.assertEqual(
             stale, set(),
             f"{sorted(stale)} now have a reader (or are no longer emitted). Remove them from "
-            "KNOWN_UNREAD: the list may only shrink.",
+            "KNOWN_UNREAD -- a stale entry makes the list look like it is still describing the code.",
         )
 
 
