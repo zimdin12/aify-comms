@@ -27,9 +27,7 @@ const SRC = readFileSync(join(HERE, 'session-console.mjs'), 'utf8');
 
 /** The decision under test, transcribed from session-console.mjs. */
 function isResident(agent, session) {
-  const normalizedSessionMode = String(
-    agent?.sessionMode || session?.sessionMode || session?.session_mode || '',
-  ).toLowerCase();
+  const normalizedSessionMode = String(agent?.sessionMode || session?.ownerMode || '').toLowerCase();
   return typeof agent?.consoleAvailable === 'boolean'
     ? !agent.consoleAvailable
     : normalizedSessionMode.trim() !== 'managed';
@@ -68,8 +66,11 @@ test('…but a real managed mode still opens it', () => {
   // ANTI-VACUITY: failing closed on everything would satisfy the test above and hide every console.
   assert.equal(isResident({ sessionMode: 'managed' }, null), false);
   assert.equal(isResident({ sessionMode: 'MANAGED' }, null), false, 'case is folded');
-  assert.equal(isResident(null, { sessionMode: 'managed' }), false, 'the session fallback still works');
-  assert.equal(isResident(null, { session_mode: 'managed' }), false, '…in both spellings');
+  // `ownerMode`, which is what a session row carries. This asserted `sessionMode` and
+  // `session_mode` -- both measured present on 0 of 100 live rows, so it was asserting that a
+  // fallback works using keys the payload never sends.
+  assert.equal(isResident(null, { ownerMode: 'managed' }), false, 'the session fallback still works');
+  assert.equal(isResident({}, { ownerMode: 'managed' }), false, 'agentForSession returns {} , not undefined');
 });
 
 test('a non-boolean consoleAvailable is ignored rather than coerced', () => {
@@ -96,4 +97,35 @@ test('the FALLBACK still matches the service, because the vocabulary is still tw
     [...modes].sort(), ['managed', 'resident'],
     'SESSION_MODES gained a value, so `!== "managed"` no longer means what _normalize_session_mode means',
   );
+});
+
+test('THE KEYS THAT DO NOT EXIST are not consulted any more', () => {
+  // Measured against the live service: `sessionMode` and `session_mode` appear on 0 of 100
+  // session rows; `ownerMode` on 100 of 100. A chain reading the first two resolved to '' every
+  // time, and with the fallback failing closed that hid the console for every session whose agent
+  // had not loaded into state.
+  //
+  // SCOPED TO THE EXPRESSION, not the file: the first version searched the whole source and
+  // matched the COMMENT explaining why those keys are gone. A whole-file match has been the wrong
+  // instrument three times today.
+  const chain = /const normalizedSessionMode = [^;]+;/.exec(SRC);
+  assert.ok(chain, 'positive control: the mode chain was not found at all');
+  assert.match(chain[0], /session\?\.ownerMode/, 'the chain does not read the key the payload sends');
+  assert.doesNotMatch(chain[0], /session\?\.sessionMode/, 'a key no session row carries is back');
+  assert.doesNotMatch(chain[0], /session_mode/);
+});
+
+test('a MANAGED session with no loaded agent offers its console again', () => {
+  // The regression this closes, stated as the case rather than the mechanism. `agentForSession`
+  // returns {} when the agent is missing, so `agent?.sessionMode` is undefined and the session row
+  // is the only source left.
+  assert.equal(isResident({}, { ownerMode: 'managed' }), false);
+  assert.equal(isResident({}, { ownerMode: 'resident' }), true);
+});
+
+test('an operator-owned CONSOLE session is still treated as not-startable', () => {
+  // `ownerMode` has a third value the agent-side vocabulary does not: 'console', an operator-attached
+  // terminal. It is not 'managed', so the rule leaves it on the no-offer side -- which is the
+  // behaviour before this change, and correct: there is already a console attached.
+  assert.equal(isResident({}, { ownerMode: 'console' }), true);
 });

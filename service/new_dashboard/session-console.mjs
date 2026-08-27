@@ -49,7 +49,20 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
   })();
   const codexAttachable = codexAppServerUrl && codexIsLoopback;
   const agentIdForCodex = sessionAgentId(session) || '';
-  const normalizedSessionMode = String(agent?.sessionMode || session?.sessionMode || session?.session_mode || '').toLowerCase();
+  // `ownerMode` IS THE KEY A SESSION ROW CARRIES. This read `session?.sessionMode` and
+  // `session?.session_mode`; measured against the live service, both are present on 0 of 100
+  // session rows and `ownerMode` on 100 of 100. The session half of this chain has never
+  // resolved to anything.
+  //
+  // It matters because `agentForSession` returns `{}` -- not undefined -- when the agent is not
+  // in `state.agents`, so the chain runs and yields ''. With the fallback failing closed (as it
+  // must), that hid the console offer for EVERY session whose agent had not loaded, managed ones
+  // included. `refresh-cycle.mjs` uses allSettled precisely because the single-worker service
+  // transiently drops a request under poll load, and that is the window this fires in.
+  //
+  // `ownerMode` is derived server-side in `_agent_session_to_dict`: 'resident', 'console', or
+  // 'managed', already folding a `mode` of resident into 'resident'.
+  const normalizedSessionMode = String(agent?.sessionMode || session?.ownerMode || '').toLowerCase();
   // THE SERVICE ALREADY ANSWERED THIS, and until now nobody asked. `records.py` emits
   // `consoleAvailable` on every agent row with the comment "the dashboard should hide the
   // button for these" -- and the dashboard derived it again instead, so the field was computed
