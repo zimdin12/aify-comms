@@ -129,3 +129,35 @@ test('an operator-owned CONSOLE session is still treated as not-startable', () =
   // behaviour before this change, and correct: there is already a console attached.
   assert.equal(isResident({}, { ownerMode: 'console' }), true);
 });
+
+test('the mode is resolved ONCE, and the chooser is handed that answer', () => {
+  // A SECOND derivation twelve lines down survived the first fix. `chooseSessionConsoleWidget` was
+  // passed `agent?.sessionMode || session?.sessionMode || session?.session_mode` -- the same chain,
+  // including the two keys no session row carries -- so for a session whose agent is not in state it
+  // received undefined while `isResident` above had already resolved the question.
+  //
+  // They then FOLDED THE UNKNOWN CASE OPPOSITE WAYS. `isResident` treats it as resident and hides the
+  // offer; the chooser evaluates `normalizedSessionMode !== 'resident'`, which is TRUE for '', and
+  // concludes the terminal can represent the current owner. One render, two answers about one session.
+  // SCOPED TO THE PROPERTY LINE. A regex over the whole call block captured the comment that
+  // explains why the old chain is gone, and matched it -- the fourth time today a too-wide
+  // assertion has read its own explanation as the thing it forbids.
+  const prop = (SRC.match(/^\s*sessionMode: .*$/m) || [])[0];
+  assert.ok(prop, 'positive control: the sessionMode property was not found in the chooser call');
+  assert.match(prop, /sessionMode: normalizedSessionMode,/,
+    'the chooser derives the mode again instead of being handed the resolved one');
+  assert.doesNotMatch(prop, /session_mode|session\?\.sessionMode/,
+    'the dead chain is back in the chooser call');
+});
+
+test('exactly ONE expression in the module resolves the session mode', () => {
+  // The durable form of the test above: a third derivation would reintroduce the same class of
+  // disagreement somewhere else in the file. Scoped to declarations, so the explanatory comments
+  // that name the old keys do not count as resolutions.
+  // Matches any `normalizedSessionMode*` declaration, not the exact name: a mutation that added
+  // `normalizedSessionMode2` slipped past the exact form. THE HONEST LIMIT is that a resolution
+  // under a wholly different name still would -- this catches the duplicate somebody actually
+  // writes when re-deriving in place, which is what happened here.
+  const declarations = SRC.match(/const normalizedSessionMode\w* = [^;]+;/g) || [];
+  assert.equal(declarations.length, 1, `the session mode is resolved ${declarations.length} times`);
+});

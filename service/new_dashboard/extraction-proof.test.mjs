@@ -1381,6 +1381,23 @@ const EXTRACTIONS = [
               "  const normalizedSessionMode = String(agent?.sessionMode || session?.ownerMode || '').toLowerCase();",
             ],
           },
+          // 2026-08-27: the chooser was passed a SECOND derivation of the same chain, including
+          // the two keys no session row carries. It received undefined whenever the agent was not
+          // in state, and folded that unknown the OPPOSITE way from `isResident` above.
+          {
+            was: "    sessionMode: agent?.sessionMode || session?.sessionMode || session?.session_mode,",
+            now: [
+              "    // THE ALREADY-RESOLVED MODE, not a second derivation. This re-ran the chain from the top --",
+              "    // including `session?.sessionMode` and `session?.session_mode`, present on 0 of 100 live",
+              "    // session rows -- so for a session whose agent is not in state it passed undefined.",
+              "    //",
+              "    // The two then DISAGREED about the same session. `isResident` above folds an unknown mode to",
+              "    // resident (a guard that opens when its input is missing is decoration); the chooser folds it",
+              "    // the other way, `normalizedSessionMode !== 'resident'`, and concluded the terminal could",
+              "    // represent the current owner. One render, one answer.",
+              "    sessionMode: normalizedSessionMode,",
+            ],
+          },
         ],
       },
     ],
