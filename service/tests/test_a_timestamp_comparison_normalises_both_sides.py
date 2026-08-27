@@ -18,8 +18,14 @@ round. The product code is CLEAN today: 34 comparisons against `datetime('now', 
 WRAPPED, none BROKEN and none UNKNOWN. This file exists so the seventh occurrence fails a test instead
 of being discovered in a dashboard number.
 
-THAT COUNT WAS NOT PROVEN IN THE FIRST VERSION, and review caught it by instrumenting this gate rather
-than reading it. The old pattern was `datetime\([^)]*\)`, which stops at the first `)` — so eleven real
+THE UNIT IS A COMPARISON, NOT A LINE. Every current line happens to hold exactly one, so the totals
+coincide today; the distinction matters because a second comparison on a line used to be invisible.
+
+THAT COUNT WAS NOT PROVEN IN THE FIRST TWO VERSIONS, and review caught both holes by instrumenting this
+gate rather than reading it. The second: `_classify` judged only the FIRST occurrence on a line, so
+`datetime(a) > datetime('now',…) OR b > datetime('now',…)` read WRAPPED while its second half was
+broken, and the same two swapped read BROKEN — a verdict that depended on ordering. Both orders are now
+controls. The old pattern was `datetime\([^)]*\)`, which stops at the first `)` — so eleven real
 comparisons of the form `datetime(COALESCE(a, b)) <= datetime('now', ?)` matched neither the correct
 shape nor the broken one, and were counted purely for containing the text. "34 comparisons, zero
 unwrapped" was therefore a verdict on 23 lines dressed as a verdict on 34, and a genuinely broken
@@ -49,6 +55,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 SERVICE = Path(__file__).resolve().parent.parent
+NEWLINE = chr(10)
 SKIP_DIRS = {"tests", "__pycache__", "node_modules", ".git"}
 
 #: Where a comparison against `datetime('now', …)` begins.
@@ -89,18 +96,34 @@ def _left_operand(before: str) -> str:
     return text
 
 
-def _classify(line: str) -> str:
-    """WRAPPED, BROKEN or UNKNOWN for one line. UNKNOWN is a failure, not a shrug."""
-    match = _NOW.search(line)
-    if not match:
-        return ""
-    head = _COMPARISON.match(line[: match.start()])
+def _classify_at(line: str, end: int) -> str:
+    """The verdict for ONE comparison, whose `datetime('now'` begins at `end`."""
+    head = _COMPARISON.match(line[:end])
     if not head:
         return "UNKNOWN"
     left = _left_operand(head.group(1))
     if not left:
         return "UNKNOWN"
     return "WRAPPED" if left.lower().startswith("datetime(") else "BROKEN"
+
+
+def classify_line(line: str) -> list:
+    """EVERY comparison on the line, not just the first.
+
+    THE SECOND HOLE REVIEW FOUND HERE. The previous version called `_NOW.search(line)` and judged the
+    first occurrence only, so
+
+        AND datetime(a) > datetime('now','-1 hour') OR b > datetime('now','-2 hours')
+
+    read WRAPPED with a broken second comparison, while the same two swapped read BROKEN. The verdict
+    depended on ORDERING, which means "every candidate is classified" was still a stronger claim than
+    the instrument could support -- the same failure as the eleven unclassified lines, one level down.
+
+    `_COMPARISON` is anchored at the end of the slice, so for each occurrence it finds the operator
+    NEAREST that occurrence rather than the first on the line, and each is judged on its own left
+    operand.
+    """
+    return [_classify_at(line, m.start()) for m in _NOW.finditer(line)]
 
 
 def _sources():
@@ -112,18 +135,16 @@ def _sources():
 
 
 def _scan():
-    """Every candidate line, classified. UNKNOWN is reported and fails, never absorbed into a total."""
+    """Every COMPARISON, classified. The unit is the comparison, which is what the claim is about."""
     verdicts = {"WRAPPED": [], "BROKEN": [], "UNKNOWN": []}
     for path in _sources():
         try:
-            lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
+            lines = open(path, encoding="utf-8", errors="replace").read().split(NEWLINE)
         except OSError:
             continue
         for i, line in enumerate(lines, 1):
-            if "datetime('now'" not in line and 'datetime("now"' not in line:
-                continue
-            verdict = _classify(line) or "UNKNOWN"
-            verdicts[verdict].append((os.path.relpath(path, SERVICE), i, line.strip()[:100]))
+            for verdict in classify_line(line):
+                verdicts[verdict].append((os.path.relpath(path, SERVICE), i, line.strip()[:100]))
     return verdicts
 
 
@@ -140,26 +161,45 @@ class ATimestampComparisonNormalisesBothSides(unittest.TestCase):
 
     def test_it_recognises_a_BROKEN_comparison(self):
         """NEGATIVE CONTROL. Fed the shape it exists to catch, it must say BROKEN."""
-        self.assertEqual(_classify("AND updated_at > datetime('now','-24 hours')"), "BROKEN")
+        self.assertEqual(classify_line("AND updated_at > datetime('now','-24 hours')"), ["BROKEN"])
 
     def test_it_recognises_a_BROKEN_comparison_behind_a_FUNCTION(self):
-        """The hole the first version had. `COALESCE(a, b)` is not a bare column and not
-        `datetime(...)`, so a regex looking for either matched neither and the line was silently
-        counted without a verdict."""
+        """The first hole review found. `COALESCE(a, b)` is neither a bare column nor `datetime(...)`,
+        so a regex looking for either matched neither and the line was counted without a verdict."""
         self.assertEqual(
-            _classify("AND COALESCE(updated_at, created_at) > datetime('now', ?)"), "BROKEN")
+            classify_line("AND COALESCE(updated_at, created_at) > datetime('now', ?)"), ["BROKEN"])
 
     def test_it_CLEARS_a_correct_comparison(self):
         """A probe that cannot say ABSENT cannot say PRESENT -- and a gate that flagged the correct
         form too would be switched off within a day."""
-        self.assertEqual(_classify("AND datetime(updated_at) > datetime('now','-24 hours')"), "WRAPPED")
+        self.assertEqual(
+            classify_line("AND datetime(updated_at) > datetime('now','-24 hours')"), ["WRAPPED"])
 
     def test_it_CLEARS_a_correct_comparison_with_a_NESTED_call(self):
         """The eleven real lines that had no verdict. Balancing parentheses from the right is what
         makes `datetime(COALESCE(...))` legible as the correct form it is."""
         self.assertEqual(
-            _classify("AND datetime(COALESCE(r.started_at, r.requested_at)) <= datetime('now', ?)"),
-            "WRAPPED")
+            classify_line("AND datetime(COALESCE(r.started_at, r.requested_at)) <= datetime('now', ?)"),
+            ["WRAPPED"])
+
+    def test_a_SECOND_comparison_on_one_line_is_judged_too(self):
+        """THE SECOND HOLE REVIEW FOUND, and the reason the unit is a comparison rather than a line.
+
+        Judging only the first occurrence made the verdict depend on ORDERING: this line read WRAPPED
+        with a broken second half, and the same two swapped read BROKEN. Both orders are asserted,
+        because a fix that judged only the LAST occurrence would satisfy one of them.
+        """
+        self.assertEqual(
+            classify_line("AND datetime(a) > datetime('now','-1 hour') OR b > datetime('now','-2 hours')"),
+            ["WRAPPED", "BROKEN"])
+        self.assertEqual(
+            classify_line("AND b > datetime('now','-2 hours') OR datetime(a) > datetime('now','-1 hour')"),
+            ["BROKEN", "WRAPPED"])
+
+    def test_a_line_with_no_comparison_yields_no_verdicts(self):
+        """ANTI-VACUITY for the list form: a classifier returning a verdict for every line would make
+        the population meaningless in the other direction."""
+        self.assertEqual(classify_line("SELECT 1 FROM agents"), [])
 
     def test_NOTHING_is_left_unclassified(self):
         """The assertion that makes the count mean something.
