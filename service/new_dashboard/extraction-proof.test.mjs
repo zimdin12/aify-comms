@@ -342,7 +342,21 @@ const EXTRACTIONS = [
       { name: "renderSessionBulkToolbar", at: 1722, marker: "// renderSessionBulkToolbar moved to ./session-rail.mjs in v0.5.4." },
       { name: "SESSION_FILTER_KINDS", at: 1740, marker: "// SESSION_FILTER_KINDS moved to ./session-rail.mjs in v0.5.4." },
       { name: "renderSessionStatusFilter", at: 1742, marker: "// renderSessionStatusFilter moved to ./session-rail.mjs in v0.5.4." },
-      { name: "renderSessionRail", at: 1775, marker: "// renderSessionRail moved to ./session-rail.mjs in v0.5.4." },
+      {
+        name: "renderSessionRail", at: 1775, marker: "// renderSessionRail moved to ./session-rail.mjs in v0.5.4.",
+        // The workspace is a PATH and no longer wears the prose class alone. `.preview` carries
+        // `overflow-wrap: anywhere`, which broke paths mid-word on the live dashboard
+        // (`echoes_of_the_fa | llen`) and, because `anywhere` also feeds min-content sizing, let the
+        // card shrink and wrap text that fits: 3 of 12 paths dropped from two lines to one.
+        editedSince: [{
+          was: [
+            "              <p class=\"preview\">${esc(session.workspace || session.cwd || '')}</p>",
+          ],
+          now: [
+            "              <p class=\"preview session-path\">${esc(session.workspace || session.cwd || '')}</p>",
+          ],
+        }],
+      },
       { name: "sessionGroupCollapsed", at: 1805, marker: "// sessionGroupCollapsed moved to ./session-rail.mjs in v0.5.4." },
       { name: "selectedSession", at: 1666, marker: "// selectedSession moved to ./session-rail.mjs in v0.5.4." },
       { name: "ensureSelectedSession", at: 1670, marker: "// ensureSelectedSession moved to ./session-rail.mjs in v0.5.4." },

@@ -357,6 +357,7 @@ small, .subtle { color: var(--muted); }
 .item-title > :first-child { min-width: 0; }
 .clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .preview { color: var(--muted); margin-top: 5px; overflow-wrap: anywhere; }
+.session-path { overflow-wrap: break-word; } /* a PATH breaks at its separators, not mid-word — see session-rail.mjs */
 
 /* Work Loop board view — opt-in status columns (List/Board toggle). The flat list
    stays default; .is-board switches the grid container to a horizontal board. */

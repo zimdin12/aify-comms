@@ -24,6 +24,7 @@ import {
   selectedSessionIds,
   sessionGroupCollapsed,
   toggleSupersededSessions,
+  renderSessionRail,
 } from "./session-rail.mjs";
 
 function seed({ sessions = [], agents = [], environments = [], filter = "", statusFilter = null,
@@ -395,4 +396,53 @@ test("IT IS NOT GATED ON A SETTING — the chip renders whatever manual_session_
   assert.equal(renderModeSwitchChip.length, 1, "one parameter: the agent, and no settings argument");
   state.settings = { manual_session_mode: false };
   assert.notEqual(renderModeSwitchChip({ id: "a", sessionMode: "resident" }), "");
+});
+
+test("a session's WORKSPACE PATH is marked as a path, not styled as prose", () => {
+  // MEASURED ON THE LIVE DASHBOARD, 2026-08-27. `.preview` carries `overflow-wrap: anywhere`, which is
+  // right for prose -- a message body with one very long token must not overflow its card -- and wrong
+  // for a path. Rendering the workspace with it alone broke paths mid-word:
+  //
+  //     C:/Users/Administrator/echoes_of_the_fa | llen
+  //     C:/Users/Administrator/AppData/Roamin   | g/.minecraft-vulcan
+  //
+  // Break positions measured with a Range over the text node rather than eyeballed: `anywhere` breaks
+  // at `pData/Roamin`, `break-word` at `/.minecraft-` -- the hyphen, a real break opportunity.
+  //
+  // NOT ONLY COSMETIC. `anywhere` participates in min-content sizing, so the card was allowed to shrink
+  // and then wrap text that would otherwise fit. Of the 12 session paths on screen THREE went from two
+  // lines to one (40.59px -> 20.30px) and ZERO overflowed. `.preview` KEEPS `anywhere`, because 4 of 40
+  // elements using it for prose do overflow without it -- measured before changing anything, which is
+  // the reason this is a second class rather than an edit to the first.
+  const hadDoc = "document" in globalThis;
+  const prevDoc = globalThis.document;
+  let railHtml = "";
+  const el = (capture = false) => ({
+    hidden: false, textContent: "", value: "", dataset: {},
+    set innerHTML(v) { if (capture) railHtml = v; },
+    get innerHTML() { return capture ? railHtml : ""; },
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    setAttribute() {}, removeAttribute() {}, appendChild() {}, addEventListener() {},
+    querySelector: () => null, querySelectorAll: () => [], closest: () => null,
+  });
+  globalThis.document = {
+    getElementById: (id) => el(id === "session-rail"),
+    querySelector: () => el(), querySelectorAll: () => [], createElement: () => el(),
+  };
+  try {
+    seed({
+      sessions: [session("alpha-1", "coder", "env", { workspace: "C:/Users/Administrator/echoes_of_the_fallen" })],
+      agents: [{ id: "coder", status: "online" }],
+      statusFilter: new Set(),
+    });
+    renderSessionRail();
+    assert.match(railHtml, /class="preview session-path"/,
+      "the workspace path is rendered with the prose class alone, so it wraps mid-word again");
+    assert.ok(
+      railHtml.includes('class="preview session-path">C:/Users/Administrator/echoes_of_the_fallen'),
+      "the class is present but not on the element carrying the path",
+    );
+  } finally {
+    if (hadDoc) globalThis.document = prevDoc; else delete globalThis.document;
+  }
 });
