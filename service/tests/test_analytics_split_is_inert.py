@@ -73,6 +73,13 @@ _FLEET_LOOP_NOW = chr(10).join([
     '        # four lines above, which is the same query the refresh would issue for itself.',
     '        environments_by_machine: dict = {}',
     '        session_environment_by_agent = await load_session_environment_by_agent(db)',
+    '        # ONE PREFETCH for the whole loop. Three of the four batch parameters were already',
+    '        # threaded here; `status_signals` was not, so this endpoint paid `agent_status_state`',
+    '        # and `agent_console_signal` per agent -- the same two the pulse board stopped',
+    '        # re-reading. Measured: 7.0 round-trips per agent before.',
+    '        status_signals = None',
+    '        if len(agent_rows) > 1:',
+    '            status_signals = await PrefetchedStatusSignals.load(db, [r["id"] for r in agent_rows])',
     '        for row in agent_rows:',
     '            mode = _agent_wake_mode(row)',
     '            if mode != "message-only" and mode != "disabled":',
@@ -83,7 +90,15 @@ _FLEET_LOOP_NOW = chr(10).join([
     '                environments_by_machine=environments_by_machine,',
     '                session_environment_by_agent=session_environment_by_agent,',
     '                agent_row=row,',
+    '                status_signals=status_signals,',
     '            )',
+    '            # THROUGH THE DECLARED PARTITION. This read `not offline and not stale`, which',
+    '            # counts a STOPPED agent as online -- measured live, /analytics reported 30 while',
+    '            # /analytics/pulse reported 27 on a fleet with exactly 3 stopped agents, and',
+    '            # `online_agents` is the utilization denominator below. It also excluded `stale`,',
+    '            # a status this engine stopped producing, so that half guarded nothing.',
+    '            if is_live_agent_status(status):',
+    '                online_agents += 1',
 ]) + chr(10)
 
 _FLEET_LOOP_WAS = chr(10).join([
@@ -92,6 +107,8 @@ _FLEET_LOOP_WAS = chr(10).join([
     '            if mode != "message-only" and mode != "disabled":',
     '                live_agents += 1',
     '            status = await _compute_agent_status(row, db)',
+    '            if not status.startswith("offline") and not status.startswith("stale"):',
+    '                online_agents += 1',
 ]) + chr(10)
 
 EDITED_SINCE = [(_FLEET_LOOP_NOW, _FLEET_LOOP_WAS)]

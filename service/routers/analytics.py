@@ -53,6 +53,8 @@ router.include_router(_agent_analytics_router)
 # a plain import works.
 from service.api_core.status_refresh import _compute_agent_status  # noqa: E402
 from service.api_core.managed_env import load_session_environment_by_agent  # noqa: E402
+from service.api_core.status_signal_prefetch import PrefetchedStatusSignals  # noqa: E402
+from service.status_engine import is_live_agent_status  # noqa: E402
 from service.api_core.analytics_series import (
     _agent_leaderboard,
     _build_online_agent_board,
@@ -170,6 +172,13 @@ async def get_analytics(request: Request, analytics_range: str = Query("hour", a
         # four lines above, which is the same query the refresh would issue for itself.
         environments_by_machine: dict = {}
         session_environment_by_agent = await load_session_environment_by_agent(db)
+        # ONE PREFETCH for the whole loop. Three of the four batch parameters were already
+        # threaded here; `status_signals` was not, so this endpoint paid `agent_status_state`
+        # and `agent_console_signal` per agent -- the same two the pulse board stopped
+        # re-reading. Measured: 7.0 round-trips per agent before.
+        status_signals = None
+        if len(agent_rows) > 1:
+            status_signals = await PrefetchedStatusSignals.load(db, [r["id"] for r in agent_rows])
         for row in agent_rows:
             mode = _agent_wake_mode(row)
             if mode != "message-only" and mode != "disabled":
@@ -180,8 +189,14 @@ async def get_analytics(request: Request, analytics_range: str = Query("hour", a
                 environments_by_machine=environments_by_machine,
                 session_environment_by_agent=session_environment_by_agent,
                 agent_row=row,
+                status_signals=status_signals,
             )
-            if not status.startswith("offline") and not status.startswith("stale"):
+            # THROUGH THE DECLARED PARTITION. This read `not offline and not stale`, which
+            # counts a STOPPED agent as online -- measured live, /analytics reported 30 while
+            # /analytics/pulse reported 27 on a fleet with exactly 3 stopped agents, and
+            # `online_agents` is the utilization denominator below. It also excluded `stale`,
+            # a status this engine stopped producing, so that half guarded nothing.
+            if is_live_agent_status(status):
                 online_agents += 1
             if status.startswith("working"):
                 working_agents += 1
