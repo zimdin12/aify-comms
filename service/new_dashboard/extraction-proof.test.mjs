@@ -1792,6 +1792,34 @@ const EXTRACTIONS = [
                 "  } catch (err) { toast(`Session ${sessionId} ${action} failed: ${err?.message || err}`, 'error'); }",
               ],
             },
+            // 2026-08-27: a control no longer sends a body. The route stored it as the
+            // spawn request's `initial_message`, which the settle handoff turns into a
+            // type=request MESSAGE to the agent that just restarted -- and the agent then
+            // restarted itself again. Measured: all 21 self-issued spawn requests on the
+            // operator's fleet follow one of these by 45-75 seconds.
+            {
+              was: [
+                "        body: `Session ${action} requested from Dashboard Next.`,",
+              ],
+              now: [
+                "        // NO `body`. It is not a note -- the route stores it as the spawn request's",
+                "        // `initial_message`, and `_hand_settled_spawn_to_dispatch` turns a non-empty one into a",
+                "        // real `type=request` MESSAGE plus a dispatch run addressed to the agent that just came",
+                "        // up. So a receipt reading \"Session restart requested from Dashboard Next.\" arrived at",
+                "        // the freshly-restarted agent as an instruction owing a reply, and the agent did the",
+                "        // obvious thing: it called comms_restart on itself.",
+                "        //",
+                "        // MEASURED on the operator's fleet: all 21 self-issued spawn requests are preceded, 45",
+                "        // to 75 seconds earlier, by exactly one of these -- a dashboard `Restart <agent>`",
+                "        // message of type=request. That is the whole of \"agents exited even though I never",
+                "        // stopped them\": the operator restarted one agent and the loop kept going.",
+                "        //",
+                "        // The service is not wrong. `initial_message` is for a BRIEF -- work the new worker is",
+                "        // being started to do -- and the message it becomes exists so the agent's inbox is not",
+                "        // empty and it has an id to thread a reply to. A control has no brief; sending one was",
+                "        // the mistake. `comms_restart` on the bridge side already sends no body.",
+              ],
+            },
           ],
         at: 3882,
         marker: "// requestSessionControl moved to ./agent-session-actions.mjs in v0.5.4.",
