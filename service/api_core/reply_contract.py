@@ -1,9 +1,27 @@
 """Reply-contract rules: what counts as an answer, and what the reminder says. PURE — no DB.
 
-Layer-0 slice of the v0.5.4 decomposition. A dispatch with `require_reply=1` is owed an answer, and
-these five decide the terms: which message types satisfy the contract, when a contract counts as
-operator-closed, how the overdue query is shaped, how often a full reminder repeats, and the reminder
-text itself.
+Layer-0 slice of the v0.5.4 decomposition. These five decide the terms: which message types satisfy
+the contract, when a contract counts as operator-closed, how the overdue query is shaped, how often
+a full reminder repeats, and the reminder text itself.
+
+WHAT IS OWED AN ANSWER, exactly as `_contract_list_query` asks it -- and it is wider than the flag.
+This paragraph used to read "a dispatch with `require_reply=1` is owed an answer", which is only
+the first of three clauses:
+
+    require_reply = 1
+    OR message_type IN ('request', 'review', 'error')        <- REGARDLESS of require_reply
+    OR priority IN ('high','urgent') AND type NOT IN ('info','response','approval')
+
+So a sender that sets `requireReply=false` on a request, review or error is bound anyway: for those
+three types the flag decides nothing. MEASURED on the operator's database 2026-08-27: 26 `request`
+runs and 121 `error` runs carry require_reply=0 and are bound by the type clause.
+
+WHETHER THAT IS RIGHT IS AN OPEN QUESTION, deliberately left open here. Honouring the flag would let
+a notice opt out, which is what a caller setting it plainly intends; ignoring it means an error or a
+request always gets acknowledged, which is what the reminder machinery exists for. Both are
+defensible and the choice belongs to whoever owns the dispatch contract, not to a passing edit.
+`test_the_reply_contract_rule_is_what_the_docstring_says.py` pins today's answer so a flip is a
+visible diff rather than a drift.
 
 `_HANDOFF_REPLY_TYPES` and `_COMPLETION_INFO_RE` moved WITH the function that reads them —
 `_message_satisfies_reply_contract` was their only code reader, measured with
