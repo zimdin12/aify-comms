@@ -50,7 +50,22 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
   const codexAttachable = codexAppServerUrl && codexIsLoopback;
   const agentIdForCodex = sessionAgentId(session) || '';
   const normalizedSessionMode = String(agent?.sessionMode || session?.sessionMode || session?.session_mode || '').toLowerCase();
-  const isResident = normalizedSessionMode === 'resident';
+  // THE SERVICE ALREADY ANSWERED THIS, and until now nobody asked. `records.py` emits
+  // `consoleAvailable` on every agent row with the comment "the dashboard should hide the
+  // button for these" -- and the dashboard derived it again instead, so the field was computed
+  // on every request and read by nothing in the repo.
+  //
+  // THE TWO FAILED IN OPPOSITE DIRECTIONS. The service normalises an unknown or empty mode to
+  // `resident` (`_normalize_session_mode`), so it hides the console; this line compared for
+  // equality, so an empty mode meant NOT resident and offered a console that cannot attach.
+  // Unreachable on the live fleet today -- all 47 agents carry resident or managed -- but a guard
+  // that opens when its input is missing is decoration, so the fallback now folds exactly the way
+  // `_normalize_session_mode` does: strip, lower, and anything outside SESSION_MODES is resident.
+  // The contract declares that set as {managed, resident}, so the rule reduces to the one below;
+  // a sibling test fails if a third mode is ever added to the contract.
+  const isResident = typeof agent?.consoleAvailable === 'boolean'
+    ? !agent.consoleAvailable
+    : normalizedSessionMode.trim() !== 'managed';
   // When this console is embedded in the Chat conversation pane, the lifecycle actions
   // (Restart/Reset/Stop/Switch/Message-in-Chat) already live in the chat header + Details
   // drawer — so we don't duplicate them here (audit finding C5). Sessions page keeps the full set.

@@ -344,7 +344,13 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
         # Dashboard rendering hint: resident sessions live in an
         # operator-launched terminal outside aify's PTY tracking — the
         # dashboard's "Start Console" button can't open or attach to
-        # them, so the dashboard should hide the button for these.
+        # them, so the dashboard hides the button for these.
+        #
+        # READ BY `session-console.mjs`, which derived the same answer itself until 2026-08-27 and
+        # left this field with no consumer anywhere in the repo. The sentence above said the
+        # dashboard "should" hide the button, and nothing made it so — the field was computed on
+        # every request and dropped. Its own derivation also folded an unknown mode the other way,
+        # offering a console that cannot attach; this value is the one that fails closed.
         # Managed sessions have either a real wrapper PTY OR a
         # synthesized virtual rpc terminal — Console attaches to either.
         "consoleAvailable": session_mode != "resident",
