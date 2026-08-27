@@ -57,10 +57,38 @@ export function contractCard(contract, { selectable = true } = {}) {
       </div>
     </article>`;
 }
+/** How many items need attention, in the strip's HEADER, which is all that survives collapsing.
+ *
+ * Collapsing hides `#metrics` and `#attention-list` (styles.css), leaving only the title -- so the
+ * one panel whose entire job is answering "does anything need me?" answered nothing in the state an
+ * operator leaves it in. Learning that the list was empty meant expanding it, which is the opposite
+ * of what collapsing is for.
+ *
+ * IT REPORTS THE TRUE COUNT, not the rendered one. The list is capped at 8; a header reading "8"
+ * while 30 contracts are overdue would be a silent truncation presented as a total, so past the cap
+ * it says both numbers.
+ */
+export function attentionSummaryLabel(total, shown) {
+  const all = Math.max(0, Number(total) || 0);
+  const rendered = Math.max(0, Number(shown) || 0);
+  if (all === 0) return '✓ clear';
+  if (all > rendered) return `${rendered} of ${all}`;
+  return String(all);
+}
+
 export function renderAttention() {
-  const items = filtered(state.contracts, ['subject', 'preview', 'from', 'targetAgentId'])
-    .filter((c) => c.overdue || c.state === 'working' || c.state === 'queued')
-    .slice(0, 8);
+  // Counted BEFORE the cap, so the header can tell a full list from a truncated one.
+  const matching = filtered(state.contracts, ['subject', 'preview', 'from', 'targetAgentId'])
+    .filter((c) => c.overdue || c.state === 'working' || c.state === 'queued');
+  const items = matching.slice(0, 8);
+  const summary = byId('attention-summary');
+  if (summary) {
+    summary.textContent = attentionSummaryLabel(matching.length, items.length);
+    // `chat-unread` is the accent count pill the conversation rail already uses, so a count here
+    // reads as the same kind of thing it does there -- and needs no new rule on a stylesheet that is
+    // already 1,844 lines and outside both size gates.
+    summary.className = matching.length ? 'chat-unread' : 'subtle';
+  }
   const host = byId('attention-list');
   if (!host) return; // never let a missing node throw out of the unconditional renderAll loop
   // WS-G: when clear, collapse to a slim one-liner instead of a tall empty card.

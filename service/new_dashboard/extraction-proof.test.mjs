@@ -365,7 +365,35 @@ const EXTRACTIONS = [
     items: [
       { name: "filtered", at: 911, marker: "// filtered moved to ./work-loop-panels.mjs in v0.5.4." },
       { name: "contractCard", at: 1386, marker: "// contractCard moved to ./work-loop-panels.mjs in v0.5.4." },
-      { name: "renderAttention", at: 1416, marker: "// renderAttention moved to ./work-loop-panels.mjs in v0.5.4." },
+      { name: "renderAttention", at: 1416, marker: "// renderAttention moved to ./work-loop-panels.mjs in v0.5.4.",
+        // The strip's count moved into the HEADER, which is the only part `.collapsed` leaves
+        // visible -- so the panel could not say whether anything needed attention in the state an
+        // operator leaves it in. The count is taken BEFORE the 8-item cap, so a truncated list
+        // cannot present itself as a total. `attentionSummaryLabel` is a NEW declaration in the
+        // module and so belongs to no span here.
+        editedSince: [
+        {
+          was: [
+          "  const items = filtered(state.contracts, ['subject', 'preview', 'from', 'targetAgentId'])",
+          "    .filter((c) => c.overdue || c.state === 'working' || c.state === 'queued')",
+          "    .slice(0, 8);",
+        ],
+          now: [
+          "  // Counted BEFORE the cap, so the header can tell a full list from a truncated one.",
+          "  const matching = filtered(state.contracts, ['subject', 'preview', 'from', 'targetAgentId'])",
+          "    .filter((c) => c.overdue || c.state === 'working' || c.state === 'queued');",
+          "  const items = matching.slice(0, 8);",
+          "  const summary = byId('attention-summary');",
+          "  if (summary) {",
+          "    summary.textContent = attentionSummaryLabel(matching.length, items.length);",
+          "    // `chat-unread` is the accent count pill the conversation rail already uses, so a count here",
+          "    // reads as the same kind of thing it does there -- and needs no new rule on a stylesheet that is",
+          "    // already 1,844 lines and outside both size gates.",
+          "    summary.className = matching.length ? 'chat-unread' : 'subtle';",
+          "  }",
+        ],
+        },
+      ] },
       { name: "diagnosticKey", at: 1429, marker: "// diagnosticKey moved to ./work-loop-panels.mjs in v0.5.4." },
       { name: "activityItems", at: 1520, marker: "// activityItems moved to ./work-loop-panels.mjs in v0.5.4." },
       { name: "renderActivityFeed", at: 1553, marker: "// renderActivityFeed moved to ./work-loop-panels.mjs in v0.5.4." },
