@@ -259,3 +259,40 @@ test("the roots editor opens for an environment that is not in state", async () 
   });
   assert.ok(html.includes("ghost-env"));
 });
+
+test("an OFFLINE environment says how long it has been silent; an online one does not", () => {
+  // A host that dropped a minute ago and one abandoned in June both render as `offline`, and those
+  // call for opposite actions — wait, versus Forget. The age is the only thing separating them, and it
+  // was already on the wire: /environments carries `lastSeen` for every row and this card dropped it.
+  // On the operator's fleet 2026-08-27 the WSL environment had been silent since 2026-06-05 and the
+  // card said only `offline`.
+  const longAgo = new Date(Date.now() - 83 * 24 * 3600 * 1000).toISOString();
+
+  state.environments = [{ id: "dead", label: "WSL box", status: "offline", lastSeen: longAgo }];
+  const offline = withDom({ "environment-list": el() }, null, (els) => {
+    renderRuntime();
+    return els["environment-list"].innerHTML;
+  });
+  assert.match(offline, /last seen 83d ago/, "an offline environment does not say how long it has been silent");
+
+  // ANTI-VACUITY: a card that always printed an age would satisfy the assertion above while making a
+  // claim about a host that is answering right now.
+  state.environments = [{ id: "live", label: "Windows box", status: "online", lastSeen: longAgo }];
+  const online = withDom({ "environment-list": el() }, null, (els) => {
+    renderRuntime();
+    return els["environment-list"].innerHTML;
+  });
+  assert.doesNotMatch(online, /last seen/, "an ONLINE environment claimed a last-seen age");
+});
+
+test("an offline environment with no lastSeen makes no claim about its age", () => {
+  // FAILS CLOSED. `relTime` returns '' for a missing or unparseable value, so the alternative to this
+  // is `last seen  ago`, or an age measured from the epoch — a number that looks like evidence.
+  state.environments = [{ id: "dead", label: "WSL box", status: "offline" }];
+  const html = withDom({ "environment-list": el() }, null, (els) => {
+    renderRuntime();
+    return els["environment-list"].innerHTML;
+  });
+  assert.doesNotMatch(html, /last seen/, "a row with no timestamp still claimed an age");
+  assert.match(html, /WSL box/, "the card did not render at all");
+});

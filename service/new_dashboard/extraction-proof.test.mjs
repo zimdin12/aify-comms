@@ -497,7 +497,20 @@ const EXTRACTIONS = [
     seeding: "initEnvironmentActions({ closeInspector, inspect, refresh, refreshSoon });",
     items: [
       { name: "renderEnvironmentSpawnOptions", at: 3010, marker: "// renderEnvironmentSpawnOptions moved to ./environments-panels.mjs in v0.5.4." },
-      { name: "renderRuntime", at: 3038, marker: "// renderRuntime moved to ./environments-panels.mjs in v0.5.4." },
+      {
+        name: "renderRuntime", at: 3038, marker: "// renderRuntime moved to ./environments-panels.mjs in v0.5.4.",
+        // An OFFLINE environment now says how long it has been silent. `offline` alone read the same
+        // for a host that dropped a minute ago and one abandoned in June, and `lastSeen` was already
+        // on the wire — the card simply dropped it.
+        editedSince: [{
+          was: [
+            "      <p class=\"preview\">${esc(env.kind || env.os || '')} · ${esc(env.machineId || env.machine_id || '')}</p>",
+          ],
+          now: [
+            "      <p class=\"preview\">${esc(env.kind || env.os || '')} · ${esc(env.machineId || env.machine_id || '')}${offlineAge(env)}</p>",
+          ],
+        }],
+      },
       { name: "renderSpawnRequests", at: 3063, marker: "// renderSpawnRequests moved to ./environments-panels.mjs in v0.5.4." },
       { name: "renderEnvironmentSummary", at: 2995, marker: "// renderEnvironmentSummary moved to ./environments-panels.mjs in v0.5.4." },
       { name: "openEnvironmentRootsEditor", at: 3122, marker: "// openEnvironmentRootsEditor moved to ./environments-panels.mjs in v0.5.4." },

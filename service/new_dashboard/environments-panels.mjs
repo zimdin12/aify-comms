@@ -51,11 +51,30 @@ import { metric } from './summary-tiles.mjs';
 import { byId, toast, uiConfirm } from './ui.js';
 import { esc, relTime } from './util.js';
 
+/**
+ * ` · last seen 83d ago`, for an environment that is not answering. Empty for everything else.
+ *
+ * WHY AN OFFLINE PILL IS NOT ENOUGH. A host that dropped a minute ago and one abandoned in June render
+ * identically as `offline`, and those call for opposite actions -- wait, versus Forget. The age is the
+ * only thing that tells them apart and it was already on the wire: `/environments` carries `lastSeen`
+ * for every row, and this card dropped it. On the operator's fleet 2026-08-27 the WSL environment had
+ * been silent since 2026-06-05 and the card said only `offline`.
+ *
+ * IT FAILS CLOSED. `relTime` returns '' for a missing or unparseable timestamp, so a row with no
+ * lastSeen makes no claim about its age rather than rendering `last seen  ago` or, worse, an age
+ * measured from the epoch.
+ */
+function offlineAge(env) {
+  if (resolveStatus(env.status).kind !== 'offline') return '';
+  const seen = relTime(env.lastSeen || env.last_seen);
+  return seen ? ` · last seen ${esc(seen)} ago` : '';
+}
+
 export function renderRuntime() {
   byId('environment-list').innerHTML = state.environments.map((env) => `
     <article class="runtime-card" data-kind="environment" data-id="${esc(env.id)}">
       <div class="item-title"><strong>${esc(env.label || env.id)}</strong>${renderStatusChip(env.status, statusWhyContext('environment', env, env.status))}</div>
-      <p class="preview">${esc(env.kind || env.os || '')} · ${esc(env.machineId || env.machine_id || '')}</p>
+      <p class="preview">${esc(env.kind || env.os || '')} · ${esc(env.machineId || env.machine_id || '')}${offlineAge(env)}</p>
       <div class="env-runtime-list">
         ${environmentRuntimes(env).map((runtime) => `<span class="env-runtime-pill${runtime.available === false ? ' unavailable' : ''}">${esc(runtime.runtime)}${runtime.available === false ? ' (unavailable)' : ''}</span>`).join('') || '<span class="env-runtime-pill unavailable">no runtimes</span>'}
       </div>
