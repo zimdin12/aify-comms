@@ -44,6 +44,23 @@ const EXTRACTIONS = [
           "// settingsFieldHtml moved to ./settings-fields.mjs in v0.5.4 (with themePreviewTilesHtml, which",
           "// only it calls and which stays private there).",
         ],
+        // Same consolidation. The helper also LOWERCASES, which this did not -- so a setting saved as
+        // #AABBCC showed that spelling in the code label beside a swatch the browser had normalised to
+        // #aabbcc, and the theme applied the lowercase one. One question, one answer.
+        editedSince: [
+        {
+          was: [
+          "    const hex = /^#[0-9a-fA-F]{6}$/.test(String(value || '')) ? value : fallback;",
+        ],
+          now: [
+          "    // Through the helper, which also LOWERCASES. This kept the value exactly as stored, while",
+          "    // `<input type=\"color\">` normalises its own value to lowercase -- so a setting saved as #AABBCC",
+          "    // showed `#AABBCC` in the code label beside a swatch driven by `#aabbcc`, and the theme applied",
+          "    // the lowercase one. One question, one answer.",
+          "    const hex = normalizedHexColor(value, fallback);",
+        ],
+        },
+      ],
       },
       { name: "themePreviewTilesHtml", at: 1041, marker: null },
     ],
@@ -345,7 +362,26 @@ const EXTRACTIONS = [
       { name: "renderSettings", at: 1118, marker: "// renderSettings moved to ./settings-panel.mjs in v0.5.4." },
       { name: "readAppearanceInputs", at: 1147, marker: "// readAppearanceInputs moved to ./settings-panel.mjs in v0.5.4." },
       { name: "previewAppearance", at: 1159, marker: "// previewAppearance moved to ./settings-panel.mjs in v0.5.4." },
-      { name: "terminalAccentColor", at: 1875, marker: "// terminalAccentColor moved to ./settings-panel.mjs in v0.5.4." },
+      { name: "terminalAccentColor", at: 1875, marker: "// terminalAccentColor moved to ./settings-panel.mjs in v0.5.4.",
+        // Routed through `normalizedHexColor`, theme.js's exported answer to what a usable hex colour
+        // is. This hand-rolled the same regex, as did settings-fields.mjs -- three implementations of
+        // one question, which agree until somebody widens one of them.
+        editedSince: [
+        {
+          was: [
+          "    const v = getComputedStyle(document.body).getPropertyValue('--accent').trim();",
+          "    if (/^#[0-9a-fA-F]{6}$/.test(v)) return v;",
+        ],
+          now: [
+          "    // `normalizedHexColor` is the one place that decides what a usable hex colour is. This hand-rolled",
+          "    // the same regex, as did settings-fields.mjs -- three implementations of one question, which agree",
+          "    // until somebody widens one of them.",
+          "    const v = normalizedHexColor(getComputedStyle(document.body).getPropertyValue('--accent'), '');",
+          "    if (v) return v;",
+        ],
+        },
+      ],
+      },
       { name: "terminalThemeFromDashboard", at: 1883, marker: "// terminalThemeFromDashboard moved to ./settings-panel.mjs in v0.5.4." },
       { name: "refreshActiveTerminalTheme", at: 1901, marker: "// refreshActiveTerminalTheme moved to ./settings-panel.mjs in v0.5.4." },
     ],

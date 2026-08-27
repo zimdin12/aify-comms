@@ -21,7 +21,7 @@
 
 import { settingsFieldHtml } from './settings-fields.mjs';
 import { state } from './state.mjs';
-import { THEMES, previewTheme } from './theme.js';
+import { THEMES, normalizedHexColor, previewTheme } from './theme.js';
 import { byId } from './ui.js';
 import { esc } from './util.js';
 
@@ -147,8 +147,11 @@ export function previewAppearance() {
 }
 export function terminalAccentColor() {
   try {
-    const v = getComputedStyle(document.body).getPropertyValue('--accent').trim();
-    if (/^#[0-9a-fA-F]{6}$/.test(v)) return v;
+    // `normalizedHexColor` is the one place that decides what a usable hex colour is. This hand-rolled
+    // the same regex, as did settings-fields.mjs -- three implementations of one question, which agree
+    // until somebody widens one of them.
+    const v = normalizedHexColor(getComputedStyle(document.body).getPropertyValue('--accent'), '');
+    if (v) return v;
   } catch {}
   const preset = THEMES[String(document.body.dataset.theme || 'default')] || THEMES.default;
   return preset.accent || '#51c5b0';
