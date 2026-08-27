@@ -1454,6 +1454,49 @@ rather than rediscovering them.
 
 ## Worth knowing, not worth doing
 
+### The dashboard refresh bundle, measured end to end — and why none of it is worth changing
+
+496,173 bytes across ten endpoints in one refresh, measured 2026-08-27 against the live service. Kept
+here because the next person to ask "what is slow" should not have to re-derive it, and because every
+candidate it produced was REJECTED for a stated reason rather than for lack of looking.
+
+| bytes | share | endpoint |
+|---|---|---|
+| 155,832 | 31.4% | `/spawn-requests` |
+| 128,631 | 25.9% | `/messages/recent` |
+| 99,122 | 20.0% | `/sessions` |
+| 64,496 | 13.0% | `/agents` |
+| 37,784 | 7.6% | `/dispatch/runs` |
+| 5,042 | 1.0% | `/environments` |
+| 2,380 | 0.5% | `/stats` |
+| the rest | 0.6% | `/settings`, `/channels`, `/contracts` |
+
+**`/agents` latency is not a finding.** It read 5,345ms on the first pass, which looks alarming beside
+`/spawn-requests` at 50ms for three times the bytes. Five consecutive calls: 2321, 3209, 2258, 428,
+142ms — a 23x spread with a descending trend, which is cache warming plus fleet contention, not a cost.
+Its round-trip count is FLAT in fleet size by design (it caps the recompute per request; 51 at both 20
+and 40 agents, per `test_the_status_refresh_is_not_n_plus_one.py`). Wall-clock on this host is
+unmeasurable while the fleet is live, and this is what that looks like when you check instead of quote.
+
+**`spawnSpec` is 48,532 bytes, 40% of the largest endpoint.** Its only dashboard consumer is
+`inspector-forms.mjs:141`, which reads `record.spawnSpec.metadata` — 16% of it. More concretely, 11,012
+bytes are a VERBATIM copy of a field on the same row: `workspace`, `environmentId`, `agentId`, `mode`
+and `runtime` are identical on 100 of 100 rows. (`id` and `updatedAt` differ on all 100 and are the
+spec's own; `createdAt` is identical on 32 and differs on 68, so it is not safe to treat as duplicate.)
+NOT ACTED ON: 11KB is 2.2% of the bundle, and dropping emitted fields from a public-ish endpoint is a
+contract change. The reviewer's ruling on `/stats` applies unchanged — in-repo non-use does not prove
+external non-use, and a cheap payload does not authorise a break.
+
+**`/messages/recent` ships `body` (87,743 bytes, 75%) AND `preview` (13,848) for the same 80 rows**,
+which looks like the same field twice. It is not. `body` is rendered by `chat-render.mjs:148` and
+searched by `chat-select.mjs:151`; `preview` is PREFERRED over it at `chat-select.mjs:123` when a
+message has no subject. Both have consumers and neither can be dropped.
+
+So the honest total: of 496KB, the changes actually available are a 2.2% contract break and a 0.5%
+contract break. Neither is worth having. The bundle is large because the dashboard genuinely shows that
+much, not because it is wasteful.
+
+
 **One dashboard poll costs 134 database round-trips, and `GET /agents` is 98 of them.** Counted with
 an `aiosqlite.core.Connection.execute` spy, per slice of the poll bundle, with a twelve-agent fleet
 seeded through the real registration route. The rest: `/stats` 20, `/sessions` 8, `/contracts` 2,
