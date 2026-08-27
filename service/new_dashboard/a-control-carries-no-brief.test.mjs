@@ -13,8 +13,15 @@
 //      as a request owing a reply, reads it as an instruction, and calls comms_restart on itself.
 //   5. Go to 2.
 //
-// MEASURED: all 21 self-issued spawn requests on that fleet are preceded, 45 to 75 seconds earlier,
-// by exactly one of these messages. Every one.
+// MEASURED, and RE-MEASURED 2026-08-27 because the first reading was both stale and too strong. It
+// said "all 21 ... Every one". The table now holds 23, and 16 of them are preceded 33 to 76 seconds
+// earlier by a dashboard restart message addressed to that SAME agent. The other seven match nothing.
+//
+// That is a better result than the absolute claim, not a weaker one. All 16 matches are members of the
+// six BURSTS this loop produces; all seven non-matches are singletons 39+ minutes apart. So the loop
+// explains the CLUSTERING specifically -- which was the part nobody could account for -- rather than
+// every self-restart that has ever happened. And the messages table reaches back to 2026-04-28, before
+// the oldest unmatched spawn, so those seven are genuinely unexplained rather than simply unrecorded.
 //
 // THE SERVICE IS NOT THE DEFECT. `initial_message` is for a BRIEF, and turning it into a message is
 // deliberate -- so the new worker's inbox is not empty and it has an id to thread a reply to. The
@@ -74,4 +81,44 @@ test('every OTHER call in this module is untouched by the rule', () => {
   const others = (SRC.match(/await api\(/g) || []).length;
   assert.ok(others > 1, `positive control: only ${others} api() call found in this module`);
   assert.match(SRC, /body: JSON\.stringify/, 'other calls still send bodies, as they must');
+});
+
+test('there is exactly ONE control POST, which is the only reason the BULK path is safe', () => {
+  // THE CLUSTERS. `requestBulkSessionControl` restarts every selected session, and it is safe purely
+  // because it DELEGATES to `requestSessionControl` rather than issuing its own POST. Nothing asserted
+  // that, so a future bulk path with its own `api(.../control)` would reintroduce the brief for N
+  // agents at once and every test above would still pass.
+  //
+  // That is not hypothetical -- it is what the clusters were. Re-measured on the live database
+  // 2026-08-27, self-issued spawn requests (`created_by = agent_id`) arrive in SIX bursts of two or
+  // three agents within 1-48 seconds, separated by 38 to 229 minutes of quiet:
+  //
+  //     12:02:17 mc-senior-dev  +17s comms-senior-dev
+  //     13:07:27 mc-senior-dev  +6s  comms-senior-dev  +31s mc-vulkan-manager
+  //     13:46:08 mc-senior-dev  +13s comms-senior-dev  +48s graph-senior-dev
+  //     14:52:46 graph-senior   +2s  comms-senior-dev  +22s mc-senior-dev
+  //     18:42:23 mc-senior-dev  +1s  comms-senior-dev  +4s  graph-senior-dev
+  //     19:08:16 comms-senior   +6s  graph-senior-dev
+  //
+  // Every one of those 16 follows a dashboard restart message addressed to that SAME agent, 33 to 76
+  // seconds earlier. One bulk restart reached ELEVEN agents inside 48 seconds. The remaining seven
+  // self-issued spawns in the table are all SINGLETONS 39+ minutes apart and match no message, so the
+  // loop explains the clustering specifically rather than every self-restart -- and the message table
+  // reaches back to 2026-04-28, so those seven are unexplained rather than merely unrecorded.
+  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'agent-session-actions.mjs'), 'utf8');
+  const controlPosts = source.match(/\/control`/g) || [];
+  assert.equal(
+    controlPosts.length, 1,
+    `${controlPosts.length} control POST sites. The bulk path must delegate to requestSessionControl, `
+    + 'not build its own request: a second site is a second place to reintroduce the brief.',
+  );
+});
+
+test('the bulk path reaches the control through the single-session function', () => {
+  // The other half of the pair above. One POST site proves there is nowhere else to put a body; this
+  // proves BULK actually goes through it rather than having quietly stopped calling it.
+  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'agent-session-actions.mjs'), 'utf8');
+  const bulk = source.slice(source.indexOf('export async function requestBulkSessionControl'));
+  const body = bulk.slice(0, bulk.indexOf('\n}\n'));
+  assert.match(body, /requestSessionControl\(/, 'the bulk path no longer delegates to the fixed function');
 });
