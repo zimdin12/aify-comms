@@ -34,7 +34,7 @@ function pulseWorkedLabel(iso) {
 export function fleetPulseHtml(data, windowMinutes = 60) {
   const winLabel = (PULSE_WINDOWS.find((w) => w.m === windowMinutes) || { label: `${windowMinutes}m` }).label;
   // Title lives in the conversation header bar; here we just offer the window selector.
-  const head = `<div class="pulse-head"><span class="pulse-head-label em">Comms performance + online agents</span>`
+  const head = `<div class="pulse-head"><span class="pulse-head-label em">Comms performance + live agents</span>`
     + `<div class="segmented pulse-window" role="group" aria-label="Pulse window">${pulseWindowSelectorHtml(windowMinutes)}</div></div>`;
   if (!data || data.ok === false) {
     return `<div class="pulse">${head}<p class="em">${data ? 'Pulse unavailable.' : 'Loading fleet pulse…'}</p></div>`;
@@ -67,19 +67,20 @@ export function fleetPulseHtml(data, windowMinutes = 60) {
       ${card(m.count ?? 0, `Messages · ${winLabel}`, `${m.perHour ?? 0}/hr`, '',
         `Chat messages sent across the fleet in the last ${winLabel}.`)}
       ${card(util == null ? '—' : `${util}%`, 'Utilization', `${data.fleetWorkingMinutes || 0}m dispatched`, utilTone,
-        `Dispatched-work minutes divided by online agents x the window `
+        `Dispatched-work minutes divided by LIVE agents x the window `
         + `(${data.fleetWorkingMinutes || 0}m / ${data.onlineAgents || 0} agents x ${winLabel}). `
-        + `An agent that is online but idle is in the denominator, so a fleet with many idle agents `
+        + `An agent that is live but idle is in the denominator, so a fleet with many idle agents `
         + `reads low however hard the busy ones are working.`)}
-      ${card(data.workingNow ?? 0, 'Working now', `${data.onlineAgents || 0} online`, '',
+      ${card(data.workingNow ?? 0, 'Working now', `${data.onlineAgents || 0} live`, '',
         `Agents whose STATUS is working right now. Counted differently from Utilization, which sums `
         + `DISPATCH RUN minutes -- so an agent working on its own, with no run, shows here and adds `
-        + `nothing there.`)}
+        + `nothing there. LIVE means any status except offline, stopped and misconfigured -- it is `
+        + `the umbrella, not the \`online\` status, which is one of the states inside it.`)}
       ${card(data.openReplyContracts ?? 0, 'Open replies', overdue ? `${overdue} overdue` : 'all current', overdue ? 'bad' : '',
         'Dispatch runs that asked for a reply and have not had one. Overdue is older than 30 minutes.')}
     </div>
-    <div class="pulse-board-head"><h4>Online agents</h4><span class="em">${data.onlineAgents || 0} online · working first</span></div>
-    <div class="pulse-board">${rows || '<p class="em">No online agents right now.</p>'}</div>
+    <div class="pulse-board-head"><h4>Live agents</h4><span class="em">${data.onlineAgents || 0} live · working first</span></div>
+    <div class="pulse-board">${rows || '<p class="em">No live agents right now.</p>'}</div>
   </div>`;
 }
 

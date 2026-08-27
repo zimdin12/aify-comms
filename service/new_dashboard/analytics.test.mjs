@@ -153,7 +153,10 @@ test('fleetPulseHtml renders KPIs + an online-agent board with last-worked', () 
 test('fleetPulseHtml is safe on loading / error / empty states', () => {
   assert.match(fleetPulseHtml(null, 60), /Loading fleet pulse/);
   assert.match(fleetPulseHtml({ ok: false }, 60), /Pulse unavailable/);
-  assert.match(fleetPulseHtml({ ok: true, agents: [] }, 30), /No online agents/);
+  // `live`, not `online`: the panel used a STATUS name for the set that CONTAINS that status,
+  // so its heading contradicted the chips in its own rows. See
+  // the-pulse-calls-the-umbrella-live.test.mjs.
+  assert.match(fleetPulseHtml({ ok: true, agents: [] }, 30), /No live agents/);
 });
 
 // ── the pulse tiles say what they count ─────────────────────────────────────────────────────────
@@ -173,8 +176,8 @@ test('the Utilization subtitle says DISPATCHED, because that is what the minutes
 });
 
 test('the Utilization tooltip names the denominator that keeps it low', () => {
-  // The number is structurally small and that is not a bug: an agent that is online but IDLE is in
-  // the denominator, so 27 online agents make 1620 agent-minutes an hour. Three agents working the
+  // The number is structurally small and that is not a bug: an agent that is LIVE but IDLE is in
+  // the denominator, so 27 live agents make 1620 agent-minutes an hour. Three agents working the
   // whole hour would read 11%. An operator who cannot see the denominator reads 0% as broken -- and
   // this figure has already been "fixed" once for reading zero.
   const html = fleetPulseHtml({
@@ -183,7 +186,7 @@ test('the Utilization tooltip names the denominator that keeps it low', () => {
     openReplyContracts: 0, overdueReplyContracts: 0, agents: [],
   }, 60);
   assert.match(html, /0m \/ 27 agents/, 'the tooltip does not show the arithmetic');
-  assert.match(html, /online but idle is in the denominator/);
+  assert.match(html, /live but idle is in the denominator/);
 });
 
 test('the Working now tooltip says it is counted differently from Utilization', () => {
