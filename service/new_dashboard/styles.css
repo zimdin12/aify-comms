@@ -1102,7 +1102,7 @@ small, .subtle { color: var(--muted); }
   .button-row { display: grid; }
   /* Short quick-jump buttons wrap in a row rather than stacking full-width. The HEADER's row was
      left out when this was written: 5 stacked buttons put content 481px down a 780px screen. */
-  .attention-strip .button-row, .button-row.top-quick-jumps { display: flex; flex-wrap: wrap; gap: 8px; }
+  .attention-strip .button-row, .button-row.top-quick-jumps, #page-settings .section-head .button-row { display: flex; flex-wrap: wrap; gap: 8px; }
   .attention-strip .button-row .ghost, .button-row.top-quick-jumps .ghost { flex: 1 1 auto; }
   .contract { grid-template-columns: 1fr; }
   .contract-actions { grid-template-columns: 1fr; }

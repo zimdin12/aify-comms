@@ -98,15 +98,40 @@ class TheMobileQuickJumpsStayCompactTogether(unittest.TestCase):
             "no .button-row rule sets a grid on phones; the compact overrides may no longer be needed",
         )
 
-    def test_BOTH_rows_are_named_by_the_compact_rule(self):
-        attention = _declarations_for(".attention-strip .button-row")
-        header = _declarations_for(".button-row.top-quick-jumps")
-        self.assertTrue(attention, "the attention strip lost its compact treatment")
-        self.assertTrue(
-            header,
-            "`.button-row.top-quick-jumps` has no phone rule. It holds Work/Spawn/Settings/Notify/"
-            "Refresh, and without this they stack full-width: measured 481px of a 780px screen before "
-            "any content. Give it the same treatment as `.attention-strip .button-row`.",
+    def test_EVERY_row_measured_as_compactable_is_named(self):
+        """The three whose buttons FIT beside each other, measured in a 390x780 viewport.
+
+        `.button-row` is a grid on phones, so every row in it stacks full-width by default. That is
+        RIGHT for long labels and wrong for short ones, and the only way to tell them apart is to
+        measure whether they fit -- which is what each of these was.
+        """
+        for selector, saved in (
+            (".attention-strip .button-row", "the strip header"),
+            (".button-row.top-quick-jumps", "481px -> 381px of a 780px screen, 5 rows -> 1"),
+            ("#page-settings .section-head .button-row", "92px -> 42px, 2 rows -> 1"),
+        ):
+            with self.subTest(selector=selector):
+                self.assertTrue(
+                    _declarations_for(selector),
+                    f"{selector} lost its compact phone rule and will stack full-width again ({saved})",
+                )
+
+    def test_the_LONG_labelled_row_is_deliberately_left_stacking(self):
+        """THE ONE THAT MEASURED BADLY, pinned so nobody "completes the set" without re-measuring.
+
+        `.diagnostics-maintenance` holds "Repair delivered reads" and "Repair handoffs". Wrapping it
+        saves 120px -> 92px and still needs TWO lines, with the second button forced to a full 362px --
+        a ragged layout for 28px. Long labels are exactly the case the original comment says should
+        stack, so it is excluded ON PURPOSE rather than overlooked.
+
+        If someone measures it again and disagrees, the right move is to add the selector AND change
+        this test, not to discover the exclusion by accident.
+        """
+        self.assertFalse(
+            _declarations_for(".diagnostics-maintenance"),
+            "`.diagnostics-maintenance` gained a compact phone rule. That was measured and rejected: "
+            "it saves 28px and still wraps to two lines with one full-width button. If the labels got "
+            "shorter, re-measure and update this test with the new numbers.",
         )
 
     def test_they_are_governed_the_SAME_way(self):
