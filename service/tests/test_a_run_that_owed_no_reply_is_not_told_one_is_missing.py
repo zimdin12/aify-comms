@@ -164,38 +164,44 @@ class ARunThatOwedNoReplyIsNotToldOneIsMissing(FastApiTestCase):
         )
         self.assertIn("No reply was owed", said, said)
 
-    def test_a_REQUEST_with_the_flag_off_is_still_owed_a_reply(self) -> None:
-        """THE CASE THAT CAUGHT MY FIRST VERSION, pinned on purpose rather than by accident.
+    def test_a_REQUEST_whose_sender_opted_OUT_is_honoured(self) -> None:
+        """THE CASE I GOT BACKWARDS, now pinned the right way round.
 
-        `require_reply` DEFAULTS TO 0 and `message_type` defaults to 'request', so most rows inserted
-        without an explicit flag are `request`/0 -- and the contract owes a reply for `request`
-        REGARDLESS of the flag. Reading the flag alone therefore gets the COMMONEST row backwards. My
-        first version did exactly that and `test_a_terminal_records_how_it_ended` refused it; without
-        this, the next person to simplify the predicate back to `bool(require_reply)` gets a green run
-        from this file.
+        My first attempt at this file asserted that a `request` with `require_reply=0` is STILL owed a
+        reply, on the reasoning that the overdue query re-derives obligation from message type. Review
+        showed the reasoning inverted: `require_reply` is not the caller's raw input, it is the
+        NORMALISED result. `dispatch.py:184` writes
+        `_dispatch_requires_reply(req.requireReply, default=_message_type_expects_reply(req.type))`, so
+        the type supplies a default only when the caller said nothing, and `reply_expectation.py` says
+        collapsing the two "would lose the difference between 'did not ask' and 'asked for false'".
+
+        `mcp/stdio/send-tools.mjs` documents `requireReply=false` as intentional fire-and-forget for
+        exactly these types. So a stored `request` + 0 is a sender who opted out ON PURPOSE, and
+        telling it a reply was missing is the defect this file exists to remove -- not an exception to
+        it.
         """
         from service.db import get_db
 
-        async def seed_request_with_flag_off():
+        async def seed_opted_out_request():
             db = await get_db()
             try:
                 await db.execute(
                     "INSERT INTO dispatch_runs (id, target_agent, from_agent, subject, body, status, "
                     "dispatch_mode, execution_mode, message_type, require_reply, priority, requested_at) "
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                    ("run-request-flag-off", self.AGENT, "someone-else", "s", "b", "running",
+                    ("run-request-opted-out", self.AGENT, "someone-else", "s", "b", "running",
                      "terminal", "terminal", "request", 0, "normal", "2026-08-27T02:00:00Z"),
                 )
                 await db.commit()
             finally:
                 await db.close()
 
-        asyncio.run(seed_request_with_flag_off())
+        asyncio.run(seed_opted_out_request())
         self.assertEqual(self._end_the_terminal().status_code, 200)
-        said = self._runs()["run-request-flag-off"]["summary"]
+        said = self._runs()["run-request-opted-out"]["summary"]
         self.assertIn(
-            "before an explicit reply was recorded", said,
-            "a request with require_reply=0 is owed a reply by TYPE; it was told otherwise",
+            "No reply was owed", said,
+            "a sender's explicit requireReply=false was overridden by the message type",
         )
 
     def test_the_two_runs_do_not_get_the_SAME_sentence(self) -> None:

@@ -250,10 +250,16 @@ class TerminalRecordsHowItEndedTests(FastApiTestCase):
             db = await get_db()
             try:
                 await db.execute(
+                    # require_reply IS SET EXPLICITLY, and the omission was a real trap. The column
+                    # DEFAULTS TO 0 while message_type defaults to 'request', so a bare insert produces
+                    # a row the product never writes: `_dispatch_requires_reply` would have stored 1
+                    # for a request nobody opted out of. These tests are about the EXIT-CAUSE half of
+                    # the sentence, and they need a run that is owed a reply for the other half to be
+                    # present at all -- which the schema default silently denied them.
                     "INSERT INTO dispatch_runs (id, target_agent, from_agent, subject, body, status, "
-                    "dispatch_mode, execution_mode, requested_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    "dispatch_mode, execution_mode, require_reply, requested_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (run_id, self.AGENT, "requester", "probe", "body", "running", "terminal",
-                     "managed", "2026-08-26T02:00:00Z"),
+                     "managed", 1, "2026-08-26T02:00:00Z"),
                 )
                 await db.commit()
             finally:

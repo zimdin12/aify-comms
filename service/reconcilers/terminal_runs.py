@@ -27,7 +27,6 @@ from service.api_core.events import _append_terminal_event
 from service.api_core.agent_sessions import _current_agent_session_row
 from service.api_core.terminal_text import _ANSI_RE, _CTRL_RE, _terminal_awaiting_input_hint
 from service.clock import now as _now
-from service.api_core.reply_contract import a_reply_is_owed
 from service.terminal_diagnostics import without_reply_claim
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -113,16 +112,22 @@ async def _close_active_terminal_runs_for_terminal(db, terminal, terminal_status
     terminal_label = status or "ended"
     run_status = "cancelled" if status in {"stopped", "cancelled"} else "failed"
     base_summary = reason or f"Terminal {terminal_label} before an explicit reply was recorded."
-    # THE CONTRACT DECIDES THIS, NOT THE FLAG. `require_reply` defaults to 0 and `message_type` to
-    # 'request', so reading the flag alone tells a request -- which is owed a reply REGARDLESS of the
-    # flag -- that none was owed. That is the contract backwards, and it is what the first version of
-    # this did until `test_a_terminal_records_how_it_ended` refused it.
+    # THE STORED COLUMN IS ALREADY THE ANSWER, and re-deriving it was my mistake. `require_reply` is
+    # written by `_dispatch_requires_reply(req.requireReply, default=_message_type_expects_reply(...))`
+    # at creation, so the TYPE supplies a default only when the caller said nothing and an explicit
+    # `requireReply=false` survives. `reply_expectation.py` states it outright: collapsing the two
+    # "would lose the difference between 'did not ask' and 'asked for false'".
+    #
+    # A version of this re-derived from type and priority, which turned every explicit opt-out on a
+    # request back into an obligation -- exactly what that docstring forbids. It looked right because
+    # `test_a_terminal_records_how_it_ended` seeds a run by direct INSERT and gets the SCHEMA defaults
+    # (require_reply 0, message_type 'request'), which is not a row the product would ever write.
     # This closes EVERY claimed or running terminal run for the agent, which is right -- the terminal
     # died and none of them finished -- but 5 of the 16 runs carrying that sentence on the live database
     # had `require_reply = 0`, so they were told a reply was missing that nobody ever asked for.
     cursor = await db.execute(
         """
-        SELECT id, require_reply, message_type, priority
+        SELECT id, require_reply
         FROM dispatch_runs
         WHERE target_agent = ?
           AND dispatch_mode = 'terminal'
@@ -132,7 +137,7 @@ async def _close_active_terminal_runs_for_terminal(db, terminal, terminal_status
     )
     rows = await cursor.fetchall()
     owed_reply = {
-        str(row["id"] or ""): a_reply_is_owed(row["message_type"], row["require_reply"], row["priority"])
+        str(row["id"] or ""): bool(row["require_reply"])
         for row in rows if str(row["id"] or "")
     }
     run_ids = [str(row["id"] or "") for row in rows if str(row["id"] or "")]

@@ -142,37 +142,6 @@ def _message_satisfies_reply_contract(reply_type: str, subject: str = "", body: 
     return False
 
 
-#: The three clauses of the contract, as data, so the SQL above and the predicate below cannot drift
-#: into two different answers to one question.
-_TYPES_ALWAYS_OWED = ("request", "review", "error")
-_TYPES_NEVER_OWED_ON_PRIORITY = ("info", "response", "approval")
-_PRIORITIES_THAT_OWE = ("high", "urgent")
-
-
-def a_reply_is_owed(message_type: str = "", require_reply=0, priority: str = "") -> bool:
-    """Does this run owe a reply? The Python twin of the WHERE clause in `_contract_list_query`.
-
-    WHY A SECOND IMPLEMENTATION EXISTS AT ALL. The clause lives in a SQL string, and a caller holding
-    three column values in Python cannot ask it. `terminal_runs` needs exactly that: when a terminal
-    dies it stamps a reason on every open run, and the reason differs for a run that owed a reply.
-
-    WHY IT IS NOT THE FLAG. `require_reply` DEFAULTS TO 0 while `message_type` defaults to 'request',
-    so most rows inserted without an explicit flag are `request`/0 -- and a request is owed a reply
-    REGARDLESS of the flag. A first version of the terminal-death reason read the flag alone and told
-    a `request` that no reply was owed, which is the contract backwards. It shipped as far as the
-    suite, where `test_a_terminal_records_how_it_ended` caught it.
-
-    `test_the_reply_contract_rule_is_what_the_docstring_says` pins the SQL's clauses; the tuples above
-    are shared by both, so a change to one is a change to the other.
-    """
-    kind = str(message_type or "").strip().lower()
-    if str(require_reply or "").strip() in ("1", "True", "true") or require_reply == 1:
-        return True
-    if kind in _TYPES_ALWAYS_OWED:
-        return True
-    return str(priority or "").strip().lower() in _PRIORITIES_THAT_OWE and kind not in _TYPES_NEVER_OWED_ON_PRIORITY
-
-
 def _contract_list_query(
     *,
     where_sql: str = "",
