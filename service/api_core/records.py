@@ -23,6 +23,7 @@ from service.api_core.serialization import _json_loads_or
 from service.api_core.manual_status import _MANUAL_STATUSES
 from service.usage_cache import derive_usage_source, usage_get
 from service.env_status import environment_effective_status as _environment_effective_status
+from service.status_engine import NON_LIVE_AGENT_STATUSES
 import re
 
 from service.api_core.dispatch_text import (
@@ -272,7 +273,29 @@ def _status_with_dispatch(status: str, dispatch_state: Optional[dict[str, Any]])
     if not dispatch_state:
         return status
     active = dispatch_state.get("activeRun") or {}
-    if active.get("status") == "running" and status not in _MANUAL_STATUSES and status not in {"stale", "offline", "blocked"}:
+    # THE GUARD IS THE DECLARED PARTITION PLUS `blocked`, not a hand-listed set.
+    #
+    # It read `status not in {"stale", "offline", "blocked"}`, which has the same two faults as
+    # the analytics count fixed in 22e471f7: it names `stale`, a status this engine stopped
+    # producing ("no time-decay states, no `idle`, no `stale`"), and it omits `misconfigured` --
+    # an agent the contract defines as one that can never start. A misconfigured agent carrying
+    # a stale `running` dispatch row was promoted to `working` on the chip an operator reads.
+    #
+    # `blocked` stays excluded explicitly and is NOT a partition question: it is a LIVE status,
+    # a turn awaiting operator input. Promoting it to `working` would hide the fact that the
+    # agent is waiting on the person reading the chip.
+    #
+    # THE SET, NOT `is_live_agent_status`, and the difference is the EMPTY status. That predicate
+    # fails closed on '' because it answers "should this agent count toward the live fleet", and
+    # an agent that reported nothing is no evidence of a live worker -- counting it would inflate
+    # the utilization denominator. This site asks a different question: may a running run promote
+    # an UNKNOWN status? Yes -- the run is then the best evidence available, which is what the
+    # promotion exists to use. `test_status_with_dispatch.py` had that pinned and caught the
+    # conflation when this first reused the predicate.
+    if (active.get("status") == "running"
+            and status not in _MANUAL_STATUSES
+            and status not in NON_LIVE_AGENT_STATUSES
+            and status != "blocked"):
         return "working"
     return status
 

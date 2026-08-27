@@ -12,9 +12,11 @@
     `online` for the gap between delivery and the first event.
   * A MANUAL status outranks it. `stopped` is an operator's decision, and a run arriving afterwards
     must not quietly un-stop the agent in the UI.
-  * `stale`, `offline` and `blocked` outrank it too — all three describe the agent's ability to work
-    at all, and a run cannot argue with them. An offline agent showing `working` is the exact false
-    green the status engine exists to prevent.
+  * `offline`, `misconfigured` and `blocked` outrank it too — all three describe the agent's
+    ability to work at all, and a run cannot argue with them. An offline agent showing `working` is
+    the exact false green the status engine exists to prevent. The guard asks
+    `status_engine.is_live_agent_status` rather than a hand-written literal, so a fourth non-live
+    status added later is covered without anyone remembering this file.
 
 Every one of these fails silently: the wrong word appears on a dashboard, and a status-sorted list
 moves a row. Nothing raises.
@@ -29,7 +31,11 @@ from service.api_core.records import _status_with_dispatch
 # Statuses that describe an agent that CAN work, and so may be promoted.
 PROMOTABLE = ["online", "available", "idle", "working", ""]
 # Statuses that outrank a run: the agent cannot work, or an operator said so.
-PROTECTED = ["stale", "offline", "blocked", "stopped"]
+# `stale` is NOT here any more. It is not a canonical status -- the vocabulary says "no time-decay
+# states, no `idle`, no `stale`" -- and protecting it contradicted this file's own rule that an
+# unrecognised status IS promotable (see the last test). `misconfigured` takes its place, which is
+# the half of the drift below that the vocabulary settles outright.
+PROTECTED = ["offline", "blocked", "stopped", "misconfigured"]
 
 
 def state(status, **over):
@@ -93,39 +99,50 @@ def test_a_null_active_run_is_treated_as_absent_not_as_an_error():
     assert _status_with_dispatch("online", {"activeRun": None}) == "online"
 
 
-def test_the_protected_list_has_DRIFTED_from_the_canonical_vocabulary():
-    """CHARACTERIZATION OF A SUSPECTED DEFECT — pinned, reported, NOT fixed here.
+def test_the_protected_list_no_longer_DRIFTS_on_misconfigured():
+    """HALF OF A DEFERRED DECISION, RESOLVED. The other half is still open and still pinned below.
 
-    The guard is a hand-written literal, `status not in {"stale", "offline", "blocked"}`, and it has
-    drifted from `vocabulary.py` in both directions:
+    This was a characterization of a suspected defect: the guard was the hand-written literal
+    `status not in {"stale", "offline", "blocked"}`, which protected `stale` (not a canonical status
+    at all) and failed to protect `misconfigured` or `starting` (both canonical). It was left unfixed
+    because "the correct protected set is a design decision... and the reviewer is unreachable".
 
-      * it protects `stale`, which is NOT a canonical agent status at all;
-      * it does NOT protect `misconfigured` or `starting`, which ARE canonical and mean, in the
-        vocabulary's own words, "Identity exists but can never start" and "no worker YET".
+    `misconfigured` is now protected, and that half needed no judgement: the vocabulary defines it as
+    "Identity exists but can never start. Not send-recoverable; a human must fix the config." An
+    agent that can never start cannot be `working`, which the vocabulary defines as "Live worker, open
+    turn". The guard now asks `is_live_agent_status`, so this is settled by the partition rather than
+    by a list somebody has to maintain.
 
-    So a running dispatch row promotes both to `working` — defined as "Live worker, open turn". By
-    construction neither can have one: `status_engine.derive()` returns `working`/`online` FIRST when
-    `alive and worker_present`, so reaching `misconfigured` or `starting` means it already decided
-    there is no live worker. This promotion overrides that verdict using a raw dispatch_runs row,
-    which is the same weaker-authority-overrides-derive() shape the engine was built to end.
-
-    The visible consequences: an agent that can never start displays as `working`, and `send_preflight`
-    tells a sender "agent is working" — so they wait — when the true answer is that a human must fix
-    the config.
-
-    NOT FIXED HERE because the correct protected set is a design decision in a subsystem whose
-    docstring calls `derive()` the sole authority, and the reviewer is unreachable. This test pins
-    what the code does today so the fix is a deliberate flip with a visible diff.
+    The visible consequence that is now gone: an agent that can never start displayed as `working`,
+    and `send_preflight` told a sender "agent is working" -- so they waited -- when the true answer
+    was that a human must fix the config.
     """
     from service.api_core.vocabulary import AGENT_STATUSES
 
     assert "stale" not in AGENT_STATUSES, "if `stale` became canonical, this analysis needs redoing"
+    assert _status_with_dispatch("misconfigured", state("running")) == "misconfigured"
 
-    promoted = [s for s in AGENT_STATUSES if _status_with_dispatch(s, state("running")) != s]
-    assert promoted == ["online", "available", "starting", "misconfigured"], (
-        f"the promoted set changed to {promoted}. If `misconfigured`/`starting` were removed from it, "
-        "the suspected defect is FIXED and this test should become the positive assertion."
-    )
+
+def test_STARTING_is_still_promoted_and_that_half_is_still_OPEN():
+    """THE HALF NOT RESOLVED, pinned rather than decided quietly.
+
+    `starting` means, in the vocabulary's own words, "A claimed spawn is coming up; no worker YET. Do
+    NOT restart or re-send." Two readings, both defensible:
+
+      * PROTECT IT. `working` means "Live worker, open turn" and `starting` says there is no worker,
+        so the promotion asserts something the vocabulary denies. It also hides an instruction aimed
+        at the operator -- do not restart -- behind a word that suggests nothing is wrong.
+      * PROMOTE IT. The promotion exists so a just-delivered turn reads `working` before the bridge's
+        turn-start event lands, and `available` -- which ALSO has no worker ("Managed and
+        cold-startable, no worker. A send auto-starts it") -- is promoted for exactly that reason.
+        An agent being started BY this run is the case the feature was written for.
+
+    Unlike `misconfigured`, the vocabulary does not settle it: this is a choice about which word
+    serves an operator better during a bounded transient, and it should be made deliberately rather
+    than as a side effect of fixing the other half. Pinned here so the current behaviour is a
+    recorded state and a future flip is a visible diff.
+    """
+    assert _status_with_dispatch("starting", state("running")) == "working"
 
 
 def test_an_unknown_base_status_is_passed_through_rather_than_normalised():
