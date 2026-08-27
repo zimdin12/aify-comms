@@ -108,3 +108,41 @@ class TheReplyContractRuleIsWhatTheDocstringSays(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ThePythonTwinAgreesWithTheSql(unittest.TestCase):
+    """`a_reply_is_owed` answers the same question as the WHERE clause above, from Python values.
+
+    IT EXISTS BECAUSE THE CLAUSE IS A SQL STRING. `terminal_runs` holds three column values and has to
+    decide the same thing when it stamps a reason on a run whose terminal died; it cannot ask the
+    query. Two implementations of one rule is the divergence this repo keeps paying for, so the clause
+    lists live in `reply_contract` and BOTH read them.
+
+    These assertions check the predicate against the clause TEXT rather than against a second copy of
+    my own understanding: each name the SQL mentions must be a name the predicate agrees on.
+    """
+
+    def test_every_ALWAYS_OWED_type_in_the_sql_is_owed_by_the_predicate(self):
+        for kind in reply_contract._TYPES_ALWAYS_OWED:
+            self.assertIn(f"'{kind}'", OWED, f"the SQL no longer lists {kind} as always owed")
+            self.assertTrue(reply_contract.a_reply_is_owed(kind, 0, "normal"), kind)
+
+    def test_the_flag_alone_owes_a_reply(self):
+        self.assertTrue(reply_contract.a_reply_is_owed("response", 1, "normal"))
+
+    def test_a_type_the_sql_EXCLUDES_on_priority_is_not_owed_at_urgent(self):
+        for kind in reply_contract._TYPES_NEVER_OWED_ON_PRIORITY:
+            self.assertIn(f"'{kind}'", OWED, f"the SQL no longer excludes {kind} on priority")
+            self.assertFalse(reply_contract.a_reply_is_owed(kind, 0, "urgent"), kind)
+
+    def test_an_unlisted_type_at_a_HIGH_priority_is_owed(self):
+        """The third clause, which is the one a reader forgets: priority owes a reply for any type the
+        exclusion list does not name."""
+        for priority in reply_contract._PRIORITIES_THAT_OWE:
+            self.assertIn(f"'{priority}'", OWED)
+            self.assertTrue(reply_contract.a_reply_is_owed("question", 0, priority), priority)
+
+    def test_the_ordinary_case_owes_NOTHING(self):
+        """ANTI-VACUITY. A predicate returning True for everything would satisfy every assertion above."""
+        self.assertFalse(reply_contract.a_reply_is_owed("response", 0, "normal"))
+        self.assertFalse(reply_contract.a_reply_is_owed("info", 0, "normal"))

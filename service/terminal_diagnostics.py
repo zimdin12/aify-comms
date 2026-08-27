@@ -286,6 +286,33 @@ def richest_recording(streamed: str, replayed: str) -> tuple[str, str]:
     return "", ""
 
 
+#: The clause every sentence above ends with, and the honest replacement when no reply was owed.
+_REPLY_OWED_TAIL = "before an explicit reply was recorded."
+_NO_REPLY_OWED_TAIL = "before the run finished. No reply was owed."
+
+
+def without_reply_claim(summary: str) -> str:
+    """The same sentence, for a run whose sender did not ask for a reply.
+
+    WHY THIS EXISTS. `_close_active_terminal_runs_for_terminal` fails every claimed or running
+    terminal run for an agent whose terminal ended, and stamps ALL of them with the sentence above.
+    Failing them is right -- the terminal died mid-run and the work did not finish. Saying a reply was
+    missing is not, when the sender set `requireReply=false` and none was ever owed.
+
+    MEASURED on the live database 2026-08-27: 16 runs carry that sentence, and 5 of them have
+    `require_reply = 0` -- 3 `response` and 2 `info`. One was a message I had sent myself twenty
+    minutes earlier, and reading its failure sent me looking for a reply-contract defect that was not
+    there. A reason that names the wrong obligation costs a reader the same hour it cost me.
+
+    A sentence that does not end in the clause is returned unchanged: the caller may pass a diagnostic
+    built elsewhere, and rewriting a tail this does not recognise would corrupt it.
+    """
+    text = str(summary or "")
+    if not text.endswith(_REPLY_OWED_TAIL):
+        return text
+    return text[: -len(_REPLY_OWED_TAIL)] + _NO_REPLY_OWED_TAIL
+
+
 def terminal_end_summary(status: str, exit_code=None, exit_signal: str = "") -> str:
     """The sentence a requesting agent reads when a terminal ended under its run.
 
