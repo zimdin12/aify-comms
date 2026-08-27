@@ -328,11 +328,17 @@ did not move is `bootstrapEnvironmentBridge` (it registers the environment row),
 marker sweep and the managed-survivor reaper. The managed delivery loops are its children. That is why
 it is both useless and load-bearing, and why deleting it is a piece of work rather than an `rm`.
 
-**Its surface is 17 non-test files and 40 references**, held by
-`mcp/stdio/tests/the-environment-bridge-surface-only-shrinks.test.js`, which fails if a file that is
-not already coupled becomes coupled. It deliberately does NOT demand the deletion: a test that stays
-red until a multi-repo migration lands teaches everyone to skip it. The count can fall to zero one file
-at a time and cannot quietly rise.
+**Its EXPLICIT MARKER surface is 17 non-test files and 40 references**, held by
+`mcp/stdio/tests/the-environment-bridge-marker-surface-is-held.test.js`. Both halves are enforced: the
+file set, and a 40-reference ceiling. The ceiling exists because review caught this paragraph claiming
+a number nothing asserted -- a 41st marker inside an already-listed file passed the gate while the doc
+said the surface was held. Proven by mutation: appending one marker to `loop-gate.mjs` leaves the file
+set unchanged and the ceiling is the only assertion that fires.
+
+It deliberately does NOT demand the deletion; a test red until a multi-repo migration lands teaches
+everyone to skip it. And it is LEXICAL, so it cannot see a module `server.js` imports that is
+load-bearing without spelling a marker, nor transitive coupling. A structural census rooted at the boot
+block would; that belongs in the deletion plan, where the dependency graph gets walked anyway.
 
 **A live instance is the failure mode, not a hypothetical.** On the operator's host one had been
 running since 2026-08-25T04:53 while three days of bridge fixes sat installed and unexecuted — the
@@ -340,3 +346,33 @@ AGENT column stayed blank because the process predated the line that sends a lab
 `CLAUDE_CODE_CHILD_SESSION` kept leaking because `child-env-hygiene.mjs` did not exist when it booted.
 Restarting aify-env does not touch it. Nothing in the fleet's normal operation ever restarts it, and
 no check says how old it is except `bridge-current`, which reports a sha and not an age.
+
+### Where the pieces go when it is deleted — reviewer ruling, 2026-08-27
+
+The question that blocked this was where `bootstrapEnvironmentBridge` and the managed delivery loops
+land: aify-env owns processes and PTYs but explicitly does not do agent semantics, and the service owns
+agent semantics but has no host presence. The ruling is that neither should absorb the other's job —
+**the unresolved split is a missing layer, not a missing owner.**
+
+**A service-owned host adapter.** Not a user-facing PATH command, and not an independently
+operator-launched daemon — those two properties are what made the current bridge dangerous. aify-env
+supervises and starts it from the service registry; the code stays owned and versioned by aify-comms
+and talks to both the service and loopback aify-env.
+
+Into the adapter, because they are service semantics performed on a host: `bootstrapEnvironmentBridge`
+translation, the environment heartbeat, environment-control claim, managed-state sync, spawn and
+control claim coordination, and usage reporting.
+
+Out of it: runtime-specific managed delivery belongs in the per-agent managed host processes it already
+lives in, launched and owned by aify-env directly — the adapter coordinates claims and asks aify-env to
+start or stop, and must not become a second process-tree owner, which is the collision the tier exists
+to end. Generic physical process and PTY orphan cleanup moves to aify-env, which already has the
+owned-process record and reaper for it; service-specific marker and session reconciliation stays on the
+aify-comms side rather than being copied wholesale across the boundary.
+
+**Acceptance criterion for the deletion**, which is narrower than "no host-side aify-comms code": no
+`aify-comms` launcher on PATH; no unsupervised long-lived environment bridge; aify-env the sole
+physical process and PTY owner; the aify-comms service and adapter the sole agent-semantic owner; and
+the adapter's restart, version and age observable and coupled to aify-env's lifecycle. That last clause
+is the one today's incident argues for — the current bridge ran three days behind with nothing
+reporting its age.

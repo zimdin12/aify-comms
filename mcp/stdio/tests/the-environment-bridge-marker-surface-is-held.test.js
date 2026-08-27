@@ -27,6 +27,21 @@
 // the count can fall to zero one file at a time and cannot quietly rise. A new `IS_ENVIRONMENT_BRIDGE`
 // site is then a decision someone makes on purpose, in a repo where the plan of record is to remove
 // the last one.
+//
+// WHAT THIS GATE CANNOT SEE, stated because the earlier phrasing -- "the surface only shrinks" --
+// claimed more than a text search can deliver, and a reviewer said so on 2026-08-27. This is the
+// EXPLICIT MARKER surface: the three literals above, nothing else.
+//
+//   * A module `server.js` imports can be load-bearing for environment-bridge behaviour without
+//     spelling any marker. It passes.
+//   * TRANSITIVE coupling is invisible: a file reached only through a coupled one is not counted.
+//   * Growth is not forbidden, only silenced -- adding a file and listing it here in the same commit
+//     passes, on purpose, so the decision is recorded rather than blocked.
+//
+// A structural census rooted at the environment-bridge boot block would catch the first two. That
+// belongs in the deletion plan, where the dependency graph has to be walked anyway; a lexical gate
+// bought cheaply today is worth more than a structural one deferred, provided it does not pretend to
+// be the structural one.
 
 import test from "node:test";
 import assert from "node:assert";
@@ -77,11 +92,27 @@ function bridgeSources(dir = STDIO, out = []) {
   return out;
 }
 
+//: Total marker occurrences across those files. Measured 2026-08-27.
+//:
+//: THE FILE LIST ALONE DID NOT HOLD THIS. Until the ceiling below existed, a 41st marker inside an
+//: already-listed file passed the gate while the doc claimed a 17-file / 40-reference surface was
+//: held -- a number stated in prose and enforced nowhere, which is the failure this repo keeps
+//: rediscovering. Raising it is a decision to write down, not a way to make a red test green.
+const REFERENCE_CEILING = 40;
+
 const FILES = bridgeSources();
-const COUPLED_NOW = FILES
-  .filter((f) => MARKERS.some((m) => m.test(fs.readFileSync(f, "utf8"))))
-  .map((f) => path.relative(STDIO, f).split(path.sep).join("/"))
-  .sort();
+
+function markerCount(text) {
+  let n = 0;
+  for (const m of MARKERS) n += (text.match(new RegExp(m.source, "g")) || []).length;
+  return n;
+}
+
+const COUNTS = new Map(
+  FILES.map((f) => [path.relative(STDIO, f).split(path.sep).join("/"), markerCount(fs.readFileSync(f, "utf8"))]),
+);
+const COUPLED_NOW = [...COUNTS].filter(([, n]) => n > 0).map(([f]) => f).sort();
+const REFERENCES_NOW = [...COUNTS.values()].reduce((a, b) => a + b, 0);
 
 test("the scan can see the bridge at all", () => {
   // POSITIVE CONTROL. A walk that found nothing would make every assertion below pass on empty sets.
@@ -107,6 +138,15 @@ test("nothing NEW is coupled to the command being retired", () => {
     `${JSON.stringify(added)} newly depend on the environment-bridge command. Phase 8's gate is that ` +
       "this command stops existing -- a new coupling site moves it further away. Put the behaviour in " +
       "aify-env (it owns processes and PTYs on this host) or in the service (it owns agent semantics).",
+  );
+});
+
+test("the reference count does not creep inside the files already listed", () => {
+  assert.ok(
+    REFERENCES_NOW <= REFERENCE_CEILING,
+    `${REFERENCES_NOW} marker references, ceiling ${REFERENCE_CEILING}. The file list cannot see this: ` +
+      "adding responsibility to a file that is ALREADY coupled leaves the set unchanged. Lower the " +
+      "ceiling as references leave; raising it is a decision, not a repair.",
   );
 });
 
