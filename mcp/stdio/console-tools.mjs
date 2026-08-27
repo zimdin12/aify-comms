@@ -86,11 +86,38 @@ export async function commsConsoleInputHandler({ agentId, text, enter, from }, {
   if (!IS_REMOTE) {
     return { content: [{ type: "text", text: "Console input is only available in remote server mode." }], isError: true };
   }
+  // NO CALLER IDENTITY, NO CALL -- and say so here rather than letting the server say it.
+  //
+  // The endpoint requires `from` and 400s without it, then 403s if it is not a REGISTERED
+  // agent. Both are right: writing keystrokes into another agent's live console is the
+  // privileged half of this pair, and `comms_console_tail` is an ungated GET precisely because
+  // reading is not.
+  //
+  // But `from` is stamped by the bridge from AIFY_AGENT_ID and is deliberately NOT a tool
+  // parameter -- exposing it would let any caller name any agent as the requester. So an
+  // id-less session (an unregistered plain session is legitimately id-less) got
+  // `console input requires a `from` caller` back from the server: an error naming a field it
+  // has no way to provide, through a schema that does not offer it. Reported as "the tool is
+  // uncallable through MCP because its schema omits what the server requires", and the schema
+  // is correct -- the message was the problem.
+  const caller = String(from || AIFY_AGENT_ID || "").trim();
+  if (!caller) {
+    return {
+      content: [{
+        type: "text",
+        text: "Console input needs a registered agent identity to attribute it to, and this"
+          + " session has none (AIFY_AGENT_ID is unset). Register with comms_register first, or"
+          + " run through a wrapper that sets it. Reading is unaffected: comms_console_tail"
+          + " needs no identity.",
+      }],
+      isError: true,
+    };
+  }
   try {
     const r = await call("POST", `/agents/${encodeURIComponent(agentId)}/console/input`, {
       text: text || "",
       enter: enter === undefined ? true : !!enter,
-      from: from || AIFY_AGENT_ID || "",
+      from: caller,
     });
     if (!r.ok) {
       return { content: [{ type: "text", text: r.message || `Could not send input to ${agentId}.` }], isError: true };
