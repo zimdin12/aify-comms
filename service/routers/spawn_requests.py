@@ -148,7 +148,11 @@ async def list_spawn_requests(
                 f"SELECT * FROM spawn_specs WHERE id IN ({placeholders})", unique,
             )
             for spec_row in await spec_cursor.fetchall():
-                specs[spec_row["id"]] = _spawn_spec_to_dict(spec_row)
+                # WITHOUT THE INSTRUCTIONS BODY. It is 34.2% of this endpoint and 21.2% of the
+                # dashboard's whole refresh bundle, and the only spawnSpec field any consumer of
+                # this list reads is `metadata`. The claim path still carries it, which is where
+                # the bridge gets the prompt from.
+                specs[spec_row["id"]] = _spawn_spec_to_dict(spec_row, include_instructions=False)
         result = []
         for row in rows:
             result.append(_spawn_request_to_dict(row, specs.get(row["spawn_spec_id"])))

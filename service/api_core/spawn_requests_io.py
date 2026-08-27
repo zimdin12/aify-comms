@@ -61,8 +61,24 @@ def _spawn_request_to_dict(row, spec: Optional[dict[str, Any]] = None) -> dict[s
     return payload
 
 
-def _spawn_spec_to_dict(row) -> dict[str, Any]:
-    return {
+def _spawn_spec_to_dict(row, *, include_instructions: bool = True) -> dict[str, Any]:
+    """The spawn spec as the wire carries it.
+
+    `include_instructions=False` OMITS the standing-instructions body. MEASURED against the live
+    service on 2026-08-27: `GET /spawn-requests` returns 100 rows totalling 262,547 bytes, of which
+    `spawnSpec.instructions` is 89,790 -- 34.2% of that endpoint and 21.2% of the dashboard's whole
+    424,152-byte refresh bundle, which the list is 58.4% of. Nothing on that path reads it: the only
+    consumer of a spawnSpec in the dashboard is `spawnRecordLineage`, which reads `metadata`.
+
+    IT IS OMITTED, NOT BLANKED. Sending "" would state that the agent has no standing instructions,
+    which is false; an absent key says the list did not carry them. Same rule the quota tool follows
+    for a missing percentage -- no evidence is not a zero.
+
+    The default is unchanged, so the claim and update paths -- which the BRIDGE reads, at
+    `spawn-loop.mjs:113`, to build the agent's prompt -- are untouched. They come through
+    `POST /spawn-requests/claim` and the PATCH handler, not through the list.
+    """
+    spec: dict[str, Any] = {
         "id": row["id"],
         "agentId": row["agent_id"],
         "environmentId": row["environment_id"],
@@ -82,6 +98,10 @@ def _spawn_spec_to_dict(row) -> dict[str, Any]:
         "createdAt": row["created_at"] or "",
         "updatedAt": row["updated_at"] or "",
     }
+    if not include_instructions:
+        spec.pop("instructions", None)
+    return spec
+
 
 async def _claim_spawn_request_once(req: SpawnRequestClaim, request: Request):
     db = await get_db(busy_timeout_ms=SQLITE_CLAIM_BUSY_TIMEOUT_MS)
