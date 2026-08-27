@@ -130,12 +130,28 @@ class GithubCompareCallTests(GitHubCompareTestCase):
         setUp stops substituting and the suite starts making real requests to the internet."""
         self.assertTrue(self._saved_template.startswith(GITHUB_ORIGIN + "/repos/"))
 
-    def test_the_running_sha_is_compared_AGAINST_main(self):
-        """`{sha}...main` asks how far the running build is BEHIND main. Reversed, `behind_by` and
-        `ahead_by` trade places and a stale container reports itself current."""
+    def test_the_running_sha_is_the_HEAD_of_the_compare(self):
+        """The running build must be the SUBJECT, which means the head side.
+
+        This test used to assert the opposite -- `{sha}...main` -- on the stated reasoning that it
+        "asks how far the running build is BEHIND main". It does not. GitHub reports `ahead_by` /
+        `behind_by` / `status` about HEAD relative to BASE, so that URL asked about MAIN and
+        answered under field names this module reads as describing the running build.
+
+        The reasoning was never checked against the API, and COMPARE_PAYLOAD below -- hand-written
+        to match the belief -- is a correct payload for THIS direction, not the one the URL used.
+        A fabricated fixture agreeing with a wrong URL is why every test here passed while the
+        shipped check reported a 150-commit-stale container as current.
+
+        MEASURED against the real API on 2026-08-27, running build 1a3de61a:
+            compare/1a3de61a...main  ->  status ahead,  ahead_by 150, behind_by 0
+            compare/main...1a3de61a  ->  status behind, ahead_by 0,   behind_by 150
+        git, independently: 150 behind, 0 ahead."""
         health._github_compare(KNOWN_SHA)
         path = self.github.requests[0]["path"]
-        self.assertTrue(path.endswith(f"/compare/{KNOWN_SHA}...main"), path)
+        self.assertTrue(path.endswith(f"/compare/main...{KNOWN_SHA}"), path)
+        self.assertNotIn(f"/compare/{KNOWN_SHA}...main", path,
+                         "the running build is the BASE again, so behind_by describes main")
 
     def test_the_repo_in_the_url_is_this_one(self):
         health._github_compare(KNOWN_SHA)

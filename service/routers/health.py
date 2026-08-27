@@ -19,7 +19,23 @@ logger = logging.getLogger(__name__)
 # GitHub compare endpoint. Surfaces "N commits behind origin/main" as a WARNING
 # (the container has no .git / docker socket to rebuild itself — see the
 # version-awareness plan). 60 req/hr unauth limit, so the result is cached.
-_GITHUB_COMPARE_URL = "https://api.github.com/repos/zimdin12/aify-comms/compare/{sha}...main"
+# THE RUNNING BUILD IS THE HEAD, and that is the whole subject of this check.
+#
+# GitHub's `compare/BASE...HEAD` reports `ahead_by` / `behind_by` / `status` about HEAD,
+# relative to BASE. This asked for `{sha}...main`, which makes MAIN the subject -- so the
+# answer described how far main was ahead of us, under field names every consumer here reads
+# as describing the running build.
+#
+# MEASURED against the real API on 2026-08-27, on a container 150 commits stale:
+#
+#     compare/1a3de61a...main   ->  status ahead,   ahead_by 150, behind_by 0
+#     compare/main...1a3de61a   ->  status behind,  ahead_by 0,   behind_by 150
+#
+# git agreed independently: 150 commits behind, 0 ahead. So `behind_by` was structurally
+# pinned at 0 for a stale build -- the one number this check exists to produce could never be
+# non-zero, and the dashboard badge read it and printed 'up to date with origin' on a service
+# 150 commits old. The number was right the whole time and the noun was wrong.
+_GITHUB_COMPARE_URL = "https://api.github.com/repos/zimdin12/aify-comms/compare/main...{sha}"
 _UPDATE_TTL_SECONDS = 20 * 60  # ~20 min
 
 # Module-level cache + injectable comparer (the test swaps in a stub so it never
