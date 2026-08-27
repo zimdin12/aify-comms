@@ -316,3 +316,27 @@ through the delegated path, and it exited 0.
 
 The `aify-comms` command still exists as the environment bridge. Deleting it is the last step of the
 tier, and it is not the flip.
+
+The operator asked, on 2026-08-27, what the aify-comms environment bridge even is — which is the right
+question to ask of a component the architecture says was deleted. So here is what is left of it,
+measured that day rather than remembered.
+
+**It is a relay that still owns identity.** After Phase 8 it stopped doing the work: `ensureSpawnLoop`
+and `ensureTerminalControlLoop` forward to aify-env, which spawns the process and owns the PTY. What
+did not move is `bootstrapEnvironmentBridge` (it registers the environment row), `heartbeatEnvironment`
+(liveness and managed sync), `ensureUsageCollector`, `ensureEnvironmentControlLoop`, plus the boot
+marker sweep and the managed-survivor reaper. The managed delivery loops are its children. That is why
+it is both useless and load-bearing, and why deleting it is a piece of work rather than an `rm`.
+
+**Its surface is 17 non-test files and 40 references**, held by
+`mcp/stdio/tests/the-environment-bridge-surface-only-shrinks.test.js`, which fails if a file that is
+not already coupled becomes coupled. It deliberately does NOT demand the deletion: a test that stays
+red until a multi-repo migration lands teaches everyone to skip it. The count can fall to zero one file
+at a time and cannot quietly rise.
+
+**A live instance is the failure mode, not a hypothetical.** On the operator's host one had been
+running since 2026-08-25T04:53 while three days of bridge fixes sat installed and unexecuted — the
+AGENT column stayed blank because the process predated the line that sends a label, and
+`CLAUDE_CODE_CHILD_SESSION` kept leaking because `child-env-hygiene.mjs` did not exist when it booted.
+Restarting aify-env does not touch it. Nothing in the fleet's normal operation ever restarts it, and
+no check says how old it is except `bridge-current`, which reports a sha and not an age.
