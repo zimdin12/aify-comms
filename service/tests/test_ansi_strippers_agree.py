@@ -94,5 +94,122 @@ class TheTwoAnsiStrippersAgree(unittest.TestCase):
         )
 
 
+#: One per class of byte the CONTROL-CHARACTER stripper decides about. Built with chr() rather than
+#: written as escapes, because an escape typed into this file is one more thing that can be wrong in
+#: the same way the pattern can.
+CTRL_CASES = {
+    "NUL": "a" + chr(0) + "b",
+    "backspace": "a" + chr(8) + "b",
+    "vertical tab": "a" + chr(11) + "b",
+    "form feed": "a" + chr(12) + "b",
+    "shift out": "a" + chr(14) + "b",
+    "unit separator": "a" + chr(31) + "b",
+    "DEL": "a" + chr(127) + "b",
+    "TAB is LAYOUT, not noise": "a" + chr(9) + "b",
+    "LF is LAYOUT": "a" + chr(10) + "b",
+    "CR is LAYOUT": "a" + chr(13) + "b",
+    "plain text": "nothing to strip here",
+}
+
+#: The three the class deliberately does NOT match: they are a terminal line's layout, and stripping
+#: them would join lines a reader needs kept apart.
+LAYOUT_BYTES = (chr(9), chr(10), chr(13))
+
+
+class TheTwoControlCharStrippersAgree(unittest.TestCase):
+    """The OTHER half of "make terminal output plain text", which had no agreement test at all.
+
+    `_ANSI_RE` got one because prose claiming the two copies matched turned out to be false, and it
+    mattered: `terminal_diagnostics` produces the one-line explanation of why a terminal died, read by
+    operators and by other agents. The control-character class sits in the same two files, does the
+    same job on the same text, and nothing compared it -- the identical gap, one line further down.
+
+    It was written out inline at FOUR sites. Three now import the named constant from `terminal_text`;
+    `terminal_diagnostics` keeps its own because a service leaf may not import api_core
+    (test_leaves_do_not_import_the_carrier.py), which is exactly the condition that makes an agreement
+    test the answer here rather than a refactor.
+    """
+
+    def test_both_patterns_strip_every_case_identically(self):
+        disagreements = []
+        for name, raw in CTRL_CASES.items():
+            left = diagnostics._CTRL_RE.sub("", raw)
+            right = terminal_text._CTRL_RE.sub("", raw)
+            if left != right:
+                disagreements.append(f"  {name}: diagnostics={left!r} terminal_text={right!r}")
+        self.assertEqual(
+            disagreements, [],
+            "the two control-character strippers disagree, and they are separate copies because a "
+            "service leaf may not import api_core -- which makes this test the only thing keeping "
+            "them equal:",
+            *disagreements,
+        )
+
+    def test_NEITHER_leaves_a_control_byte_behind(self):
+        """Two patterns can agree by being equally wrong, so the property is asserted directly."""
+        for name, raw in CTRL_CASES.items():
+            with self.subTest(case=name):
+                for label, pattern in (("diagnostics", diagnostics._CTRL_RE),
+                                       ("terminal_text", terminal_text._CTRL_RE)):
+                    stripped = pattern.sub("", raw)
+                    leftover = [
+                        c for c in stripped
+                        if (ord(c) < 32 and c not in LAYOUT_BYTES) or ord(c) == 127
+                    ]
+                    self.assertEqual(
+                        leftover, [],
+                        f"{label} left {leftover!r} in {name}. This text reaches an operator's screen.",
+                    )
+
+    def test_LAYOUT_bytes_SURVIVE_both(self):
+        """ANTI-VACUITY, and the case most likely to be got wrong by widening the class. A stripper
+        that removed newlines would pass every agreement check above while running a dying terminal's
+        last lines together into one."""
+        for name in ("TAB is LAYOUT, not noise", "LF is LAYOUT", "CR is LAYOUT"):
+            raw = CTRL_CASES[name]
+            self.assertEqual(diagnostics._CTRL_RE.sub("", raw), raw, name)
+            self.assertEqual(terminal_text._CTRL_RE.sub("", raw), raw, name)
+
+    def test_the_visible_text_SURVIVES(self):
+        """A pattern that deleted everything would satisfy equality and emptiness both."""
+        self.assertEqual(diagnostics._CTRL_RE.sub("", CTRL_CASES["NUL"]), "ab")
+        self.assertEqual(terminal_text._CTRL_RE.sub("", CTRL_CASES["NUL"]), "ab")
+        self.assertEqual(terminal_text._CTRL_RE.sub("", CTRL_CASES["plain text"]), "nothing to strip here")
+
+    def test_the_two_patterns_are_literally_the_same(self):
+        self.assertEqual(
+            diagnostics._CTRL_RE.pattern, terminal_text._CTRL_RE.pattern,
+            "the two copies have drifted; the behavioural test above names the cases affected",
+        )
+
+    def test_the_class_is_NOT_written_out_inline_anywhere_else(self):
+        """It was, at four sites. Three of them could import the constant and now do; a fourth copy
+        appearing is how this stops being two-copies-with-a-test and becomes four-copies-with-a-test
+        that only covers two of them.
+
+        MATCHED ON THE EXACT CLASS, not on a prefix. The first version searched for the opening
+        `x00-` and so also flagged `serialization.py`, whose `[\\x00-\\x1f\\x7f]+` is a DIFFERENT class
+        answering a different question -- it INCLUDES CR, LF and TAB because it collapses them to a
+        space when quoting an untrusted subject, so a newline cannot break the value onto its own
+        line. Two classes that look alike and must NOT be unified is exactly the case a prefix
+        match gets wrong."""
+        import pathlib
+
+        governed = terminal_text._CTRL_RE.pattern
+        root = pathlib.Path(__file__).resolve().parent.parent
+        skip = {"tests", "__pycache__"}
+        carriers = []
+        for path in root.rglob("*.py"):
+            if any(part in skip for part in path.parts):
+                continue
+            if governed in path.read_text(encoding="utf-8", errors="replace"):
+                carriers.append(path.name)
+        self.assertEqual(
+            sorted(carriers), ["terminal_diagnostics.py", "terminal_text.py"],
+            "the control-character class must live only in the two files this test compares; "
+            f"found it in: {sorted(carriers)}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

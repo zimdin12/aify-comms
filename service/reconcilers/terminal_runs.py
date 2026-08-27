@@ -25,7 +25,7 @@ from service.api_core.runtime import _normalize_runtime  # v0.5.1e: the leaf own
 from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
 from service.api_core.events import _append_terminal_event
 from service.api_core.agent_sessions import _current_agent_session_row
-from service.api_core.terminal_text import _ANSI_RE, _terminal_awaiting_input_hint
+from service.api_core.terminal_text import _ANSI_RE, _CTRL_RE, _terminal_awaiting_input_hint
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 def _terminal_idle_prompt_hint(output: str) -> str:
     clean = _ANSI_RE.sub("", str(output or ""))
-    clean = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", clean)
+    clean = _CTRL_RE.sub("", clean)
     tail = clean[-3000:].strip()
     if not tail or _terminal_awaiting_input_hint(tail):
         return ""
@@ -76,7 +76,7 @@ def _terminal_pi_idle_prompt_hint(output: str) -> str:
     runtime returned to ready state without a structured reply event.
     """
     clean = _ANSI_RE.sub("", str(output or ""))
-    clean = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", clean)
+    clean = _CTRL_RE.sub("", clean)
     tail = clean[-3000:]
     if not tail:
         return ""

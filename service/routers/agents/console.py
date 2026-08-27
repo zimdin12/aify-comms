@@ -7,7 +7,7 @@ declares NO tags — the parent applies `tags=["api"]` once when api_v2 includes
 from __future__ import annotations
 
 from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
-from service.api_core.terminal_text import _ANSI_RE
+from service.api_core.terminal_text import _ANSI_RE, _CTRL_RE
 import asyncio
 import json
 import logging
@@ -236,7 +236,7 @@ async def get_agent_console(agent_id: str, lines: int = 40):
             except Exception:
                 screen_output = full_output
         clean = _ANSI_RE.sub("", screen_output)
-        clean = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", clean)
+        clean = _CTRL_RE.sub("", clean)
         screen_lines = clean.splitlines()
         while screen_lines and not screen_lines[-1].strip():
             screen_lines.pop()

@@ -54,6 +54,17 @@ _ANSI_RE = re.compile(
     r"\x1b[=>]"
 )
 
+#: The control characters that must not reach a screen or a log, as a NAMED constant beside
+#: `_ANSI_RE` -- the other half of "make terminal output plain text". This class was written out
+#: inline at four sites and compared by nothing. `_ANSI_RE` has an agreement test
+#: (test_ansi_strippers_agree.py) precisely because prose claiming two copies matched turned out
+#: to be false; the same claim about this class was equally unchecked.
+#:
+#: TAB, LF and CR are deliberately absent from the class: they are the layout a terminal line
+#: depends on, and stripping them would join lines a reader needs kept apart.
+_CTRL_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]")
+
+
 _CLAUDE_WORKING_FOOTER_RE = re.compile(
     r"[✱✶✽✺✹✷✵✳✢✻][^\n]*esc to interrupt"
     r"|[✱✶✽✺✹✷✵✳✢✻]\s+\S+\s+for\s+\d+\s*[hms]\b",
@@ -68,7 +79,7 @@ def _terminal_text_compact(text: str) -> str:
 
 def _terminal_awaiting_input_hint(output: str) -> str:
     clean = _ANSI_RE.sub("", str(output or ""))
-    clean = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", clean)
+    clean = _CTRL_RE.sub("", clean)
     tail = clean[-2000:].strip()
     if not tail:
         return ""
