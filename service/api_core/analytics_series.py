@@ -17,6 +17,7 @@ from typing import Any
 from service.api_core.serialization import _iso_from_ms
 from service.api_core.managed_env import load_session_environment_by_agent
 from service.api_core.status_refresh import _compute_agent_status
+from service.status_engine import is_live_agent_status
 
 async def _fleet_median_reply_minutes(db, run_where, run_params):
     """Median reply latency in minutes across completed required-reply runs, or None.
@@ -270,7 +271,10 @@ async def _build_online_agent_board(
                 session_environment_by_agent=session_environment_by_agent,
                 agent_row=row,
             )
-            if status.startswith("offline") or status.startswith("stopped"):
+            # THROUGH THE DECLARED PARTITION, not an inline two-name check. That check counted a
+            # MISCONFIGURED agent as live -- an agent the contract defines as one that can never
+            # start -- and `online_count` is the denominator of fleet utilization below.
+            if not is_live_agent_status(status):
                 continue
             online_count += 1
             aid = row["id"]

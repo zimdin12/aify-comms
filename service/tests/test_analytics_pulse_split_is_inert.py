@@ -77,7 +77,23 @@ _BOARD_LOOP_WAS = chr(10).join([
     '            status = await _compute_agent_status(row, db)',
 ]) + chr(10)
 
-EDITED_SINCE = [(_BOARD_LOOP_NOW, _BOARD_LOOP_WAS)]
+# 2026-08-27: the live-fleet filter moved from an inline two-name rule to the declared partition.
+# The inline one counted a MISCONFIGURED agent as live -- an agent the contract defines as one
+# that can never start -- and `online_count` is the denominator of fleet utilization.
+_LIVE_FILTER_NOW = chr(10).join([
+    '            # THROUGH THE DECLARED PARTITION, not an inline two-name check. That check counted a',
+    '            # MISCONFIGURED agent as live -- an agent the contract defines as one that can never',
+    '            # start -- and `online_count` is the denominator of fleet utilization below.',
+    '            if not is_live_agent_status(status):',
+    '                continue',
+]) + chr(10)
+
+_LIVE_FILTER_WAS = chr(10).join([
+    '            if status.startswith("offline") or status.startswith("stopped"):',
+    '                continue',
+]) + chr(10)
+
+EDITED_SINCE = [(_BOARD_LOOP_NOW, _BOARD_LOOP_WAS), (_LIVE_FILTER_NOW, _LIVE_FILTER_WAS)]
 EXTRACTIONS = ["_build_online_agent_board"]
 OWNERS = {"_build_online_agent_board": SERIES}
 

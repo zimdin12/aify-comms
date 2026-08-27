@@ -81,7 +81,7 @@ from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
 from service.env_status import ENVIRONMENT_STATUSES
 from service.ntfy import NOTIFIABLE_EVENTS
 from service.runtimes.base import HANDLE_PLACEHOLDERS, MODEL_PLACEHOLDERS
-from service.status_engine import VALID_STATUSES
+from service.status_engine import NON_LIVE_AGENT_STATUSES, VALID_STATUSES
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 PRUNE = {"node_modules", "fixtures", "__pycache__", ".git", ".venv", "tests"}
@@ -92,6 +92,7 @@ PRUNE = {"node_modules", "fixtures", "__pycache__", ".git", ".venv", "tests"}
 OWNERS: dict[str, frozenset] = {
     "NOTIFIABLE_EVENTS": frozenset(NOTIFIABLE_EVENTS),
     "VALID_STATUSES": frozenset(VALID_STATUSES),
+    "NON_LIVE_AGENT_STATUSES": frozenset(NON_LIVE_AGENT_STATUSES),
     "_DISPATCH_TERMINAL_STATUSES": frozenset(_DISPATCH_TERMINAL_STATUSES),
     "_LIVE_SESSION_STATUSES": frozenset(_LIVE_SESSION_STATUSES),
     "_NATIVE_MANAGED_RUNTIMES": frozenset(_NATIVE_MANAGED_RUNTIMES),
@@ -125,6 +126,12 @@ EXACT_TWINS: dict[tuple[str, str], list[str]] = {
     ("service/new_dashboard/notify.mjs", "NOTIFIABLE_EVENTS"): ["NOTIFIABLE_EVENTS"],
     ("service/new_dashboard/run-inspector-controls.mjs", "terminal"): ["_DISPATCH_TERMINAL_STATUSES"],
     ("service/new_dashboard/status.js", "AGENT_STATUSES"): ["VALID_STATUSES"],
+    # ARRIVED THE SAME WAY `ENV_KNOWN_STATES` DID, and the note above is the precedent. The live/
+    # non-live partition had NO Python owner: `status.js` declared these three, and the analytics
+    # board counted the live fleet inline as "not offline and not stopped" -- so a MISCONFIGURED
+    # agent, which the contract defines as one that can never start, was counted as live AND put in
+    # the denominator of fleet utilization. Declaring `NON_LIVE_AGENT_STATUSES` made it bindable.
+    ("service/new_dashboard/status.js", "NON_LIVE_AGENT_STATUSES"): ["NON_LIVE_AGENT_STATUSES"],
     # AMBIGUOUS. `ENDED_AGENT_SESSION_STATUSES`, `_TERMINAL_END_STATUSES`,
     # `_SESSION_DELETE_ALLOWED_STATUSES` and `_TERMINAL_DELETE_ALLOWED_STATUSES` all hold these six.
     # Which one the console chooser is copying is not derivable from the values.
