@@ -957,6 +957,53 @@ the trade-off.
 
 ## Worth doing, needs an operator decision
 
+### The Work Loop re-enrols runs whose sender explicitly opted out of a reply
+
+TWO PLACES ANSWER "IS A REPLY OWED" AND THEY DISAGREE. The send path normalises once, at creation:
+`_dispatch_requires_reply(req.requireReply, default=_message_type_expects_reply(req.type))`, so the
+message TYPE supplies a default only when the caller said nothing and an explicit `requireReply=false`
+survives into `dispatch_runs.require_reply`. `mcp/stdio/send-tools.mjs` documents that false as
+intentional fire-and-forget for exactly `request`/`review`/`error`. `reply_expectation.py` states the
+reason: collapsing the two "would lose the difference between 'did not ask' and 'asked for false'".
+
+`_contract_list_query` then re-derives obligation from type and priority anyway:
+
+    r.require_reply = 1
+    OR r.message_type IN ('request','review','error')
+    OR (r.priority IN ('high','urgent') AND r.message_type NOT IN ('info','response','approval'))
+
+So a sender who deliberately opted out is enrolled in the Work Loop and chased for a reply. The tool
+promises one thing and the reminder machinery does another.
+
+CENSUSED 2026-08-27 on the live database, because the size of the change is the whole question. Runs
+selected ONLY by the legacy clauses -- `require_reply = 0` and pulled in by type or priority:
+
+| type | priority | status | runs |
+|---|---|---|---|
+| error | normal | completed | 68 |
+| error | urgent | completed | 29 |
+| error | high | completed | 24 |
+| request | normal | completed | 17 |
+| request | high | completed | 8 |
+| review | high | completed | 8 |
+| request | normal | failed | 1 |
+
+**155 in total, spanning 2026-06-02 to 2026-08-26, and ZERO still open.** That is the number that
+decides how this is done: narrowing the clause to `r.require_reply = 1` changes nothing live today.
+There is no reminder in flight to cancel and no queue to drain, so the migration risk dev was right to
+raise does not currently exist. It is a policy ruling, not a data problem — and it will stop being free
+the moment an opted-out `error` run is open, which the table above says happens routinely.
+
+`error` is 121 of the 155, so the practical question is concrete: **should an `error` sent with
+`requireReply=false` be chased for a reply?** The send contract says no. The Work Loop says yes.
+
+NOT CHANGED, deliberately. It is the operator's ruling on what the Work Loop is for, and a
+one-character SQL edit would flip a user-visible behaviour on a live fleet without anyone deciding it.
+Provenance for legacy rows is not recoverable — `require_reply = 0` cannot distinguish "asked for
+false" from "omitted before the normalisation existed" — so if the ruling needs that distinction it has
+to be declared as typed absence rather than inferred.
+
+
 **Five attribution columns a rename leaves pointing at a tombstoned name -- newly VISIBLE, and the
 ruling is yours.** `test_agent_rename_covers_every_agent_reference.py` claims completeness over agent
 references and measured them with a hardcoded set of six column NAMES. Three more names demonstrably
