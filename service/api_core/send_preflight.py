@@ -36,6 +36,7 @@ from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import _load_settings
 from service.api_core.status_refresh import _compute_agent_status
+from service.status_engine import NON_LIVE_AGENT_STATUSES
 
 
 async def _preflight_live_send_recipients(
@@ -53,7 +54,18 @@ async def _preflight_live_send_recipients(
     settings = await _load_settings(db)
     launchable: list[tuple[str, str]] = []
     not_started: list[dict[str, Any]] = []
-    unavailable_statuses = {"offline", "stale", "stopped"}
+    # THE DECLARED PARTITION, not a hand-written literal. This read
+    # `{"offline", "stale", "stopped"}`, which has the same two faults as the analytics count
+    # (22e471f7) and the working-promotion (4295554f): it names `stale`, which this engine
+    # stopped producing, and omits `misconfigured`.
+    #
+    # THAT OMISSION IS THE SHARPEST OF THE THREE. The vocabulary defines `misconfigured` as
+    # "Identity exists but can never start. Not send-recoverable; a human must fix the config"
+    # -- and this function's own docstring says it exists so as not to "leave future inbox work
+    # behind when a recipient cannot start handling the message now". An agent that can NEVER
+    # start is the strongest case there is, and it fell through to the launchable path: the
+    # send was accepted, the work queued, and the sender told nothing.
+    unavailable_statuses = set(NON_LIVE_AGENT_STATUSES)
     allow_busy_enqueue = allow_queue_busy or allow_steer
 
     for recipient_id in recipients:
