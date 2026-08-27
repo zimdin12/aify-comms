@@ -60,6 +60,7 @@ from service.api_core.turn_state import _status_turn_signals
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
 from service.api_core.terminal_text import _terminal_prompt_hint_from_raw
 from service.clock import iso_to_epoch as _iso_to_epoch, now as _now
+from service.api_core.status_signal_prefetch import status_signals_or_live
 from service.env_status import environment_effective_status as _environment_effective_status
 from service.reconcilers.status_cache import _status_refresh_after
 from service.status_engine import StatusInputs, derive
@@ -176,9 +177,12 @@ async def engine_status(db, agent_row, *, settings=None) -> str:
 OFFLINE_CACHE_REVALIDATE_SECONDS = 180
 
 
-async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[str, Any]] = None, now: Optional[str] = None, environments_by_machine=None, session_environment_by_agent=None) -> dict[str, Any]:
+async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[str, Any]] = None, now: Optional[str] = None, environments_by_machine=None, session_environment_by_agent=None, status_signals=None) -> dict[str, Any]:
     settings = settings or await _load_settings(db)
     now = now or _now()
+    # An absent prefetch means READ, never means skip -- see status_signal_prefetch for the
+    # measurement that motivated the batch path (61% of a reconcile pass at 40 agents).
+    signals = status_signals_or_live(status_signals)
     manual_status = str(agent_row["status"] or "").strip().lower()
     if manual_status in _MANUAL_STATUSES:
         return {
@@ -204,10 +208,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     console_lease_iso = ""
     subagents_active = False
     try:
-        _cw = await (await db.execute(
-            "SELECT working_at, subagents_at FROM agent_console_signal WHERE agent_id = ?",
-            (agent_row["id"],),
-        )).fetchone()
+        _cw = await signals.console_signal(db, agent_row["id"])
         if _cw:
             _cw_iso = str(_cw["working_at"] or "").strip()
             _seen = _iso_to_epoch(_cw_iso)
@@ -491,10 +492,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     #   - resident liveness: the `resident_bridge_fresh` local captured above (the
     #     SAME _resident_bridge_is_fresh call _gather_status_inputs makes, computed
     #     once and reused).
-    _si_st = await (await db.execute(
-        "SELECT in_turn, awaiting_input, last_event_at FROM agent_status_state WHERE agent_id=?",
-        (agent_row["id"],),
-    )).fetchone()
+    _si_st = await signals.status_state(db, agent_row["id"])
     # M-B parity (2026-06-05): mirror the _gather_status_inputs in_turn staleness backstop
     # (Fix B) here too. This byproduct is the SERVED path under status_engine=new; without
     # the clamp a DROPPED/absent turn-END would latch `working` here forever while the

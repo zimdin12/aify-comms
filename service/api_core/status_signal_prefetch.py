@@ -1,0 +1,116 @@
+"""Per-agent status signals, read one at a time or prefetched for a whole fleet.
+
+MEASURED 2026-08-27 by counting `aiosqlite.Connection.execute` calls, not by timing anything -- the
+same code on this host timed 44-47ms and then 22-25ms minutes later, because the live fleet is the
+load. Round-trips are deterministic and attributable to a call site.
+
+    `_refresh_expired_agent_live_states`, unbounded (the reconcile sweep's call):
+        1 agent -> 9 round-trips, 5 -> 37, 20 -> 142, 40 -> 282.  Exactly 7.0 per added agent.
+
+    Share of ONE whole reconcile pass that is this per-agent refresh:
+        5 agents 31%,  20 agents 54%,  40 agents 61%.
+
+The share GROWS with fleet size, so on a real fleet it is the dominant term rather than a rounding
+error inside a bigger cost. That is what makes it worth touching a path this safety-sensitive; a raw
+count on its own would not have.
+
+`GET /agents` is NOT the problem and is not changed: it caps the recompute per request, so it is flat
+at 65 round-trips whether the fleet is 20 agents or 40. The unbounded sweep pays the full price.
+
+WHAT THIS DOES. Two of the seven per-agent reads are plain single-row lookups keyed on agent_id with
+no filtering, grouping or ordering -- `agent_status_state` and `agent_console_signal`. They become one
+query each for the whole batch. 7.0 per agent -> 5.0.
+
+WHY AN OBJECT AND NOT A DICT ARGUMENT. The caller should not branch on whether a prefetch happened;
+`signals.status_state(db, aid)` is one line either way, and the fallback reads the same row the
+inline query always read. So every existing caller is byte-for-byte unaffected -- the default is the
+live reader, and only the batch path passes a prefetched one.
+
+THE SNAPSHOT IS DELIBERATE. Prefetching reads all agents at one moment instead of each at its own.
+For a sweep that runs every 60s and feeds a TTL'd cache, a few milliseconds of skew is immaterial, and
+a consistent snapshot across the fleet is the better of the two -- the per-agent version smears the
+fleet's state across the length of the loop.
+"""
+from __future__ import annotations
+
+from typing import Any, Iterable, Optional
+
+#: SQLite's default host-parameter ceiling is 999. Chunking keeps a large fleet from ever reaching it,
+#: and the chunk size is stated rather than assumed so the limit is visible to the next reader.
+_MAX_PARAMS_PER_QUERY = 400
+
+_STATUS_STATE_SQL = "SELECT agent_id, in_turn, awaiting_input, last_event_at FROM agent_status_state WHERE agent_id IN ({})"
+_CONSOLE_SIGNAL_SQL = "SELECT agent_id, working_at, subagents_at FROM agent_console_signal WHERE agent_id IN ({})"
+
+
+async def _load_by_agent(db, sql_template: str, agent_ids: list[str]) -> dict[str, Any]:
+    """One row per agent, keyed by agent_id, in as few round-trips as the parameter limit allows."""
+    found: dict[str, Any] = {}
+    for start in range(0, len(agent_ids), _MAX_PARAMS_PER_QUERY):
+        chunk = agent_ids[start:start + _MAX_PARAMS_PER_QUERY]
+        if not chunk:
+            continue
+        placeholders = ",".join("?" for _ in chunk)
+        rows = await (await db.execute(sql_template.format(placeholders), tuple(chunk))).fetchall()
+        for row in rows:
+            found[str(row["agent_id"])] = row
+    return found
+
+
+class LiveStatusSignals:
+    """Reads each signal when asked -- exactly what the inline queries did, and the default."""
+
+    prefetched = False
+
+    async def status_state(self, db, agent_id: str):
+        return await (await db.execute(
+            "SELECT in_turn, awaiting_input, last_event_at FROM agent_status_state WHERE agent_id=?",
+            (agent_id,),
+        )).fetchone()
+
+    async def console_signal(self, db, agent_id: str):
+        return await (await db.execute(
+            "SELECT working_at, subagents_at FROM agent_console_signal WHERE agent_id = ?",
+            (agent_id,),
+        )).fetchone()
+
+
+class PrefetchedStatusSignals:
+    """Both signals for a whole batch, read up front. Answers from memory, never touching `db`.
+
+    A MISSING AGENT ANSWERS None, which is what the single-row query returns for an agent with no row
+    -- the common case, since these tables are written only once an agent has actually reported. A
+    prefetch that fell back to a query for a missing agent would quietly restore the N+1 for exactly
+    the agents that are cheapest to answer.
+    """
+
+    prefetched = True
+
+    def __init__(self, status_state_rows: dict[str, Any], console_signal_rows: dict[str, Any]):
+        self._status_state = status_state_rows
+        self._console_signal = console_signal_rows
+
+    @classmethod
+    async def load(cls, db, agent_ids: Iterable[str]) -> "PrefetchedStatusSignals":
+        ids = sorted({str(a or "").strip() for a in agent_ids if str(a or "").strip()})
+        if not ids:
+            return cls({}, {})
+        return cls(
+            await _load_by_agent(db, _STATUS_STATE_SQL, ids),
+            await _load_by_agent(db, _CONSOLE_SIGNAL_SQL, ids),
+        )
+
+    async def status_state(self, db, agent_id: str):
+        return self._status_state.get(str(agent_id))
+
+    async def console_signal(self, db, agent_id: str):
+        return self._console_signal.get(str(agent_id))
+
+
+#: The default every existing caller gets. Stateless, so one instance is correct and shared.
+LIVE_STATUS_SIGNALS = LiveStatusSignals()
+
+
+def status_signals_or_live(status_signals: Optional[Any]):
+    """Guards fail closed: an absent prefetch means READ, never means skip."""
+    return status_signals if status_signals is not None else LIVE_STATUS_SIGNALS
