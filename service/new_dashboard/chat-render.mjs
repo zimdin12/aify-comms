@@ -49,7 +49,20 @@ export function railItemHtml(item, selectedKey, drafts = {}, readOnly = false) {
   const meta = item.kind === 'dm'
     ? [item.role, resolveStatus(item.status).label].filter(Boolean).join(' · ')
     : '';
-  const sub = [meta, item.preview || ''].filter(Boolean).join(' · ');
+  // TWO SPANS, NOT ONE STRING. The metadata and the last message were joined with the SAME ' · '
+  // that separates role from status, in one text run at one colour -- so the message read as a third
+  // field ABOUT the agent. Live on 2026-08-27 that produced `coder · available · Restart ef-manager`
+  // on three rows at once: a message preview shaped exactly like a state, on the surface an operator
+  // triages from. (Those rows came from a real defect, since fixed, which is how it was noticed --
+  // but any message can take that shape, so the fix is here rather than upstream.) The metadata is
+  // now dimmer than the message it introduces, so content reads as content.
+  //
+  // `sub` is HTML from here on. Both halves are escaped individually and it must NOT be escaped
+  // again at the call site.
+  const sub = [
+    meta ? `<span class="chat-rail-meta">${esc(meta)}${item.preview ? ' · ' : ''}</span>` : '',
+    item.preview ? esc(item.preview) : '',
+  ].join('');
   // AN EXPLICIT NAME, because this button's content includes ANOTHER control. A button with no
   // `aria-label` is named from its content, and this one contains the favourite star (a
   // `role="button"` span), the status dot's label, the unread count and the preview line -- so the
@@ -63,7 +76,7 @@ export function railItemHtml(item, selectedKey, drafts = {}, readOnly = false) {
   const label = `${item.kind === 'dm' ? 'Chat with' : 'Open channel'} ${item.id}${item.unread > 0 ? `, ${item.unread} unread` : ''}`;
   return `<button class="chat-rail-item${active}${favClass}" data-chat-open="${esc(item.key)}" aria-label="${esc(label)}" title="${esc(item.id)}">
     <span class="chat-rail-head">${fav}${dot}<span class="chat-rail-name clip">${esc(item.id)}</span>${awaitBadge}${draftBadge}${unread}</span>
-    <span class="chat-rail-preview clip">${esc(sub)}</span>
+    <span class="chat-rail-preview clip">${sub}</span>
   </button>`;
 }
 

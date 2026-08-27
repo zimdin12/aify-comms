@@ -1085,8 +1085,6 @@ small, .subtle { color: var(--muted); }
   .run-inspector-header, .run-source-context, .run-inspector-controls { grid-template-columns: 1fr; }
   .session-head { display: grid; }
   .session-thread { max-height: 46vh; }
-  /* A flex card title + status pill must let the title shrink/ellipsize, not push the row wide. */
-  .item-title > :first-child { min-width: 0; }
 }
 @media (max-width: 414px) {
   /* Tighter side padding on small phones (bottom-pad for the tabbar is reserved at ≤760px above). */
@@ -1255,6 +1253,7 @@ small, .subtle { color: var(--muted); }
 .chat-rail-name { font-weight: 650; font-size: .88em; flex: 1; min-width: 0; }
 .chat-rail-hash { color: var(--muted); font-weight: 700; width: 9px; display: inline-block; text-align: center; }
 .chat-rail-preview { font-size: var(--fs-xs); color: var(--muted); }
+.chat-rail-meta { opacity: 0.68; } /* dimmer than the message it introduces; see chat-render.mjs */
 /* Compact list density (parity with old dashboard): denser rows, hide the sub-line, narrower rail. */
 .chat-shell.compact { grid-template-columns: minmax(200px, 252px) minmax(0, 1fr); }
 .chat-shell.compact .chat-rail-item { padding: 4px 8px; gap: 0; justify-content: center; min-height: 26px; }

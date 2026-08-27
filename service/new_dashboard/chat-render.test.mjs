@@ -271,3 +271,34 @@ test("title stays as well -- it is the hover affordance, not the name", () => {
   const html = railItemHtml(item(), "none");
   assert.match(html, /title="coder"/);
 });
+
+test("railItemHtml keeps the metadata in its own element, not run together with the message", () => {
+  // WHY THIS IS AN ESCAPING-FILE CONCERN. The sub-line used to be `[role · status, preview].join(' · ')`
+  // rendered in ONE span at ONE colour, so the last message read as a third field ABOUT the agent.
+  // Live on 2026-08-27 three rows read `coder · available · Restart ef-manager` -- a message shaped
+  // exactly like a state, on the surface an operator triages from.
+  const html = railItemHtml(item({ role: "coder", status: "available", preview: "Restart ef-manager" }), "none");
+  assert.match(html, /<span class="chat-rail-meta">coder · available · <\/span>Restart ef-manager/);
+});
+
+test("railItemHtml still escapes the preview now that the sub-line is HTML", () => {
+  // THE REGRESSION THIS FILE EXISTS FOR. Splitting the sub-line meant the call site stopped calling
+  // `esc()` on the whole string, because the string now CONTAINS markup. Both halves are escaped
+  // individually instead -- and a message body is the least trusted field on the row, since any agent
+  // can put anything in it.
+  const html = railItemHtml(item({ role: "coder", status: "online", preview: '</span><img src=x onerror="steal()">' }), "none");
+  assert.doesNotMatch(html, /<img src=x/, "the injected tag survived as markup");
+  assert.doesNotMatch(html, /onerror="steal\(\)"/, "the injected handler survived as markup");
+});
+
+test("railItemHtml escapes the ROLE half of the sub-line too", () => {
+  // The other half. Role comes from registration, same untrusted path as the id.
+  const html = railItemHtml(item({ role: '<img src=x onerror="steal()">', status: "online", preview: "hi" }), "none");
+  assert.doesNotMatch(html, /<img src=x/, "a role carrying markup reached the DOM");
+});
+
+test("railItemHtml omits the separator when there is no message to introduce", () => {
+  // A trailing ' · ' with nothing after it reads as a truncated field.
+  const html = railItemHtml(item({ role: "coder", status: "online", preview: "" }), "none");
+  assert.match(html, /<span class="chat-rail-meta">coder · online<\/span>/);
+});
