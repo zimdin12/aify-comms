@@ -58,6 +58,20 @@ export const OUT_OF_BAND_SLICES = Object.freeze([
   'inbox',
 ]);
 
+/**
+ * When the service first became unreachable in the current outage, or null while it is reachable.
+ *
+ * WHY A TIMESTAMP AND NOT A COUNTER. `reconnecting` reads identically after five seconds and after
+ * five hours, so the operator cannot tell a blip from an outage from the one indicator that is
+ * supposed to tell them. That is the same gap an offline ENVIRONMENT card had -- `offline` with no
+ * age -- and the same fix: say how long, and let the reader decide.
+ *
+ * THE COLOUR IS NOT TOUCHED. Whether amber should become red, and after how long, is a product
+ * decision, and the branch below already records that escalating "was not the defect being fixed
+ * here". This adds the missing FACT without taking that decision.
+ */
+let unreachableSince = null;
+
 /** Failures reported by the out-of-band awaits since the last chip paint. */
 let outOfBandFailures = new Set();
 
@@ -106,9 +120,25 @@ export function rejectedSlices(settled, names = REFRESH_SLICES) {
  *   same picture, and guessing between them is what this module exists to stop.
  * @returns {{text: string, className: string, title: string, stale: string[], failed: string[]}}
  */
+/**
+ * ` for 4m`, once an outage has outlived a single missed cycle. Empty for a blip.
+ *
+ * A duration on the first failed poll would be noise -- every transient miss would read as an outage
+ * lasting zero seconds. The threshold is one poll interval, so the phrase appears exactly when
+ * "reconnecting" has stopped being a plausible description of a blip.
+ */
+function outageFor(now) {
+  if (unreachableSince === null) unreachableSince = now;
+  const seconds = Math.round((now - unreachableSince) / 1000);
+  if (seconds < 30) return '';
+  if (seconds < 90) return ` for ${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  return minutes < 90 ? ` for ${minutes}m` : ` for ${Math.round(minutes / 60)}h`;
+}
+
 export function refreshChipState(
   settled,
-  { previouslyFailed, names = REFRESH_SLICES, realtimeConnected = true } = {},
+  { previouslyFailed, names = REFRESH_SLICES, realtimeConnected = true, now = Date.now() } = {},
 ) {
   // The caller may pin the history (tests do). Otherwise this module remembers, so no call site
   // has to thread it -- a guard every caller must remember to pass is a guard that stops guarding.
@@ -130,13 +160,14 @@ export function refreshChipState(
       // Unchanged from before this module existed. Amber, not red: it self-heals on the next cycle,
       // and escalating it was not the defect being fixed here.
       className: 'status-chip warn',
-      title: failed.length > 1
-        ? `Cannot reach the service. Not refreshed: ${failed.join(', ')}.`
-        : 'Cannot reach the service.',
+      title: `Cannot reach the service${outageFor(now)}.`
+        + (failed.length > 1 ? ` Not refreshed: ${failed.join(', ')}.` : ''),
       stale: [],
       failed,
     };
   }
+  // Reachable again: the next outage is a NEW one and must not inherit this one's age.
+  unreachableSince = null;
 
   if (!stale.length) {
     // REALTIME IS A SEPARATE QUESTION FROM FRESHNESS, and the chip answered only one of them.

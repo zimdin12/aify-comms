@@ -1978,7 +1978,17 @@ ONE occurrence each repo-wide -- their own rule. They arrived in `514129a1` with
 offline caption + open-in-new-tab escape hatch", and the markup was rewritten while the CSS stayed. The
 wider `console-embed` family is very much alive, which is what made them survive a casual look.
 
-**The raw scan said 18. Fifteen were false positives, in three distinct ways**, and every one would
+**The raw scan flagged 18 CLASS NAMES; 16 were false positives and 2 were real.** The arithmetic, so
+the population closes: FIFTEEN were caught as composed by the automated check -- six `c-*`, four
+`toast-*`, two `p-*`, two `t-*` and `xterm-viewport`. THREE survived it, and of those `.critical` was a
+false positive found only BY HAND. That leaves the two deleted. 15 + 1 + 2 = 18.
+
+(`.attention-strip .button-row`, the dead rule that prompted all this, is NOT one of the 18 and never
+could be: it is a compound SELECTOR whose class names are both alive. Different population, different
+instrument -- which is exactly why a class-name sweep cannot find that kind of death and a DOM query
+can.)
+
+The three ways a false positive arose, and every one would
 have been reported as dead by an instrument nobody controlled:
 
   * PREFIX COMPOSITION. `c-answered`, `p-urgent`, `t-review`, `toast-error` and their families never

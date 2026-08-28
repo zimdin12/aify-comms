@@ -251,3 +251,53 @@ test("a stale slice still outranks a dead socket", () => {
   const second = refreshChipState(settled, { previouslyFailed: first.failed, realtimeConnected: false });
   assert.match(second.text, /stale/);
 });
+
+// ---------------------------------------------------------------------------------------------------
+// HOW LONG the service has been unreachable, which `reconnecting` alone never said.
+//
+// Rendered the live dashboard offline via CDP and watched the chip for six polls: `live` -> amber
+// `reconnecting`, unchanged for every subsequent cycle. That is honest about the state and silent
+// about its AGE, so a five-second blip and a five-hour outage paint the same pixel — the same gap an
+// offline environment card had when it said `offline` with no last-seen.
+//
+// The COLOUR is deliberately untouched. Whether amber should become red, and when, is a product
+// decision the branch itself records as deferred; this adds the missing fact without taking it.
+
+// Each of these opens with a REACHABLE cycle. The module remembers an outage across calls, exactly as
+// it remembers `previousFailures`, so a test that starts mid-outage inherits the previous test's clock
+// -- which is how the first draft of these reported a fresh blip as "for 17m".
+const live = (now) => refreshChipState(cycle(), { now });
+const down = (now) => refreshChipState(cycle('agents'), { now });
+
+test('a blip says reconnecting and claims no duration', () => {
+  live(1_000_000);
+  const s = down(1_000_000);
+  assert.equal(s.text, 'reconnecting');
+  assert.doesNotMatch(s.title, / for /, 'a first failed poll must not read as an outage of zero seconds');
+});
+
+test('an outage that outlives a poll interval says how long', () => {
+  live(2_000_000);
+  down(2_000_000);
+  assert.match(down(2_045_000).title, /for 45s/);
+});
+
+test('the age is reported in the unit that suits it', () => {
+  live(3_000_000);
+  down(3_000_000);
+  assert.match(down(3_240_000).title, /for 4m/);
+  live(4_000_000);
+  down(5_000_000);
+  assert.match(down(12_200_000).title, /for 2h/);
+});
+
+test('RECOVERY RESETS THE CLOCK, so a new outage does not inherit the old age', () => {
+  // The assertion that makes the rest safe. A module-level timestamp never cleared would report every
+  // future outage as beginning at the first one -- a number that looks like evidence and is arithmetic
+  // on a stale variable. It is also the bug these very tests hit before they opened with `live()`.
+  live(6_000_000);
+  down(6_000_000);
+  down(6_600_000);                    // ten minutes down
+  live(6_700_000);                    // back up
+  assert.doesNotMatch(down(6_700_001).title, / for /, 'a brand-new outage claimed an age');
+});

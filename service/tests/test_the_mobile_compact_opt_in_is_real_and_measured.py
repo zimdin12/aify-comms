@@ -148,7 +148,7 @@ class TheMobileCompactOptInIsRealAndMeasured(unittest.TestCase):
 
         It checked only that a selector had SOME declaration, which a stray `color` would satisfy while
         every opted-in row went on stacking. What matters is that the rule sets a non-grid display AND
-        wraps -- without the wrap, a flex row of five buttons overflows instead of stacking, which is
+        wraps -- without the wrap, a flex row of three buttons overflows instead of stacking, which is
         worse than the defect it replaces.
         """
         decls = _declarations_for(_COMPACT)
@@ -169,7 +169,7 @@ class TheMobileCompactOptInIsRealAndMeasured(unittest.TestCase):
         top = [c for c in classes if "top-quick-jumps" in c]
         self.assertTrue(top, "the header quick-jump row is gone from index.html")
         self.assertIn("mobile-compact", top[0],
-                      "the header row lost its opt-in: 5 stacked buttons, 481px of a 780px screen")
+                      "the header row lost its opt-in: three buttons stacked, first content 481px down a 780px screen")
         settings = [c for c in classes if c.strip() == "button-row mobile-compact"]
         self.assertTrue(settings,
                         "the Settings save/reset row lost its opt-in: 92px instead of 42px on a phone")
