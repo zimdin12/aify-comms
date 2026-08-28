@@ -32,7 +32,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
-import { requestSessionControl } from './agent-session-actions.mjs';
+import { requestBulkSessionControl, requestSessionControl } from './agent-session-actions.mjs';
+
+import { state } from './state.mjs';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -168,26 +170,58 @@ test('the control request that reaches the network carries NO body field', async
 });
 
 test('the BULK path puts the same body-less request on the wire, once per session', async () => {
-  // The multiplier, executed rather than inferred from delegation. One bulk restart put the brief in
-  // front of ELEVEN agents inside 48 seconds on the operator's fleet; proving bulk *calls* the fixed
-  // function is weaker than proving what bulk actually sends.
+  // CALLS requestBulkSessionControl, which the first version of this did NOT -- it looped over
+  // requestSessionControl by hand and proved three singles, the exact delegation proxy its own prose
+  // called weaker. Bulk owns selection, the confirm, the delete-vs-control branch, clearing and the
+  // refresh; none of that was exercised by a manual loop.
   const sent = [];
+  const saved = { ids: state.selectedSessionIds, sessions: state.sessions };
   const hadFetch = 'fetch' in globalThis;
   const prevFetch = globalThis.fetch;
   globalThis.fetch = async (url, options = {}) => {
     sent.push({ url: String(url), body: options.body });
     return { ok: true, status: 200, text: async () => '{}' };
   };
+  // uiConfirm builds a real dialog and resolves on a CLICK -- there is no confirm() fallback -- so the
+  // harness auto-confirms by invoking the handler as it is registered. Bulk asks once for the batch,
+  // and that ask is part of what bulk owns.
+  // DEFERRED by a microtask: firing during registration runs the handler before openDialog has
+  // finished declaring the ones it closes over, which throws "Cannot access onKey before
+  // initialization" -- a harness artefact, not a product fault.
+  const button = { addEventListener: (_event, handler) => queueMicrotask(() => handler({})) };
+  const overlay = {
+    className: '', innerHTML: '', remove() {},
+    querySelector: (sel) => (sel === '.dialog-confirm' ? button : { addEventListener() {}, focus() {} }),
+    querySelectorAll: () => [],
+    addEventListener() {}, focus() {},
+  };
+  const hadDoc = 'document' in globalThis;
+  const prevDoc = globalThis.document;
+  globalThis.document = {
+    createElement: () => overlay,
+    body: { appendChild() {}, contains: () => true },
+    addEventListener() {}, removeEventListener() {},
+    activeElement: null,
+  };
+  // BOTH, because `selectedSessionIds()` filters the selection against `state.sessions` -- a
+  // dependency the hand-rolled loop never touched, and the reason the first attempt at this test sent
+  // zero requests while claiming to prove the bulk path.
+  state.sessions = [{ id: 'one' }, { id: 'two' }, { id: 'three' }];
+  state.selectedSessionIds = new Set(['one', 'two', 'three']);
   try {
-    for (const id of ['one', 'two', 'three']) {
-      await requestSessionControl(id, 'restart', false, false);
-    }
-    assert.equal(sent.length, 3, 'not every session produced a request');
+    await requestBulkSessionControl('restart');
+    assert.equal(sent.length, 3, `bulk sent ${sent.length} requests for 3 selected sessions`);
     for (const request of sent) {
+      assert.match(request.url, /\/sessions\/(one|two|three)\/control$/, `wrong endpoint: ${request.url}`);
       assert.ok(!('body' in JSON.parse(request.body)),
-        `a bulk control shipped a brief: ${request.body}`);
+        `a bulk control shipped a brief: ${request.body}. One bulk restart put this in front of ELEVEN `
+        + 'agents inside 48 seconds on the operator fleet.');
     }
+    assert.equal(state.selectedSessionIds.size, 0, 'bulk left the selection set populated');
   } finally {
     if (hadFetch) globalThis.fetch = prevFetch; else delete globalThis.fetch;
+    if (hadDoc) globalThis.document = prevDoc; else delete globalThis.document;
+    state.selectedSessionIds = saved.ids;
+    state.sessions = saved.sessions;
   }
 });
