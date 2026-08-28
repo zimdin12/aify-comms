@@ -10,21 +10,31 @@ declared itself total. 141 + 70 was a classification presented as a closure.
 WHAT IT DOES NOW. All 211 candidate rules land in a named class, and an unrecognised background syntax
 FAILS rather than being quietly skipped:
 
-    INHERITED        154  measured against the three fixed page surfaces
-    OWNS_OPAQUE       42  measured against the background its own rule sets
-    COMPOSITE         13  typed UNCOVERED -- rgba()/color-mix() over an underlay this cannot resolve
-    UNRESOLVED         2  typed UNCOVERED -- background is `--accent-soft`/`--accent-softer`, derived
-                          at runtime from the operator's accent and so not a value in this file
+    INHERITED     148  measured HERE against the three fixed page surfaces
+    OWNS_OPAQUE    34  measured HERE against the background its own rule sets
+    RUNTIME        15  a token `applyTheme` rewrites; gated in theme-contrast.test.mjs against the
+                       value actually written, for arbitrary operator accents
+    RAW_RUNTIME     0  a raw runtime token used as TEXT with no readability guarantee -- must stay 0
+    COMPOSITE      13  typed UNCOVERED, rgba()/color-mix() over an underlay this cannot resolve
+    UNRESOLVED      1  typed UNCOVERED, background is `--accent-soft`, derived at runtime
 
-196 of 211 are measured and every one passes; the worst is `--red` at 5.27:1 on `--panel-2`. The other
-15 are not silently absent, they are named, and the counts are pinned by an equality relation so a
-parser that quietly stops seeing rules fails here instead of reporting a clean sweep of a smaller
-population.
+182 measured here, 15 measured by the JS gate, 14 typed uncovered. Worst measured here is `--red` at
+5.27:1 on `--panel-2`. The counts are pinned by an equality relation, so a parser that quietly stops
+seeing rules fails instead of reporting a clean sweep of a smaller population -- which it already did
+once: repointing two rules at a token with no `:root` default dropped them out of the population
+entirely and TOTAL fell to 209.
 
-THE UNCOVERED 15 ARE NOT DELEGATED TO A PROMISE. Saying "some other owner measures them" does not
-create that owner. The composites were measured BY HAND on 2026-08-28 -- the four status chips run 4.73
-to 7.74 over both panels -- and hand measurement is evidence, not a gate, so it is recorded as a fact
-with a date rather than as coverage.
+THE RUNTIME CLASS EXISTS BECAUSE THIS FILE CERTIFIED A DEFAULT NOBODY SEES. `.msg-badge.unread` took
+`--accent` directly as text and was judged against `#51c5b0`; with an operator accent of `#15191b` the
+rendered pair is 1.019:1 on a message card -- invisible text -- and this gate stayed green. That is the
+static-versus-consumed error, made inside the classifier written to end it. Those consumers now use the
+MEASURED `--accent-text`/`--tertiary-text`, and RAW_RUNTIME is asserted empty so the next one is refused
+rather than certified.
+
+THE UNCOVERED 14 ARE NOT DELEGATED TO A PROMISE. Saying "some other owner measures them" does not create
+that owner. FOUR of the 13 composites -- the status chips -- were measured BY HAND on 2026-08-28 at 4.73
+to 7.74 over both panels. The other NINE are unmeasured, and that is said here rather than left for a
+reader to infer from a sample.
 
 WHY THIS MATTERS BEYOND TIDINESS: every contrast failure found this session was in a colour a machine
 DERIVED, and every hand-picked one passed. The derived side is gated in
@@ -51,6 +61,24 @@ SURFACES = {"--bg": "#0a0b0c", "--panel": "#15191b", "--panel-2": "#1d2325"}
 
 ROOT = dict(re.findall(r"^\s*--([\w-]+):\s*(#[0-9a-fA-F]{3,6})\s*;", CSS, re.M))
 
+#: Tokens `derivePaletteVars` REWRITES inline on every boot, from an accent the operator chooses.
+#:
+#: THEIR `:root` VALUE IS A DEFAULT, NOT THE CONSUMED ONE, and certifying a rule from it is the
+#: static-versus-runtime error this project keeps making -- made here, inside the classifier written to
+#: end it. `.msg-badge.unread` took `--accent` directly as text and this file judged it against
+#: `#51c5b0`; with an operator accent of `#15191b` the rendered pair is 1.019:1 on a message card, and
+#: the gate stayed green. Those consumers now use the MEASURED `--accent-text`/`--tertiary-text`, and
+#: any rule still taking a raw runtime token as text is refused here rather than certified from a
+#: default nobody sees.
+RUNTIME_OVERRIDDEN = frozenset({
+    "accent", "accent-hover", "accent-contrast", "accent-text",
+    "secondary", "secondary-text", "tertiary", "tertiary-text",
+})
+
+#: The two of those whose value is chosen BY MEASUREMENT in `theme.js`, and are therefore safe as text
+#: whatever the operator picks. Gated in `service/new_dashboard/theme-contrast.test.mjs`, not here.
+MEASURED_AT_RUNTIME = frozenset({"accent-text", "secondary-text", "tertiary-text", "accent-contrast"})
+
 
 def _luminance(colour: str) -> float:
     value = colour.lstrip("#")
@@ -68,7 +96,8 @@ def contrast_ratio(a: str, b: str) -> float:
 
 def _classify():
     """Every candidate rule, in exactly one bucket. An unknown background syntax is its own class."""
-    buckets = {"INHERITED": [], "OWNS_OPAQUE": [], "COMPOSITE": [], "UNRESOLVED": [], "UNKNOWN": []}
+    buckets = {"INHERITED": [], "OWNS_OPAQUE": [], "COMPOSITE": [], "UNRESOLVED": [],
+               "RUNTIME": [], "RAW_RUNTIME": [], "UNKNOWN": []}
     for match in re.finditer(r"([^{}]+)\{([^{}]*)\}", CSS):
         selector, body = match.group(1).strip(), match.group(2)
         colour = re.search(r"(?<!-)color:\s*var\(--([\w-]+)", body)
@@ -80,7 +109,11 @@ def _classify():
         value = background.group(1).strip() if background else None
 
         # `transparent`/`none` OWNS NOTHING. Treating them as owned is the defect this file records.
-        if value is None or value in ("transparent", "none"):
+        if token in RUNTIME_OVERRIDDEN:
+            # Judged by the JS gate against the value actually written, or refused below if it is a
+            # raw palette colour with no readability guarantee.
+            buckets["RUNTIME" if token in MEASURED_AT_RUNTIME else "RAW_RUNTIME"].append((where, token))
+        elif value is None or value in ("transparent", "none"):
             buckets["INHERITED"].append((where, token, foreground))
         elif "rgba" in value or "color-mix" in value:
             buckets["COMPOSITE"].append((where, token, value[:40]))
@@ -115,14 +148,22 @@ class TextColourContrastIsClassifiedAndMeasured(unittest.TestCase):
         a clean sweep of a smaller population. The first version asserted only `> 50` included and
         `> 10` excluded, which would have stayed green through substantial loss."""
         self.assertEqual(TOTAL, 211, f"the candidate population moved: {[(k, len(v)) for k, v in BUCKETS.items()]}")
-        self.assertEqual(len(BUCKETS["INHERITED"]), 154)
-        self.assertEqual(len(BUCKETS["OWNS_OPAQUE"]), 42)
+        self.assertEqual(len(BUCKETS["INHERITED"]), 148)
+        self.assertEqual(len(BUCKETS["OWNS_OPAQUE"]), 34)
+        self.assertEqual(len(BUCKETS["RUNTIME"]), 15)
         self.assertEqual(len(BUCKETS["COMPOSITE"]), 13)
-        self.assertEqual(len(BUCKETS["UNRESOLVED"]), 2)
+        self.assertEqual(len(BUCKETS["UNRESOLVED"]), 1)
+        self.assertEqual(sum(len(v) for v in BUCKETS.values()), TOTAL, "a rule fell outside every class")
+
+    def test_no_RAW_runtime_token_is_used_as_text(self):
+        """The defect this class was added for. `--accent` and `--tertiary` are whatever the operator
+        typed into Settings -- a raw palette colour with no readability guarantee -- and three rules took
+        them directly as `color:`. The measured `--accent-text`/`--tertiary-text` exist precisely so that
+        a text consumer never has to."""
         self.assertEqual(
-            len(BUCKETS["INHERITED"]) + len(BUCKETS["OWNS_OPAQUE"])
-            + len(BUCKETS["COMPOSITE"]) + len(BUCKETS["UNRESOLVED"]),
-            TOTAL, "a rule fell outside every class",
+            BUCKETS["RAW_RUNTIME"], [],
+            "these use a raw operator-chosen colour as TEXT, which no default can certify: "
+            f"{BUCKETS['RAW_RUNTIME']}. Use the measured --accent-text / --tertiary-text instead.",
         )
 
     def test_an_UNKNOWN_background_syntax_fails(self):

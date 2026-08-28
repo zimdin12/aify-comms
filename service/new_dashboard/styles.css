@@ -23,7 +23,6 @@
   --blue: #6fb4ff;
   --amber: #dfb156;
   --red: #ee6a74;
-  --teal: #58c7bb;
   --violet: #a98df5;
   --shadow: 0 14px 44px rgba(0, 0, 0, .45);
 
@@ -36,6 +35,10 @@
   --accent: #51c5b0;
   --accent-hover: #2a8979;
   --accent-text: #77d6c7;
+  /* The pre-JS fallback for a token `applyTheme` rewrites. It exists because `.chat-fav-toggle`
+     takes it as TEXT: without a default the colour is undefined until JS runs, and the rule is
+     invisible to the contrast gate, which only sees tokens declared here. */
+  --tertiary-text: #dfb156;
   --accent-contrast: #06110f;
   --secondary: #74b7ff;
   --tertiary: #dfb156;
@@ -46,8 +49,6 @@
   --accent-shadow: color-mix(in srgb, var(--accent) 22%, transparent);
   /* Tokens several rules referenced before they existed (silently fell back). */
   --line-soft: #1f2629;
-  --surface: var(--panel-3);
-  --status-online: var(--green);
   /* Depth tiers (WS-E). */
   --shadow-card: 0 6px 20px rgba(0, 0, 0, .28);
   --shadow-panel: 0 12px 38px rgba(0, 0, 0, .34);
@@ -56,10 +57,8 @@
      accreted: ~13 control heights, ~18 em font sizes, 7 "card" radii, hardcoded surfaces. */
   --control-h: 34px;        /* standard button / input / select / segmented */
   --control-h-sm: 26px;     /* chips, pills, small toggles, filter presets */
-  --control-h-xs: 20px;     /* status-dot toggle buttons */
   --fs-xs: 11px;            /* smallest legible (floor) — chips, meta labels */
   --fs-sm: 12px;            /* secondary text, small buttons */
-  --fs-md: 13px;            /* body-ish */
   --radius-card: 10px;      /* cards, panels, rails, message bubbles (tightened for a crisper, pro feel) */
   --radius-control: 8px;    /* buttons, inputs, selects */
   --radius-pill: 999px;     /* status pills, chips */
@@ -1315,7 +1314,7 @@ small, .subtle { color: var(--muted); }
 /* Inline meta-badge (e.g. "dashboard override active") — small pill, warn variant gets an amber tint. */
 .mb { font-size: .72em; border-radius: var(--radius-sm); padding: 1px 6px; border: 1px solid var(--line); color: var(--muted); }
 .mb-warn { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 45%, transparent); background: color-mix(in srgb, var(--amber) 12%, transparent); }
-.msg-badge.unread { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.msg-badge.unread { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .msg-badge.woke { color: var(--green); border-color: rgba(84,197,139,.4); }
 .msg-badge.stored { color: var(--muted); }
 .chat-msg-subject { margin: 6px 0 4px; font-size: .92em; }
@@ -1696,8 +1695,8 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 
 /* WS-F chat affordances: favorite toggle, reply banner, per-message actions, continue form. */
 .chat-fav-toggle { cursor: pointer; color: var(--muted); font-size: 1em; padding: 0 2px; }
-.chat-fav-toggle.on { color: var(--tertiary); }
-.chat-fav-toggle:hover { color: var(--tertiary); }
+.chat-fav-toggle.on { color: var(--tertiary-text); }
+.chat-fav-toggle:hover { color: var(--tertiary-text); }
 .chat-msg-reply, .chat-msg-detail, .chat-msg-act { background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 0 4px; min-height: auto; font-size: .76em; }
 .chat-msg-reply:hover, .chat-msg-detail:hover, .chat-msg-act:hover { color: var(--accent-text); transform: none; }
 .chat-msg-act.danger:hover { color: var(--red); }
