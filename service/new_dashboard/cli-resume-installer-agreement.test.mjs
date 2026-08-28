@@ -31,12 +31,30 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".
 const INSTALLER = fs.readFileSync(path.join(REPO, "install.sh"), "utf-8");
 
 // runtime -> the wrapper the drawer's command depends on existing.
+//
+// The MAPPING is a naming convention and cannot be derived; the POPULATION can, and a test below
+// requires every template the wrapper package ships to appear here. A fifth wrapper arriving would
+// otherwise be invisible to the "exactly" assertion, which only compares runtimes it already knows.
 const WRAPPER_FOR = {
   "claude-code": "claude-aify",
   hermes: "hermes-aify",
   codex: "codex-aify",
   pi: "pi-aify",
 };
+
+// Which wrappers install.sh ACTUALLY WRITES, read from the render calls rather than from mentions.
+//
+// This was `INSTALLER.includes(wrapper)`, and a mention is not an installation. PROVEN by mutation
+// 2026-08-28: deleting `render_wrapper_template "claude-aify.sh.in"` outright left all five cases in
+// this file green, because six other lines name claude-aify -- among them a comment about the live
+// incident where the wrapper went missing after an install that said "Installation complete". The
+// gate whose whole subject is "the drawer must not offer a command for a wrapper you do not have"
+// could not see the wrapper stop being written.
+const RENDERED = new Set(
+  [...INSTALLER.matchAll(/render_wrapper_template\s+"([\w-]+)\.sh\.in"/g)].map((m) => m[1]),
+);
+
+const TEMPLATE_DIR = path.join(REPO, "mcp", "stdio", "node_modules", "aify-wrapper", "wrappers");
 
 // `--client <name> is intentionally disabled` is the installer's own way of saying it refuses one.
 const disabledClients = new Set(
@@ -59,8 +77,8 @@ test("every runtime offered a resume command has a wrapper the installer install
     const wrapper = WRAPPER_FOR[runtime];
     assert.ok(wrapper, `no wrapper mapping for '${runtime}' — add one, or it cannot be checked here`);
     assert.ok(
-      INSTALLER.includes(wrapper),
-      `the drawer offers a resume command for '${runtime}' but install.sh never writes ${wrapper}`,
+      RENDERED.has(wrapper),
+      `the drawer offers a resume command for '${runtime}' but install.sh never renders ${wrapper}`,
     );
   }
 });
@@ -89,7 +107,7 @@ test("pi is excluded HERE only because the installer disables it THERE", () => {
 
 test("the set is exactly the runtimes with an installed resident wrapper", () => {
   const installable = Object.entries(WRAPPER_FOR)
-    .filter(([runtime, wrapper]) => INSTALLER.includes(wrapper) && !disabledClients.has(runtime))
+    .filter(([runtime, wrapper]) => RENDERED.has(wrapper) && !disabledClients.has(runtime))
     .map(([runtime]) => runtime)
     .sort();
   assert.deepEqual(
@@ -97,5 +115,31 @@ test("the set is exactly the runtimes with an installed resident wrapper", () =>
     installable,
     "the offered set and the installable set have diverged — one of them is now wrong, and which "
       + "one is a decision rather than something this test can infer",
+  );
+});
+
+test("the render-call scan finds wrappers, and does not find one that is absent", () => {
+  // Controls in both directions. An empty set makes "no runtime is installable" agree with a drawer
+  // that offers nothing, and a set matching anything makes every assertion vacuous.
+  assert.ok(RENDERED.size >= 3, `only ${RENDERED.size} render call(s) found; the scan has drifted`);
+  assert.ok(RENDERED.has("codex-aify"), "a wrapper install.sh demonstrably renders was not found");
+  assert.ok(!RENDERED.has("nonexistent-aify"), "the scan matches names install.sh never renders");
+});
+
+test("every wrapper template the package ships is accounted for here", () => {
+  // A list standing in for a population is a defect with a delay on it. The templates are the
+  // population: a fifth one arriving must force a decision about whether the drawer offers it,
+  // rather than sliding past an "exactly" check that only knows the four names typed above.
+  const shipped = fs.readdirSync(TEMPLATE_DIR)
+    .filter((name) => name.endsWith(".sh.in"))
+    .map((name) => name.replace(/\.sh\.in$/, ""))
+    .sort();
+  assert.ok(shipped.length >= 4, `only ${shipped.length} templates found in ${TEMPLATE_DIR}`);
+  const mapped = new Set(Object.values(WRAPPER_FOR));
+  assert.deepEqual(
+    shipped.filter((wrapper) => !mapped.has(wrapper)),
+    [],
+    "the wrapper package ships a template no runtime here maps to — decide whether the drawer "
+      + "should offer a resume command for it, then add it to WRAPPER_FOR",
   );
 });
