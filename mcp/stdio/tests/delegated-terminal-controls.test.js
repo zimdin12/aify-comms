@@ -332,3 +332,85 @@ test("a stream that ends with the process GONE does reach the exit hook", async 
 
   assert.equal(exits.length, 1, "a process aify-env no longer owns was left attached for ever");
 });
+
+
+test("a held terminal gets its stream back when the environment returns", async () => {
+  // THE OTHER HALF OF HOLDING. Refusing to call a live process dead leaves the terminal DEAF --
+  // attached, registered, and receiving nothing, which terminal-runtime.js calls the worst shape
+  // available. Without this the previous fix trades one defect for another.
+  //
+  // Driven through the manager on a TICK, which is how the control loop calls it.
+  const outputs = [];
+  let deliverExit;
+  let subscribeCalls = 0;
+  let environmentUp = true;
+  const client = {
+    async start() { return { ok: true, handle: { id: "env-x", pid: 99, terminal: true } }; },
+    async subscribeOutput(id, onOutput, onExit) {
+      subscribeCalls += 1;
+      deliverExit = onExit;
+      return environmentUp ? () => {} : null;
+    },
+    async stop() { return { ok: true }; },
+    async list() { return { ok: true, handle: { processes: [{ id: "env-x", pid: 99 }] } }; },
+  };
+  const manager = new TerminalProcessManager({
+    envDelegation: { isEnabled: () => true, client },
+    onOutput: async (id, text) => { outputs.push(text); },
+  });
+  await manager.start({
+    id: "t-back", command: writeLauncherFixture("probe-aify"),
+    argv: [writeLauncherFixture("probe-aify"), "--version"],
+    cwd: process.cwd(), runtime: "claude-code", sessionMode: "managed",
+  });
+  assert.equal(subscribeCalls, 1);
+
+  // The environment goes away: the stream ends with no exit frame, and re-subscribing fails.
+  environmentUp = false;
+  deliverExit(null, "");
+  await new Promise((r) => setTimeout(r, 20));
+  const whileDown = await manager.reattachLostStreams();
+  assert.deepEqual(whileDown.stillLost, ["t-back"], "a terminal we cannot re-attach must stay held");
+  assert.deepEqual(whileDown.reattached, []);
+
+  // It comes back, re-owning the same process, and the next tick recovers the stream.
+  environmentUp = true;
+  const whenUp = await manager.reattachLostStreams();
+  assert.deepEqual(whenUp.reattached, ["t-back"], "the stream was never re-opened: the terminal is deaf");
+  assert.ok(
+    outputs.some((text) => text.includes("re-attached")),
+    "the console was not told its terminal came back",
+  );
+
+  // AND IT DOES NOT KEEP TRYING. A terminal that is live again must leave the lost set, or every
+  // tick re-subscribes it for ever and the streams pile up.
+  const after = await manager.reattachLostStreams();
+  assert.deepEqual(after, { reattached: [], stillLost: [] });
+});
+
+test("a terminal that never lost its stream is not re-subscribed", async () => {
+  // The control. A reconciler that re-attached everything every tick would open a second stream per
+  // terminal per tick, which is worse than the deafness it is fixing.
+  let subscribeCalls = 0;
+  const client = {
+    async start() { return { ok: true, handle: { id: "env-x", pid: 99, terminal: true } }; },
+    async subscribeOutput() { subscribeCalls += 1; return () => {}; },
+    async stop() { return { ok: true }; },
+    async list() { return { ok: true, handle: { processes: [{ id: "env-x" }] } }; },
+  };
+  const manager = new TerminalProcessManager({ envDelegation: { isEnabled: () => true, client } });
+  await manager.start({
+    id: "t-fine", command: writeLauncherFixture("probe-aify"),
+    argv: [writeLauncherFixture("probe-aify"), "--version"],
+    cwd: process.cwd(), runtime: "claude-code", sessionMode: "managed",
+  });
+  assert.equal(subscribeCalls, 1);
+  const result = await manager.reattachLostStreams();
+  assert.deepEqual(result, { reattached: [], stillLost: [] });
+  assert.equal(subscribeCalls, 1, "a healthy terminal was re-subscribed, doubling its stream");
+});
+
+test("with delegation off there is nothing to re-attach", async () => {
+  const manager = new TerminalProcessManager({ envDelegation: null });
+  assert.deepEqual(await manager.reattachLostStreams(), { reattached: [], stillLost: [] });
+});

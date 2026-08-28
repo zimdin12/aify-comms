@@ -3402,7 +3402,13 @@ test("the five bridge classes are measurable, and the sizes are cross-checked", 
     // processes survived -- so the control plane said `stopped` about a live, owned process.
     // Re-measured TWO ways rather than copied from the failure message: `declarationSpan` says 896,
     // and a brace-match from the class header gives lines 72..967, which is 896.
-    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 896],
+    // 896 -> 881 on 2026-08-29: `settleDelegatedExit` and `reattachLostStreams` moved out to
+    // delegated-stream.mjs, leaving two one-line methods behind. They went because the file crossed
+    // the 1000-line gate and the gate was right about the reason -- that module is
+    // delegated-environment POLICY, this file is terminal-process mechanics.
+    // Re-measured TWO ways rather than copied from the failure: `declarationSpan` says 881, and a
+    // brace-match from the class header gives lines 72..952, which is 881.
+    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 881],
   ];
   for (const [rel, name, expected] of cases) {
     const span = declarationSpan(read(rel), name);

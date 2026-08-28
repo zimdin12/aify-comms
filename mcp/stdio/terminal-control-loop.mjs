@@ -53,6 +53,16 @@ export async function runTerminalControlPass({
     client: TERMINAL_MANAGER.envDelegation?.isEnabled?.() ? TERMINAL_MANAGER.envDelegation.client : null,
     terminals: TERMINAL_MANAGER.terminals?.values?.() ?? [],
   });
+  // AND RE-OPEN ANY STREAM WE LOST. `_settleDelegatedExit` holds a terminal open rather than
+  // calling a live process dead, which is the right way round -- a stale row heals, an orphaned
+  // process does not -- and it leaves the terminal DEAF until something re-subscribes. This is that
+  // something. Tried on the tick rather than from a retry timer: the environment usually comes back
+  // seconds later and re-owns the same pids, so trying again needs no backoff and leaks no timer.
+  try {
+    await TERMINAL_MANAGER.reattachLostStreams();
+  } catch {
+    // Recovery must never be able to stop the loop that delivers work.
+  }
   const environment = effectiveEnvironmentPayload();
   const claim = await httpCall("POST", "/terminals/controls/claim", {
     environmentId: environment.id,

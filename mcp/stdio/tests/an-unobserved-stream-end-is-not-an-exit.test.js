@@ -22,6 +22,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { delegatedExitVerdict, processStillListed } from "../delegated-exit.mjs";
+import { reattachLostStreams, settleDelegatedExit } from "../delegated-stream.mjs";
 
 test("an observed exit frame is an exit", () => {
   // The only positive evidence of a death there is: aify-env watched it happen and said so.
@@ -137,4 +138,85 @@ test("a listing that is not a list cannot say", async () => {
   for (const value of [{ ok: true, handle: {} }, { ok: true, handle: null }, "healthy", null, undefined]) {
     assert.equal(await processStillListed(clientListing(value), "p1"), null, JSON.stringify(value));
   }
+});
+
+
+// ---- the policy, called directly -----------------------------------------------------------
+//
+// These take the manager as a PARAMETER, which is what moving them out of the class bought: the
+// decision can be driven without standing up a TerminalProcessManager. The manager-driven versions
+// live in delegated-terminal-controls.test.js and are the ones that prove the wiring; these prove
+// the branches, including the ones a fake client makes awkward to reach through the class.
+
+function fakeManager({ listing = null, handled = [], written = [] } = {}) {
+  return {
+    envDelegation: { isEnabled: () => true, client: { list: async () => listing } },
+    terminals: new Map(),
+    handled,
+    written,
+    async _handleExit(id, state, detail) { handled.push([id, detail]); },
+    async onOutput(id, text) { written.push(text); },
+    async _attachDelegatedStream() { return () => {}; },
+  };
+}
+
+test("settleDelegatedExit finalises an observed exit without asking anyone", async () => {
+  // There is nothing to verify: aify-env watched it happen. Asking anyway would spend a round trip
+  // per exit on the one path that needs none.
+  let asked = false;
+  const manager = fakeManager();
+  manager.envDelegation.client.list = async () => { asked = true; return null; };
+  const verdict = await settleDelegatedExit(manager, "t1", { envProcessId: "p1" }, {
+    code: 0, signal: "", meta: { observedExitFrame: true },
+  });
+  assert.equal(verdict.kind, "exited");
+  assert.equal(manager.handled.length, 1);
+  assert.equal(asked, false, "an observed exit still cost a listing call");
+});
+
+test("settleDelegatedExit holds a terminal whose process is still listed, and says so", async () => {
+  const manager = fakeManager({ listing: { ok: true, handle: { processes: [{ id: "p1" }] } } });
+  const state = { envProcessId: "p1" };
+  const verdict = await settleDelegatedExit(manager, "t1", state, { code: null, signal: "", meta: {} });
+  assert.equal(verdict.finalise, false);
+  assert.deepEqual(manager.handled, [], "a live process was finalised");
+  assert.equal(state.streamLost, "alive", "the terminal was not marked for re-attachment");
+  assert.ok(
+    manager.written.some((text) => text.includes("lost the output stream")),
+    "the console went quiet instead of being told",
+  );
+});
+
+test("a console that throws does not change the decision", async () => {
+  // The notice is a courtesy; the hold is the correctness. A broken console must not turn a held
+  // terminal into a finalised one.
+  const manager = fakeManager({ listing: { ok: true, handle: { processes: [{ id: "p1" }] } } });
+  manager.onOutput = async () => { throw new Error("no console"); };
+  const state = { envProcessId: "p1" };
+  await settleDelegatedExit(manager, "t1", state, { code: null, signal: "", meta: {} });
+  assert.deepEqual(manager.handled, []);
+  assert.equal(state.streamLost, "alive");
+});
+
+test("reattachLostStreams skips a terminal with no process id", async () => {
+  // A delegated terminal we never got a handle for. Re-subscribing to an empty id would ask aify-env
+  // about nothing and read the refusal as a failure to re-attach, for ever.
+  const manager = fakeManager();
+  manager.terminals.set("t1", { streamLost: "alive", envProcessId: "" });
+  assert.deepEqual(await reattachLostStreams(manager), { reattached: [], stillLost: [] });
+});
+
+test("reattachLostStreams skips a terminal that was already finalised", async () => {
+  // Belt and braces against a race: a terminal finalised between the hold and the tick must not be
+  // brought back to life by the reconciler.
+  const manager = fakeManager();
+  manager.terminals.set("t1", { streamLost: "alive", envProcessId: "p1", finalized: true });
+  assert.deepEqual(await reattachLostStreams(manager), { reattached: [], stillLost: [] });
+});
+
+test("reattachLostStreams treats a throwing subscribe as still lost", async () => {
+  const manager = fakeManager();
+  manager._attachDelegatedStream = async () => { throw new Error("ECONNREFUSED"); };
+  manager.terminals.set("t1", { streamLost: "alive", envProcessId: "p1" });
+  assert.deepEqual(await reattachLostStreams(manager), { reattached: [], stillLost: ["t1"] });
 });
