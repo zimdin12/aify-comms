@@ -142,6 +142,25 @@ def _message_satisfies_reply_contract(reply_type: str, subject: str = "", body: 
     return False
 
 
+def reply_reminder_minutes(settings: dict[str, Any]) -> int:
+    """How long a reply may be owed before it is OVERDUE. One derivation, every surface.
+
+    The reminder sweep and the Work Loop's `state=overdue` filter both read
+    `reply_reminder_minutes`; the two analytics endpoints hardcoded 30 minutes. With the operator's
+    setting at 10, a contract owed for 15 minutes got a reminder and appeared in the Work Loop as
+    overdue while the analytics tile did not count it -- two numbers on two screens, both labelled
+    "overdue", disagreeing by whatever the operator had chosen.
+
+    Measured 2026-08-28: `reply_reminder_minutes` is 10 on the live service, so the hardcoded 30
+    was already wrong by a factor of three. It showed as nothing only because no reply was owed at
+    that moment -- a disagreement waiting for the first contract to sit for eleven minutes.
+    """
+    raw = settings.get(
+        "reply_reminder_minutes", DEFAULT_SETTINGS["reply_reminder_minutes"]
+    ) or DEFAULT_SETTINGS["reply_reminder_minutes"]
+    return max(1, int(raw))
+
+
 def _contract_list_query(
     *,
     where_sql: str = "",
@@ -301,7 +320,7 @@ def _contract_state(row, *, settings: dict[str, Any], now_s: Optional[float] = N
     status = str((row["status"] if row and "status" in row.keys() else "") or "").strip().lower()
     result_message_id = str((row["result_message_id"] if row and "result_message_id" in row.keys() else "") or "").strip()
     reply_expected = _contract_reply_expected(row)
-    reminder_minutes = max(1, int(settings.get("reply_reminder_minutes", DEFAULT_SETTINGS["reply_reminder_minutes"]) or DEFAULT_SETTINGS["reply_reminder_minutes"]))
+    reminder_minutes = reply_reminder_minutes(settings)
     reminder_count = int((row["reminder_count"] if row and "reminder_count" in row.keys() else 0) or 0)
     source_read_at = str((row["source_read_at"] if row and "source_read_at" in row.keys() else "") or "").strip()
     same_agent = str((row["from_agent"] if row else "") or "") == str((row["target_agent"] if row else "") or "")

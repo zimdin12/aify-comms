@@ -111,7 +111,19 @@ _FLEET_LOOP_WAS = chr(10).join([
     '                online_agents += 1',
 ]) + chr(10)
 
-EDITED_SINCE = [(_FLEET_LOOP_NOW, _FLEET_LOOP_WAS)]
+# The overdue window is the operator's `reply_reminder_minutes`, not a hardcoded 30 minutes: two
+# analytics tiles disagreed with the Work Loop and the reminder sweep, which both read the setting.
+_OVERDUE_WINDOW_NOW = chr(10).join([
+    "        # The OPERATOR'S window, not a literal: the reminder sweep and the Work Loop filter both",
+    '        # read this setting, and a tile labelled "overdue" that uses a different number is a',
+    '        # second answer to one question.',
+    '        overdue_cut = now_s - reply_reminder_minutes(settings) * 60',
+])
+_OVERDUE_WINDOW_WAS = chr(10).join([
+    '        overdue_cut = now_s - 30 * 60',
+])
+
+EDITED_SINCE = [(_FLEET_LOOP_NOW, _FLEET_LOOP_WAS), (_OVERDUE_WINDOW_NOW, _OVERDUE_WINDOW_WAS)]
 EXTRACTIONS = [
     "_hourly_message_series",
     "_append_daily_message_buckets",

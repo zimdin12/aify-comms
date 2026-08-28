@@ -18,7 +18,7 @@ from typing import Any, Optional
 from fastapi import Query, Request
 
 from service.api_core.routing import domain_router
-from service.api_core.reply_contract import _contract_list_query
+from service.api_core.reply_contract import _contract_list_query, reply_reminder_minutes
 from service.api_core.serialization import _row_require_reply
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.ws import _get_ws
@@ -133,7 +133,7 @@ async def list_work_contracts(
         elif normalized_state == "queued":
             where.append("AND COALESCE(r.result_message_id, '') = '' AND r.status = 'queued'")
         elif normalized_state == "overdue":
-            reminder_minutes = max(1, int(settings.get("reply_reminder_minutes", DEFAULT_SETTINGS["reply_reminder_minutes"]) or DEFAULT_SETTINGS["reply_reminder_minutes"]))
+            reminder_minutes = reply_reminder_minutes(settings)
             where.append("AND COALESCE(r.result_message_id, '') = '' AND r.status NOT IN ('completed','failed','cancelled') AND datetime(r.requested_at) <= datetime('now', ?)")
             params.append(f"-{reminder_minutes} minutes")
         elif normalized_state == "seen":
@@ -216,7 +216,7 @@ async def list_work_contracts(
         # one by looking at the row count, because the filter makes those two numbers differ.
         return {"ok": True, "truncated": scan_exhausted, "summary": summary, "contracts": rows, "settings": {
             "replyContractsEnabled": bool(settings.get("reply_contracts_enabled", True)),
-            "replyReminderMinutes": int(settings.get("reply_reminder_minutes", DEFAULT_SETTINGS["reply_reminder_minutes"]) or DEFAULT_SETTINGS["reply_reminder_minutes"]),
+            "replyReminderMinutes": reply_reminder_minutes(settings),
             "replyReminderRepeatMinutes": int(settings.get("reply_reminder_repeat_minutes", DEFAULT_SETTINGS["reply_reminder_repeat_minutes"]) or DEFAULT_SETTINGS["reply_reminder_repeat_minutes"]),
             "replyReminderMaxCount": max(0, int(settings.get("reply_reminder_max_count", 0) or 0)),
             "contractStaleHours": int(settings.get("contract_stale_hours", 24) or 24),

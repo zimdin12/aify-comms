@@ -29,6 +29,7 @@ from service.api_core.liveness import _agent_wake_mode
 from service.api_core.routing import domain_router
 from service.api_core.tuning import WORKED_SPAN_CEILING_SECONDS
 from service.api_core.serialization import _iso_from_ms
+from service.api_core.reply_contract import reply_reminder_minutes
 from service.api_core.settings import _load_settings
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.db import get_db
@@ -247,7 +248,10 @@ async def get_analytics(request: Request, analytics_range: str = Query("hour", a
         )
         contract_rows = await contracts_c.fetchall()
         open_reply_contracts = len(contract_rows)
-        overdue_cut = now_s - 30 * 60
+        # The OPERATOR'S window, not a literal: the reminder sweep and the Work Loop filter both
+        # read this setting, and a tile labelled "overdue" that uses a different number is a
+        # second answer to one question.
+        overdue_cut = now_s - reply_reminder_minutes(settings) * 60
         overdue_reply_contracts = sum(
             1 for r in contract_rows
             if (_iso_to_epoch(r["requested_at"]) or now_s) < overdue_cut
@@ -398,13 +402,15 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
             if online_count and window_minutes else 0.0
         )
 
-        # Open + overdue (>30min) reply contracts, fleet-wide, right now.
+        # Open + overdue reply contracts, fleet-wide, right now. The window is the operator's
+        # `reply_reminder_minutes`, the same one the reminder sweep and the Work Loop use.
         owed_c = await db.execute(
             "SELECT requested_at FROM dispatch_runs WHERE require_reply=1 "
             "AND status IN ('queued','claimed','running','delivered') AND COALESCE(result_message_id,'')=''"
         )
         owed = await owed_c.fetchall()
-        overdue = sum(1 for r in owed if (_ep(r["requested_at"]) or now_s) < now_s - 30 * 60)
+        overdue_cut = now_s - reply_reminder_minutes(settings) * 60
+        overdue = sum(1 for r in owed if (_ep(r["requested_at"]) or now_s) < overdue_cut)
 
         return {
             "ok": True,

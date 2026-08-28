@@ -109,7 +109,30 @@ _LIVE_FILTER_WAS = chr(10).join([
     '                continue',
 ]) + chr(10)
 
-EDITED_SINCE = [(_BOARD_LOOP_NOW, _BOARD_LOOP_WAS), (_LIVE_FILTER_NOW, _LIVE_FILTER_WAS)]
+# The overdue window is the operator's `reply_reminder_minutes`, not a hardcoded 30 minutes: two
+# analytics tiles disagreed with the Work Loop and the reminder sweep, which both read the setting.
+_OVERDUE_WINDOW_NOW = chr(10).join([
+    "        # Open + overdue reply contracts, fleet-wide, right now. The window is the operator's",
+    '        # `reply_reminder_minutes`, the same one the reminder sweep and the Work Loop use.',
+    '        owed_c = await db.execute(',
+    '            "SELECT requested_at FROM dispatch_runs WHERE require_reply=1 "',
+    '            "AND status IN (\'queued\',\'claimed\',\'running\',\'delivered\') AND COALESCE(result_message_id,\'\')=\'\'"',
+    '        )',
+    '        owed = await owed_c.fetchall()',
+    '        overdue_cut = now_s - reply_reminder_minutes(settings) * 60',
+    '        overdue = sum(1 for r in owed if (_ep(r["requested_at"]) or now_s) < overdue_cut)',
+])
+_OVERDUE_WINDOW_WAS = chr(10).join([
+    '        # Open + overdue (>30min) reply contracts, fleet-wide, right now.',
+    '        owed_c = await db.execute(',
+    '            "SELECT requested_at FROM dispatch_runs WHERE require_reply=1 "',
+    '            "AND status IN (\'queued\',\'claimed\',\'running\',\'delivered\') AND COALESCE(result_message_id,\'\')=\'\'"',
+    '        )',
+    '        owed = await owed_c.fetchall()',
+    '        overdue = sum(1 for r in owed if (_ep(r["requested_at"]) or now_s) < now_s - 30 * 60)',
+])
+
+EDITED_SINCE = [(_BOARD_LOOP_NOW, _BOARD_LOOP_WAS), (_LIVE_FILTER_NOW, _LIVE_FILTER_WAS), (_OVERDUE_WINDOW_NOW, _OVERDUE_WINDOW_WAS)]
 EXTRACTIONS = ["_build_online_agent_board"]
 OWNERS = {"_build_online_agent_board": SERIES}
 
