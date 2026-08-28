@@ -56,12 +56,16 @@ test('every SHIPPED theme passes AA on the value applyTheme actually writes', ()
 test('an ARBITRARY operator accent gets a readable foreground', () => {
   // The path with no fixed population to enumerate. Settings accepts any hex, and a threshold that
   // guesses is exactly how the shipped themes ended up failing.
-  const awkward = ['#51c5b0', '#808080', '#767676', '#ffff00', '#000080', '#7f7f7f', '#c0c0c0', '#ff00ff'];
+  // `>= MIN_CONTRAST || >= 4.4` stood here, which is just `>= 4.4` — a gate quietly holding a weaker
+  // contract than the constant it imports. It was defensive and unnecessary: every one of these clears
+  // 4.5 strictly.
+  const awkward = ['#51c5b0', '#808080', '#767676', '#ffff00', '#000080', '#7f7f7f', '#c0c0c0',
+                   '#ff00ff', '#8a8a8a', '#949494'];
   for (const accent of awkward) {
     const fg = contrastingForeground(accent);
     const ratio = contrastRatio(fg, accent);
-    assert.ok(ratio >= MIN_CONTRAST || ratio >= 4.4,
-      `accent ${accent} got ${fg} at ${ratio.toFixed(2)}:1 — no readable foreground was chosen`);
+    assert.ok(ratio >= MIN_CONTRAST,
+      `accent ${accent} got ${fg} at ${ratio.toFixed(2)}:1 — below the ${MIN_CONTRAST} this file names`);
   }
 });
 
@@ -107,4 +111,18 @@ test('applyTheme WRITES the derived foreground as an inline style, which is what
     if (hadDoc) globalThis.document = prevDoc; else delete globalThis.document;
     if (hadStorage) globalThis.localStorage = prevStorage; else delete globalThis.localStorage;
   }
+});
+
+test('the ESCALATION path is exercised, not merely present', () => {
+  // #767676 sits at luminance 0.181, right in the overlap where both house colours fall short: near
+  // black gives 4.47 and near white 4.44. Only pure black clears 4.5, at 4.62. Without a case in this
+  // band the last two candidates are unreachable code that nothing proves works.
+  const fg = contrastingForeground('#767676');
+  assert.equal(fg, '#000000', 'a mid-tone accent did not escalate past the house colours');
+  assert.ok(contrastRatio(fg, '#767676') >= MIN_CONTRAST);
+
+  // ...and the house colours are still preferred either side of that band, so escalation is the
+  // exception rather than the rule.
+  assert.equal(contrastingForeground('#c0c0c0'), '#06110f');
+  assert.equal(contrastingForeground('#000080'), '#f7fbff');
 });

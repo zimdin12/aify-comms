@@ -74,9 +74,15 @@ export const MIN_CONTRAST = 4.5;
  * Settings, and this function is the only thing standing between that colour and unreadable buttons.
  *
  * The candidates are tried in order, so the house near-black and near-white win whenever they clear
- * the bar and pure black/white are reached only when a mid-tone accent needs them. If NONE clears
- * 4.5 -- possible for a genuine mid-grey, where no foreground can -- the best available is returned
- * rather than an arbitrary one, so the result is the most readable that colour permits.
+ * the bar and pure black/white are reached only when a mid-tone accent needs them. `#767676`
+ * (luminance 0.181) is exactly that case: both house colours fall short and pure black gives 4.62.
+ *
+ * SOMETHING ALWAYS CLEARS 4.5, which an earlier version of this comment denied. Against a background
+ * of luminance L, black gives (L + 0.05) / 0.05 and clears 4.5 when L >= 0.175; white gives
+ * 1.05 / (L + 0.05) and clears it when L <= 0.1833. Those intervals OVERLAP, so for every valid
+ * colour at least one of the two passes. The "best available" return below is therefore defensive
+ * against a malformed input, NOT an accepted sub-AA outcome, and no caller should read it as
+ * permission to ship one.
  */
 export function contrastingForeground(hex) {
   const candidates = ['#06110f', '#f7fbff', '#000000', '#ffffff'];
@@ -99,7 +105,6 @@ export function derivePaletteVars(palette = {}) {
   const readable = (hex) => (hexLuminance(hex) > 0.38 ? hex : `color-mix(in srgb, ${hex} 64%, #ffffff)`);
   return {
     '--accent': accent,
-    '--accent-strong': `color-mix(in srgb, ${accent} 72%, #000000)`,
     '--accent-hover': `color-mix(in srgb, ${accent} 82%, #ffffff)`,
     '--accent-text': readable(accent),
     '--accent-contrast': contrast(accent),

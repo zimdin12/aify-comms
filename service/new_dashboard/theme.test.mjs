@@ -35,7 +35,9 @@ test('paletteFromSettings: explicit color wins, else preset', () => {
 test('derivePaletteVars produces the accent var set', () => {
   const vars = derivePaletteVars({ accent: '#51c5b0', secondary: '#74b7ff', tertiary: '#dfb156' });
   assert.equal(vars['--accent'], '#51c5b0');
-  assert.ok(vars['--accent-strong'].includes('color-mix'));
+  // `--accent-strong` is GONE, producer and static declarations both: declared nine times across the
+  // stylesheet and read by NO `var()` anywhere. Asserting it existed was the last thing holding it up.
+  assert.equal(vars['--accent-strong'], undefined);
   assert.ok(vars['--secondary']);
   // `--secondary-contrast` and `--tertiary-contrast` are GONE, producer and all. They were emitted
   // into the inline style map on every apply and read by no CSS rule anywhere -- a variable nothing

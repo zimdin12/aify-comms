@@ -80,7 +80,7 @@ const CEILINGS = {
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.
-  "service/new_dashboard/styles.css": 1840,
+  "service/new_dashboard/styles.css": 1839,
 };
 
 const SKIP_DIRS = new Set(["node_modules", ".git", "__pycache__", "dist", "build", ".messages", "data"]);
