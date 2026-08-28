@@ -97,6 +97,21 @@ export class EnvClient {
     return this.#request("POST", `/processes/${encodeURIComponent(id)}/resize`, { cols, rows }, 204);
   }
 
+  /**
+   * Tell this environment what we now call one of its processes.
+   *
+   * SEPARATE FROM `start`, because identity does not always exist at spawn: a launcher can be
+   * started with no agent id and register itself mid-conversation, and the operator's rule is that
+   * the later registration must end up indistinguishable from the earlier one.
+   *
+   * 404 IS AN ANSWER, not a failure to hide. A process that has exited between the listing and this
+   * call is gone, and the caller reconciling labels needs to tell that from a write that did not
+   * land -- so the refusal is returned rather than swallowed.
+   */
+  async setLabel(id, label) {
+    return this.#request("POST", `/processes/${encodeURIComponent(id)}/label`, { label: String(label ?? "") }, 204);
+  }
+
   async list() {
     return this.#request("GET", "/processes", undefined, 200);
   }

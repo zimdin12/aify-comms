@@ -17,6 +17,7 @@ import { attachNotice } from "./terminal-attach-notice.js";
 // an unhandled one, and leaving the failure tracker blind to it.
 import { noteControlClaimFailure, noteControlClaimSuccess } from "./claim-failure-tracker.mjs";
 import { workspaceWithinRoots } from "./environment-identity.mjs";
+import { reconcileLabels } from "./label-reconciler.mjs";
 import { extractRuntimeSessionHandleFromArgv } from "./runtimes.js";
 import { defaultGetCmdline as hermesGetCmdline } from "./hermes-daemon.js";
 import { IS_ENVIRONMENT_BRIDGE } from "./launch-identity.mjs";
@@ -44,6 +45,14 @@ export async function runTerminalControlPass({
   // Reconcile any console PTY this bridge owns whose local pid has died but
   // whose server row is still `attached` (WS4 Task 4.2). Cheap + best-effort.
   await reportDeadOwnedTerminals();
+  // AND WHAT aify-env IS DISPLAYING FOR THEM. Beside the reconcile above for the same reason: a
+  // display that must be right on EVERY path cannot be written once at spawn, because identity
+  // does not always exist by then. See label-reconciler.mjs. Never throws, and pushes only
+  // differences, so a correct fleet costs one listing per tick and no writes.
+  await reconcileLabels({
+    client: TERMINAL_MANAGER.envDelegation?.isEnabled?.() ? TERMINAL_MANAGER.envDelegation.client : null,
+    terminals: TERMINAL_MANAGER.terminals?.values?.() ?? [],
+  });
   const environment = effectiveEnvironmentPayload();
   const claim = await httpCall("POST", "/terminals/controls/claim", {
     environmentId: environment.id,
