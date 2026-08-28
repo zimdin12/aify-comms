@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from service.clock import ISO_SECONDS
 
 # A superseded env bridge polls env-control every ~3s, so it claims its stop
 # within seconds. A `server:superseded-bridge` stop still pending well past this
@@ -53,7 +54,7 @@ async def _queue_stop_for_superseded_bridge(db, env_id, superseded_bridge_id, re
             # keeps the table from growing without limit.
             drain_cutoff = (
                 datetime.now(timezone.utc) - timedelta(seconds=SUPERSEDE_STOP_STALE_SECONDS)
-            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+            ).strftime(ISO_SECONDS)
             await db.execute(
                 """
                 UPDATE environment_controls

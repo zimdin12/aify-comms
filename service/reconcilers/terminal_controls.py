@@ -22,7 +22,7 @@ from typing import Any
 
 import aiosqlite
 
-from service.clock import now as _now
+from service.clock import ISO_SECONDS, now as _now
 
 
 # ONE definition of "a bridge on this environment can still act on a queued control".
@@ -84,10 +84,10 @@ async def _environment_offline_cutoff(db: aiosqlite.Connection, now: str) -> str
         seconds = 90
     seconds = max(30, seconds)
     try:
-        parsed = datetime.strptime(now, "%Y-%m-%dT%H:%M:%SZ")
+        parsed = datetime.strptime(now, ISO_SECONDS)
     except Exception:  # pragma: no cover - `now` is produced by strftime above
         parsed = datetime.now(timezone.utc).replace(tzinfo=None)
-    return (parsed - timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return (parsed - timedelta(seconds=seconds)).strftime(ISO_SECONDS)
 
 
 async def _reconcile_terminal_controls(db: aiosqlite.Connection):
@@ -96,7 +96,7 @@ async def _reconcile_terminal_controls(db: aiosqlite.Connection):
     # repo has already been bitten six times by exactly that (bughunt-round2-2026-07-03). Safe
     # today because the only comparison is datetime(handled_at), but one future `handled_at >= ?`
     # would be a silent bug. One shape, everywhere (C2).
-    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    now = time.strftime(ISO_SECONDS, time.gmtime())
     # A queued `stop` is EXEMPT from the liveness sweep. This rule is implemented TWICE — here and
     # in `service/reconcilers/terminal_runs.py::_reconcile_ended_terminal_controls` — with the same
     # predicate and the same error

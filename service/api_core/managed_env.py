@@ -28,7 +28,7 @@ from service.api_core.runtime import (
 from service.api_core.liveness import _LIVE_SESSION_STATUSES
 from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import _load_settings
-from service.clock import iso_to_epoch as _iso_to_epoch
+from service.clock import ISO_SECONDS, iso_to_epoch as _iso_to_epoch
 from service.env_status import environment_effective_status as _environment_effective_status
 
 
@@ -329,7 +329,7 @@ async def _has_pending_or_booting_spawn_request(db, agent_id: str) -> bool:
     # status said "idle, send something" while this function was still refusing to start a second
     # worker.
     running_cutoff = time.strftime(
-        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - SPAWN_INFLIGHT_WINDOW_SECONDS)
+        ISO_SECONDS, time.gmtime(time.time() - SPAWN_INFLIGHT_WINDOW_SECONDS)
     )
     # `starting` is the bridge's pre-`running` PATCH — count it with the time-bounded
     # arm so a concurrent coldstart in that sub-second window can't duplicate.

@@ -68,6 +68,19 @@ def _module_constants(path: Path) -> set[str]:
     }
 
 
+#: Edits to the extracted helpers made AFTER the split, undone before the round trip is compared.
+#: The fixture is a frozen record of the function as it stood before the extraction, so a later and
+#: entirely unrelated change to a helper breaks the inline unless it is declared here.
+#:
+#: `%Y-%m-%dT%H:%M:%SZ` was typed out at eleven product sites while `service/clock.py` already
+#: declared it as `ISO_SECONDS` -- and that module's own docstring says stored timestamps are
+#: compared LEXICALLY in SQL throughout, so a site that drifts produces a comparison that is wrong
+#: with no error. The helper below is one of the ten that now import the constant.
+EDITED_SINCE = [
+    ("            ).strftime(ISO_SECONDS)", '            ).strftime("%Y-%m-%dT%H:%M:%SZ")'),
+]
+
+
 class EnvironmentHeartbeatSplitIsInertTests(unittest.TestCase):
     def test_the_extraction_inlines_back_to_the_original(self):
         fixture_src = FIXTURE.read_text(encoding="utf-8")
@@ -76,7 +89,8 @@ class EnvironmentHeartbeatSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS,
+            edited_since=EDITED_SINCE)
 
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""

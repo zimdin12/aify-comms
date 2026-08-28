@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import time
 from typing import Any
+from service.clock import ISO_SECONDS
 
 async def _get_outbound_activity_map(db, agent_ids: list[str], *, include_runs: bool = True) -> dict[str, dict[str, Any]]:
     """When did each agent last PRODUCE something — send a message, finish a run?
@@ -146,7 +147,7 @@ async def _get_outbound_activity_map(db, agent_ids: list[str], *, include_runs: 
 
     for agent_id, ts in latest.items():
         out.setdefault(agent_id, {})["lastSentAt"] = time.strftime(
-            "%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts / 1000)
+            ISO_SECONDS, time.gmtime(ts / 1000)
         )
 
     # Last run this agent COMPLETED as the worker. Distinct from "a run targeting it exists",

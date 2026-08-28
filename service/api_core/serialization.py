@@ -27,7 +27,7 @@ import re
 import time
 from typing import Any
 
-from service.clock import iso_to_epoch as _iso_to_epoch
+from service.clock import ISO_SECONDS, iso_to_epoch as _iso_to_epoch
 
 
 def _json_loads_or(value: Any, default):
@@ -53,7 +53,7 @@ def _clip_text(text: str, limit: int = 240) -> str:
 
 
 def _iso_from_ms(timestamp_ms: int) -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(max(0, int(timestamp_ms or 0)) / 1000))
+    return time.strftime(ISO_SECONDS, time.gmtime(max(0, int(timestamp_ms or 0)) / 1000))
 
 
 def _dedupe_preserve(values: list[str]) -> list[str]:

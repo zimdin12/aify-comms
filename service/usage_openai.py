@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import httpx
+from service.clock import ISO_SECONDS
 
 CHATGPT_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 SOURCE_ID = "openai-chatgpt-codex"
@@ -128,7 +129,7 @@ def _win(w: Optional[dict]) -> dict[str, Any]:
         "used_pct": used,
         "left_pct": max(0.0, min(100.0, 100.0 - used)),
         "resets_at": (
-            time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(reset_at))) if reset_at else None
+            time.strftime(ISO_SECONDS, time.gmtime(int(reset_at))) if reset_at else None
         ),
     }
 

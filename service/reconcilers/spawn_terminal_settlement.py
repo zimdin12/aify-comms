@@ -33,7 +33,7 @@ from service.api_core.dead_terminal_spawn_query import (
     _terminal_end_statuses_ordered,
 )
 from service.api_core.tuning import SPAWN_ORPHAN_GRACE_SECONDS
-from service.clock import iso_to_epoch as _iso_to_epoch, now as _now
+from service.clock import ISO_SECONDS, iso_to_epoch as _iso_to_epoch, now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 # ALIASED — the leaf calls it `meaningful_failure_line`; every reconciler that reads it has
 # always spelled it `_terminal_failure_line`, and keeping that spelling is what makes the moved
@@ -57,7 +57,7 @@ async def _fail_running_spawns_superseded_by_current_session(db) -> int:
     changed.
     """
     live_cutoff = time.strftime(
-        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - SPAWN_ORPHAN_GRACE_SECONDS)
+        ISO_SECONDS, time.gmtime(time.time() - SPAWN_ORPHAN_GRACE_SECONDS)
     )
     cursor = await db.execute(
         """
