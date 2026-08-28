@@ -266,6 +266,31 @@ export const SERVICE_IMAGE_NON_RUNTIME_PATHS = {
 };
 
 /**
+ * The `/version` payload turned into a verdict. The ONLY path from that response to a `service` check.
+ *
+ * IT EXISTS BECAUSE THE CALL SITE HAD A HOLE THE PREDICATE COULD NOT SEE. `checkService()` returned
+ * early when no git checkout was found -- `ok: true`, displaying `ver.sha_short` straight from the
+ * payload -- so `serviceBuildVerdict` was never called at all. On any host without a checkout, which is
+ * the ordinary deployed case, an env-supplied build identity was reported HEALTHY and the supplied
+ * short was shown as the running build. The predicate's own no-checkout branch was unreachable from
+ * the consumer, and so was every override rule it had just been taught.
+ *
+ * That is the helper-versus-call-site shape again, and the reason the mapping is now a named function
+ * a test can execute rather than four lines inside an async routine that needs a network and a repo.
+ */
+export function serviceVerdictFrom(version, { headSha = "", headShort = "", runtimeCommits = 0, totalCommits = 0 } = {}) {
+  return serviceBuildVerdict({
+    builtSha: String(version?.sha || ""),
+    builtShort: version?.sha_short || "",
+    headSha,
+    headShort,
+    runtimeCommits,
+    totalCommits,
+    identityOverriddenBy: Array.isArray(version?.identityOverriddenBy) ? version.identityOverriddenBy : [],
+  });
+}
+
+/**
  * The build verdict, with any non-SHA provenance caveat appended to WHATEVER it decides.
  *
  * TWO BRANCHES USED TO CARRY IT and four did not, so a stale or unknown build silently dropped the

@@ -37,7 +37,7 @@ import {
   envStateIsUnknown,
   bridgeCurrentVerdict,
   bridgeInstallVerdict,
-  serviceBuildVerdict,
+  serviceVerdictFrom,
   skillDestinations,
   skillsInstallVerdict,
   // USED IN A SPREAD, at `...SERVICE_RUNTIME_PATHS` / `...SERVICE_RUNTIME_EXCLUDE_PATHS` below.
@@ -109,37 +109,34 @@ async function checkService() {
   }
   const ver = await get("/version");
   const sha = String(ver?.sha || "");
-  if (!repo) {
-    return add("service", true, "ok", `healthy — build ${ver?.sha_short || "?"} (no checkout to compare against)`);
-  }
-  if (!sha) {
-    return add("service", false, "unknown-build", "healthy, but it reports no build sha.",
-      "Run `scripts/stamp.sh` before `docker compose up -d --build` — otherwise /version lies.");
-  }
+  // NO EARLY RETURNS. Both the no-checkout and no-sha cases used to be answered here, which meant the
+  // verdict -- and every override rule in it -- was skipped on exactly the hosts that have no repo.
+  // The payload now always goes through `serviceVerdictFrom`, which owns all of those branches.
+  let totalCommits = 0;
+  let runtimeCommits = 0;
+  if (repo && sha) {
   // Ask whether any commit since the build touched code the service EXECUTES, not merely
   // whether the sha differs — see serviceBuildVerdict for the false red this replaces
   // (a docs-only commit reported "Your service changes are NOT running") and for why the set
   // is runtime paths rather than Dockerfile COPY sources. Same shape as checkNativeBridge
   // below: two `git log` calls, pure unit-tested verdict.
-  const totalCommits = sh("git", ["rev-list", "--count", `${sha}..HEAD`], repo.dir);
-  const runtimeCommits = sh(
-    "git",
-    [
-      "rev-list", "--count", `${sha}..HEAD`, "--",
-      ...SERVICE_RUNTIME_PATHS,
-      // Tests live under a runtime path but are not runtime — nothing in the image runs pytest.
-      ...SERVICE_RUNTIME_EXCLUDE_PATHS.map((p) => `:(exclude)${p}`),
-    ],
-    repo.dir,
-  );
-  const verdict = serviceBuildVerdict({
-    builtSha: sha,
-    builtShort: ver.sha_short || "",
-    headSha: repo.sha,
-    headShort: repo.short,
-    runtimeCommits: Number(runtimeCommits || 0),
-    totalCommits: Number(totalCommits || 0),
-    identityOverriddenBy: Array.isArray(ver.identityOverriddenBy) ? ver.identityOverriddenBy : [],
+    totalCommits = Number(sh("git", ["rev-list", "--count", `${sha}..HEAD`], repo.dir) || 0);
+    runtimeCommits = Number(sh(
+      "git",
+      [
+        "rev-list", "--count", `${sha}..HEAD`, "--",
+        ...SERVICE_RUNTIME_PATHS,
+        // Tests live under a runtime path but are not runtime — nothing in the image runs pytest.
+        ...SERVICE_RUNTIME_EXCLUDE_PATHS.map((p) => `:(exclude)${p}`),
+      ],
+      repo.dir,
+    ) || 0);
+  }
+  const verdict = serviceVerdictFrom(ver, {
+    headSha: repo?.sha || "",
+    headShort: repo?.short || "",
+    runtimeCommits,
+    totalCommits,
   });
   return add("service", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }

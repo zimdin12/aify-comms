@@ -135,16 +135,15 @@ class AnEnvSuppliedBuildIdentityIsDisclosed(unittest.TestCase):
         )
         self.assertEqual(supplied["sha"], "deadbeefdeadbeef", "the override never reached the payload")
 
-    def test_the_payload_key_is_the_one_doctor_reads(self):
-        """The transport's far end. `doctor.js` extracts `ver.identityOverriddenBy` from this exact
-        payload, and a rename on either side would leave both halves passing while the field never
-        arrived -- config and predicate tested on opposite sides of an unexecuted gap."""
-        doctor = (Path(__file__).resolve().parent.parent.parent
-                  / "mcp" / "stdio" / "doctor.js").read_text(encoding="utf-8")
-        self.assertIn(
-            "ver.identityOverriddenBy", doctor,
-            "doctor no longer reads the key /version emits, so the disclosure reaches nothing",
-        )
+    # THE FAR END IS NOT TESTED HERE, and a substring in `doctor.js` was not a test of it. This file
+    # had one: it grepped for `ver.identityOverriddenBy` and passed on the spelling alone, so a dead or
+    # reordered transport carrying that text would have satisfied it. It then broke for the right
+    # reason -- the extraction moved into an adapter -- which is what a proxy assertion does instead of
+    # telling you something useful.
+    #
+    # The consumer half is executed in `mcp/stdio/tests/doctor-service-staleness.test.js`, which runs
+    # `serviceVerdictFrom` against a real payload shape and asserts the field is read. This file owns
+    # the producer half: env -> config -> `/version` JSON. Neither half claims the other.
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@ import {
   SERVICE_RUNTIME_PATHS,
   bridgeInstallVerdict,
   serviceBuildVerdict,
+  serviceVerdictFrom,
 } from "../doctor-predicates.js";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -345,3 +346,58 @@ test("the provenance caveat survives EVERY verdict branch, not just the two that
   assert.equal(refused.code, "build-identity-overridden");
   assert.doesNotMatch(refused.detail, /came from the environment\)/, "the refusal gained a redundant caveat");
 });
+
+test("EVERY /version payload reaches the verdict, including with no checkout", () => {
+  // THE CALL-SITE HOLE, executed rather than inferred. `checkService()` returned early when no git
+  // checkout was found -- ok:true, displaying `ver.sha_short` straight from the payload -- so the
+  // verdict was never called and none of its override rules applied. On a host without a repo, which
+  // is the ordinary deployed case, an env-supplied identity read as HEALTHY.
+  //
+  // Asserted through the adapter the call site now uses, so this exercises the real extraction:
+  // which payload fields are read, and what a missing checkout maps to.
+  const supplied = { sha: "cafebabe1234", sha_short: "LIESHORT", identityOverriddenBy: ["build_sha"] };
+  const noCheckout = serviceVerdictFrom(supplied, { headSha: "", headShort: "" });
+  assert.equal(noCheckout.ok, false,
+    "an env-supplied build identity read as healthy because there was no checkout to compare against");
+  assert.equal(noCheckout.code, "build-identity-overridden");
+
+  // ...and an ordinary payload with no checkout is still certified, so the fix is not a blanket red.
+  const clean = serviceVerdictFrom({ sha: "cafebabe1234", sha_short: "cafebab" }, { headSha: "" });
+  assert.equal(clean.ok, true, `a clean no-checkout report was refused: ${clean.detail}`);
+  assert.match(clean.detail, /no checkout to compare against/);
+});
+
+test("the adapter reads the payload's own field names", () => {
+  // The transport, which was previously 'proved' by grepping doctor.js for a spelling. A rename on
+  // either side of `/version` would leave both halves green while the field never arrived.
+  const verdict = serviceVerdictFrom(
+    { sha: "aaaabbbbcccc", sha_short: "aaaabbb", identityOverriddenBy: ["version"] },
+    { headSha: "aaaabbbbcccc", headShort: "aaaabbb" },
+  );
+  assert.equal(verdict.ok, true);
+  assert.match(verdict.detail, /aaaabbb/, "sha_short was not read from the payload");
+  assert.match(verdict.detail, /version came from the environment/,
+    "identityOverriddenBy was not read from the payload");
+
+  // A payload missing the key entirely must behave exactly as an empty list does — the field is absent
+  // from `/version` in the normal case, so the default is the common path, not the exception.
+  assert.equal(serviceVerdictFrom({ sha: "aaaabbbbcccc" }, { headSha: "aaaabbbbcccc" }).ok, true);
+});
+
+test("a payload with NO sha is unknown-build, not certified", () => {
+  // The other early return the call site used to answer for itself.
+  const verdict = serviceVerdictFrom({ sha_short: "" }, { headSha: "aaaabbbbcccc" });
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.code, "unknown-build");
+});
+
+// THE RESIDUAL GAP, stated rather than papered over. checkService() cannot be executed by a test:
+// doctor.js runs its whole check sequence at module scope and ends in process.exit(), so importing
+// it RUNS the doctor. Making it injectable needs a main-guard on a CLI the operator actually uses,
+// and restructuring a live tool to buy a test is the wrong trade -- my first attempt also leaked a
+// rename into checkNativeBridge, which node --check accepted without complaint.
+//
+// So the adapter above is proven and the CALL to it is not. That is a much smaller gap than the one
+// this closes -- the adapter now owns every branch, including the no-checkout case the call site
+// used to answer for itself with ok:true -- but it is a gap, and the next person should read it as
+// exactly that rather than as the whole path being covered.
