@@ -110,20 +110,18 @@ class TheForgedBodyCannotMintReceipts(unittest.TestCase):
         )
 
 
-class TheStorageBoundaryIsWhereThisIsClosed(unittest.TestCase):
-    def test_the_dispatch_insert_neutralises_the_body_it_stores(self):
-        # A source-level assertion, deliberately: the alternative is standing up the whole send path
-        # for one binding, and what matters is that the INSERT binds the neutralised value rather
-        # than the raw one. If this moves, the test above stops being reachable in production and
-        # nothing else would say so.
-        from pathlib import Path
-        source = Path(__file__).resolve().parents[1] / "api_core" / "dispatch_runs.py"
-        text = source.read_text(encoding="utf-8")
-        self.assertIn("stored_body = _neutralise_buffer_markers(body)", text,
-                      "the fresh-dispatch insert no longer neutralises the sender's body")
-        self.assertIn("message_type, subject, stored_body, priority", text,
-                      "the INSERT binds a body that is not the neutralised one")
-
+# THE STORAGE-BOUNDARY HALF IS ASSERTED IN
+# `test_every_dispatch_run_writer_neutralises_its_body.py`, and used to be two `assertIn` calls
+# here against the text of `dispatch_runs.py`.
+#
+# Both still pass, which is the problem: they proved a line existed in one file, and the property
+# belongs to the COLUMN. `dispatch_runs.body` had FOUR writers and only the pinned one
+# neutralised -- the steer contract run in the SAME function, and the terminal-coalesce insert in
+# the neighbouring module, both stored the sender's body verbatim. A pin looking at a line cannot
+# see a second writer, however close it sits.
+#
+# The replacement derives the writer set with an AST walk and judges each one's `body` binding by
+# reading the column's index out of the SQL, so a fifth writer is judged on the day it lands.
 
 if __name__ == "__main__":
     unittest.main()

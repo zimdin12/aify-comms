@@ -119,6 +119,18 @@ async def _create_dispatch_runs(
     # `Message_Only` was recognised by the delivery path and not by the claim path, and a run the
     # sender asked to deliver as a message only would have started a turn instead.
     dispatch_mode = str(dispatch_mode or "").strip().lower()
+
+    # NEUTRALISED ONCE, HERE, for the same reason `dispatch_mode` is normalised one line above: this
+    # function is the only place a caller-supplied body enters the column, and it writes that column
+    # from TWO places.
+    #
+    # It used to be computed 250 lines below, immediately before the fresh-dispatch INSERT, which left
+    # the STEER contract run — the other INSERT in this same function — storing the sender's body
+    # verbatim. See the storage-boundary note on that INSERT for what a stored structural marker buys
+    # an attacker; the point here is that a guard computed at one call site is a guard for one call
+    # site, and the column has more than one writer.
+    stored_body = _neutralise_buffer_markers(body)
+
     runs = []
     requested_at = _now()
     for recipient_id in recipients:
@@ -182,7 +194,7 @@ async def _create_dispatch_runs(
                             requested_runtime or "",
                             message_type,
                             subject,
-                            body,
+                            stored_body,
                             priority,
                             in_reply_to,
                             "delivered",
@@ -340,7 +352,9 @@ async def _create_dispatch_runs(
         # dispatch body carries a structural marker unless the service wrote it. The transformation is
         # the one the merged path already applies — brackets substituted, `MessageId:` prefixed off
         # column 0 — so the text stays readable and becomes structurally inert.
-        stored_body = _neutralise_buffer_markers(body)
+        #
+        # COMPUTED AT THE TOP OF THIS FUNCTION since 2026-08-28, because the steer INSERT above binds
+        # the same column and was still binding the raw body.
         await db.execute(
             """
             INSERT INTO dispatch_runs (

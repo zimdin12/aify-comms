@@ -33,6 +33,7 @@ from service.api_core.reply_expectation import (
     _message_type_expects_reply,
 )
 from service.api_core.runtime import _normalize_runtime
+from service.api_core.dispatch_text import _neutralise_buffer_markers
 from service.api_core.serialization import _quote_untrusted_subject
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -103,6 +104,17 @@ async def _record_terminal_delivery_contract(
 
     tracks_active_turn = normalized_runtime in {"claude-code", "codex", "hermes", "opencode", "pi"}
     status = "running" if tracks_active_turn else "delivered"
+
+    # THE SAME STORAGE-BOUNDARY RULE `_create_dispatch_runs` applies, and this writer did not.
+    #
+    # The invariant the claim-time parser relies on is "no stored dispatch body carries a structural
+    # marker unless the service wrote it". That is a property of the COLUMN, so it is only true if
+    # every writer of the column holds it. Three writers take a sender's body; one of them
+    # neutralised it. This row is inserted with `status='running'` and a non-empty `message_id`, which
+    # is precisely the selection `POST /contracts/hygiene/repair-read-receipts` iterates — so a body
+    # opening with the buffer header would have had its forged `MessageId:` lines read back and turned
+    # into read receipts for this agent against messages it never saw.
+    stored_body = _neutralise_buffer_markers(body)
     await db.execute(
         """
         INSERT INTO dispatch_runs (
@@ -121,7 +133,7 @@ async def _record_terminal_delivery_contract(
             normalized_runtime,
             message_type,
             subject,
-            body,
+            stored_body,
             priority,
             in_reply_to,
             status,
