@@ -269,17 +269,31 @@ test("a stale slice still outranks a dead socket", () => {
 const live = (now) => refreshChipState(cycle(), { now });
 const down = (now) => refreshChipState(cycle('agents'), { now });
 
-test('a blip says reconnecting and claims no duration', () => {
+test('a SINGLE miss says reconnecting and claims no duration', () => {
   live(1_000_000);
   const s = down(1_000_000);
   assert.equal(s.text, 'reconnecting');
-  assert.doesNotMatch(s.title, / for /, 'a first failed poll must not read as an outage of zero seconds');
+  assert.doesNotMatch(s.title, / for /, 'one failed poll must not read as an outage of zero seconds');
 });
 
-test('an outage that outlives a poll interval says how long', () => {
+test('a SUSTAINED outage — a second consecutive miss — says how long', () => {
   live(2_000_000);
   down(2_000_000);
   assert.match(down(2_045_000).title, /for 45s/);
+});
+
+test('the threshold is a CYCLE, so it holds at either end of the configurable cadence', () => {
+  // The rule this replaced waited a fixed 30 seconds and called it "one poll interval". `app.js`
+  // derives the cadence from `dashboard_refresh_seconds`, floored at 5 and exposed to 300, so 30s is
+  // six intervals at the floor and a tenth of one at the ceiling. Keying on the second consecutive
+  // miss is exactly one observed interval whatever the cadence.
+  live(10_000_000);
+  down(10_000_000);
+  assert.match(down(10_005_000).title, /for 5s/, 'at a 5s cadence the age must appear on cycle two');
+
+  live(20_000_000);
+  down(20_000_000);
+  assert.match(down(20_300_000).title, /for 5m/, 'at a 300s cadence the same rule reports 5m');
 });
 
 test('the age is reported in the unit that suits it', () => {
@@ -292,12 +306,26 @@ test('the age is reported in the unit that suits it', () => {
 });
 
 test('RECOVERY RESETS THE CLOCK, so a new outage does not inherit the old age', () => {
-  // The assertion that makes the rest safe. A module-level timestamp never cleared would report every
-  // future outage as beginning at the first one -- a number that looks like evidence and is arithmetic
-  // on a stale variable. It is also the bug these very tests hit before they opened with `live()`.
   live(6_000_000);
   down(6_000_000);
   down(6_600_000);                    // ten minutes down
   live(6_700_000);                    // back up
-  assert.doesNotMatch(down(6_700_001).title, / for /, 'a brand-new outage claimed an age');
+  down(6_700_001);                    // first miss of the NEW outage
+  assert.doesNotMatch(down(6_700_002).title, /for 10m/, 'a new outage inherited the old age');
+});
+
+test('resetRefreshHistory CLEARS THE OUTAGE CLOCK, not just the failure history', () => {
+  // A partial reset that looks total. The recovery path above is a DIFFERENT carrier: a caller asking
+  // for "a defined starting point" must not be handed the previous outage's age, and before this the
+  // named reset left `unreachableSince` alone. The bug produces a wrong DURATION, which reads as
+  // evidence far more readily than a missing one.
+  live(7_000_000);
+  down(7_000_000);
+  down(7_600_000);                    // ten minutes down, age now showing
+  resetRefreshHistory();
+  down(7_600_001);                    // first miss after reset
+  assert.doesNotMatch(
+    down(7_600_002).title, /for 10m/,
+    'a reset left the old outage clock running, so a fresh failure claimed the previous age',
+  );
 });

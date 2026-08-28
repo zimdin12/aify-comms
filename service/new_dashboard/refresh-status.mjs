@@ -100,6 +100,11 @@ let previousFailures = [];
 export function resetRefreshHistory() {
   previousFailures = [];
   outOfBandFailures = new Set();
+  // THE OUTAGE CLOCK IS HISTORY TOO, and leaving it out made this function a partial reset that
+  // still looked total. A caller asking for "a defined starting point" would have got a brand-new
+  // failure carrying the previous outage's age -- a wrong DURATION, which reads as evidence far more
+  // readily than a missing one.
+  unreachableSince = null;
 }
 
 /** Which slices this cycle failed to refresh. Exported so the caller can feed it back in. */
@@ -121,16 +126,27 @@ export function rejectedSlices(settled, names = REFRESH_SLICES) {
  * @returns {{text: string, className: string, title: string, stale: string[], failed: string[]}}
  */
 /**
- * ` for 4m`, once an outage has outlived a single missed cycle. Empty for a blip.
+ * ` for 4m`, once an outage has been observed TWICE. Empty for a single miss.
  *
- * A duration on the first failed poll would be noise -- every transient miss would read as an outage
- * lasting zero seconds. The threshold is one poll interval, so the phrase appears exactly when
- * "reconnecting" has stopped being a plausible description of a blip.
+ * THE THRESHOLD IS A CYCLE, NOT A NUMBER OF SECONDS. A first version waited 30 seconds and called
+ * that "one poll interval". It is not one: `app.js` derives the cadence from
+ * `dashboard_refresh_seconds`, floored at 5 and exposed up to 300 in Settings, so a fixed 30s is six
+ * intervals at the floor and a tenth of one at the ceiling. A duration on the first failed poll
+ * would still be noise -- every transient miss reading as an outage of zero seconds -- but the
+ * function already knows whether agents ALSO failed last cycle, and that is exactly one observed
+ * interval whatever the cadence. At 5s it says `for 5s`; at 300s it says `for 5m`. No setting to
+ * thread and no invented seconds.
+ *
+ * The clock still starts on the FIRST miss, so when the phrase does appear the age is the real one.
  */
-function outageFor(now) {
+function outageFor(now, sustained) {
   if (unreachableSince === null) unreachableSince = now;
+  // ONE RULE, NOT TWO. A `seconds < 1` guard sat here as well, and it made the real rule
+  // undetectable: on a first miss the clock is set to `now`, so the elapsed time is 0 and the guard
+  // returned '' whether or not `sustained` was consulted. Deleting the sustained check left every
+  // test green. The observation count is the intent; elapsed time is not a second opinion on it.
+  if (!sustained) return '';
   const seconds = Math.round((now - unreachableSince) / 1000);
-  if (seconds < 30) return '';
   if (seconds < 90) return ` for ${seconds}s`;
   const minutes = Math.round(seconds / 60);
   return minutes < 90 ? ` for ${minutes}m` : ` for ${Math.round(minutes / 60)}h`;
@@ -160,7 +176,7 @@ export function refreshChipState(
       // Unchanged from before this module existed. Amber, not red: it self-heals on the next cycle,
       // and escalating it was not the defect being fixed here.
       className: 'status-chip warn',
-      title: `Cannot reach the service${outageFor(now)}.`
+      title: `Cannot reach the service${outageFor(now, before.has(names[AGENTS_SLICE]))}.`
         + (failed.length > 1 ? ` Not refreshed: ${failed.join(', ')}.` : ''),
       stale: [],
       failed,
