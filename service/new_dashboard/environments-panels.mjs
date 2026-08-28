@@ -50,6 +50,7 @@ import { renderStatusChip, resolveStatus, statusWhyContext } from './status.js';
 import { metric } from './summary-tiles.mjs';
 import { byId, toast, uiConfirm } from './ui.js';
 import { esc, relTime } from './util.js';
+import { serviceBuildShort } from './version-badge.mjs';
 
 /**
  * ` · last seen 83d ago`, for an environment that is not answering. Empty for everything else.
@@ -70,11 +71,41 @@ function offlineAge(env) {
   return seen ? ` · last seen ${esc(seen)} ago` : '';
 }
 
+/**
+ * A badge when this environment's bridge is running a DIFFERENT build than the service.
+ *
+ * WHY THIS EXISTS. The operator restarted aify-env twice trying to make an empty AGENT column
+ * fill in. It never could: the column is filled from a label the aify-comms BRIDGE sends at spawn
+ * time, and the running bridge predated that code by two commits -- build 579dd546 against a
+ * service built from 45045505, 231 commits apart. Nothing on any screen said so. `aify-comms
+ * doctor` has said it all along under `bridge-current`, but that is a command you have to know to
+ * run, and the environment card is where somebody looks when an environment misbehaves.
+ *
+ * A MISMATCH IS NOT AN ERROR. The service is a container build and the bridge is host code
+ * installed separately, so they differ routinely between a rebuild and a wrapper relaunch. The
+ * badge says what is true and what to do, and stays out of the status chip, which answers a
+ * different question.
+ *
+ * ABSENCE IS NOT A MISMATCH. Either side missing renders nothing: a bridge too old to report its
+ * build, or a `/version` that has not answered yet, is no evidence at all -- and a badge that
+ * appeared on every load until the first poll is one nobody would read twice.
+ */
+export function staleBridgeBadge(env, serviceBuild = serviceBuildShort()) {
+  const bridgeBuild = String((env && env.metadata && env.metadata.bridgeBuild) || '').trim();
+  const service = String(serviceBuild || '').trim();
+  if (!bridgeBuild || !service || bridgeBuild === service) return '';
+  const title = `This environment's bridge is running build ${bridgeBuild}; the service was built `
+    + `from ${service}. Bridge changes since then are NOT live here. Relaunch the environment `
+    + `bridge to pick them up -- reinstalling alone does not, because a running bridge keeps the `
+    + `code it loaded at boot.`;
+  return `<span class="mb mb-warn" title="${esc(title)}">bridge build ${esc(bridgeBuild)} \u2260 service ${esc(service)}</span>`;
+}
+
 export function renderRuntime() {
   byId('environment-list').innerHTML = state.environments.map((env) => `
     <article class="runtime-card" data-kind="environment" data-id="${esc(env.id)}">
       <div class="item-title"><strong>${esc(env.label || env.id)}</strong>${renderStatusChip(env.status, statusWhyContext('environment', env, env.status))}</div>
-      <p class="preview">${esc(env.kind || env.os || '')} · ${esc(env.machineId || '')}${offlineAge(env)}</p>
+      <p class="preview">${esc(env.kind || env.os || '')} · ${esc(env.machineId || '')}${offlineAge(env)}${staleBridgeBadge(env)}</p>
       <div class="env-runtime-list">
         ${environmentRuntimes(env).map((runtime) => `<span class="env-runtime-pill${runtime.available === false ? ' unavailable' : ''}">${esc(runtime.runtime)}${runtime.available === false ? ' (unavailable)' : ''}</span>`).join('') || '<span class="env-runtime-pill unavailable">no runtimes</span>'}
       </div>

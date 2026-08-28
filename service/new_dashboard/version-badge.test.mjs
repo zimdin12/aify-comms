@@ -13,7 +13,7 @@ import http from "node:http";
 import test from "node:test";
 
 import { setApiBase } from "./api-client.mjs";
-import { loadVersionBadge } from "./version-badge.mjs";
+import { loadVersionBadge, serviceBuildShort } from "./version-badge.mjs";
 
 let HANDLER = (_req, res) => { res.writeHead(200); res.end("{}"); };
 const SEEN = [];
@@ -147,4 +147,45 @@ test("no badge element on the page is a no-op, not a crash", async () => {
     if (!had) delete globalThis.document;
   }
   assert.deepEqual(SEEN, [], "it must not even ask when there is nowhere to show the answer");
+});
+
+// ---- the service build this module remembers, and who reads it ----------------------------------
+//
+// `serviceBuildShort()` exists so the environments panel can name a bridge running a DIFFERENT build
+// than the service. That comparison is only sound while the empty case stays empty: a `/version`
+// that has not answered yet is NO EVIDENCE, and a reader treating it as a mismatch would warn on
+// every dashboard load until the first poll completed.
+//
+// It comes from the 2026-08-28 incident where the operator restarted aify-env twice for an empty
+// AGENT column that only a bridge relaunch could fill: the bridge was two commits behind the code
+// that sends the label, and nothing on any screen said so.
+
+test("the remembered build is EMPTY before /version has answered", async () => {
+  // Ordering caveat, stated because it is load-bearing: this file's earlier cases already fetched, so
+  // the empty case is asserted through a FAILED fetch rather than by module freshness. A failure must
+  // not leave a stale build behind for the comparison to use.
+  serve({}, 500);
+  const badge = badgeEl();
+  globalThis.document = { getElementById: () => badge };
+  try {
+    await loadVersionBadge();
+  } finally {
+    delete globalThis.document;
+  }
+  assert.equal(serviceBuildShort(), "", "a failed /version left a build behind for readers to compare");
+});
+
+test("a successful fetch is remembered, and it is the SHORT sha", async () => {
+  serve({ sha: "450455054285b1729757571c88ce14055a1ae579", sha_short: "45045505", branch: "main" });
+  const badge = badgeEl();
+  globalThis.document = { getElementById: () => badge };
+  try {
+    await loadVersionBadge();
+  } finally {
+    delete globalThis.document;
+  }
+  assert.equal(
+    serviceBuildShort(), "45045505",
+    "the long sha would never equal a bridge's short one, so every environment would read as stale",
+  );
 });

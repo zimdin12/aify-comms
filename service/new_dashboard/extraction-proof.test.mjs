@@ -285,7 +285,40 @@ const EXTRACTIONS = [
     module: "version-badge.mjs",
     importLine: "import { loadVersionBadge } from './version-badge.mjs';",
     items: [
-      { name: "loadVersionBadge", at: 4977, marker: "// loadVersionBadge moved to ./version-badge.mjs in v0.5.4." },
+      {
+        name: "loadVersionBadge", at: 4977,
+        marker: "// loadVersionBadge moved to ./version-badge.mjs in v0.5.4.",
+        // Remembers the service build it already fetched, so the environments panel can name a
+        // bridge running a different one -- see staleBridgeBadge.
+        editedSince: [
+          // Recorded on a successful fetch, for the environments panel to compare against.
+          {
+            was: [
+              "    const short = esc(v.sha_short || v.sha || '?');",
+            ],
+            now: [
+              "    const short = esc(v.sha_short || v.sha || '?');",
+              "    // Recorded before the badge is painted, so a reader that runs in the same tick sees it.",
+              "    serviceBuild = String(v.sha_short || v.sha || '').trim();",
+            ],
+          },
+          // And FORGOTTEN on a failed one: an empty build is never compared against.
+          {
+            was: [
+              "    badge.title = 'Build version unavailable';",
+            ],
+            now: [
+              "    badge.title = 'Build version unavailable';",
+              "    // FORGOTTEN TOO. The badge blanks itself here rather than leaving the last good value on screen,",
+              "    // for the reason this file opens with: the failure that matters is showing something REASSURING",
+              "    // when it knows nothing. The remembered build is read by `staleBridgeBadge` to decide whether a",
+              "    // bridge is on a different build, so keeping a stale one would have it compare against a service",
+              "    // sha that may no longer be what is running. Empty is never compared against.",
+              "    serviceBuild = '';",
+            ],
+          },
+        ],
+      },
     ],
   },
   {
@@ -583,12 +616,14 @@ const EXTRACTIONS = [
         // on the wire — the card simply dropped it.
         // Also dropped a dead snake_case alternate: the environment payload emits machineId, never
         // machine_id, so the `||` branch could never be taken.
+        // Also names a bridge running a different build than the service -- the blind spot that sent
+        // the operator into two aify-env restarts for something only a bridge relaunch fixes.
         editedSince: [{
           was: [
             "      <p class=\"preview\">${esc(env.kind || env.os || '')} · ${esc(env.machineId || env.machine_id || '')}</p>",
           ],
           now: [
-            "      <p class=\"preview\">${esc(env.kind || env.os || '')} \u00b7 ${esc(env.machineId || '')}${offlineAge(env)}</p>",
+            "      <p class=\"preview\">${esc(env.kind || env.os || '')} \u00b7 ${esc(env.machineId || '')}${offlineAge(env)}${staleBridgeBadge(env)}</p>",
           ],
         }],
       },
