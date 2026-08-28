@@ -96,14 +96,69 @@ export function contrastingForeground(hex) {
   return best;
 }
 
-/** The lightest surface `--accent-text` is rendered on, so contrast against it is the tightest case. */
-export const LIGHTEST_SURFACE = '#1d2325';
+/**
+ * The hover background: the accent moved 18% AWAY from the text drawn on it.
+ *
+ * IT USED TO ALWAYS MOVE TOWARD WHITE, which is fine when the text is dark and wrong when it is light
+ * -- a lighter background under white text is LESS readable, and `.chat-scroll-bottom` keeps
+ * `--accent-contrast` while swapping only its background on hover. Swept 5832 accents: 820 failed the
+ * hover state, worst 3.22:1 at #5a7887, every one of them passing the resting state that the
+ * foreground was chosen against.
+ *
+ * REQUIRING ONE FOREGROUND TO CLEAR BOTH STATES DOES NOT WORK, and trying it is what showed why. For a
+ * mid-tone accent, dark text fails on the accent and light text fails on the lighter hover, so no
+ * candidate clears both -- 715 pairs still failed. The single-background overlap proof (black clears
+ * 4.5 above L=0.175, white below L=0.1833) says nothing about a PAIR spanning that gap.
+ *
+ * Moving away from the text instead makes hover contrast >= resting contrast by construction, so a
+ * foreground chosen for the resting state is correct for both and the token stays single.
+ */
+export function hoverBackground(accent, foreground = contrastingForeground(accent)) {
+  const towardBlack = hexLuminance(foreground) > hexLuminance(accent);
+  return towardBlack ? towardWhite(accent, -0.18) : towardWhite(accent, 0.18);
+}
+
+/** The panel every `--accent-text` surface is mixed into. Fixed; the tints below are not. */
+export const PANEL = '#15191b';
+
+/**
+ * Every background `--accent-text` is actually drawn on, for THIS accent.
+ *
+ * A FIXED CONSTANT CANNOT BOUND THESE, which is what the first version got wrong. It measured against
+ * `#1d2325` and called it "the lightest surface", but two of the four consumer surfaces are mixed FROM
+ * the accent and therefore move with it: `.chat-chip.active` sits on `--accent-soft`
+ * (`color-mix(accent 18%, panel)`) and `.chat-msg-mine` on a 12% tint. A light accent makes them
+ * lighter than any constant chosen in advance.
+ *
+ * The counterexample, reproduced: accent `#a08088` cleared the constant at 4.50056:1 and therefore kept
+ * the raw accent as its text colour -- which is 3.91:1 on the active chip and 4.31:1 on the mine
+ * message. Substituting one constant for a population is the same error as certifying the static CSS
+ * while the runtime overwrote it, one token further down.
+ *
+ * `.settings-tab.active` and the action hovers sit on the panel itself, so it stays in the list.
+ */
+export function accentTextSurfaces(accent) {
+  return [PANEL, mixInto(accent, 0.18, PANEL), mixInto(accent, 0.12, PANEL)];
+}
+
+/** `color-mix(in srgb, a p%, b)`, resolved — the same sRGB interpolation the stylesheet performs. */
+function mixInto(a, percent, b) {
+  const channels = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const [ar, ag, ab] = channels(a);
+  const [br, bg, bb] = channels(b);
+  const c = (x, y) => Math.round(x * percent + y * (1 - percent)).toString(16).padStart(2, '0');
+  return `#${c(ar, br)}${c(ag, bg)}${c(ab, bb)}`;
+}
 
 /** Mix `hex` toward white by `percent` of white, in sRGB — the same space `color-mix(in srgb, …)` uses. */
 function towardWhite(hex, percent) {
   const value = hex.replace('#', '');
   const channels = [0, 2, 4].map((i) => parseInt(value.slice(i, i + 2), 16));
-  const mixed = channels.map((c) => Math.round(c + (255 - c) * percent));
+  // A NEGATIVE percent moves toward BLACK, which is what `hoverBackground` needs when the text is
+  // light: the interpolation target flips rather than the caller doing its own arithmetic.
+  const mixed = channels.map((c) => (percent >= 0
+    ? Math.round(c + (255 - c) * percent)
+    : Math.round(c * (1 + percent))));
   return `#${mixed.map((c) => c.toString(16).padStart(2, '0')).join('')}`;
 }
 
@@ -124,11 +179,13 @@ function towardWhite(hex, percent) {
  * Measured against `LIGHTEST_SURFACE` because a light foreground has its WORST ratio on the lightest
  * background it is drawn on -- checking the darkest would flatter every candidate.
  */
-export function readableAccentText(hex, background = LIGHTEST_SURFACE) {
-  if (contrastRatio(hex, background) >= MIN_CONTRAST) return hex;
-  for (let percent = 0.1; percent < 1; percent += 0.1) {
+export function readableAccentText(hex, backgrounds = accentTextSurfaces(hex)) {
+  const against = [].concat(backgrounds);
+  const worst = (colour) => Math.min(...against.map((bg) => contrastRatio(colour, bg)));
+  if (worst(hex) >= MIN_CONTRAST) return hex;
+  for (let percent = 0.05; percent < 1; percent += 0.05) {
     const candidate = towardWhite(hex, percent);
-    if (contrastRatio(candidate, background) >= MIN_CONTRAST) return candidate;
+    if (worst(candidate) >= MIN_CONTRAST) return candidate;
   }
   return '#ffffff';
 }
@@ -138,11 +195,14 @@ export function derivePaletteVars(palette = {}) {
   const accent = normalizedHexColor(palette.accent, THEMES.default.accent);
   const second = normalizedHexColor(palette.secondary, THEMES.default.secondary);
   const third = normalizedHexColor(palette.tertiary, THEMES.default.tertiary);
-  const contrast = contrastingForeground;
   const readable = (hex) => readableAccentText(hex);
+  const contrast = contrastingForeground;
+  // RESOLVED, not a `color-mix()` string, so it can be measured against the foreground drawn on it.
+  // A value the deriving code cannot read is a value it cannot honour.
+  const hover = hoverBackground(accent);
   return {
     '--accent': accent,
-    '--accent-hover': `color-mix(in srgb, ${accent} 82%, #ffffff)`,
+    '--accent-hover': hover,
     '--accent-text': readable(accent),
     '--accent-contrast': contrast(accent),
     '--secondary': second,

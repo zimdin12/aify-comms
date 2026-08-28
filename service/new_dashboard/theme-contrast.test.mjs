@@ -24,7 +24,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { LIGHTEST_SURFACE, MIN_CONTRAST, THEMES, applyTheme, contrastRatio, contrastingForeground, derivePaletteVars, readableAccentText } from './theme.js';
+import { MIN_CONTRAST, THEMES, accentTextSurfaces, applyTheme, contrastRatio, contrastingForeground, derivePaletteVars, hoverBackground, readableAccentText } from './theme.js';
 
 test('the ratio maths is right', () => {
   // POSITIVE CONTROL. Black on white is 21:1 by definition; a formula that cannot produce it cannot be
@@ -138,7 +138,10 @@ test('--accent-text is READABLE on the surfaces it is drawn on, for arbitrary ac
   // heading and the action hovers. The eight shipped themes never hit it; Settings accepts any hex.
   for (const [name, palette] of Object.entries(THEMES)) {
     const vars = derivePaletteVars(palette);
-    const ratio = contrastRatio(vars['--accent-text'], LIGHTEST_SURFACE);
+    // The WORST of the surfaces it is drawn on, not a constant. Two of them are mixed from the accent
+    // itself, so no fixed reference bounds them -- see accentTextSurfaces.
+    const ratio = Math.min(...accentTextSurfaces(palette.accent)
+      .map((bg) => contrastRatio(vars['--accent-text'], bg)));
     assert.ok(ratio >= MIN_CONTRAST, `theme ${name} renders accent text at ${ratio.toFixed(2)}:1`);
   }
 });
@@ -152,7 +155,7 @@ test('the accents that BROKE it are the controls', () => {
   // shape as the applyTheme write, in the test written immediately after fixing it.
   for (const accent of ['#000000', '#0a0a0a', '#101010', '#1a1a1a', '#202020', '#2b2b2b', '#404040']) {
     const fg = derivePaletteVars({ accent, secondary: accent, tertiary: accent })['--accent-text'];
-    const ratio = contrastRatio(fg, LIGHTEST_SURFACE);
+    const ratio = Math.min(...accentTextSurfaces(accent).map((bg) => contrastRatio(fg, bg)));
     assert.ok(ratio >= MIN_CONTRAST, `accent ${accent} produced ${fg} at ${ratio.toFixed(2)}:1`);
   }
   // ...and the old formula must read as failing, or this control proves nothing.
@@ -165,4 +168,49 @@ test('it lightens only as far as it must', () => {
   const via = (accent) => derivePaletteVars({ accent, secondary: accent, tertiary: accent })['--accent-text'];
   assert.equal(via('#51c5b0'), '#51c5b0', 'an already-readable accent was altered');
   assert.notEqual(via('#000000'), '#ffffff', 'a dark accent was flattened to pure white');
+});
+
+test('HOVER keeps its contrast, because the background moves AWAY from the text', () => {
+  // `.chat-scroll-bottom` keeps `--accent-contrast` and swaps only its background on hover, so a
+  // foreground chosen against `--accent` alone is chosen against half the states it appears in.
+  // `--accent-hover` always moved 18% toward WHITE, which helps dark text and hurts light text: swept
+  // 5832 accents, 820 failed the hover state at worst 3.22:1, every one of them passing at rest.
+  //
+  // REQUIRING ONE FOREGROUND TO CLEAR BOTH DOES NOT WORK and trying it is what showed why — for a
+  // mid-tone accent, dark text fails on the accent and light text fails on the lighter hover, so no
+  // candidate clears both and 715 pairs still failed. Moving the background away from the text instead
+  // makes hover contrast >= resting by construction.
+  for (const accent of ['#5a7887', '#004bf0', '#000000', '#ffffff', '#808080', '#d34b64']) {
+    const vars = derivePaletteVars({ accent, secondary: accent, tertiary: accent });
+    const rest = contrastRatio(vars['--accent-contrast'], vars['--accent']);
+    const hover = contrastRatio(vars['--accent-contrast'], vars['--accent-hover']);
+    assert.ok(hover >= MIN_CONTRAST, `accent ${accent} hovers at ${hover.toFixed(2)}:1`);
+    assert.ok(hover >= rest - 0.001,
+      `accent ${accent} LOSES contrast on hover (${rest.toFixed(2)} -> ${hover.toFixed(2)})`);
+  }
+});
+
+test('the hover direction flips with the text colour, rather than always lightening', () => {
+  // ANTI-VACUITY for the pair above: a hover that never moved at all would satisfy both assertions
+  // while removing the affordance the state exists to give.
+  const dark = hoverBackground('#51c5b0');            // dark text -> lighten
+  const light = hoverBackground('#101010');           // light text -> darken
+  assert.notEqual(dark, '#51c5b0', 'the hover state is visually identical to rest');
+  assert.notEqual(light, '#101010', 'the hover state is visually identical to rest');
+  assert.ok(contrastRatio(dark, '#ffffff') < contrastRatio('#51c5b0', '#ffffff'), 'expected lightening');
+  assert.ok(contrastRatio(light, '#000000') < contrastRatio('#101010', '#000000'), 'expected darkening');
+});
+
+test('the accent-dependent SURFACES are what accent-text is judged against', () => {
+  // The counterexample from review, which a fixed constant passed: accent #a08088 measured 4.50056:1
+  // against `#1d2325` and so kept the raw accent — 3.91:1 on the active chip, 4.31:1 on the mine
+  // message. Both of those backgrounds are mixed FROM the accent, so they move with it.
+  const surfaces = accentTextSurfaces('#a08088');
+  assert.equal(surfaces.length, 3, 'a consumer surface was dropped from the population');
+  assert.ok(surfaces.includes('#2e2c2f'), `the 18% active-chip tint is missing: ${surfaces}`);
+  const fg = derivePaletteVars({ accent: '#a08088', secondary: '#a08088', tertiary: '#a08088' })['--accent-text'];
+  for (const bg of surfaces) {
+    assert.ok(contrastRatio(fg, bg) >= MIN_CONTRAST,
+      `#a08088 renders ${fg} at ${contrastRatio(fg, bg).toFixed(2)}:1 on ${bg}`);
+  }
 });
