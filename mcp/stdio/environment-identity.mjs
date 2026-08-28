@@ -107,13 +107,24 @@ export function launcherStateFrom(env = {}) {
   return out;
 }
 
-export function environmentHeartbeatPayload() {
+/**
+ * The environment's registration, as this bridge would report it now.
+ *
+ * `terminalSupported` IS AN ARGUMENT because since v0.6 Phase 8 this process is not the tier that
+ * answers it. Delegation makes aify-env the spawner, so `bridgeTerminalSupported()` -- did node-pty
+ * load HERE -- stopped being the question, and an environment advertising it was advertising a
+ * capability measured on a tier that no longer provides it. See terminal-capability.mjs for what
+ * that cost. The default keeps the pre-delegation answer for callers that have nothing better.
+ *
+ * @param {{terminalSupported?: boolean}} [override]
+ */
+export function environmentHeartbeatPayload({ terminalSupported: override } = {}) {
   const hostname = (() => {
     try { return os.hostname() || "unknown-host"; } catch { return "unknown-host"; }
   })();
   const kind = environmentKind();
   const id = String(process.env.AIFY_ENVIRONMENT_ID || `${kind}:${hostname}:default`).trim();
-  const terminalSupported = bridgeTerminalSupported();
+  const terminalSupported = typeof override === "boolean" ? override : bridgeTerminalSupported();
   return {
     id,
     label: environmentLabel(kind, hostname),

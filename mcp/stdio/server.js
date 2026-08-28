@@ -72,6 +72,7 @@ import { shutdownAllPiSessions } from "./pi-session-pool.mjs";
 import { shutdownAllCodexSessions } from "./codex-session.js";
 import { shutdownAllHermesSessions } from "./hermes-session.js";
 import { shutdownAllHermesGatewaySessions } from "./hermes-managed-gateway-session.js";
+import { probeEnvTerminal, terminalCapability } from "./terminal-capability.mjs";
 import { bridgeTerminalSupported } from "./terminal-runtime.js";
 import {
   bootstrapManagedEnvironmentBridge,
@@ -742,14 +743,43 @@ const { runManagedTeardownForBridge, runManagedTeardownSync, runBootSurvivorSwee
 // The merge moved to ./environment-cwd-roots.mjs in v0.6 Phase 1; the STATE stays here, because
 // `remoteEffectiveCwdRoots` is written by heartbeatEnvironment below and splitting a mutable across two
 // modules leaves it with no owner.
+
+// WHETHER THIS ENVIRONMENT CAN OPEN A TERMINAL, last time anyone asked the tier that would open it.
+// Same owner, same reason: written by heartbeatEnvironment, read by the synchronous callers below.
+//
+// NULL UNTIL THE FIRST HEARTBEAT, and null is not yes -- `terminalCapability` treats an unanswered
+// aify-env as no terminal. A bridge that has not yet probed advertises no terminal for one beat,
+// which is the honest answer to a question nobody has asked yet.
+let lastEnvTerminalHealth = null;
+
+/** The capability to advertise right now: aify-env's answer when delegating, ours otherwise. */
+function advertisedTerminalCapability() {
+  return terminalCapability({
+    delegationEnabled: TERMINAL_MANAGER.envDelegation?.isEnabled?.() === true,
+    envHealthy: lastEnvTerminalHealth,
+    localTerminal: bridgeTerminalSupported(),
+  }).terminal;
+}
+
 function effectiveEnvironmentPayload() {
-  return withEffectiveCwdRoots(environmentHeartbeatPayload(), remoteEffectiveCwdRoots);
+  return withEffectiveCwdRoots(
+    environmentHeartbeatPayload({ terminalSupported: advertisedTerminalCapability() }),
+    remoteEffectiveCwdRoots,
+  );
 }
 
 async function heartbeatEnvironment({ syncManaged = true } = {}) {
   if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: false, shuttingDown: shutdownStarted })) return false;
   try {
-    const response = await httpCall("POST", "/environments/heartbeat", environmentHeartbeatPayload());
+    // ASKED EVERY BEAT, of the tier that would actually open the terminal. One loopback GET, and
+    // it is the difference between advertising what we can do and advertising what we could do
+    // before spawning moved out of this process.
+    lastEnvTerminalHealth = await probeEnvTerminal(TERMINAL_MANAGER.envDelegation);
+    const response = await httpCall(
+      "POST",
+      "/environments/heartbeat",
+      environmentHeartbeatPayload({ terminalSupported: advertisedTerminalCapability() }),
+    );
     // `null` means the service said nothing about roots — keep what we had. An empty ARRAY means it
     // said there are none, which is a different fact. See environment-cwd-roots.mjs.
     const roots = parseEffectiveCwdRoots(response);
