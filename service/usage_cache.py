@@ -24,6 +24,29 @@ STALE_AFTER_SECONDS = 420  # ~2x the 3-min collector cadence
 STALE_EXPIRE_SECONDS = 86400  # 24h
 
 
+#: THE QUOTA POOL IDS, and the only place they are spelled in this service.
+#:
+#: These are dictionary KEYS shared with another repo. The bridge's `usage-collector.js` posts a
+#: snapshot as `{source_id: ...}`, this module caches it under that key, and `derive_usage_source`
+#: below computes the key an agent's quota is looked up by. Three spellings have to agree, two of
+#: them across a repo boundary. When they do not, `usage_get` misses, the payload's pool fields go
+#: null, and the dashboard shows no quota -- with no error raised anywhere, because a dict lookup
+#: that misses is not a failure.
+#:
+#: `openai-chatgpt-codex` was spelled in three product files before this. Agreement with the bridge
+#: is checked by test_the_usage_pool_ids_agree_across_repos.py.
+SOURCE_ANTHROPIC_CLAUDE_MAX = "anthropic-claude-max"
+SOURCE_OPENAI_CHATGPT_CODEX = "openai-chatgpt-codex"
+SOURCE_LOCAL_OLLAMA = "local-ollama"
+
+#: Every pool this service knows how to derive. Derived from the constants, never listed twice.
+USAGE_SOURCE_IDS = frozenset({
+    SOURCE_ANTHROPIC_CLAUDE_MAX,
+    SOURCE_OPENAI_CHATGPT_CODEX,
+    SOURCE_LOCAL_OLLAMA,
+})
+
+
 def derive_usage_source(runtime: Any, runtime_config: Any = None) -> Optional[str]:
     """Map a runtime (+ its config) to its quota pool id. Auto-bound at register;
     overridable later. hermes shares the codex pool (same chatgpt backend) unless it
@@ -31,16 +54,16 @@ def derive_usage_source(runtime: Any, runtime_config: Any = None) -> Optional[st
     rt = str(runtime or "").strip().lower()
     rc = runtime_config if isinstance(runtime_config, dict) else {}
     if rt in ("claude-code", "claude", "claude_code"):
-        return "anthropic-claude-max"
+        return SOURCE_ANTHROPIC_CLAUDE_MAX
     if rt == "codex":
-        return "openai-chatgpt-codex"
+        return SOURCE_OPENAI_CHATGPT_CODEX
     if rt == "hermes":
         base = str(rc.get("modelBaseUrl") or "").lower()
         # hermes shares the codex pool ONLY when pointed at the chatgpt backend; any other
         # explicit base (ollama, a LAN model server, etc.) is a non-quota local pool.
         if base and "chatgpt" not in base:
-            return "local-ollama"
-        return "openai-chatgpt-codex"
+            return SOURCE_LOCAL_OLLAMA
+        return SOURCE_OPENAI_CHATGPT_CODEX
     return None
 
 

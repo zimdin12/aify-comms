@@ -23,9 +23,10 @@ from typing import Any, Optional
 
 import httpx
 from service.clock import ISO_SECONDS
+from service.usage_cache import SOURCE_OPENAI_CHATGPT_CODEX
 
 CHATGPT_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
-SOURCE_ID = "openai-chatgpt-codex"
+SOURCE_ID = SOURCE_OPENAI_CHATGPT_CODEX
 
 # Searched, never guessed by platform — the same lesson as the bridge collector: every bug here was
 # a wrong guess about a path, and each failed SILENTLY (no token -> stale numbers forever).
