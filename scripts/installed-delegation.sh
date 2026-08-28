@@ -24,7 +24,15 @@ file="$dir/aify-comms"
 
 on="$(grep -oE '^export AIFY_COMMS_DELEGATE_SPAWNS="[^"]*"' "$file" 2>/dev/null \
   | head -1 | sed -E 's/.*="([^"]*)"$/\1/')"
-[ -n "${on// /}" ] || exit 1
+# THE SAME FOUR WORDS THE SPAWN PATH ACCEPTS. This asked only whether the value was non-blank, so
+# `AIFY_COMMS_DELEGATE_SPAWNS="0"` -- the obvious way to write "off" -- read as ON here while
+# `env-client.mjs` refused to delegate. `redeploy.sh` would then have carried a setting forward that
+# was never in effect. This file cannot import the JS predicate, so the agreement is held by a test
+# that drives BOTH over the same table of spellings: mcp/stdio/tests/where-spawns-run-has-one-parser.
+case "$(printf '%s' "$on" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
+  1|true|yes|on) ;;
+  *) exit 1 ;;
+esac
 
 endpoint="$(grep -oE '^export AIFY_ENV_ENDPOINT="[^"]*"' "$file" 2>/dev/null \
   | head -1 | sed -E 's/.*="([^"]*)"$/\1/')"

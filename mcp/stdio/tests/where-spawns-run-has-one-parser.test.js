@@ -115,3 +115,83 @@ const STDIO = path.dirname(HERE);
 
   console.log("where-spawns-run-has-one-parser.test.js: all assertions passed");
 }
+
+// ---- the gate above compares SPELLING, which is not agreement -----------------------------------
+//
+// Both files spelled that pattern identically and answered differently. `env-client.mjs` -- the code
+// that actually decides whether a spawn is delegated -- accepts only `1|true|yes|on`, while the
+// reporters treated ANY non-blank value as on. Measured 2026-08-28 over eleven spellings, five
+// disagreed, including `"0"`, `"false"` and `"off"`: an operator who turned delegation off the obvious
+// way got local spawns (right) and a doctor reporting `delegated` that went on to probe aify-env and
+// fail `unreachable` for a setting not in effect.
+//
+// A shared predicate fixes the two JS readers. The shell one cannot import it, so it is held to the
+// same TABLE OF VERDICTS instead of the same regex text. That is the difference between checking that
+// two things look alike and checking that they answer alike.
+{
+  const { execFileSync } = await import("node:child_process");
+  const os = await import("node:os");
+  const { AFFIRMATIVE, delegationOptedIn } = await import("../delegation-setting.mjs");
+  const { isEnabled } = await import("../env-client.mjs");
+
+  const ENDPOINT = "http://127.0.0.1:8899";
+  //: Every spelling worth pinning: the four that mean yes, the ways people write no, and a value
+  //: nobody declared. Casing and surrounding space are included because a launcher is hand-editable.
+  const SPELLINGS = ["1", "true", "yes", "on", "ON", " on ", "", " ", "0", "false", "no", "off", "maybe"];
+
+  const launcherText = (value) =>
+    `#!/bin/bash
+export AIFY_COMMS_DELEGATE_SPAWNS="${value}"
+export AIFY_ENV_ENDPOINT="${ENDPOINT}"
+`;
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "delegation-"));
+  const shellSaysOn = (value) => {
+    fs.writeFileSync(path.join(tmp, "aify-comms"), launcherText(value));
+    try {
+      execFileSync("bash", [path.join(STDIO, "..", "..", "scripts", "installed-delegation.sh"), tmp],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const disagreements = [];
+  let onCount = 0;
+  let offCount = 0;
+  for (const value of SPELLINGS) {
+    const decider = isEnabled({ AIFY_COMMS_DELEGATE_SPAWNS: value, AIFY_ENV_ENDPOINT: ENDPOINT });
+    const reporter = launcherDelegation(launcherText(value)).on;
+    const shell = shellSaysOn(value);
+    if (decider) onCount += 1; else offCount += 1;
+    if (decider !== reporter || decider !== shell) {
+      disagreements.push(`${JSON.stringify(value)}: decider=${decider} doctor=${reporter} shell=${shell}`);
+    }
+  }
+  fs.rmSync(tmp, { recursive: true, force: true });
+
+  // CONTROLS. Three readers that all said "on" to everything would agree perfectly and mean nothing,
+  // and so would three that said "off". The table has to exercise both answers to be a comparison.
+  assert.ok(onCount >= 4, `only ${onCount} spellings read as ON; the table is not exercising yes`);
+  assert.ok(offCount >= 4, `only ${offCount} spellings read as OFF; the table is not exercising no`);
+  assert.deepStrictEqual(disagreements, [],
+    "the readers of AIFY_COMMS_DELEGATE_SPAWNS do not agree on what it means");
+
+  // The predicate itself, so a reader that stops importing it is not silently re-deciding.
+  assert.strictEqual(delegationOptedIn("0"), false);
+  assert.strictEqual(delegationOptedIn(" ON "), true);
+  assert.strictEqual(delegationOptedIn(undefined), false);
+
+  // The shell's word list is DERIVED from the exported one, not retyped here. A fifth word added to
+  // the predicate and not to the shell reader is a disagreement that only shows up on whichever host
+  // types it -- and a test that hardcoded `1|true|yes|on` would agree with itself while the two
+  // files diverged. The launcher's own banner is held to the same list from the python side.
+  const shellSource = fs.readFileSync(path.join(STDIO, "..", "..", "scripts", "installed-delegation.sh"), "utf8");
+  const shellCase = /^\s*([a-z0-9|]+)\)\s*;;/m.exec(shellSource);
+  assert.ok(shellCase, "the shell reader no longer decides with a case list");
+  assert.deepStrictEqual(shellCase[1].split("|"), AFFIRMATIVE,
+    "the shell reader accepts a different set of words than the predicate does");
+
+  console.log("where-spawns-run-has-one-parser.test.js: verdict table agrees across all three readers");
+}

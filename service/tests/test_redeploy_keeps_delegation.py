@@ -16,6 +16,7 @@ chose.
 """
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -95,6 +96,54 @@ def test_whitespace_is_not_a_setting(tmp_path):
         encoding="utf-8",
     )
     assert read(tmp_path).returncode == 1
+
+
+#: Every spelling that means "off". The reader accepted all of these as ON while `env-client.mjs` --
+#: the code that actually decides whether a spawn is delegated -- refused to delegate for every one,
+#: so `redeploy.sh` would have carried forward a setting that was never in effect.
+NEGATIVE_SPELLINGS = ("0", "false", "no", "off", "maybe")
+
+
+@pytest.mark.parametrize("value", NEGATIVE_SPELLINGS)
+def test_a_value_that_means_off_is_off(tmp_path, value):
+    (tmp_path / "aify-comms").write_text(
+        f'#!/usr/bin/env bash{chr(10)}export AIFY_COMMS_DELEGATE_SPAWNS="{value}"{chr(10)}'
+        f'export AIFY_ENV_ENDPOINT="http://x:8802"{chr(10)}',
+        encoding="utf-8",
+    )
+    result = read(tmp_path)
+    assert result.returncode == 1, f'"{value}" was read as delegation ON'
+    assert result.stdout.strip() == ""
+
+
+@pytest.mark.parametrize("value", ("1", "true", "yes", "on", "ON", " on "))
+def test_a_value_that_means_on_is_on(tmp_path, value):
+    """The control. A reader that refused everything would pass every case above and be useless."""
+    (tmp_path / "aify-comms").write_text(
+        f'#!/usr/bin/env bash{chr(10)}export AIFY_COMMS_DELEGATE_SPAWNS="{value}"{chr(10)}'
+        f'export AIFY_ENV_ENDPOINT="http://x:8802"{chr(10)}',
+        encoding="utf-8",
+    )
+    result = read(tmp_path)
+    assert result.returncode == 0, f'"{value}" was read as delegation OFF: {result.stderr}'
+    assert result.stdout.strip() == "http://x:8802"
+
+
+def test_the_launchers_own_banner_uses_the_same_four_words():
+    """The FOURTH reader of this setting, and the one the operator actually sees.
+
+    The generated launcher printed "spawns: DELEGATED to aify-env" whenever the value was non-blank,
+    so a host with `="0"` was told on every single start that its spawns went somewhere they did not.
+    A banner is not a code path, which is exactly why it drifted: nothing executed it.
+    """
+    install = (ROOT / "install.sh").read_text(encoding="utf-8")
+    banner = re.search(r"spawns: DELEGATED to aify-env", install)
+    assert banner, "the launcher no longer announces where spawns run"
+    window = install[max(0, banner.start() - 400):banner.start()]
+    assert "1|true|yes|on" in window, (
+        "the launcher banner decides DELEGATED by some rule other than the four words the spawn "
+        "path accepts; it will announce delegation for a value that disables it"
+    )
 
 
 def test_redeploy_passes_the_recovered_setting_to_install():

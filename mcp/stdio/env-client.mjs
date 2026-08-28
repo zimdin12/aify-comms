@@ -15,10 +15,10 @@
 // composes a shell command STRING while aify-env allowlists a launcher FILE. Until both are settled the
 // seam refuses when the flag is on, rather than half-delegating. See docs/PHASE8_STATUS.md.
 
+import { delegationOptedIn } from "./delegation-setting.mjs";
+
 const DEFAULT_TIMEOUT_MS = 5000;
 
-/** Only these mean yes. "0" and "false" are what somebody types when they mean off. */
-const AFFIRMATIVE = new Set(["1", "true", "yes", "on"]);
 
 /**
  * Is delegation turned on, and does it have somewhere to go?
@@ -33,7 +33,7 @@ const AFFIRMATIVE = new Set(["1", "true", "yes", "on"]);
  * misconfiguration, and calling it on would produce a refusal whose message points at the wrong half.
  */
 export function isEnabled(env = process.env) {
-  const optedIn = AFFIRMATIVE.has(String(env.AIFY_COMMS_DELEGATE_SPAWNS ?? "").trim().toLowerCase());
+  const optedIn = delegationOptedIn(env.AIFY_COMMS_DELEGATE_SPAWNS);
   const endpoint = String(env.AIFY_ENV_ENDPOINT ?? "").trim();
   return optedIn && endpoint !== "";
 }

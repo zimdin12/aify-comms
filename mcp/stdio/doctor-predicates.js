@@ -10,6 +10,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+
+import { delegationOptedIn } from "./delegation-setting.mjs";
 //
 // Extracted from doctor.js (v0.2 item B2, done in v0.1) for ONE reason: doctor.js is a top-level
 // script that runs every check at import and ends in `process.exit()`, so it cannot be imported by
@@ -816,7 +818,9 @@ export function launcherDelegation(launcherText) {
   return {
     isLauncher,
     present: Boolean(setting),
-    on: Boolean(setting) && setting[1].trim() !== "",
+    // The DECIDER's rule, not a second one. Reporting "delegated" for a value the spawn path
+    // treats as off is how `spawn-delegation` came to contradict where spawns actually run.
+    on: Boolean(setting) && delegationOptedIn(setting[1]),
     endpoint: (/^export AIFY_ENV_ENDPOINT="([^"]*)"/m.exec(text) ?? [, ""])[1],
   };
 }

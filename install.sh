@@ -1499,11 +1499,11 @@ export AIFY_ENV_ENDPOINT="$AIFY_ENV_ENDPOINT_BAKED"
 echo "aify-comms ENVIRONMENT BRIDGE (this hosts dashboard-managed agents)"
 echo "  server: \$AIFY_SERVER_URL"
 echo "  roots:  \$AIFY_CWD_ROOTS"
-if [ -n "\$AIFY_COMMS_DELEGATE_SPAWNS" ]; then
-  echo "  spawns: DELEGATED to aify-env at \$AIFY_ENV_ENDPOINT"
-else
-  echo "  spawns: hosted by this bridge"
-fi
+# The four words the spawn path accepts, not any non-blank value: this announced DELEGATED for "0"
+case "\$(printf '%s' "\$AIFY_COMMS_DELEGATE_SPAWNS" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
+  1|true|yes|on) echo "  spawns: DELEGATED to aify-env at \$AIFY_ENV_ENDPOINT" ;;
+  *)             echo "  spawns: hosted by this bridge" ;;
+esac
 echo "  note:   starting this SUPERSEDES any bridge already serving this environment —"
 echo "          the older one exits and its managed workers are reaped. Use --check to"
 echo "          validate the launcher without starting anything."
