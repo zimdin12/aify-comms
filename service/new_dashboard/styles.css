@@ -454,7 +454,7 @@ small, .subtle { color: var(--muted); }
 }
 .status-why-trigger { cursor: help; }
 .status-why-trigger:focus {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-text);
   outline-offset: 2px;
 }
 .status-chip.ok { border-color: rgba(84,197,139,.45); color: var(--green); background: rgba(84,197,139,.08); }
@@ -536,7 +536,7 @@ small, .subtle { color: var(--muted); }
   content: ''; width: 10px; height: 10px; background: var(--accent-contrast, #061615);
   clip-path: polygon(14% 44%, 0 60%, 40% 100%, 100% 18%, 86% 4%, 40% 72%);
 }
-.diagnostic-check:focus-visible, .session-check:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.diagnostic-check:focus-visible, .session-check:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 /* Session console action/meta bar (replaced the duplicated header card). */
 .session-actions-bar { display: flex; flex-direction: column; gap: 8px; padding: 2px 0 6px; }
 .session-actions-bar .session-meta-line { color: var(--muted); }
@@ -1772,12 +1772,12 @@ button.filter-hidden-note:focus-visible { color: var(--text); }
 /* ============================================================================
    WS-L accessibility — visible keyboard focus + reduced-motion (deep-audit P1/P5).
    ============================================================================ */
-/* A single visible focus ring for keyboard users across every interactive control.
-   :focus-visible only matches keyboard focus, so mouse clicks stay ring-free; the
-   !important overrides the few `outline:none` input rules for keyboard focus only. */
+/* One keyboard focus ring for every interactive control. :focus-visible spares mouse clicks; the
+   !important beats the few `outline:none` rules. Painted --accent-text, never --accent: --accent is a
+   surface token the operator sets to any hex. Measured in focus-ring-stays-visible.test.mjs. */
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible,
 textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible, [role="button"]:focus-visible {
-  outline: 2px solid var(--accent) !important; outline-offset: 2px; border-radius: 7px;
+  outline: 2px solid var(--accent-text) !important; outline-offset: 2px; border-radius: 7px;
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
