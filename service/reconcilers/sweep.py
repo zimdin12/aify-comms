@@ -105,7 +105,14 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # ~15s dashboard poll, contending with all reads. Run them here in the 60s sweep instead.
         await _commit_step(await _repair_spawn_requests_from_initial_dispatch_failures(db))
         await _commit_step(await _fail_orphaned_running_spawn_requests(
-            db, offline_seconds=int(_reconcile_settings.get("environment_offline_seconds", 90) or 90)
+            db,
+            offline_seconds=int(_reconcile_settings.get("environment_offline_seconds", 90) or 90),
+            # Bounds the live-bridge carve-out. The same ceiling the managed-run reaper uses for the
+            # same question -- "this has been in flight implausibly long" -- rather than a second
+            # number meaning the same thing.
+            wall_ceiling_minutes=int(
+                _reconcile_settings.get("active_managed_run_wall_ceiling_minutes", 30) or 30
+            ),
         ))
         # Runs BEFORE the superseded-by-current-session reaper: that one only clears a
         # dead spawn once a NEWER live session exists, which is what left the 2026-08-07

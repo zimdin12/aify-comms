@@ -116,15 +116,35 @@ def _files():
 FILES = _files()
 
 
+def _without_comments(text, path):
+    """The file with whole-line comments removed.
+
+    A COMMENT IS NOT A READER. This scanner asked whether a field's name appears anywhere in a
+    product file, and a comment in `spawn_lifecycle.py` explaining that `/stats` reports
+    `spawn_requests_by_status.running = 4` was enough to move that field out of KNOWN_UNREAD --
+    the ledger then reported ITSELF stale for a field nothing consumes. Textual presence standing
+    in for consumption is the same proxy this review keeps finding elsewhere.
+
+    WHOLE-LINE comments only, deliberately. Stripping trailing comments needs to know where
+    strings end, and a scanner that mangles a string literal to answer a question about comments
+    trades one wrong answer for another.
+    """
+    marker = "//" if path.endswith((".js", ".mjs")) else "#"
+    return chr(10).join(
+        line for line in text.split(chr(10)) if not line.lstrip().startswith(marker)
+    )
+
+
 def _mentions(field):
     pattern = re.compile(r"\b" + re.escape(field) + r"\b")
     hits = []
     for path in FILES:
         try:
-            if pattern.search(open(path, encoding="utf-8", errors="replace").read()):
-                hits.append(path)
+            source = open(path, encoding="utf-8", errors="replace").read()
         except OSError:
             continue
+        if pattern.search(_without_comments(source, path)):
+            hits.append(path)
     return hits
 
 

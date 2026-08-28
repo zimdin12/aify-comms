@@ -2331,7 +2331,14 @@ class ApiV2RegressionTests(FastApiTestCase):
         # SAFETY TEST for _fail_orphaned_running_spawn_requests. Three running
         # spawns; only the orphan (dead bridge + old) may be failed:
         #   (a) running, claimed by a DEAD bridge, old      → FAILED (orphan)
-        #   (b) running, claimed by the LIVE env bridge, old → LEFT (in progress)
+        #   (b) running, claimed by the LIVE env bridge, RECENT -> LEFT (in progress)
+        #   (d) running, claimed by the LIVE env bridge, ANCIENT -> FAILED (abandoned)
+        #
+        # (b) used to carry the same six-year-old timestamp as (a), asserting that a spawn on a
+        # live bridge is left alone however old it is. That is what left FOUR rows `running` on
+        # the operator's service, the oldest for three days, all claimed by a bridge that simply
+        # stayed up. The carve-out is for a worker that is slowly booting; (b) now uses an age
+        # inside the ceiling so it still proves that, and (d) pins the bound.
         #   (c) running, claimed by a dead bridge, but FRESH → LEFT (grace window)
         self._heartbeat_environment(
             id="orphan-test-env", bridgeId="live-env-bridge-1",
@@ -2358,18 +2365,24 @@ class ApiV2RegressionTests(FastApiTestCase):
             )
 
         _ins("sp-orphan-dead-old", "dead-bridge-xyz", old)
-        _ins("sp-live-old", "live-env-bridge-1", old)
+        _ins("sp-live-recent", "live-env-bridge-1", fresh)
         _ins("sp-orphan-dead-fresh", "dead-bridge-xyz", fresh)
+        _ins("sp-live-ancient", "live-env-bridge-1", old)
 
         failed = self._run_orphan_spawn_reconcile()
 
-        self.assertEqual(failed, 1, "exactly one orphan (dead bridge + old) should be failed")
+        self.assertEqual(
+            failed, 2,
+            "the dead-bridge orphan AND the ancient spawn on the live bridge should both be failed")
         self.assertEqual(
             self._fetchone("SELECT status FROM spawn_requests WHERE id=?", ("sp-orphan-dead-old",))["status"],
             "failed", "orphan (dead claiming bridge, old) must be failed")
         self.assertEqual(
-            self._fetchone("SELECT status FROM spawn_requests WHERE id=?", ("sp-live-old",))["status"],
-            "running", "a spawn on the LIVE env bridge must NOT be failed (still in progress)")
+            self._fetchone("SELECT status FROM spawn_requests WHERE id=?", ("sp-live-recent",))["status"],
+            "running", "a RECENT spawn on the LIVE env bridge must NOT be failed (still in progress)")
+        self.assertEqual(
+            self._fetchone("SELECT status FROM spawn_requests WHERE id=?", ("sp-live-ancient",))["status"],
+            "failed", "a spawn claimed years ago is abandoned, not booting, whatever the bridge says")
         self.assertEqual(
             self._fetchone("SELECT status FROM spawn_requests WHERE id=?", ("sp-orphan-dead-fresh",))["status"],
             "running", "a freshly-claimed spawn must get the grace window (not failed)")

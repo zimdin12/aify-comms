@@ -116,7 +116,7 @@ async def _repair_spawn_requests_from_initial_dispatch_failures(db) -> int:
     return repaired
 
 
-async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int) -> int:
+async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wall_ceiling_minutes: int = 30) -> int:
     """Fail spawn_requests stuck in 'running' whose claiming environment bridge is
     no longer the current live env bridge.
 
@@ -157,6 +157,9 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int) -> 
         ) == "online"
     }
 
+    # The same wall ceiling the managed-run reaper uses for the same shape of question -- "this has
+    # been in flight implausibly long" -- rather than a second number meaning the same thing.
+    wall_ceiling_seconds = max(1, int(wall_ceiling_minutes or 30)) * 60
     now_epoch = datetime.now(timezone.utc).timestamp()
     now = _now()
     cursor = await db.execute(
@@ -169,21 +172,53 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int) -> 
     failed = 0
     for row in await cursor.fetchall():
         bid = str(row["claimed_by_bridge_id"] or "").strip()
-        if bid and bid in live_bridge_ids:
-            continue  # claiming bridge is live → genuinely in progress, leave it
         age_epoch = _iso_to_epoch(str(row["claimed_at"] or row["created_at"] or ""))
+        if bid and bid in live_bridge_ids:
+            # THE CARVE-OUT IS BOUNDED. "A worker actively (even slowly) booting on the live bridge
+            # is left alone regardless of how long it has been booting" was written for a worker
+            # that is booting; a bridge that simply stays up made it unbounded, and a spawn claimed
+            # by it was never reaped however stale.
+            #
+            # MEASURED on the operator's service 2026-08-28: FOUR spawn_requests sat 'running',
+            # every one claimed by the live environment bridge, each updated once within six seconds
+            # of creation and never again. The oldest had been "booting" since 2026-08-25 -- three
+            # days. `/stats` reported `spawn_requests_by_status.running = 4`, which reads as four
+            # spawns in progress.
+            #
+            # Beyond the wall ceiling the claim is not slow, it is abandoned. Failing it is the same
+            # safe act the docstring already describes: it touches the row, never a process, and the
+            # coldstart gate only inspects queued/claimed spawns, so a future autostart is never
+            # blocked by this.
+            if not age_epoch or (now_epoch - age_epoch) < wall_ceiling_seconds:
+                continue
         if not age_epoch or (now_epoch - age_epoch) < SPAWN_ORPHAN_GRACE_SECONDS:
             continue  # too fresh, or age undeterminable → leave it (conservative)
         await db.execute(
             """
             UPDATE spawn_requests
             SET status = 'failed',
-                error = COALESCE(NULLIF(error, ''), 'Orphaned: claiming environment bridge is no longer live (env bridge restart/supersede); failed by reconcile.'),
+                error = COALESCE(NULLIF(error, ''), ?),
                 finished_at = COALESCE(finished_at, ?),
                 updated_at = ?
             WHERE id = ? AND status = 'running'
             """,
-            (now, now, row["id"]),
+            (
+                # NAME THE RULE THAT FIRED. The old text said the claiming bridge was no longer live,
+                # which is FALSE for a row failed by the wall ceiling -- and an error message that
+                # misattributes the cause sends the next reader to the wrong place.
+                (
+                    "Orphaned: claiming environment bridge is no longer live (env bridge "
+                    "restart/supersede); failed by reconcile."
+                    if not (bid and bid in live_bridge_ids)
+                    else (
+                        f"Abandoned: claimed by a live bridge but never settled within "
+                        f"{wall_ceiling_seconds // 60} minutes; failed by reconcile."
+                    )
+                ),
+                now,
+                now,
+                row["id"],
+            ),
         )
         failed += 1
     if failed:
