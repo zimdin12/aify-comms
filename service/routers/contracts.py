@@ -47,6 +47,15 @@ from service.api_core.dispatch_sweeps import _run_contract_reminders_once  # noq
 
 
 
+#: How many pre-filter rows a state-filtered query may scan before it stops and says so.
+#:
+#: A ceiling on work, not a page size. The SQL predicate for a state is wider than the derivation it
+#: stands in for, so the scan has to read past the requested page to fill it. 500 is the endpoint's
+#: own documented maximum `limit`, which makes the worst case here the same as the worst case a
+#: caller could already ask for.
+CONTRACT_STATE_SCAN_LIMIT = 500
+
+
 def _contract_row_to_dict(row, *, settings: dict[str, Any], now_s: Optional[float] = None) -> dict[str, Any]:
     state = _contract_state(row, settings=settings, now_s=now_s)
     body = str((row["message_body"] if row and "message_body" in row.keys() else "") or row["body"] or "")
@@ -151,27 +160,61 @@ async def list_work_contracts(
                 AND r.status NOT IN ('completed','failed','cancelled')
                 """
             )
-        params.append(limit)
+        # THE LIMIT IS APPLIED AFTER THE DERIVED-STATE FILTER, not before it.
+        #
+        # A state is decided by `_contract_state`, in Python, from settings and several columns --
+        # "what is owed an answer is wider than the flag", as reply_contract.py puts it. The SQL
+        # above cannot express that, so it is a PRE-FILTER: deliberately wider than the state it is
+        # standing in for. Applying `LIMIT` to that wider set and then filtering means the rows the
+        # caller asked for can be discarded before they are ever counted.
+        #
+        # MEASURED on the live service, 2026-08-28, one query at five page sizes:
+        #
+        #     state=missing_reply   limit=80  -> 0 rows    summary.total 0
+        #                           limit=120 -> 20 rows   summary.total 20
+        #                           limit=200 -> 62 rows   summary.total 62
+        #
+        # 62 is the true count. `missing_reply` and `closed` share a SQL predicate -- both are
+        # `result_message_id = '' AND status = 'completed'` -- so the newest 80 rows matching it were
+        # all `closed`, and the answer to "what is missing a reply" was zero. The summary was wrong
+        # by the same mechanism, which is worse than the list being short: a caller asking only for a
+        # COUNT got a number that depended entirely on the page size they happened to pass.
+        #
+        # So: scan a bounded superset, filter, then truncate. `scan_limit` is a ceiling on work, not
+        # a page size, and when it is reached the response says so rather than quietly implying the
+        # list is complete -- a truncated answer that looks whole is the thing being fixed.
+        scan_limit = max(limit, CONTRACT_STATE_SCAN_LIMIT) if normalized_state else limit
+        params.append(scan_limit)
         cursor = await db.execute(_contract_list_query(where_sql="\n".join(where)), params)
         now_s = time.time()
-        rows = [_contract_row_to_dict(row, settings=settings, now_s=now_s) for row in await cursor.fetchall()]
+        fetched = await cursor.fetchall()
+        rows = [_contract_row_to_dict(row, settings=settings, now_s=now_s) for row in fetched]
         if normalized_state == "open":
             rows = [row for row in rows if row["state"] in {"sent", "seen", "queued", "working", "overdue"}]
         elif normalized_state:
             rows = [row for row in rows if row["state"] == normalized_state]
+        scan_exhausted = len(fetched) >= scan_limit
+        # The SUMMARY describes everything the filter matched; `contracts` is the page. Counting only
+        # the page would leave `summary.total` moving with the page size, which is half of the defect
+        # being fixed -- a caller who wants a count should not have to ask for every row to get one.
+        matched = rows
+        rows = rows[:limit]
 
         summary = {
-            "total": len(rows),
-            "open": sum(1 for row in rows if row["state"] in {"sent", "seen", "queued", "working", "overdue"}),
-            "overdue": sum(1 for row in rows if row["overdue"]),
-            "working": sum(1 for row in rows if row["state"] == "working"),
-            "queued": sum(1 for row in rows if row["state"] == "queued"),
-            "missingReply": sum(1 for row in rows if row["state"] == "missing_reply"),
-            "answered": sum(1 for row in rows if row["state"] == "answered"),
-            "selfWake": sum(1 for row in rows if row["category"] == "self_wake"),
-            "channel": sum(1 for row in rows if row["category"] == "channel"),
+            "total": len(matched),
+            "open": sum(1 for row in matched if row["state"] in {"sent", "seen", "queued", "working", "overdue"}),
+            "overdue": sum(1 for row in matched if row["overdue"]),
+            "working": sum(1 for row in matched if row["state"] == "working"),
+            "queued": sum(1 for row in matched if row["state"] == "queued"),
+            "missingReply": sum(1 for row in matched if row["state"] == "missing_reply"),
+            "answered": sum(1 for row in matched if row["state"] == "answered"),
+            "selfWake": sum(1 for row in matched if row["category"] == "self_wake"),
+            "channel": sum(1 for row in matched if row["category"] == "channel"),
         }
-        return {"ok": True, "summary": summary, "contracts": rows, "settings": {
+        # `truncated` is true when the SCAN hit its ceiling, so `summary` is a floor rather than a
+        # total. Reported instead of inferred: a caller cannot tell a complete answer from a capped
+        # one by looking at the row count, because the filter makes those two numbers differ.
+        return {"ok": True, "truncated": scan_exhausted, "summary": summary, "contracts": rows, "settings": {
             "replyContractsEnabled": bool(settings.get("reply_contracts_enabled", True)),
             "replyReminderMinutes": int(settings.get("reply_reminder_minutes", DEFAULT_SETTINGS["reply_reminder_minutes"]) or DEFAULT_SETTINGS["reply_reminder_minutes"]),
             "replyReminderRepeatMinutes": int(settings.get("reply_reminder_repeat_minutes", DEFAULT_SETTINGS["reply_reminder_repeat_minutes"]) or DEFAULT_SETTINGS["reply_reminder_repeat_minutes"]),
