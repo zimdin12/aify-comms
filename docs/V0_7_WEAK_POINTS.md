@@ -1967,6 +1967,45 @@ writing an entry from anything other than the shared list each fail their own te
 
 ## Audited and found sound, so nobody re-walks them
 
+### Dead CSS: 415 class names swept, and the three ways the sweep lies
+
+Prompted by finding `.attention-strip .button-row` styled for a row that no renderer emits. If one
+selector could outlive its markup, others could, and `styles.css` is the second-largest non-test file
+in the repo.
+
+**RESULT: two dead classes out of 415.** `.console-embed-open` and `.console-embed-hint` had exactly
+ONE occurrence each repo-wide -- their own rule. They arrived in `514129a1` with a "hermes iframe
+offline caption + open-in-new-tab escape hatch", and the markup was rewritten while the CSS stayed. The
+wider `console-embed` family is very much alive, which is what made them survive a casual look.
+
+**The raw scan said 18. Fifteen were false positives, in three distinct ways**, and every one would
+have been reported as dead by an instrument nobody controlled:
+
+  * PREFIX COMPOSITION. `c-answered`, `p-urgent`, `t-review`, `toast-error` and their families never
+    appear as literals -- `ui.js:22` builds `toast toast-${tone}`. Detected by searching for the
+    prefix immediately before a template hole.
+  * WHOLE-VARIABLE COMPOSITION. `.critical` is applied by `analytics-page.mjs:99` as
+    `class="usage-pool-card ${sev}"`, where the class IS the variable. The prefix check cannot see
+    this; only knowing the value can.
+  * THIRD-PARTY DOM. `.xterm-viewport` is created by the xterm library. Our source will never mention
+    it and it is not dead.
+
+**A live-DOM sweep is worse, not better.** Querying every selector across all seven pages reported 280
+of 789 as unmatched -- but almost all are state-dependent (`.app-shell.nav-collapsed`,
+`.metric[data-tone="warn"]`, `.attention-strip .contract` while the Work Loop is clear). Reaching those
+states means clicking a live operations UI, which this project has an incident about. The static scan
+plus manual verification of survivors is the safe instrument; the DOM sweep is only useful for
+CONFIRMING a specific suspect, which is how the original dead selector was proven.
+
+Both controls that matter: a class known to be used must not be flagged, and a class known to be
+composed must be detected. The first version of this sweep had neither, and a bash `grep` written with
+BACKTICKS INSIDE A DOUBLE-QUOTED STRING silently ran command substitution instead of searching -- it
+returned nothing and looked like a clean result.
+
+Not worth repeating on a schedule: 2 findings for 415 names, both cosmetic. Worth repeating when a
+feature's markup is rewritten, which is exactly how both of these were orphaned.
+
+
 ### The storage layer: every table has readers, and every join holds
 
 MEASURED 2026-08-27 against the live database, because "is anything accumulating" is the question a
@@ -1978,9 +2017,12 @@ MEASURED 2026-08-27 against the live database, because "is anything accumulating
 That is why the corrected version asserts `WRITE("settings") > 0` as a control before reporting
 anything -- a write-detector that cannot see the commonest upsert form will call a live table dead.
 
-**`agent_live_state` really is vestigial**, as CLAUDE.md says. Last write `2026-06-18T05:42:48Z`, the
-day the cache moved in-memory, and ZERO SQL statements reference it -- the matches a naive grep finds
-are all the helper `invalidate_agent_live_state`, a function name rather than a table.
+**`agent_live_state` really is vestigial**, as CLAUDE.md says. Last write `2026-06-18T05:42:48Z`, the day
+the cache moved in-memory, and zero production DML -- no SELECT, INSERT, UPDATE or DELETE names it,
+after excluding schema, tests and fixtures. It is NOT unreferenced: `service/schema.py:46-58` still
+creates the table and its index, which is what "retained for schema compat" means. The matches a naive
+grep finds are otherwise all the helper `invalidate_agent_live_state`, a function name rather than a
+table.
 
 **Referential integrity holds where it matters.** Orphan counts across the main relationships are zero:
 read_receipts→messages, agent_sessions→agents, terminal_sessions→agents, spawn_requests→spawn_specs,
@@ -1990,9 +2032,11 @@ dispatch_events→dispatch_runs, terminal_events→terminal_sessions, channel_me
 one of 9 agents that were removed WITH a tombstone, and the count of runs whose target is in neither
 table is 0. Removal writes a tombstone and keeps the run history.
 
-The residue is history, not breakage. 19 message senders have neither an agent row nor a tombstone,
-but `_system` is a pseudo-sender the query should have excluded (21 of them), `dashboard` is the
-operator, and the rest are test agents from May 2026 plus `manager-bot` and `claude-main` from
+The residue is history, not breakage. NINETEEN DISTINCT SENDER IDS have neither an agent row nor a
+tombstone, accounting for 273 message rows between them -- two different denominators, kept apart
+because mixing them is how a small population reads as a large one. `_system` is a pseudo-sender the
+query should have excluded and accounts for 21 of those ROWS; `dashboard` is the operator; the rest are
+test agents from May 2026 plus `manager-bot` (117 rows) and `claude-main` (89 rows) from
 2026-08-07..13. Nothing reads a sender expecting a row -- `agentForSession` returns `{}` rather than
 undefined precisely so callers can read `.status` off a stranger.
 
