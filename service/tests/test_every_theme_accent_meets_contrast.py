@@ -1,34 +1,21 @@
-"""Every theme's primary-button text passes WCAG AA against its own accent.
+"""The pre-JS CSS fallback agrees with the value `applyTheme` writes over it.
 
-WHAT `--accent-contrast` IS. `styles.css:108` sets `button.primary { background: var(--accent); color:
-var(--accent-contrast) }`, so the pair is literally the foreground and background of every primary
-action in the app -- Save changes, Spawn, Start agent, Send. Each theme declares its own.
+THIS FILE USED TO CLAIM MORE THAN IT COULD. It parsed the eight `body[data-theme=...]` blocks and
+declared the themes accessible. Those declarations are a FALLBACK: `theme.js`'s `applyTheme()` calls
+`derivePaletteVars()` and sets every variable as an INLINE body style, which beats any stylesheet rule.
+So the value this file audited was overwritten milliseconds into every boot, and seven passing static
+pairs certified an artifact nobody ever sees. Review found it by executing the producer; no amount of
+reading this file would have.
 
-MEASURED, and one theme failed. Computing the WCAG 2.x contrast ratio for all eight declared pairs:
-seven land between 7.7:1 and 10.8:1, and `crimson` was 4.02:1 -- below the 4.5:1 minimum for normal
-text. It was also the ONLY theme putting a LIGHT foreground (`#fff7fa`) on its accent; the other seven
-use a near-black tint of their own hue. That anomaly is the defect, and both came from the same commit
-that authored the theming engine, so it was an inconsistency at birth rather than a considered
-exception.
+Worse, the runtime was failing where the static values passed -- five of eight themes below AA,
+including the default at 2.03:1. That is now gated where the decision is made, in
+`service/new_dashboard/theme-contrast.test.mjs`, against `derivePaletteVars` itself and against
+arbitrary operator accents, which have no fixed population to enumerate.
 
-THE 4.5 THRESHOLD IS THE RIGHT ONE, checked rather than assumed. WCAG relaxes to 3:1 for "large text",
-which means 18.66px at bold or 24px otherwise. Rendered `button.primary` reports 14px at weight 750 --
-bold, but nowhere near 18.66px -- so the normal-text rule applies and 4.02 is a real failure rather
-than a pedantic one.
-
-FIXED BY CHANGING THE FOREGROUND, not the accent. `#160508` gives 4.68:1, leaves the theme's signature
-colour untouched, and makes crimson consistent with the other seven. Darkening the accent instead
-would have passed too, at the cost of changing the colour the theme is named for everywhere it is
-used -- borders, chips, bars -- to solve a text problem.
-
-WHY A GATE AND NOT A ONE-OFF FIX. A contrast ratio is arithmetic on two hex values. Nobody can eyeball
-it, a new theme is a single line of CSS added in a hurry, and the failure is invisible to everyone who
-does not use that theme. This is exactly the kind of thing that should never depend on someone
-remembering.
-
-The two sibling variables `--secondary-contrast` and `--tertiary-contrast` were removed rather than
-gated: they were declared on all eight themes plus `:root` -- nine each -- and read by NOTHING. They
-existed only to be the pairs this file would have checked.
+WHAT IS LEFT FOR THIS FILE, and it is a real job rather than a consolation one: the fallback is what
+paints between first paint and `applyTheme`, so if it disagrees with the runtime value the page flashes
+one foreground and repaints with another. Agreement is the only property the CSS can be held to, and it
+is the only one asserted here.
 """
 
 from __future__ import annotations
@@ -44,6 +31,10 @@ CSS = (Path(__file__).resolve().parent.parent / "new_dashboard" / "styles.css").
 
 #: WCAG AA for normal-size text. `button.primary` renders 14px/750, which is bold but not "large".
 MINIMUM_RATIO = 4.5
+
+#: What `derivePaletteVars` returns for every shipped accent. Kept as a constant so a change to the
+#: producer fails HERE too, rather than only in the JS gate.
+RUNTIME_FOREGROUND = "#06110f"
 
 
 def _luminance(colour: str) -> float:
@@ -101,19 +92,35 @@ class EveryThemeAccentMeetsContrast(unittest.TestCase):
             "button.primary no longer pairs --accent with --accent-contrast",
         )
 
-    def test_every_theme_passes_AA_for_normal_text(self):
+    def test_the_fallback_AGREES_with_what_the_runtime_writes(self):
+        """One value, two places. A mismatch is a visible flash, not a theory: the CSS paints first and
+        `applyTheme` repaints, so opposite foregrounds would show as the button text inverting on load.
+
+        The runtime derives `#06110f` for all eight shipped accents -- every one is light enough to
+        carry dark text -- so the fallback is that value. If a future accent is dark enough to need the
+        near-white foreground, this test fails and names the theme, which is the moment to change both.
+        """
+        disagreeing = {
+            name: fg for name, (fg, _bg) in PAIRS.items() if fg.lower() != RUNTIME_FOREGROUND
+        }
+        self.assertEqual(
+            disagreeing, {},
+            f"these CSS fallbacks differ from the value theme.js derives ({RUNTIME_FOREGROUND}): "
+            f"{disagreeing}. The page paints the fallback and then repaints the derived value, so a "
+            "disagreement is a visible flash of the wrong foreground. Change both together, and check "
+            "theme-contrast.test.mjs, which owns the readability half.",
+        )
+
+    def test_the_agreed_value_is_itself_readable_on_every_accent(self):
+        """ANTI-VACUITY. Agreement alone would be satisfied by both sides being equally wrong -- this is
+        the same arithmetic the JS gate applies, kept here so the fallback cannot agree its way into an
+        unreadable pair."""
         failures = {
             name: round(contrast_ratio(fg, bg), 2)
             for name, (fg, bg) in PAIRS.items()
             if contrast_ratio(fg, bg) < MINIMUM_RATIO
         }
-        self.assertEqual(
-            failures, {},
-            f"these themes render primary-button text below WCAG AA ({MINIMUM_RATIO}:1): {failures}. "
-            "button.primary is 14px at weight 750 -- bold, but not large enough for the 3:1 relaxation. "
-            "Darken --accent-contrast rather than the accent: the accent is the colour the theme is "
-            "named for and is used on borders, chips and bars where the text rule does not apply.",
-        )
+        self.assertEqual(failures, {}, f"the agreed fallback is unreadable on: {failures}")
 
 
 if __name__ == "__main__":

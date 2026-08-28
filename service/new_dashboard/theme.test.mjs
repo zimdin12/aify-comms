@@ -37,7 +37,11 @@ test('derivePaletteVars produces the accent var set', () => {
   assert.equal(vars['--accent'], '#51c5b0');
   assert.ok(vars['--accent-strong'].includes('color-mix'));
   assert.ok(vars['--secondary']);
-  assert.ok(vars['--tertiary-contrast']);
+  // `--secondary-contrast` and `--tertiary-contrast` are GONE, producer and all. They were emitted
+  // into the inline style map on every apply and read by no CSS rule anywhere -- a variable nothing
+  // consumes is not a contract, and asserting its existence was the only thing keeping it alive.
+  assert.equal(vars['--tertiary-contrast'], undefined);
+  assert.equal(vars['--secondary-contrast'], undefined);
 });
 
 test('hexLuminance: white brighter than black', () => {

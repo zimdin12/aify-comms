@@ -53,12 +53,49 @@ export function paletteFromSettings(settings = {}, key = 'default', localPalette
   };
 }
 
+/** WCAG 2.x contrast ratio between two hex colours. 21 for black on white, 1 for a colour on itself. */
+export function contrastRatio(a, b) {
+  const [x, y] = [hexLuminance(a), hexLuminance(b)];
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+/** WCAG AA for normal-size text. `button.primary` renders 14px at weight 750 -- bold, not "large". */
+export const MIN_CONTRAST = 4.5;
+
+/**
+ * The foreground for text sitting ON `hex`, chosen by MEASURED contrast rather than by brightness.
+ *
+ * THE BUG THIS REPLACES. It was `hexLuminance(hex) > 0.45 ? dark : light`, a brightness threshold used
+ * as a proxy for contrast. Brightness is not contrast: five of the eight shipped themes came out below
+ * WCAG AA on their own primary buttons, INCLUDING the default at 2.03:1 -- accent #51c5b0 is bright
+ * enough to look light but not bright enough for white text, and 0.45 put it just on the wrong side.
+ *
+ * It matters more than the eight named themes: the operator can set an arbitrary custom accent in
+ * Settings, and this function is the only thing standing between that colour and unreadable buttons.
+ *
+ * The candidates are tried in order, so the house near-black and near-white win whenever they clear
+ * the bar and pure black/white are reached only when a mid-tone accent needs them. If NONE clears
+ * 4.5 -- possible for a genuine mid-grey, where no foreground can -- the best available is returned
+ * rather than an arbitrary one, so the result is the most readable that colour permits.
+ */
+export function contrastingForeground(hex) {
+  const candidates = ['#06110f', '#f7fbff', '#000000', '#ffffff'];
+  let best = candidates[0];
+  let bestRatio = 0;
+  for (const candidate of candidates) {
+    const ratio = contrastRatio(candidate, hex);
+    if (ratio >= MIN_CONTRAST) return candidate;
+    if (ratio > bestRatio) { best = candidate; bestRatio = ratio; }
+  }
+  return best;
+}
+
 // Compute the CSS custom-property overrides for a palette (pure — returns a {var:value} map).
 export function derivePaletteVars(palette = {}) {
   const accent = normalizedHexColor(palette.accent, THEMES.default.accent);
   const second = normalizedHexColor(palette.secondary, THEMES.default.secondary);
   const third = normalizedHexColor(palette.tertiary, THEMES.default.tertiary);
-  const contrast = (hex) => (hexLuminance(hex) > 0.45 ? '#06110f' : '#f7fbff');
+  const contrast = contrastingForeground;
   const readable = (hex) => (hexLuminance(hex) > 0.38 ? hex : `color-mix(in srgb, ${hex} 64%, #ffffff)`);
   return {
     '--accent': accent,
@@ -68,10 +105,8 @@ export function derivePaletteVars(palette = {}) {
     '--accent-contrast': contrast(accent),
     '--secondary': second,
     '--secondary-text': readable(second),
-    '--secondary-contrast': contrast(second),
     '--tertiary': third,
     '--tertiary-text': readable(third),
-    '--tertiary-contrast': contrast(third),
   };
 }
 
