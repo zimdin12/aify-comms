@@ -758,14 +758,20 @@ function advertisedTerminalCapability() {
     delegationEnabled: TERMINAL_MANAGER.envDelegation?.isEnabled?.() === true,
     envHealthy: lastEnvTerminalHealth,
     localTerminal: bridgeTerminalSupported(),
-  }).terminal;
+  });
+}
+
+/** The registration this bridge would send right now, capability and reason together. */
+function environmentPayloadNow() {
+  const capability = advertisedTerminalCapability();
+  return environmentHeartbeatPayload({
+    terminalSupported: capability.terminal,
+    terminalReason: capability.reason,
+  });
 }
 
 function effectiveEnvironmentPayload() {
-  return withEffectiveCwdRoots(
-    environmentHeartbeatPayload({ terminalSupported: advertisedTerminalCapability() }),
-    remoteEffectiveCwdRoots,
-  );
+  return withEffectiveCwdRoots(environmentPayloadNow(), remoteEffectiveCwdRoots);
 }
 
 async function heartbeatEnvironment({ syncManaged = true } = {}) {
@@ -778,7 +784,7 @@ async function heartbeatEnvironment({ syncManaged = true } = {}) {
     const response = await httpCall(
       "POST",
       "/environments/heartbeat",
-      environmentHeartbeatPayload({ terminalSupported: advertisedTerminalCapability() }),
+      environmentPayloadNow(),
     );
     // `null` means the service said nothing about roots — keep what we had. An empty ARRAY means it
     // said there are none, which is a different fact. See environment-cwd-roots.mjs.

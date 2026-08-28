@@ -625,6 +625,22 @@ const EXTRACTIONS = [
           now: [
             "      <p class=\"preview\">${esc(env.kind || env.os || '')} \u00b7 ${esc(env.machineId || '')}${offlineAge(env)}${staleBridgeBadge(env)}</p>",
           ],
+        }, {
+          // A SECOND PAIR, not an amendment to the first: this edit covers a DIFFERENT line. `was`
+          // and `now` must span the same region, so inserting a line before an existing one is
+          // expressed as that one line becoming two.
+          //
+          // An environment that cannot open a terminal now says WHY. Without it, the fix that made
+          // `terminal` honest was a trade: agents went from wrongly `available` to correctly
+          // `offline` with no stated cause, which sends an operator hunting a delivery bug -- the
+          // same wrong hunt, one tier over.
+          was: [
+            "      <div class=\"env-runtime-list\">",
+          ],
+          now: [
+            "      ${terminalReasonNote(env)}",
+            "      <div class=\"env-runtime-list\">",
+          ],
         }],
       },
       { name: "renderSpawnRequests", at: 3063, marker: "// renderSpawnRequests moved to ./environments-panels.mjs in v0.5.4." },

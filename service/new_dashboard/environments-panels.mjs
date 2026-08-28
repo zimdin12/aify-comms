@@ -101,11 +101,34 @@ export function staleBridgeBadge(env, serviceBuild = serviceBuildShort()) {
   return `<span class="mb mb-warn" title="${esc(title)}">bridge build ${esc(bridgeBuild)} \u2260 service ${esc(service)}</span>`;
 }
 
+/**
+ * Why this environment cannot open a terminal, when it cannot.
+ *
+ * THIS IS THE OTHER HALF OF A FIX, and without it that fix would have been a trade. The bridge used
+ * to advertise `terminal: true` from its own node-pty, which since v0.6 Phase 8 is not the tier that
+ * opens anything -- so with aify-env down, twenty managed agents read `available` and every send to
+ * them failed. Correcting that makes them read `offline`, which is true, and says NOTHING about why.
+ * An operator would go hunting a delivery bug: the same wrong hunt, one tier over.
+ *
+ * SHOWN ONLY WHEN THE ANSWER IS NO. A card that explains why everything is fine is noise, and the
+ * reason is most worth reading at the moment the card stops offering to spawn.
+ *
+ * ABSENT RENDERS NOTHING -- a bridge too old to send a reason has not given one, and inventing
+ * `unknown` here would put a word in its mouth.
+ */
+export function terminalReasonNote(env) {
+  if (env?.terminal !== false) return '';
+  const reason = String(env?.metadata?.terminalReason || '').trim();
+  if (!reason) return '';
+  return `<p class="subtle env-terminal-reason">No terminal: ${esc(reason)}</p>`;
+}
+
 export function renderRuntime() {
   byId('environment-list').innerHTML = state.environments.map((env) => `
     <article class="runtime-card" data-kind="environment" data-id="${esc(env.id)}">
       <div class="item-title"><strong>${esc(env.label || env.id)}</strong>${renderStatusChip(env.status, statusWhyContext('environment', env, env.status))}</div>
       <p class="preview">${esc(env.kind || env.os || '')} · ${esc(env.machineId || '')}${offlineAge(env)}${staleBridgeBadge(env)}</p>
+      ${terminalReasonNote(env)}
       <div class="env-runtime-list">
         ${environmentRuntimes(env).map((runtime) => `<span class="env-runtime-pill${runtime.available === false ? ' unavailable' : ''}">${esc(runtime.runtime)}${runtime.available === false ? ' (unavailable)' : ''}</span>`).join('') || '<span class="env-runtime-pill unavailable">no runtimes</span>'}
       </div>

@@ -118,7 +118,7 @@ export function launcherStateFrom(env = {}) {
  *
  * @param {{terminalSupported?: boolean}} [override]
  */
-export function environmentHeartbeatPayload({ terminalSupported: override } = {}) {
+export function environmentHeartbeatPayload({ terminalSupported: override, terminalReason = "" } = {}) {
   const hostname = (() => {
     try { return os.hostname() || "unknown-host"; } catch { return "unknown-host"; }
   })();
@@ -146,6 +146,11 @@ export function environmentHeartbeatPayload({ terminalSupported: override } = {}
       node: process.version,
       cwd: DEFAULT_CWD,
       wslDistro: process.env.WSL_DISTRO_NAME || "",
+      // WHY THE ANSWER ABOVE IS WHAT IT IS. Without this, the fix that made `terminal` honest just
+      // moved the confusion: agents correctly read `offline` and NOTHING on any screen said it was
+      // because aify-env is not answering. An operator would go looking for a delivery bug -- the
+      // same wrong hunt the false `available` used to send them on, one tier over.
+      terminalReason,
       bridgeStartedAt: BRIDGE_STARTED_AT,
       // The sha of the code THIS PROCESS IS ACTUALLY RUNNING (v0.2 item B1). It was already
       // computed for the startup banner and then only written to stderr, where nothing can read

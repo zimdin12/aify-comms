@@ -89,6 +89,43 @@ for a LAN address the browser requires HTTPS, which is what the optional
 `docker compose --profile https up -d` proxy is for. A focused tab stays quiet — you are already
 looking at it.
 
+### The HTTPS proxy needs its CA trusted once per device
+
+**Expect the browser to call `https://<host>:8443` insecure until you do this.** Caddy issues the
+certificate from a local CA it manages (`tls internal`) — there is no public domain and no ACME, which
+is right for a service that runs on your own network, and the cost is that nothing trusts that CA
+until you say so. A warning here is the design working, not a misconfiguration.
+
+`config/Caddyfile` has said "the CA must be trusted once per device (see README)" since it was
+written, and this section did not exist — so the pointer resolved to nothing and the one manual step
+in the whole feature was the step nobody could find.
+
+Export the CA from the running proxy:
+
+```bash
+docker compose --profile https up -d          # if it is not already running
+docker cp "$(docker compose ps -q https-proxy)":/data/caddy/pki/authorities/local/root.crt ./aify-root.crt
+```
+
+Then trust it, once per device:
+
+| where | how |
+|---|---|
+| Windows | `certutil -addstore -f ROOT aify-root.crt` in an **admin** shell, or double-click → Install Certificate → Local Machine → Trusted Root Certification Authorities |
+| macOS | `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain aify-root.crt` |
+| Linux | copy to `/usr/local/share/ca-certificates/aify-root.crt`, then `sudo update-ca-certificates` |
+| Firefox | has its OWN store and ignores the system one: Settings → Privacy & Security → Certificates → View Certificates → Authorities → Import, and tick "identify websites" |
+| Android / iOS | send yourself the file and install it as a CA certificate; Android also needs Settings → Security → Encryption & credentials → Install a certificate → CA certificate |
+
+The CA is persisted in the `caddy-data` volume, so it survives restarts and you do this once. Deleting
+that volume mints a NEW CA and every device has to trust the new one.
+
+`HTTPS_SITES` in `.env` lists the names the certificate is issued for. The default in
+`config/Caddyfile` is `localhost:8443, 127.0.0.1:8443, stevenz-l:8443, stevenz-l.local:8443` — so a
+**bare LAN IP, or any hostname not on that list, still warns after the CA is trusted**, because the
+certificate does not name it. That is a second, separate reason a browser says insecure, and the fix
+is to add the name to `HTTPS_SITES` and restart the proxy, not to re-trust anything.
+
 **Phone** — one line in `.env`, using [ntfy](https://ntfy.sh):
 
 ```bash
