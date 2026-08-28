@@ -1100,10 +1100,10 @@ small, .subtle { color: var(--muted); }
   .diagnostics-bulk-toolbar { display: grid; }
   .section-head { align-items: stretch; flex-direction: column; }
   .button-row { display: grid; }
-  /* Short quick-jump buttons wrap in a row rather than stacking full-width. The HEADER's row was
-     left out when this was written: 5 stacked buttons put content 481px down a 780px screen. */
-  .attention-strip .button-row, .button-row.top-quick-jumps, #page-settings .section-head .button-row { display: flex; flex-wrap: wrap; gap: 8px; }
-  .attention-strip .button-row .ghost, .button-row.top-quick-jumps .ghost { flex: 1 1 auto; }
+  /* OPT IN AT THE MARKUP, because whether buttons fit beside each other is a property of their
+     LABELS, which CSS cannot see. Measured per row; long labels keep stacking. */
+  .button-row.mobile-compact { display: flex; flex-wrap: wrap; gap: 8px; }
+  .button-row.mobile-compact .ghost { flex: 1 1 auto; }
   .contract { grid-template-columns: 1fr; }
   .contract-actions { grid-template-columns: 1fr; }
   .run-actions { grid-template-columns: 1fr; }
