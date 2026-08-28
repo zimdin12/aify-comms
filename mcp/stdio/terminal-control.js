@@ -8,6 +8,15 @@
 export function orphanPidToKill(stopResult, control) {
   const ownedAndStopped = !!(stopResult && stopResult.stopped !== false);
   if (ownedAndStopped) return 0;
+  // A DELEGATED STOP THAT FAILED IS NOT THIS FALLBACK'S CASE. The fallback exists for a PTY this
+  // bridge never owned -- the owning bridge died and left it running, and nobody else can reach it.
+  // A delegated process is owned by aify-env, which is alive enough to have REFUSED; killing its
+  // child by pid behind its back leaves its registry holding an entry for a process that no longer
+  // exists, and the environment tier exists precisely so one host has one owner of a process.
+  //
+  // The refusal is reported instead, and the terminal is kept rather than forgotten, so the stop can
+  // be retried against the tier that owns it.
+  if (stopResult && stopResult.delegated === true) return 0;
   const pid = Number(control && control.pid);
   if (!Number.isInteger(pid) || pid <= 0) return 0;
   return pid;

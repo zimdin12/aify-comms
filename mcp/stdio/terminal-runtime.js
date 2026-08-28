@@ -856,15 +856,32 @@ export class TerminalProcessManager {
     const terminal = this.terminals.get(id);
     if (!terminal) return { stopped: false };
     terminal.stopping = true;
-    this.terminals.delete(id);
     if (terminal.kind === "delegated") {
       // The environment owns the process, so stopping it there IS the stop. There is no local pid to
       // signal -- the pid we hold belongs to another process's child. Before this, stop() fell through
       // to terminal.proc.stdin.end() and THREW on every delegated terminal.
-      try { terminal.term.kill(); } catch { /* the environment may already have reaped it */ }
+      //
+      // AWAITED, AND THE ANSWER READ. It used to call `terminal.term.kill()`, which is the shim's
+      // FIRE-AND-FORGET dispatch: a refusal reached `console.error` and nothing else, while stop()
+      // deleted the row and returned `{ stopped: true }` regardless. So a Stop pressed while
+      // aify-env was down left the process running, the row `stopped`, and this bridge with no
+      // memory of it -- the orphan the operator found, reached by a third route.
+      const result = await this.envDelegation?.client?.stop(terminal.envProcessId)
+        ?.catch?.((error) => ({ ok: false, error: String(error?.message ?? error) }))
+        ?? { ok: false, error: "no environment client" };
+      // A 404 IS A STOP. The process is already gone, which is the state a stop is asking for.
+      const gone = result?.ok === true || result?.status === 404;
+      if (!gone) {
+        // KEPT IN THE MAP on purpose. Forgetting a process we failed to stop is how it becomes an
+        // orphan; holding it means the reconcilers and the re-attach still know it exists.
+        terminal.stopping = false;
+        return { stopped: false, delegated: true, error: result?.error ?? "aify-env refused the stop" };
+      }
+      this.terminals.delete(id);
       await waitForExitOrTimeout(terminal.exitPromise, 3000);
       return { stopped: true };
     }
+    this.terminals.delete(id);
     if (terminal.kind === "pty") {
       // term.kill() sends a single SIGHUP to the wrapper bash, which the wrapper
       // traps do not catch and which never reaches its sibling/child processes.

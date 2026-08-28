@@ -3408,7 +3408,13 @@ test("the five bridge classes are measurable, and the sizes are cross-checked", 
     // delegated-environment POLICY, this file is terminal-process mechanics.
     // Re-measured TWO ways rather than copied from the failure: `declarationSpan` says 881, and a
     // brace-match from the class header gives lines 72..952, which is 881.
-    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 881],
+    // 881 -> 898 on 2026-08-29: `stop()` now AWAITS a delegated stop and reads the answer. It used
+    // the shim's fire-and-forget kill, so a refusal reached console.error while stop() deleted the
+    // terminal and returned `{ stopped: true }` -- a Stop pressed while aify-env was down left the
+    // process running and this bridge with no memory of it.
+    // Re-measured TWO ways rather than copied from the failure: `declarationSpan` says 898, and a
+    // brace-match from the class header gives lines 72..969, which is 898.
+    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 898],
   ];
   for (const [rel, name, expected] of cases) {
     const span = declarationSpan(read(rel), name);
