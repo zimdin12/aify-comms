@@ -385,7 +385,7 @@ test("a held terminal gets its stream back when the environment returns", async 
   // AND IT DOES NOT KEEP TRYING. A terminal that is live again must leave the lost set, or every
   // tick re-subscribes it for ever and the streams pile up.
   const after = await manager.reattachLostStreams();
-  assert.deepEqual(after, { reattached: [], stillLost: [] });
+  assert.deepEqual(after, { reattached: [], stillLost: [], finalised: [] });
 });
 
 test("a terminal that never lost its stream is not re-subscribed", async () => {
@@ -406,11 +406,11 @@ test("a terminal that never lost its stream is not re-subscribed", async () => {
   });
   assert.equal(subscribeCalls, 1);
   const result = await manager.reattachLostStreams();
-  assert.deepEqual(result, { reattached: [], stillLost: [] });
+  assert.deepEqual(result, { reattached: [], stillLost: [], finalised: [] });
   assert.equal(subscribeCalls, 1, "a healthy terminal was re-subscribed, doubling its stream");
 });
 
 test("with delegation off there is nothing to re-attach", async () => {
   const manager = new TerminalProcessManager({ envDelegation: null });
-  assert.deepEqual(await manager.reattachLostStreams(), { reattached: [], stillLost: [] });
+  assert.deepEqual(await manager.reattachLostStreams(), { reattached: [], stillLost: [], finalised: [] });
 });

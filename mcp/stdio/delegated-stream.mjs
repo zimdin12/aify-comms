@@ -66,12 +66,13 @@ export async function settleDelegatedExit(manager, id, state, { code, signal, me
  * the same pids -- and a tick that simply tries again needs no backoff, no timer to leak, and no
  * decision about when to give up.
  *
- * @returns {Promise<{reattached: string[], stillLost: string[]}>}
+ * @returns {Promise<{reattached: string[], stillLost: string[], finalised: string[]}>}
  */
 export async function reattachLostStreams(manager) {
   const reattached = [];
   const stillLost = [];
-  if (!manager.envDelegation?.isEnabled?.()) return { reattached, stillLost };
+  const finalised = [];
+  if (!manager.envDelegation?.isEnabled?.()) return { reattached, stillLost, finalised };
   for (const [id, state] of manager.terminals) {
     if (!state?.streamLost || state.finalized) continue;
     const envProcessId = String(state.envProcessId ?? "").trim();
@@ -83,6 +84,22 @@ export async function reattachLostStreams(manager) {
       // Same answer as a refused subscription: still lost, try again next tick.
     }
     if (!unsubscribe) {
+      // COULD NOT RE-OPEN IT. That is two different situations and only one of them is worth
+      // waiting on, so ask which: an environment that is down will be back, a process that DIED
+      // while we were blind never will.
+      //
+      // WITHOUT THIS THE HOLD IS PERMANENT, and I asserted otherwise two commits ago -- "a stale
+      // `attached` row is what the reconcilers exist to heal". Checked instead of assumed:
+      // `listOwnedSessions` EXCLUDES delegated terminals by design, correctly, because their pid
+      // is not on this host. So nothing reports a held delegated terminal dead, and a process that
+      // ended during an aify-env outage would have been held `attached` for ever.
+      const stillThere = await processStillListed(manager.envDelegation?.client ?? null, envProcessId);
+      if (stillThere === false) {
+        state.streamLost = null;
+        await manager._handleExit(id, state, { code: null, signal: "" });
+        finalised.push(id);
+        continue;
+      }
       stillLost.push(id);
       continue;
     }
@@ -99,5 +116,5 @@ export async function reattachLostStreams(manager) {
       // A console that cannot be written to does not get to undo the re-attach.
     }
   }
-  return { reattached, stillLost };
+  return { reattached, stillLost, finalised };
 }

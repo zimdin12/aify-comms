@@ -203,7 +203,7 @@ test("reattachLostStreams skips a terminal with no process id", async () => {
   // about nothing and read the refusal as a failure to re-attach, for ever.
   const manager = fakeManager();
   manager.terminals.set("t1", { streamLost: "alive", envProcessId: "" });
-  assert.deepEqual(await reattachLostStreams(manager), { reattached: [], stillLost: [] });
+  assert.deepEqual(await reattachLostStreams(manager), { reattached: [], stillLost: [], finalised: [] });
 });
 
 test("reattachLostStreams skips a terminal that was already finalised", async () => {
@@ -211,12 +211,57 @@ test("reattachLostStreams skips a terminal that was already finalised", async ()
   // brought back to life by the reconciler.
   const manager = fakeManager();
   manager.terminals.set("t1", { streamLost: "alive", envProcessId: "p1", finalized: true });
-  assert.deepEqual(await reattachLostStreams(manager), { reattached: [], stillLost: [] });
+  assert.deepEqual(await reattachLostStreams(manager), { reattached: [], stillLost: [], finalised: [] });
 });
 
 test("reattachLostStreams treats a throwing subscribe as still lost", async () => {
   const manager = fakeManager();
   manager._attachDelegatedStream = async () => { throw new Error("ECONNREFUSED"); };
   manager.terminals.set("t1", { streamLost: "alive", envProcessId: "p1" });
-  assert.deepEqual(await reattachLostStreams(manager), { reattached: [], stillLost: ["t1"] });
+  assert.deepEqual(await reattachLostStreams(manager), { reattached: [], stillLost: ["t1"], finalised: [] });
+});
+
+
+test("a held terminal whose process DIED while we were blind is finally reported", async () => {
+  // THE HOLE IN MY OWN FIX, found by checking a claim instead of asserting it. Two commits ago I
+  // wrote that holding is safe because "a stale `attached` row is what the reconcilers exist to
+  // heal". For a DELEGATED terminal that is false: `listOwnedSessions` excludes them by design --
+  // correctly, their pid is not on this host -- so `reportDeadOwnedTerminals` never sees one, and
+  // nothing else reports it dead. A process that ended during an aify-env outage would have been
+  // held `attached` for ever.
+  const manager = fakeManager({ listing: { ok: true, handle: { processes: [] } } });
+  manager._attachDelegatedStream = async () => null;   // the process is gone: nothing to subscribe to
+  const state = { streamLost: "alive", envProcessId: "p1" };
+  manager.terminals.set("t1", state);
+
+  const result = await reattachLostStreams(manager);
+  assert.deepEqual(result.finalised, ["t1"], "a process aify-env no longer lists was held for ever");
+  assert.deepEqual(result.stillLost, []);
+  assert.equal(manager.handled.length, 1, "the exit never reached the manager");
+});
+
+test("an environment that is merely DOWN keeps the terminal held", async () => {
+  // The control, and the whole reason the two cases must be told apart: aify-env comes back, a dead
+  // process does not. A refusal here reads as `null` -- no answer -- and holding is the safe way to
+  // be unsure.
+  const manager = fakeManager({ listing: { ok: false, error: "aify-env unreachable" } });
+  manager._attachDelegatedStream = async () => null;
+  manager.terminals.set("t1", { streamLost: "alive", envProcessId: "p1" });
+
+  const result = await reattachLostStreams(manager);
+  assert.deepEqual(result.stillLost, ["t1"]);
+  assert.deepEqual(result.finalised, [], "a terminal was finalised because the environment was down");
+  assert.equal(manager.handled.length, 0);
+});
+
+test("a re-attach that SUCCEEDS never asks whether the process is gone", async () => {
+  // The listing call is only for the failure branch. Asking on every successful re-attach would
+  // spend a round trip to answer a question the successful subscription already answered.
+  let asked = false;
+  const manager = fakeManager();
+  manager.envDelegation.client.list = async () => { asked = true; return null; };
+  manager.terminals.set("t1", { streamLost: "alive", envProcessId: "p1" });
+  const result = await reattachLostStreams(manager);
+  assert.deepEqual(result.reattached, ["t1"]);
+  assert.equal(asked, false);
 });
