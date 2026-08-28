@@ -57,6 +57,7 @@ from service.reconcilers.sessions import (
 )
 from service.reconcilers.terminal_consistency import _repair_terminal_session_consistency
 from service.terminal_snapshot import drop_live_screen as _drop_live_terminal_screen
+from service.api_core.liveness import _LIVE_SESSION_STATUSES
 from service.db import get_db
 # Imported for ANNOTATIONS as well as calls. Under postponed evaluation a missing model does not
 # fail import -- FastAPI demotes the body to a query param and the route 422s at request time.
@@ -208,9 +209,30 @@ async def list_sessions(
             )
             params.extend(hidden)
         where_sql = "WHERE " + " AND ".join(where) if where else ""
+        # LIVE SESSIONS FIRST, then recency. `last_seen DESC` alone is what this endpoint's own
+        # docstring names as a latent bug -- "one agent's dead history could push another agent's
+        # LIVE session out of the window entirely, making it invisible" -- and hiding the three
+        # cleanly-finished statuses did not close it, because `stopped`, `failed` and `lost` are
+        # deliberately KEPT (an operator restarts them) and they carry a stop-time timestamp.
+        #
+        # MEASURED ON THE LIVE DATABASE, 2026-08-28: 510 rows, 303 surviving the default filter, and
+        # exactly ONE `running` session -- at POSITION 160, because 160 stopped/failed/lost rows had a
+        # newer `last_seen` than it. The dashboard asks for 80. The only live session on the whole
+        # deployment was invisible to the page whose job is showing it.
+        #
+        # A live row's timestamp is not reliably the newest, which is the assumption the old ordering
+        # rested on: this one had not refreshed in three days while remaining `running`. Sorting on
+        # LIVENESS first needs no timestamp to be trustworthy -- it is a property of the row, and a
+        # bounded page can then only lose history, never the thing it exists to show.
+        live = sorted(_LIVE_SESSION_STATUSES)
+        live_first = (
+            "CASE WHEN LOWER(COALESCE(status,'')) IN ("
+            + ",".join("?" for _ in live)
+            + ") THEN 0 ELSE 1 END"
+        )
         cursor = await db.execute(
-            f"SELECT * FROM agent_sessions {where_sql} ORDER BY last_seen DESC LIMIT ?",
-            (*params, limit),
+            f"SELECT * FROM agent_sessions {where_sql} ORDER BY {live_first}, last_seen DESC LIMIT ?",
+            (*params, *live, limit),
         )
         rows = await cursor.fetchall()
         # Phase 3 (2026-06-03): DERIVE the served session status from live truth
