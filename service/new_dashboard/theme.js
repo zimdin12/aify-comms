@@ -96,13 +96,50 @@ export function contrastingForeground(hex) {
   return best;
 }
 
+/** The lightest surface `--accent-text` is rendered on, so contrast against it is the tightest case. */
+export const LIGHTEST_SURFACE = '#1d2325';
+
+/** Mix `hex` toward white by `percent` of white, in sRGB — the same space `color-mix(in srgb, …)` uses. */
+function towardWhite(hex, percent) {
+  const value = hex.replace('#', '');
+  const channels = [0, 2, 4].map((i) => parseInt(value.slice(i, i + 2), 16));
+  const mixed = channels.map((c) => Math.round(c + (255 - c) * percent));
+  return `#${mixed.map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+}
+
+/**
+ * An accent lightened until it is READABLE as text, rather than lightened by a fixed amount.
+ *
+ * THE BUG THIS REPLACES was the same shape as the button-contrast one, one token over:
+ * `hexLuminance(hex) > 0.38 ? hex : color-mix(in srgb, hex 64%, #ffffff)`. A brightness threshold
+ * picked the branch, and the dark branch then moved a FIXED 36% toward white -- which is not a
+ * contrast guarantee. I claimed it was structurally floored; that argument covered only the raw-accent
+ * branch, and review showed the mixed one has no floor at all. A valid operator accent of `#000000`
+ * produced `#5c5c5c`, which is 2.65:1 on the panel -- well below AA, on `.chat-chip.active`,
+ * `.settings-tab.active`, the mine-message heading and the action hovers.
+ *
+ * The eight shipped themes never hit it. The operator-controlled domain does, which is the whole
+ * point: Settings accepts any hex, and a threshold cannot know what it will be handed.
+ *
+ * Measured against `LIGHTEST_SURFACE` because a light foreground has its WORST ratio on the lightest
+ * background it is drawn on -- checking the darkest would flatter every candidate.
+ */
+export function readableAccentText(hex, background = LIGHTEST_SURFACE) {
+  if (contrastRatio(hex, background) >= MIN_CONTRAST) return hex;
+  for (let percent = 0.1; percent < 1; percent += 0.1) {
+    const candidate = towardWhite(hex, percent);
+    if (contrastRatio(candidate, background) >= MIN_CONTRAST) return candidate;
+  }
+  return '#ffffff';
+}
+
 // Compute the CSS custom-property overrides for a palette (pure — returns a {var:value} map).
 export function derivePaletteVars(palette = {}) {
   const accent = normalizedHexColor(palette.accent, THEMES.default.accent);
   const second = normalizedHexColor(palette.secondary, THEMES.default.secondary);
   const third = normalizedHexColor(palette.tertiary, THEMES.default.tertiary);
   const contrast = contrastingForeground;
-  const readable = (hex) => (hexLuminance(hex) > 0.38 ? hex : `color-mix(in srgb, ${hex} 64%, #ffffff)`);
+  const readable = (hex) => readableAccentText(hex);
   return {
     '--accent': accent,
     '--accent-hover': `color-mix(in srgb, ${accent} 82%, #ffffff)`,

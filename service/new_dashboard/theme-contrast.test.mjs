@@ -24,7 +24,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { MIN_CONTRAST, THEMES, applyTheme, contrastRatio, contrastingForeground, derivePaletteVars } from './theme.js';
+import { LIGHTEST_SURFACE, MIN_CONTRAST, THEMES, applyTheme, contrastRatio, contrastingForeground, derivePaletteVars, readableAccentText } from './theme.js';
 
 test('the ratio maths is right', () => {
   // POSITIVE CONTROL. Black on white is 21:1 by definition; a formula that cannot produce it cannot be
@@ -125,4 +125,44 @@ test('the ESCALATION path is exercised, not merely present', () => {
   // exception rather than the rule.
   assert.equal(contrastingForeground('#c0c0c0'), '#06110f');
   assert.equal(contrastingForeground('#000080'), '#f7fbff');
+});
+
+test('--accent-text is READABLE on the surfaces it is drawn on, for arbitrary accents too', () => {
+  // THE SECOND TOKEN WITH THE SAME DEFECT, and I closed it wrongly the first time. It was
+  // `hexLuminance(hex) > 0.38 ? hex : color-mix(in srgb, hex 64%, #ffffff)` — a brightness threshold
+  // choosing the branch, then a FIXED 36% move toward white, which guarantees nothing.
+  //
+  // I argued that was structurally floored. That argument covered only the RAW branch; review showed
+  // the mixed one has no floor. A valid operator accent of #000000 produced #5c5c5c — 2.65:1 on the
+  // panel — and `--accent-text` colours `.chat-chip.active`, `.settings-tab.active`, the mine-message
+  // heading and the action hovers. The eight shipped themes never hit it; Settings accepts any hex.
+  for (const [name, palette] of Object.entries(THEMES)) {
+    const vars = derivePaletteVars(palette);
+    const ratio = contrastRatio(vars['--accent-text'], LIGHTEST_SURFACE);
+    assert.ok(ratio >= MIN_CONTRAST, `theme ${name} renders accent text at ${ratio.toFixed(2)}:1`);
+  }
+});
+
+test('the accents that BROKE it are the controls', () => {
+  // NEGATIVE CONTROL with the exact values from the report, so a regression to a fixed mix fails here
+  // rather than in an operator's Settings page.
+  // THROUGH derivePaletteVars, NOT the helper. The first version of this called `readableAccentText`
+  // directly, so restoring the old fixed-mix formula inside `derivePaletteVars` left every test green
+  // -- the helper was correct and nothing proved it was CALLED. That is the same disconnected-call-site
+  // shape as the applyTheme write, in the test written immediately after fixing it.
+  for (const accent of ['#000000', '#0a0a0a', '#101010', '#1a1a1a', '#202020', '#2b2b2b', '#404040']) {
+    const fg = derivePaletteVars({ accent, secondary: accent, tertiary: accent })['--accent-text'];
+    const ratio = contrastRatio(fg, LIGHTEST_SURFACE);
+    assert.ok(ratio >= MIN_CONTRAST, `accent ${accent} produced ${fg} at ${ratio.toFixed(2)}:1`);
+  }
+  // ...and the old formula must read as failing, or this control proves nothing.
+  assert.ok(contrastRatio('#5c5c5c', '#15191b') < MIN_CONTRAST, 'the value that prompted this reads as passing');
+});
+
+test('it lightens only as far as it must', () => {
+  // ANTI-VACUITY. Returning white always would satisfy every ratio assertion above while discarding
+  // the accent the operator chose — the token exists to be a readable version of THEIR colour.
+  const via = (accent) => derivePaletteVars({ accent, secondary: accent, tertiary: accent })['--accent-text'];
+  assert.equal(via('#51c5b0'), '#51c5b0', 'an already-readable accent was altered');
+  assert.notEqual(via('#000000'), '#ffffff', 'a dark accent was flattened to pure white');
 });
