@@ -513,7 +513,19 @@ const EXTRACTIONS = [
     importLine: "import { renderSessionActivity, runFrom } from './session-activity.mjs';",
     items: [
       { name: "messagesForSession", at: 1687, marker: "// messagesForSession moved to ./session-activity.mjs in v0.5.4." },
-      { name: "renderSessionActivity", at: 1818, marker: "// renderSessionActivity moved to ./session-activity.mjs in v0.5.4." },
+      {
+        name: "renderSessionActivity", at: 1818,
+        marker: "// renderSessionActivity moved to ./session-activity.mjs in v0.5.4.",
+        // No longer pre-escapes a label renderStatusChip escapes again.
+        editedSince: [{
+          was: [
+            "      <div class=\"item-title\"><strong>${esc(m.from || 'unknown')}</strong>${renderStatusChip(m.read ? 'completed' : 'queued', { label: esc(m.type || (m.read ? 'read' : 'unread')), why: `Message ${m.read ? 'read' : 'unread'}.` })}</div>",
+          ],
+          now: [
+            "      <div class=\"item-title\"><strong>${esc(m.from || 'unknown')}</strong>${renderStatusChip(m.read ? 'completed' : 'queued', { label: m.type || (m.read ? 'read' : 'unread'), why: `Message ${m.read ? 'read' : 'unread'}.` })}</div>",
+          ],
+        }],
+      },
       { name: "runFrom", at: 3175, marker: "// runFrom moved to ./session-activity.mjs in v0.5.4." },
     ],
   },
@@ -608,6 +620,15 @@ const EXTRACTIONS = [
         // on 149. The logic moved to the exported `spawnRecordLineage`, which is a NEW declaration
         // in the module and therefore not part of any span here.
         editedSince: [
+        // No longer pre-escapes a label renderStatusChip escapes again: it rendered `a & b` as `a &amp;amp; b`.
+        {
+          was: [
+            "      <div class=\"history-head\"><strong>${esc(mode)}</strong>${renderStatusChip(r.status || 'queued', { label: esc(r.status || 'queued'), why: `Spawn request ${r.status || 'queued'}.` })}</div>",
+          ],
+          now: [
+            "      <div class=\"history-head\"><strong>${esc(mode)}</strong>${renderStatusChip(r.status || 'queued', { label: r.status || 'queued', why: `Spawn request ${r.status || 'queued'}.` })}</div>",
+          ],
+        },
         {
           was: [
           "      const m = r.metadata || {};",

@@ -6,6 +6,9 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   AGENT_STATUSES,
   STATUS_KINDS,
@@ -136,4 +139,55 @@ test("runStatusContext reads every spelling of a blocker and never returns undef
     assert.equal(out.label, run?.status || 'unknown');
     assert.ok(Array.isArray(out.badges));
   }
+});
+
+// ---- the chip escapes its label EXACTLY once, and callers must not help ---------------------------
+//
+// `renderStatusChip` escapes everything it emits -- tone, kind, why, label, badges -- so a caller that
+// escapes a label first gets it escaped twice. Two of the three call sites that pass a `label` did:
+// `esc(r.status || 'queued')` and `esc(m.type || ...)`. The third passed it raw, which is correct, so
+// the inconsistency was already there to read.
+//
+// PROVEN, not argued: a label of `a & b` renders as `a &amp;amp; b`, which the operator reads on
+// screen as the literal text "a &amp; b".
+//
+// LATENT, NOT LIVE, and the measurement says so. The live database holds six distinct message types
+// (info, response, error, request, review, approval) and three spawn-request statuses (cancelled,
+// failed, running); NONE contains a character escaping would change. So this cost nothing today and
+// would have cost a garbled chip the first time a vocabulary gained an ampersand.
+
+test("the chip escapes a label exactly once", () => {
+  const html = renderStatusChip("queued", { label: "a & b", why: "x" });
+  assert.match(html, /a &amp; b/, "the label is not escaped at all, or not the way this asserts");
+  assert.doesNotMatch(html, /&amp;amp;/, "the label was escaped twice");
+});
+
+test("the chip escapes the parts a caller does not control either", () => {
+  // Anti-vacuity for the case above: if `esc` were a no-op the first assertion would still pass on a
+  // label that happened to contain the literal text `&amp;`.
+  const html = renderStatusChip("queued", { label: "x", why: '"><script>' });
+  assert.doesNotMatch(html, /"><script>/, "a hostile `why` reached the attribute unescaped");
+  assert.match(html, /&quot;|&gt;|&lt;/, "nothing in the chip was escaped, so this test proves nothing");
+});
+
+test("no call site pre-escapes a label into the chip", () => {
+  // A SOURCE check, deliberately, because the property is about how the CALL is written: the helper
+  // cannot tell an already-escaped label from a legitimate one. The behavioural cases above are the
+  // proof that escaping happens; this is the net that stops a caller adding a second layer.
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  const offenders = [];
+  let callSites = 0;
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.endsWith(".mjs") && !name.endsWith(".js")) continue;
+    if (name.includes(".test.")) continue;
+    const source = fs.readFileSync(path.join(dir, name), "utf8");
+    for (const m of source.matchAll(/renderStatusChip\(/g)) {
+      callSites += 1;
+      const tail = source.slice(m.index, m.index + 400);
+      const label = /\blabel:\s*([^,}]+)/.exec(tail);
+      if (label && label[1].includes("esc(")) offenders.push(`${name}: label: ${label[1].trim()}`);
+    }
+  }
+  assert.ok(callSites >= 10, `only ${callSites} call sites found; the scan has drifted`);
+  assert.deepEqual(offenders, [], "a caller escapes a label the chip escapes again");
 });

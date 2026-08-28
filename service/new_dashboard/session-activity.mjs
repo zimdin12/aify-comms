@@ -48,7 +48,7 @@ export function renderSessionActivity(session) {
     }
     const m = it.m; const id = messageId(m);
     return `<article class="activity-row" data-kind="message" data-id="${esc(id)}">
-      <div class="item-title"><strong>${esc(m.from || 'unknown')}</strong>${renderStatusChip(m.read ? 'completed' : 'queued', { label: esc(m.type || (m.read ? 'read' : 'unread')), why: `Message ${m.read ? 'read' : 'unread'}.` })}</div>
+      <div class="item-title"><strong>${esc(m.from || 'unknown')}</strong>${renderStatusChip(m.read ? 'completed' : 'queued', { label: m.type || (m.read ? 'read' : 'unread'), why: `Message ${m.read ? 'read' : 'unread'}.` })}</div>
       <p class="preview">${esc(m.subject ? m.subject + ' — ' : '')}${esc(m.body || m.preview || '')}</p>
     </article>`;
   }).join('') : '<div class="empty-state"><span class="empty-icon">📋</span><strong>No activity yet</strong><p>Runs and messages for this session appear here. Use Chat to message the agent.</p></div>';

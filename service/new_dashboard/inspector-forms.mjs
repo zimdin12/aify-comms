@@ -182,7 +182,7 @@ export async function openCompactionHistory(agentId) {
   const body = rows.length ? rows.map((r) => {
     const { mode, fromAgentId, fromSessionId, requestedBy, selfRequested } = spawnRecordLineage(r);
     return `<div class="history-row">
-      <div class="history-head"><strong>${esc(mode)}</strong>${renderStatusChip(r.status || 'queued', { label: esc(r.status || 'queued'), why: `Spawn request ${r.status || 'queued'}.` })}</div>
+      <div class="history-head"><strong>${esc(mode)}</strong>${renderStatusChip(r.status || 'queued', { label: r.status || 'queued', why: `Spawn request ${r.status || 'queued'}.` })}</div>
       <dl class="agent-drawer-kv">
         <dt>When</dt><dd>${esc(relTime(r.createdAt || r.created_at))} ago</dd>
         <dt>New agent</dt><dd>${esc(r.agentId || r.agent_id || '—')}</dd>
