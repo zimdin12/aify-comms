@@ -116,24 +116,24 @@ test("it reads the field EnvClient actually returns", () => {
   // THE BUG THIS TEST EXISTS FOR. `{ ok: true, handle: <body> }` is the shape; a reader expecting
   // `body` gets undefined, reports UNKNOWN for ever, and takes every managed agent dark.
   return probeEnvTerminal(delegationWith({ ok: true, handle: { terminals: { available: true } } }))
-    .then((answer) => assert.equal(answer, true, "the probe read the wrong field off the client"));
+    .then(({ terminal }) => assert.equal(terminal, true, "the probe read the wrong field off the client"));
 });
 
 test("a client REFUSAL is no answer, not a no", async () => {
   // `{ ok: false }` means the request did not land. Reporting that as "aify-env says it has no
   // terminal" would be inventing an answer, and the two lead to different operator action.
-  assert.equal(await probeEnvTerminal(delegationWith({ ok: false, error: "aify-env unreachable" })), null);
+  assert.equal((await probeEnvTerminal(delegationWith({ ok: false, error: "aify-env unreachable" }))).terminal, null);
 });
 
 test("aify-env answering NO is distinct from not answering", async () => {
-  assert.equal(await probeEnvTerminal(delegationWith({ ok: true, handle: { terminals: { available: false } } })), false);
+  assert.equal((await probeEnvTerminal(delegationWith({ ok: true, handle: { terminals: { available: false } } }))).terminal, false);
 });
 
 test("with delegation off nothing is asked", async () => {
   // A probe against an endpoint nobody serves spends a timeout every heartbeat.
   let asked = false;
   const delegation = { isEnabled: () => false, client: { health: async () => { asked = true; return {}; } } };
-  assert.equal(await probeEnvTerminal(delegation), null);
+  assert.deepEqual(await probeEnvTerminal(delegation), { terminal: null, processes: null });
   assert.equal(asked, false, "the probe called out with delegation off");
 });
 
@@ -141,11 +141,34 @@ test("a client that throws is no answer rather than a crash", async () => {
   // This runs inside the heartbeat. A throw here would stop the environment reporting at all, which
   // is a worse failure than the one being fixed.
   const delegation = { isEnabled: () => true, client: { health: async () => { throw new Error("boom"); } } };
-  assert.equal(await probeEnvTerminal(delegation), null);
+  assert.deepEqual(await probeEnvTerminal(delegation), { terminal: null, processes: null });
 });
 
 test("a missing or malformed delegation is no answer", async () => {
   for (const delegation of [null, undefined, {}, { isEnabled: () => true }]) {
-    assert.equal(await probeEnvTerminal(delegation), null, `threw or answered for ${JSON.stringify(delegation)}`);
+    assert.deepEqual(await probeEnvTerminal(delegation), { terminal: null, processes: null },
+      `threw or answered for ${JSON.stringify(delegation)}`);
+  }
+});
+
+
+test("the probe returns the PROCESS LIST too, because /health already carries one", async () => {
+  // NOT A PERFORMANCE ARGUMENT: a second `GET /processes` was measured at 0.3 ms median on loopback
+  // over twelve runs, which is nothing. It is that the bridge can answer "is aify-env running
+  // something I do not know about" on every heartbeat WITHOUT adding a call, and a signal that
+  // costs nothing is one nobody has to justify keeping.
+  const { processes } = await probeEnvTerminal(delegationWith({
+    ok: true,
+    handle: { terminals: { available: true }, processes: [{ id: "p1", service: "aify-comms" }] },
+  }));
+  assert.deepEqual(processes, [{ id: "p1", service: "aify-comms" }]);
+});
+
+test("a body with no process list reports NULL, not an empty fleet", async () => {
+  // An older aify-env, or a body this reader does not understand. Saying "none" would report every
+  // terminal as unknown to this bridge -- a badge on every card, on every host, for ever.
+  for (const handle of [{ terminals: { available: true } }, { processes: "lots" }, {}]) {
+    const { processes } = await probeEnvTerminal(delegationWith({ ok: true, handle }));
+    assert.equal(processes, null, JSON.stringify(handle));
   }
 });

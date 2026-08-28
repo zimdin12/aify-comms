@@ -15,7 +15,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { terminalReasonNote } from "./environments-panels.mjs";
+import { terminalReasonNote, unknownProcessBadge } from "./environments-panels.mjs";
 
 const env = (over = {}) => ({ id: "windows:host:default", terminal: true, metadata: {}, ...over });
 
@@ -63,5 +63,49 @@ test("a malformed environment does not throw", () => {
   // This runs inside the render for every card. One bad row must not blank the page.
   for (const value of [null, undefined, {}, { terminal: false }, { terminal: false, metadata: null }]) {
     assert.doesNotThrow(() => terminalReasonNote(value));
+  }
+});
+
+
+// ---- and what it cannot SEE ---------------------------------------------------------------
+//
+// The operator watched a live PTY under aify-env -- `claude-aify --aify-agent ef-manager`, pid
+// 155844 -- that no screen would display, and asked for exactly this: "aify-env side running
+// process visibility, to catch orphans like that". The bridge can count them on every heartbeat at
+// no extra cost, because aify-env's /health carries the process list already.
+
+test("an environment running processes the bridge does not know about says how many", () => {
+  const html = unknownProcessBadge({ metadata: { unknownProcesses: 2 } });
+  assert.match(html, /2 unaccounted processes/);
+});
+
+test("one is singular, because a badge reading \"1 unaccounted processes\" is a badge nobody trusts", () => {
+  assert.match(unknownProcessBadge({ metadata: { unknownProcesses: 1 } }), /1 unaccounted process</);
+});
+
+test("ZERO renders nothing, and so does ABSENT — but they are different facts", () => {
+  // A bridge that reached aify-env and accounts for everything reports 0. A bridge that could not
+  // ask reports nothing at all. Neither draws a badge, and the difference matters to what the card
+  // does NOT claim: "0 unaccounted" for the second would be asserting knowledge nobody has.
+  assert.equal(unknownProcessBadge({ metadata: { unknownProcesses: 0 } }), '');
+  assert.equal(unknownProcessBadge({ metadata: { unknownProcesses: null } }), '');
+  assert.equal(unknownProcessBadge({ metadata: {} }), '');
+  assert.equal(unknownProcessBadge({}), '');
+  assert.equal(unknownProcessBadge(null), '');
+});
+
+test("a non-number is not a count", () => {
+  // It arrives over HTTP from another process. `"3"` would render, and `NaN` would render as a
+  // badge saying NaN, which is worse than saying nothing.
+  for (const value of ['3', NaN, Infinity, true, [], {}]) {
+    assert.equal(unknownProcessBadge({ metadata: { unknownProcesses: value } }), '',
+      `${JSON.stringify(value)} was rendered as a count`);
+  }
+});
+
+test("the badge does not throw on a malformed environment", () => {
+  // One bad row must not blank the whole environments page.
+  for (const value of [undefined, { metadata: null }, { metadata: 'x' }]) {
+    assert.doesNotThrow(() => unknownProcessBadge(value));
   }
 });

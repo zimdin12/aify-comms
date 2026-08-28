@@ -175,3 +175,39 @@ export function envProcessVerdict({ result = null, envAnswered = false, listingT
       : "Those terminals will take dispatches and never start a turn. Restart the named agents.",
   };
 }
+
+
+/**
+ * Processes aify-env is running that THIS BRIDGE does not know about.
+ *
+ * A DIFFERENT QUESTION FROM `reconcileEnvProcesses`, with different inputs and a different reader,
+ * which is why it is a second function rather than a parameter on the first. That one compares
+ * aify-env against the CONTROL PLANE's live terminals and is the doctor's; this compares it against
+ * what this bridge currently holds in memory, and is the bridge's own answer, computable on every
+ * heartbeat with no extra call because aify-env's `/health` already carries the process list.
+ *
+ * They can disagree, and the disagreement is informative: a process the control plane still has a
+ * live terminal for but THIS bridge has dropped is one a bridge restart orphaned.
+ *
+ * @param {{id?: string, service?: string}[]} processes  aify-env's own listing
+ * @param {Iterable<{envProcessId?: string, kind?: string}>} ownedTerminals  this bridge's terminals
+ * @param {string} [service]
+ * @returns {string[]} aify-env process ids, in listing order
+ */
+export function processesThisBridgeDoesNotKnow(processes, ownedTerminals, service = "aify-comms") {
+  const known = new Set();
+  for (const terminal of ownedTerminals ?? []) {
+    if (terminal?.kind !== "delegated") continue;
+    const processId = String(terminal.envProcessId ?? "").trim();
+    if (processId) known.add(processId);
+  }
+  const unknown = [];
+  for (const process_ of processes ?? []) {
+    // ONLY OUR OWN SERVICE'S. aify-env is shared, and another service's process is not this
+    // bridge's to call unknown -- it was never ours to know.
+    if (String(process_?.service ?? "") !== service) continue;
+    const id = String(process_?.id ?? "").trim();
+    if (id && !known.has(id)) unknown.push(id);
+  }
+  return unknown;
+}

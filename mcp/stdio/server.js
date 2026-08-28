@@ -72,7 +72,8 @@ import { shutdownAllPiSessions } from "./pi-session-pool.mjs";
 import { shutdownAllCodexSessions } from "./codex-session.js";
 import { shutdownAllHermesSessions } from "./hermes-session.js";
 import { shutdownAllHermesGatewaySessions } from "./hermes-managed-gateway-session.js";
-import { probeEnvTerminal, terminalCapability } from "./terminal-capability.mjs";
+import { buildEnvironmentPayload } from "./environment-advertisement.mjs";
+import { probeEnvTerminal } from "./terminal-capability.mjs";
 import { bridgeTerminalSupported } from "./terminal-runtime.js";
 import {
   bootstrapManagedEnvironmentBridge,
@@ -744,29 +745,23 @@ const { runManagedTeardownForBridge, runManagedTeardownSync, runBootSurvivorSwee
 // `remoteEffectiveCwdRoots` is written by heartbeatEnvironment below and splitting a mutable across two
 // modules leaves it with no owner.
 
-// WHETHER THIS ENVIRONMENT CAN OPEN A TERMINAL, last time anyone asked the tier that would open it.
-// Same owner, same reason: written by heartbeatEnvironment, read by the synchronous callers below.
+// WHAT aify-env LAST SAID: whether it can open terminals, and what it is running. One `/health`
+// answer, written by heartbeatEnvironment and read by the synchronous callers below -- same owner,
+// same reason as `remoteEffectiveCwdRoots` above.
 //
-// NULL UNTIL THE FIRST HEARTBEAT, and null is not yes -- `terminalCapability` treats an unanswered
-// aify-env as no terminal. A bridge that has not yet probed advertises no terminal for one beat,
-// which is the honest answer to a question nobody has asked yet.
+// NULL IS NOT A VALUE ON EITHER. An unanswered aify-env advertises no terminal (a bridge that has
+// not yet probed says no for one beat, which is the honest answer to a question nobody has asked),
+// and it accounts for no processes rather than for zero of them.
 let lastEnvTerminalHealth = null;
+let lastEnvProcesses = null;
 
-/** The capability to advertise right now: aify-env's answer when delegating, ours otherwise. */
-function advertisedTerminalCapability() {
-  return terminalCapability({
-    delegationEnabled: TERMINAL_MANAGER.envDelegation?.isEnabled?.() === true,
-    envHealthy: lastEnvTerminalHealth,
-    localTerminal: bridgeTerminalSupported(),
-  });
-}
-
-/** The registration this bridge would send right now, capability and reason together. */
+/** The registration this bridge would send now. The DECISION is environment-advertisement.mjs's. */
 function environmentPayloadNow() {
-  const capability = advertisedTerminalCapability();
-  return environmentHeartbeatPayload({
-    terminalSupported: capability.terminal,
-    terminalReason: capability.reason,
+  return buildEnvironmentPayload({
+    terminalManager: TERMINAL_MANAGER,
+    envHealthy: lastEnvTerminalHealth,
+    envProcesses: lastEnvProcesses,
+    localTerminal: bridgeTerminalSupported(),
   });
 }
 
@@ -780,7 +775,9 @@ async function heartbeatEnvironment({ syncManaged = true } = {}) {
     // ASKED EVERY BEAT, of the tier that would actually open the terminal. One loopback GET, and
     // it is the difference between advertising what we can do and advertising what we could do
     // before spawning moved out of this process.
-    lastEnvTerminalHealth = await probeEnvTerminal(TERMINAL_MANAGER.envDelegation);
+    const envHealth = await probeEnvTerminal(TERMINAL_MANAGER.envDelegation);
+    lastEnvTerminalHealth = envHealth.terminal;
+    lastEnvProcesses = envHealth.processes;
     const response = await httpCall(
       "POST",
       "/environments/heartbeat",

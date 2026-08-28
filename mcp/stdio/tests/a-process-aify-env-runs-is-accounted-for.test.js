@@ -19,7 +19,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { LIVE_TERMINAL_STATUSES, envProcessVerdict, reconcileEnvProcesses } from "../env-process-reconciliation.mjs";
+import {
+  LIVE_TERMINAL_STATUSES,
+  envProcessVerdict,
+  processesThisBridgeDoesNotKnow,
+  reconcileEnvProcesses,
+} from "../env-process-reconciliation.mjs";
 
 const ours = (pid, over = {}) => ({ id: `p${pid}`, pid, service: "aify-comms", label: "", ...over });
 const live = (pid, over = {}) => ({
@@ -244,4 +249,50 @@ test("both kinds at once are both reported", () => {
   });
   assert.match(verdict.detail, /NO live terminal/);
   assert.match(verdict.detail, /not running/);
+});
+
+
+// ---- the BRIDGE'S OWN question ------------------------------------------------------------
+//
+// A DIFFERENT QUESTION FROM THE ONE ABOVE, with different inputs and a different reader. That one
+// compares aify-env against the CONTROL PLANE's live terminals and is the doctor's. This compares
+// it against what the bridge holds in memory, is computable on every heartbeat with no extra call
+// (aify-env's /health carries the process list), and is what puts a number on the environment card.
+//
+// They can disagree, and the disagreement is informative: a process the control plane still has a
+// live terminal for but the bridge has dropped is one a bridge restart orphaned.
+
+test("a process the bridge holds a delegated terminal for is known", () => {
+  assert.deepEqual(
+    processesThisBridgeDoesNotKnow([ours(1)], [{ envProcessId: "p1", kind: "delegated" }]),
+    [],
+  );
+});
+
+test("a process the bridge holds nothing for is unknown to it", () => {
+  assert.deepEqual(processesThisBridgeDoesNotKnow([ours(1)], []), ["p1"]);
+});
+
+test("a LOCAL terminal does not account for a delegated process", () => {
+  // Only a delegated terminal has an aify-env process behind it; counting a local one as cover
+  // would hide the exact orphan this number exists to show.
+  assert.deepEqual(
+    processesThisBridgeDoesNotKnow([ours(1)], [{ envProcessId: "p1", kind: "local" }]),
+    ["p1"],
+  );
+});
+
+test("another service's processes are never this bridge's to not-know", () => {
+  // aify-env is shared. A process we never started is not one we failed to know about.
+  assert.deepEqual(processesThisBridgeDoesNotKnow([ours(1, { service: "other" })], []), []);
+});
+
+test("it answers in listing order, so a report reads the way the environment lists them", () => {
+  assert.deepEqual(processesThisBridgeDoesNotKnow([ours(3), ours(1), ours(2)], []), ["p3", "p1", "p2"]);
+});
+
+test("missing and malformed input produce no findings rather than throwing", () => {
+  for (const [processes, owned] of [[undefined, undefined], [[null], [null]], [[{}], [{}]]]) {
+    assert.doesNotThrow(() => processesThisBridgeDoesNotKnow(processes, owned));
+  }
 });

@@ -118,7 +118,7 @@ export function launcherStateFrom(env = {}) {
  *
  * @param {{terminalSupported?: boolean}} [override]
  */
-export function environmentHeartbeatPayload({ terminalSupported: override, terminalReason = "" } = {}) {
+export function environmentHeartbeatPayload({ terminalSupported: override, terminalReason = "", unknownProcesses = null } = {}) {
   const hostname = (() => {
     try { return os.hostname() || "unknown-host"; } catch { return "unknown-host"; }
   })();
@@ -151,6 +151,11 @@ export function environmentHeartbeatPayload({ terminalSupported: override, termi
       // because aify-env is not answering. An operator would go looking for a delivery bug -- the
       // same wrong hunt the false `available` used to send them on, one tier over.
       terminalReason,
+      // PROCESSES aify-env IS RUNNING THAT THIS BRIDGE DOES NOT KNOW ABOUT. Null means nobody could
+      // ask -- distinct from 0, which is a bridge that asked and accounts for everything. The
+      // operator watched a live PTY in aify-env that no screen would show; this is the number that
+      // would have said so, and it costs nothing because /health carries the list already.
+      unknownProcesses,
       bridgeStartedAt: BRIDGE_STARTED_AT,
       // The sha of the code THIS PROCESS IS ACTUALLY RUNNING (v0.2 item B1). It was already
       // computed for the startup banner and then only written to stderr, where nothing can read

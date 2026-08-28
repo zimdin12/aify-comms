@@ -623,7 +623,7 @@ const EXTRACTIONS = [
             "      <p class=\"preview\">${esc(env.kind || env.os || '')} · ${esc(env.machineId || env.machine_id || '')}</p>",
           ],
           now: [
-            "      <p class=\"preview\">${esc(env.kind || env.os || '')} \u00b7 ${esc(env.machineId || '')}${offlineAge(env)}${staleBridgeBadge(env)}</p>",
+            "      <p class=\"preview\">${esc(env.kind || env.os || '')} \u00b7 ${esc(env.machineId || '')}${offlineAge(env)}${staleBridgeBadge(env)}${unknownProcessBadge(env)}</p>",
           ],
         }, {
           // A SECOND PAIR, not an amendment to the first: this edit covers a DIFFERENT line. `was`
