@@ -2053,7 +2053,16 @@ const EXTRACTIONS = [
               "  try { const res = await api(qs); state.contracts = res.contracts || []; } catch (err) { toast(`Load contracts failed: ${err?.message || err}`, 'error'); }",
             ],
             now: [
-              "  try { const res = await api(qs); state.contracts = res.contracts || []; }",
+              "  // `truncated` is kept, not dropped. The endpoint scans a bounded superset because a contract's",
+              "  // state is derived in Python and the SQL filter standing in for it is deliberately wider; when",
+              "  // that scan hits its ceiling the list is a page, not the whole answer. A truncated list that",
+              "  // does not admit it is truncated reads as \"that is everything\" -- which is exactly the defect",
+              "  // this endpoint just had, in its summary.",
+              "  try {",
+              "    const res = await api(qs);",
+              "    state.contracts = res.contracts || [];",
+              "    state.contractsTruncated = Boolean(res.truncated);",
+              "  }",
               "  catch (err) { noteSliceFailure('contract filter'); toast(`Load contracts failed: ${err?.message || err}`, 'error'); }",
             ],
           }],
@@ -2080,7 +2089,31 @@ const EXTRACTIONS = [
         name: "renderContracts",
         at: 2957,
         marker: "// renderContracts moved to ./work-loop-actions.mjs in v0.5.4.",
-        editedSince: [{
+        editedSince: [
+          // Says so when the scan was capped: under a cap, 'no match' and 'none exist' look identical.
+          {
+            was: [
+              "  if (!contracts.length) {",
+              "    host.innerHTML = '<div class=\"empty-state\"><span class=\"empty-icon\">\u2713</span><strong>No contracts match</strong><p>No reply obligations in this filter.</p></div>';",
+              "  } else if (state.contractView === 'board') {",
+              "    host.innerHTML = renderContractBoard(contracts);",
+              "  } else {",
+              "    host.innerHTML = contracts.map(contractCard).join('');",
+            ],
+            now: [
+              "  // Said on screen rather than left to the reader to infer: under a capped scan, \"no contracts",
+              "  // match\" and \"none exist\" are different facts that look identical.",
+              "  const capped = state.contractsTruncated",
+              "    ? '<div class=\"mb mb-warn\">Showing a partial scan \u2014 more may match than are listed.</div>'",
+              "    : '';",
+              "  if (!contracts.length) {",
+              "    host.innerHTML = capped + '<div class=\"empty-state\"><span class=\"empty-icon\">\u2713</span><strong>No contracts match</strong><p>No reply obligations in this filter.</p></div>';",
+              "  } else if (state.contractView === 'board') {",
+              "    host.innerHTML = capped + renderContractBoard(contracts);",
+              "  } else {",
+              "    host.innerHTML = capped + contracts.map(contractCard).join('');",
+            ],
+          },{
           was: [],
           now: [
             "  // The missing-host guard every neighbouring renderer has — `renderUsagePools`,",
