@@ -110,6 +110,36 @@ test("ANOTHER HOST'S terminals are not phantoms", () => {
   assert.deepEqual(result.phantom, []);
 });
 
+test("an UNKNOWN environment loses the phantom direction rather than reporting every host", () => {
+  // The rule this module got wrong first: an empty id skipped the scoping guard, so every live
+  // terminal everywhere was compared and reported. The comment claimed the opposite. A caller that
+  // cannot say which environment is its own cannot tell a missing terminal from somebody else's.
+  //
+  // The unaccounted direction is UNAFFECTED and must stay so: a process aify-env is running either
+  // matches a live pid or it does not, and that needs no environment at all.
+  const result = reconcileEnvProcesses({
+    envProcesses: [ours(1)],
+    terminals: [live(777, { environmentId: "wsl:anywhere:default" })],
+    environmentId: "",
+  });
+  assert.deepEqual(result.phantom, [], "phantoms were reported without knowing which environment is ours");
+  assert.equal(result.unaccounted.length, 1, "the unaccounted direction was lost with the phantom one");
+});
+
+test("two unknowns do not make a match", () => {
+  // THE EDGE THAT SEPARATES THE TWO GUARDS, found by a mutation that survived. Dropping the outer
+  // `environmentId ? ... : []` leaves the inner comparison, and for every realistic row that is
+  // enough -- `"wsl:x" !== ""` excludes it. It stops being enough when the TERMINAL's environment
+  // is also empty: two blanks compare equal, and a row nobody can attribute gets reported against
+  // an environment nobody could identify. Both sides unknown is the least safe moment to conclude.
+  const result = reconcileEnvProcesses({
+    envProcesses: [],
+    terminals: [live(777, { environmentId: "" })],
+    environmentId: "",
+  });
+  assert.deepEqual(result.phantom, [], "a terminal with no environment was matched to no environment");
+});
+
 test("a terminal that is not live is neither matched nor missing", () => {
   // `stopped` asserts nothing about a process existing, so its absence is not a fault.
   const result = reconcileEnvProcesses({

@@ -31,6 +31,8 @@ import { checkOpenAiUsageAccess } from "./usage-collector.js";
 // Pure env predicates live in their own module so they can be unit-tested — this script runs its
 // checks at import and ends in process.exit(), so nothing here is importable by a test. See
 // doctor-predicates.js for why (two shipped false greens, zero coverage).
+import { defaultMachineId } from "./runtimes.js";
+import { checkEnvProcesses } from "./env-processes-check.mjs";
 import { checkService } from "./service-check.mjs";
 import {
   describeEnv,
@@ -356,6 +358,24 @@ function checkSkillsInstalled() {
 
 // ── run ──────────────────────────────────────────────────────────────────────────────
 await checkService({ get, add, sh, repo, serverUrl: SERVER_URL });
+// IS EVERYTHING aify-env RUNS ACCOUNTED FOR? The operator watched a live PTY in aify-env that the
+// dashboard could not show, and asked for exactly this. Both reads it needs -- a terminal listing
+// and a pid on each terminal -- landed in e426e497; before that the comparison was unanswerable.
+await checkEnvProcesses({
+  get,
+  add,
+  skip,
+  fetchJson: async (url) => {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
+      return response.ok ? await response.json() : null;
+    } catch {
+      return null;
+    }
+  },
+  launcherText: installedLauncherText(),
+  machineId: defaultMachineId(),
+});
 checkNativeBridge();
 // WHERE MANAGED SPAWNS RUN, and whether that place is answering.
 //
@@ -399,19 +419,32 @@ async function checkManagedOrphans() {
   return add("managed-orphans", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }
 
-async function checkSpawnDelegation() {
-  let launcherText = null;
+/**
+ * The installed environment-bridge launcher's text, or null.
+ *
+ * READ, NEVER RUN. Executing it would start an environment bridge, which supersedes the one
+ * already serving this host and reaps its managed workers -- the incident of 2026-08-11, from a
+ * four-second run meant only to confirm the launcher still started.
+ *
+ * Hoisted out of `checkSpawnDelegation` when a second check needed the same file: two readers
+ * spelling the same two candidate paths is how they start disagreeing about which one wins.
+ */
+function installedLauncherText() {
   for (const candidate of [
     join(homedir(), ".local", "bin", "aify-comms"),
     join(homedir(), ".local", "bin", "aify-comms.cmd"),
   ]) {
     try {
-      launcherText = readFileSync(candidate, "utf8");
-      break;
+      return readFileSync(candidate, "utf8");
     } catch {
       // Try the next spelling; an absent launcher is reported by the verdict, not thrown here.
     }
   }
+  return null;
+}
+
+async function checkSpawnDelegation() {
+  const launcherText = installedLauncherText();
   let endpointAnswered = null;
   // PARSED ONCE, by the module that also renders the verdict. These were two more copies of regexes
   // that already lived in doctor-predicates.js, and the copy here decides whether to PROBE while the

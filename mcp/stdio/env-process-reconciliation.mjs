@@ -88,10 +88,15 @@ export function reconcileEnvProcesses({
     });
   }
 
+  // AN UNKNOWN ENVIRONMENT LOSES THIS DIRECTION ENTIRELY, and the first version of this said so in
+  // a comment while doing the opposite: an empty id skipped the guard below, so EVERY live terminal
+  // on every host was compared and reported. A caller that cannot say which environment is its own
+  // cannot tell a missing terminal from somebody else's, and losing one direction is the safe way
+  // to be unsure. Caught by the test for the CALL, not by this module's own suite.
   const phantom = [];
-  for (const [pid, terminal] of livePidToTerminal) {
+  for (const [pid, terminal] of environmentId ? livePidToTerminal : []) {
     // Only this environment's terminals. Another host's live terminal is not missing here.
-    if (environmentId && String(terminal.environmentId ?? "") !== environmentId) continue;
+    if (String(terminal.environmentId ?? "") !== environmentId) continue;
     if (runningPids.has(pid)) continue;
     phantom.push({
       terminalId: String(terminal.id ?? ""),
