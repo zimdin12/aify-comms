@@ -24,7 +24,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { MIN_CONTRAST, THEMES, accentTextSurfaces, applyTheme, contrastRatio, contrastingForeground, derivePaletteVars, hoverBackground, readableAccentText } from './theme.js';
+import { CHAT_SURFACE, MIN_CONTRAST, PANEL, THEMES, accentTextSurfaces, applyTheme, contrastRatio, contrastingForeground, derivePaletteVars, hoverBackground, readableAccentText } from './theme.js';
 
 test('the ratio maths is right', () => {
   // POSITIVE CONTROL. Black on white is 21:1 by definition; a formula that cannot produce it cannot be
@@ -206,11 +206,28 @@ test('the accent-dependent SURFACES are what accent-text is judged against', () 
   // against `#1d2325` and so kept the raw accent — 3.91:1 on the active chip, 4.31:1 on the mine
   // message. Both of those backgrounds are mixed FROM the accent, so they move with it.
   const surfaces = accentTextSurfaces('#a08088');
-  assert.equal(surfaces.length, 3, 'a consumer surface was dropped from the population');
+  assert.equal(surfaces.length, 4, 'a consumer surface was dropped from the population');
   assert.ok(surfaces.includes('#2e2c2f'), `the 18% active-chip tint is missing: ${surfaces}`);
+  // THE FOURTH, added after review found it omitted while the prose claimed every surface. The action
+  // hovers take `--accent-text` on EVERY message card, and a non-mine card is `--chat-surface`, not the
+  // panel I had asserted. Custom accent #5a001e cleared the other three (4.508-4.530) and rendered
+  // 4.43:1 on this one.
+  assert.ok(surfaces.includes(CHAT_SURFACE), `--chat-surface is missing: ${surfaces}`);
+  const omitted = derivePaletteVars({ accent: '#5a001e', secondary: '#5a001e', tertiary: '#5a001e' });
+  assert.ok(contrastRatio(omitted['--accent-text'], CHAT_SURFACE) >= MIN_CONTRAST,
+    'the accent that exposed the omission is unreadable on a message card again');
   const fg = derivePaletteVars({ accent: '#a08088', secondary: '#a08088', tertiary: '#a08088' })['--accent-text'];
   for (const bg of surfaces) {
     assert.ok(contrastRatio(fg, bg) >= MIN_CONTRAST,
       `#a08088 renders ${fg} at ${contrastRatio(fg, bg).toFixed(2)}:1 on ${bg}`);
   }
+});
+
+test('the surface population names the two FIXED backgrounds explicitly', () => {
+  // ANTI-VACUITY for the count above: four surfaces of the wrong kind would satisfy it. The two fixed
+  // ones are the panel and the message card; the other two are mixed from the accent and move with it.
+  const surfaces = accentTextSurfaces('#51c5b0');
+  assert.ok(surfaces.includes(PANEL), 'the panel left the population');
+  assert.ok(surfaces.includes(CHAT_SURFACE), 'the message card left the population');
+  assert.notEqual(PANEL, CHAT_SURFACE, 'the two fixed surfaces collapsed into one value');
 });

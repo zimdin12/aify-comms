@@ -121,6 +121,9 @@ export function hoverBackground(accent, foreground = contrastingForeground(accen
 /** The panel every `--accent-text` surface is mixed into. Fixed; the tints below are not. */
 export const PANEL = '#15191b';
 
+/** A non-mine message card, which the action hovers sit on. Lighter than the panel, so it binds. */
+export const CHAT_SURFACE = '#161b1e';
+
 /**
  * Every background `--accent-text` is actually drawn on, for THIS accent.
  *
@@ -135,10 +138,16 @@ export const PANEL = '#15191b';
  * message. Substituting one constant for a population is the same error as certifying the static CSS
  * while the runtime overwrote it, one token further down.
  *
- * `.settings-tab.active` and the action hovers sit on the panel itself, so it stays in the list.
+ * `.settings-tab.active` sits on the panel -- verified by resolving the rendered ancestor's computed
+ * background rather than assuming it, which is how the omission below was made in the first place.
+ *
+ * `--chat-surface` WAS MISSING and is the fourth. The action hovers (`.chat-msg-reply/.detail/.act`)
+ * take `--accent-text` on EVERY message card, and a non-mine card is `--chat-surface`, not the panel
+ * -- an earlier version of this comment asserted panel for them and was simply wrong. Custom accent
+ * `#5a001e` cleared all three enumerated surfaces (4.508 to 4.530) and rendered 4.43:1 on that one.
  */
 export function accentTextSurfaces(accent) {
-  return [PANEL, mixInto(accent, 0.18, PANEL), mixInto(accent, 0.12, PANEL)];
+  return [PANEL, CHAT_SURFACE, mixInto(accent, 0.18, PANEL), mixInto(accent, 0.12, PANEL)];
 }
 
 /** `color-mix(in srgb, a p%, b)`, resolved — the same sRGB interpolation the stylesheet performs. */
