@@ -14,7 +14,7 @@ the job. Two are load-bearing regressions rather than mere behaviour, and are ma
 
 INPUT SHAPE. The decision takes plain values plus three row-likes (`agent_row`, `active_run`,
 `channel_pending_reply_run`) that it indexes with `[...]`, and a `db` used for exactly one call. Plain
-dicts satisfy the row protocol; `db` is only ever passed through to `_managed_console_is_booting`,
+dicts satisfy the row protocol; `db` is only ever passed through to the console-boot reader,
 which is patched where it is used.
 
 ORDER IS THE CONTRACT. This is an if/elif chain, so a branch's meaning is "these conditions AND none
@@ -261,6 +261,23 @@ class AwaitingReplyBranch(unittest.TestCase):
         self.assertTrue(awaiting)
 
 
+def _reader_returning(answer: bool):
+    """A stand-in for `ConsoleBootingOnce` that answers without a database.
+
+    The decision reaches its one read through this class now, so the seam these cases patch is the
+    reader, not the module-level function it calls.
+    """
+
+    class _Reader:
+        def __init__(self, db, agent_id):
+            pass
+
+        async def value(self):
+            return answer
+
+    return _Reader
+
+
 class AvailableTailBranch(unittest.TestCase):
     def test_no_visible_console_annotates_available_without_changing_it(self):
         status, reason, _ = _call(effective_status="available", channel_managed_no_console=True)
@@ -274,15 +291,13 @@ class AvailableTailBranch(unittest.TestCase):
 
     def test_a_BOOTING_console_displays_online(self):
         """Display-only: routing is untouched, so a send during boot still queues."""
-        with mock.patch.object(status_decision, "_managed_console_is_booting",
-                               new=mock.AsyncMock(return_value=True)):
+        with mock.patch.object(status_decision, "ConsoleBootingOnce", new=_reader_returning(True)):
             status, reason, _ = _call(effective_status="available", channel_managed_no_sidecar=True)
         self.assertEqual("online", status)
         self.assertIn("booting", reason.lower())
 
     def test_a_sidecar_that_registered_then_DIED_stays_available(self):
-        with mock.patch.object(status_decision, "_managed_console_is_booting",
-                               new=mock.AsyncMock(return_value=False)):
+        with mock.patch.object(status_decision, "ConsoleBootingOnce", new=_reader_returning(False)):
             status, reason, _ = _call(effective_status="available", channel_managed_no_sidecar=True)
         self.assertEqual("available", status)
         self.assertIn("not deliverable", reason)
@@ -313,7 +328,7 @@ class PrecedenceInvariants(unittest.TestCase):
 
 
 class TheHotPathQueryBoundary(unittest.TestCase):
-    """`_managed_console_is_booting` is the decision's ONLY database call. Where it runs is a contract.
+    """The console-boot read is the decision's ONLY database call. Where it runs is a contract.
 
     The reviewer asked for this explicitly, and it is the reason the decision was left async rather than
     made pure: hoisting that call to compute a fact up front would add a query to EVERY status
@@ -323,18 +338,33 @@ class TheHotPathQueryBoundary(unittest.TestCase):
     These cases assert the BOUNDARY, not just the branch: every earlier outcome must reach its answer
     with ZERO database calls. A reshape that made the decision pure by pre-computing this fact would
     keep every other test in this file green while quietly adding a query per poll.
+
+    THE READ NOW HAPPENS THROUGH `ConsoleBootingOnce`, because the caller asks the same question again
+    for its display-parity line and was reading the same agent's console twice per request. That is a
+    SHARING change, not a hoisting one -- the read is still lazy and still behind this branch's guard,
+    which is exactly what these cases keep honest. This class exercises the DEFAULT path, where no
+    reader is passed and the decision builds its own; the shared path has its own measurement in
+    test_console_boot_is_read_once_per_agent.py. Neither covers the other.
     """
 
     def _counting_probe(self, **over):
-        """Run the decision with the booting query counted rather than merely stubbed."""
+        """Run the decision with the booting query counted rather than merely stubbed.
+
+        Counting lands in `value()`, not in the constructor: building a reader touches no database,
+        so a probe that counted constructions would report a query on a branch that never asked one.
+        """
         calls = []
         booting = over.pop("_booting", False)
 
-        async def _counted(db, agent_id):
-            calls.append(agent_id)
-            return booting
+        class _CountedReader:
+            def __init__(self, db, agent_id):
+                self._agent_id = agent_id
 
-        with mock.patch.object(status_decision, "_managed_console_is_booting", new=_counted):
+            async def value(self):
+                calls.append(self._agent_id)
+                return booting
+
+        with mock.patch.object(status_decision, "ConsoleBootingOnce", new=_CountedReader):
             result = _call(**over)
         return result, calls
 

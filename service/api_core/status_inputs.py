@@ -46,6 +46,7 @@ from service.api_core.liveness import (
 )
 from service.api_core.live_process_probes import _resident_bridge_is_fresh
 from service.api_core.managed_env import (
+    ConsoleBootingOnce,
     _managed_console_is_booting,
     _managed_owning_environment_row,
     _managed_spawn_is_starting,
@@ -397,6 +398,9 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         and active_run_mode == "terminal"
         and (not terminal_id or terminal_status not in _TERMINAL_ACTIVE_STATUSES)
     )
+    # ONE console-boot read for this agent, shared with the display-parity line further down. Both
+    # sites are guarded and often neither fires, so it stays lazy — this only stops the SECOND read.
+    console_booting_once = ConsoleBootingOnce(db, agent_row["id"])
     effective_status, reason, awaiting_reply = await _decide_effective_status(
         db,
         StatusFacts(
@@ -424,6 +428,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         effective_status,
         reason,
         awaiting_reply,
+        console_booting_once,
     )
     # NOTE (2026-06-05): a managed agent whose last session ended FAILED stays `available` by
     # design — it lazy-respawns on the next send (genuinely available-to-retry, NOT blocked; see
@@ -529,7 +534,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         # WS-12 parity: booting-console → display online (same helper as _gather_status_inputs).
         _si_console_booting = (
             not has_live_worker and _si_env_reachable
-            and await _managed_console_is_booting(db, agent_row["id"])
+            and await console_booting_once.value()
         )
         # M2 (external review 2026-08-18): these two were MISSING here while `_gather_status_inputs`
         # set both, so the cheap path — which is the SERVED one for GET /agents — derived `available`

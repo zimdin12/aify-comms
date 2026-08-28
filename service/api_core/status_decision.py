@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from service.api_core.managed_env import _managed_console_is_booting
+from service.api_core.managed_env import ConsoleBootingOnce
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
 
 
@@ -66,6 +66,7 @@ async def _decide_effective_status(
     effective_status,
     reason,
     awaiting_reply,
+    console_booting: ConsoleBootingOnce | None = None,
 ):
     """Decide an agent's effective status from already-gathered facts. THE status derivation.
 
@@ -78,10 +79,16 @@ async def _decide_effective_status(
     directly. Isolating it is the prerequisite for branch characterization; the reshape into a facts
     object comes after those tests exist, not before.
 
-    NOT PURE, DELIBERATELY. One `await` remains — `_managed_console_is_booting` on a late branch. Hoisting
-    it would make this a pure function of plain values and trivially testable, and it would also add a
+    NOT PURE, DELIBERATELY. One `await` remains — the console-boot read on a late branch. Hoisting it
+    would make this a pure function of plain values and trivially testable, and it would also add a
     database query to EVERY status computation on a hot path. Keeping it async preserves the original
     call pattern exactly; purity is a later question, not a silent trade.
+
+    `console_booting` is that read, shared with the caller. The caller asks the same question again for
+    its WS-12 display-parity line, so without this the SAME agent's console was read twice in one
+    request — 2 of the 9 per-agent queries in a cold `GET /api/v1/agents`. Passing it changes nothing
+    about WHEN the read happens: it is still lazy, still behind this branch's guard. Omit it and the
+    behaviour is exactly as before, which is what keeps every other caller unaffected.
 
     ALL THREE OUTPUTS ARE ALSO PARAMETERS, and that is not redundancy. `reason` and `awaiting_reply` are
     initialized by the caller and read inside (`if not reason:`). `effective_status` is assigned by EARLIER
@@ -231,7 +238,7 @@ async def _decide_effective_status(
             # so a send during boot still QUEUES until the sidecar claims (routing untouched).
             # (Legacy-path display; live engine is `old`. A `status_engine=new` flip would need
             # the same signal in StatusInputs for parity.)
-            if await _managed_console_is_booting(db, facts.agent_row["id"]):
+            if await (console_booting or ConsoleBootingOnce(db, facts.agent_row["id"])).value():
                 effective_status = "online"
                 if not reason:
                     reason = "Console booting (worker starting; deliverable once it claims)."

@@ -89,7 +89,16 @@ class StatusDecisionSplitIsInertTests(unittest.TestCase):
         text = net.read_text(encoding="utf-8")
         self.assertGreaterEqual(text.count("def test_"), 30,
                                 "the net that justifies retiring the round trip has shrunk")
-        self.assertIn("_managed_console_is_booting", text, "the hot-path query boundary must stay covered")
+        # THE PROPERTY, NOT A NAME. This asserted that the net mentioned `_managed_console_is_booting`,
+        # which stopped being true the moment that read moved behind `ConsoleBootingOnce` -- while the
+        # coverage it stood for was intact and had grown. A name is a proxy; what has to survive is the
+        # boundary class and its zero-call cases, so those are what this asks for.
+        self.assertIn("class TheHotPathQueryBoundary", text,
+                      "the hot-path query boundary class is gone")
+        self.assertGreaterEqual(
+            text.count("def test_no_database_call"), 5,
+            "the zero-database-call cases are what make the boundary a contract rather than a comment",
+        )
 
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         names = {

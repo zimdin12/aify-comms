@@ -194,6 +194,45 @@ async def _managed_spawn_is_starting(db, agent_id: str) -> bool:
     return (time.time() - started) <= SPAWN_STARTING_WINDOW_SECONDS
 
 
+class ConsoleBootingOnce:
+    """One agent's boot answer, computed at most once per status computation.
+
+    `_compute_live_status_cache` asked this question TWICE for the same agent in the same request:
+    once through `_decide_effective_status` (the authoritative path) and once directly, for the
+    WS-12 display-parity line further down. Measured 2026-08-28 by counting `aiosqlite` execute()
+    calls through one COLD `GET /api/v1/agents`:
+
+        agents refreshed        4      8
+        terminal_sessions read  8     16      = 2 per agent
+        all statements         48     84
+
+    Eight of the nine per-agent queries run once; this one ran twice. Removing the second takes a
+    cold request from 84 statements to 76 at the 8-agent refresh cap.
+
+    LAZY ON PURPOSE. `_decide_effective_status` documents why the read was not hoisted out of its
+    late branch: hoisting "would also add a database query to EVERY status computation on a hot
+    path", since both call sites are guarded and often neither fires. This keeps both guards exactly
+    as they are and only prevents the SECOND computation, so an agent that reaches neither branch
+    still pays nothing.
+
+    SCOPE IS ONE AGENT, ONE COMPUTATION. A fleet-wide or request-wide memo would have to reason
+    about when a console's row can change underneath it; this cannot go stale, because it does not
+    outlive the single derivation that created it.
+    """
+
+    __slots__ = ("_db", "_agent_id", "_answer")
+
+    def __init__(self, db, agent_id: str) -> None:
+        self._db = db
+        self._agent_id = agent_id
+        self._answer: bool | None = None
+
+    async def value(self) -> bool:
+        if self._answer is None:
+            self._answer = await _managed_console_is_booting(self._db, self._agent_id)
+        return self._answer
+
+
 async def _managed_console_is_booting(db, agent_id: str) -> bool:
     """True when the agent's live console came up but NO channel-sidecar has registered for it
     YET — a worker BOOTING (sidecar still coming), distinct from a sidecar that registered for

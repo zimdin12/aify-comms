@@ -77,9 +77,9 @@ from service.api_core.recovery_writes import (  # v0.5.4: moved out; the control
 )
 # v0.5.4: the whole prompt-hint group moved to terminal_text.py, taking `_ANSI_RE` and
 # `_terminal_awaiting_input_hint` with it -- they had no other reader here.
-from service.api_core.managed_env import (  # v0.5.4: moved out; the control plane is now a CALLER
-    _managed_console_is_booting,
-)
+# v0.5.4 moved `managed_env` out and the control plane became a CALLER; 2026-08-28 removed the last
+# name it still imported from there (`_managed_console_is_booting`, now reached through
+# `ConsoleBootingOnce`), so the import statement itself is gone rather than left standing empty.
 from service.api_core.live_process_probes import ACTIVE_RUN_BRIDGE_STALE_SECONDS
 from service.env_status import _ENVIRONMENT_HEARTBEAT_STATUSES
 # v0.5 slice 2: the spawn-lifecycle reconcilers moved to their own module.
