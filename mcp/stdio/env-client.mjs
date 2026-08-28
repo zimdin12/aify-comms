@@ -154,13 +154,18 @@ export class EnvClient {
     // Told ONCE, whichever way the stream ends. A `null` code means "we stopped being able to see it"
     // -- distinct from 0, which would tell the heal path the agent finished normally.
     let ended = false;
-    const finish = (code, signal = "") => {
+    // `observedExitFrame` IS THE THIRD ARGUMENT, and it is the whole difference between a process
+    // that ended and one we stopped being able to see. This function already knew which case it
+    // was in -- the comment below says so -- and reported both as the same `finish(null)`. The
+    // caller could not tell them apart, so it finalised either way, and killing aify-env marked
+    // every delegated terminal stopped while its process kept running. See delegated-exit.mjs.
+    const finish = (code, signal = "", observedExitFrame = false) => {
       if (ended) return;
       ended = true;
       stopped = true;
       if (typeof onExit !== "function") return;
       try {
-        onExit(code, signal);
+        onExit(code, signal, { observedExitFrame });
       } catch {
         // A broken consumer does not get to break the teardown.
       }
@@ -211,7 +216,7 @@ export class EnvClient {
             // 0 and no signal, which arrives as exactly what it always did.
             const rawCode = payload?.code;
             const exitCode = typeof rawCode === "number" && Number.isFinite(rawCode) ? rawCode : null;
-            finish(exitCode, payload?.signal == null ? "" : String(payload.signal).trim());
+            finish(exitCode, payload?.signal == null ? "" : String(payload.signal).trim(), true);
             return;
           }
 

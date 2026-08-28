@@ -191,7 +191,11 @@ test("a delegated death carries its SIGNAL to the exit hook, not a hardcoded nul
   });
 
   assert.equal(typeof deliverExit, "function", "the manager never subscribed for an exit");
-  deliverExit(null, "SIGKILL");
+  // THE THIRD ARGUMENT IS THE CONTRACT NOW. `env-client.mjs` passes `{ observedExitFrame: true }`
+  // only when aify-env actually sent an `event: exit` frame; without it the manager treats the end
+  // of a stream as "we lost sight of it" and refuses to finalise. Omitting it here made this test
+  // simulate a case that is no longer an exit -- which is the fix working, not a regression.
+  deliverExit(null, "SIGKILL", { observedExitFrame: true });
   await new Promise((r) => setTimeout(r, 50));
 
   assert.equal(exits.length, 1, "the delegated exit never reached the exit hook");
@@ -219,7 +223,7 @@ test("a delegated CLEAN exit still reports its zero and no signal", async () => 
     argv: [writeLauncherFixture("probe-aify"), "--version"],
     cwd: process.cwd(), runtime: "claude-code", sessionMode: "managed",
   });
-  deliverExit(0, "");
+  deliverExit(0, "", { observedExitFrame: true });
   await new Promise((r) => setTimeout(r, 50));
 
   assert.equal(exits.length, 1);
@@ -260,4 +264,71 @@ test("the delegated spawn labels the row with the AGENT id, or nothing", () => {
     );
     assert.doesNotMatch(started.at(-1).label, /^term_/, "a terminal id was sent as an agent name");
   });
+});
+
+
+test("a stream that ends with the process STILL LISTED does not reach the exit hook", async () => {
+  // THE ORPHAN FACTORY, driven through the real call site. The operator killed aify-env; every
+  // delegated stream ended at once; the bridge finalised each terminal; the processes survived
+  // because aify-env's shutdown deliberately leaves what it cannot confirm. The control plane has
+  // said `stopped` about a live, owned process ever since.
+  //
+  // `delegated-exit.mjs` is tested on its own, and that is exactly the shape that has fooled this
+  // repo before -- a proven builder nothing called. This drives the manager.
+  const exits = [];
+  let deliverExit;
+  const client = {
+    async start() { return { ok: true, handle: { id: "env-x", pid: 99, terminal: true } }; },
+    async subscribeOutput(id, onOutput, onExit) { deliverExit = onExit; return () => {}; },
+    async stop() { return { ok: true }; },
+    // aify-env still owns it: the stream broke, the process did not end.
+    async list() { return { ok: true, handle: { processes: [{ id: "env-x", pid: 99 }] } }; },
+  };
+  const manager = new TerminalProcessManager({
+    envDelegation: { isEnabled: () => true, client },
+    onExit: async (id, detail) => { exits.push([id, detail]); },
+  });
+  await manager.start({
+    id: "t-lost", command: writeLauncherFixture("probe-aify"),
+    argv: [writeLauncherFixture("probe-aify"), "--version"],
+    cwd: process.cwd(), runtime: "claude-code", sessionMode: "managed",
+  });
+
+  // No third argument: the stream ended without an exit frame.
+  deliverExit(null, "");
+  await new Promise((r) => setTimeout(r, 50));
+
+  assert.equal(
+    exits.length, 0,
+    "a live, owned process was reported as an exit -- the control plane would mark it stopped and "
+      + "nothing would ever collect it",
+  );
+  assert.ok(manager.terminals.has("t-lost"), "the terminal was dropped despite its process surviving");
+});
+
+test("a stream that ends with the process GONE does reach the exit hook", async () => {
+  // The control. Holding every terminal open would trade an orphaned process for a row that never
+  // closes, and the reconcilers would heal forever.
+  const exits = [];
+  let deliverExit;
+  const client = {
+    async start() { return { ok: true, handle: { id: "env-x", pid: 99, terminal: true } }; },
+    async subscribeOutput(id, onOutput, onExit) { deliverExit = onExit; return () => {}; },
+    async stop() { return { ok: true }; },
+    async list() { return { ok: true, handle: { processes: [] } }; },
+  };
+  const manager = new TerminalProcessManager({
+    envDelegation: { isEnabled: () => true, client },
+    onExit: async (id, detail) => { exits.push([id, detail]); },
+  });
+  await manager.start({
+    id: "t-gone", command: writeLauncherFixture("probe-aify"),
+    argv: [writeLauncherFixture("probe-aify"), "--version"],
+    cwd: process.cwd(), runtime: "claude-code", sessionMode: "managed",
+  });
+
+  deliverExit(null, "");
+  await new Promise((r) => setTimeout(r, 50));
+
+  assert.equal(exits.length, 1, "a process aify-env no longer owns was left attached for ever");
 });

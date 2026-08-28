@@ -1,4 +1,5 @@
 import { withoutInheritedMarkers } from "./child-env-hygiene.mjs";
+import { delegatedExitVerdict, processStillListed } from "./delegated-exit.mjs";
 import { spawn } from "child_process";
 import { createRequire } from "module";
 import { readFileSync } from "node:fs";
@@ -380,7 +381,15 @@ export class TerminalProcessManager {
       // THE SIGNAL ARRIVES HERE NOW. This passed `signal: null` unconditionally, which was honest at
       // the time -- aify-env had no signal to give -- and became a lie the moment it did. A delegated
       // death is the case the operator asks about most, because every managed agent is delegated.
-      (code, signal) => { this._handleExit(id, state, { code, signal }).catch(() => {}); },
+      //
+      // AND AN UNOBSERVED END IS NOT AN EXIT. When the stream closes with no `event: exit` frame the
+      // environment went away rather than the process finishing, and finalising there is what marked
+      // every delegated terminal `stopped` when the operator killed aify-env -- while the processes
+      // kept running, because aify-env's shutdown deliberately leaves them and keeps the record.
+      // Traced from the terminal's own event log; see delegated-exit.mjs.
+      (code, signal, meta = {}) => {
+        this._settleDelegatedExit(id, state, { code, signal, meta }).catch(() => {});
+      },
     );
 
     // FAIL CLOSED ON A DEAF TERMINAL. subscribeOutput answers null when there is no endpoint, the
@@ -623,6 +632,45 @@ export class TerminalProcessManager {
     state.chain = deliver.catch(() => {});
     await deliver;
     if (!state.chunks.length && !state.idleTimer && !state.maxTimer) this.outputStates.delete(id);
+  }
+
+  /**
+   * Decide whether a delegated stream ending was an EXIT, and finalise only if it was.
+   *
+   * An observed `event: exit` frame is finalised immediately -- there is nothing to verify, aify-env
+   * watched it happen. Anything else ASKS the environment whether it still owns the process, and
+   * holds the terminal open unless the answer is a clear no.
+   *
+   * HOLDING IS THE SAFE DIRECTION and it is not free: a held terminal has no output stream, which
+   * this file elsewhere calls the worst shape available. The asymmetry decides it anyway -- a stale
+   * `attached` row is what `terminal_consistency.py`, `terminal_runs.py` and `managed_workers.py`
+   * exist to heal, and NOTHING collects a process the control plane has already called stopped.
+   */
+  async _settleDelegatedExit(id, state, { code, signal, meta = {} } = {}) {
+    const verdict = delegatedExitVerdict({
+      observedExitFrame: meta.observedExitFrame === true,
+      stillListed: meta.observedExitFrame === true
+        ? null
+        : await processStillListed(this.envDelegation?.client ?? null, state.envProcessId),
+    });
+    if (verdict.finalise) {
+      await this._handleExit(id, state, { code, signal });
+      return verdict;
+    }
+    // SAID OUT LOUD, into the console the operator is looking at. A terminal that silently stops
+    // producing output and never ends is the one thing worse than either wrong answer.
+    try {
+      await this.onOutput(
+        id,
+        `${String.fromCharCode(10)}[aify-comms] lost the output stream for this terminal: `
+        + `${verdict.reason}. The terminal is left attached rather than reported as stopped, `
+        + `because a process reported stopped is one nothing will ever collect.${String.fromCharCode(10)}`,
+      );
+    } catch {
+      // A console that cannot be written to does not get to change the decision.
+    }
+    state.streamLost = verdict.kind;
+    return verdict;
   }
 
   async _handleExit(id, state, detail = {}) {

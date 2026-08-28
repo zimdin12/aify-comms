@@ -3396,7 +3396,13 @@ test("the five bridge classes are measurable, and the sizes are cross-checked", 
     // Six lines: the changed expression plus the note saying why a `term_...` string under a column
     // headed AGENT is worse than an empty one. Re-measured two ways -- `declarationSpan` says 849 and
     // a brace-match from the class header gives lines 71..919, which is 849.
-    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 849],
+    // 849 -> 896 on 2026-08-28: `_settleDelegatedExit`, which stops an unobserved stream end being
+    // reported as an exit. Traced from a terminal's own event log after the operator killed
+    // aify-env: every delegated stream ended at once, every terminal was finalised, and the
+    // processes survived -- so the control plane said `stopped` about a live, owned process.
+    // Re-measured TWO ways rather than copied from the failure message: `declarationSpan` says 896,
+    // and a brace-match from the class header gives lines 72..967, which is 896.
+    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 896],
   ];
   for (const [rel, name, expected] of cases) {
     const span = declarationSpan(read(rel), name);
