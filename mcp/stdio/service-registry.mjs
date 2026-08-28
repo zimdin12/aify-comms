@@ -24,6 +24,13 @@ const isPlainObject = (value) => typeof value === "object" && value !== null && 
  * @param {{endpoint: string, endpointEnv: string[], mcp: object[]}} entry
  * @returns {{ok: boolean, text?: string, errors: string[]}}
  */
+// The READER, imported rather than reimplemented. `parseRegistry` owns what a valid entry is;
+// a second copy of those rules here would agree until one of them was fixed. It comes from the
+// aify-wrapper package this repo already pins, and `install.sh` runs `npm install` (2781) before
+// it registers the service (2801), so a missing package fails loudly at install rather than
+// silently skipping the check.
+import { parseRegistry } from "aify-wrapper/lib/registry.mjs";
+
 export function upsertService(existingText, serviceName, entry) {
   const errors = [];
   if (!serviceName || typeof serviceName !== "string") errors.push("serviceName is required");
@@ -56,6 +63,25 @@ export function upsertService(existingText, serviceName, entry) {
   }
 
   const services = { ...current.services, [serviceName]: normaliseEntry(entry) };
+
+  // REFUSE TO WRITE WHAT THE READER WOULD REJECT. The guard above protects another service's entry
+  // from an unreadable EXISTING file; without this one the same harm arrives through the other
+  // door, because the reader refuses the WHOLE file on one bad entry. Measured: seed a registry
+  // with `other-service`, then write an aify-comms entry whose mcp server has no name -- the write
+  // reports ok and `other-service` disappears from every launcher that reads the file afterwards.
+  //
+  // Only OUR entry is judged. Validating the merged file would let a third party's pre-existing
+  // damage block a registration that is itself correct, which is a worse failure than the one this
+  // prevents: it would make somebody else's bad entry uninstall ours.
+  const ours = parseRegistry(stableJson({ version: REGISTRY_VERSION, services: { [serviceName]: services[serviceName] } }));
+  if (!ours.ok) {
+    return {
+      ok: false,
+      errors: [
+        `refusing to write an entry no launcher could read: ${ours.errors.join('; ')}`,
+      ],
+    };
+  }
 
   return { ok: true, text: `${stableJson({ version: REGISTRY_VERSION, services })}\n`, errors: [] };
 }
