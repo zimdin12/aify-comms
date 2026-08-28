@@ -66,7 +66,7 @@ import { esc, relTime } from './util.js';
  */
 function offlineAge(env) {
   if (resolveStatus(env.status).kind !== 'offline') return '';
-  const seen = relTime(env.lastSeen || env.last_seen);
+  const seen = relTime(env.lastSeen);
   return seen ? ` · last seen ${esc(seen)} ago` : '';
 }
 
@@ -74,7 +74,7 @@ export function renderRuntime() {
   byId('environment-list').innerHTML = state.environments.map((env) => `
     <article class="runtime-card" data-kind="environment" data-id="${esc(env.id)}">
       <div class="item-title"><strong>${esc(env.label || env.id)}</strong>${renderStatusChip(env.status, statusWhyContext('environment', env, env.status))}</div>
-      <p class="preview">${esc(env.kind || env.os || '')} · ${esc(env.machineId || env.machine_id || '')}${offlineAge(env)}</p>
+      <p class="preview">${esc(env.kind || env.os || '')} · ${esc(env.machineId || '')}${offlineAge(env)}</p>
       <div class="env-runtime-list">
         ${environmentRuntimes(env).map((runtime) => `<span class="env-runtime-pill${runtime.available === false ? ' unavailable' : ''}">${esc(runtime.runtime)}${runtime.available === false ? ' (unavailable)' : ''}</span>`).join('') || '<span class="env-runtime-pill unavailable">no runtimes</span>'}
       </div>

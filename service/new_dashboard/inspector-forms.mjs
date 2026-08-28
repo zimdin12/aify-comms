@@ -35,7 +35,7 @@ export function openAgentEditForm(agentId) {
   const onlineEnvs = state.environments.filter((env) => resolveStatus(env.status).kind === 'online');
   const envOptions = ['<option value="">— keep current —</option>']
     .concat(onlineEnvs.map((env) => {
-      const id = String(env.id || env.environmentId || '');
+      const id = String(env.id || '');
       return `<option value="${esc(id)}"${id === currentEnv ? ' selected' : ''}>${esc(env.label || id)}</option>`;
     })).join('');
   const runtimeOptions = [...new Set(['generic', 'claude-code', 'codex', 'hermes', 'pi', 'opencode', currentRuntime])]

@@ -581,12 +581,14 @@ const EXTRACTIONS = [
         // An OFFLINE environment now says how long it has been silent. `offline` alone read the same
         // for a host that dropped a minute ago and one abandoned in June, and `lastSeen` was already
         // on the wire — the card simply dropped it.
+        // Also dropped a dead snake_case alternate: the environment payload emits machineId, never
+        // machine_id, so the `||` branch could never be taken.
         editedSince: [{
           was: [
             "      <p class=\"preview\">${esc(env.kind || env.os || '')} · ${esc(env.machineId || env.machine_id || '')}</p>",
           ],
           now: [
-            "      <p class=\"preview\">${esc(env.kind || env.os || '')} · ${esc(env.machineId || env.machine_id || '')}${offlineAge(env)}</p>",
+            "      <p class=\"preview\">${esc(env.kind || env.os || '')} \u00b7 ${esc(env.machineId || '')}${offlineAge(env)}</p>",
           ],
         }],
       },
@@ -650,6 +652,15 @@ const EXTRACTIONS = [
         at: 3609,
         marker: "// openAgentEditForm moved to ./inspector-forms.mjs in v0.5.4.",
         editedSince: [
+          // Dropped a dead alternate: the environment payload emits id, never environmentId.
+          {
+            was: [
+              "      const id = String(env.id || env.environmentId || '');",
+            ],
+            now: [
+              "      const id = String(env.id || '');",
+            ],
+          },
           // Dropped a dead snake_case alternate: the service emits sessionHandle.
           {
             was: [
