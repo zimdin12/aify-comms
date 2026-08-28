@@ -10,12 +10,13 @@
 // Two implementations of one question do not agree for free; they agree until one is fixed.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { doctorSourceText } from "./doctor-sources.mjs";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const BRIDGE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const DOCTOR = readFileSync(path.join(BRIDGE, "doctor.js"), "utf8");
+const DOCTOR = doctorSourceText();
 
 /** Check ids this doctor registers, read from its own `add(...)` calls. */
 function registeredCheckIds(source) {

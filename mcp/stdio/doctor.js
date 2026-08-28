@@ -31,24 +31,21 @@ import { checkOpenAiUsageAccess } from "./usage-collector.js";
 // Pure env predicates live in their own module so they can be unit-tested — this script runs its
 // checks at import and ends in process.exit(), so nothing here is importable by a test. See
 // doctor-predicates.js for why (two shipped false greens, zero coverage).
+import { checkService } from "./service-check.mjs";
 import {
   describeEnv,
   envIsOnline,
   envStateIsUnknown,
   bridgeCurrentVerdict,
   bridgeInstallVerdict,
-  serviceVerdictFrom,
   skillDestinations,
   skillsInstallVerdict,
-  // USED IN A SPREAD, at `...SERVICE_RUNTIME_PATHS` / `...SERVICE_RUNTIME_EXCLUDE_PATHS` below.
-  // The v0.5.4 dead-import sweep (3d4372a4) deleted both — its detector excluded a name preceded by
-  // `.`, so that `obj.name` would not look like a use, and a spread's own dots made these read as
-  // unused. `node --check` parses fine, the bridge suite never calls `checkService`, and JS has no
-  // undefined-name sweep, so `aify-comms doctor` threw `ReferenceError: SERVICE_RUNTIME_PATHS is not
-  // defined` on its FIRST line of real work — found only by running it against a real deploy.
-  SERVICE_RUNTIME_PATHS,
+  // THE SERVICE_RUNTIME_* PAIR MOVED to service-check.mjs with the check that spreads them, and
+  // their warning went with them: the v0.5.4 dead-import sweep (3d4372a4) deleted both because its
+  // detector ignored a name preceded by `.` and a spread's own dots made them read as unused. `node
+  // --check` passed, the suite passed, and `aify-comms doctor` threw ReferenceError on its first line
+  // of real work. Their absence here is now MEASURED -- zero uses in this file -- not assumed.
   BRIDGE_RUNTIME_EXCLUDE_PATHS,
-  SERVICE_RUNTIME_EXCLUDE_PATHS,
   // Moved out of THIS file in v0.5.4 so they could be tested — see the note where they used to sit.
   readBoundAgentId,
   readProcEnv,
@@ -100,47 +97,6 @@ function findRepo() {
 const repo = findRepo();
 
 // ── 1. service container: is it serving the build you think it is? ──────────────────
-async function checkService() {
-  const health = await get("/health");
-  if (!health) {
-    return add("service", false, "unreachable",
-      `No healthy service at ${SERVER_URL}.`,
-      "Start it: `docker compose up -d --build` (in the repo), then re-run.");
-  }
-  const ver = await get("/version");
-  const sha = String(ver?.sha || "");
-  // NO EARLY RETURNS. Both the no-checkout and no-sha cases used to be answered here, which meant the
-  // verdict -- and every override rule in it -- was skipped on exactly the hosts that have no repo.
-  // The payload now always goes through `serviceVerdictFrom`, which owns all of those branches.
-  let totalCommits = 0;
-  let runtimeCommits = 0;
-  if (repo && sha) {
-  // Ask whether any commit since the build touched code the service EXECUTES, not merely
-  // whether the sha differs — see serviceBuildVerdict for the false red this replaces
-  // (a docs-only commit reported "Your service changes are NOT running") and for why the set
-  // is runtime paths rather than Dockerfile COPY sources. Same shape as checkNativeBridge
-  // below: two `git log` calls, pure unit-tested verdict.
-    totalCommits = Number(sh("git", ["rev-list", "--count", `${sha}..HEAD`], repo.dir) || 0);
-    runtimeCommits = Number(sh(
-      "git",
-      [
-        "rev-list", "--count", `${sha}..HEAD`, "--",
-        ...SERVICE_RUNTIME_PATHS,
-        // Tests live under a runtime path but are not runtime — nothing in the image runs pytest.
-        ...SERVICE_RUNTIME_EXCLUDE_PATHS.map((p) => `:(exclude)${p}`),
-      ],
-      repo.dir,
-    ) || 0);
-  }
-  const verdict = serviceVerdictFrom(ver, {
-    headSha: repo?.sha || "",
-    headShort: repo?.short || "",
-    runtimeCommits,
-    totalCommits,
-  });
-  return add("service", verdict.ok, verdict.code, verdict.detail, verdict.fix);
-}
-
 // ── 2. the installed bridge copy: does it match the checkout? ───────────────────────
 function checkNativeBridge() {
   const marker = join(AIFY_HOME, ".aify-version");
@@ -399,7 +355,7 @@ function checkSkillsInstalled() {
 }
 
 // ── run ──────────────────────────────────────────────────────────────────────────────
-await checkService();
+await checkService({ get, add, sh, repo, serverUrl: SERVER_URL });
 checkNativeBridge();
 // WHERE MANAGED SPAWNS RUN, and whether that place is answering.
 //

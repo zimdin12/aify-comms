@@ -31,8 +31,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from doctor_sources import doctor_source_text
+
 ROOT = Path(__file__).resolve().parents[2]
-DOCTOR = ROOT / "mcp" / "stdio" / "doctor.js"
 
 # Where a moved check is answered now, and every spelling a doc may legitimately use to name it.
 OWNER_SPELLINGS = {
@@ -43,13 +44,13 @@ OWNER_SPELLINGS = {
 
 def live_check_ids() -> set[str]:
     """The ids doctor.js actually registers. Several register as `return add(...)`."""
-    source = DOCTOR.read_text(encoding="utf-8")
+    source = doctor_source_text()
     return set(re.findall(r'\badd\(\s*"([a-z][a-z0-9-]*)"', source))
 
 
 def retired_checks() -> dict[str, str]:
     """id -> owner key, read out of the forwarding comment above the check calls."""
-    source = DOCTOR.read_text(encoding="utf-8")
+    source = doctor_source_text()
     note = re.search(
         r"// LAUNCHER AND TERMINAL QUESTIONS ARE NOT THIS TOOL'S\.(.*?)\ncheck",
         source,

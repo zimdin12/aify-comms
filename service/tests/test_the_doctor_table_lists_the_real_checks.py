@@ -23,8 +23,9 @@ import re
 import unittest
 from pathlib import Path
 
+from doctor_sources import doctor_source_text
+
 ROOT = Path(__file__).resolve().parents[2]
-DOCTOR = ROOT / "mcp" / "stdio" / "doctor.js"
 CLAUDE_MD = ROOT / "CLAUDE.md"
 
 #: How a check reports itself. Ids arrive as the first argument to these reporters.
@@ -32,7 +33,7 @@ REPORTERS = ("add", "skip", "ok", "fail", "warn")
 
 
 def emitted_check_ids() -> set[str]:
-    source = DOCTOR.read_text(encoding="utf-8")
+    source = doctor_source_text()
     found: set[str] = set()
     for reporter in REPORTERS:
         found |= set(re.findall(rf"""\b{reporter}\(\s*["']([a-z][a-z0-9-]{{2,30}})["']""", source))

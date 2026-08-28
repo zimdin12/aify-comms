@@ -35,13 +35,15 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { doctorSourceText } from "./doctor-sources.mjs";
+
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DOCTOR = path.join(STDIO, "doctor.js");
 
 //: Every id `doctor.js` can `add(...)`, read from the file rather than retyped — a check that stops
 //: being reported is exactly the kind of silent narrowing this repo keeps finding.
 function declaredCheckIds() {
-  const source = readFileSync(DOCTOR, "utf-8");
+  const source = doctorSourceText();
   return [...new Set([...source.matchAll(/add\(\s*"([a-z-]+)"/g)].map((m) => m[1]))].sort();
 }
 
@@ -126,8 +128,8 @@ test("the id scan reads the file, so it cannot silently agree with an empty run"
   // aify-wrapper in v0.6, which turned a control into a false alarm -- the scan was working
   // perfectly and the test said it was broken.
   const ids = declaredCheckIds();
-  assert.ok(ids.length >= 8, `only ${ids.length} check ids found in doctor.js`);
+  assert.ok(ids.length >= 8, `only ${ids.length} check ids found across the doctor sources`);
   for (const expected of ["service", "bridge-installed", "env-bridge", "skills-installed"]) {
-    assert.ok(ids.includes(expected), `${expected} is no longer declared in doctor.js`);
+    assert.ok(ids.includes(expected), `${expected} is no longer declared by any doctor source`);
   }
 });
