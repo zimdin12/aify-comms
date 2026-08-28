@@ -126,7 +126,12 @@ export function describeEnv(env) {
 // fatigue is how a true positive becomes invisible, which is the same outcome as a false green by a
 // different route.
 //
-// The honest question is not "is the marker equal to HEAD?" but "have any commits since the marker
+// AND IT ANSWERED A QUESTION IT CANNOT SEE, until 2026-08-28. The stale branch said "The RUNNING
+// bridge is older than the checkout" -- a claim about a PROCESS, from a function whose only inputs
+// are two shas and two commit counts. It cost the operator restarts of the wrong component; the
+// incident and the gate that now forbids the shape are in
+// tests/a-check-describes-only-what-it-measured.test.js.
+//// The honest question is not "is the marker equal to HEAD?" but "have any commits since the marker
 // TOUCHED the bridge?". Kept pure — the caller does the `git log -- mcp/stdio` and passes counts in.
 export function bridgeInstallVerdict({ installedSha = "", headSha = "", headShort = "", bridgeCommits = 0, totalCommits = 0 } = {}) {
   const short = String(installedSha || "").slice(0, 7);
@@ -146,9 +151,11 @@ export function bridgeInstallVerdict({ installedSha = "", headSha = "", headShor
       ok: false,
       code: "stale",
       detail: `installed copy is ${short}, repo HEAD is ${headShort} — ${n} commit(s) since then changed `
-        + `mcp/stdio/. The RUNNING bridge is older than the checkout.`,
-      fix: "Re-run `bash install.sh --client <runtime>` AND relaunch the wrappers — bridge edits do "
-        + "NOT take effect from the checkout, and a relaunch is what puts the new code in memory.",
+        + `mcp/stdio/. That is the code ON DISK; what any bridge is RUNNING is a separate `
+        + `question that bridge-current answers.`,
+      fix: "Re-run `bash install.sh --client <runtime>` to put the new code on disk. A running "
+        + "bridge keeps what it loaded at boot, so bridge-current is what asks for the relaunch "
+        + "and names which ones.",
     };
   }
   // Behind, but by commits that cannot affect the bridge. Say so rather than crying wolf.
