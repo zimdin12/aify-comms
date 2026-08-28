@@ -947,8 +947,6 @@ small, .subtle { color: var(--muted); }
   border: 0;
   background: var(--console-bg);
 }
-.console-embed-open { font-size: var(--fs-xs); padding: 2px 8px; white-space: nowrap; }
-.console-embed-hint { margin: 0; padding: 6px 10px; font-size: var(--fs-xs); border-top: 1px solid var(--line); }
 .env-roots-state { margin: -2px 0 6px; }
 .xterm-host {
   width: 100%;
@@ -1103,7 +1101,7 @@ small, .subtle { color: var(--muted); }
   /* OPT IN AT THE MARKUP, because whether buttons fit beside each other is a property of their
      LABELS, which CSS cannot see. Measured per row; long labels keep stacking. */
   .button-row.mobile-compact { display: flex; flex-wrap: wrap; gap: 8px; }
-  .button-row.mobile-compact .ghost { flex: 1 1 auto; }
+  .button-row.mobile-fill .ghost { flex: 1 1 auto; }
   .contract { grid-template-columns: 1fr; }
   .contract-actions { grid-template-columns: 1fr; }
   .run-actions { grid-template-columns: 1fr; }

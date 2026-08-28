@@ -7,12 +7,21 @@ made per row, by measurement, and carried in the markup as `mobile-compact`.
 
 MEASURED at 390x780, forcing each candidate row to wrap and re-reading its box:
 
-    .button-row.top-quick-jumps   Work/Spawn/Settings/Notify/Refresh
-        481px -> 381px of a 780px screen, FIVE rows -> ONE. 62% chrome -> 49%. Opted in.
+    .button-row.top-quick-jumps   Work + Spawn + Settings -- THREE buttons, not five
+        three rows -> ONE (362x42). Opted in, and filled.
     #page-settings .section-head  "Save changes" + "Reset"
-        92px -> 42px, TWO rows -> ONE, 115 + 59 of 390. Opted in.
+        92px -> 42px, TWO rows -> ONE (336x42). Opted in, NOT filled.
     .diagnostics-maintenance      "Repair delivered reads" + "Repair handoffs"
         120px -> 92px, still TWO rows, second button forced to a full 362px. NOT opted in.
+
+THE HEADER ROW HOLDS THREE BUTTONS, AND I SAID FIVE. `index.html:67-74`: Work, Spawn and Settings are
+children of `.top-quick-jumps`; Notify and Refresh are SIBLINGS in `.top-actions` and are not affected
+by this class at all. My first measurement collected buttons by geometry -- width over 250px within a
+vertical band -- which caught all five across two containers, and I attributed the whole population to
+the one container I was changing. The 481px -> 381px reduction in first-content position is real and
+still measured; it comes from three buttons collapsing to one row, with Notify and Refresh still
+stacked below. Naming the wrong population is the kind of error a class carrier exposes and a selector
+list hides.
 
 Saving 28px for a ragged two-line layout is not an improvement, and long labels are exactly the case
 the original comment said should stack. The refusal is as deliberate as the two inclusions.
@@ -21,6 +30,14 @@ HOW THAT EVIDENCE WAS TAKEN, precisely, because it is not a render of what is co
 measurement of the LIVE pre-fix DOM and CSS, with the candidate declarations injected as a later
 `<style>` and the box re-read in the same call. It is experimental evidence for the proposed rule. The
 container still serves the old stylesheet, so the committed CSS has never rendered anywhere.
+
+FILL IS A SEPARATE DECISION FROM COMPACTNESS, learned by shipping them fused. One rule made every
+`.ghost` in an opted-in row `flex: 1 1 auto`, which is right for the quick-jumps -- three peer buttons
+sharing the width, 106/115/125 instead of 58/66/76, bigger tap targets -- and WRONG for Settings, where
+it stretched the secondary `Reset` to 213px against a 115px primary `Save`. A row that renders the
+cancel action at nearly twice the width of the confirm action has its hierarchy inverted, which is a
+worse defect than the stacking this replaced. Measured both ways on the committed rules; both rows fit
+on one line either way, so filling buys tap area and costs hierarchy, and only the peer row wants it.
 
 WHY 390 AND NOT 414, since the breakpoint is 414 and edges are where these break. The query is
 inclusive (`max-width: 414px`) and nothing else applies between 390 and 414, so fitting at 390 is the
@@ -156,6 +173,40 @@ class TheMobileCompactOptInIsRealAndMeasured(unittest.TestCase):
         settings = [c for c in classes if c.strip() == "button-row mobile-compact"]
         self.assertTrue(settings,
                         "the Settings save/reset row lost its opt-in: 92px instead of 42px on a phone")
+
+    def test_FILL_goes_only_to_the_row_of_PEERS(self):
+        """Compactness and fill are separate decisions, and fusing them inverted an action hierarchy.
+
+        `flex: 1 1 auto` on every ghost in an opted-in row is right for three peer quick-jumps sharing
+        the width, and wrong for Settings: it stretched the secondary `Reset` to 213px against a 115px
+        primary `Save`, rendering the cancel action at nearly twice the width of the confirm. Both rows
+        fit on one line with or without it, so fill buys tap area and costs hierarchy -- and only the
+        peer row has no hierarchy to lose.
+        """
+        classes = _classes_of_button_rows()
+        top = [c for c in classes if "top-quick-jumps" in c][0]
+        self.assertIn("mobile-fill", top, "the peer row lost its fill; buttons shrink to 58-76px")
+
+        settings = [c for c in classes if "mobile-compact" in c and "top-quick-jumps" not in c]
+        self.assertTrue(settings, "the Settings row lost its opt-in")
+        for row in settings:
+            self.assertNotIn(
+                "mobile-fill", row,
+                "a row with a primary action was given fill: it stretches the secondary Reset to 213px "
+                "against a 115px Save, which inverts the hierarchy the buttons are meant to signal",
+            )
+
+    def test_the_fill_rule_is_scoped_to_its_own_class(self):
+        """ANTI-VACUITY for the pair above. If the fill rule were still keyed on `mobile-compact`, the
+        markup assertions would pass while every opted-in row was filled anyway."""
+        self.assertFalse(
+            _declarations_for(".button-row.mobile-compact .ghost"),
+            "the fill rule is keyed on the COMPACT class again, so opting in to one opts in to both",
+        )
+        self.assertTrue(
+            _declarations_for(".button-row.mobile-fill .ghost"),
+            "the fill rule has no owner, so the peer row will not fill",
+        )
 
     def test_the_LONG_labelled_row_is_deliberately_left_OUT(self):
         """THE ONE THAT MEASURED BADLY, pinned so nobody completes the set without re-measuring.
