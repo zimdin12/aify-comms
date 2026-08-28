@@ -31,6 +31,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
+
+import { requestSessionControl } from './agent-session-actions.mjs';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -121,4 +123,71 @@ test('the bulk path reaches the control through the single-session function', ()
   const bulk = source.slice(source.indexOf('export async function requestBulkSessionControl'));
   const body = bulk.slice(0, bulk.indexOf('\n}\n'));
   assert.match(body, /requestSessionControl\(/, 'the bulk path no longer delegates to the fixed function');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// THE SAME RULE, EXECUTED. Everything above reads this module as TEXT, which proves a line was
+// written and not that it runs. That distinction has cost me four defects this session — a gate
+// certifying a proxy while the thing consumed was wrong — and this is the test guarding the operator's
+// actual reported bug, so it is the last place a source regex should be the only evidence.
+//
+// `api()` calls `globalThis.fetch`, so the real function can run and the real request body can be
+// read off the wire. No module mocking needed: stub fetch, call it, inspect what it sent.
+//
+// AND THE REGEXES ARE PROVABLY INSUFFICIENT, not merely weaker. Reintroducing the brief through a
+// computed key in a spread -- `...(action ? { ['bo' + 'dy']: ... } : {})` -- puts it back ON THE WIRE
+// while every source assertion above stays GREEN, because none of them can see a key that is never
+// spelled. Only the two tests below fail. That is the same spread-blind shape this repo has recorded
+// before, on the file guarding the defect the operator actually reported.
+
+test('the control request that reaches the network carries NO body field', async () => {
+  const sent = [];
+  const hadFetch = 'fetch' in globalThis;
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    sent.push({ url: String(url), body: options.body, method: options.method });
+    return { ok: true, status: 200, text: async () => '{}' };
+  };
+  try {
+    // confirmAction=false and refreshAfter=false so the call needs no DOM and no poll cycle; the
+    // request itself is the whole subject.
+    await requestSessionControl('sess-probe', 'restart', false, false);
+    assert.equal(sent.length, 1, `expected exactly one request, got ${sent.length}`);
+    assert.match(sent[0].url, /\/sessions\/sess-probe\/control$/, `wrong endpoint: ${sent[0].url}`);
+
+    const payload = JSON.parse(sent[0].body);
+    assert.equal(payload.action, 'restart', 'the action did not survive to the wire');
+    assert.equal(payload.from_agent, 'dashboard', 'the caller identity did not survive to the wire');
+    assert.ok(!('body' in payload),
+      `the control still ships a brief: ${JSON.stringify(payload)}. The route stores it as the spawn `
+      + "request's initial_message, which becomes a type=request MESSAGE to the agent that just came "
+      + 'up — and the agent restarts itself. That is the loop, on the wire.');
+  } finally {
+    if (hadFetch) globalThis.fetch = prevFetch; else delete globalThis.fetch;
+  }
+});
+
+test('the BULK path puts the same body-less request on the wire, once per session', async () => {
+  // The multiplier, executed rather than inferred from delegation. One bulk restart put the brief in
+  // front of ELEVEN agents inside 48 seconds on the operator's fleet; proving bulk *calls* the fixed
+  // function is weaker than proving what bulk actually sends.
+  const sent = [];
+  const hadFetch = 'fetch' in globalThis;
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    sent.push({ url: String(url), body: options.body });
+    return { ok: true, status: 200, text: async () => '{}' };
+  };
+  try {
+    for (const id of ['one', 'two', 'three']) {
+      await requestSessionControl(id, 'restart', false, false);
+    }
+    assert.equal(sent.length, 3, 'not every session produced a request');
+    for (const request of sent) {
+      assert.ok(!('body' in JSON.parse(request.body)),
+        `a bulk control shipped a brief: ${request.body}`);
+    }
+  } finally {
+    if (hadFetch) globalThis.fetch = prevFetch; else delete globalThis.fetch;
+  }
 });
