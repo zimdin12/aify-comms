@@ -1967,6 +1967,43 @@ writing an entry from anything other than the shared list each fail their own te
 
 ## Audited and found sound, so nobody re-walks them
 
+### The storage layer: every table has readers, and every join holds
+
+MEASURED 2026-08-27 against the live database, because "is anything accumulating" is the question a
+25-table SQLite service invites and nobody had answered it with numbers.
+
+**No table is written and never read.** Counting `FROM`/`JOIN` against `INSERT [OR ...] INTO`/`UPDATE`/
+`DELETE` across 493 production files, every table with writes has readers. The first pass reported
+`settings` as never written, which was the SCAN: `INSERT OR REPLACE INTO` does not match `INSERT INTO`.
+That is why the corrected version asserts `WRITE("settings") > 0` as a control before reporting
+anything -- a write-detector that cannot see the commonest upsert form will call a live table dead.
+
+**`agent_live_state` really is vestigial**, as CLAUDE.md says. Last write `2026-06-18T05:42:48Z`, the
+day the cache moved in-memory, and ZERO SQL statements reference it -- the matches a naive grep finds
+are all the helper `invalidate_agent_live_state`, a function name rather than a table.
+
+**Referential integrity holds where it matters.** Orphan counts across the main relationships are zero:
+read_receipts→messages, agent_sessions→agents, terminal_sessions→agents, spawn_requests→spawn_specs,
+dispatch_events→dispatch_runs, terminal_events→terminal_sessions, channel_members→channels.
+
+104 `dispatch_runs` point at a `target_agent` with no `agents` row, and that is CORRECT: all 104 target
+one of 9 agents that were removed WITH a tombstone, and the count of runs whose target is in neither
+table is 0. Removal writes a tombstone and keeps the run history.
+
+The residue is history, not breakage. 19 message senders have neither an agent row nor a tombstone,
+but `_system` is a pseudo-sender the query should have excluded (21 of them), `dashboard` is the
+operator, and the rest are test agents from May 2026 plus `manager-bot` and `claude-main` from
+2026-08-07..13. Nothing reads a sender expecting a row -- `agentForSession` returns `{}` rather than
+undefined precisely so callers can read `.status` off a stranger.
+
+**`environment_controls` is 93% failed (380 of 407) and that is the drain working**, not a fault: every
+failure is a `stop` aimed at a superseded bridge ("target bridge never claimed" / "no longer current").
+The trend confirms it -- 254 in May, 50 in June, 18 in July, 16 in August. It is also the only
+control/event table not pruned (April→August), where `terminal_controls` holds a 2-hour window and
+`dispatch_events` three days. At ~100 rows a month that is decades from mattering, so it is recorded
+rather than fixed.
+
+
 Negative results, listed once so a reviewer knows where the evidence already is. Each was checked by
 reading the producer AND the consumer, or by constructing the case.
 
