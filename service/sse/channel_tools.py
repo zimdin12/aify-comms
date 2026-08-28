@@ -99,6 +99,11 @@ async def comms_channel_read(channel: str, limit: int = 20) -> str:
 async def comms_channel_list() -> str:
     """List all channels."""
     r = await _api("GET", "/channels")
+    # AN OUTAGE IS NOT AN ANSWER. `_api` returns `detail` on any error precisely so every caller
+    # can branch on it, and that fix's own note says "every caller in this package checks" -- this
+    # one did not, so a 500 rendered as a confident fact about the fleet.
+    if "detail" in r:
+        return f"Error: {r['detail']}"
     channels = r.get("channels", [])
     if not channels:
         return "No channels."

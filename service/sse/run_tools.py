@@ -35,6 +35,11 @@ from service.sse.api_client import api as _api
 async def comms_run_status(runId: str) -> str:
     """Inspect a dispatched run, including recent events and control requests."""
     r = await _api("GET", f"/dispatch/runs/{runId}")
+    # AN OUTAGE IS NOT AN ANSWER. `_api` returns `detail` on any error precisely so every caller
+    # can branch on it, and that fix's own note says "every caller in this package checks" -- this
+    # one did not, so a 500 rendered as a confident fact about the fleet.
+    if "detail" in r:
+        return f"Error: {r['detail']}"
     run = r.get("run")
     if not run:
         return f"Run not found: {runId}"

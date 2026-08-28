@@ -94,6 +94,11 @@ async def comms_search(
     if agentId:
         params["agentId"] = agentId
     r = await _api("GET", "/messages/search", params=params)
+    # AN OUTAGE IS NOT AN ANSWER. `_api` returns `detail` on any error precisely so every caller
+    # can branch on it, and that fix's own note says "every caller in this package checks" -- this
+    # one did not, so a 500 rendered as a confident fact about the fleet.
+    if "detail" in r:
+        return f"Error: {r['detail']}"
     results = r.get("results", [])
     # SAY WHAT WAS SEARCHED. This transport had the same defect as the stdio bridge: it printed a
     # bare 'No results' whether the record had been consulted or not. The server-side fix returns

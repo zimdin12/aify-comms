@@ -40,6 +40,11 @@ async def comms_register(
 async def comms_agents() -> str:
     """List all registered agents, their roles, and unread message counts."""
     r = await _api("GET", "/agents")
+    # AN OUTAGE IS NOT AN ANSWER. `_api` returns `detail` on any error precisely so every caller
+    # can branch on it, and that fix's own note says "every caller in this package checks" -- this
+    # one did not, so a 500 rendered as a confident fact about the fleet.
+    if "detail" in r:
+        return f"Error: {r['detail']}"
     entries = r.get("agents", {})
     if not entries:
         return "No agents registered."
