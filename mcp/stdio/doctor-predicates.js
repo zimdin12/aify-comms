@@ -267,9 +267,28 @@ export const SERVICE_IMAGE_NON_RUNTIME_PATHS = {
 
 export function serviceBuildVerdict({
   builtSha = "", headSha = "", headShort = "", builtShort = "",
-  runtimeCommits = 0, totalCommits = 0,
+  runtimeCommits = 0, totalCommits = 0, identityOverriddenBy = [],
 } = {}) {
   const short = builtShort || String(builtSha || "").slice(0, 7);
+  // A BUILD IDENTITY SUPPLIED BY THE ENVIRONMENT PROVES NOTHING, and comparing it to a checkout is
+  // worse than not comparing at all: it produces a confident green for a sha a human typed.
+  //
+  // `service.json` is REFUSED these fields outright, because a hand-edited file could make this very
+  // check agree with a build that never existed. Environment variables can do the same and are not
+  // refused -- SERVICE_VERSION is a documented one-off, and a CI image built outside this repo may
+  // legitimately stamp its own sha. So the service now REPORTS the override, and this refuses to
+  // certify instead of silently comparing. No evidence is not a pass.
+  const overridden = Array.isArray(identityOverriddenBy) ? identityOverriddenBy.filter(Boolean) : [];
+  if (overridden.length) {
+    return {
+      ok: false,
+      code: "build-identity-overridden",
+      detail: `healthy, but its build identity came from the environment (${overridden.join(", ")}), `
+        + "so comparing it against a checkout proves nothing about what is running.",
+      fix: "Unset those variables and let scripts/stamp.sh supply the build identity, so this check "
+        + "measures the running build instead of a value someone supplied.",
+    };
+  }
   if (!builtSha) {
     return { ok: false, code: "unknown-build", detail: "healthy, but it reports no build sha.",
       fix: "Run `scripts/stamp.sh` before `docker compose up -d --build` — otherwise /version lies." };

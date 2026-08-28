@@ -140,6 +140,14 @@ async def health(request: Request = None):
         _config = get_config()
         payload["version"] = _config.version
         payload["build"] = _config.build_short
+        # ONLY WHEN IT HAPPENED, so the ordinary payload does not grow a field that is always empty.
+        # A build identity supplied by the environment is not evidence of what is running: no
+        # comparison against a checkout can prove anything about a sha a human typed. Doctor's
+        # `service` check reads this and refuses to certify rather than reporting a clean match --
+        # the alternative is the one instrument that detects a stale deploy agreeing with a build
+        # that was never made.
+        if _config.stamp_overrides:
+            payload["buildIdentityOverriddenBy"] = list(_config.stamp_overrides)
     except Exception as exc:  # pragma: no cover - defensive by intent
         logger.warning("build identity unavailable in /health (%s)", type(exc).__name__)
 
@@ -191,6 +199,12 @@ async def version():
         "sha_short": config.build_short,
         "branch": config.build_branch,
         "built_at": config.built_at,
+        # THE CONSUMER IS `aify-comms doctor`, which reads THIS endpoint and compares `sha` against a
+        # checkout. Every field above can be supplied by an environment variable, and a supplied sha
+        # compared against a checkout produces a confident green for a build that was never made. Named
+        # here so the check can refuse to certify rather than measure a value someone typed. Present
+        # only when it happened; the normal payload is unchanged.
+        **({"identityOverriddenBy": list(config.stamp_overrides)} if config.stamp_overrides else {}),
         "update": update,
     }
 

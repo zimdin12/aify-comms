@@ -250,3 +250,40 @@ test("a real behind-by-docs-only state is still green, not unknown", () => {
   assert.equal(v.ok, true, "behind by commits that cannot reach the container is not staleness");
   assert.equal(v.code, "ok");
 });
+
+test("a build identity supplied by the ENVIRONMENT is refused, not compared", () => {
+  // THE HOLE THIS CLOSES. `config/service.json` is refused the five stamp-owned fields outright,
+  // because a hand-edited file could make THIS check agree with a sha nothing was ever built from.
+  // Environment variables can do exactly the same and are NOT refused -- SERVICE_VERSION is a
+  // documented one-off override, and a CI image built outside the repo may legitimately stamp its own
+  // sha. So the identical hole was closed in one place and left open in the other, for the same five
+  // fields with the same consequence.
+  //
+  // The service now REPORTS the override on /version and this refuses to certify. Comparing a supplied
+  // sha against a checkout is worse than not comparing at all: it produces a confident green for a
+  // build that never existed, from the one instrument that exists to detect a stale deploy.
+  const verdict = serviceBuildVerdict({
+    builtSha: "cafebabe1234", builtShort: "cafebab",
+    headSha: "cafebabe1234", headShort: "cafebab",   // a PERFECT match, which is exactly the danger
+    identityOverriddenBy: ["build_sha", "build_short"],
+  });
+  assert.equal(verdict.ok, false, "an env-supplied identity matching HEAD was certified as current");
+  assert.equal(verdict.code, "build-identity-overridden");
+  assert.match(verdict.detail, /build_sha, build_short/, "the verdict does not name what was overridden");
+});
+
+test("an ordinary report is still certified, so the refusal is not blanket", () => {
+  // ANTI-VACUITY. A verdict that refused everything would satisfy the assertion above while making the
+  // check useless, and an EMPTY list is not a claim of override -- the field is absent from the payload
+  // in the normal case, so the default must behave exactly as its absence does.
+  const clean = serviceBuildVerdict({
+    builtSha: "cafebabe1234", builtShort: "cafebab", headSha: "cafebabe1234", headShort: "cafebab",
+  });
+  assert.equal(clean.ok, true, `a clean build was refused: ${clean.detail}`);
+  assert.equal(clean.code, "ok");
+
+  const empty = serviceBuildVerdict({
+    builtSha: "cafebabe1234", builtShort: "cafebab", headSha: "cafebabe1234", identityOverriddenBy: [],
+  });
+  assert.equal(empty.ok, true, "an empty override list was treated as an override");
+});

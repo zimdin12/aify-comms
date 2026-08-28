@@ -139,6 +139,7 @@ async function checkService() {
     headShort: repo.short,
     runtimeCommits: Number(runtimeCommits || 0),
     totalCommits: Number(totalCommits || 0),
+    identityOverriddenBy: Array.isArray(ver.identityOverriddenBy) ? ver.identityOverriddenBy : [],
   });
   return add("service", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }

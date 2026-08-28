@@ -39,6 +39,13 @@ class ServiceConfig:
     # written by scripts/stamp.sh before each build because the container has no
     # .git of its own). Env-overridable; defaults to "unknown".
     build_sha: str = "unknown"
+
+    #: Stamp-owned fields an environment variable overrode, in the order they were applied.
+    #:
+    #: Empty is the normal case and the honest one: the build identity came from the stamp. A name
+    #: here means a human or a pipeline supplied it, so no comparison against a checkout proves what
+    #: is running.
+    stamp_overrides: list = field(default_factory=list)
     build_short: str = "unknown"
     build_branch: str = "unknown"
     built_at: str = ""
@@ -168,6 +175,16 @@ class ServiceConfig:
                     setattr(config, attr_name, converter(val))
                 else:
                     setattr(config, target, val)
+                # RECORDED, NOT REFUSED. `service.json` is refused these five outright, because a
+                # hand-edited file can make the stale-deploy check agree with a sha nothing was built
+                # from. Env can do exactly the same and is NOT refused: `SERVICE_VERSION` is a
+                # documented one-off override, and a CI image built outside this repo may legitimately
+                # stamp its own sha this way. What was missing is that the override left no trace, so
+                # `/health` reported a build identity indistinguishable from one the stamp produced --
+                # and doctor's `service` check, the one instrument that detects a stale deploy, would
+                # certify it as matching repo HEAD.
+                if target in _STAMP_OWNED_KEYS:
+                    config.stamp_overrides.append(str(target))
 
         # Ensure compose_project_name in custom matches env var
         compose_name = os.getenv("COMPOSE_PROJECT_NAME", config.custom.get("compose_project_name", "aify"))
