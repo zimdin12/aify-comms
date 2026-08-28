@@ -41,7 +41,7 @@ from service.terminal_snapshot import TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS
 # fail import, it silently demotes the request body to a query parameter.
 from service.models import TerminalControlRequest, TerminalOutputRequest
 from service.terminal_write_queue import TERMINAL_OUTPUT_WRITES
-from service.api_core.terminal_status import _TERMINAL_END_STATUSES
+from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES, _TERMINAL_END_STATUSES
 from service.api_core.terminal_output_settlement import (
     _close_out_terminal_on_end_status,
     _settle_bridge_takeover_for_output,
@@ -112,6 +112,94 @@ def _terminal_event_to_dict(row) -> dict[str, Any]:
 
 
 
+
+
+#: The statuses that mean a terminal is supposed to have a process behind it right now.
+#:
+#: IMPORTED, NOT DECLARED. The first version spelled the five out under a new name, and two gates
+#: caught it in the same run: `test_status_set_literal_twins_are_frozen` and
+#: `test_no_unruled_constant_coincidences`, which reported it as one concept with two owners. It is
+#: -- `_TERMINAL_ACTIVE_STATUSES` in `api_core/terminal_status.py` already had exactly this set and
+#: four consumers, this module among them.
+#:
+#: Sorted for a stable placeholder order; the set itself is unordered.
+LIVE_TERMINAL_STATUSES = tuple(sorted(_TERMINAL_ACTIVE_STATUSES))
+
+#: Hard ceiling on one listing, whatever the caller asks. A reply nobody bounded is a reply that
+#: works until the day it does not.
+MAX_TERMINAL_LIST = 500
+
+
+@router.get("/terminals")
+async def list_terminals(
+    status: str = "live",
+    agentId: str = "",
+    environmentId: str = "",
+    limit: int = 200,
+):
+    """Which terminals exist, and which are supposed to be running.
+
+    THIS DID NOT EXIST, and its absence is why an orphaned PTY is invisible. Measured 2026-08-28:
+    the API could fetch ONE terminal by id and claim controls for them, and could not enumerate them
+    at all -- so nothing, not the dashboard and not `aify-comms doctor`, could ask "which terminals
+    are live?" and compare that against what is actually running on a host.
+
+    The operator hit the consequence the same day: aify-env owned a live PTY for `ef-manager`
+    (pid 155844) while all 80 most recent sessions read `stopped` and the dashboard showed nothing.
+    They asked for exactly this -- "aify-env side running process visibility, to catch orphans like
+    that" -- and the join needs both sides listable. `process_id` on these rows is the OS pid,
+    measured: 99 of 103 rows hold a numeric pid, which is the key aify-env's own listing shares.
+
+    OUTPUT IS EXCLUDED, deliberately. `terminal_sessions.output` is a replay buffer; including it
+    would make a 200-row listing tens of megabytes and turn a cheap reconciliation read into the
+    most expensive call in the API.
+    """
+    normalized = str(status or "live").strip().lower()
+    # RANGE ONLY. FastAPI's own typing refuses a non-integer before this runs (422), which is the
+    # right layer for it -- so the try/except that used to sit here was unreachable, and a branch that
+    # cannot execute is a branch nobody can test.
+    capped = min(MAX_TERMINAL_LIST, max(1, int(limit)))
+
+    where = []
+    params: list[Any] = []
+    if normalized == "live":
+        where.append(f"status IN ({', '.join('?' for _ in LIVE_TERMINAL_STATUSES)})")
+        params.extend(LIVE_TERMINAL_STATUSES)
+    elif normalized not in ("", "all", "any"):
+        # An unrecognised status filters to nothing rather than being ignored. Ignoring it would
+        # answer a question the caller did not ask, with a list that looks complete.
+        where.append("status = ?")
+        params.append(normalized)
+    if str(agentId or "").strip():
+        where.append("agent_id = ?")
+        params.append(str(agentId).strip())
+    if str(environmentId or "").strip():
+        where.append("environment_id = ?")
+        params.append(str(environmentId).strip())
+
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    db = await get_db()
+    try:
+        # ORDER BY is not decoration on a LIMIT: without it SQLite may return any N rows, so a
+        # truncated listing would be an arbitrary sample presented as the most recent.
+        rows = await (await db.execute(
+            f"SELECT * FROM terminal_sessions{clause} ORDER BY updated_at DESC, rowid DESC LIMIT ?",
+            (*params, capped + 1),
+        )).fetchall()
+    finally:
+        await db.close()
+
+    truncated = len(rows) > capped
+    terminals = []
+    for row in rows[:capped]:
+        terminal = _terminal_session_to_dict(row)
+        # The replay buffer is the whole reason this is not just the row.
+        terminal.pop("output", None)
+        terminals.append(terminal)
+    # SAYS WHEN IT IS CLIPPED. A truncated list that does not admit it reads as "that is everything",
+    # which is the failure mode a reconciliation check cannot survive: it would report the missing
+    # rows as orphans.
+    return {"ok": True, "terminals": terminals, "count": len(terminals), "truncated": truncated}
 
 
 @router.get("/terminals/{terminal_id}")

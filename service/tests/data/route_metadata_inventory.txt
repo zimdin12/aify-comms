@@ -54,6 +54,7 @@ JsonApiRoute GET /api/v1/shared name=list_shared status=- response_model=- tags=
 JsonApiRoute GET /api/v1/shared/{name} name=read_shared status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/spawn-requests name=list_spawn_requests status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/stats name=get_stats status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute GET /api/v1/terminals name=list_terminals status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/terminals/{terminal_id} name=get_terminal status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/usage name=get_usage status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/usage/consumption name=get_usage_consumption status=- response_model=- tags=api deps=0 in_schema=True

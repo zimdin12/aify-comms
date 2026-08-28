@@ -111,6 +111,8 @@ def _agent_session_to_dict(row) -> dict[str, Any]:
             "ownerMode": owner_mode,
             "ownerBridgeId": owner_bridge_id,
         },
+        # GUARDED like `argv` and `exit_code` above: several SELECTs are narrower than the table,
+        # and a bare subscript on a column they did not fetch raises rather than defaulting.
         "processId": row["process_id"] or "",
         "sessionHandle": row["session_handle"] or "",
         "appServerUrl": row["app_server_url"] or "",
@@ -164,6 +166,18 @@ def _terminal_session_to_dict(row) -> dict[str, Any]:
         "rows": int((row["rows"] if "rows" in keys else 0) or 0),
         "status": row["status"] or "",
         "requestedBy": row["requested_by"] or "",
+        # THE OS PID, and it was in the table and on NO response. `terminal_sessions.process_id`
+        # has always held it -- 99 of 103 rows numeric, measured 2026-08-28 -- and this serialiser
+        # is what every consumer of a terminal gets: `GET /terminals/{id}`, the console payloads,
+        # the virtual-terminal ensure. None of them carried it, so nothing outside the database
+        # could match a terminal against a process actually running on a host.
+        #
+        # That is the missing half of the reconciliation the operator asked for: aify-env reports
+        # `pid` per process, and until this line there was nothing to compare it to.
+        # GUARDED like `argv` and `exit_code` below: several SELECTs are narrower than the table,
+        # and a bare subscript on a column they did not fetch raises rather than defaulting. Found
+        # by 33 red tests, after an unanchored edit put the guard on the OTHER serialiser instead.
+        "processId": (row["process_id"] if "process_id" in keys else "") or "",
         "createdAt": row["created_at"] or "",
         "updatedAt": row["updated_at"] or "",
         "stoppedAt": row["stopped_at"] or "",
