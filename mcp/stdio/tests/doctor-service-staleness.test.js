@@ -251,29 +251,51 @@ test("a real behind-by-docs-only state is still green, not unknown", () => {
   assert.equal(v.code, "ok");
 });
 
-test("a build identity supplied by the ENVIRONMENT is refused, not compared", () => {
-  // THE HOLE THIS CLOSES. `config/service.json` is refused the five stamp-owned fields outright,
-  // because a hand-edited file could make THIS check agree with a sha nothing was ever built from.
-  // Environment variables can do exactly the same and are NOT refused -- SERVICE_VERSION is a
-  // documented one-off override, and a CI image built outside the repo may legitimately stamp its own
-  // sha. So the identical hole was closed in one place and left open in the other, for the same five
-  // fields with the same consequence.
-  //
-  // The service now REPORTS the override on /version and this refuses to certify. Comparing a supplied
-  // sha against a checkout is worse than not comparing at all: it produces a confident green for a
-  // build that never existed, from the one instrument that exists to detect a stale deploy.
+test("an env-supplied build SHA makes certification unavailable", () => {
+  // THE HOLE. `config/service.json` is refused the five stamp-owned fields outright, because a
+  // hand-edited file could make THIS check agree with a sha nothing was built from. Environment
+  // variables reach the same fields and are NOT refused -- SERVICE_VERSION is a documented one-off and
+  // a CI image may legitimately stamp its own sha. So the service reports the override and this
+  // refuses to certify rather than comparing a value someone supplied.
   const verdict = serviceBuildVerdict({
     builtSha: "cafebabe1234", builtShort: "cafebab",
     headSha: "cafebabe1234", headShort: "cafebab",   // a PERFECT match, which is exactly the danger
-    identityOverriddenBy: ["build_sha", "build_short"],
+    identityOverriddenBy: ["build_sha"],
   });
-  assert.equal(verdict.ok, false, "an env-supplied identity matching HEAD was certified as current");
+  assert.equal(verdict.ok, false, "an env-supplied SHA matching HEAD was certified as current");
   assert.equal(verdict.code, "build-identity-overridden");
-  assert.match(verdict.detail, /build_sha, build_short/, "the verdict does not name what was overridden");
+});
+
+test("only the SHA invalidates the comparison; the other overrides are caveats", () => {
+  // REFUSING ON ALL FIVE WAS OVER-BROAD and destroyed evidence. Doctor compares `build_sha`; version,
+  // branch and built_at do not participate in that predicate at all, and SERVICE_VERSION is the one
+  // override the design explicitly allows. Withholding a still-valid sha comparison because someone
+  // set a documented variable is a worse answer than reporting both facts.
+  const verdict = serviceBuildVerdict({
+    builtSha: "cafebabe1234", builtShort: "cafebab",
+    headSha: "cafebabe1234", headShort: "cafebab",
+    identityOverriddenBy: ["version", "build_branch", "built_at"],
+  });
+  assert.equal(verdict.ok, true, `a valid sha comparison was withheld: ${verdict.detail}`);
+  assert.match(verdict.detail, /== repo HEAD/, "the comparison it can still make was not reported");
+  assert.match(verdict.detail, /came from the environment/, "the caveat was dropped entirely");
+});
+
+test("an overridden SHORT never becomes the evidence, but does not withhold it either", () => {
+  // `build_short` is display text. It must not be trusted as the reported identity -- so the short is
+  // DERIVED from the full sha -- and it must not block a comparison the full sha can still support.
+  const verdict = serviceBuildVerdict({
+    builtSha: "cafebabe1234", builtShort: "LIESHORT",
+    headSha: "cafebabe1234", headShort: "cafebab",
+    identityOverriddenBy: ["build_short"],
+  });
+  assert.equal(verdict.ok, true, "an overridden display short withheld a valid sha comparison");
+  assert.doesNotMatch(verdict.detail, /LIESHORT/, "the supplied short was reported as the build identity");
+  assert.match(verdict.detail, /cafebab/, "the short derived from the trusted sha is missing");
 });
 
 test("an ordinary report is still certified, so the refusal is not blanket", () => {
-  // ANTI-VACUITY. A verdict that refused everything would satisfy the assertion above while making the
+  // ANTI-VACUITY. A verdict refusing everything would satisfy the assertions above while making the
   // check useless, and an EMPTY list is not a claim of override -- the field is absent from the payload
   // in the normal case, so the default must behave exactly as its absence does.
   const clean = serviceBuildVerdict({
@@ -281,6 +303,7 @@ test("an ordinary report is still certified, so the refusal is not blanket", () 
   });
   assert.equal(clean.ok, true, `a clean build was refused: ${clean.detail}`);
   assert.equal(clean.code, "ok");
+  assert.doesNotMatch(clean.detail, /environment/, "a clean report carried an override caveat");
 
   const empty = serviceBuildVerdict({
     builtSha: "cafebabe1234", builtShort: "cafebab", headSha: "cafebabe1234", identityOverriddenBy: [],

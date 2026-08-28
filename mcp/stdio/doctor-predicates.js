@@ -269,24 +269,31 @@ export function serviceBuildVerdict({
   builtSha = "", headSha = "", headShort = "", builtShort = "",
   runtimeCommits = 0, totalCommits = 0, identityOverriddenBy = [],
 } = {}) {
-  const short = builtShort || String(builtSha || "").slice(0, 7);
-  // A BUILD IDENTITY SUPPLIED BY THE ENVIRONMENT PROVES NOTHING, and comparing it to a checkout is
-  // worse than not comparing at all: it produces a confident green for a sha a human typed.
+  // ONLY `build_sha` INVALIDATES THE COMPARISON, and refusing on all five was over-broad enough to
+  // destroy evidence. This check compares `build_sha` against repo HEAD, so:
   //
-  // `service.json` is REFUSED these fields outright, because a hand-edited file could make this very
-  // check agree with a build that never existed. Environment variables can do the same and are not
-  // refused -- SERVICE_VERSION is a documented one-off, and a CI image built outside this repo may
-  // legitimately stamp its own sha. So the service now REPORTS the override, and this refuses to
-  // certify instead of silently comparing. No evidence is not a pass.
+  //   * `build_sha` env-supplied  -> the comparison can be MANUFACTURED. Refuse to certify.
+  //   * `build_short` env-supplied -> display only; the short is derived from the trusted full sha
+  //     below rather than taken from the payload, so an overridden short cannot become evidence.
+  //   * version / branch / built_at -> do not participate in the predicate at all. A caveat, not a
+  //     reason to withhold a sha comparison that is still exactly valid -- and `SERVICE_VERSION` is a
+  //     DOCUMENTED override, so refusing on it punished the one case the design allows for.
   const overridden = Array.isArray(identityOverriddenBy) ? identityOverriddenBy.filter(Boolean) : [];
-  if (overridden.length) {
+  const shaSupplied = overridden.includes("build_sha");
+  // Derived, never taken from the payload: `builtShort` is one of the fields env can supply.
+  const short = (overridden.includes("build_short") || !builtShort)
+    ? String(builtSha || "").slice(0, 7)
+    : builtShort;
+  const caveat = overridden.filter((f) => f !== "build_sha" && f !== "build_short");
+  const note = caveat.length ? ` (${caveat.join(", ")} came from the environment)` : "";
+  if (shaSupplied) {
     return {
       ok: false,
       code: "build-identity-overridden",
-      detail: `healthy, but its build identity came from the environment (${overridden.join(", ")}), `
-        + "so comparing it against a checkout proves nothing about what is running.",
-      fix: "Unset those variables and let scripts/stamp.sh supply the build identity, so this check "
-        + "measures the running build instead of a value someone supplied.",
+      detail: "healthy, but its build SHA came from the environment, so comparing it against a "
+        + "checkout proves nothing about what is running.",
+      fix: "Unset AIFY_BUILD_SHA and let scripts/stamp.sh supply it, so this check measures the "
+        + "running build instead of a value someone supplied.",
     };
   }
   if (!builtSha) {
@@ -294,10 +301,10 @@ export function serviceBuildVerdict({
       fix: "Run `scripts/stamp.sh` before `docker compose up -d --build` — otherwise /version lies." };
   }
   if (!headSha) {
-    return { ok: true, code: "ok", detail: `healthy — build ${short} (no checkout to compare against)`, fix: "" };
+    return { ok: true, code: "ok", detail: `healthy — build ${short} (no checkout to compare against)${note}`, fix: "" };
   }
   if (builtSha === headSha) {
-    return { ok: true, code: "ok", detail: `healthy — build ${short} == repo HEAD`, fix: "" };
+    return { ok: true, code: "ok", detail: `healthy — build ${short} == repo HEAD${note}`, fix: "" };
   }
   if (Number(runtimeCommits) > 0) {
     const n = Number(runtimeCommits);
