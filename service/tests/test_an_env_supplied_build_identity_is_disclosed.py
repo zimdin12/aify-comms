@@ -99,15 +99,51 @@ class AnEnvSuppliedBuildIdentityIsDisclosed(unittest.TestCase):
             config = ServiceConfig.load()
         self.assertEqual(config.stamp_overrides, [], "an ordinary setting was reported as a build override")
 
-    def test_the_version_endpoint_carries_it_only_when_it_happened(self):
-        """The transport. The verdict can only refuse what it is told, and doctor reads this endpoint."""
+    def test_the_version_ENDPOINT_emits_it_only_when_it_happened(self):
+        """CALLED, not read as text. The first version of this asserted two substrings in `health.py`
+        and never invoked `version()` -- so a dead or unreachable spread carrying those strings would
+        have passed. That is certifying a proxy instead of the thing consumed, which is the error this
+        session has now made four times, once immediately after naming it.
+
+        This binds the config the endpoint actually reads and inspects the JSON it returns.
+        """
+        import asyncio
+
         from service.routers import health
 
-        source = Path(health.__file__).read_text(encoding="utf-8")
-        self.assertIn("identityOverriddenBy", source, "/version no longer discloses the override")
+        def payload_with(**env_pairs):
+            with env(**env_pairs):
+                config = ServiceConfig.load()
+            original = health.get_config
+            health.get_config = lambda: config
+            try:
+                return asyncio.run(health.version())
+            finally:
+                health.get_config = original
+
+        clean = payload_with()
+        self.assertNotIn(
+            "identityOverriddenBy", clean,
+            "a clean payload carries the key; an always-present field is not a disclosure",
+        )
+        self.assertIn("sha", clean, "the endpoint stopped reporting a build identity at all")
+
+        supplied = payload_with(AIFY_BUILD_SHA="deadbeefdeadbeef")
+        self.assertEqual(
+            supplied.get("identityOverriddenBy"), ["build_sha"],
+            "the endpoint did not disclose the env-supplied SHA to the check that consumes it",
+        )
+        self.assertEqual(supplied["sha"], "deadbeefdeadbeef", "the override never reached the payload")
+
+    def test_the_payload_key_is_the_one_doctor_reads(self):
+        """The transport's far end. `doctor.js` extracts `ver.identityOverriddenBy` from this exact
+        payload, and a rename on either side would leave both halves passing while the field never
+        arrived -- config and predicate tested on opposite sides of an unexecuted gap."""
+        doctor = (Path(__file__).resolve().parent.parent.parent
+                  / "mcp" / "stdio" / "doctor.js").read_text(encoding="utf-8")
         self.assertIn(
-            'if config.stamp_overrides else {}', source,
-            "the field is emitted unconditionally; a clean payload must not grow an always-empty key",
+            "ver.identityOverriddenBy", doctor,
+            "doctor no longer reads the key /version emits, so the disclosure reaches nothing",
         )
 
 

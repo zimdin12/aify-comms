@@ -265,7 +265,25 @@ export const SERVICE_IMAGE_NON_RUNTIME_PATHS = {
   "install.sh": "operator installer shipped for convenience; never executed by the service",
 };
 
-export function serviceBuildVerdict({
+/**
+ * The build verdict, with any non-SHA provenance caveat appended to WHATEVER it decides.
+ *
+ * TWO BRANCHES USED TO CARRY IT and four did not, so a stale or unknown build silently dropped the
+ * fact that its version or branch came from the environment -- while the contract said the caveat
+ * accompanied the verdict. Appending at the boundary rather than inside each branch is what makes that
+ * true for the branches nobody thought about, including ones added later.
+ */
+export function serviceBuildVerdict(input = {}) {
+  const overridden = Array.isArray(input.identityOverriddenBy)
+    ? input.identityOverriddenBy.filter(Boolean)
+    : [];
+  const verdict = buildVerdict(input);
+  const caveat = overridden.filter((f) => f !== "build_sha" && f !== "build_short");
+  if (!caveat.length || verdict.code === "build-identity-overridden") return verdict;
+  return { ...verdict, detail: `${verdict.detail} (${caveat.join(", ")} came from the environment)` };
+}
+
+function buildVerdict({
   builtSha = "", headSha = "", headShort = "", builtShort = "",
   runtimeCommits = 0, totalCommits = 0, identityOverriddenBy = [],
 } = {}) {
@@ -284,8 +302,6 @@ export function serviceBuildVerdict({
   const short = (overridden.includes("build_short") || !builtShort)
     ? String(builtSha || "").slice(0, 7)
     : builtShort;
-  const caveat = overridden.filter((f) => f !== "build_sha" && f !== "build_short");
-  const note = caveat.length ? ` (${caveat.join(", ")} came from the environment)` : "";
   if (shaSupplied) {
     return {
       ok: false,
@@ -301,10 +317,10 @@ export function serviceBuildVerdict({
       fix: "Run `scripts/stamp.sh` before `docker compose up -d --build` — otherwise /version lies." };
   }
   if (!headSha) {
-    return { ok: true, code: "ok", detail: `healthy — build ${short} (no checkout to compare against)${note}`, fix: "" };
+    return { ok: true, code: "ok", detail: `healthy — build ${short} (no checkout to compare against)`, fix: "" };
   }
   if (builtSha === headSha) {
-    return { ok: true, code: "ok", detail: `healthy — build ${short} == repo HEAD${note}`, fix: "" };
+    return { ok: true, code: "ok", detail: `healthy — build ${short} == repo HEAD`, fix: "" };
   }
   if (Number(runtimeCommits) > 0) {
     const n = Number(runtimeCommits);

@@ -310,3 +310,38 @@ test("an ordinary report is still certified, so the refusal is not blanket", () 
   });
   assert.equal(empty.ok, true, "an empty override list was treated as an override");
 });
+
+test("the provenance caveat survives EVERY verdict branch, not just the two that had it", () => {
+  // It was appended inside the no-checkout and exact-HEAD branches only, so a STALE or UNKNOWN build
+  // silently dropped the fact that its version came from the environment -- while the contract said
+  // the caveat accompanied the verdict. Four of six branches disagreed with the sentence describing
+  // them.
+  //
+  // Appending at the boundary is what makes that true for branches nobody enumerated, including any
+  // added later. Each case below is a DIFFERENT branch of the verdict.
+  const withCaveat = (extra) => serviceBuildVerdict({
+    builtSha: "cafebabe1234", builtShort: "cafebab",
+    identityOverriddenBy: ["version"], ...extra,
+  });
+
+  const cases = {
+    "no checkout": withCaveat({ headSha: "" }),
+    "exact HEAD": withCaveat({ headSha: "cafebabe1234", headShort: "cafebab" }),
+    "behind HEAD": withCaveat({ headSha: "f00dfeed5678", headShort: "f00dfee", totalCommits: 12 }),
+    "runtime commits": withCaveat({ headSha: "f00dfeed5678", headShort: "f00dfee", runtimeCommits: 3, totalCommits: 9 }),
+  };
+  for (const [branch, verdict] of Object.entries(cases)) {
+    assert.match(verdict.detail, /version came from the environment/,
+      `the "${branch}" branch dropped the provenance caveat: ${verdict.detail}`);
+  }
+
+  // ANTI-VACUITY: a clean report must carry no caveat, and the SHA refusal must not gain a redundant
+  // one — it already says the identity was supplied.
+  const clean = serviceBuildVerdict({ builtSha: "cafebabe1234", headSha: "cafebabe1234" });
+  assert.doesNotMatch(clean.detail, /environment/, "a clean verdict grew a caveat");
+  const refused = serviceBuildVerdict({
+    builtSha: "cafebabe1234", headSha: "cafebabe1234", identityOverriddenBy: ["build_sha", "version"],
+  });
+  assert.equal(refused.code, "build-identity-overridden");
+  assert.doesNotMatch(refused.detail, /came from the environment\)/, "the refusal gained a redundant caveat");
+});
