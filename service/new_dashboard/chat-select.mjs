@@ -117,7 +117,7 @@ export function chatConversationItems(state) {
       const unread = msgs.filter((m) => m.read === false && String(m.to || m.targetAgentId || m.target_agent_id || '') === me).length;
       return {
         kind: 'dm', key: `dm:${a.id}`, id: a.id, status: a.status || 'unknown',
-        statusNote: a.statusNote || a.status_note || '',
+        statusNote: a.statusNote || '',
         role: a.role || '',
         runtime: a.runtime || a.runtimeId || '',
         preview: last ? (last.subject || last.preview || last.body || '') : '',

@@ -95,7 +95,7 @@ export async function submitAgentEdit(agentId) {
     if (desc !== (agent.description || '')) {
       await api(`/agents/${encodeURIComponent(agentId)}/description`, { method: 'PATCH', body: JSON.stringify({ description: desc }) });
     }
-    if (handle !== String(agent.sessionHandle || agent.session_handle || '')) {
+    if (handle !== String(agent.sessionHandle || '')) {
       await api(`/agents/${encodeURIComponent(agentId)}/session-handle`, { method: 'PATCH', body: JSON.stringify({ sessionHandle: handle }) });
     }
     const envId = byId('edit-agent-env')?.value.trim() || '';

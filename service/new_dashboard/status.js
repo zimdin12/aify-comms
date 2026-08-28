@@ -128,7 +128,7 @@ export function statusWhyContext(kind, item = {}, rawStatus = item.status || 'un
   } else if (kind === 'agent') {
     parts.push(`Agent ${item.id || 'unknown'} is ${base.label}.`);
     if (item.runtime) parts.push(`Runtime: ${item.runtime}.`);
-    if (item.statusNote || item.status_note) parts.push(`Note: ${item.statusNote || item.status_note}.`);
+    if (item.statusNote) parts.push(`Note: ${item.statusNote}.`);
     if (item.lastSeen || item.last_seen) parts.push(`Last seen ${relTime(item.lastSeen || item.last_seen)} ago.`);
   } else if (kind === 'environment') {
     parts.push(`Environment ${item.label || item.id || 'unknown'} is ${base.label}.`);

@@ -135,7 +135,22 @@ const EXTRACTIONS = [
     importLine: "import { AGENT_STATUSES, LIVE_AGENT_STATUSES, STATUS_KINDS, renderStatusChip, resolveStatus, runStatusContext, statusWhyContext } from './status.js';",
     importWas: "import { STATUS_KINDS, AGENT_STATUSES, LIVE_AGENT_STATUSES, resolveStatus, renderStatusChip } from './status.js';",
     items: [
-      { name: "statusWhyContext", at: 438, marker: "// statusWhyContext moved to ./status.js in v0.5.4." },
+      {
+        name: "statusWhyContext",
+        at: 438,
+        marker: "// statusWhyContext moved to ./status.js in v0.5.4.",
+        editedSince: [
+          // status_note is a DATABASE COLUMN, never a payload key, so the alternate was dead.
+          {
+            was: [
+              "    if (item.statusNote || item.status_note) parts.push(`Note: ${item.statusNote || item.status_note}.`);",
+            ],
+            now: [
+              "    if (item.statusNote) parts.push(`Note: ${item.statusNote}.`);",
+            ],
+          },
+        ],
+      },
       { name: "runStatusContext", at: 3243, marker: "// runStatusContext moved to ./status.js in v0.5.4." },
     ],
   },
@@ -496,7 +511,30 @@ const EXTRACTIONS = [
     module: "identity-directory.mjs",
     importLine: "import { openIdentityDirectory } from './identity-directory.mjs';",
     items: [
-      { name: "openIdentityDirectory", at: 3402, marker: "// openIdentityDirectory moved to ./identity-directory.mjs in v0.5.4." },
+      {
+        name: "openIdentityDirectory",
+        at: 3402,
+        marker: "// openIdentityDirectory moved to ./identity-directory.mjs in v0.5.4.",
+        editedSince: [
+          // Dropped dead snake_case alternates: the service emits lastSeen and unread, never last_seen or unreadCount.
+          {
+            was: [
+              "    const lastSeen = agent.lastSeen || agent.last_seen || '';",
+            ],
+            now: [
+              "    const lastSeen = agent.lastSeen || '';",
+            ],
+          },
+          {
+            was: [
+              "      <td>${Number(agent.unread || agent.unreadCount || 0) || 0}</td>",
+            ],
+            now: [
+              "      <td>${Number(agent.unread || 0) || 0}</td>",
+            ],
+          },
+        ],
+      },
     ],
   },
   {
@@ -607,7 +645,22 @@ const EXTRACTIONS = [
     module: "inspector-forms.mjs",
     importLine: "import { openAgentEditForm, openCompactionHistory, openContinueForm, openMessageDetail } from './inspector-forms.mjs';",
     items: [
-      { name: "openAgentEditForm", at: 3609, marker: "// openAgentEditForm moved to ./inspector-forms.mjs in v0.5.4." },
+      {
+        name: "openAgentEditForm",
+        at: 3609,
+        marker: "// openAgentEditForm moved to ./inspector-forms.mjs in v0.5.4.",
+        editedSince: [
+          // Dropped a dead snake_case alternate: the service emits sessionHandle.
+          {
+            was: [
+              "      <label class=\"settings-label\">Native session handle<input id=\"edit-agent-handle\" type=\"text\" value=\"${esc(agent.sessionHandle || agent.session_handle || '')}\" placeholder=\"Claude/Codex/Pi session id \u2014 blank clears\"></label>",
+            ],
+            now: [
+              "      <label class=\"settings-label\">Native session handle<input id=\"edit-agent-handle\" type=\"text\" value=\"${esc(agent.sessionHandle || '')}\" placeholder=\"Claude/Codex/Pi session id \u2014 blank clears\"></label>",
+            ],
+          },
+        ],
+      },
       { name: "openMessageDetail", at: 3696, marker: "// openMessageDetail moved to ./inspector-forms.mjs in v0.5.4." },
       {
         name: "openCompactionHistory",
@@ -1821,6 +1874,17 @@ const EXTRACTIONS = [
         name: "submitAgentEdit",
         at: 3641,
         marker: "// submitAgentEdit moved to ./agent-session-actions.mjs in v0.5.4.",
+        editedSince: [
+          // Dropped a dead snake_case alternate: the service emits sessionHandle.
+          {
+            was: [
+              "    if (handle !== String(agent.sessionHandle || agent.session_handle || '')) {",
+            ],
+            now: [
+              "    if (handle !== String(agent.sessionHandle || '')) {",
+            ],
+          },
+        ],
       },
       {
         name: "resolveAgentSession",

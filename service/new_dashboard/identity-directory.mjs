@@ -38,7 +38,7 @@ export function openIdentityDirectory() {
     const env = session ? (state.environments.find((e) => String(e.id) === String(sessionEnvironmentId(session))) || null) : null;
     const envLabel = (env && (env.label || env.id)) || (session ? sessionEnvironmentId(session) : '') || '';
     const runtime = agent.runtime || (session && sessionRuntime(session)) || '';
-    const lastSeen = agent.lastSeen || agent.last_seen || '';
+    const lastSeen = agent.lastSeen || '';
     return `<tr>
       <td><strong>${esc(id)}</strong></td>
       <td>${esc(agent.role || '')}</td>
@@ -46,7 +46,7 @@ export function openIdentityDirectory() {
       <td>${esc(mode)}</td>
       <td class="clip">${esc(envLabel === 'unassigned' ? '—' : (envLabel || '—'))}</td>
       <td>${renderStatusChip(agent.status || 'unknown', statusWhyContext('agent', agent, agent.status))}</td>
-      <td>${Number(agent.unread || agent.unreadCount || 0) || 0}</td>
+      <td>${Number(agent.unread || 0) || 0}</td>
       <td>${lastSeen ? esc(relTime(lastSeen)) + ' ago' : '—'}</td>
       <td class="identity-row-actions">
         <button class="ghost" data-agent-details="${esc(id)}" title="Open the agent detail drawer (lifecycle controls)">Details</button>

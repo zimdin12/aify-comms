@@ -45,7 +45,7 @@ export function openAgentEditForm(agentId) {
       <div class="agent-drawer-head"><strong>Edit ${esc(agentId)}</strong></div>
       <label class="settings-label">Agent ID (rename)<input id="edit-agent-id" type="text" value="${esc(agentId)}"></label>
       <label class="settings-label">Description<input id="edit-agent-desc" type="text" value="${esc(agent.description || '')}" placeholder="Short role/description"></label>
-      <label class="settings-label">Native session handle<input id="edit-agent-handle" type="text" value="${esc(agent.sessionHandle || agent.session_handle || '')}" placeholder="Claude/Codex/Pi session id — blank clears"></label>
+      <label class="settings-label">Native session handle<input id="edit-agent-handle" type="text" value="${esc(agent.sessionHandle || '')}" placeholder="Claude/Codex/Pi session id — blank clears"></label>
       <fieldset class="agent-edit-env">
         <legend>Re-assign environment</legend>
         <label class="settings-label">Environment<select id="edit-agent-env">${envOptions}</select></label>
