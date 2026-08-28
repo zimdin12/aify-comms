@@ -151,6 +151,16 @@ async def get_stats(request: Request):
             """
         )
         dispatch_by_status = {row["status"]: row["cnt"] for row in await dispatch_c.fetchall()}
+        # NOT PENDING. Every row this counts is FINISHED -- completed, failed or cancelled -- and
+        # never got a reply. It is a historical total that only grows, and it is not the number of
+        # replies currently owed: measured 2026-08-28, this said 118 while the count of OPEN
+        # reply-owing runs was ZERO.
+        #
+        # Nothing reads it today (`dispatch_reply_pending` is in the /stats dead-field ledger), so
+        # no operator has been shown 118 outstanding obligations. The name is left alone because
+        # renaming an emitted field is a response-shape change; this comment is here so whoever
+        # wires it to a tile labels it what it is. `GET /contracts?state=missing_reply` is the
+        # closed-without-a-reply list, and `/analytics` carries the genuinely-owed count.
         reply_pending_c = await db.execute(
             """
             SELECT COUNT(*)
