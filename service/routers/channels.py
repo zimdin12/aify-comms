@@ -94,7 +94,24 @@ from service.api_core.message_store import _delete_messages_where  # noqa: E402
 
 
 def _normalize_channel_history_where(channel_name: str) -> tuple[str, tuple[Any, ...]]:
-    return "channel = ? AND to_agent IS NULL", (channel_name,)
+    """The channel transcript: the CANONICAL row of each send, not the per-member copies.
+
+    `COALESCE(to_agent, '') = ''` rather than `to_agent IS NULL`, because two readers of this column
+    disagreed about what "no recipient" means. `channel_replay_query` already guards both shapes
+    (`to_agent IS NOT NULL AND to_agent != ''`); this one accepted only NULL.
+
+    Measured 2026-08-28 on the live database: 179 recipient-less channel rows, ALL of them NULL and
+    none an empty string, so nothing is broken and this changes no result today. It is worth one
+    COALESCE anyway because of what the disagreement costs if it ever arrives: a row with an empty
+    `to_agent` is invisible to the transcript here AND to every inbox, which matches `to_agent = ?`
+    and never `''`. That is a channel message nobody can see, with no error raised anywhere.
+
+    The invariant currently holds by omission -- the canonical INSERTs in `channel_send.py` and
+    `channel_membership.py` do not list the column at all, so it takes the default. A later edit that
+    makes those statements uniform with the fan-out INSERT beside them, passing `'' `for the missing
+    recipient, is all it would take.
+    """
+    return "channel = ? AND COALESCE(to_agent, '') = ''", (channel_name,)
 
 
 def _channel_fanout_message_id(canonical_message_id: str, agent_id: str) -> str:
