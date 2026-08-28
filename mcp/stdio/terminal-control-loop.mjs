@@ -18,6 +18,8 @@ import { attachNotice } from "./terminal-attach-notice.js";
 import { noteControlClaimFailure, noteControlClaimSuccess } from "./claim-failure-tracker.mjs";
 import { workspaceWithinRoots } from "./environment-identity.mjs";
 import { reconcileLabels } from "./label-reconciler.mjs";
+import { TERMINAL_CONTROL_POLL_MS } from "./poll-intervals.mjs";
+import { terminalLoopEligible } from "./terminals-are-possible.mjs";
 import { extractRuntimeSessionHandleFromArgv } from "./runtimes.js";
 import { defaultGetCmdline as hermesGetCmdline } from "./hermes-daemon.js";
 import { IS_ENVIRONMENT_BRIDGE } from "./launch-identity.mjs";
@@ -227,7 +229,16 @@ export async function runTerminalControlLoop({
   extractTerminalSessionHandle,
   shutdownStarted,
 }) {
-  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE && bridgeTerminalSupported(), alreadyActive: terminalControlBusy, shuttingDown: shutdownStarted })) return;
+  // TERMINALS FROM ANYWHERE, not just from here. This read `bridgeTerminalSupported()` -- did
+  // node-pty load in THIS process -- which since v0.6 Phase 8 is not what decides whether this
+  // bridge can open a terminal. See terminals-are-possible.mjs for what it costs on a host where
+  // the native module does not build.
+  const eligible = terminalLoopEligible({
+    isRemote: IS_REMOTE, isEnvironmentBridge: IS_ENVIRONMENT_BRIDGE,
+    localTerminal: bridgeTerminalSupported(),
+    delegationEnabled: TERMINAL_MANAGER.envDelegation?.isEnabled?.() === true,
+  });
+  if (shouldSkipLoop({ eligible, alreadyActive: terminalControlBusy, shuttingDown: shutdownStarted })) return;
   terminalControlBusy = true;
   try {
     await runTerminalControlPass({
@@ -243,4 +254,45 @@ export async function runTerminalControlLoop({
   } finally {
     terminalControlBusy = false;
   }
+}
+
+//: The timer that keeps the loop running, owned here since 2026-08-29.
+//:
+//: v0.5.4 moved the loop's body out of server.js and left the timer behind, with a note saying so.
+//: That was right at the time -- the module had no opinion about whether the loop should run. It
+//: has one now (`terminalLoopEligible`), and the split meant server.js asked that question and this
+//: file asked it again, in two hand-written copies. A loop that starts and then skips every pass
+//: looks exactly like one that never started, and neither says why.
+let terminalControlTimer = null;
+
+/**
+ * Start the terminal control loop if this process should be running one.
+ *
+ * Idempotent: an already-running loop is left alone, which is what `alreadyActive` is for.
+ */
+export function ensureTerminalControlLoop(deps) {
+  const eligible = terminalLoopEligible({
+    isRemote: IS_REMOTE,
+    isEnvironmentBridge: IS_ENVIRONMENT_BRIDGE,
+    localTerminal: bridgeTerminalSupported(),
+    delegationEnabled: TERMINAL_MANAGER.envDelegation?.isEnabled?.() === true,
+  });
+  if (shouldSkipLoop({
+    eligible,
+    alreadyActive: Boolean(terminalControlTimer),
+    shuttingDown: deps.shutdownStarted,
+  })) return;
+  // ONE CALL, USED TWICE. It was written out twice -- once now, once per tick -- and two copies of
+  // one argument list is how they start disagreeing about what the loop is passed.
+  const tick = () => runTerminalControlLoop(deps)
+    .catch((error) => console.error("[aify] terminal control loop error:", error));
+  tick();
+  terminalControlTimer = setInterval(tick, TERMINAL_CONTROL_POLL_MS);
+}
+
+/** Stop it. Safe to call when it was never started -- shutdown runs on paths that never had one. */
+export function stopTerminalControlLoop() {
+  if (!terminalControlTimer) return;
+  clearInterval(terminalControlTimer);
+  terminalControlTimer = null;
 }

@@ -101,12 +101,11 @@ import { runDispatchLoop } from "./dispatch-loop.mjs";
 import { runEnvironmentControlLoop } from "./environment-control-loop.mjs";
 import { syncManagedEnvironmentAgents } from "./managed-environment-sync.mjs";
 import { runSpawnLoop } from "./spawn-loop.mjs";
-import { runTerminalControlLoop } from "./terminal-control-loop.mjs";
+import { ensureTerminalControlLoop, stopTerminalControlLoop } from "./terminal-control-loop.mjs";
 import { reportResidentRuntimeLost as reportResidentRuntimeLostImpl } from "./resident-runtime-lost.mjs";
 import { registerAllTools } from "./register-tools.mjs";
 import {
   DISPATCH_POLL_MS,
-  TERMINAL_CONTROL_POLL_MS,
   __HEARTBEAT_MS,
   __RESIDENT_GATEWAY_TURN_IDLE_DEBOUNCE,
   __RESIDENT_GATEWAY_TURN_POLL_MS,
@@ -452,10 +451,7 @@ function cleanupOnExit() {
     clearInterval(spawnLoopTimer);
     spawnLoopTimer = null;
   }
-  if (terminalControlTimer) {
-    clearInterval(terminalControlTimer);
-    terminalControlTimer = null;
-  }
+  stopTerminalControlLoop();
   TERMINAL_MANAGER.stopAll("bridge process exiting").catch(() => {});
   // Synchronous best-effort triad reap may only reuse targets freshly confirmed
   // by runManagedTeardownForBridge. An unexpected exit has no safe ownership
@@ -543,7 +539,6 @@ let environmentBridgeBootstrapPromise = null;
 let usageCollectorTimer = null;
 let environmentControlTimer = null;
 let spawnLoopTimer = null;
-let terminalControlTimer = null;
 // spawnClaimFailureCount / spawnClaimLastLogAt moved to ./claim-failure-tracker.mjs in v0.5.4.
 let remoteEffectiveCwdRoots = null;
 const AUTO_REREGISTER_AFTER_FAILURES = 4;
@@ -902,13 +897,6 @@ function ensureSpawnLoop() {
   }, DISPATCH_POLL_MS);
 }
 
-function ensureTerminalControlLoop() {
-  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE && bridgeTerminalSupported(), alreadyActive: Boolean(terminalControlTimer), shuttingDown: shutdownStarted })) return;
-  runTerminalControlLoop({ CLAIM_OPTS, CLAIM_WAIT_MS, effectiveEnvironmentPayload, extractTerminalSessionHandle, shutdownStarted }).catch((error) => console.error("[aify] terminal control loop error:", error));
-  terminalControlTimer = setInterval(() => {
-    runTerminalControlLoop({ CLAIM_OPTS, CLAIM_WAIT_MS, effectiveEnvironmentPayload, extractTerminalSessionHandle, shutdownStarted }).catch((error) => console.error("[aify] terminal control loop error:", error));
-  }, TERMINAL_CONTROL_POLL_MS);
-}
 
 // updateTerminalControl moved to ./virtual-terminals.mjs in v0.5.4.
 
@@ -966,7 +954,9 @@ if (__isEntrypoint) {
   // closes the live-old-bridge handover gap and retries on later heartbeats when
   // the service or ownership snapshot is unavailable.
   ensureEnvironmentHeartbeat();
-  ensureTerminalControlLoop();
+  ensureTerminalControlLoop({
+    CLAIM_OPTS, CLAIM_WAIT_MS, effectiveEnvironmentPayload, extractTerminalSessionHandle, shutdownStarted,
+  });
 }
 
 // runDispatchLoop's shell and its busy flag moved to ./dispatch-loop.mjs in v0.5.4; the timer stays here.
