@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { skippedFrom, summarise } from "./run-all-summary.mjs";
+import { skippedFrom, slowest, summarise } from "./run-all-summary.mjs";
 
 const NL = String.fromCharCode(10);
 
@@ -64,4 +64,36 @@ test("failures still win over skips", () => {
   assert.equal(result.passed, 1);
   // A red run must not bury its failure under a skip note.
   assert.match(result.line, /1 suite\(s\) FAILED/);
+});
+
+// ---- where the wall time went ------------------------------------------------------------------
+
+test("the slowest files come back first, with their share of the run", () => {
+  const { totalMs, ranked, headShare } = slowest(
+    [{ file: "fast", ms: 100 }, { file: "slow", ms: 700 }, { file: "mid", ms: 200 }], 2,
+  );
+  assert.equal(totalMs, 1000);
+  assert.deepEqual(ranked.map((r) => r.file), ["slow", "mid"]);
+  assert.equal(ranked[0].share, 0.7);
+  assert.equal(headShare, 0.9, "the head share is what decides whether tiering is worth doing");
+});
+
+test("the TOTAL counts every file, not just the ones reported", () => {
+  // A total computed from the ranked head would make any suite look like its own top N, and a share
+  // measured against it would read 100% however long the tail was.
+  assert.equal(slowest([{ file: "a", ms: 10 }, { file: "b", ms: 90 }], 1).totalMs, 100);
+});
+
+test("a run that timed nothing reports zero, never NaN", () => {
+  // A share of nothing is 0. A hole where the instrument failed reads as a number in a report and
+  // gets quoted, which this repo has done to itself with four separate measurements.
+  const { totalMs, ranked, headShare } = slowest([{ file: "a" }, { file: "b", ms: "x" }]);
+  assert.equal(totalMs, 0);
+  assert.deepEqual(ranked, []);
+  assert.equal(headShare, 0);
+});
+
+test("no results at all is not an error", () => {
+  assert.equal(slowest([]).totalMs, 0);
+  assert.equal(slowest().totalMs, 0);
 });

@@ -65,7 +65,16 @@ test("pi wrappers: rendered bodies are syntactically valid (bash -n)", () => {
 // running it here the ONLY evidence it works at all — a template nobody renders and nobody runs is
 // indistinguishable from a broken one.
 
-const piWrapper = () => path.join(renderPiWrappers().dir, "pi-aify");
+// RENDERED ONCE FOR THE RUN CASES. Each render is a full install.sh run, and this file called one per
+// test: measured 2026-08-29 it was 89.9s, the slowest file in a 551s bridge suite, for six sub-second
+// wrapper runs. The two tests above keep their own private render because they read the DIRECTORY and
+// delete it; these read a launcher and run it, and `runWrapper` keeps its stub and its sealed HOME in
+// a workspace of its own, so the rendered directory is read-only input to every one of them.
+let sharedPi = null;
+const piWrapper = () => {
+  if (!sharedPi) sharedPi = renderPiWrappers();
+  return path.join(sharedPi.dir, "pi-aify");
+};
 const run = (opts = {}) => runWrapper(piWrapper(), { runtimeName: "omp", ...opts });
 
 test("pi-aify launches its runtime and forwards argv", () => {

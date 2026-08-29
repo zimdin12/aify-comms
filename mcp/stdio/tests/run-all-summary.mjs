@@ -46,3 +46,41 @@ export function summarise(results) {
 
   return { passed, failed, skipped, line };
 }
+
+/**
+ * Where the wall time went. Pure, so the number in a report comes from the same code that printed it.
+ *
+ * WHY THIS EXISTS. The runner spawns one node process per file, serially, and reported only pass or
+ * fail -- so "the tests take a long time" had no shape to it and no way to argue about which files
+ * were worth their cost. Measured 2026-08-29: `claude-wrapper-behaviour.test.js` alone is 192 seconds
+ * for 18 tests. It renders real launchers and runs them, so that is not waste; it IS the file that
+ * would have caught the unsubstituted `@@SERVICE_NAME@@`. But a suite cannot be tiered by a feeling
+ * about which files are slow, and a share is the number that decides: a file holding 30% of the run
+ * is a tiering decision, and one holding 0.2% is noise however long it feels.
+ *
+ * SHARE OF WALL TIME, not of file count. The distribution here is extremely skewed and a mean would
+ * hide that.
+ *
+ * @param {{file: string, ms?: number}[]} results
+ * @param {number} [limit]
+ * @returns {{totalMs: number, ranked: {file: string, ms: number, share: number}[], headShare: number}}
+ */
+export function slowest(results, limit = 15) {
+  const timed = (results ?? []).filter((r) => Number.isFinite(Number(r?.ms)));
+  const totalMs = timed.reduce((sum, r) => sum + Number(r.ms), 0);
+  const ranked = timed
+    .slice()
+    .sort((a, b) => Number(b.ms) - Number(a.ms))
+    .slice(0, Math.max(0, limit))
+    .map((r) => ({
+      file: r.file,
+      ms: Math.round(Number(r.ms)),
+      // A share of nothing is 0, never NaN: a runner that timed no file must print a number a reader
+      // can read as "none of it", not a hole where the instrument failed.
+      share: totalMs > 0 ? Number(r.ms) / totalMs : 0,
+    }));
+  const headShare = totalMs > 0
+    ? ranked.reduce((sum, r) => sum + r.ms, 0) / totalMs
+    : 0;
+  return { totalMs: Math.round(totalMs), ranked, headShare };
+}

@@ -47,6 +47,23 @@ function renderCodexWrapper() {
   }
 }
 
+// RENDERED ONCE FOR THE TEXT ASSERTIONS.
+//
+// Every test below that only READS the rendered text was paying its own full install.sh run.
+// Measured 2026-08-29 across the bridge suite, the four `*-wrapper-determinism` files held 209.7s of a
+// 551s run -- pi 89.9s, hermes 61.5s, codex 35.7s, claude 22.6s -- and their assertions are regex
+// matches over one artifact. The render is the FIXTURE here, not the subject: rendering it once per
+// case proves the same thing N-1 extra times.
+//
+// The tests that inspect or DELETE the directory keep their own private render, because they mutate
+// it. Sharing a directory would let one of them remove another's fixture, which is the same class of
+// fault the bridge harness hit the first time it shared one.
+let sharedRender = null;
+function sharedText() {
+  if (!sharedRender) sharedRender = renderCodexWrapper();
+  return sharedRender.text;
+}
+
 test("codex-aify wrapper: rendered heredoc body is syntactically valid (bash -n)", () => {
   const { wrapperPath, dir } = renderCodexWrapper();
   try {
@@ -58,57 +75,45 @@ test("codex-aify wrapper: rendered heredoc body is syntactically valid (bash -n)
 });
 
 test("codex-aify wrapper: CODEX_AUTO defaults true and adds --dangerously-bypass-approvals-and-sandbox", () => {
-  const { text, dir } = renderCodexWrapper();
-  try {
-    assert.ok(/\bCODEX_AUTO=true\b/.test(text), "CODEX_AUTO must default to true (bypass on by default)");
-    // A true CODEX_AUTO must populate the permission-flags array with the bypass flag.
-    assert.ok(
-      /if \[ "\$CODEX_AUTO" = true \]; then\s*\n\s*CODEX_PERMISSION_FLAGS\+=\(--dangerously-bypass-approvals-and-sandbox\)/.test(text),
-      "a true CODEX_AUTO must add --dangerously-bypass-approvals-and-sandbox to CODEX_PERMISSION_FLAGS",
-    );
-    // Opt-out path present and flips the flag off.
-    assert.ok(/"--safe"/.test(text) && /"--no-auto"/.test(text), "must honor --safe / --no-auto opt-out");
-    assert.ok(/CODEX_AUTO=false/.test(text), "the opt-out branch must set CODEX_AUTO=false");
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  const text = sharedText();
+  assert.ok(/\bCODEX_AUTO=true\b/.test(text), "CODEX_AUTO must default to true (bypass on by default)");
+  // A true CODEX_AUTO must populate the permission-flags array with the bypass flag.
+  assert.ok(
+    /if \[ "\$CODEX_AUTO" = true \]; then\s*\n\s*CODEX_PERMISSION_FLAGS\+=\(--dangerously-bypass-approvals-and-sandbox\)/.test(text),
+    "a true CODEX_AUTO must add --dangerously-bypass-approvals-and-sandbox to CODEX_PERMISSION_FLAGS",
+  );
+  // Opt-out path present and flips the flag off.
+  assert.ok(/"--safe"/.test(text) && /"--no-auto"/.test(text), "must honor --safe / --no-auto opt-out");
+  assert.ok(/CODEX_AUTO=false/.test(text), "the opt-out branch must set CODEX_AUTO=false");
 });
 
 test("codex-aify wrapper: bypass flags reach BOTH the app-server line and the foreground/resume TUI launch", () => {
-  const { text, dir } = renderCodexWrapper();
-  try {
-    // The app-server launch applies the permission-flags array (both setsid and the
-    // no-setsid fallback path).
-    assert.ok(
-      /codex "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" app-server --listen "\$APP_SERVER_URL"/.test(text),
-      "the app-server launch must apply ${CODEX_PERMISSION_FLAGS[@]}",
-    );
-    // The foreground (fresh) TUI launch applies the permission-flags array.
-    assert.ok(
-      /run_codex_foreground --remote "\$APP_SERVER_URL" "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" "\$\{CODEX_ARGS\[@\]\}"\n/.test(text),
-      "the foreground TUI launch must apply ${CODEX_PERMISSION_FLAGS[@]}",
-    );
-    // The resume TUI launch applies the permission-flags array too.
-    assert.ok(
-      /run_codex_foreground --remote "\$APP_SERVER_URL" "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" "\$\{CODEX_ARGS\[@\]\}" resume/.test(text),
-      "the resume TUI launch must apply ${CODEX_PERMISSION_FLAGS[@]}",
-    );
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  const text = sharedText();
+  // The app-server launch applies the permission-flags array (both setsid and the
+  // no-setsid fallback path).
+  assert.ok(
+    /codex "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" app-server --listen "\$APP_SERVER_URL"/.test(text),
+    "the app-server launch must apply ${CODEX_PERMISSION_FLAGS[@]}",
+  );
+  // The foreground (fresh) TUI launch applies the permission-flags array.
+  assert.ok(
+    /run_codex_foreground --remote "\$APP_SERVER_URL" "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" "\$\{CODEX_ARGS\[@\]\}"\n/.test(text),
+    "the foreground TUI launch must apply ${CODEX_PERMISSION_FLAGS[@]}",
+  );
+  // The resume TUI launch applies the permission-flags array too.
+  assert.ok(
+    /run_codex_foreground --remote "\$APP_SERVER_URL" "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" "\$\{CODEX_ARGS\[@\]\}" resume/.test(text),
+    "the resume TUI launch must apply ${CODEX_PERMISSION_FLAGS[@]}",
+  );
 });
 
 test("codex-aify wrapper: managed sessions disable the built-in codex_apps MCP", () => {
-  const { text, dir } = renderCodexWrapper();
-  try {
-    const managed = text.indexOf('if [ "${AIFY_MANAGED_VIA_WRAPPER:-}" = "1" ]; then');
-    const disableApps = text.indexOf("CODEX_PERMISSION_FLAGS+=(--disable apps)", managed);
-    const appServer = text.indexOf('app-server --listen "$APP_SERVER_URL"', managed);
-    assert.ok(managed >= 0 && disableApps > managed && appServer > disableApps,
-      "managed wrappers must disable codex_apps before starting their app-server");
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  const text = sharedText();
+  const managed = text.indexOf('if [ "${AIFY_MANAGED_VIA_WRAPPER:-}" = "1" ]; then');
+  const disableApps = text.indexOf("CODEX_PERMISSION_FLAGS+=(--disable apps)", managed);
+  const appServer = text.indexOf('app-server --listen "$APP_SERVER_URL"', managed);
+  assert.ok(managed >= 0 && disableApps > managed && appServer > disableApps,
+    "managed wrappers must disable codex_apps before starting their app-server");
 });
 
 // IDENTITY RECOVERY on a hand-typed `codex-aify --resume <id>` (2026-07-28).
@@ -120,7 +125,7 @@ test("codex-aify wrapper: managed sessions disable the built-in codex_apps MCP",
 // was broken, which is exactly the path an operator uses. Pinned here because the failure is silent:
 // the wrapper still launches, the session still works, and only the fleet's status view rots.
 test("codex-aify recovers the agent id from a bare --resume via the service", () => {
-  const { text } = renderCodexWrapper();
+  const text = sharedText();
   // Substring, not regex: the guard is an exact shell expression, and a regex here would only add
   // escaping bugs of its own.
   assert.ok(
@@ -136,7 +141,7 @@ test("codex-aify recovers the agent id from a bare --resume via the service", ()
 });
 
 test("codex-aify's recovery URL is substituted at install time, not left as a placeholder", () => {
-  const { text } = renderCodexWrapper();
+  const text = sharedText();
   assert.doesNotMatch(text, /__AIFY_INSTALL_TIME_URL__/,
     "an unsubstituted placeholder would make the lookup curl a literal string and always fail");
 });

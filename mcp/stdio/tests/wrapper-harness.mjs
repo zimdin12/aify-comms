@@ -34,10 +34,35 @@ export const RENDER_URL = "http://127.0.0.1:8899";
 // Reachable by nothing. See the sealing note above.
 export const NOWHERE_URL = "http://127.0.0.2:1";
 
-/** Render one client's wrapper(s) into a throwaway dir. */
+// RENDERED ONCE PER PROCESS, per client and url.
+//
+// Each render runs the whole of install.sh. Measured 2026-08-29: ~9s warm on this host, and
+// `claude-wrapper-behaviour.test.js` called this once PER TEST -- 18 renders, 192.4 seconds for a
+// file whose tests are each a sub-second wrapper run. The render was 84% of the file's wall time.
+//
+// SAFE ONLY BECAUSE THE RUN WORKSPACE MOVED OUT. The first attempt at this cache reddened
+// `claude-wrapper-contract.test.js` immediately: `runWrapper` derived its stub-bin and its sealed
+// HOME from the wrapper's own directory, so sharing the render meant sharing the stub a previous
+// test had installed, and the case asserting a wrapper REFUSES to launch found one and launched.
+// That is the exact failure a shared fixture is supposed to be checked for -- a case passing
+// because an earlier case prepared state -- and it took one run to appear. Each run now gets its
+// own workspace, so the rendered directory is read-only input to every caller.
+//
+// The render itself is proven deterministic by `claude-wrapper-determinism.test.js`, which renders
+// twice and compares bytes. It has its own renderer and is untouched by this cache.
+//
+// Per PROCESS, not per suite: run-all.mjs spawns one node per file, so the cache dies with the file
+// and no test can see a directory another file prepared.
+const rendered = new Map();
+
+/** Render one client's wrapper(s) into a throwaway dir, reusing this process's earlier render. */
 export function renderWrapper(client, { url = RENDER_URL } = {}) {
+  const key = `${client} ${url}`;
+  const cached = rendered.get(key);
+  if (cached) return cached;
   const dir = tmpDir(`aify-${client}-wrapper-`);
   execFileSync("bash", [INSTALL_SH, "--client", client, url, "--emit-wrappers", dir], { stdio: "ignore" });
+  rendered.set(key, dir);
   return dir;
 }
 
@@ -182,9 +207,12 @@ export function runWrapper(wrapperPath, {
   minimalPath = false,
   timeout = 30_000,
 } = {}) {
-  const dir = path.dirname(wrapperPath);
-  const binDir = path.join(dir, "stub-bin");
-  const home = path.join(dir, "home");
+  // A WORKSPACE PER RUN, never the wrapper's own directory. The stub runtime and the sealed HOME
+  // are this call's state; putting them beside the wrapper made the rendered artifact mutable and
+  // tied every run in a file to every other one.
+  const workspace = tmpDir("aify-wrapper-run-");
+  const binDir = path.join(workspace, "stub-bin");
+  const home = path.join(workspace, "home");
   fs.mkdirSync(home, { recursive: true });
   // The sealed HOME starts empty, which is what makes "no transcript exists" the default. A caller
   // that needs the OTHER branch — a session id that validates — seeds it here rather than reaching
@@ -211,9 +239,9 @@ export function runWrapper(wrapperPath, {
   Object.assign(childEnv, {
     HOME: posix(home),
     USERPROFILE: posix(home),
-    TMPDIR: posix(dir),
-    TEMP: posix(dir),
-    TMP: posix(dir),
+    TMPDIR: posix(workspace),
+    TEMP: posix(workspace),
+    TMP: posix(workspace),
     PATH: minimalPath ? reducedPath(binDir) : `${binDir}${path.delimiter}${process.env.PATH}`,
     AIFY_COMMS_URL: NOWHERE_URL,
     ...env,

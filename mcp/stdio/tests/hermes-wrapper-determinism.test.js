@@ -50,6 +50,23 @@ function renderHermesWrapper() {
   }
 }
 
+// RENDERED ONCE FOR THE TEXT ASSERTIONS.
+//
+// Every test below that only READS the rendered text was paying its own full install.sh run.
+// Measured 2026-08-29 across the bridge suite, the four `*-wrapper-determinism` files held 209.7s of a
+// 551s run -- pi 89.9s, hermes 61.5s, codex 35.7s, claude 22.6s -- and their assertions are regex
+// matches over one artifact. The render is the FIXTURE here, not the subject: rendering it once per
+// case proves the same thing N-1 extra times.
+//
+// The tests that inspect or DELETE the directory keep their own private render, because they mutate
+// it. Sharing a directory would let one of them remove another's fixture, which is the same class of
+// fault the bridge harness hit the first time it shared one.
+let sharedRender = null;
+function sharedText() {
+  if (!sharedRender) sharedRender = renderHermesWrapper();
+  return sharedRender.text;
+}
+
 test("hermes-aify wrapper: rendered heredoc body is syntactically valid (bash -n)", () => {
   const { wrapperPath, dir } = renderHermesWrapper();
   try {
@@ -61,49 +78,41 @@ test("hermes-aify wrapper: rendered heredoc body is syntactically valid (bash -n
 });
 
 test("hermes-aify wrapper: Task 2.1 — clears inherited stale gateway env, then the gateway branch re-exports a FRESH HERMES_TUI_GATEWAY_URL before exec", () => {
-  const { text, dir } = renderHermesWrapper();
-  try {
-    // Inherited stale gateway env is unset up front (so a fallback exec can never
-    // attach to a dead/foreign gateway; the TUI only ever attaches to a fresh one).
-    const unsetIdx = text.indexOf(
-      "unset HERMES_TUI_GATEWAY_URL AIFY_HERMES_GATEWAY_URL AIFY_HERMES_GATEWAY_TOKEN",
-    );
-    assert.ok(unsetIdx > 0, "wrapper must unset inherited HERMES_TUI_GATEWAY_URL / AIFY_HERMES_GATEWAY_URL up front");
-    // The GATEWAY-HOST branch re-exports the FRESH gateway URL the TUI attaches to.
-    const exportIdx = text.indexOf('export HERMES_TUI_GATEWAY_URL="$HERMES_TUI_WS_URL"');
-    assert.ok(exportIdx > 0, "gateway branch must export HERMES_TUI_GATEWAY_URL=<this loop's gateway wsUrl>");
-    assert.ok(
-      text.indexOf('export AIFY_HERMES_GATEWAY_URL="$HERMES_TUI_WS_URL"') > 0,
-      "gateway branch must also export AIFY_HERMES_GATEWAY_URL so the MCP child registers a real ws:// gateway",
-    );
-    // Order matters: the up-front unset must precede the gateway-branch fresh
-    // export, so the fresh value always wins on the attach path.
-    assert.ok(unsetIdx < exportIdx, "the up-front unset must come BEFORE the gateway branch's fresh export");
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  const text = sharedText();
+  // Inherited stale gateway env is unset up front (so a fallback exec can never
+  // attach to a dead/foreign gateway; the TUI only ever attaches to a fresh one).
+  const unsetIdx = text.indexOf(
+    "unset HERMES_TUI_GATEWAY_URL AIFY_HERMES_GATEWAY_URL AIFY_HERMES_GATEWAY_TOKEN",
+  );
+  assert.ok(unsetIdx > 0, "wrapper must unset inherited HERMES_TUI_GATEWAY_URL / AIFY_HERMES_GATEWAY_URL up front");
+  // The GATEWAY-HOST branch re-exports the FRESH gateway URL the TUI attaches to.
+  const exportIdx = text.indexOf('export HERMES_TUI_GATEWAY_URL="$HERMES_TUI_WS_URL"');
+  assert.ok(exportIdx > 0, "gateway branch must export HERMES_TUI_GATEWAY_URL=<this loop's gateway wsUrl>");
+  assert.ok(
+    text.indexOf('export AIFY_HERMES_GATEWAY_URL="$HERMES_TUI_WS_URL"') > 0,
+    "gateway branch must also export AIFY_HERMES_GATEWAY_URL so the MCP child registers a real ws:// gateway",
+  );
+  // Order matters: the up-front unset must precede the gateway-branch fresh
+  // export, so the fresh value always wins on the attach path.
+  assert.ok(unsetIdx < exportIdx, "the up-front unset must come BEFORE the gateway branch's fresh export");
 });
 
 test("hermes-aify wrapper: Task 4 — HERMES_AUTO defaults true and the interactive TUI gets --yolo (opt-out via --safe/--no-auto)", () => {
-  const { text, dir } = renderHermesWrapper();
-  try {
-    assert.ok(/\bHERMES_AUTO=true\b/.test(text), "HERMES_AUTO must default to true (bypass on by default)");
-    // The bypass flag array is populated with --yolo when HERMES_AUTO is true.
-    assert.ok(
-      /if \[ "\$HERMES_AUTO" = true \]; then\s*\n\s*HERMES_PERMISSION_FLAGS\+=\(--yolo\)/.test(text),
-      "a true HERMES_AUTO must add --yolo to HERMES_PERMISSION_FLAGS",
-    );
-    // Opt-out path present.
-    assert.ok(/"--safe"/.test(text) && /"--no-auto"/.test(text), "must honor --safe / --no-auto opt-out");
-    assert.ok(/HERMES_AUTO=false/.test(text), "the opt-out branch must set HERMES_AUTO=false");
-    // The interactive --tui exec(s) apply the permission flags.
-    assert.ok(
-      /--tui "\$\{HERMES_PERMISSION_FLAGS\[@\]\}"/.test(text),
-      "the interactive `hermes --tui` exec must apply HERMES_PERMISSION_FLAGS (the --yolo default)",
-    );
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  const text = sharedText();
+  assert.ok(/\bHERMES_AUTO=true\b/.test(text), "HERMES_AUTO must default to true (bypass on by default)");
+  // The bypass flag array is populated with --yolo when HERMES_AUTO is true.
+  assert.ok(
+    /if \[ "\$HERMES_AUTO" = true \]; then\s*\n\s*HERMES_PERMISSION_FLAGS\+=\(--yolo\)/.test(text),
+    "a true HERMES_AUTO must add --yolo to HERMES_PERMISSION_FLAGS",
+  );
+  // Opt-out path present.
+  assert.ok(/"--safe"/.test(text) && /"--no-auto"/.test(text), "must honor --safe / --no-auto opt-out");
+  assert.ok(/HERMES_AUTO=false/.test(text), "the opt-out branch must set HERMES_AUTO=false");
+  // The interactive --tui exec(s) apply the permission flags.
+  assert.ok(
+    /--tui "\$\{HERMES_PERMISSION_FLAGS\[@\]\}"/.test(text),
+    "the interactive `hermes --tui` exec must apply HERMES_PERMISSION_FLAGS (the --yolo default)",
+  );
 });
 
 // ── The harness wrapper contract (v0.6 Phase 2) ─────────────────────────────
@@ -124,68 +133,52 @@ test("hermes-aify wrapper: Task 4 — HERMES_AUTO defaults true and the interact
 // window where nothing is running.
 
 test("hermes-aify wrapper: the contract is resolved before anything is started", () => {
-  const { text, dir } = renderHermesWrapper();
-  try {
-    const contractAt = text.indexOf("HARNESS_ENDPOINT=");
-    assert.ok(contractAt >= 0, "the wrapper must resolve HARNESS_ENDPOINT");
+  const text = sharedText();
+  const contractAt = text.indexOf("HARNESS_ENDPOINT=");
+  assert.ok(contractAt >= 0, "the wrapper must resolve HARNESS_ENDPOINT");
 
-    // Everything this wrapper does that touches the machine must come AFTER the contract block.
-    for (const marker of ["aify_hermes_kill_prior", "ensure-host", "nohup"]) {
-      const at = text.indexOf(marker);
-      if (at < 0) continue;
-      assert.ok(
-        at > contractAt,
-        `${marker} appears before the contract is resolved — a rejected configuration would already `
-          + "have changed the machine",
-      );
-    }
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+  // Everything this wrapper does that touches the machine must come AFTER the contract block.
+  for (const marker of ["aify_hermes_kill_prior", "ensure-host", "nohup"]) {
+    const at = text.indexOf(marker);
+    if (at < 0) continue;
+    assert.ok(
+      at > contractAt,
+      `${marker} appears before the contract is resolved — a rejected configuration would already `
+        + "have changed the machine",
+    );
   }
 });
 
 test("hermes-aify wrapper: contract inputs fall back to the legacy AIFY_* names", () => {
   // The whole reason a live fleet survives this change: with no HARNESS_* set, every input resolves
   // to exactly what the wrapper used before the contract existed.
-  const { text, dir } = renderHermesWrapper();
-  try {
-    assert.match(text, /HARNESS_IDENTITY="\$\{HARNESS_IDENTITY:-\$\{AIFY_AGENT_ID:-\}\}"/);
-    assert.match(text, /HARNESS_ROLE="\$\{HARNESS_ROLE:-\$\{AIFY_AGENT_ROLE:-\}\}"/);
-    assert.match(text, /HERMES_AIFY_AGENT_ID="\$HARNESS_IDENTITY"/, "identity must flow from the contract");
-    assert.match(text, /export AIFY_SERVER_URL="\$HARNESS_ENDPOINT"/, "and so must the endpoint");
-    // `-` not `:-` on the endpoint: an explicitly emptied value is a configuration error, not unset.
-    assert.doesNotMatch(text, /HARNESS_ENDPOINT="\$\{HARNESS_ENDPOINT:-/);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  const text = sharedText();
+  assert.match(text, /HARNESS_IDENTITY="\$\{HARNESS_IDENTITY:-\$\{AIFY_AGENT_ID:-\}\}"/);
+  assert.match(text, /HARNESS_ROLE="\$\{HARNESS_ROLE:-\$\{AIFY_AGENT_ROLE:-\}\}"/);
+  assert.match(text, /HERMES_AIFY_AGENT_ID="\$HARNESS_IDENTITY"/, "identity must flow from the contract");
+  assert.match(text, /export AIFY_SERVER_URL="\$HARNESS_ENDPOINT"/, "and so must the endpoint");
+  // `-` not `:-` on the endpoint: an explicitly emptied value is a configuration error, not unset.
+  assert.doesNotMatch(text, /HARNESS_ENDPOINT="\$\{HARNESS_ENDPOINT:-/);
 });
 
 test("hermes-aify wrapper: --check reports and exits before any side effect", () => {
-  const { text, dir } = renderHermesWrapper();
-  try {
-    const checkAt = text.indexOf('"--check"');
-    assert.ok(checkAt >= 0, "--check must be handled");
-    const exitAt = text.indexOf("OK — nothing was started.", checkAt);
-    assert.ok(exitAt > checkAt, "--check must report that it started nothing");
-    const killAt = text.indexOf("aify_hermes_kill_prior");
-    if (killAt >= 0) {
-      assert.ok(exitAt < killAt, "--check must exit above the process reap");
-    }
-    assert.match(text, /exit "\$HARNESS_EXIT_CONFIG"/, "an invalid configuration must exit 78");
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+  const text = sharedText();
+  const checkAt = text.indexOf('"--check"');
+  assert.ok(checkAt >= 0, "--check must be handled");
+  const exitAt = text.indexOf("OK — nothing was started.", checkAt);
+  assert.ok(exitAt > checkAt, "--check must report that it started nothing");
+  const killAt = text.indexOf("aify_hermes_kill_prior");
+  if (killAt >= 0) {
+    assert.ok(exitAt < killAt, "--check must exit above the process reap");
   }
+  assert.match(text, /exit "\$HARNESS_EXIT_CONFIG"/, "an invalid configuration must exit 78");
 });
 
 test("hermes-aify wrapper: reports its own version for doctor's wrapper-current check", () => {
-  const { text, dir } = renderHermesWrapper();
-  try {
-    assert.match(
-      text,
-      /HARNESS_WRAPPER_VERSION="\d+\.\d+\.\d+"/,
-      "a literal version, substituted at render — not a command the wrapper runs at launch",
-    );
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  const text = sharedText();
+  assert.match(
+    text,
+    /HARNESS_WRAPPER_VERSION="\d+\.\d+\.\d+"/,
+    "a literal version, substituted at render — not a command the wrapper runs at launch",
+  );
 });
