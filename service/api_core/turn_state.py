@@ -24,6 +24,8 @@ transaction.
 
 from __future__ import annotations
 
+from service.api_core.status_signal_prefetch import status_signals_or_live
+
 import time
 from datetime import datetime, timezone
 
@@ -143,7 +145,7 @@ async def _clear_status_state_in_turn(db, agent_id: str) -> None:
     )
 
 
-async def _status_turn_signals(db, agent_row):
+async def _status_turn_signals(db, agent_row, *, status_signals=None):
     """Read `agent_turn_state` for the STATUS engine: is a turn open, and is the agent ready.
 
     Extracted from `_compute_live_status_cache` (`api_core/status_inputs.py`) in v0.5.4, which
@@ -179,10 +181,10 @@ async def _status_turn_signals(db, agent_row):
     # `ready` and `available` as competing positive states.
     turn_state_ready = False
     try:
-        _tb = await (await db.execute(
-            "SELECT turn_busy, turn_runtime, turn_updated_at, ready FROM agent_turn_state WHERE agent_id = ?",
-            (agent_row["id"],),
-        )).fetchone()
+        # Read through the signal source rather than inline, so a batch refresh can hand this the
+        # row it already loaded. An absent source READS -- `status_signals_or_live` fails closed, and
+        # the live reader issues exactly the query that used to be here.
+        _tb = await status_signals_or_live(status_signals).turn_state(db, agent_row["id"])
         if _tb:
             if int(_tb["turn_busy"] or 0) == 1:
                 _age = datetime.now(timezone.utc).timestamp() - _iso_to_epoch(str(_tb["turn_updated_at"] or ""))

@@ -199,7 +199,9 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     session_row = await _current_agent_session_row(db, agent_row["id"])
     active_run = await _current_active_run_row(db, agent_row["id"])
     channel_pending_reply_run = await _current_channel_awaiting_reply_run_row(db, agent_row["id"])
-    turn_busy, turn_runtime, turn_updated_at, turn_state_ready = await _status_turn_signals(db, agent_row)
+    turn_busy, turn_runtime, turn_updated_at, turn_state_ready = await _status_turn_signals(
+        db, agent_row, status_signals=status_signals,
+    )
     # Console-working lease (2026-06-05): a fresh spinner-gated lease is the managed-claude
     # "working" signal the per-completed-message transcript can't see (a long thinking phase
     # shows the last ENDED message). Read it HERE, but fold it into turn_busy / the v2 in_turn

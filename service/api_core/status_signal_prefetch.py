@@ -14,12 +14,28 @@ The share GROWS with fleet size, so on a real fleet it is the dominant term rath
 error inside a bigger cost. That is what makes it worth touching a path this safety-sensitive; a raw
 count on its own would not have.
 
+RE-MEASURED 2026-08-29 WITH THE SAME METHOD, and the figures above did not survive: 5 agents -> 54
+round-trips, 20 -> 204, 40 -> 404. Exactly 10.0 per added agent, where this docstring records 5.0 two
+days earlier. The 2026-08-27 numbers are left as written rather than corrected, because they were
+true of the code that day and rewriting them would hide the point: NOTHING WAS WATCHING THE NUMBER,
+so it moved. `service/tests/test_the_live_state_refresh_holds_its_per_agent_cost.py` now holds it at
+a ceiling that fails in both directions -- above it, because a per-agent read costs one round-trip
+per agent on every sweep pass forever; below it, because slack left above the real cost is how 5
+became 10 with nobody noticing.
+
 `GET /agents` is NOT the problem and is not changed: it caps the recompute per request, so it is flat
 at 65 round-trips whether the fleet is 20 agents or 40. The unbounded sweep pays the full price.
 
-WHAT THIS DOES. Two of the seven per-agent reads are plain single-row lookups keyed on agent_id with
-no filtering, grouping or ordering -- `agent_status_state` and `agent_console_signal`. They become one
-query each for the whole batch. 7.0 per agent -> 5.0.
+WHAT THIS DOES. The per-agent reads that are plain single-row lookups keyed on agent_id with no
+filtering, grouping or ordering become one query each for the whole batch. `agent_status_state` and
+`agent_console_signal` came first (7.0 per added agent -> 5.0); `agent_turn_state` joined them on
+2026-08-29, taking the absolute per-agent cost of a refresh from 8 round-trips to 7.
+
+WHAT IS DELIBERATELY LEFT ALONE. The remaining per-agent reads are not lookups: the two dispatch_runs
+reads, the agent_sessions read and both terminal_sessions reads filter, order or aggregate, and the
+channel-sidecar `bridge_instances` read takes a MAX. Each can be batched, and each needs a GROUP BY
+whose equivalence to the single-row form is its own argument. Doing one of those carelessly in the
+status path costs more than the round-trips are worth.
 
 WHY AN OBJECT AND NOT A DICT ARGUMENT. The caller should not branch on whether a prefetch happened;
 `signals.status_state(db, aid)` is one line either way, and the fallback reads the same row the
@@ -41,6 +57,12 @@ _MAX_PARAMS_PER_QUERY = 400
 
 _STATUS_STATE_SQL = "SELECT agent_id, in_turn, awaiting_input, last_event_at FROM agent_status_state WHERE agent_id IN ({})"
 _CONSOLE_SIGNAL_SQL = "SELECT agent_id, working_at, subagents_at FROM agent_console_signal WHERE agent_id IN ({})"
+#: THE THIRD, added 2026-08-29. `agent_turn_state` meets the same criterion as the two above -- one
+#: row per agent, keyed on agent_id, no filtering, grouping or ordering -- and `_status_turn_signals`
+#: read it once per agent inside the refresh loop. Measured with the same counter as the rest of this
+#: module: 8 per-agent round-trips became 7.
+_TURN_STATE_SQL = ("SELECT agent_id, turn_busy, turn_runtime, turn_updated_at, ready "
+                   "FROM agent_turn_state WHERE agent_id IN ({})")
 
 
 async def _load_by_agent(db, sql_template: str, agent_ids: list[str]) -> dict[str, Any]:
@@ -74,6 +96,13 @@ class LiveStatusSignals:
             (agent_id,),
         )).fetchone()
 
+    async def turn_state(self, db, agent_id: str):
+        return await (await db.execute(
+            "SELECT turn_busy, turn_runtime, turn_updated_at, ready FROM agent_turn_state "
+            "WHERE agent_id = ?",
+            (agent_id,),
+        )).fetchone()
+
 
 class PrefetchedStatusSignals:
     """Both signals for a whole batch, read up front. Answers from memory, never touching `db`.
@@ -86,9 +115,14 @@ class PrefetchedStatusSignals:
 
     prefetched = True
 
-    def __init__(self, status_state_rows: dict[str, Any], console_signal_rows: dict[str, Any]):
+    def __init__(self, status_state_rows: dict[str, Any], console_signal_rows: dict[str, Any],
+                 turn_state_rows: dict[str, Any] | None = None):
         self._status_state = status_state_rows
         self._console_signal = console_signal_rows
+        # Defaulted so a caller constructing this directly with two arguments -- the shape before
+        # 2026-08-29 -- still gets an object that answers every question, rather than one that
+        # raises on the third the moment a status refresh reaches it.
+        self._turn_state = turn_state_rows or {}
 
     @classmethod
     async def load(cls, db, agent_ids: Iterable[str]) -> "PrefetchedStatusSignals":
@@ -98,6 +132,7 @@ class PrefetchedStatusSignals:
         return cls(
             await _load_by_agent(db, _STATUS_STATE_SQL, ids),
             await _load_by_agent(db, _CONSOLE_SIGNAL_SQL, ids),
+            await _load_by_agent(db, _TURN_STATE_SQL, ids),
         )
 
     async def status_state(self, db, agent_id: str):
@@ -105,6 +140,9 @@ class PrefetchedStatusSignals:
 
     async def console_signal(self, db, agent_id: str):
         return self._console_signal.get(str(agent_id))
+
+    async def turn_state(self, db, agent_id: str):
+        return self._turn_state.get(str(agent_id))
 
 
 #: The default every existing caller gets. Stateless, so one instance is correct and shared.
