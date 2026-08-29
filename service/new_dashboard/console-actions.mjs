@@ -81,7 +81,7 @@ export async function resyncActiveConsole({ forceRepaint = false } = {}) {
 
 export async function stopConsoleTerminal(terminalId) {
   if (!terminalId) return;
-  if (!await uiConfirm('Stop this terminal? The agent returns to messenger ownership.')) return;
+  if (!await uiConfirm('Stop this terminal? The agent returns to messenger ownership.', { tone: 'danger' })) return;
   try {
     await api(`/terminals/${encodeURIComponent(terminalId)}/stop`, { method: 'POST', body: JSON.stringify({ requestedBy: 'dashboard', body: '' }) });
     disposeActiveXterm();

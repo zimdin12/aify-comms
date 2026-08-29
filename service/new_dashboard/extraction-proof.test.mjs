@@ -22,7 +22,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-import { declarationSpan, functionSpan, moduleScopeBrowserRefs, reconstruct } from "./extraction-proof.mjs";
+import { declarationSpan, duplicateEntryKeys, functionSpan, moduleScopeBrowserRefs, reconstruct } from "./extraction-proof.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = (p) => fs.readFileSync(path.join(HERE, p), "utf-8");
@@ -1060,7 +1060,24 @@ const EXTRACTIONS = [
       { name: "openEnvironmentRootsEditor", at: 3122, marker: "// openEnvironmentRootsEditor moved to ./environments-panels.mjs in v0.5.4." },
       // The four ACTIONS, added later in v0.5.4. They landed in this module rather than a new one
       // because an environment's actions and the panels that render them are one subject.
-      { name: "controlEnvironment", at: 3092, marker: "// controlEnvironment moved to ./environments-panels.mjs in v0.5.4." },
+      {
+        name: "controlEnvironment",
+        at: 3092,
+        marker: "// controlEnvironment moved to ./environments-panels.mjs in v0.5.4.",
+        // Destructive confirmations wear the red button now: this one guards a DELETE, or stops live work.
+        editedSince: [
+          {
+            was: [
+              "  if ((action === 'stop' || action === 'forget') && !await uiConfirm(`${action === 'stop' ? 'Stop the bridge process' : 'Forget this environment'} \"${environmentId}\"?`)) return;",
+              "  try {",
+            ],
+            now: [
+              "  if ((action === 'stop' || action === 'forget') && !await uiConfirm(`${action === 'stop' ? 'Stop the bridge process' : 'Forget this environment'} \"${environmentId}\"?`, { tone: 'danger' })) return;",
+              "  try {",
+            ],
+          },
+        ],
+      },
       { name: "submitEnvironmentRoots", at: 3153, marker: "// submitEnvironmentRoots moved to ./environments-panels.mjs in v0.5.4." },
       { name: "resetEnvironmentRoots", at: 3165, marker: "// resetEnvironmentRoots moved to ./environments-panels.mjs in v0.5.4." },
       { name: "createSpawnRequest", at: 3994, marker: "// createSpawnRequest moved to ./environments-panels.mjs in v0.5.4." },
@@ -2483,6 +2500,21 @@ const EXTRACTIONS = [
       },
       {
         name: "handleRunInspectorControl",
+        // Destructive confirmations wear the red button now: this one guards a DELETE, or stops live work.
+        editedSince: [
+          {
+            was: [
+              "  } else if (action === 'interrupt') {",
+              "    if (!await uiConfirm(`Interrupt this run? This will kill 1 active run + ${runPendingControlCount(run)} pending controls.`)) return;",
+              "    await api(`/dispatch/runs/${encodeURIComponent(run.id)}/control`, {",
+            ],
+            now: [
+              "  } else if (action === 'interrupt') {",
+              "    if (!await uiConfirm(`Interrupt this run? This will kill 1 active run + ${runPendingControlCount(run)} pending controls.`, { tone: 'danger' })) return;",
+              "    await api(`/dispatch/runs/${encodeURIComponent(run.id)}/control`, {",
+            ],
+          },
+        ],
         at: 4073,
         marker: "// handleRunInspectorControl moved to ./run-inspector.mjs in v0.5.4.",
       },
@@ -2582,11 +2614,42 @@ const EXTRACTIONS = [
       },
       {
         name: "removeAgent",
+        // Destructive confirmations wear the red button now: this one guards a DELETE, or stops live work.
+        editedSince: [
+          {
+            was: [
+              "  if (!agentId) return;",
+              "  if (!await uiConfirm(`Remove agent \"${agentId}\"? This tombstones the identity.`)) return;",
+              "  try {",
+            ],
+            now: [
+              "  if (!agentId) return;",
+              "  if (!await uiConfirm(`Remove agent \"${agentId}\"? This tombstones the identity.`, { tone: 'danger' })) return;",
+              "  try {",
+            ],
+          },
+        ],
         at: 3781,
         marker: "// removeAgent moved to ./agent-session-actions.mjs in v0.5.4.",
       },
       {
         name: "stopAgentWorker",
+        // Destructive confirmations wear the red button now: this one guards a DELETE, or stops live work.
+        editedSince: [
+          {
+            was: [
+              "    + 'Any turn it is running is lost. Its identity, history and resume handle are kept, '",
+              "    + 'so you can start it again.',",
+              "  )) return;",
+              "  try {",
+            ],
+            now: [
+              "    + 'Any turn it is running is lost. Its identity, history and resume handle are kept, '",
+              "    + 'so you can start it again.', { tone: 'danger' })) return;",
+              "  try {",
+            ],
+          },
+        ],
         at: 3792,
         // `at` points at the first COMMENT line, not the declaration: 6 lines of prose
         // moved with it, and `leading` restores them FROM THE MODULE so they are byte-checked too.
@@ -2595,6 +2658,21 @@ const EXTRACTIONS = [
       },
       {
         name: "deleteSessionById",
+        // Destructive confirmations wear the red button now: this one guards a DELETE, or stops live work.
+        editedSince: [
+          {
+            was: [
+              "  if (!sid) return;",
+              "  if (!await uiConfirm('Delete this session record?')) return;",
+              "  try {",
+            ],
+            now: [
+              "  if (!sid) return;",
+              "  if (!await uiConfirm('Delete this session record?', { tone: 'danger' })) return;",
+              "  try {",
+            ],
+          },
+        ],
         at: 3820,
         marker: "// deleteSessionById moved to ./agent-session-actions.mjs in v0.5.4.",
       },
@@ -2651,6 +2729,19 @@ const EXTRACTIONS = [
           // The failure toast names the session now, and the bulk caller's own toast is gone: the
           // callee swallows, so that catch could never run and a bulk failure was unattributable.
           editedSince: [
+        // Destructive confirmations wear the red button now: this one guards a DELETE, or stops live work.
+          {
+            was: [
+              "  if (!ids.length || !action) return;",
+              "  if (!await uiConfirm(`Really ${action} ${ids.length} selected session${ids.length === 1 ? '' : 's'}?`)) return;",
+              "  for (const id of ids) {",
+            ],
+            now: [
+              "  if (!ids.length || !action) return;",
+              "  if (!await uiConfirm(`Really ${action} ${ids.length} selected session${ids.length === 1 ? '' : 's'}?`, { tone: action === 'delete' ? 'danger' : '' })) return;",
+              "  for (const id of ids) {",
+            ],
+          },
             {
               was: [
                 "      // Isolate per-item failures so one bad session doesn't abort the rest of the batch",
@@ -2847,7 +2938,19 @@ const EXTRACTIONS = [
         // all. The dashboard is an operator surface, so it names itself. This changes a body the
         // proof reconstructs, so it is written down here rather than silently tolerated — the same
         // reason the clipboard fix above carries one.
-        editedSince: [{
+        editedSince: [
+        // Destructive confirmations wear the red button now: this one guards a DELETE, or stops live work.
+          {
+            was: [
+              "  if (!await uiConfirm('Unsend this message? It will be removed for the recipient.')) return;",
+              "  try {",
+            ],
+            now: [
+              "  if (!await uiConfirm('Unsend this message? It will be removed for the recipient.', { tone: 'danger' })) return;",
+              "  try {",
+            ],
+          },
+          {
           was: "    await api(`/messages/${encodeURIComponent(messageId)}`, { method: 'DELETE' });",
           now: [
             "    // `requestedBy` is mandatory since H4 (2026-08-18) — the endpoint refuses an actor-less",
@@ -2893,6 +2996,21 @@ const EXTRACTIONS = [
       },
       {
         name: "chatChannelAction",
+        // Destructive confirmations wear the red button now: this one guards a DELETE, or stops live work.
+        editedSince: [
+          {
+            was: [
+              "    if (action === 'delete') {",
+              "      if (!await uiConfirm(`Delete channel #${name}? This removes the channel and its membership for everyone.`)) return;",
+              "      await api(`/channels/${encodeURIComponent(name)}`, { method: 'DELETE' });",
+            ],
+            now: [
+              "    if (action === 'delete') {",
+              "      if (!await uiConfirm(`Delete channel #${name}? This removes the channel and its membership for everyone.`, { tone: 'danger' })) return;",
+              "      await api(`/channels/${encodeURIComponent(name)}`, { method: 'DELETE' });",
+            ],
+          },
+        ],
         at: 395,
         marker: "// chatChannelAction moved to ./message-actions.mjs in v0.5.4.",
       },
@@ -2928,6 +3046,21 @@ const EXTRACTIONS = [
       },
       {
         name: "stopConsoleTerminal",
+        // Destructive confirmations wear the red button now: this one guards a DELETE, or stops live work.
+        editedSince: [
+          {
+            was: [
+              "  if (!terminalId) return;",
+              "  if (!await uiConfirm('Stop this terminal? The agent returns to messenger ownership.')) return;",
+              "  try {",
+            ],
+            now: [
+              "  if (!terminalId) return;",
+              "  if (!await uiConfirm('Stop this terminal? The agent returns to messenger ownership.', { tone: 'danger' })) return;",
+              "  try {",
+            ],
+          },
+        ],
         at: 2395,
         marker: "// stopConsoleTerminal moved to ./console-actions.mjs in v0.5.4.",
       },
@@ -4149,4 +4282,48 @@ test("the five bridge classes are measurable, and the sizes are cross-checked", 
     assert.ok(span, `${name} in ${rel} is still invisible`);
     assert.equal(span.end - span.start + 1, expected, `${name} span moved; re-measure before editing`);
   }
+});
+
+test("no plan entry declares the same key twice", () => {
+  // A duplicate key is legal JS and the later one wins, so a declared edit can vanish with no
+  // error anywhere -- the reconstruction just differs, thousands of lines from the cause.
+  const dupes = duplicateEntryKeys(read("extraction-proof.test.mjs"));
+  assert.deepEqual(dupes, [],
+    "one of these entries declares a key twice, so its earlier value is being discarded");
+});
+
+test("the duplicate-key check sees a planted duplicate, and does not count nested keys", () => {
+  const nl = String.fromCharCode(10);
+  const planted = [
+    "const EXTRACTIONS = [",
+    "  {",
+    '    name: "unsendMessage",',
+    "    editedSince: [",
+    "      {",
+    '        was: ["a"],',
+    '        now: ["b"],',
+    "      },",
+    "    ],",
+    "    at: 191,",
+    "    editedSince: [{",
+    '      was: "c",',
+    '      now: "d",',
+    "    }],",
+    "  },",
+    "];",
+  ].join(nl);
+  assert.deepEqual(duplicateEntryKeys(planted),
+    [{ name: "unsendMessage", key: "editedSince", count: 2 }]);
+  // `was` and `now` appear twice each in that entry too, one level deeper. Counting those would
+  // make every multi-hunk declaration in the real plan a false positive -- an indent-based reader
+  // did exactly that.
+  const clean = planted.replace("    editedSince: [{", "    somethingElse: [{");
+  assert.deepEqual(duplicateEntryKeys(clean), []);
+});
+
+test("the duplicate-key check refuses a source with no plan in it", () => {
+  // The test file also holds inline fixtures whose objects carry a `name`. Scanning the whole file
+  // reported four keys of one fixture as duplicates; a scan that cannot find its subject has to
+  // say so rather than widen to whatever else is lying around.
+  assert.throws(() => duplicateEntryKeys("const OTHER = [];"), /no EXTRACTIONS declaration/);
 });

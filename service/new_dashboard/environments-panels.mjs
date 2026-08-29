@@ -300,7 +300,7 @@ export function initEnvironmentActions(deps) {
 
 
 export async function controlEnvironment(environmentId, action) {
-  if ((action === 'stop' || action === 'forget') && !await uiConfirm(`${action === 'stop' ? 'Stop the bridge process' : 'Forget this environment'} "${environmentId}"?`)) return;
+  if ((action === 'stop' || action === 'forget') && !await uiConfirm(`${action === 'stop' ? 'Stop the bridge process' : 'Forget this environment'} "${environmentId}"?`, { tone: 'danger' })) return;
   try {
     await api(`/environments/${encodeURIComponent(environmentId)}/control`, { method: 'POST', body: JSON.stringify({ action, requestedBy: 'dashboard' }) });
     toast(`Environment ${action} requested`, 'ok');

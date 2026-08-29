@@ -175,7 +175,7 @@ export async function submitContinue(sid, splitIdentity) {
 
 export async function removeAgent(agentId) {
   if (!agentId) return;
-  if (!await uiConfirm(`Remove agent "${agentId}"? This tombstones the identity.`)) return;
+  if (!await uiConfirm(`Remove agent "${agentId}"? This tombstones the identity.`, { tone: 'danger' })) return;
   try {
     await api(`/agents/${encodeURIComponent(agentId)}`, { method: 'DELETE' });
     toast(`Removed ${agentId}`, 'ok');
@@ -195,8 +195,7 @@ export async function stopAgentWorker(agentId) {
   if (!await uiConfirm(
     `Stop ${agentId}'s live worker?\n\n`
     + 'Any turn it is running is lost. Its identity, history and resume handle are kept, '
-    + 'so you can start it again.',
-  )) return;
+    + 'so you can start it again.', { tone: 'danger' })) return;
   try {
     await api(`/agents/${encodeURIComponent(agentId)}/stop-worker`, {
       method: 'POST',
@@ -214,7 +213,7 @@ export async function stopAgentWorker(agentId) {
 
 export async function deleteSessionById(sid) {
   if (!sid) return;
-  if (!await uiConfirm('Delete this session record?')) return;
+  if (!await uiConfirm('Delete this session record?', { tone: 'danger' })) return;
   try {
     await api(`/sessions/${encodeURIComponent(sid)}`, { method: 'DELETE' });
     toast('Session deleted', 'ok');
@@ -265,7 +264,7 @@ export async function requestSessionControl(sessionId, action, confirmAction = t
 export async function requestBulkSessionControl(action) {
   const ids = selectedSessionIds();
   if (!ids.length || !action) return;
-  if (!await uiConfirm(`Really ${action} ${ids.length} selected session${ids.length === 1 ? '' : 's'}?`)) return;
+  if (!await uiConfirm(`Really ${action} ${ids.length} selected session${ids.length === 1 ? '' : 's'}?`, { tone: action === 'delete' ? 'danger' : '' })) return;
   for (const id of ids) {
     if (action === 'delete') {
       try { await api(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch (err) { toast(`Delete ${id} failed: ${err?.message || err}`, 'error'); }

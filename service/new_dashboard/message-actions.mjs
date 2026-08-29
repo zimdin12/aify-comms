@@ -45,7 +45,7 @@ export async function markMessageRead(msgId, read) {
 }
 
 export async function unsendMessage(messageId) {
-  if (!await uiConfirm('Unsend this message? It will be removed for the recipient.')) return;
+  if (!await uiConfirm('Unsend this message? It will be removed for the recipient.', { tone: 'danger' })) return;
   try {
     // `requestedBy` is mandatory since H4 (2026-08-18) — the endpoint refuses an actor-less
     // delete. The dashboard is an operator surface, so it may unsend a message it did not write.
@@ -141,7 +141,7 @@ export async function chatChannelAction(action, name) {
   const identity = state.chat.identity;
   try {
     if (action === 'delete') {
-      if (!await uiConfirm(`Delete channel #${name}? This removes the channel and its membership for everyone.`)) return;
+      if (!await uiConfirm(`Delete channel #${name}? This removes the channel and its membership for everyone.`, { tone: 'danger' })) return;
       await api(`/channels/${encodeURIComponent(name)}`, { method: 'DELETE' });
       if (state.chat.selected === `channel:${name}`) chatController.close();
       await chatLoadChannels();

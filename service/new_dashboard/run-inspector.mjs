@@ -229,7 +229,7 @@ export async function handleRunInspectorControl(action) {
       body: JSON.stringify({ from_agent: 'dashboard', action: 'steer', body }),
     });
   } else if (action === 'interrupt') {
-    if (!await uiConfirm(`Interrupt this run? This will kill 1 active run + ${runPendingControlCount(run)} pending controls.`)) return;
+    if (!await uiConfirm(`Interrupt this run? This will kill 1 active run + ${runPendingControlCount(run)} pending controls.`, { tone: 'danger' })) return;
     await api(`/dispatch/runs/${encodeURIComponent(run.id)}/control`, {
       method: 'POST',
       body: JSON.stringify({ from_agent: 'dashboard', action: 'interrupt', body: 'Interrupted from Dashboard Next run inspector.' }),
