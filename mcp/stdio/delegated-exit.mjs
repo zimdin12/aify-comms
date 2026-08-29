@@ -29,6 +29,8 @@
 // So an unobserved exit is never asserted. The environment is ASKED first, and silence holds the row
 // rather than closing it.
 
+import { envListing } from "./env-listing.mjs";
+
 /**
  * @typedef {"exited"|"alive"|"unknown"} DelegatedExitKind
  *   exited  -- aify-env said so, or said the process is gone. Finalise.
@@ -95,12 +97,10 @@ export async function processStillListed(client, processId) {
   } catch {
     return null;
   }
-  // `EnvClient.#request` answers `{ ok: true, handle: <body> }` or `{ ok: false, error }`. A refusal
-  // is not an empty listing -- reading it as one would say "not listed" about an environment that
-  // never answered, which is the collapse this function exists to prevent.
-  if (listing?.ok === false) return null;
-  const body = listing?.handle ?? listing;
-  const processes = body?.processes ?? (Array.isArray(body) ? body : null);
-  if (!Array.isArray(processes)) return null;
+  // THROUGH THE SHARED READER. This unwrap was correct here and wrong in `label-reconciler.mjs`,
+  // which is what a hand-written envelope read costs: it agrees until one of the three copies is
+  // written by somebody who has not read the other two. A refusal is not an empty listing.
+  const { processes, refused } = envListing(listing);
+  if (refused || !processes) return null;
   return processes.some((process_) => String(process_?.id ?? "").trim() === id);
 }

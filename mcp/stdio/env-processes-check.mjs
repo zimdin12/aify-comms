@@ -12,6 +12,7 @@
 // Every collaborator is a parameter with no default, so a caller cannot accidentally reach the
 // operator's own network, launcher or hostname.
 
+import { envListing } from "./env-listing.mjs";
 import { envProcessVerdict, reconcileEnvProcesses } from "./env-process-reconciliation.mjs";
 import { launcherDelegation } from "./doctor-predicates.js";
 
@@ -33,7 +34,12 @@ export async function checkEnvProcesses({ get, add, skip, fetchJson, launcherTex
   }
 
   const listing = await fetchJson(`${endpoint}/processes`);
-  if (!listing) {
+  // THROUGH THE SHARED READER, and the second clause is not decoration: a body that answered 200 but
+  // carries no readable `processes` used to fall through to `[]` and report "nothing unaccounted
+  // for". That is a green row for a listing nobody could read, which is the one thing this check
+  // exists to stop.
+  const { processes: envProcesses } = envListing(listing);
+  if (!listing || !envProcesses) {
     return add(...toArgs("env-processes", envProcessVerdict({ envAnswered: false })));
   }
 
@@ -59,7 +65,7 @@ export async function checkEnvProcesses({ get, add, skip, fetchJson, launcherTex
   );
 
   const result = reconcileEnvProcesses({
-    envProcesses: listing.processes ?? (Array.isArray(listing) ? listing : []),
+    envProcesses,
     terminals: terminals.terminals ?? [],
     environmentId: String(ours?.id ?? ""),
   });

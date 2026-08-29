@@ -25,6 +25,8 @@
 // direction of the error matters: advertising a terminal we cannot open sends work into a hole,
 // while withholding one we could open costs a queued send that the next heartbeat releases.
 
+import { envListing } from "./env-listing.mjs";
+
 /**
  * @typedef {{terminal: boolean, reason: string}} TerminalCapability
  *   `reason` is always populated, including when the answer is yes: an operator reading a row that
@@ -113,9 +115,10 @@ export async function probeEnvTerminal(delegation) {
     const body = result.handle;
     return {
       terminal: envTerminalHealth(body),
-      // An absent or non-array `processes` is NOT an empty fleet. Saying "none" about a body we
-      // could not read would report every terminal as unknown to this bridge.
-      processes: Array.isArray(body?.processes) ? body.processes : null,
+      // An absent or non-array `processes` is NOT an empty fleet: saying "none" about a body we could
+      // not read would report every terminal as unknown to this bridge. Through the SHARED reader,
+      // because this unwrap was written by hand in three places and one of the three had it wrong.
+      processes: envListing(body).processes,
     };
   } catch {
     return nothing;

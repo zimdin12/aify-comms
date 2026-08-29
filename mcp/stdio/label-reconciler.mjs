@@ -19,6 +19,8 @@
 // stores and displays and reads nothing into, exactly as at spawn. docs/AIFY_ENV_BOUNDARY.md owns
 // that line and this does not move it.
 
+import { envListing } from "./env-listing.mjs";
+
 /**
  * A process aify-env owns, as its `/processes` listing reports it.
  * @typedef {{id: string, label?: string}} EnvProcess
@@ -88,7 +90,13 @@ export async function reconcileLabels({ client, terminals } = {}) {
     // means there is nothing to reconcile this tick.
     return { pushed: 0, failed: 0, skipped: "unreachable" };
   }
-  const processes = listing?.processes ?? (Array.isArray(listing) ? listing : []);
+  // THROUGH THE SHARED READER. This line said `listing?.processes` and `EnvClient` answers
+  // `{ ok, handle }`, so it was undefined on every call and this reconciler pushed NOTHING, ever --
+  // proven by execution, `{pushed: 0}` against a listing that plainly needed one push. The spawn path
+  // sets the label directly, so the common case worked and only drift repair was dead.
+  const { processes, refused } = envListing(listing);
+  if (refused) return { pushed: 0, failed: 0, skipped: "refused" };
+  if (!processes) return { pushed: 0, failed: 0, skipped: "unreadable" };
   const pushes = labelsToPush(processes, terminals);
   let pushed = 0;
   let failed = 0;
