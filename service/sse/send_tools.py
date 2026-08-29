@@ -105,6 +105,7 @@ async def comms_dispatch(
     to: str = "",
     toRole: str = "",
     inReplyTo: str = "",
+    priority: str = "normal",
     requireStart: bool = False,
     requireReply: bool | None = None,
 ) -> str:
@@ -118,6 +119,10 @@ async def comms_dispatch(
         "body": body,
         "mode": "require_start" if requireStart else "start_if_possible",
         "createMessage": True,
+        # An SSE client could not mark a dispatch high or urgent until 2026-08-29: the parameter was
+        # simply absent here while stdio had it, so every SSE dispatch took the endpoint's "normal"
+        # default. `DispatchRequest.priority` has accepted it all along.
+        "priority": priority or "normal",
         "requireReply": requireReply,
     }
     if to:

@@ -22,6 +22,8 @@ import re
 import unittest
 from pathlib import Path
 
+from service.tests.tool_schemas import tool_parameters
+
 ROOT = Path(__file__).resolve().parents[2]
 BRIDGE = ROOT / "mcp" / "stdio"
 
@@ -31,55 +33,17 @@ SKILL_MENTION = re.compile(r"\b(comms_[a-z0-9_]+)\b")
 #: A skill writes a call as `comms_send(to="x", type="info")`. Only the keyword names matter here.
 SKILL_CALL = re.compile(r"\b(comms_[a-z0-9_]+)\(([^)]*)\)")
 KWARG = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*=")
-#: A top-level key of the zod schema object, e.g. `  to: z.string()`.
-SCHEMA_KEY = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:")
 
 
+#: `tool_parameters` moved to `service/tests/tool_schemas.py` on 2026-08-29 so the
+#: transport-parity gate could ask the same question without writing a second reader of the
+#: same zod schemas. Imported at the top of this file; nothing re-exports it from here.
 def registered_tools() -> set[str]:
     """What the bridge actually hands to an MCP client."""
     names: set[str] = set()
     for path in list(BRIDGE.glob("*.mjs")) + list(BRIDGE.glob("*.js")):
         names |= set(TOOL_NAME.findall(path.read_text(encoding="utf-8", errors="replace")))
     return names
-
-
-def tool_parameters() -> dict[str, set[str]]:
-    """tool name -> the parameter names its zod schema declares.
-
-    The schema is `server.tool`\'s THIRD argument, so this brace-matches from the first `{` after the
-    registration rather than trying to parse JavaScript. Nested objects are excluded by depth: a
-    `z.object({ ... })` inside a parameter must not contribute its own keys as if they were the
-    tool\'s.
-    """
-    found: dict[str, set[str]] = {}
-    for path in sorted(list(BRIDGE.glob("*.mjs")) + list(BRIDGE.glob("*.js"))):
-        if ".test." in path.name:
-            continue
-        text = path.read_text(encoding="utf-8", errors="replace")
-        for match in TOOL_NAME.finditer(text):
-            window = text[match.end():match.end() + 2000]
-            if "{" not in window:
-                continue
-            start = text.index("{", match.end())
-            depth = 0
-            end = start
-            while end < len(text):
-                if text[end] == "{":
-                    depth += 1
-                elif text[end] == "}":
-                    depth -= 1
-                    if depth == 0:
-                        break
-                end += 1
-            keys: set[str] = set()
-            level = 0
-            for line in text[start + 1:end].splitlines():
-                key = SCHEMA_KEY.match(line.strip())
-                if level == 0 and key:
-                    keys.add(key.group(1))
-                level += line.count("{") + line.count("(") - line.count("}") - line.count(")")
-            found[match.group(1)] = keys
-    return found
 
 
 def skill_parameters() -> dict[str, dict[str, set[str]]]:
