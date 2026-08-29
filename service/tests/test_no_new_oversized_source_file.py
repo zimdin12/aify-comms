@@ -221,19 +221,33 @@ class NoNewOversizedSourceFileTests(unittest.TestCase):
     def test_shell_and_css_are_NOT_covered_and_that_is_a_decision(self):
         """What this gate does not measure, said out loud rather than left to be discovered.
 
-        `install.sh` is 4,370 lines and `service/new_dashboard/styles.css` is 1,844 — both non-test
-        source, both over the limit, both outside every gate in this repo. That is not an oversight
-        being hidden here; it is an open REVIEWER question, because widening the population to those
-        languages turns two files red and the remedy for each is a different kind of work than the
-        Python and JS decomposition this series did.
+        `install.sh` is 3,049 lines and `service/new_dashboard/styles.css` is 1,839 — both
+        non-test source, both over the limit, both outside every gate in this repo. That is not an
+        oversight being hidden here; it is an open REVIEWER question, because widening the population
+        to those languages turns two files red and the remedy for each is a different kind of work
+        than the Python and JS decomposition this series did.
 
-        This test asserts only that the boundary is where it is claimed to be. If shell or CSS is
-        later brought in scope, this is the test that must be deleted in the same change — which is
-        the point: the exclusion cannot rot into something nobody re-decided.
+        THE FIGURES ABOVE WERE WRONG IN FOUR PLACES until 2026-08-29 — three copies said 4,370 and
+        1,844, and CLAUDE.md said 2,978, against a real 3,049 and 1,839. A number in prose rots, so
+        the claim the decision RESTS on is asserted below rather than remembered: both files exist
+        and are over the limit. The digits are dated; the argument is checked.
+
+        If shell or CSS is later brought in scope, this is the test that must be deleted in the same
+        change — which is the point: the exclusion cannot rot into something nobody re-decided.
         """
         found = {_rel(p) for p in _source_files()}
         self.assertNotIn("install.sh", found)
         self.assertFalse([f for f in found if f.endswith((".sh", ".css"))], "this gate is Python-only")
+        # THE PREMISE, MEASURED. If either file were under the limit the exclusion would be moot, and
+        # a reader would have no way to tell that from the prose.
+        for name in ("install.sh", "service/new_dashboard/styles.css"):
+            path = REPO / name
+            self.assertTrue(path.exists(), f"{name} no longer exists; this exclusion is about nothing")
+            lines = path.read_bytes().count(b"\n")
+            self.assertGreaterEqual(lines, LIMIT, (
+                f"{name} is {lines} lines, under the {LIMIT}-line limit -- the exclusion it "
+                "justifies is no longer excluding anything oversized"
+            ))
 
     def test_the_boundary_predicate_is_exact(self):
         """Off-by-one here would silently accept the precise 1000-line file this exists to catch."""

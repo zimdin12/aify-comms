@@ -30,7 +30,7 @@
     "directory level. Until 2026-08-15 the Python half read service/** only -- fifteen files ungoverned,",
     "including mcp/sse_server.py, which ships in the container -- and the JS half's two hand-listed roots",
     "covered everything only by coincidence. Shell and CSS are OUT of scope by decision, not oversight:",
-    "install.sh (4,370 lines) and service/new_dashboard/styles.css (1,844) are non-test source over the",
+    "install.sh (3,049 lines on 2026-08-29) and service/new_dashboard/styles.css (1,839) are non-test source over the",
     "limit, and each gate carries a test asserting that boundary so it cannot drift unnoticed."
   ],
   "limit": 1000,

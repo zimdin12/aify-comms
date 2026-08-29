@@ -191,17 +191,29 @@ test("the scan is repo-wide, not a pair of hand-listed roots", () => {
 });
 
 test("shell and CSS are NOT covered, and that is a decision", () => {
-  // Said out loud rather than left to be discovered. `install.sh` is 4,370 lines and
-  // `service/new_dashboard/styles.css` is 1,844 — both non-test source, both over the limit, both
+  // Said out loud rather than left to be discovered. `install.sh` is 3,049 lines and
+  // `service/new_dashboard/styles.css` is 1,839 — both non-test source, both over the limit, both
   // outside every gate in this repo. Bringing them in scope turns two files red, and the remedy for
   // each is a different kind of work than the Python and JS decomposition this series did, so it is
   // an open REVIEWER question rather than something to quietly widen into.
+  //
+  // THE FIGURES WERE WRONG IN FOUR PLACES until 2026-08-29 — this comment, the Python gate's, the
+  // allowlist's and CLAUDE.md's, three of them saying 4,370 against a real 3,049. A number in prose
+  // rots, so the claim the decision RESTS on is asserted below: both files exist and are over the
+  // limit. The digits are dated; the argument is checked.
   //
   // If either language is later brought in scope, this test must be deleted in the same change.
   // That is the point: the exclusion cannot rot into something nobody re-decided.
   const found = sourceFiles().map(rel);
   assert.ok(!found.some((f) => /\.(sh|css|html)$/.test(f)), "this gate is JS-only");
   assert.ok(!found.includes("install.sh"));
+  for (const name of ["install.sh", "service/new_dashboard/styles.css"]) {
+    const text = readFileSync(path.join(REPO, name), "utf8");
+    const lines = text.split("\n").length - 1;
+    assert.ok(lines >= LIMIT,
+      `${name} is ${lines} lines, under the ${LIMIT}-line limit -- the exclusion it justifies is `
+      + "no longer excluding anything oversized");
+  }
 });
 
 test("the boundary predicate is exact", () => {
