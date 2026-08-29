@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import aiosqlite
 
+from service.clock import now as clock_now
 from service.tests._base import FastApiTestCase
 
 
@@ -306,7 +307,21 @@ class StatusRefreshIsNotNPlusOneTests(FastApiTestCase):
                     out[(aid, label)] = await _refresh_agent_live_state(db, aid, status_signals=signals)
             return out
 
-        out, _ = _count_round_trips(derive)
+        # THE CLOCK IS FROZEN FOR THE COMPARISON, and this is a real flake it caused: the four
+        # computations above each stamp their own `now`, and under load two of them straddled a
+        # second boundary -- `...:31:27Z` against `...:31:28Z` -- so the live and prefetch dicts
+        # differed by a field that has nothing to do with the prefetch. Seen once in a 4,786-test
+        # run and never in isolation, which is the signature of a wall clock inside an equality
+        # rather than of a defect. Excluding the field from the comparison would also stop it
+        # being compared, and it is one of the things the prefetch has to carry.
+        import service.api_core.status_refresh as status_refresh
+        frozen = clock_now()
+        original = status_refresh._now
+        status_refresh._now = lambda: frozen
+        try:
+            out, _ = _count_round_trips(derive)
+        finally:
+            status_refresh._now = original
         fresh = out[("npo-0", "live")]["status_inputs"]
         stale = out[("npo-1", "live")]["status_inputs"]
         # THE CONTROL: if the clamp did not fire, both agents look identical and the comparison below
