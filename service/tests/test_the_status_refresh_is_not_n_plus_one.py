@@ -29,6 +29,7 @@ WHAT THIS FILE ASSERTS, in the order that matters:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sys
 from pathlib import Path
 
@@ -194,6 +195,33 @@ class StatusRefreshIsNotNPlusOneTests(FastApiTestCase):
         self.assertTrue(str(console["subagents_at"] or "").strip(),
                         "the seed left subagents_at at its default, so pinning it proves nothing")
 
+    @contextlib.contextmanager
+    def _frozen_clock(self):
+        """One `now` for a whole comparison.
+
+        A REAL FLAKE, twice, and the second time was my own incomplete fix. These tests derive the
+        same agents through both readers and compare the WHOLE dict, which carries a wall-clock
+        stamp. Under load two of the derivations straddle a second boundary -- observed as
+        `...:31:27Z` against `...:31:28Z` -- and the two dicts differ by a field that has nothing to
+        do with the prefetch. Seen twice in ~4,790-test runs and never in isolation, which is the
+        signature of a clock inside an equality rather than of a defect.
+
+        FROZEN RATHER THAN EXCLUDED. Dropping the field from the comparison would also stop it being
+        compared, and it is one of the things the prefetch has to carry correctly.
+
+        ON THE CLASS, not inline in one method. The first fix patched a single test and left its
+        sibling with the identical construction, which then flaked on the next full run.
+        """
+        import service.api_core.status_refresh as status_refresh
+
+        frozen = clock_now()
+        original = status_refresh._now
+        status_refresh._now = lambda: frozen
+        try:
+            yield frozen
+        finally:
+            status_refresh._now = original
+
     def test_prefetched_and_live_readers_DERIVE_THE_SAME_CACHE(self):
         """The assertion that matters most. Everything else here is about cost; this is about truth.
 
@@ -223,7 +251,8 @@ class StatusRefreshIsNotNPlusOneTests(FastApiTestCase):
             prefetched = await derive(db, await PrefetchedStatusSignals.load(db, ids))
             return live, prefetched
 
-        (live, prefetched), _ = _count_round_trips(both)
+        with self._frozen_clock():
+            (live, prefetched), _ = _count_round_trips(both)
         self.assertEqual(set(live), set(ids))
         for aid in ids:
             self.assertIsNotNone(live[aid], "{} derived nothing at all".format(aid))
@@ -307,21 +336,8 @@ class StatusRefreshIsNotNPlusOneTests(FastApiTestCase):
                     out[(aid, label)] = await _refresh_agent_live_state(db, aid, status_signals=signals)
             return out
 
-        # THE CLOCK IS FROZEN FOR THE COMPARISON, and this is a real flake it caused: the four
-        # computations above each stamp their own `now`, and under load two of them straddled a
-        # second boundary -- `...:31:27Z` against `...:31:28Z` -- so the live and prefetch dicts
-        # differed by a field that has nothing to do with the prefetch. Seen once in a 4,786-test
-        # run and never in isolation, which is the signature of a wall clock inside an equality
-        # rather than of a defect. Excluding the field from the comparison would also stop it
-        # being compared, and it is one of the things the prefetch has to carry.
-        import service.api_core.status_refresh as status_refresh
-        frozen = clock_now()
-        original = status_refresh._now
-        status_refresh._now = lambda: frozen
-        try:
+        with self._frozen_clock():
             out, _ = _count_round_trips(derive)
-        finally:
-            status_refresh._now = original
         fresh = out[("npo-0", "live")]["status_inputs"]
         stale = out[("npo-1", "live")]["status_inputs"]
         # THE CONTROL: if the clamp did not fire, both agents look identical and the comparison below
