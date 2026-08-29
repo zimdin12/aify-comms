@@ -29,6 +29,7 @@ from typing import Any, Optional
 from fastapi import HTTPException, Request
 
 
+from service.api_core.tuning import TERMINAL_EVENTS_KEPT_PER_TERMINAL
 from service.api_core.events import _append_terminal_control, _append_terminal_event
 from service.api_core.terminal_snapshot_view import _attach_terminal_snapshot
 from service.api_core.routing import domain_router
@@ -218,10 +219,17 @@ async def get_terminal(terminal_id: str, cols: Optional[int] = None, rows: Optio
         #
         # Selected DESC and reversed so the response stays in chronological order: the shape does
         # not change, only which 200 rows it carries.
-        events = list(reversed(await (await db.execute(
-            "SELECT * FROM terminal_events WHERE terminal_id = ? ORDER BY id DESC LIMIT 200",
-            (terminal_id,),
-        )).fetchall()))
+        # ONE ROW WIDER THAN THE PAGE, so the response can say whether this is the whole history --
+        # the same shape as /sessions, /dispatch/runs, /contracts and /messages/recent. The number
+        # comes from `TERMINAL_EVENTS_KEPT_PER_TERMINAL` rather than being written here a second
+        # time: the pruner keeps exactly that many, and two hardcoded 200s in different modules
+        # agreed by coincidence.
+        event_rows = await (await db.execute(
+            "SELECT * FROM terminal_events WHERE terminal_id = ? ORDER BY id DESC LIMIT ?",
+            (terminal_id, TERMINAL_EVENTS_KEPT_PER_TERMINAL + 1),
+        )).fetchall()
+        events_truncated = len(event_rows) > TERMINAL_EVENTS_KEPT_PER_TERMINAL
+        events = list(reversed(event_rows[:TERMINAL_EVENTS_KEPT_PER_TERMINAL]))
         term_dict = _terminal_session_to_dict(terminal)
         # The agent's ROLE travels with the terminal, so a launch never depends on a second call.
         #
@@ -261,6 +269,10 @@ async def get_terminal(terminal_id: str, cols: Optional[int] = None, rows: Optio
             "ok": True,
             "terminal": term_dict,
             "events": [_terminal_event_to_dict(row) for row in events],
+            # WHAT THE CALLER IS LOOKING AT. Measured 2026-08-29: 21 of 26 terminals held 200 or
+            # more events, so for most of them this list was already a page and said nothing.
+            "eventsShowing": len(events),
+            "eventsTruncated": events_truncated,
         }
     finally:
         await db.close()

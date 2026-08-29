@@ -20,6 +20,8 @@ so a reconciler that committed on its own would break that batching.
 """
 from __future__ import annotations
 
+from service.api_core.tuning import TERMINAL_EVENTS_KEPT_PER_TERMINAL
+
 
 async def _prune_terminal_history(
     db,
@@ -42,7 +44,7 @@ async def _prune_terminal_history(
     short so a live control plane is never locked for long.
     """
     counts = {"terminal_events": 0, "terminal_events_capped": 0, "dispatch_events": 0, "ended_output_cleared": 0, "terminal_controls": 0, "terminal_sessions": 0}
-    keep_events_per_terminal = 200
+    keep_events_per_terminal = TERMINAL_EVENTS_KEPT_PER_TERMINAL
 
     async def _chunked_delete(sql: str, params: tuple) -> int:
         removed = 0

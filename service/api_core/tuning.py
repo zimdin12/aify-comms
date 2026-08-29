@@ -42,6 +42,19 @@ _SHELL_PLACEHOLDER_HANDLE_RE = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\Z")
 
 STUCK_STOPPING_GRACE_SECONDS = 900  # a 'stopping' PTY that never reached 'stopped' is wedged
 
+#: How many events a terminal keeps, and therefore how many `GET /terminals/{id}` can return.
+#:
+#: ONE NUMBER, TWO OWNERS, until 2026-08-29. `reconcilers/terminal_history.py` pruned to a local
+#: `keep_events_per_terminal = 200` and `routers/terminals.py` read with a hardcoded `LIMIT 200`.
+#: They agreed by coincidence, and the coincidence is load-bearing in both directions: raise the
+#: pruner alone and the extra history is unreachable, raise the reader alone and it asks for rows the
+#: pruner has already deleted.
+#:
+#: MEASURED on the operator's database, 2026-08-29: 21 of 26 terminals sit AT OR OVER 200 events, and
+#: two hold 208 and 209 -- the pruner runs on the 60s sweep and a busy console outruns it -- so those
+#: two responses were already truncating with nothing in them saying so.
+TERMINAL_EVENTS_KEPT_PER_TERMINAL = 200
+
 LIST_AGENTS_REFRESH_LIMIT = 8
 
 _UNTHREADED_HANDOFF_WINDOW_MS = 24 * 60 * 60 * 1000

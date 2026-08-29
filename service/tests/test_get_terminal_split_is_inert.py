@@ -72,7 +72,23 @@ _GRID_CLAMP_WAS = chr(10).join([
     '                eff_rows = max(5, min(int(rows), 200))',
 ])
 
+#: DECLARED EDIT, 2026-08-29. `GET /terminals/{id}` reads one row wider than the page and says
+#: whether the event list is truncated, and the cap moved to `TERMINAL_EVENTS_KEPT_PER_TERMINAL`
+#: -- it was written as a literal here AND in the pruner. Undone rather than re-captured, so the
+#: pre-split baseline survives.
 EDITED_SINCE = [
+    (
+        '\nfrom service.api_core.tuning import TERMINAL_EVENTS_KEPT_PER_TERMINAL\nfrom service.api_core.events import _append_terminal_control, _append_terminal_event',
+        '\nfrom service.api_core.events import _append_terminal_control, _append_terminal_event',
+    ),
+    (
+        '        # not change, only which 200 rows it carries.\n        # ONE ROW WIDER THAN THE PAGE, so the response can say whether this is the whole history --\n        # the same shape as /sessions, /dispatch/runs, /contracts and /messages/recent. The number\n        # comes from `TERMINAL_EVENTS_KEPT_PER_TERMINAL` rather than being written here a second\n        # time: the pruner keeps exactly that many, and two hardcoded 200s in different modules\n        # agreed by coincidence.\n        event_rows = await (await db.execute(\n            "SELECT * FROM terminal_events WHERE terminal_id = ? ORDER BY id DESC LIMIT ?",\n            (terminal_id, TERMINAL_EVENTS_KEPT_PER_TERMINAL + 1),\n        )).fetchall()\n        events_truncated = len(event_rows) > TERMINAL_EVENTS_KEPT_PER_TERMINAL\n        events = list(reversed(event_rows[:TERMINAL_EVENTS_KEPT_PER_TERMINAL]))\n        term_dict = _terminal_session_to_dict(terminal)',
+        '        # not change, only which 200 rows it carries.\n        events = list(reversed(await (await db.execute(\n            "SELECT * FROM terminal_events WHERE terminal_id = ? ORDER BY id DESC LIMIT 200",\n            (terminal_id,),\n        )).fetchall()))\n        term_dict = _terminal_session_to_dict(terminal)',
+    ),
+    (
+        '            "events": [_terminal_event_to_dict(row) for row in events],\n            # WHAT THE CALLER IS LOOKING AT. Measured 2026-08-29: 21 of 26 terminals held 200 or\n            # more events, so for most of them this list was already a page and said nothing.\n            "eventsShowing": len(events),\n            "eventsTruncated": events_truncated,\n        }',
+        '            "events": [_terminal_event_to_dict(row) for row in events],\n        }',
+    ),
     (_EVENTS_QUERY_NOW, _EVENTS_QUERY_WAS),
     (_GRID_CLAMP_NOW, _GRID_CLAMP_WAS),
 ]
