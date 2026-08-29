@@ -1676,6 +1676,7 @@ button.ghost:hover { background: var(--panel-2); }
 .chat-msg-mine .chat-msg-head strong { color: var(--accent-text); }
 .msg-badge.t-request { color: var(--blue); border-color: color-mix(in srgb, var(--blue) 40%, transparent); }
 .msg-badge.t-review { color: var(--violet); border-color: color-mix(in srgb, var(--violet) 40%, transparent); }
+.msg-badge.t-error { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
 .msg-badge.p-high { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 45%, transparent); }
 .msg-badge.p-urgent { color: var(--red); border-color: color-mix(in srgb, var(--red) 50%, transparent); background: color-mix(in srgb, var(--red) 12%, transparent); }
 .msg-badge.await { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 45%, transparent); }

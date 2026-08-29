@@ -107,7 +107,16 @@ const CEILINGS = {
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.
-  "service/new_dashboard/styles.css": 1838,
+  // 1838 -> 1839 on 2026-08-29. ONE LINE, and here is what it buys. The badge palette already
+  // coloured `request` and `review`, which are two of the three message types the service treats as
+  // owing a reply (`service/api_core/reply_expectation.py`). `error` was the third and rendered in
+  // the default grey: 544 of them in the operator's database, 42 in the last seven days, including
+  // every auto-mirrored dispatch-failure notice the reconciler mails. The rule is one line and the
+  // reasoning is in `a-reply-owing-type-is-marked.test.mjs`, which also DERIVES the set from that
+  // Python leaf so a fourth reply-owing type fails on the day it lands rather than growing this file
+  // again unnoticed. Paying it down needs a dead-rule census of this stylesheet, which is a real
+  // piece of work and not something to do badly in the same commit as a one-line fix.
+  "service/new_dashboard/styles.css": 1839,
 };
 
 const SKIP_DIRS = new Set(["node_modules", ".git", "__pycache__", "dist", "build", ".messages", "data"]);

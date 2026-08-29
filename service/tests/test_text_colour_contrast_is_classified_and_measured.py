@@ -7,10 +7,10 @@ nothing -- they inherit the ancestor surface and were exactly this file's subjec
 `.nav-item`, `.settings-tab` and the message-action buttons were all dropped from a sweep that then
 declared itself total. 141 + 70 was a classification presented as a closure.
 
-WHAT IT DOES NOW. All 211 candidate rules land in a named class, and an unrecognised background syntax
+WHAT IT DOES NOW. All 212 candidate rules land in a named class, and an unrecognised background syntax
 FAILS rather than being quietly skipped:
 
-    INHERITED     148  measured HERE against the three fixed page surfaces
+    INHERITED     149  measured HERE against the three fixed page surfaces
     OWNS_OPAQUE    34  measured HERE against the background its own rule sets
     RUNTIME        15  a token `applyTheme` rewrites; gated in theme-contrast.test.mjs against the
                        value actually written, for arbitrary operator accents
@@ -18,8 +18,9 @@ FAILS rather than being quietly skipped:
     COMPOSITE      13  typed UNCOVERED, rgba()/color-mix() over an underlay this cannot resolve
     UNRESOLVED      1  typed UNCOVERED, background is `--accent-soft`, derived at runtime
 
-182 measured here, 15 measured by the JS gate, 14 typed uncovered. Worst measured here is `--red` at
-5.27:1 on `--panel-2`. The counts are pinned by an equality relation, so a parser that quietly stops
+183 measured here, 15 measured by the JS gate, 14 typed uncovered. Worst measured here is `--red` at
+5.27:1 on `--panel-2` -- unchanged by the 2026-08-29 arrival of `.msg-badge.t-error`, which is that
+same token and so cannot move the floor. The counts are pinned by an equality relation, so a parser that quietly stops
 seeing rules fails instead of reporting a clean sweep of a smaller population -- which it already did
 once: repointing two rules at a token with no `:root` default dropped them out of the population
 entirely and TOTAL fell to 209.
@@ -147,8 +148,8 @@ class TextColourContrastIsClassifiedAndMeasured(unittest.TestCase):
         """The equality relation, so a parser that stops seeing rules fails here rather than reporting
         a clean sweep of a smaller population. The first version asserted only `> 50` included and
         `> 10` excluded, which would have stayed green through substantial loss."""
-        self.assertEqual(TOTAL, 211, f"the candidate population moved: {[(k, len(v)) for k, v in BUCKETS.items()]}")
-        self.assertEqual(len(BUCKETS["INHERITED"]), 148)
+        self.assertEqual(TOTAL, 212, f"the candidate population moved: {[(k, len(v)) for k, v in BUCKETS.items()]}")
+        self.assertEqual(len(BUCKETS["INHERITED"]), 149)
         self.assertEqual(len(BUCKETS["OWNS_OPAQUE"]), 34)
         self.assertEqual(len(BUCKETS["RUNTIME"]), 15)
         self.assertEqual(len(BUCKETS["COMPOSITE"]), 13)
