@@ -20,6 +20,13 @@
 // per-agent read are all changes with consequences for bridges, for remote environments and for the
 // console link. None of them is a tool's to make, which is why this says what is true and stops.
 //
+// EACH ONE NAMES ITS COST, and the first did not until 2026-08-29. `API_KEY` reads like the cheap
+// option -- the bridges are handed it at install -- and the DASHBOARD is not: it sends
+// `X-Aify-Operator-Key` and never `X-API-Key`, the dashboard app has no proxy route to attach one
+// server-side, and `APIKeyMiddleware` exempts `/ws` but nothing under `/api/v1`. So the page keeps a
+// live socket and loses every poll, which is the most confusing of the three failures on offer. A
+// remedy whose cost is unstated is the one an operator picks first.
+//
 // A CORRECTION I MADE TO MYSELF WHILE WRITING THIS, because it nearly became the finding. My first
 // probe reported `API_KEY` as SET in the container -- from a shell test whose quoting made it check a
 // literal string rather than the variable. Read properly it is empty. "The operator configured a key
@@ -72,9 +79,11 @@ export function apiExposureVerdict({
       + `${totalRows ?? "?"} agent row(s) carry a live gateway token. Anything that can reach this `
       + "port can read working credentials for those agents.",
     fix: "Three ways out, all of them decisions rather than repairs: set API_KEY so the service "
-      + "requires one (every bridge is given it at install); publish the port on 127.0.0.1 instead of "
-      + "0.0.0.0, which costs remote environments; or move the gateway token off the fleet listing, "
-      + "which costs the dashboard's one-click hermes console link.",
+      + "requires one -- every bridge is given it at install, but the DASHBOARD is not, so every one "
+      + "of its /api/v1 polls would answer 401 while /ws stays exempt, leaving a page that reports a "
+      + "live connection over no data until it is given a key too; publish the port on 127.0.0.1 "
+      + "instead of 0.0.0.0, which costs remote environments; or move the gateway token off the fleet "
+      + "listing, which costs the dashboard's one-click hermes console link.",
   };
 }
 

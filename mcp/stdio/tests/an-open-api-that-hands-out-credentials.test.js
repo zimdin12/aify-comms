@@ -67,6 +67,13 @@ test("the remedy names three DECISIONS and does not pretend to be a repair", () 
   assert.match(fix, /127\.0\.0\.1/);
   assert.match(fix, /console link|hermes/i, "the cost of the third option must be stated, or it reads "
     + "as free");
+  // THE SAME RULE FOR THE FIRST, which had no cost until 2026-08-29 and is the expensive one. The
+  // dashboard sends `X-Aify-Operator-Key` and never `X-API-Key`, and its own app has no proxy route
+  // to attach one, so setting API_KEY 401s every poll while `/ws` stays exempt -- a page reporting a
+  // live connection over no data. An operator reading three options picks the one with no stated
+  // cost.
+  assert.match(fix, /dashboard/i, "the cost of the FIRST option must be stated too");
+  assert.match(fix, /401/, "say what the dashboard actually does, not that it is 'affected'");
 });
 
 // ---- what counts as a credential -----------------------------------------------------------------
