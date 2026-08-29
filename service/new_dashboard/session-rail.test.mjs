@@ -486,8 +486,14 @@ test("a truncated list SAYS it is a page", () => {
     statusFilter: new Set(),
     truncated: true,
   });
-  assert.match(html, /more exist than are listed/i);
+  assert.match(html, /older sessions are not loaded/i);
   assert.match(html, /alpha-1|coder/, "the note must not replace the list it annotates");
+  // THE ADVICE HAS TO BE ADVICE THAT WORKS. The first version said "Narrow with Find, or filter by
+  // status", and both are client-side over the rows already fetched -- so neither can reach the row
+  // the note exists to warn about. A reviewer caught it. This asserts the note does not send an
+  // operator round a loop that always ends where it started.
+  assert.doesNotMatch(html, /narrow with find/i,
+    "the note offers an action that cannot retrieve an off-page session");
 });
 
 test("a complete list says nothing", () => {
@@ -499,7 +505,7 @@ test("a complete list says nothing", () => {
     statusFilter: new Set(),
     truncated: false,
   });
-  assert.doesNotMatch(html, /more exist than are listed/i);
+  assert.doesNotMatch(html, /older sessions are not loaded/i);
 });
 
 test("EMPTY AND TRUNCATED IS NOT \"no sessions yet\"", () => {
@@ -507,7 +513,9 @@ test("EMPTY AND TRUNCATED IS NOT \"no sessions yet\"", () => {
   // start a second session for an agent that already had one running, off the page.
   const html = renderRailHtml({ sessions: [], statusFilter: new Set(), truncated: true });
   assert.doesNotMatch(html, /No sessions yet/);
-  assert.match(html, /More sessions exist/i);
+  assert.match(html, /none of the loaded sessions match/i,
+    "it must say WHICH rows were searched; \"none of them match\" reads as a claim about every "
+      + "session that exists");
   assert.doesNotMatch(html, /data-page-jump="environments"/,
     "the Spawn button is the wrong action when sessions exist and are merely not on this page");
 });
