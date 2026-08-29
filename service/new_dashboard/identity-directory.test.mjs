@@ -102,17 +102,23 @@ test("rows are sorted by id so the directory is stable between polls", () => {
     "an unsorted directory reshuffles under the operator on every refresh");
 });
 
-test("an environment label is resolved, and 'unassigned' reads as a dash", () => {
+test("an environment label is resolved, and a session with no binding reads as a dash", () => {
+  // THE CASE CHANGED WITH THE READER, and the old one is worth recording. It seeded
+  // `environment_id: "unassigned"` -- a STORED value -- and required a dash, because the column and
+  // the field reader's sentinel were the same string and this table could not tell them apart. It
+  // was matching on the sentinel's spelling, so it would have passed on a real environment named
+  // `unassigned` and failed on a session that simply had none. The reader answers '' now, so the
+  // absence is what this asserts.
   const { html } = render({
     agents: [{ id: "a" }, { id: "b" }],
     sessions: [
       { id: "s1", agent_id: "a", environment_id: "env-1" },
-      { id: "s2", agent_id: "b", environment_id: "unassigned" },
+      { id: "s2", agent_id: "b" },
     ],
     environments: [{ id: "env-1", label: "Windows on host" }],
   });
   assert.ok(html.includes("Windows on host"), "a known environment shows its label, not its id");
-  assert.ok(!html.includes("unassigned"), "'unassigned' is noise — it must render as a dash");
+  assert.ok(!html.includes("unassigned"), "a session with no binding must render a dash, not a word");
 });
 
 test("an empty fleet says so instead of rendering an empty table", () => {

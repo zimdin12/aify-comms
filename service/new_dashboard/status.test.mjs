@@ -98,6 +98,22 @@ test("statusWhyContext names the thing, its state, and the details that identify
   assert.match(why.why, /\/w/, "…and its workspace");
 });
 
+test("THE TWO OPTIONAL LINES ARE ACTUALLY OPTIONAL", () => {
+  // `statusWhyContext` writes `if (sessionEnvironmentId(item)) parts.push("Environment: …")` and the
+  // same for the runtime. Both readers used to answer a display sentinel for a record that carried
+  // neither -- 'unassigned' and 'runtime' -- so both conditions were true for every session that ever
+  // reached this function, and an operator hovering a session with no binding read
+  // "Environment: unassigned. Runtime: runtime." A guard whose input is never falsy is decoration.
+  const bare = statusWhyContext('session', { agentId: 'agent-a' }, 'online').why;
+  assert.doesNotMatch(bare, /Environment:/, "a session with no binding must not claim one");
+  assert.doesNotMatch(bare, /Runtime:/, "a session naming no runtime must not claim one");
+  assert.match(bare, /agent-a/, "…while still identifying the session");
+
+  const bound = statusWhyContext('session', { agentId: 'agent-a', environmentId: 'env-1', runtime: 'codex' }, 'online').why;
+  assert.match(bound, /Environment: env-1\./, "and the line still appears when there IS one");
+  assert.match(bound, /Runtime: codex\./);
+});
+
 test("it reads records through the shared field readers, so every API spelling works", () => {
   // The whole reason the readers are shared: a snake_case record must explain itself the same way a
   // camelCase one does, or the tooltip silently says "unknown" for half the rows.

@@ -355,12 +355,75 @@ test("the server's mode WINS over the requested one", async () => {
   } finally { h.restore(); }
 });
 
-test("submitContinue sends the composed body, and an empty one sends nothing", async () => {
-  const empty = withActions({ fields: { "continue-body": "   " } });
+test("submitContinue sends nothing for a session id that does not exist", async () => {
+  // WHAT THIS USED TO CLAIM, and why it proved nothing. It was written as "an empty continue sends
+  // nothing", passed `"coder"` -- an AGENT id, where the function takes a SESSION id -- and set a
+  // field named `continue-body`, which `submitContinue` does not read (it reads `cont-packet`). So it
+  // returned at `Session not found` on its first line and never reached the behaviour in its name.
+  // Kept, renamed to what it actually exercises, with a real case added beside it below.
+  const missing = withActions();
   try {
     await submitContinue("coder", false);
-    assert.deepEqual(mutating(empty), [], "an empty continue would deliver a blank turn");
-  } finally { empty.restore(); }
+    assert.deepEqual(mutating(missing), [], "an unknown session must not reach the server");
+  } finally { missing.restore(); }
+});
+
+test("submitContinue posts the session's OWN environment and runtime", async () => {
+  const h = withActions();
+  try {
+    state.sessions = [{ id: "s1", agentId: "coder", environmentId: "env-real", runtime: "claude-code" }];
+    await submitContinue("s1", false);
+    assert.deepEqual(mutating(h), ["POST /spawn-requests"]);
+    const body = JSON.parse(h.sent[0].body);
+    assert.equal(body.environmentId, "env-real");
+    assert.equal(body.runtime, "claude-code");
+  } finally { h.restore(); }
+});
+
+test("A SESSION WITH NO BINDING SENDS NOTHING, rather than posting the word on the screen", async () => {
+  // THE DEFECT. `sessionEnvironmentId` used to answer the display sentinel 'unassigned' and
+  // `sessionRuntime` answered 'runtime', so this exact call posted
+  // `{environmentId: "unassigned", runtime: "runtime"}` to /spawn-requests -- which replies
+  // `Environment "unassigned" not found`, naming an environment that has never existed on any host
+  // and sending the operator to look for it. The two fields the form could not fill are now refused
+  // by the form, which is the only place that knows they were never typed.
+  const h = withActions();
+  try {
+    state.sessions = [{ id: "s1", agentId: "coder" }];
+    await submitContinue("s1", false);
+    assert.deepEqual(mutating(h), [], "a fabricated environment id must not reach /spawn-requests");
+  } finally { h.restore(); }
+});
+
+test("EACH GUARD IS TESTED ALONE, so neither can be deleted quietly", async () => {
+  // Both fields empty proves only that SOMETHING refused. Removing the environment guard left the
+  // runtime guard blocking the same case, so the suite stayed green with half the fix gone. One
+  // field at a time is what makes each guard's absence visible.
+  for (const [label, session] of [
+    ["no environment", { id: "s1", agentId: "coder", runtime: "claude-code" }],
+    ["no runtime", { id: "s1", agentId: "coder", environmentId: "env-real" }],
+  ]) {
+    const h = withActions();
+    try {
+      state.sessions = [session];
+      await submitContinue("s1", false);
+      assert.deepEqual(mutating(h), [], `${label}: the request must not go out`);
+    } finally { h.restore(); }
+  }
+});
+
+test("a typed environment and runtime are enough on their own", async () => {
+  // The other direction: the guard refuses a MISSING value, never a session that simply carries none
+  // while the operator supplies it. A guard that cannot be satisfied is a broken button.
+  const h = withActions({ fields: { "cont-env": "env-typed", "cont-runtime": "codex" } });
+  try {
+    state.sessions = [{ id: "s1", agentId: "coder" }];
+    await submitContinue("s1", false);
+    assert.deepEqual(mutating(h), ["POST /spawn-requests"]);
+    const body = JSON.parse(h.sent[0].body);
+    assert.equal(body.environmentId, "env-typed");
+    assert.equal(body.runtime, "codex");
+  } finally { h.restore(); }
 });
 
 test("INIT REFUSES A PARTIAL BAG", () => {

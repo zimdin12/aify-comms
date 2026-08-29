@@ -62,6 +62,17 @@ test("groupedSessionsByEnvironment groups by environment and sorts by LABEL, not
   assert.deepEqual(groups.map((g) => g.sessions.length), [2, 1]);
 });
 
+test("THE RAIL NAMES ITS OWN EMPTY GROUP, so a session with no binding is still listed", () => {
+  // The one caller that genuinely needs a word for "there is no environment": this value is the Map
+  // key AND the group heading, so '' would render a group with a blank title. It says 'unassigned'
+  // HERE rather than having the field reader hand that word to every other caller -- one of which
+  // used to post it to /spawn-requests as an environment id.
+  seed({ sessions: [session("s1", "a", "")], environments: [] });
+  const [group] = groupedSessionsByEnvironment();
+  assert.equal(group.label, "unassigned", "the heading must name the group, not render blank");
+  assert.equal(group.sessions.length, 1, "an unbound session must not vanish from the rail");
+});
+
 test("an environment with no record falls back to its id as the label", () => {
   seed({ sessions: [session("s1", "a", "orphan-env")], environments: [] });
   const [group] = groupedSessionsByEnvironment();

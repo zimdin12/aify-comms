@@ -56,7 +56,9 @@ export function groupedSessionsByEnvironment() {
       const hay = [sessionId(session), sessionAgentId(session), session.workspace || session.cwd, sessionRuntime(session), sessionEnvironmentId(session)].join(' ').toLowerCase();
       if (!hay.includes(find)) return;
     }
-    const envId = sessionEnvironmentId(session);
+    // The group HEADING needs a word for the sessions with no binding, so the rail supplies one
+    // here rather than having the field reader hand a sentinel to every other caller.
+    const envId = sessionEnvironmentId(session) || 'unassigned';
     if (!groups.has(envId)) {
       const env = state.environments.find((item) => String(item.id || item.environmentId) === envId) || {};
       groups.set(envId, { id: envId, label: env.label || env.name || envId, sessions: [] });
@@ -147,7 +149,7 @@ export function renderSessionRail() {
                 <span class="item-title-status">${renderStatusChip(status, statusWhyContext('session', session, status))}${String(agent.status || '').startsWith('blocked') ? '<span class="chat-await-badge" title="Agent is blocked on an interactive prompt — open its Console">⌛ input</span>' : ''}</span>
               </div>
               <p class="preview session-path">${esc(session.workspace || session.cwd || '')}</p>
-              <span class="session-runtime-badge" data-runtime="${esc(sessionRuntime(session))}">${esc(sessionRuntime(session))}</span>
+              <span class="session-runtime-badge" data-runtime="${esc(sessionRuntime(session) || 'unknown')}">${esc(sessionRuntime(session) || 'unknown')}</span>
             </div>
           </article>`;
       }).join('')}

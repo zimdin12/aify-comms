@@ -44,7 +44,7 @@ export function openIdentityDirectory() {
       <td>${esc(agent.role || '')}</td>
       <td>${esc(runtime || '—')}</td>
       <td>${esc(mode)}</td>
-      <td class="clip">${esc(envLabel === 'unassigned' ? '—' : (envLabel || '—'))}</td>
+      <td class="clip">${esc(envLabel || '—')}</td>
       <td>${renderStatusChip(agent.status || 'unknown', statusWhyContext('agent', agent, agent.status))}</td>
       <td>${Number(agent.unread || 0) || 0}</td>
       <td>${lastSeen ? esc(relTime(lastSeen)) + ' ago' : '—'}</td>

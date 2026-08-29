@@ -26,11 +26,15 @@ export function asAgentArray(payload) {
 }
 
 export function sessionEnvironmentId(session) {
-  return String(session?.environmentId || session?.environment_id || session?.envId || session?.env_id || 'unassigned');
+  // '' means "no binding", NOT a word. This answered 'unassigned' and every caller that guarded on
+  // the value took the populated branch; see record-fields.test.mjs for what each one then did with
+  // it. The Sessions rail names its own empty group, because the rail is what displays one.
+  return String(session?.environmentId || session?.environment_id || session?.envId || session?.env_id || '');
 }
 
 export function sessionRuntime(session) {
-  return String(session?.runtime || session?.runtimeKind || session?.kind || 'runtime');
+  // '' means "this session names no runtime", for the same reason. It answered the literal 'runtime'.
+  return String(session?.runtime || session?.runtimeKind || session?.kind || '');
 }
 
 export function messageId(message) {

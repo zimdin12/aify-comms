@@ -98,7 +98,7 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
   // duplicated "doubled header". Keep only the runtime/env/mode meta line + the lifecycle actions.
   const headerCard = `
     <div class="session-actions-bar" data-kind="session" data-id="${esc(id)}">
-      <small class="session-meta-line">${esc(sessionRuntime(session))} · ${esc(sessionEnvironmentId(session))}${hermesGatewayHttp ? ' · live tui_gateway' : ''}${codexAttachable ? ' · live app-server' : ''}${renderSessionModeLabel(agent)}</small>
+      <small class="session-meta-line">${esc(sessionRuntime(session) || 'unknown runtime')} · ${esc(sessionEnvironmentId(session) || 'no environment')}${hermesGatewayHttp ? ' · live tui_gateway' : ''}${codexAttachable ? ' · live app-server' : ''}${renderSessionModeLabel(agent)}</small>
       ${headerActions ? `<div class="contract-actions">${headerActions}</div>` : ''}
     </div>`;
 

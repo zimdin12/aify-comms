@@ -105,8 +105,38 @@ const EXTRACTIONS = [
     items: [
       { name: "messageIdOf", at: 219, marker: "// messageIdOf moved to ./record-fields.mjs in v0.5.4." },
       { name: "asAgentArray", at: 733, marker: "// asAgentArray moved to ./record-fields.mjs in v0.5.4." },
-      { name: "sessionEnvironmentId", at: 1617, marker: "// sessionEnvironmentId moved to ./record-fields.mjs in v0.5.4." },
-      { name: "sessionRuntime", at: 1621, marker: "// sessionRuntime moved to ./record-fields.mjs in v0.5.4." },
+      {
+        name: "sessionEnvironmentId", at: 1617,
+        marker: "// sessionEnvironmentId moved to ./record-fields.mjs in v0.5.4.",
+        editedSince: [
+          {
+            was: [
+              "  return String(session?.environmentId || session?.environment_id || session?.envId || session?.env_id || 'unassigned');",
+            ],
+            now: [
+              "  // '' means \"no binding\", NOT a word. This answered 'unassigned' and every caller that guarded on",
+              "  // the value took the populated branch; see record-fields.test.mjs for what each one then did with",
+              "  // it. The Sessions rail names its own empty group, because the rail is what displays one.",
+              "  return String(session?.environmentId || session?.environment_id || session?.envId || session?.env_id || '');",
+            ],
+          },
+        ],
+      },
+      {
+        name: "sessionRuntime", at: 1621,
+        marker: "// sessionRuntime moved to ./record-fields.mjs in v0.5.4.",
+        editedSince: [
+          {
+            was: [
+              "  return String(session?.runtime || session?.runtimeKind || session?.kind || 'runtime');",
+            ],
+            now: [
+              "  // '' means \"this session names no runtime\", for the same reason. It answered the literal 'runtime'.",
+              "  return String(session?.runtime || session?.runtimeKind || session?.kind || '');",
+            ],
+          },
+        ],
+      },
       { name: "messageId", at: 1696, marker: "// messageId moved to ./record-fields.mjs in v0.5.4." },
       { name: "messageRunId", at: 1700, marker: "// messageRunId moved to ./record-fields.mjs in v0.5.4." },
       { name: "contractCategory", at: 2910, marker: "// contractCategory moved to ./record-fields.mjs in v0.5.4." },
@@ -473,7 +503,22 @@ const EXTRACTIONS = [
     importLine: "import { SESSION_FILTER_KINDS, agentForSession, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds } from './session-rail.mjs';",
     items: [
       { name: "agentForSession", at: 1625, marker: "// agentForSession moved to ./session-rail.mjs in v0.5.4." },
-      { name: "groupedSessionsByEnvironment", at: 1630, marker: "// groupedSessionsByEnvironment moved to ./session-rail.mjs in v0.5.4." },
+      {
+        name: "groupedSessionsByEnvironment", at: 1630,
+        marker: "// groupedSessionsByEnvironment moved to ./session-rail.mjs in v0.5.4.",
+        editedSince: [
+          {
+            was: [
+              "    const envId = sessionEnvironmentId(session);",
+            ],
+            now: [
+              "    // The group HEADING needs a word for the sessions with no binding, so the rail supplies one",
+              "    // here rather than having the field reader hand a sentinel to every other caller.",
+              "    const envId = sessionEnvironmentId(session) || 'unassigned';",
+            ],
+          },
+        ],
+      },
       { name: "selectedSessionIds", at: 1662, marker: "// selectedSessionIds moved to ./session-rail.mjs in v0.5.4." },
       { name: "renderSessionBulkToolbar", at: 1722, marker: "// renderSessionBulkToolbar moved to ./session-rail.mjs in v0.5.4." },
       { name: "SESSION_FILTER_KINDS", at: 1740, marker: "// SESSION_FILTER_KINDS moved to ./session-rail.mjs in v0.5.4." },
@@ -493,7 +538,16 @@ const EXTRACTIONS = [
         // ONE ARRAY, not a second `editedSince` key beside the first. An object literal takes the
         // LAST key of a repeated name, so a second one is silently discarded and the gate then fails
         // with the declared edit apparently ignored -- which is what happened writing this entry.
-        editedSince: [{
+        editedSince: [
+          {
+            was: [
+              "              <span class=\"session-runtime-badge\" data-runtime=\"${esc(sessionRuntime(session))}\">${esc(sessionRuntime(session))}</span>",
+            ],
+            now: [
+              "              <span class=\"session-runtime-badge\" data-runtime=\"${esc(sessionRuntime(session) || 'unknown')}\">${esc(sessionRuntime(session) || 'unknown')}</span>",
+            ],
+          },
+          {
           was: [
             "              <p class=\"preview\">${esc(session.workspace || session.cwd || '')}</p>",
           ],
@@ -696,6 +750,14 @@ const EXTRACTIONS = [
         at: 3402,
         marker: "// openIdentityDirectory moved to ./identity-directory.mjs in v0.5.4.",
         editedSince: [
+          {
+            was: [
+              "      <td class=\"clip\">${esc(envLabel === 'unassigned' ? '—' : (envLabel || '—'))}</td>",
+            ],
+            now: [
+              "      <td class=\"clip\">${esc(envLabel || '—')}</td>",
+            ],
+          },
           // Dropped dead snake_case alternates: the service emits lastSeen and unread, never last_seen or unreadCount.
           {
             was: [
@@ -1642,6 +1704,14 @@ const EXTRACTIONS = [
         ],
         editedSince: [
           {
+            was: [
+              "      <small class=\"session-meta-line\">${esc(sessionRuntime(session))} · ${esc(sessionEnvironmentId(session))}${hermesGatewayHttp ? ' · live tui_gateway' : ''}${codexAttachable ? ' · live app-server' : ''}${renderSessionModeLabel(agent)}</small>",
+            ],
+            now: [
+              "      <small class=\"session-meta-line\">${esc(sessionRuntime(session) || 'unknown runtime')} · ${esc(sessionEnvironmentId(session) || 'no environment')}${hermesGatewayHttp ? ' · live tui_gateway' : ''}${codexAttachable ? ' · live app-server' : ''}${renderSessionModeLabel(agent)}</small>",
+            ],
+          },
+          {
             was: "function renderSessionConsole(session, targetEl, opts = {}) {",
             now: "function renderSessionConsole(session, targetEl, opts = {}, { mountXtermForTerminal, refresh, resyncActiveConsole } = {}) {",
           },
@@ -2198,6 +2268,33 @@ const EXTRACTIONS = [
         name: "submitContinue",
         at: 3755,
         marker: "// submitContinue moved to ./agent-session-actions.mjs in v0.5.4.",
+        editedSince: [
+          {
+            was: [
+            ],
+            now: [
+              "  // SAY WHICH FIELD IS MISSING, HERE, rather than posting a value the server has to reject.",
+              "  // These two fell back to `sessionEnvironmentId`/`sessionRuntime`, which used to answer the display",
+              "  // sentinels 'unassigned' and 'runtime' — so a session with no binding posted",
+              "  // `environmentId: \"unassigned\"` and the operator was told `Environment \"unassigned\" not found`,",
+              "  // naming an environment that has never existed anywhere. Empty is now empty, and the form says so.",
+              "  const environmentId = v('cont-env') || sessionEnvironmentId(target);",
+              "  if (!environmentId) { toast('Environment is required — this session has no binding, so type one', 'error'); return; }",
+              "  const runtime = v('cont-runtime') || sessionRuntime(target);",
+              "  if (!runtime) { toast('Runtime is required — this session does not name one, so type one', 'error'); return; }",
+            ],
+          },
+          {
+            was: [
+              "        createdBy: 'dashboard', environmentId: v('cont-env') || sessionEnvironmentId(target),",
+              "        agentId: newAgentId, role: v('cont-role') || 'coder', runtime: v('cont-runtime') || sessionRuntime(target),",
+            ],
+            now: [
+              "        createdBy: 'dashboard', environmentId,",
+              "        agentId: newAgentId, role: v('cont-role') || 'coder', runtime,",
+            ],
+          },
+        ],
       },
       {
         name: "removeAgent",

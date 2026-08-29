@@ -182,3 +182,13 @@ test("both survive an unknown runtime and a missing session", () => {
     assert.ok(command === "" || typeof command === "string", "the command must be a string or empty");
   }
 });
+
+test("a session naming no runtime is explained as UNKNOWN, not as 'runtime'", () => {
+  // `continueCliDetails` binds the real `sessionRuntime`, which used to answer the literal string
+  // 'runtime' for a session that named none. So this sentence read "not supported for the runtime
+  // runtime" and its own `|| 'unknown'` fallback was unreachable: the reader never returned falsy.
+  const details = continueCliDetails({ id: "a", sessionHandle: "h-1" }, { id: "s1" });
+  assert.equal(details.command, "", "an unknown runtime has no resume command");
+  assert.match(details.reason, /unknown runtime/, "the sentence must name the gap, not repeat a sentinel");
+  assert.doesNotMatch(details.reason, /the runtime runtime/);
+});

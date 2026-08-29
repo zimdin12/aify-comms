@@ -143,12 +143,21 @@ export async function submitContinue(sid, splitIdentity) {
   const sourceAgent = sessionAgentId(target) || '';
   const newAgentId = splitIdentity ? v('cont-agent-id') : (v('cont-agent-id') || sourceAgent);
   if (!newAgentId) { toast('Agent ID is required', 'error'); return; }
+  // SAY WHICH FIELD IS MISSING, HERE, rather than posting a value the server has to reject.
+  // These two fell back to `sessionEnvironmentId`/`sessionRuntime`, which used to answer the display
+  // sentinels 'unassigned' and 'runtime' — so a session with no binding posted
+  // `environmentId: "unassigned"` and the operator was told `Environment "unassigned" not found`,
+  // naming an environment that has never existed anywhere. Empty is now empty, and the form says so.
+  const environmentId = v('cont-env') || sessionEnvironmentId(target);
+  if (!environmentId) { toast('Environment is required — this session has no binding, so type one', 'error'); return; }
+  const runtime = v('cont-runtime') || sessionRuntime(target);
+  if (!runtime) { toast('Runtime is required — this session does not name one, so type one', 'error'); return; }
   try {
     await api('/spawn-requests', {
       method: 'POST',
       body: JSON.stringify({
-        createdBy: 'dashboard', environmentId: v('cont-env') || sessionEnvironmentId(target),
-        agentId: newAgentId, role: v('cont-role') || 'coder', runtime: v('cont-runtime') || sessionRuntime(target),
+        createdBy: 'dashboard', environmentId,
+        agentId: newAgentId, role: v('cont-role') || 'coder', runtime,
         workspace: v('cont-workspace') || target.workspace || target.cwd, initialMessage: v('cont-packet'),
         subject: splitIdentity ? `Continue as from ${sourceAgent}` : `Handoff compact from ${sourceAgent}`,
         mode: 'managed-warm', resumePolicy: 'fresh_context',

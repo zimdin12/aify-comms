@@ -213,6 +213,41 @@ test("copyable commands stay shell-neutral", () => {
   });
 });
 
+// ---- Environment ------------------------------------------------------------------------------
+
+/** The `<dd>` of the Environment row, or null when the row is absent. */
+function environmentCell(html) {
+  const match = /<dt>Environment<\/dt><dd>([^<]*)<\/dd>/.exec(html);
+  return match ? match[1] : null;
+}
+
+test("THE ENVIRONMENT ROW shows a dash for a session with no binding", () => {
+  // The row is written `sessionEnvironmentId(session) || '—'`, and that dash was unreachable:
+  // the reader answered the display sentinel 'unassigned', which is truthy, so the drawer printed
+  // the word. An operator reading it saw a value where there was none.
+  seed({
+    agents: [{ id: "coder" }],
+    sessions: [{ id: "s1", agentId: "coder" }],
+  });
+  withDom(drawerEls(), (els) => {
+    openAgentDrawer("coder");
+    assert.equal(environmentCell(els["inspector-content"].innerHTML), "\u2014");
+  });
+});
+
+test("…and the environment's LABEL when it has one", () => {
+  // The other direction, so the dash cannot be produced by the row simply being broken.
+  seed({
+    agents: [{ id: "coder" }],
+    sessions: [{ id: "s1", agentId: "coder", environmentId: "env-1" }],
+    environments: [{ id: "env-1", label: "Windows on host" }],
+  });
+  withDom(drawerEls(), (els) => {
+    openAgentDrawer("coder");
+    assert.equal(environmentCell(els["inspector-content"].innerHTML), "Windows on host");
+  });
+});
+
 // ---- Last seen -------------------------------------------------------------------------------
 //
 // WHAT THIS IS AND IS NOT. The age was ALREADY in the drawer, inside the status chip's `title` and

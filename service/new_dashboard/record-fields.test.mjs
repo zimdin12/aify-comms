@@ -72,22 +72,54 @@ test("messageRunId returns empty when a message belongs to no run", () => {
   for (const record of [null, undefined, {}, { id: "m1" }]) assert.equal(messageRunId(record), "");
 });
 
-test("sessionEnvironmentId falls back to 'unassigned', not to empty", () => {
-  // Sessions are GROUPED by this value, so '' would create an unnamed bucket; 'unassigned' is a real
-  // group the UI renders deliberately.
-  assert.equal(sessionEnvironmentId({}), "unassigned");
-  assert.equal(sessionEnvironmentId(null), "unassigned");
+// WHAT THE TWO SENTINELS COST, so the next person to add a display default to a data reader has the
+// list rather than the principle. `sessionEnvironmentId` answered 'unassigned' and `sessionRuntime`
+// answered 'runtime' for a record that carried neither, and a truthy string is indistinguishable from
+// a real value at every call site:
+//
+//   - `statusWhyContext` guards each optional tooltip line with `if (sessionEnvironmentId(item))`.
+//     Neither guard could be false, so a session with no binding explained itself as
+//     "Environment: unassigned. Runtime: runtime."
+//   - `agent-drawer` renders `sessionEnvironmentId(session) || '—'` and printed the word: the dash
+//     was unreachable.
+//   - `identity-directory` had to UNDO it (`envLabel === 'unassigned' ? '—' : …`), which is the tell.
+//     That undo also matched a session whose environment_id was genuinely the string `unassigned`,
+//     because the sentinel and the column value were spelled the same.
+//   - `session-console` printed `runtime · unassigned` in its meta line.
+//   - The Continue/Compact form pre-filled both inputs from these readers and POSTed
+//     `v('cont-env') || sessionEnvironmentId(target)`, so a session with no binding sent
+//     `environmentId: "unassigned"` to /spawn-requests and the operator was told
+//     `Environment "unassigned" not found` -- an environment that has never existed on any host.
+//
+// The rail is the ONE caller that needs a word, because it uses the value as a group heading. It
+// says `|| 'unassigned'` at the point where the group is named.
+test("sessionEnvironmentId answers empty for a session with no binding, not a word", () => {
+  // The grouping argument this test used to carry -- "sessions are GROUPED by this value, so ''
+  // would create an unnamed bucket" -- was true about the RAIL and wrong about the reader. The rail
+  // names its own empty group; every other caller was handed a truthy string it could not tell from
+  // a real environment id, and one of them posted it to /spawn-requests.
+  assert.equal(sessionEnvironmentId({}), "");
+  assert.equal(sessionEnvironmentId(null), "");
   for (const key of ["environmentId", "environment_id", "envId", "env_id"]) {
     assert.equal(sessionEnvironmentId({ [key]: "env-1" }), "env-1", `${key} must be recognised`);
   }
 });
 
-test("sessionRuntime falls back to the literal 'runtime'", () => {
-  assert.equal(sessionRuntime({}), "runtime");
-  assert.equal(sessionRuntime(null), "runtime");
+test("sessionRuntime answers empty for a session that names none", () => {
+  assert.equal(sessionRuntime({}), "");
+  assert.equal(sessionRuntime(null), "");
   for (const key of ["runtime", "runtimeKind", "kind"]) {
     assert.equal(sessionRuntime({ [key]: "claude-code" }), "claude-code", `${key} must be recognised`);
   }
+});
+
+test("a guard on either reader can actually be false", () => {
+  // The narrowest statement of the defect. `statusWhyContext` writes
+  // `if (sessionEnvironmentId(item)) parts.push(...)`, and with a sentinel that condition was true
+  // for every session ever passed to it -- a guard that cannot fail is decoration, and this one
+  // decorated a tooltip with "Environment: unassigned. Runtime: runtime."
+  assert.ok(!sessionEnvironmentId({ agentId: "a1" }), "the environment guard is unreachable");
+  assert.ok(!sessionRuntime({ agentId: "a1" }), "the runtime guard is unreachable");
 });
 
 test("runPendingControlCount counts only pending and claimed controls", () => {
