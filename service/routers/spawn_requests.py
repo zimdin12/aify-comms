@@ -48,6 +48,7 @@ from service.api_core.routing import domain_router
 from service.api_core.runtime import (
     _normalize_runtime,
     _runtime_capability_for_environment,
+    _runtime_unlaunchable_reason,
 )
 from service.api_core.records import _environment_record_to_dict
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
@@ -202,6 +203,14 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
         runtime_capability = _runtime_capability_for_environment(environment, normalized_runtime)
         if not runtime_capability:
             raise HTTPException(400, f'Environment "{req.environmentId}" does not advertise runtime "{normalized_runtime}"')
+        # SAYING NO EARLY, WITH THE HOST'S OWN REASON. Accepting this spawn meant the launcher was not
+        # found minutes later, by the tier that runs it, and reported as "the agent did not start".
+        unlaunchable = _runtime_unlaunchable_reason(environment, normalized_runtime)
+        if unlaunchable:
+            raise HTTPException(
+                409,
+                f'Environment "{req.environmentId}" cannot launch runtime "{normalized_runtime}". {unlaunchable}',
+            )
         workspace = _normalize_workspace_for_environment(environment, req.workspace or "")
         workspace_root = _workspace_root_for(environment, workspace)
         if not workspace and workspace_root:

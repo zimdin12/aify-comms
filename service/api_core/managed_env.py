@@ -25,6 +25,7 @@ from service.api_core.runtime import (
     _normalize_runtime,
     _normalize_session_mode,
     _runtime_capability_for_environment,
+    _runtime_unlaunchable_reason,
 )
 from service.api_core.liveness import _LIVE_SESSION_STATUSES
 from service.api_core.serialization import _json_loads_or
@@ -376,6 +377,11 @@ async def _select_online_environment_for_runtime(
         if str(environment.get("status") or "").lower() != "online":
             continue
         if not _runtime_capability_for_environment(environment, normalized_runtime):
+            continue
+        # An environment that has already said it cannot start this runtime is not a candidate for it.
+        # Skipping here lets a LATER environment that can be chosen instead, which is the whole point
+        # of scanning more than one; refusing at the spawn gate alone would stop at the first match.
+        if _runtime_unlaunchable_reason(environment, normalized_runtime):
             continue
         return environment
     return None

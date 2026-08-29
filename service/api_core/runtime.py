@@ -66,6 +66,32 @@ def _runtime_capability_for_environment(environment: dict[str, Any], runtime: st
     return None
 
 
+def _runtime_unlaunchable_reason(environment: dict[str, Any], runtime: str) -> Optional[str]:
+    """Why this environment says it cannot start `runtime`, or None if it does not say so.
+
+    THE REASON WAS ALREADY BEING COMPUTED AND STORED, and read by nothing. The host builds it with the
+    wrapper name, the env var that overrides it, the installer flag that fixes it and a PATH
+    diagnostic; without a reader, a spawn was accepted anyway and failed later with none of that
+    attached.
+
+    EXPLICIT FALSE ONLY, never a missing key. `available` is optional on rows written before it
+    existed, and "said nothing" is not "said no" -- the same distinction the heartbeat's own
+    preservation rule turns on. Matches `managed-environment-sync.mjs`, which filters on
+    `available !== false` for exactly this reason.
+
+    Returns None when the runtime is absent from the list as well: that is a different refusal, with
+    its own message, and merging them would report "not launchable" for a runtime the environment
+    never claimed to have.
+    """
+    capability = _runtime_capability_for_environment(environment, runtime)
+    if capability is None:
+        return None
+    if capability.get("available") is not False:
+        return None
+    reason = str(capability.get("unavailableReason") or "").strip()
+    return reason or f'the environment reports runtime "{runtime}" is not launchable'
+
+
 #: Runtimes whose managed worker is driven NATIVELY by the bridge — an app-server or persistent RPC
 #: session — as opposed to the channel-sidecar runtimes in `api_core/channel_delivery.py`. v0.5.4: moved
 #: out of the control plane, whose only claim on it was history; its readers are the dispatch_messages
