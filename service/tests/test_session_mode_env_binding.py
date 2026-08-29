@@ -24,14 +24,18 @@ import aiosqlite
 
 from service.api_core.session_mode_env_binding import _infer_environment_binding_for_managed_switch
 
-SCHEMA = """
-CREATE TABLE agent_sessions (
-    id TEXT, agent_id TEXT, environment_id TEXT, created_at TEXT, last_seen TEXT
-);
-CREATE TABLE environments (
-    id TEXT, machine_id TEXT, status TEXT, last_seen TEXT
-);
-"""
+#: THE REAL SCHEMA, not a hand-written stand-in.
+#:
+#: This file used to declare its own two tables, and its `agent_sessions` carried a `created_at`
+#: column the service's schema has never had. The function under test ordered by
+#: `COALESCE(last_seen, created_at)`, so the query ran here and raised `no such column: created_at`
+#: in production -- for 78 days, behind an `except Exception`, with this test green the whole time.
+#: A fixture that invents the table the query wants proves the query is self-consistent and nothing
+#: else.
+#:
+#: Importing the real schema costs one executescript of an in-memory database and removes the entire
+#: class: a column that does not exist cannot be inserted into, selected, or ordered by here either.
+from service.schema import SCHEMA  # noqa: E402
 
 
 class InferEnvironmentBindingTests(unittest.IsolatedAsyncioTestCase):
@@ -47,12 +51,19 @@ class InferEnvironmentBindingTests(unittest.IsolatedAsyncioTestCase):
 
     async def _session(self, sid, *, agent="a1", environment="", last_seen="2026-08-01T10:00:00Z"):
         await self.db.execute(
-            "INSERT INTO agent_sessions VALUES (?,?,?,?,?)",
+            "INSERT INTO agent_sessions (id, agent_id, environment_id, started_at, last_seen,"
+            " runtime) VALUES (?,?,?,?,?,'claude-code')",
             (sid, agent, environment, last_seen, last_seen),
         )
 
     async def _environment(self, eid, *, machine="m1", status="online", last_seen="2026-08-01T10:00:00Z"):
-        await self.db.execute("INSERT INTO environments VALUES (?,?,?,?)", (eid, machine, status, last_seen))
+        # Named columns, because the real `environments` table has fifteen. A positional insert is
+        # what ties a fixture to a hand-written stand-in in the first place.
+        await self.db.execute(
+            "INSERT INTO environments (id, machine_id, status, last_seen, label, os, kind,"
+            " registered_at) VALUES (?,?,?,?,?,'linux','linux',?)",
+            (eid, machine, status, last_seen, eid, last_seen),
+        )
 
     async def _run(self, *, new_mode="managed", machine_id="m1", agent_id="a1"):
         await _infer_environment_binding_for_managed_switch(

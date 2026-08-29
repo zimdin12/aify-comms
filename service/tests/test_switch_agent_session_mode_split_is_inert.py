@@ -49,7 +49,26 @@ FIXTURE = Path(__file__).resolve().parent / "data" / "switch_agent_session_mode_
 #: interpolate `ENDED_AGENT_SESSION_STATUS_SQL`, rendered once from that constant. Undone here
 #: rather than re-captured: re-capturing the fixture would erase the pre-split baseline and
 #: leave this proving only that the split is inert relative to whatever the code is today.
+#: DECLARED EDIT, 2026-08-29. The session lookup ordered by a column `agent_sessions` does not
+#: have (`created_at`), so it raised on every call and the shared `except` hid it; the two
+#: sources now have a guard each. Undone here rather than re-captured.
 EDITED_SINCE = [
+    (
+        '            inferred_env = ""\n            # `started_at`, NOT `created_at`. `agent_sessions` has no `created_at` column and never\n            # has, so this statement raised `no such column: created_at` on every call from\n            # 2026-06-12 to 2026-08-29 -- 78 days in which the inference this function exists for\n            # could not run once. The `except Exception` below caught it, so nothing was logged and\n            # the switch carried on with an empty binding: exactly the "unassigned" agent the\n            # docstring says this was built to stop.\n            #\n            # `started_at` is NOT NULL, which is what makes the COALESCE meaningful rather than\n            # decorative.\n            try:',
+        '            inferred_env = ""\n            try:',
+    ),
+    (
+        '                    "AND COALESCE(environment_id, \'\') != \'\' "\n                    "ORDER BY datetime(COALESCE(last_seen, started_at)) DESC LIMIT 1",\n                    (agent_id,),',
+        '                    "AND COALESCE(environment_id, \'\') != \'\' "\n                    "ORDER BY datetime(COALESCE(last_seen, created_at)) DESC LIMIT 1",\n                    (agent_id,),',
+    ),
+    (
+        '                inferred_env = str((_ls["environment_id"] if _ls else "") or "").strip()\n            except Exception:\n                inferred_env = ""\n            # THE SECOND SOURCE GETS ITS OWN GUARD. Both lived in one `try`, so a failure in the\n            # first skipped the second entirely -- and for 78 days the first always failed. The\n            # docstring says "two sources are tried in order"; this is what makes that true.\n            if not inferred_env:\n                try:\n                    _machine = _normalize_machine_id(row["machine_id"] or "")',
+        '                inferred_env = str((_ls["environment_id"] if _ls else "") or "").strip()\n                if not inferred_env:\n                    _machine = _normalize_machine_id(row["machine_id"] or "")',
+    ),
+    (
+        '                        inferred_env = str((_er["id"] if _er else "") or "").strip()\n                except Exception:\n                    inferred_env = ""\n            if inferred_env:',
+        '                        inferred_env = str((_er["id"] if _er else "") or "").strip()\n            except Exception:\n                inferred_env = ""\n            if inferred_env:',
+    ),
     (
         '                    f"""\n                    SELECT id\n                    FROM agent_sessions\n                    WHERE agent_id = ?\n                      AND runtime = ?\n                      AND status NOT IN {ENDED_AGENT_SESSION_STATUS_SQL}\n                    ORDER BY last_seen DESC',
         '                    """\n                    SELECT id\n                    FROM agent_sessions\n                    WHERE agent_id = ?\n                      AND runtime = ?\n                      AND status NOT IN (\'failed\',\'lost\',\'stopped\',\'ended\',\'completed\',\'cancelled\')\n                    ORDER BY last_seen DESC',

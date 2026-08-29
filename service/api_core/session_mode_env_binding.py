@@ -47,15 +47,30 @@ async def _infer_environment_binding_for_managed_switch(
             # always derivable: the latest session row's environment, else the (online-first,
             # newest) environment registered for the agent's own machine.
             inferred_env = ""
+            # `started_at`, NOT `created_at`. `agent_sessions` has no `created_at` column and never
+            # has, so this statement raised `no such column: created_at` on every call from
+            # 2026-06-12 to 2026-08-29 -- 78 days in which the inference this function exists for
+            # could not run once. The `except Exception` below caught it, so nothing was logged and
+            # the switch carried on with an empty binding: exactly the "unassigned" agent the
+            # docstring says this was built to stop.
+            #
+            # `started_at` is NOT NULL, which is what makes the COALESCE meaningful rather than
+            # decorative.
             try:
                 _ls = await (await db.execute(
                     "SELECT environment_id FROM agent_sessions WHERE agent_id = ? "
                     "AND COALESCE(environment_id, '') != '' "
-                    "ORDER BY datetime(COALESCE(last_seen, created_at)) DESC LIMIT 1",
+                    "ORDER BY datetime(COALESCE(last_seen, started_at)) DESC LIMIT 1",
                     (agent_id,),
                 )).fetchone()
                 inferred_env = str((_ls["environment_id"] if _ls else "") or "").strip()
-                if not inferred_env:
+            except Exception:
+                inferred_env = ""
+            # THE SECOND SOURCE GETS ITS OWN GUARD. Both lived in one `try`, so a failure in the
+            # first skipped the second entirely -- and for 78 days the first always failed. The
+            # docstring says "two sources are tried in order"; this is what makes that true.
+            if not inferred_env:
+                try:
                     _machine = _normalize_machine_id(row["machine_id"] or "")
                     if _machine:
                         _er = await (await db.execute(
@@ -66,8 +81,8 @@ async def _infer_environment_binding_for_managed_switch(
                             (_machine,),
                         )).fetchone()
                         inferred_env = str((_er["id"] if _er else "") or "").strip()
-            except Exception:
-                inferred_env = ""
+                except Exception:
+                    inferred_env = ""
             if inferred_env:
                 runtime_state["environmentId"] = inferred_env
             else:
