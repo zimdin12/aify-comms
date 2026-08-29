@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
+from service.api_core.agent_sessions import ENDED_AGENT_SESSION_STATUS_SQL
 from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
 from service.api_core.capabilities import _managed_via_wrapper_for_runtime
 from service.api_core.dispatch_start import (
@@ -43,12 +44,12 @@ async def _enforce_switch_not_blocked_by_active_run(db, req, agent_id: str, new_
             # api_server model: resident hermes resumes its pinned session via --resume; no gatewayUrl needed (was a tui_gateway-era guard)
             if new_mode == "managed":
                 managed_session = await (await db.execute(
-                    """
+                    f"""
                     SELECT id
                     FROM agent_sessions
                     WHERE agent_id = ?
                       AND runtime = ?
-                      AND status NOT IN ('failed','lost','stopped','ended','completed','cancelled')
+                      AND status NOT IN {ENDED_AGENT_SESSION_STATUS_SQL}
                     ORDER BY last_seen DESC
                     LIMIT 1
                     """,

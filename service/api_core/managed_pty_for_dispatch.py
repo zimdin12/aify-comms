@@ -23,6 +23,7 @@ import time
 import uuid
 from typing import Any
 
+from service.api_core.agent_sessions import ENDED_AGENT_SESSION_STATUS_SQL
 from service.api_core.capabilities import _default_console_argv, _environment_supports_terminal
 from service.api_core.events import _append_terminal_control, _append_terminal_event
 from service.api_core.records import _environment_record_to_dict
@@ -172,7 +173,7 @@ async def _ensure_managed_pty_for_dispatch(
         )
 
     await db.execute(
-        """
+        f"""
         UPDATE agent_sessions
         SET owner_mode = 'managed',
             owner_bridge_id = ?,
@@ -186,9 +187,9 @@ async def _ensure_managed_pty_for_dispatch(
             -- attached terminal forever (cms-manager, 2026-06-10 — the lazy auto-start-on-send
             -- bound a fresh PTY to a session left 'stopped' by the old backing's death; the
             -- display deriver deliberately never promotes, so the bind moment must).
-            status = CASE WHEN status IN ('stopped','ended','failed','lost','cancelled','completed')
+            status = CASE WHEN status IN {ENDED_AGENT_SESSION_STATUS_SQL}
                           THEN 'running' ELSE status END,
-            ended_at = CASE WHEN status IN ('stopped','ended','failed','lost','cancelled','completed')
+            ended_at = CASE WHEN status IN {ENDED_AGENT_SESSION_STATUS_SQL}
                             THEN NULL ELSE ended_at END,
             last_seen = ?
         WHERE id = ?

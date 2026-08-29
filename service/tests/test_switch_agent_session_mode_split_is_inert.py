@@ -44,6 +44,19 @@ AUDIT = REPO / "service" / "api_core" / "session_mode_audit.py"
 WRITES = REPO / "service" / "api_core" / "session_mode_writes.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "switch_agent_session_mode_before_split.py"
 
+#: DECLARED EDIT, 2026-08-29. Six ended-session statuses were spelled out by hand in NINE SQL
+#: strings across five modules while `ENDED_AGENT_SESSION_STATUSES` owned them. They now
+#: interpolate `ENDED_AGENT_SESSION_STATUS_SQL`, rendered once from that constant. Undone here
+#: rather than re-captured: re-capturing the fixture would erase the pre-split baseline and
+#: leave this proving only that the split is inert relative to whatever the code is today.
+EDITED_SINCE = [
+    (
+        '                    f"""\n                    SELECT id\n                    FROM agent_sessions\n                    WHERE agent_id = ?\n                      AND runtime = ?\n                      AND status NOT IN {ENDED_AGENT_SESSION_STATUS_SQL}\n                    ORDER BY last_seen DESC',
+        '                    """\n                    SELECT id\n                    FROM agent_sessions\n                    WHERE agent_id = ?\n                      AND runtime = ?\n                      AND status NOT IN (\'failed\',\'lost\',\'stopped\',\'ended\',\'completed\',\'cancelled\')\n                    ORDER BY last_seen DESC',
+    ),
+]
+
+
 SOURCE_FUNCTION = "switch_agent_session_mode"
 #: EVERY extraction, inlined back TOGETHER against the ONE true original — not a chain of per-slice
 #: fixtures. A fixture per extraction is a second copy of a function that is still being edited, and a
@@ -82,7 +95,7 @@ class SwitchAgentSessionModeSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS, EDITED_SINCE)
 
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""

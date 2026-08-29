@@ -21,6 +21,7 @@ import logging
 import time
 from datetime import datetime, timezone
 
+from service.api_core.agent_sessions import ENDED_AGENT_SESSION_STATUS_SQL
 from service.api_core.idle_worker_query import _select_idle_virtual_rpc_workers
 from service.api_core.serialization import _json_loads_or  # v0.5.1c: the leaf owner, not via the router
 from service.api_core.events import (
@@ -122,8 +123,8 @@ async def _reconcile_resurrected_managed_consoles(db) -> int:
                 # Re-binding the resurrected live console is a "backing is running" event — also
                 # promote a dead-state session denorm (same rule as the other bind sites), else
                 # the Console label reads "Console stopped" over a live attached terminal.
-                "status = CASE WHEN status IN ('stopped','ended','failed','lost','cancelled','completed') THEN 'running' ELSE status END, "
-                "ended_at = CASE WHEN status IN ('stopped','ended','failed','lost','cancelled','completed') THEN NULL ELSE ended_at END, "
+                f"status = CASE WHEN status IN {ENDED_AGENT_SESSION_STATUS_SQL} THEN 'running' ELSE status END, "
+                f"ended_at = CASE WHEN status IN {ENDED_AGENT_SESSION_STATUS_SQL} THEN NULL ELSE ended_at END, "
                 "last_seen = ? WHERE id = ?",
                 (terminal_id, now, session_id),
             )

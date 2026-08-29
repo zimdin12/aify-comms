@@ -26,6 +26,7 @@ import logging
 import time
 import uuid
 
+from service.api_core.agent_sessions import ENDED_AGENT_SESSION_STATUS_SQL
 from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
 from service.api_core.capabilities import _default_capabilities_for, _managed_via_wrapper_for_runtime
 from service.api_core.channel_delivery import (
@@ -242,7 +243,7 @@ async def _migrate_bridge_id_onto_live_terminal(db, row, session_id, migrate_bri
                         (session_id, live_terminal["id"]),
                     )
                     await db.execute(
-                        """
+                        f"""
                         UPDATE agent_sessions
                         SET terminal_id = ?, terminal_status = ?,
                             terminal_command = ?, terminal_workspace = ?,
@@ -251,9 +252,9 @@ async def _migrate_bridge_id_onto_live_terminal(db, row, session_id, migrate_bri
                             -- keeps the PREVIOUS backing's 'stopped' and the Console label reads
                             -- "Console stopped" for a live attached terminal forever (cms-manager,
                             -- 2026-06-10; the display deriver deliberately never promotes).
-                            status = CASE WHEN status IN ('stopped','ended','failed','lost','cancelled','completed')
+                            status = CASE WHEN status IN {ENDED_AGENT_SESSION_STATUS_SQL}
                                           THEN 'running' ELSE status END,
-                            ended_at = CASE WHEN status IN ('stopped','ended','failed','lost','cancelled','completed')
+                            ended_at = CASE WHEN status IN {ENDED_AGENT_SESSION_STATUS_SQL}
                                             THEN NULL ELSE ended_at END
                         WHERE id = ?
                         """,

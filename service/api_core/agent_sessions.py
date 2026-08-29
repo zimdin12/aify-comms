@@ -40,6 +40,25 @@ ENDED_AGENT_SESSION_STATUSES = {
 _ENDED_AGENT_SESSION_STATUS_PARAMS = tuple(sorted(ENDED_AGENT_SESSION_STATUSES))
 _ENDED_AGENT_SESSION_STATUS_PLACEHOLDERS = ", ".join("?" * len(_ENDED_AGENT_SESSION_STATUS_PARAMS))
 
+#: THE SAME SET, SPELLED FOR SQL THAT CANNOT CARRY PARAMETERS. The placeholder pair above is right
+#: for a query whose parameters are already being assembled; it is the wrong tool for a `CASE WHEN
+#: status IN (...)` buried mid-UPDATE, where threading six more `?` into an existing tuple is how an
+#: argument ends up in the wrong slot. So the members are rendered as a literal fragment, ONCE, from
+#: the same constant.
+#:
+#: WHY THIS EXISTS AT ALL. Measured 2026-08-29: NINE sites across five modules wrote these six
+#: statuses out by hand -- three as `NOT IN` (still-live) and six as `IN` (promote a dead-state denorm
+#: on rebind) -- while exactly one read the constant. Every one is `agent_sessions.status` and every
+#: one means "this session has ended", so this is not a coincidence of vocabulary; it is one concept
+#: with an owner and eight copies. `test_inline_literal_set_duplication_is_frozen.py` could not see
+#: any of them, because its scan reads Python literals and these live inside SQL strings.
+#:
+#: Interpolation is safe here and only here: the values come from this module's own frozen set, never
+#: from a request, and a test asserts every member is a bare lowercase word.
+ENDED_AGENT_SESSION_STATUS_SQL = "(" + ", ".join(
+    f"'{status}'" for status in _ENDED_AGENT_SESSION_STATUS_PARAMS
+) + ")"
+
 
 async def _touch_agent(db, agent_id: str):
     await db.execute(
@@ -150,7 +169,7 @@ async def _touch_current_agent_session(db, agent_id: str, runtime_state: dict[st
     runtime_handle = str(state.get("sessionId") or state.get("threadId") or state.get("sessionFile") or "").strip()
     if spawn_request_id:
         await db.execute(
-            """
+            f"""
             UPDATE agent_sessions
             SET last_seen = ?,
                 session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
@@ -160,14 +179,14 @@ async def _touch_current_agent_session(db, agent_id: str, runtime_state: dict[st
                 END
             WHERE agent_id = ?
               AND spawn_request_id = ?
-              AND status NOT IN ('failed', 'lost', 'stopped', 'ended', 'completed', 'cancelled')
+              AND status NOT IN {ENDED_AGENT_SESSION_STATUS_SQL}
             """,
             (now, runtime_handle, runtime_handle, agent_id, spawn_request_id),
         )
         return
     if environment_id:
         await db.execute(
-            """
+            f"""
             UPDATE agent_sessions
             SET last_seen = ?,
                 session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
@@ -180,7 +199,7 @@ async def _touch_current_agent_session(db, agent_id: str, runtime_state: dict[st
                 FROM agent_sessions
                 WHERE agent_id = ?
                   AND environment_id = ?
-                  AND status NOT IN ('failed', 'lost', 'stopped', 'ended', 'completed', 'cancelled')
+                  AND status NOT IN {ENDED_AGENT_SESSION_STATUS_SQL}
                 ORDER BY last_seen DESC
                 LIMIT 1
             )
