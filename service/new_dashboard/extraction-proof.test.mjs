@@ -32,6 +32,29 @@ const LF = String.fromCharCode(10);
 const PRISTINE = "fixtures/app.before-settings-fields.js";
 
 /** One entry per extraction slice, in order. `at` values are indices into the PRISTINE file. */
+//: EDITS TO LINES THAT STAYED IN app.js.
+//:
+//: Until this existed, app.js's own code was frozen: `reconstruct` restores the imports a slice
+//: added, the seeding lines it added and the declarations it moved, then requires every remaining
+//: line to equal the fixture byte for byte. Measured 2026-08-29 before adding it -- 317 app.js lines
+//: differ from the fixture, and all 317 are imports, their continuations, or the 17 seeding and
+//: binding lines already declared. No ordinary edit to the orchestrator had ever been made, because
+//: the gate refuses one.
+//:
+//: Nothing is loosened. Each entry is located by its CURRENT text, verbatim, and an UNDECLARED edit
+//: still reaches the byte comparison and still fails.
+//:
+//: Newest first, for the same reason the import undo runs in reverse: each entry finds the text the
+//: entry after it left.
+const CARRIER_EDITS = [
+  {
+    // The payload gate learned to see `session?.x` and every `.js` module beside app.js, and named
+    // this: /sessions emits `workspace`, never `cwd`, so the alternate could never fire.
+    now: ["  byId('session-subtitle').textContent = session.workspace || 'Live terminal and lifecycle for this session.';"],
+    was: ["  byId('session-subtitle').textContent = session.workspace || session.cwd || 'Live terminal and lifecycle for this session.';"],
+  },
+];
+
 const EXTRACTIONS = [
   {
     module: "settings-fields.mjs",
@@ -111,6 +134,14 @@ const EXTRACTIONS = [
         editedSince: [
           {
             was: [
+              "  return String(session?.environmentId || session?.environment_id || session?.envId || session?.env_id || '');",
+            ],
+            now: [
+              "  return String(session?.environmentId || '');",
+            ],
+          },
+          {
+            was: [
               "  return String(session?.environmentId || session?.environment_id || session?.envId || session?.env_id || 'unassigned');",
             ],
             now: [
@@ -128,6 +159,14 @@ const EXTRACTIONS = [
         editedSince: [
           {
             was: [
+              "  return String(session?.runtime || session?.runtimeKind || session?.kind || '');",
+            ],
+            now: [
+              "  return String(session?.runtime || '');",
+            ],
+          },
+          {
+            was: [
               "  return String(session?.runtime || session?.runtimeKind || session?.kind || 'runtime');",
             ],
             now: [
@@ -140,15 +179,67 @@ const EXTRACTIONS = [
       { name: "messageId", at: 1696, marker: "// messageId moved to ./record-fields.mjs in v0.5.4." },
       { name: "messageRunId", at: 1700, marker: "// messageRunId moved to ./record-fields.mjs in v0.5.4." },
       { name: "contractCategory", at: 2910, marker: "// contractCategory moved to ./record-fields.mjs in v0.5.4." },
-      { name: "environmentRoots", at: 2990, marker: "// environmentRoots moved to ./record-fields.mjs in v0.5.4." },
+      {
+        name: "environmentRoots", at: 2990,
+        marker: "// environmentRoots moved to ./record-fields.mjs in v0.5.4.",
+        editedSince: [
+          {
+            was: [
+              "  const roots = env?.cwdRoots || env?.cwd_roots || env?.roots || env?.workspaceRoots || [];",
+            ],
+            now: [
+              "  const roots = env?.cwdRoots || [];",
+            ],
+          },
+        ],
+      },
       { name: "runPendingControlCount", at: 3267, marker: "// runPendingControlCount moved to ./record-fields.mjs in v0.5.4." },
       // The last three readers of this shape. Indices MEASURED from the pristine fixture, not copied from
       // the current file — `at` is a position in the pre-extraction app.js, and every earlier slice has
       // already shifted the live one.
-      { name: "sessionId", at: 1609, marker: "// sessionId moved to ./record-fields.mjs in v0.5.4." },
-      { name: "sessionAgentId", at: 1613, marker: "// sessionAgentId moved to ./record-fields.mjs in v0.5.4." },
+      {
+        name: "sessionId", at: 1609,
+        marker: "// sessionId moved to ./record-fields.mjs in v0.5.4.",
+        editedSince: [
+          {
+            was: [
+              "  return String(session?.id || session?.sessionId || session?.session_id || '');",
+            ],
+            now: [
+              "  return String(session?.id || '');",
+            ],
+          },
+        ],
+      },
+      {
+        name: "sessionAgentId", at: 1613,
+        marker: "// sessionAgentId moved to ./record-fields.mjs in v0.5.4.",
+        editedSince: [
+          {
+            was: [
+              "  return String(session?.agentId || session?.agent_id || session?.agent || '');",
+            ],
+            now: [
+              "  return String(session?.agentId || '');",
+            ],
+          },
+        ],
+      },
       { name: "runTargetAgent", at: 1704, marker: "// runTargetAgent moved to ./record-fields.mjs in v0.5.4." },
-      { name: "environmentRuntimes", at: 2983, marker: "// environmentRuntimes moved to ./record-fields.mjs in v0.5.4." },
+      {
+        name: "environmentRuntimes", at: 2983,
+        marker: "// environmentRuntimes moved to ./record-fields.mjs in v0.5.4.",
+        editedSince: [
+          {
+            was: [
+              "  const runtimes = env?.runtimes || env?.runtimeCapabilities || [];",
+            ],
+            now: [
+              "  const runtimes = env?.runtimes || [];",
+            ],
+          },
+        ],
+      },
       { name: "asArray", at: 738, marker: "// asArray moved to ./record-fields.mjs in v0.5.4." },
       { name: "contractActionable", at: 1410, marker: "// contractActionable moved to ./record-fields.mjs in v0.5.4." },
     ],
@@ -509,6 +600,14 @@ const EXTRACTIONS = [
         editedSince: [
           {
             was: [
+              "      const hay = [sessionId(session), sessionAgentId(session), session.workspace || session.cwd, sessionRuntime(session), sessionEnvironmentId(session)].join(' ').toLowerCase();",
+            ],
+            now: [
+              "      const hay = [sessionId(session), sessionAgentId(session), session.workspace, sessionRuntime(session), sessionEnvironmentId(session)].join(' ').toLowerCase();",
+            ],
+          },
+          {
+            was: [
               "    const envId = sessionEnvironmentId(session);",
             ],
             now: [
@@ -539,6 +638,14 @@ const EXTRACTIONS = [
         // LAST key of a repeated name, so a second one is silently discarded and the gate then fails
         // with the declared edit apparently ignored -- which is what happened writing this entry.
         editedSince: [
+          {
+            was: [
+              "              <p class=\"preview session-path\">${esc(session.workspace || session.cwd || '')}</p>",
+            ],
+            now: [
+              "              <p class=\"preview session-path\">${esc(session.workspace || '')}</p>",
+            ],
+          },
           {
             was: [
               "              <span class=\"session-runtime-badge\" data-runtime=\"${esc(sessionRuntime(session))}\">${esc(sessionRuntime(session))}</span>",
@@ -646,6 +753,14 @@ const EXTRACTIONS = [
         // the reconstruct pulls back into app.js, and the first attempt at this change added
         // one and put 1,462 characters into a fixture that never had them.
         editedSince: [
+          {
+            was: [
+              "        ${row('Workspace', esc((session && (session.workspace || session.cwd)) || agent.cwd || '—'))}",
+            ],
+            now: [
+              "        ${row('Workspace', esc((session && session.workspace) || agent.cwd || '—'))}",
+            ],
+          },
         {
           was: [
           "        ${row('Machine', esc(agent.machineId || '—'))}",
@@ -750,6 +865,14 @@ const EXTRACTIONS = [
         at: 3402,
         marker: "// openIdentityDirectory moved to ./identity-directory.mjs in v0.5.4.",
         editedSince: [
+          {
+            was: [
+              "  const modeOf = (agent, session) => String(agent.sessionMode || (session && (session.mode || session.session_mode)) || 'resident').toLowerCase();",
+            ],
+            now: [
+              "  const modeOf = (agent, session) => String(agent.sessionMode || (session && session.mode) || 'resident').toLowerCase();",
+            ],
+          },
           {
             was: [
               "      <td class=\"clip\">${esc(envLabel === 'unassigned' ? '—' : (envLabel || '—'))}</td>",
@@ -1417,7 +1540,23 @@ const EXTRACTIONS = [
     importLine: "import { SESSION_FILTER_KINDS, agentForSession, agentForTerminal, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';",
     importWas: "import { SESSION_FILTER_KINDS, agentForSession, ensureSelectedSession, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';",
     items: [
-      { name: "agentForTerminal", at: 2272, marker: "// agentForTerminal moved to ./session-rail.mjs in v0.5.4." },
+      {
+        name: "agentForTerminal", at: 2272,
+        marker: "// agentForTerminal moved to ./session-rail.mjs in v0.5.4.",
+        editedSince: [
+          {
+            was: [
+              "  const sess = (state.sessions || []).find((x) => String(x?.terminalId || x?.terminal?.id || x?.terminal_id || '') === tid);",
+            ],
+            now: [
+              "  // TWO shapes, not three. `x?.terminal_id` was dead: /sessions emits `terminalId` and a",
+              "  // `terminal` object. Read through `x`, so the payload gate -- which matches `session.x` and",
+              "  // `session?.x` -- could not see it when the same alternate was removed elsewhere.",
+              "  const sess = (state.sessions || []).find((x) => String(x?.terminalId || x?.terminal?.id || '') === tid);",
+            ],
+          },
+        ],
+      },
     ],
   },
   // Plain declaration relocations — no wrapper, the whole `function` span moves as it always did.
@@ -1682,7 +1821,32 @@ const EXTRACTIONS = [
           "const mountXtermForTerminal = (terminalId, agentId, container, opts) =>",
           "  mountXtermForTerminalImpl(terminalId, agentId, container, opts, { resyncActiveConsole });",
         ],
-        editedSince: [{
+        editedSince: [
+          {
+            was: [
+              "    const _tid = String(terminalId || '');",
+              "    const _sess = (state.sessions || []).find(",
+              "      (x) => String(x?.terminalId || x?.terminal?.id || x?.terminal_id || '') === _tid);",
+              "    const _mode = String(",
+              "      agentForTerminal(terminalId)?.sessionMode || _sess?.sessionMode || _sess?.session_mode || ''",
+              "    ).toLowerCase();",
+            ],
+            now: [
+              "    //",
+              "    // THE SESSION-ROW FALLBACK THIS COMMENT DESCRIBES HAS NEVER RUN. It read",
+              "    // `_sess?.sessionMode || _sess?.session_mode`, and /sessions emits neither -- the session row",
+              "    // carries `mode` ('managed-warm') and `ownerMode` ('managed' / 'resident' / 'console'). So an",
+              "    // absent agent object has always produced an empty `_mode`, which is `ownsPty === false`: the",
+              "    // fail-closed direction the paragraph above demands. Nothing is broken.",
+              "    //",
+              "    // MAKING IT REAL IS A DECISION, NOT A REPAIR. Substituting `_sess?.ownerMode` would let this",
+              "    // guard answer `managed` where it answers nothing today, so a console that is currently never",
+              "    // resized could start being resized. That is the exact harm the guard exists to prevent, and it",
+              "    // is not a change to make while removing dead reads. Left fail-closed, and stated.",
+              "    const _mode = String(agentForTerminal(terminalId)?.sessionMode || '').toLowerCase();",
+            ],
+          },
+          {
           was: "async function mountXtermForTerminal(terminalId, agentId, container, { canInput = true } = {}) {",
           now: "async function mountXtermForTerminal(terminalId, agentId, container, { canInput = true } = {}, { resyncActiveConsole }) {",
         }],
@@ -1703,6 +1867,22 @@ const EXTRACTIONS = [
           "  renderSessionConsoleImpl(session, targetEl, opts, { mountXtermForTerminal, refresh, resyncActiveConsole });",
         ],
         editedSince: [
+          {
+            was: [
+              "    terminalStatus: session?.terminalStatus || session?.terminal_status || session?.terminal?.status,",
+            ],
+            now: [
+              "    terminalStatus: session?.terminalStatus || session?.terminal?.status,",
+            ],
+          },
+          {
+            was: [
+              "    sessionTerminalId: session?.terminalId || session?.terminal?.id || session?.terminal_id || '',",
+            ],
+            now: [
+              "    sessionTerminalId: session?.terminalId || session?.terminal?.id || '',",
+            ],
+          },
           {
             was: [
               "      <small class=\"session-meta-line\">${esc(sessionRuntime(session))} · ${esc(sessionEnvironmentId(session))}${hermesGatewayHttp ? ' · live tui_gateway' : ''}${codexAttachable ? ' · live app-server' : ''}${renderSessionModeLabel(agent)}</small>",
@@ -1834,6 +2014,14 @@ const EXTRACTIONS = [
           "});",
         ],
                 editedSince: [
+          {
+            was: [
+              "      const agentId = session.agentId || session.agent_id;",
+            ],
+            now: [
+              "      const agentId = session.agentId;",
+            ],
+          },
         {
           was: "  if (ok(4)) state.runs = val(4).runs || [];",
           now: [
@@ -2239,6 +2427,22 @@ const EXTRACTIONS = [
         name: "switchAgentSessionMode",
         at: 2594,
         marker: "// switchAgentSessionMode moved to ./agent-session-actions.mjs in v0.5.4.",
+        editedSince: [
+          {
+            was: [
+              "  state.sessions.forEach((session) => {",
+              "    if (sessionAgentId(session) === String(agentId)) session.sessionMode = updatedMode;",
+              "  });",
+            ],
+            now: [
+              "  // The AGENT carries the optimistic paint. A loop here used to also set `session.sessionMode` on",
+              "  // every row of that agent, and nothing reads it: the drawer and the directory read",
+              "  // `agent.sessionMode || session.mode`, the console reads `agent?.sessionMode || session?.ownerMode`,",
+              "  // and /sessions emits no `sessionMode` at all. Writing `session.mode` instead would be wrong",
+              "  // rather than better -- that field holds 'managed-warm', a different vocabulary from 'managed'.",
+            ],
+          },
+        ],
       },
       {
         name: "submitAgentEdit",
@@ -2588,6 +2792,24 @@ const EXTRACTIONS = [
         at: 252,
         leading: 5,
         marker: "// mountChatConsole moved to ./message-actions.mjs in v0.5.4, with the note on what it mounts.",
+        editedSince: [
+          {
+            was: [
+              "    ? [sessionId(session), session.status || '', session.terminalStatus || session.terminal_status || '',",
+            ],
+            now: [
+              "    ? [sessionId(session), session.status || '', session.terminalStatus || '',",
+            ],
+          },
+          {
+            was: [
+              "       session.terminalId || session.terminal?.id || session.terminal_id || '',",
+            ],
+            now: [
+              "       session.terminalId || session.terminal?.id || '',",
+            ],
+          },
+        ],
       },
       {
         name: "chatChannelAction",
@@ -2887,8 +3109,50 @@ function rebuild(overrides = {}) {
     after: overrides.after ?? read("app.js"),
     modules: overrides.modules ?? MODULES(),
     extractions: overrides.extractions ?? EXTRACTIONS,
+    carrierEdits: overrides.carrierEdits ?? CARRIER_EDITS,
   });
 }
+
+test("A DECLARED CARRIER EDIT IS UNDONE, and an undeclared one still fails", () => {
+  // `carrierEdits` is the only way a line that STAYED in app.js may differ from the fixture, and it
+  // is worth its own proof because it is the first mechanism here that can hide a change to the
+  // carrier rather than to a moved declaration. Both directions, on a miniature of the real thing.
+  const nl = String.fromCharCode(10);
+  const pristine = ["const a = 1;", "const keep = 'x' || 'y';", "function pub() { return 1; }", ""].join(nl);
+  const host = ["import { pub } from './mod.mjs';", "const a = 1;", "const keep = 'x';",
+                "// pub moved to ./mod.mjs.", ""].join(nl);
+  const mod = ["export function pub() { return 1; }", ""].join(nl);
+  const extractions = [{
+    module: "mod.mjs",
+    importLine: "import { pub } from './mod.mjs';",
+    items: [{ name: "pub", at: 2, marker: "// pub moved to ./mod.mjs." }],
+  }];
+
+  const declared = reconstruct({
+    after: host,
+    modules: { "mod.mjs": mod },
+    extractions,
+    carrierEdits: [{ now: ["const keep = 'x';"], was: ["const keep = 'x' || 'y';"] }],
+  });
+  assert.equal(declared, pristine, "a declared carrier edit must reconstruct to the pristine line");
+
+  assert.notEqual(
+    reconstruct({ after: host, modules: { "mod.mjs": mod }, extractions }),
+    pristine,
+    "an UNDECLARED carrier edit must still reach the byte comparison and fail there",
+  );
+
+  assert.throws(
+    () => reconstruct({
+      after: host,
+      modules: { "mod.mjs": mod },
+      extractions,
+      carrierEdits: [{ now: ["const keep = 'not what the file says';"], was: ["whatever"] }],
+    }),
+    /not found verbatim/,
+    "a carrier edit the file does not contain must throw, not be skipped",
+  );
+});
 
 test("app.js reconstructs byte-identically from every extraction to date", () => {
   assert.equal(

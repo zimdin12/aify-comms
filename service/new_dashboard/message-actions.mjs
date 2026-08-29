@@ -98,14 +98,14 @@ export function mountChatConsole(agentId, hostEl) {
   if (!hostEl) return;
   const session = sessionForAgent(agentId);
   const sig = session
-    ? [sessionId(session), session.status || '', session.terminalStatus || session.terminal_status || '',
+    ? [sessionId(session), session.status || '', session.terminalStatus || '',
        agentForSession(session)?.runtimeState?.virtualTerminalId || '',
        // Include the auto-attach sources (2026-06-19 review) so a terminal that first goes live
        // via the top-level PTY / console pointer / session-bound id changes the sig and mounts
        // inline immediately, instead of lagging a poll until it lands in state.sessionTerminals.
        agentForSession(session)?.runtimeState?.terminalId || '',
        agentForSession(session)?.runtimeState?.consoleTerminal?.terminalId || '',
-       session.terminalId || session.terminal?.id || session.terminal_id || '',
+       session.terminalId || session.terminal?.id || '',
        (state.sessionTerminals?.get?.(sessionId(session))) || ''].join('|')
     : 'none';
   // Unchanged sig → leave the mounted widget alone — EXCEPT when the single global xterm now

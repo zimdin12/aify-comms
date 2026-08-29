@@ -165,7 +165,7 @@ test("selectSessionRow points the CONVERSATION at the selected session's agent",
   // Two fields move together. Selecting the row without repointing the conversation leaves the chat
   // pane showing the previous session's agent — the operator then reads one session and messages
   // another, which is the failure worth guarding.
-  withSelection({ sessions: [{ id: "s1", agent_id: "coder-1" }] }, () => {
+  withSelection({ sessions: [{ id: "s1", agentId: "coder-1" }] }, () => {
     let renders = 0;
     selectSessionRow({ dataset: { sessionSelect: "s1" } }, () => { renders += 1; });
     assert.equal(state.selectedSessionId, "s1");

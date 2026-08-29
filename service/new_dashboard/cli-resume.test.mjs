@@ -47,14 +47,16 @@ test('a missing handle is detected however the field is spelled/absent', () => {
     { id: 'a', runtime: 'claude-code' },
     { id: 'a', runtime: 'claude-code', sessionHandle: null },
     { id: 'a', runtime: 'claude-code', sessionHandle: '   ' },
-    { id: 'a', runtime: 'claude-code', session_handle: '' },
+    { id: 'a', runtime: 'claude-code', sessionHandle: '' },
   ]) {
     assert.equal(continueCliInfo(agent).command, '', JSON.stringify(agent));
   }
 });
 
 test('the handle can come from the SESSION when the agent row lacks it', () => {
-  const { command } = continueCliInfo({ id: 'a', runtime: 'hermes' }, { session_handle: 'from-session' });
+  // `sessionHandle`, which is what /sessions sends. This seeded `session_handle`, a spelling the
+  // service has never emitted, so it was proving a dead alternate rather than the fallback.
+  const { command } = continueCliInfo({ id: 'a', runtime: 'hermes' }, { sessionHandle: 'from-session' });
   assert.equal(command, 'hermes-aify --aify-agent a --resume from-session');
 });
 
@@ -111,12 +113,17 @@ test('N10: an unknown machine says so rather than implying "here"', () => {
   assert.doesNotMatch(note, /undefined|null/);
 });
 
-test('N10: machine survives the snake_case and session-carried spellings', () => {
-  assert.equal(continueCliInfo({ id: 'a', runtime: 'hermes', sessionHandle: 'h', machine_id: 'm-snake' }).machine, 'm-snake');
+test('N10: the machine comes from the AGENT row, the only payload that carries one', () => {
+  // It asserted two more sources and neither exists. `agent.machine_id` is not a spelling the agent
+  // payload uses -- it sends `machineId` -- and a SESSION row has no machine field at all under any
+  // spelling, because `agent_sessions` has no such column. So "the session row carries it when the
+  // agent row does not" described a fallback that could never fire.
+  assert.equal(continueCliInfo({ id: 'a', runtime: 'hermes', sessionHandle: 'h', machineId: 'm-real' }).machine, 'm-real');
+  assert.equal(continueCliInfo({ id: 'a', runtime: 'hermes', sessionHandle: 'h', machine_id: 'm-snake' }).machine, '');
   assert.equal(
     continueCliInfo({ id: 'a', runtime: 'hermes', sessionHandle: 'h' }, { machineId: 'm-sess' }).machine,
-    'm-sess',
-    'the session row carries it when the agent row does not',
+    '',
+    'a session row carries no machine, so nothing may be recovered from one',
   );
 });
 

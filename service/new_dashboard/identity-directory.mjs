@@ -27,7 +27,7 @@ import { esc, relTime } from './util.js';
 
 export function openIdentityDirectory() {
   const agents = [...state.agents].sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
-  const modeOf = (agent, session) => String(agent.sessionMode || (session && (session.mode || session.session_mode)) || 'resident').toLowerCase();
+  const modeOf = (agent, session) => String(agent.sessionMode || (session && session.mode) || 'resident').toLowerCase();
   const managed = agents.filter((a) => modeOf(a, sessionForAgent(a.id)) === 'managed').length;
   const resident = agents.length - managed;
   const unread = agents.reduce((sum, a) => sum + Number(a.unread || a.unreadCount || 0), 0);

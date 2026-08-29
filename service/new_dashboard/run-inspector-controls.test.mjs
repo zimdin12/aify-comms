@@ -72,7 +72,7 @@ test("Open console is offered only when the run resolves to a session", () => {
   const none = caps(run({ status: "running" }), []);
   assert.equal(none.openConsole, false, "no session means the console would open empty");
 
-  const withSession = caps(run({ status: "running" }), [{ id: "s1", agent_id: "coder" }]);
+  const withSession = caps(run({ status: "running" }), [{ id: "s1", agentId: "coder" }]);
   assert.equal(withSession.openConsole, true);
 });
 
@@ -87,7 +87,7 @@ test("an unknown or missing status is treated as neither active nor terminal", (
 });
 
 test("sessionForRun resolves through the run's target agent", () => {
-  state.sessions = [{ id: "s1", agent_id: "coder" }];
+  state.sessions = [{ id: "s1", agentId: "coder" }];
   state.agents = [];
   assert.equal(sessionForRun(run())?.id, "s1");
   assert.equal(sessionForRun({ id: "r2" }), null, "a run with no target has no session");
@@ -106,7 +106,7 @@ test("the controls row is STABLE — every button always renders, disabled refle
   assert.match(finished, /data-run-control="steer" disabled/, "steer must be disabled on a finished run");
   assert.match(finished, /data-run-control="close" disabled/, "…and so must close");
 
-  state.sessions = [{ id: "s1", agent_id: "coder" }];
+  state.sessions = [{ id: "s1", agentId: "coder" }];
   const live = renderRunInspectorControls(run({ status: "running" }));
   assert.ok(!/data-run-control="steer" disabled/.test(live), "a live run must have steer ENABLED");
   assert.ok(!/data-run-control="open-console" disabled/.test(live),

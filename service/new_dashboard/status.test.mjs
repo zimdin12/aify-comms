@@ -118,9 +118,15 @@ test("it reads records through the shared field readers, so every API spelling w
   // The whole reason the readers are shared: a snake_case record must explain itself the same way a
   // camelCase one does, or the tooltip silently says "unknown" for half the rows.
   const camel = statusWhyContext('session', { agentId: 'a-1', environmentId: 'e', runtime: 'pi' }, 'online');
-  const snake = statusWhyContext('session', { agent_id: 'a-1', environment_id: 'e', runtime: 'pi' }, 'online');
   assert.match(camel.why, /a-1/);
-  assert.match(snake.why, /a-1/, "a snake_case record must identify itself too");
+  // THE snake_case HALF IS GONE, and the sentence above it was the argument for keeping it: "a
+  // snake_case record must explain itself the same way a camelCase one does, or the tooltip silently
+  // says unknown for half the rows". Measured against the producer, no row is snake_case --
+  // `_agent_session_to_dict` emits camelCase and nothing else -- so the half this protected was
+  // empty, and reading both spellings meant a rename of the real one fell through to a name the
+  // service never sends.
+  const snake = statusWhyContext('session', { agent_id: 'a-1', environment_id: 'e', runtime: 'pi' }, 'online');
+  assert.doesNotMatch(snake.why, /a-1/, "a spelling /sessions never sends must not resolve");
 });
 
 test("an unknown record still explains itself rather than rendering blanks", () => {

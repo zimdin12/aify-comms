@@ -100,16 +100,22 @@ test("sessionEnvironmentId answers empty for a session with no binding, not a wo
   // a real environment id, and one of them posted it to /spawn-requests.
   assert.equal(sessionEnvironmentId({}), "");
   assert.equal(sessionEnvironmentId(null), "");
-  for (const key of ["environmentId", "environment_id", "envId", "env_id"]) {
-    assert.equal(sessionEnvironmentId({ [key]: "env-1" }), "env-1", `${key} must be recognised`);
+  assert.equal(sessionEnvironmentId({ environmentId: "env-1" }), "env-1");
+  // ONE SPELLING. It read four -- `environment_id`, `envId`, `env_id` beside `environmentId` -- and
+  // /sessions sends only the last. The three dead branches are gone, so a rename on either side of
+  // this join now fails the payload gate instead of falling through to a sibling that still matches.
+  for (const dead of ["environment_id", "envId", "env_id"]) {
+    assert.equal(sessionEnvironmentId({ [dead]: "env-1" }), "",
+      `${dead} is not a spelling /sessions sends, so reading it would be dead code`);
   }
 });
 
 test("sessionRuntime answers empty for a session that names none", () => {
   assert.equal(sessionRuntime({}), "");
   assert.equal(sessionRuntime(null), "");
-  for (const key of ["runtime", "runtimeKind", "kind"]) {
-    assert.equal(sessionRuntime({ [key]: "claude-code" }), "claude-code", `${key} must be recognised`);
+  assert.equal(sessionRuntime({ runtime: "claude-code" }), "claude-code");
+  for (const dead of ["runtimeKind", "kind"]) {
+    assert.equal(sessionRuntime({ [dead]: "claude-code" }), "", `${dead} is not a spelling /sessions sends`);
   }
 });
 
@@ -167,9 +173,14 @@ test("asAgentArray returns an empty array when the payload has no agents", () =>
   assert.deepEqual(asAgentArray({ agents: null }), []);
 });
 
-test("environmentRoots searches four aliases and filters empty entries", () => {
-  for (const key of ["cwdRoots", "cwd_roots", "roots", "workspaceRoots"]) {
-    assert.deepEqual(environmentRoots({ [key]: ["/a"] }), ["/a"], `${key} must be recognised`);
+test("environmentRoots reads cwdRoots, the one name /environments sends", () => {
+  // It searched four -- `cwd_roots`, `roots`, `workspaceRoots` beside `cwdRoots` -- and
+  // `_environment_record_to_dict` emits only the last. The other three were invisible to the payload
+  // gate until it learned to see `env?.x`, which is how they survived.
+  assert.deepEqual(environmentRoots({ cwdRoots: ["/a"] }), ["/a"]);
+  for (const dead of ["cwd_roots", "roots", "workspaceRoots"]) {
+    assert.deepEqual(environmentRoots({ [dead]: ["/a"] }), [],
+      `${dead} is not a spelling /environments sends`);
   }
   assert.deepEqual(environmentRoots({ cwdRoots: ["/a", "", null, "/b"] }), ["/a", "/b"]);
 });
@@ -187,16 +198,20 @@ test("environmentRoots returns an empty array for a missing or non-array value",
 // throw; it returns "" and the row silently loses its identity, which is how a session stops matching its
 // own agent.
 
-test("sessionId accepts every spelling the API uses, in priority order", () => {
-  assert.equal(sessionId({ id: "a", sessionId: "b", session_id: "c" }), "a", "id wins");
-  assert.equal(sessionId({ sessionId: "b", session_id: "c" }), "b", "…then sessionId");
-  assert.equal(sessionId({ session_id: "c" }), "c", "…then session_id");
+test("sessionId reads `id`, the one name /sessions sends", () => {
+  assert.equal(sessionId({ id: "a" }), "a");
+  for (const dead of ["sessionId", "session_id"]) {
+    assert.equal(sessionId({ [dead]: "b" }), "", `${dead} is not a spelling /sessions sends`);
+  }
 });
 
-test("sessionAgentId accepts every spelling, including the bare `agent`", () => {
-  assert.equal(sessionAgentId({ agentId: "a", agent_id: "b", agent: "c" }), "a");
-  assert.equal(sessionAgentId({ agent_id: "b", agent: "c" }), "b");
-  assert.equal(sessionAgentId({ agent: "c" }), "c", "the short form is a real spelling, not a fallback");
+test("sessionAgentId reads `agentId`, the one name /sessions sends", () => {
+  // The old version called the bare `agent` "a real spelling, not a fallback". It is neither:
+  // `_agent_session_to_dict` emits `agentId` and nothing else, so all three alternates were dead.
+  assert.equal(sessionAgentId({ agentId: "a" }), "a");
+  for (const dead of ["agent_id", "agent"]) {
+    assert.equal(sessionAgentId({ [dead]: "b" }), "", `${dead} is not a spelling /sessions sends`);
+  }
 });
 
 test("runTargetAgent accepts every spelling of a run's target", () => {
@@ -231,9 +246,14 @@ test("they coerce to string, so a numeric id still compares", () => {
 test("a falsy-but-present value falls through rather than winning", () => {
   // Current behaviour, pinned: these use `||`, so an empty string under the preferred name yields to the
   // next spelling instead of returning "". That is what makes a partially-populated record still resolve.
-  assert.equal(sessionId({ id: "", sessionId: "b" }), "b");
-  assert.equal(sessionAgentId({ agentId: "", agent: "c" }), "c");
+  //
+  // Only `runTargetAgent` still HAS a next spelling. The session readers were reduced to the single
+  // name /sessions sends, so for them "falls through" now means "answers empty", which is the point
+  // of the reduction: an empty answer is a fact a caller can act on, and a value recovered from a
+  // spelling the service never sends is a guess.
   assert.equal(runTargetAgent({ targetAgentId: "", agent_id: "d" }), "d");
+  assert.equal(sessionId({ id: "" }), "");
+  assert.equal(sessionAgentId({ agentId: "" }), "");
 });
 
 // ── asArray / contractActionable, moved from app.js in v0.5.4 ────────────────────────────────────

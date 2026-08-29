@@ -39,8 +39,10 @@ function seed({ sessions = [], agents = [], environments = [], filter = "", stat
   state.showSupersededSessions = showSuperseded;
 }
 
+// The keys /sessions sends. This built `agent_id` / `environment_id`, which it does not, so every
+// test below was reading through alternates the payload gate has since removed.
 const session = (id, agentId, environmentId, extra = {}) =>
-  ({ id, agent_id: agentId, environment_id: environmentId, ...extra });
+  ({ id, agentId, environmentId, ...extra });
 
 test("agentForSession resolves through the agents list, and never returns undefined", () => {
   seed({ sessions: [], agents: [{ id: "coder", status: "online" }] });
@@ -250,21 +252,25 @@ test("toggleSupersededSessions FLIPS the flag and RE-RENDERS in the same call", 
 // operator's keystrokes to a different agent — the reason the lookup order below is asserted rather
 // than assumed.
 
-test("agentForTerminal accepts all THREE shapes a session can carry a terminal id in", () => {
-  // The API has used `terminalId`, `terminal.id` and `terminal_id`. Reading only one means the lookup
-  // silently fails for whole classes of session and falls through to the agent list, which is a poll
-  // behind — so the console would attach to a stale owner rather than erroring.
+test("agentForTerminal accepts BOTH shapes a session carries a terminal id in", () => {
+  // Reading only one means the lookup silently fails for whole classes of session and falls through
+  // to the agent list, which is a poll behind — so the console would attach to a stale owner rather
+  // than erroring. It read a third, `terminal_id`, which /sessions has never sent; that branch is
+  // gone, and the payload gate cannot see this line because it reads through `x`, so the case below
+  // is the only thing that would notice it coming back.
   const saved = { sessions: state.sessions, agents: state.agents };
   try {
     state.agents = [{ id: "coder-1" }];
     for (const session of [
-      { id: "s1", agent_id: "coder-1", terminalId: "t1" },
-      { id: "s1", agent_id: "coder-1", terminal: { id: "t1" } },
-      { id: "s1", agent_id: "coder-1", terminal_id: "t1" },
+      { id: "s1", agentId: "coder-1", terminalId: "t1" },
+      { id: "s1", agentId: "coder-1", terminal: { id: "t1" } },
     ]) {
       state.sessions = [session];
       assert.equal(agentForTerminal("t1")?.id, "coder-1", JSON.stringify(session));
     }
+    state.sessions = [{ id: "s1", agentId: "coder-1", terminal_id: "t1" }];
+    assert.equal(agentForTerminal("t1"), null,
+      "terminal_id is not a spelling /sessions sends, so reading it would be dead code");
   } finally {
     Object.assign(state, saved);
   }

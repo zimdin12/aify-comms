@@ -331,11 +331,17 @@ test("A SUCCESSFUL SWITCH APPLIES THE SERVER'S ANSWER IMMEDIATELY, not on the ne
       ok: true, status: 200, statusText: "OK",
       json: async () => answer, text: async () => JSON.stringify(answer),
     });
-    state.sessions = [{ id: "s1", agentId: "coder", sessionMode: "resident" }];
+    state.sessions = [{ id: "s1", agentId: "coder", mode: "managed-warm" }];
     await switchAgentSessionMode("coder", "managed");
     assert.equal(state.agents[0].sessionMode, "managed", "the roster row must carry the new mode");
     assert.equal(state.agents[0].status, "available", "…and the rest of the returned agent, not just the mode");
-    assert.equal(state.sessions[0].sessionMode, "managed", "every session of that agent must follow");
+    // THE AGENT ROW IS THE OPTIMISTIC PAINT. This used to assert `state.sessions[0].sessionMode`,
+    // and a loop wrote that key so the assertion could find it -- but nothing reads it: the drawer
+    // and the directory read `agent.sessionMode || session.mode`, the console reads
+    // `agent?.sessionMode || session?.ownerMode`, and /sessions emits no `sessionMode` at all. The
+    // write was inert and the test proved the write rather than the effect.
+    assert.equal(state.sessions[0].sessionMode, undefined,
+      "a key no reader consults must not be invented on the session row");
     assert.equal(h.calls.renderSessionWorkspace, 1, "…and the surface must repaint without waiting");
   } finally { h.restore(); }
 });
@@ -349,9 +355,9 @@ test("the server's mode WINS over the requested one", async () => {
       ok: true, status: 200, statusText: "OK",
       json: async () => ({ mode: "resident" }), text: async () => JSON.stringify({ mode: "resident" }),
     });
-    state.sessions = [{ id: "s1", agentId: "coder", sessionMode: "managed" }];
+    state.agents = [{ id: "coder", sessionMode: "managed" }];
     await switchAgentSessionMode("coder", "managed");
-    assert.equal(state.sessions[0].sessionMode, "resident", "the answer, not the request, is what is painted");
+    assert.equal(state.agents[0].sessionMode, "resident", "the answer, not the request, is what is painted");
   } finally { h.restore(); }
 });
 

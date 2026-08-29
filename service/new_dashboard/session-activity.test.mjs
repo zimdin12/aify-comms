@@ -14,7 +14,7 @@ import test from "node:test";
 import { state } from "./state.mjs";
 import { messagesForSession, renderSessionActivity, runFrom } from "./session-activity.mjs";
 
-const session = (agentId) => ({ id: "s1", agent_id: agentId });
+const session = (agentId) => ({ id: "s1", agentId });
 
 function render({ runs = [], messages = [] } = {}, agentId = "coder") {
   state.runs = runs;

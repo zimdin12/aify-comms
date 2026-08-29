@@ -167,12 +167,19 @@ def emitted_fields(assembly: frozenset[str] = None) -> tuple[set[str], set[str]]
     return fields, found
 
 
-_AGENT_READ = re.compile(r"\bagent\.([a-zA-Z_]\w*)\b")
+#: `agent.x` AND `agent?.x`. The optional form is not a variant to be thorough about -- it is the
+#: dominant idiom in the modules that hold the field readers, and this pattern matched only the plain
+#: form until 2026-08-29. Counted that day across the dashboard's product modules: agent 46 plain /
+#: 23 optional, env 42 / 9, contract 40 / 3, session 28 / 30. A third of the agent reads and MOST of
+#: the session reads sat outside a gate whose whole purpose is catching a rename that JavaScript
+#: reports as `undefined`, with no error and nothing logged.
+_READ_TEMPLATE = r"\b{}\??\.([a-zA-Z_]\w*)\b"
+_AGENT_READ = re.compile(_READ_TEMPLATE.format("agent"))
 
 
 def _reads_through(variable: str) -> dict[str, list[str]]:
-    """`<variable>.X` reads in dashboard product modules, excluding comment lines."""
-    return _scan_reads(re.compile(r"\b" + re.escape(variable) + r"\.([a-zA-Z_]\w*)\b"))
+    """`<variable>.X` and `<variable>?.X` reads in dashboard product modules, excluding comments."""
+    return _scan_reads(re.compile(_READ_TEMPLATE.format(re.escape(variable))))
 
 
 def dashboard_reads() -> dict[str, list[str]]:
@@ -180,11 +187,25 @@ def dashboard_reads() -> dict[str, list[str]]:
     return _scan_reads(_AGENT_READ)
 
 
+def dashboard_sources() -> list[Path]:
+    """Every product module in the dashboard directory, derived rather than listed.
+
+    This was `*.mjs` plus `app.js` BY NAME, which excluded the seven other `.js` modules beside it --
+    `analytics.js`, `chat.js`, `console-chooser.js`, `status.js`, `theme.js`, `ui.js`, `util.js`.
+    Measured 2026-08-29: 7 agent reads lived in them, unwatched, including the two in
+    `console-chooser.js` that decide which console widget to mount. `app.js` was named because it was
+    the file being sliced; its siblings were never considered.
+    """
+    return sorted(
+        path for path in list(DASH.glob("*.mjs")) + list(DASH.glob("*.js"))
+        if ".test." not in path.name
+    )
+
+
 def _scan_reads(pattern: "re.Pattern") -> dict[str, list[str]]:
     hits: dict[str, list[str]] = {}
-    sources = sorted(DASH.glob("*.mjs")) + [DASH / "app.js"]
-    for path in sources:
-        if ".test." in path.name or not path.exists():
+    for path in dashboard_sources():
+        if not path.exists():
             continue
         for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
             if line.lstrip().startswith("//"):
@@ -248,6 +269,12 @@ class DashboardReadsOnlyAgentFieldsTheServiceEmitsTests(unittest.TestCase):
 OTHER_PAYLOADS = (
     ("env", frozenset({"_environment_record_to_dict"})),
     ("contract", frozenset({"_contract_row_to_dict"})),
+    # SESSIONS, added 2026-08-29. The same join, unwatched until now: ONE producer and ONE
+    # assignment on the dashboard side (`refresh-cycle.mjs`, from `/sessions`), and 16 reads that
+    # named nothing the producer emits. `_agent_session_dict_live` is deliberately NOT listed -- it
+    # calls `_agent_session_to_dict` and then overwrites `status`, so it adds no key, and naming it
+    # here would make the assembly set claim a second producer that contributes nothing.
+    ("session", frozenset({"_agent_session_to_dict"})),
 )
 
 

@@ -63,8 +63,10 @@ test('a row with no attributable agent is never hidden', () => {
   assert.deepEqual(collapseSupersededSessions(rows).map((r) => r.id), ['a-live', 'orphan']);
 });
 
-test('snake_case agent_id is understood, and status matching is case/space tolerant', () => {
-  const rows = [{ id: 'live', agent_id: 'a', status: ' Running ' }, { id: 'old', agent_id: 'A', status: 'STOPPED' }];
+test('status matching is case/space tolerant', () => {
+  // It was 'snake_case agent_id is understood', and /sessions has never sent `agent_id`. The default
+  // accessor reads `agentId` only now, so the case this seeded could not occur.
+  const rows = [{ id: 'live', agentId: 'a', status: ' Running ' }, { id: 'old', agentId: 'A', status: 'STOPPED' }];
   assert.deepEqual(collapseSupersededSessions(rows).map((r) => r.id), ['live']);
 });
 

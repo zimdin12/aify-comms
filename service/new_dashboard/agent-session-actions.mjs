@@ -71,9 +71,11 @@ export async function switchAgentSessionMode(agentId, targetMode, { force = fals
   const existingAgent = state.agents.find((agent) => String(agent.id || '') === String(agentId));
   if (existingAgent && body?.agent) Object.assign(existingAgent, body.agent);
   else if (existingAgent) existingAgent.sessionMode = updatedMode;
-  state.sessions.forEach((session) => {
-    if (sessionAgentId(session) === String(agentId)) session.sessionMode = updatedMode;
-  });
+  // The AGENT carries the optimistic paint. A loop here used to also set `session.sessionMode` on
+  // every row of that agent, and nothing reads it: the drawer and the directory read
+  // `agent.sessionMode || session.mode`, the console reads `agent?.sessionMode || session?.ownerMode`,
+  // and /sessions emits no `sessionMode` at all. Writing `session.mode` instead would be wrong
+  // rather than better -- that field holds 'managed-warm', a different vocabulary from 'managed'.
   renderSessionRail();
   renderSessionWorkspace();
   chatController.render();

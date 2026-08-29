@@ -251,8 +251,18 @@ function undoEdits(body, edits, name, module) {
   return lines;
 }
 
-export function reconstruct({ after, modules, extractions }) {
+export function reconstruct({ after, modules, extractions, carrierEdits }) {
   let lines = after.split("\n");
+
+  // 0. undo edits made to lines that STAYED in the carrier.
+  //
+  // `editedSince` covers a line inside a declaration that moved out; this covers one that never
+  // moved. Without it app.js's own code is frozen: every retained line must equal the fixture, so a
+  // field rename in the orchestrator could not be corrected without first slicing the function out.
+  //
+  // Nothing is loosened. Each edit is located by its CURRENT text, verbatim, and an edit the plan
+  // does not declare still reaches the byte comparison and still fails.
+  lines = undoEdits(lines, carrierEdits, "app.js", "the carrier");
 
   // 1. remove every import the extractions added, and restore any line they replaced.
   //

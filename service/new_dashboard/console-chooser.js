@@ -40,8 +40,11 @@ export function hermesGatewayUrlToHttp(wsUrl) {
 // terminal (runtimeState.virtualTerminalId) — the wrapper PTY is the real operator-facing Ink
 // TUI; the synth is the lower-fidelity JSON-RPC shim.
 export function chooseSessionConsoleWidget({ agent, sessionId, sessionMode, sessionStatus, terminalStatus, runtime, runtimeConfig, cache, hermesGatewayHttp, codexAppServerUrl, codexThreadId, codexAttachable, sessionTerminalId }) {
-  const normalizedSessionMode = String(sessionMode || agent?.sessionMode || agent?.session_mode || '').trim().toLowerCase();
-  const normalizedTerminalStatus = String(terminalStatus || agent?.terminalStatus || agent?.terminal_status || '').trim().toLowerCase();
+  const normalizedSessionMode = String(sessionMode || agent?.sessionMode || '').trim().toLowerCase();
+  // The AGENT payload carries no terminal status under any spelling, so
+  // `agent?.terminalStatus || agent?.terminal_status` was dead in both halves. The caller
+  // supplies this from the session row, which is where a terminal status actually lives.
+  const normalizedTerminalStatus = String(terminalStatus || '').trim().toLowerCase();
   // A DEAD session with no explicit live terminal status must not mount an xterm from
   // leftover runtime_state pointers (graph-tech-lead incident 2026-07-02: rs.terminalId
   // still named a terminal stopped a day earlier — the dashboard rendered its stale 65KB

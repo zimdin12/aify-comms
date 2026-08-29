@@ -60,12 +60,19 @@ test("extra roots are quoted too", () => {
   assert.equal(run, 'aify-comms "/two words"');
 });
 
-test("it reads roots through the shared field reader, so every spelling works", () => {
-  // `environmentRoots` accepts cwdRoots / cwd_roots / roots / workspaceRoots. If this bypassed it, an
-  // environment recorded by an older route would produce a command with no roots at all.
-  for (const key of ["cwdRoots", "cwd_roots", "roots", "workspaceRoots"]) {
-    assert.equal(lines({ os: "linux", [key]: ["/srv/x"] })[0], "cd /srv/x",
-      `roots spelled ${key} must reach the command`);
+test("it reads roots through the shared field reader rather than the record directly", () => {
+  // The point is the SEAM, not the spellings: if this bypassed `environmentRoots`, a change to how
+  // roots are read would stop reaching the command with nothing failing.
+  //
+  // It used to assert four spellings -- cwdRoots / cwd_roots / roots / workspaceRoots -- on the
+  // argument that "an environment recorded by an older route would produce a command with no roots
+  // at all". `_environment_record_to_dict` emits `cwdRoots` and has never emitted the other three,
+  // so the older route it guarded against does not exist, and the three dead branches made a rename
+  // of the real field fall through instead of failing.
+  assert.equal(lines({ os: "linux", cwdRoots: ["/srv/x"] })[0], "cd /srv/x");
+  for (const dead of ["cwd_roots", "roots", "workspaceRoots"]) {
+    assert.notEqual(lines({ os: "linux", [dead]: ["/srv/x"] })[0], "cd /srv/x",
+      `${dead} is not a spelling /environments sends, so it must not reach the command`);
   }
 });
 

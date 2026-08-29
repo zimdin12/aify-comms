@@ -118,7 +118,7 @@ export function openAgentDrawer(agentId) {
         ${row('Runtime', esc(agent.runtime || (session && sessionRuntime(session)) || '—'))}
         ${row('Mode', esc(mode))}
         ${row('Environment', esc((env && (env.label || env.id)) || sessionEnvironmentId(session) || '—'))}
-        ${row('Workspace', esc((session && (session.workspace || session.cwd)) || agent.cwd || '—'))}
+        ${row('Workspace', esc((session && session.workspace) || agent.cwd || '—'))}
         ${row('Session', sid ? `${esc(sid)} · ${esc(session.status || 'unknown')}` : '<span class="subtle">no active session</span>')}
         ${row('Machine', esc(agent.machineId || '—'))}
         ${row('Last seen', lastSeen ? `${esc(lastSeen)} ago` : '—')}

@@ -123,7 +123,7 @@ export async function runRefreshCycle({
     state.sessionsTruncated = Boolean(val(5)?.truncated);
     state.sessions.forEach((session) => {
       const terminalId = session.terminalId || session.terminal?.id;
-      const agentId = session.agentId || session.agent_id;
+      const agentId = session.agentId;
       if (terminalId && agentId) state.terminalOwners.set(String(terminalId), String(agentId));
     });
   }

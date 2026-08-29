@@ -53,7 +53,7 @@ export function groupedSessionsByEnvironment() {
     }
     // WS-H6: the top-bar global Find also narrows Sessions (id / agent / workspace / runtime).
     if (find) {
-      const hay = [sessionId(session), sessionAgentId(session), session.workspace || session.cwd, sessionRuntime(session), sessionEnvironmentId(session)].join(' ').toLowerCase();
+      const hay = [sessionId(session), sessionAgentId(session), session.workspace, sessionRuntime(session), sessionEnvironmentId(session)].join(' ').toLowerCase();
       if (!hay.includes(find)) return;
     }
     // The group HEADING needs a word for the sessions with no binding, so the rail supplies one
@@ -148,7 +148,7 @@ export function renderSessionRail() {
                 <strong class="clip">${esc(sessionAgentId(session) || id)}</strong>
                 <span class="item-title-status">${renderStatusChip(status, statusWhyContext('session', session, status))}${String(agent.status || '').startsWith('blocked') ? '<span class="chat-await-badge" title="Agent is blocked on an interactive prompt — open its Console">⌛ input</span>' : ''}</span>
               </div>
-              <p class="preview session-path">${esc(session.workspace || session.cwd || '')}</p>
+              <p class="preview session-path">${esc(session.workspace || '')}</p>
               <span class="session-runtime-badge" data-runtime="${esc(sessionRuntime(session) || 'unknown')}">${esc(sessionRuntime(session) || 'unknown')}</span>
             </div>
           </article>`;
@@ -208,7 +208,10 @@ export function toggleSupersededSessions() {
 // a session knows its terminal, an agent's cached runtime state may be a poll behind.
 export function agentForTerminal(terminalId) {
   const tid = String(terminalId || '');
-  const sess = (state.sessions || []).find((x) => String(x?.terminalId || x?.terminal?.id || x?.terminal_id || '') === tid);
+  // TWO shapes, not three. `x?.terminal_id` was dead: /sessions emits `terminalId` and a
+  // `terminal` object. Read through `x`, so the payload gate -- which matches `session.x` and
+  // `session?.x` -- could not see it when the same alternate was removed elsewhere.
+  const sess = (state.sessions || []).find((x) => String(x?.terminalId || x?.terminal?.id || '') === tid);
   if (sess) return agentForSession(sess);
   return (state.agents || []).find((a) => String(a?.runtimeState?.terminalId || a?.terminalId || '') === tid) || null;
 }

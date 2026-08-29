@@ -681,7 +681,7 @@ function renderSessionWorkspace() {
   }
   const agentId = sessionAgentId(session);
   byId('session-title').textContent = agentId || sessionId(session);
-  byId('session-subtitle').textContent = session.workspace || session.cwd || 'Live terminal and lifecycle for this session.';
+  byId('session-subtitle').textContent = session.workspace || 'Live terminal and lifecycle for this session.';
   byId('session-status').innerHTML = renderStatusChip(session.status || agentForSession(session).status || 'unknown', statusWhyContext('session', session, session.status || agentForSession(session).status || 'unknown'));
   renderSessionActivity(session);
   renderSessionConsole(session);

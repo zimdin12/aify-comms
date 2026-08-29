@@ -324,12 +324,18 @@ export async function mountXtermForTerminal(terminalId, agentId, container, { ca
     // terminal; SIGWINCHing it is the exact harm this guard prevents). The old `!== 'resident'`
     // failed OPEN: a not-yet-populated state.agents made an unknown mode read as owned. Fall back to
     // the session row's own mode so an absent agent object can't flip a resident console to "owned".
-    const _tid = String(terminalId || '');
-    const _sess = (state.sessions || []).find(
-      (x) => String(x?.terminalId || x?.terminal?.id || x?.terminal_id || '') === _tid);
-    const _mode = String(
-      agentForTerminal(terminalId)?.sessionMode || _sess?.sessionMode || _sess?.session_mode || ''
-    ).toLowerCase();
+    //
+    // THE SESSION-ROW FALLBACK THIS COMMENT DESCRIBES HAS NEVER RUN. It read
+    // `_sess?.sessionMode || _sess?.session_mode`, and /sessions emits neither -- the session row
+    // carries `mode` ('managed-warm') and `ownerMode` ('managed' / 'resident' / 'console'). So an
+    // absent agent object has always produced an empty `_mode`, which is `ownsPty === false`: the
+    // fail-closed direction the paragraph above demands. Nothing is broken.
+    //
+    // MAKING IT REAL IS A DECISION, NOT A REPAIR. Substituting `_sess?.ownerMode` would let this
+    // guard answer `managed` where it answers nothing today, so a console that is currently never
+    // resized could start being resized. That is the exact harm the guard exists to prevent, and it
+    // is not a change to make while removing dead reads. Left fail-closed, and stated.
+    const _mode = String(agentForTerminal(terminalId)?.sessionMode || '').toLowerCase();
     const ownsPty = _mode === 'managed';
     applyRenderedWidth(state.activeXterm, term, container, data, ownsPty);
     if (state.activeXterm) state.activeXterm.ownsPty = ownsPty;

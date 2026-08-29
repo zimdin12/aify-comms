@@ -129,7 +129,7 @@ test("Continue in CLI is wired from the drawer to the command builder", () => {
   //                           no handle yields no command but an explanatory reason
   //   agent-drawer.test.mjs : the block renders unconditionally, and stays shell-neutral
   const cliResume = read("cli-resume.mjs");
-  assert.match(cliResume, /session\?\.sessionHandle \|\| session\?\.session_handle/,
+  assert.match(cliResume, /agent\?\.sessionHandle \|\| session\?\.sessionHandle/,
     "a session handle must not disappear just because the agent list omits it");
   const drawer = read("agent-drawer.mjs");
   assert.match(drawer, /continueCliDetails\(agent, session\)/,
@@ -206,10 +206,14 @@ test("ownsPty is positively-managed (fails closed), not !== 'resident' (fails op
     "ownsPty must derive from _mode === 'managed'");
   assert.ok(!/ownsPty = String\(agentForTerminal\(terminalId\)\?\.sessionMode \|\| ''\)\.toLowerCase\(\) !== 'resident'/.test(source),
     "the fail-open `!== 'resident'` derivation must be gone");
-  // ...and it must fall back to the session row's own mode so a not-yet-populated state.agents
-  // can't flip a resident console to owned.
-  assert.match(source, /_sess\?\.sessionMode \|\| _sess\?\.session_mode/,
-    "ownsPty must fall back to the session row's sessionMode/session_mode");
+  // ...and there is NO session-row fallback, which is the fail-closed direction the paragraph
+  // above demands. One was written -- `_sess?.sessionMode || _sess?.session_mode` -- and neither
+  // spelling is a field /sessions sends, so it never ran: an absent agent object has always produced
+  // an empty mode and `ownsPty === false`. Adding a real fallback would let this guard answer
+  // `managed` where it answers nothing today, which is a decision about resizing someone's live
+  // terminal, not a repair.
+  assert.match(source, /const _mode = String\(agentForTerminal\(terminalId\)\?\.sessionMode \|\| ''\)/,
+    "the mode must come from the agent alone, so an absent agent yields '' and ownsPty stays false");
 });
 
 test("xterm setup imitates Hermes terminal-fidelity settings", () => {

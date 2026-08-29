@@ -35,14 +35,14 @@ import { sessionAgentId, sessionRuntime } from './record-fields.mjs';
 
 export function continueCliInfo(agent, session, { sessionRuntime = () => '', sessionAgentId = () => '' } = {}) {
   const handle = String(
-    agent?.sessionHandle || agent?.session_handle || session?.sessionHandle || session?.session_handle || '',
+    agent?.sessionHandle || session?.sessionHandle || '',
   ).trim();
   const runtime = String(agent?.runtime || sessionRuntime(session) || '').trim().toLowerCase();
   const id = String(agent?.id || sessionAgentId(session) || '').trim();
   // N10: the machine the session actually lives on. A resume command is only meaningful THERE —
   // the handle names a rollout/transcript file in that host's filesystem.
-  const machine = String(agent?.machineId || agent?.machine_id || session?.machineId || session?.machine_id || '').trim();
-  const mode = String(agent?.sessionMode || agent?.session_mode || '').trim().toLowerCase();
+  const machine = String(agent?.machineId || '').trim();
+  const mode = String(agent?.sessionMode || '').trim().toLowerCase();
 
   if (!handle) {
     return {

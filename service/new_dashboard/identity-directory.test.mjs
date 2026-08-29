@@ -57,12 +57,15 @@ test("managed and resident are counted from the agent's mode, and add up to the 
 });
 
 test("the mode falls back to the SESSION when the agent row omits it", () => {
-  // Both spellings, because the server has shipped `mode` and `session_mode` on different rows.
+  // IT SEEDED TWO SPELLINGS on the claim that "the server has shipped `mode` and `session_mode` on
+  // different rows". `_agent_session_to_dict` emits `mode`, and has no branch that emits
+  // `session_mode` -- so the second row was testing a shape the service cannot produce, and the
+  // reader kept a dead alternate to satisfy it.
   const { html } = render({
     agents: [{ id: "a" }, { id: "b" }],
     sessions: [
-      { id: "s1", agent_id: "a", mode: "managed" },
-      { id: "s2", agent_id: "b", session_mode: "managed" },
+      { id: "s1", agentId: "a", mode: "managed" },
+      { id: "s2", agentId: "b", mode: "managed" },
     ],
   });
   assert.equal(stat(html, "Managed"), 2, "an agent row without a mode must not read as resident by default");
@@ -112,8 +115,8 @@ test("an environment label is resolved, and a session with no binding reads as a
   const { html } = render({
     agents: [{ id: "a" }, { id: "b" }],
     sessions: [
-      { id: "s1", agent_id: "a", environment_id: "env-1" },
-      { id: "s2", agent_id: "b" },
+      { id: "s1", agentId: "a", environmentId: "env-1" },
+      { id: "s2", agentId: "b" },
     ],
     environments: [{ id: "env-1", label: "Windows on host" }],
   });

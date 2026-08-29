@@ -52,7 +52,7 @@ function seed({ agents = [], sessions = [], environments = [], inspector = {}, c
 }
 
 test("sessionForAgent finds the agent's session, and returns NULL when there is none", () => {
-  seed({ sessions: [{ id: "s1", agent_id: "coder" }] });
+  seed({ sessions: [{ id: "s1", agentId: "coder" }] });
   assert.equal(sessionForAgent("coder").id, "s1");
 
   // null, not undefined: callers branch on `session ? … : …` and then read fields off it. A stray
@@ -178,7 +178,7 @@ test("the AGENT-level stop is offered only when there is a live worker to stop",
 
 test("the session-scoped stop keeps a distinct label, and only appears with a session", () => {
   // Two destructive buttons in one drawer: confusing them costs the operator a worker they meant to keep.
-  seed({ agents: [{ id: "coder", status: "online" }], sessions: [{ id: "s1", agent_id: "coder" }], inspector: {} });
+  seed({ agents: [{ id: "coder", status: "online" }], sessions: [{ id: "s1", agentId: "coder" }], inspector: {} });
   withDom(drawerEls(), (els) => {
     openAgentDrawer("coder");
     const html = els["inspector-content"].innerHTML;
@@ -206,7 +206,7 @@ test("the Continue-in-CLI block renders even when there is no command to give", 
 
 test("copyable commands stay shell-neutral", () => {
   // PowerShell resolves the shim itself; a hardcoded .cmd is wrong everywhere else.
-  seed({ agents: [{ id: "coder", status: "online" }], sessions: [{ id: "s1", agent_id: "coder", sessionHandle: "h1" }], inspector: {} });
+  seed({ agents: [{ id: "coder", status: "online" }], sessions: [{ id: "s1", agentId: "coder", sessionHandle: "h1" }], inspector: {} });
   withDom(drawerEls(), (els) => {
     openAgentDrawer("coder");
     assert.ok(!els["inspector-content"].innerHTML.includes("aify-comms.cmd"));

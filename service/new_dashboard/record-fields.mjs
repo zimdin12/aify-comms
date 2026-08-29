@@ -29,12 +29,12 @@ export function sessionEnvironmentId(session) {
   // '' means "no binding", NOT a word. This answered 'unassigned' and every caller that guarded on
   // the value took the populated branch; see record-fields.test.mjs for what each one then did with
   // it. The Sessions rail names its own empty group, because the rail is what displays one.
-  return String(session?.environmentId || session?.environment_id || session?.envId || session?.env_id || '');
+  return String(session?.environmentId || '');
 }
 
 export function sessionRuntime(session) {
   // '' means "this session names no runtime", for the same reason. It answered the literal 'runtime'.
-  return String(session?.runtime || session?.runtimeKind || session?.kind || '');
+  return String(session?.runtime || '');
 }
 
 export function messageId(message) {
@@ -50,7 +50,7 @@ export function contractCategory(c) {
 }
 
 export function environmentRoots(env) {
-  const roots = env?.cwdRoots || env?.cwd_roots || env?.roots || env?.workspaceRoots || [];
+  const roots = env?.cwdRoots || [];
   return Array.isArray(roots) ? roots.filter(Boolean) : [];
 }
 
@@ -59,17 +59,17 @@ export function runPendingControlCount(run) {
 }
 
 export function sessionId(session) {
-  return String(session?.id || session?.sessionId || session?.session_id || '');
+  return String(session?.id || '');
 }
 export function sessionAgentId(session) {
-  return String(session?.agentId || session?.agent_id || session?.agent || '');
+  return String(session?.agentId || '');
 }
 export function runTargetAgent(run) {
   return String(run?.targetAgentId || run?.target_agent || run?.agentId || run?.agent_id || '');
 }
 
 export function environmentRuntimes(env) {
-  const runtimes = env?.runtimes || env?.runtimeCapabilities || [];
+  const runtimes = env?.runtimes || [];
   return Array.isArray(runtimes) ? runtimes
     .map((runtime) => typeof runtime === 'string' ? { runtime, available: true } : runtime)
     .filter((runtime) => runtime && runtime.runtime) : [];

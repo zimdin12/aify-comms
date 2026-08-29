@@ -130,7 +130,7 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
     // represent the current owner. One render, one answer.
     sessionMode: normalizedSessionMode,
     sessionStatus: status,
-    terminalStatus: session?.terminalStatus || session?.terminal_status || session?.terminal?.status,
+    terminalStatus: session?.terminalStatus || session?.terminal?.status,
     runtime,
     runtimeConfig,
     cache: state.sessionTerminals,
@@ -142,7 +142,7 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
     // recorded server-side on register/dispatch), so a running console mounts without the
     // operator pressing Start. chooseSessionConsoleWidget treats this as the lowest-priority
     // source (after runtime_state) so it never overrides the true owner's PTY.
-    sessionTerminalId: session?.terminalId || session?.terminal?.id || session?.terminal_id || '',
+    sessionTerminalId: session?.terminalId || session?.terminal?.id || '',
   });
   const terminalId = widgetChoice.terminalId;
   const hasTerminal = widgetChoice.kind === 'xterm';

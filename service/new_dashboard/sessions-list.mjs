@@ -52,7 +52,9 @@ export function sessionRowIsLive(session) {
 //
 // "Newest" prefers `lastSeen`/`last_seen`; when timestamps are absent or equal it falls back to the
 // list's own order, which the server already returns as `ORDER BY last_seen DESC`.
-const defaultAgentIdOf = (s) => s?.agentId ?? s?.agent_id;
+// `agentId` is the only spelling /sessions sends. Read through `s`, so the payload gate cannot
+// see this line -- the test beside it is what holds the alternate out.
+const defaultAgentIdOf = (s) => s?.agentId;
 const seenAt = (s) => {
   const raw = s?.lastSeen ?? s?.last_seen ?? '';
   const t = Date.parse(raw);
