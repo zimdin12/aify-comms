@@ -58,8 +58,18 @@ export async function runTerminalControlPass({
   // AND RE-OPEN ANY STREAM WE LOST. `_settleDelegatedExit` holds a terminal open rather than
   // calling a live process dead, which is the right way round -- a stale row heals, an orphaned
   // process does not -- and it leaves the terminal DEAF until something re-subscribes. This is that
-  // something. Tried on the tick rather than from a retry timer: the environment usually comes back
-  // seconds later and re-owns the same pids, so trying again needs no backoff and leaks no timer.
+  // something. Tried on the tick rather than from a retry timer, so it needs no backoff and leaks no
+  // timer.
+  //
+  // WHAT A RESTARTED aify-env NOW MEANS, corrected 2026-08-29. This used to say the environment
+  // "comes back seconds later and re-owns the same pids", and that was the bug: handles were only
+  // unique within one instance, so a returning environment answered YES to "is p1 still listed" about
+  // a process belonging to somebody else, and this loop re-attached to it. A handle is instance-
+  // qualified now, so a returning environment does NOT match an old one -- `processStillListed`
+  // answers false, the terminal finalises, and that is correct: aify-env reaps its record's leftovers
+  // at boot, so the process this terminal was watching really is gone. The recovery this loop still
+  // performs is the one it was written for: an environment that never went away and a stream that
+  // merely broke.
   try {
     await TERMINAL_MANAGER.reattachLostStreams();
   } catch {
