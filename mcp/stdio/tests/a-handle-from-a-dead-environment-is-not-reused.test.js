@@ -117,9 +117,15 @@ test("A HANDLE FROM A DEAD INSTANCE IS NOT FOUND IN THE NEXT ONE'S LISTING", asy
         + "AGENT column, and made a stop kill a process nobody asked to stop",
     );
 
-    // WHAT THE CONSUMER DOES WITH THAT ANSWER, which is the half a listing check does not cover. The
-    // stream ended and the process is genuinely gone, so the terminal must be finalised rather than
-    // held open forever pointing at an instance that no longer exists.
+    // WHAT THE CONSUMER DOES WITH THAT ANSWER, which is the half a listing check does not cover: given
+    // `stillListed: false`, the terminal must be finalised rather than held open forever pointing at
+    // an instance that no longer exists.
+    //
+    // NARROWED AFTER REVIEW. This said the old process was "genuinely gone", and this file does not
+    // observe that -- it never retains the child pid across the daemon's shutdown. That the process
+    // dies rests on aify-env's shutdown-and-boot-reap contract, which is aify-env's to prove, not a
+    // thing measured here. What IS measured is that the handle does not match, which is the whole
+    // claim this file is entitled to make.
     const verdict = delegatedExitVerdict({ observedExitFrame: false, stillListed: false });
     assert.equal(verdict.finalise, true);
     assert.equal(verdict.kind, "exited");

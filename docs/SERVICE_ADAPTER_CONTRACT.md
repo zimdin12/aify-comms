@@ -1,6 +1,6 @@
 # The service adapter: how aify-env supervises something that is not a harness
 
-**Status: DESIGN, revision 3. Nothing here is built.** It is the first architecture slice of the
+**Status: DESIGN, revision 4. Nothing here is built.** It is the first architecture slice of the
 operator's 2026-08-29 instruction — "get that aify-env and aify-comms bridge thing sorted out, real
 separation of concerns" — and it is deliberately narrower than the harness-driver question, which
 follows it.
@@ -9,13 +9,18 @@ Revision 2 answered seven blockers raised in review of `4e139a34`: the artifact 
 the restart wording was unsafe for this particular process, and three named things (loaded identity,
 the install receipt, registry concurrency) were words rather than contracts.
 
-Revision 3 answers five more, raised against revision 2. The pattern in all five is the same and worth
+Revision 3 answered five blockers raised against revision 2. The pattern in all five is the same and worth
 naming: **a thing this document requires by name but does not define is a thing the implementation gets
 to invent.** The manifest had no schema while being release identity, entrypoint authority and ABI
 authority. "Runtime dependency closure" had no population method, so Node builtins either violate it or
 it means whatever a scanner happened to walk. Rollback had no binding to the transition it rolls back.
 The singleton lease had no owner. The readiness stamps had no rule making them observations rather than
 configuration.
+
+Revision 4 clears three contradictions revision 3 left standing, and they are the kind worth naming:
+each was a place where the document said one thing in one section and its opposite in another, so an
+implementer could satisfy it either way and neither reading would be wrong. A contract that can be
+satisfied two ways has not decided anything.
 
 Companion to [AIFY_ENV_BOUNDARY.md](AIFY_ENV_BOUNDARY.md) (who owns what) and
 [HARNESS_KNOWLEDGE_BELONGS_TO_AIFY_WRAPPER.md](HARNESS_KNOWLEDGE_BELONGS_TO_AIFY_WRAPPER.md) (where the
@@ -58,14 +63,15 @@ required exact bidirectional closure. A manifest cannot list its own digest, and
 itself is an unlisted extra the verifier must refuse. The layout has to state the payload boundary:
 
 ```text
-releases/<manifestSha256>/
+releases/<manifestDigest>/
   manifest.json          envelope. NOT a payload member. Its digest names the release.
   payload/
     server.js            the entrypoint, as a relative manifest member
     ...                  every other governed runtime byte
 ```
 
-- `<manifestSha256>` is the sha-256 of the **canonical manifest bytes**.
+- `<manifestDigest>` is the digest of the **canonical manifest bytes**, taken with the algorithm the
+  manifest itself declares (1b).
 - Every manifest entry is a path relative to `payload/`.
 - aify-env enumerates `payload/` **exactly and only**, and requires closure in both directions: no
   listed file missing, no unlisted file present.
@@ -92,7 +98,8 @@ says that the manifest does not authenticate can be substituted while the payloa
 | `kind` | `service-adapter` |
 | `adapterAbi` | the ABI the adapter implements. **Authenticated here**, so the registry and the receipt can only agree with it, never override it. |
 | `entrypoint` | exactly one relative payload member. Not a list, not a pattern. |
-| `files` | sorted rows of `{path, byteLength, sha256, type}` |
+| `digestAlgorithm` | the algorithm used for the file rows AND for the manifest digest that names the release. An unknown value refuses. |
+| `files` | sorted rows of `{path, byteLength, digest, type}`, the digest computed with `digestAlgorithm` |
 | `prerequisites` | declared externals (see 1c). Named, not hashed. |
 
 - `type` is `file`. Directories, symlinks, junctions, sockets and devices are not members, and their
@@ -103,8 +110,12 @@ says that the manifest does not authenticate can be substituted while the payloa
 - Rows sorted byte-wise by canonical path, so ordering is not a degree of freedom.
 - No duplicate paths, and no two paths equal after case folding: Windows resolves those to one file, so
   two rows could otherwise name one byte sequence.
-- The digest is sha-256 over the canonical manifest bytes, with the algorithm named INSIDE the manifest
-  so a future change is a version bump rather than a silent reinterpretation.
+- The release is named by the digest of the canonical manifest bytes, computed with the manifest's own
+  `digestAlgorithm`, so a future change is a declared change rather than a silent reinterpretation.
+  Revision 3 promised that the algorithm was named inside the manifest and then did not give it a
+  field; a reader could implement either. An unknown or mismatched algorithm **refuses** — it does not
+  fall back to a default, because a default is how one side ends up hashing with something the other
+  never agreed to.
 
 **Where the shared library lives**, because "one canonical library" is otherwise an ownerless
 component. It computes canonical serialisation and digests and nothing else: no filesystem walk, no
@@ -152,8 +163,8 @@ it too and blesses the same incomplete manifest. Shared arithmetic, independent 
 {
   "hostAdapter": {
     "kind": "service-adapter",
-    "releaseId": "<manifestSha256>",
-    "manifest": "releases/<manifestSha256>/manifest.json",
+    "releaseId": "<manifestDigest>",
+    "manifest": "releases/<manifestDigest>/manifest.json",
     "entrypoint": "server.js",
     "adapterAbi": 1,
     "receipt": "<path to the install receipt>"
@@ -166,7 +177,8 @@ carries entries several services write. A whole-file atomic replace still loses 
 update. Required:
 
 - write through the existing canonical registry parser and writer, never a second one;
-- preserve unknown keys and other services' entries byte-semantically;
+- preserve unknown keys and other services' entries **semantically** — every value and every unknown
+  field survives, formatting need not, and 7b says why a canonical writer cannot promise more;
 - compare-and-swap on an expected registry fingerprint or revision, with a bounded reread, merge and
   retry;
 - refuse a malformed registry rather than rewriting it — aify-comms already owns only its own key for
@@ -193,10 +205,24 @@ and satisfy the prose. Schema:
 | `entrypoint` | relative payload member |
 | `adapterAbi` | ABI the adapter implements |
 | `installer` | installer identity and version that wrote it |
-| `previousReleaseId` | the desired release this one replaced, for rollback |
 
 Stored beside the release, immutable once written, referenced by the registry entry rather than
 searched for.
+
+**THE RECEIPT DOES NOT CARRY A PREDECESSOR**, and revision 3's did. That was the third contradiction:
+the receipt is immutable and lives beside a content-addressed release, but the same release can be
+selected again later over a different predecessor — so a predecessor stored in it is right once and
+wrong every time after. 7b then required a "newly bound transition record" that had no schema and no
+custody. Two records, because they answer two questions:
+
+| record | question | lifetime |
+|---|---|---|
+| **artifact receipt** | who installed THIS release, and what does it contain | one per release, immutable |
+| **transition record** | this attempt to make that release desired | one per CAS attempt, immutable |
+
+The transition record carries: the candidate release, the expected-old predecessor, the registry
+revision or fingerprint it was written against, the identity and result of the CAS that succeeded, and
+the rollback state. A rollback consumes THAT record and no other.
 
 **Said plainly: without a signature or an OS ACL, a local receipt is provenance under a local-host
 trust boundary.** It records who installed what. It is not protection against an attacker who can
@@ -211,7 +237,12 @@ becomes real, the answer is signing, not more fields.
 2. the receipt names a manifest digest;
 3. the digest authenticates the canonical manifest bytes;
 4. the manifest names exactly one entrypoint member;
-5. the requested service and artifact kind equal the receipt's and the registry's;
+5. the registry, the receipt and the AUTHENTICATED MANIFEST agree, three ways, on service, artifact
+   kind, adapter ABI and entrypoint. Two-way agreement is not enough: registry and receipt can both be
+   rewritten, and only the manifest is authenticated by a digest, so it is the tiebreak and any
+   disagreement refuses;
+5b. the manifest and receipt paths are DERIVED from the release and receipt roots rather than taken
+   from the registry as given, so neither can carry a traversal to a file outside them;
 6. aify-env executes only that normalised payload member, under the declared interpreter and argv
    contract;
 7. an arbitrary `POST /processes` caller cannot select the service-adapter authoriser or substitute
@@ -288,8 +319,8 @@ same-service update can change the predecessor while this installer rereads and 
 "atomically restore the previous release" overwrites a newer desired state somebody else just
 published. The rollback would be atomic and wrong.
 
-- the receipt's predecessor must equal the expected-old value of the CAS **that actually succeeded**; a
-  retry against a changed predecessor requires a newly bound transition record, not the original one;
+- the rollback consumes the TRANSITION RECORD of the CAS that actually succeeded, not the receipt: a
+  retry against a changed predecessor writes a new transition record and the old one is spent;
 - the rollback CAS succeeds only if current desired still equals **this failed candidate**;
 - if a newer same-service desired value exists, rollback **refuses**, and the supervisor reconciles
   forward to that newer value instead;
