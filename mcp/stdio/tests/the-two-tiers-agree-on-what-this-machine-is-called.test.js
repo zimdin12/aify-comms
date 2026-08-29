@@ -22,12 +22,13 @@
 // contract is unverified" must not read as green.
 
 import assert from "node:assert/strict";
-import fs from "node:fs";
+import fs, { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
 import { defaultMachineId } from "../runtimes.js";
+import { environmentKind, environmentOs } from "../environment-identity.mjs";
 
 /** Where aify-env lives. Overridable, because a sibling checkout is a convention and not a fact. */
 const AIFY_ENV = process.env.AIFY_ENV_REPO || path.join(os.homedir(), "projects", "aify-env");
@@ -36,6 +37,9 @@ const available = fs.existsSync(ADVERTISE);
 
 /** The env vars `defaultMachineId` consults, so a case can be posed to it without a subprocess. */
 const NAMING = ["AIFY_MACHINE_ID", "COMPUTERNAME", "HOSTNAME"];
+
+/** The env vars `environmentKind` consults, for the same reason. */
+const KIND_VARS = ["AIFY_ENVIRONMENT_KIND", "WSL_DISTRO_NAME", "container"];
 
 /**
  * What the BRIDGE would call a host, with its ambient inputs posed rather than inherited.
@@ -137,3 +141,71 @@ function readOsRelease() {
     return "";
   }
 }
+
+test("both tiers call this REAL host the same kind, and the same os", async (t) => {
+  if (!available) return t.skip("aify-env is not checked out");
+  const advertise = await import(`file://${ADVERTISE.split(String.fromCharCode(92)).join("/")}`);
+
+  // No hypotheticals: the machine the suite is running on, asked of both.
+  assert.equal(
+    advertise.environmentKind({ platform: process.platform, env: process.env, exists: existsSync }),
+    environmentKind(),
+    "the two tiers would register this host under two different KINDS, and the kind is joined into the id",
+  );
+  assert.equal(advertise.environmentOs(process.platform), environmentOs());
+});
+
+test("they agree on every env-driven branch, which is where a drift would land", async (t) => {
+  if (!available) return t.skip("aify-env is not checked out");
+  const advertise = await import(`file://${ADVERTISE.split(String.fromCharCode(92)).join("/")}`);
+
+  // These branches are read from the environment rather than from the platform, so both
+  // implementations can be posed the same case on any machine. They are also the ones an operator
+  // actually sets, and the ones a refactor is most likely to reorder.
+  const cases = [
+    { label: "an explicit kind wins outright", env: { AIFY_ENVIRONMENT_KIND: "custom-tier" } },
+    { label: "an explicit kind beats WSL", env: { AIFY_ENVIRONMENT_KIND: "custom", WSL_DISTRO_NAME: "Ubuntu" } },
+    { label: "WSL", env: { WSL_DISTRO_NAME: "Ubuntu" } },
+    { label: "a container runtime", env: { container: "podman" } },
+    { label: "WSL beats container", env: { WSL_DISTRO_NAME: "Ubuntu", container: "podman" } },
+    { label: "nothing set — falls through to the platform", env: {} },
+    { label: "an explicit kind of whitespace is not a kind", env: { AIFY_ENVIRONMENT_KIND: "   " } },
+  ];
+
+  const saved = new Map(KIND_VARS.map((name) => [name, process.env[name]]));
+  try {
+    for (const { label, env } of cases) {
+      for (const name of KIND_VARS) delete process.env[name];
+      Object.assign(process.env, env);
+      assert.equal(
+        advertise.environmentKind({ platform: process.platform, env: process.env, exists: existsSync }),
+        environmentKind(),
+        `${label}: the two tiers disagree`,
+      );
+    }
+  } finally {
+    for (const name of KIND_VARS) delete process.env[name];
+    for (const [name, value] of saved) if (value !== undefined) process.env[name] = value;
+  }
+});
+
+test("kind and os are different questions, on both sides", async (t) => {
+  if (!available) return t.skip("aify-env is not checked out");
+  const advertise = await import(`file://${ADVERTISE.split(String.fromCharCode(92)).join("/")}`);
+
+  // A wsl host RUNS linux. Collapsing the two would advertise `os: wsl`, which is not an operating
+  // system, and `kind: linux`, which loses the only thing distinguishing the host from the Windows
+  // one it shares a hostname with. Both live rows here depend on that separation.
+  const saved = process.env.WSL_DISTRO_NAME;
+  process.env.WSL_DISTRO_NAME = "Ubuntu";
+  try {
+    assert.equal(environmentKind(), "wsl", "the bridge stopped recognising WSL");
+    assert.notEqual(environmentOs(), "wsl", "the bridge reported a kind as an operating system");
+    assert.equal(
+      advertise.environmentKind({ platform: "linux", env: { WSL_DISTRO_NAME: "Ubuntu" } }), "wsl");
+    assert.equal(advertise.environmentOs("linux"), "linux");
+  } finally {
+    if (saved === undefined) delete process.env.WSL_DISTRO_NAME;
+    else process.env.WSL_DISTRO_NAME = saved;
+  }
+});
