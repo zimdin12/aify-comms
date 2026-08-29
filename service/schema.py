@@ -198,6 +198,14 @@ CREATE INDEX IF NOT EXISTS idx_read_receipts_msg ON read_receipts(message_id);
 CREATE INDEX IF NOT EXISTS idx_dispatch_runs_status_requested ON dispatch_runs(status, requested_at DESC);
 CREATE INDEX IF NOT EXISTS idx_dispatch_runs_target_status ON dispatch_runs(target_agent, status, requested_at);
 CREATE INDEX IF NOT EXISTS idx_dispatch_runs_from ON dispatch_runs(from_agent, requested_at DESC);
+-- THE UNFILTERED LISTING HAD NO INDEX TO WALK. The three above all lead with a column the
+-- dashboard's DEFAULT view does not filter on -- `GET /dispatch/runs` with no agent, sender or
+-- status -- so that query planned as `SCAN dispatch_runs` plus `USE TEMP B-TREE FOR ORDER BY`:
+-- every one of 21,778 matching rows read and sorted to return 81. Measured on the operator's
+-- database 2026-08-29; with this index the same query plans as
+-- `SCAN dispatch_runs USING INDEX idx_dispatch_runs_requested`, walking in order and stopping.
+-- The filtered forms still choose `idx_dispatch_runs_status_requested`, checked in the same probe.
+CREATE INDEX IF NOT EXISTS idx_dispatch_runs_requested ON dispatch_runs(requested_at DESC);
 CREATE INDEX IF NOT EXISTS idx_dispatch_events_run ON dispatch_events(run_id, id);
 CREATE INDEX IF NOT EXISTS idx_dispatch_controls_run_status ON dispatch_controls(run_id, status, requested_at);
 
