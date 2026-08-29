@@ -62,7 +62,6 @@ const hookPayload = await readHookPayload();
 // process, so process.ppid is the shared key.
 let agentId = "";
 let heartbeatAllowed = false;
-const SESSION_FILE = path.join(tmpDir, `aify-agent-${process.ppid || ""}`);
 try {
   const binding = readAgentBindingFile({ pid: process.ppid || "", dir: tmpDir });
   if (binding.agentId) { agentId = binding.agentId; heartbeatAllowed = true; }

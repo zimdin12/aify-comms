@@ -50,7 +50,52 @@ FIXTURE = Path(__file__).resolve().parent / "data" / "get_inbox_before_split.py"
 #: under-report by roughly sixty to one. `unreadTotal` is the number the surface needs; the COUNT is
 #: 3.3 ms median (7 runs, min 3.1, max 3.6) against a 15s poll, and is skipped when `filter=unread`
 #: already answers it.
+#: DECLARED EDIT, 2026-08-29. The page and its total are COMPOSED from one source clause now.
+#: They were carved out of each other -- the total was the row query with its SELECT
+#: string-replaced and everything from `rfind("LIMIT")` chopped off -- which returns a message
+#: id as `total` the moment any SELECT clause gains a column. Undone here rather than
+#: re-captured, so the pre-split baseline survives.
 EDITED_SINCE = [
+    (
+        '        include_body = mode != "headers"\n        # The page and its total are COMPOSED from one source clause. They used to be carved out of\n        # each other: the total was the row query with its SELECT string-replaced and everything\n        # from `rfind("LIMIT")` chopped off. All four variants below happen to start with one of\n        # the two literals that replace looked for, so it worked -- and adding a single column to\n        # any of them makes both replaces no-op. The truncation still removes `LIMIT ?` and the\n        # matching value, so the parameter count still agrees and the query RUNS: `fetchone()[0]`\n        # is then `m.id`, and a message id is returned as `total` with no error raised anywhere.\n        # Reproduced in a scratch database before this was changed, rather than argued from\n        # reading.\n        if messageId:',
+        '        include_body = mode != "headers"\n        if messageId:',
+    ),
+    (
+        '        if messageId:\n            select_clause = "SELECT m.*, r.read_at"\n            source = """FROM messages m\n                      LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?',
+        '        if messageId:\n            base = """SELECT m.*, r.read_at FROM messages m\n                      LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?',
+    ),
+    (
+        '            if filter == "unread":\n                select_clause = "SELECT m.*, NULL as read_at"\n                source = """FROM messages m\n                          LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?',
+        '            if filter == "unread":\n                base = """SELECT m.*, NULL as read_at FROM messages m\n                          LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?',
+    ),
+    (
+        '            elif filter == "read":\n                select_clause = "SELECT m.*, r.read_at"\n                source = """FROM messages m\n                          JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?',
+        '            elif filter == "read":\n                base = """SELECT m.*, r.read_at FROM messages m\n                          JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?',
+    ),
+    (
+        '            else:\n                select_clause = "SELECT m.*, r.read_at"\n                source = """FROM messages m\n                          LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?',
+        '            else:\n                base = """SELECT m.*, r.read_at FROM messages m\n                          LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?',
+    ),
+    (
+        '        if fromAgent:\n            source += " AND m.from_agent = ?"\n            params.append(fromAgent)',
+        '        if fromAgent:\n            base += " AND m.from_agent = ?"\n            params.append(fromAgent)',
+    ),
+    (
+        '        if fromRole:\n            source += " AND m.from_agent IN (SELECT id FROM agents WHERE role = ?)"\n            params.append(fromRole)',
+        '        if fromRole:\n            base += " AND m.from_agent IN (SELECT id FROM agents WHERE role = ?)"\n            params.append(fromRole)',
+    ),
+    (
+        '        if type:\n            source += " AND m.type = ?"\n            params.append(type)',
+        '        if type:\n            base += " AND m.type = ?"\n            params.append(type)',
+    ),
+    (
+        '\n        cursor = await db.execute(\n            f"{select_clause} {source} ORDER BY m.timestamp DESC LIMIT ?",\n            params + [1 if messageId else limit],\n        )\n        rows = await cursor.fetchall()',
+        '\n        base += " ORDER BY m.timestamp DESC LIMIT ?"\n        params.append(1 if messageId else limit)\n\n        cursor = await db.execute(base, params)\n        rows = await cursor.fetchall()',
+    ),
+    (
+        '        # Count total (without limit)\n        c = await db.execute(f"SELECT COUNT(*) {source}", params)\n        total = (await c.fetchone())[0]',
+        '        # Count total (without limit)\n        count_q = base.replace("SELECT m.*, NULL as read_at", "SELECT COUNT(*)").replace("SELECT m.*, r.read_at", "SELECT COUNT(*)")\n        count_q = count_q[:count_q.rfind("LIMIT")]\n        c = await db.execute(count_q, params[:-1])\n        total = (await c.fetchone())[0]',
+    ),
     (
         chr(10).join([
             "        unread_is_already_total = (",

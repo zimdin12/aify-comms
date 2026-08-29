@@ -128,8 +128,13 @@ async def list_channels(request: Request, agentId: Optional[str] = None):
         cursor = await db.execute("SELECT * FROM channels")
         channels = []
         for ch in await cursor.fetchall():
-            mc = await db.execute("SELECT COUNT(*) FROM channel_members WHERE channel_name = ?", (ch["name"],))
-            member_count = (await mc.fetchone())[0]
+            # ONE read of the membership, not a COUNT and then a list of the same rows. Those were
+            # two statements with no transaction around them, so a join landing between them made
+            # the card say "N members" beside a list of N-1 -- and `len()` is the same number for
+            # free. Also 4 fewer round-trips per call at the 4 channels this deployment has, which
+            # is a side effect, not the reason.
+            mem_c = await db.execute("SELECT agent_id FROM channel_members WHERE channel_name = ?", (ch["name"],))
+            members = [r["agent_id"] for r in await mem_c.fetchall()]
             history_where, history_params = _normalize_channel_history_where(ch["name"])
             msg_c = await db.execute(f"SELECT COUNT(*) FROM messages WHERE {history_where}", history_params)
             msg_count = (await msg_c.fetchone())[0]
@@ -150,12 +155,9 @@ async def list_channels(request: Request, agentId: Optional[str] = None):
             channels.append({
                 "name": ch["name"], "description": ch["description"],
                 "createdBy": ch["created_by"], "createdAt": ch["created_at"],
-                "members": [], "memberCount": member_count, "messageCount": msg_count,
+                "members": members, "memberCount": len(members), "messageCount": msg_count,
                 "unreadCount": unread_count, "lastMessageAt": last_message_at,
             })
-            # Fetch member list
-            mem_c = await db.execute("SELECT agent_id FROM channel_members WHERE channel_name = ?", (ch["name"],))
-            channels[-1]["members"] = [r["agent_id"] for r in await mem_c.fetchall()]
         return {"channels": channels}
     finally:
         await db.close()

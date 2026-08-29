@@ -53,49 +53,60 @@ async def get_inbox(
     db = await get_db()
     try:
         include_body = mode != "headers"
+        # The page and its total are COMPOSED from one source clause. They used to be carved out of
+        # each other: the total was the row query with its SELECT string-replaced and everything
+        # from `rfind("LIMIT")` chopped off. All four variants below happen to start with one of
+        # the two literals that replace looked for, so it worked -- and adding a single column to
+        # any of them makes both replaces no-op. The truncation still removes `LIMIT ?` and the
+        # matching value, so the parameter count still agrees and the query RUNS: `fetchone()[0]`
+        # is then `m.id`, and a message id is returned as `total` with no error raised anywhere.
+        # Reproduced in a scratch database before this was changed, rather than argued from
+        # reading.
         if messageId:
-            base = """SELECT m.*, r.read_at FROM messages m
+            select_clause = "SELECT m.*, r.read_at"
+            source = """FROM messages m
                       LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?
                       WHERE m.to_agent = ? AND m.id = ?"""
             params = [agent_id, agent_id, messageId]
         else:
             # Build query
             if filter == "unread":
-                base = """SELECT m.*, NULL as read_at FROM messages m
+                select_clause = "SELECT m.*, NULL as read_at"
+                source = """FROM messages m
                           LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?
                           WHERE m.to_agent = ? AND r.message_id IS NULL"""
                 params = [agent_id, agent_id]
             elif filter == "read":
-                base = """SELECT m.*, r.read_at FROM messages m
+                select_clause = "SELECT m.*, r.read_at"
+                source = """FROM messages m
                           JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?
                           WHERE m.to_agent = ?"""
                 params = [agent_id, agent_id]
             else:
-                base = """SELECT m.*, r.read_at FROM messages m
+                select_clause = "SELECT m.*, r.read_at"
+                source = """FROM messages m
                           LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?
                           WHERE m.to_agent = ?"""
                 params = [agent_id, agent_id]
 
         if fromAgent:
-            base += " AND m.from_agent = ?"
+            source += " AND m.from_agent = ?"
             params.append(fromAgent)
         if fromRole:
-            base += " AND m.from_agent IN (SELECT id FROM agents WHERE role = ?)"
+            source += " AND m.from_agent IN (SELECT id FROM agents WHERE role = ?)"
             params.append(fromRole)
         if type:
-            base += " AND m.type = ?"
+            source += " AND m.type = ?"
             params.append(type)
 
-        base += " ORDER BY m.timestamp DESC LIMIT ?"
-        params.append(1 if messageId else limit)
-
-        cursor = await db.execute(base, params)
+        cursor = await db.execute(
+            f"{select_clause} {source} ORDER BY m.timestamp DESC LIMIT ?",
+            params + [1 if messageId else limit],
+        )
         rows = await cursor.fetchall()
 
         # Count total (without limit)
-        count_q = base.replace("SELECT m.*, NULL as read_at", "SELECT COUNT(*)").replace("SELECT m.*, r.read_at", "SELECT COUNT(*)")
-        count_q = count_q[:count_q.rfind("LIMIT")]
-        c = await db.execute(count_q, params[:-1])
+        c = await db.execute(f"SELECT COUNT(*) {source}", params)
         total = (await c.fetchone())[0]
 
         messages = []
