@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 
+from service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.bridge_registration import _record_bridge_registration
 from service.api_core.events import _append_terminal_control, _append_terminal_event
@@ -62,11 +63,11 @@ async def _supersede_stale_resident_terminals(db, req, terminal_id: str, now: st
             """
             stale_terminals = await (
                 await db.execute(
-                    """
+                    f"""
                     SELECT id, environment_id, bridge_id
                     FROM terminal_sessions
                     WHERE agent_id = ?
-                      AND status IN ('starting','attached','running','active','idle','recovering')
+                      AND status IN {TERMINAL_LIVE_FILTER_SQL}
                       AND (? = '' OR id != ?)
                     """,
                     (req.agentId, terminal_id, terminal_id),

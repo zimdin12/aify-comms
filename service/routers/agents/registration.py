@@ -27,6 +27,7 @@ of the bounded SQLite write-lock retry.
 
 from __future__ import annotations
 
+from service.api_core.terminal_status import TERMINAL_ACTIVE_STATUS_SQL
 from service.api_core.ownership_authority import (
     preserved_environment_state,
     registration_owner_bridge_id,
@@ -177,12 +178,12 @@ async def register_agent(req: AgentRegister, request: Request):
         if terminal_id and normalized_session_mode == "resident":
             console_terminal = await (
                 await db.execute(
-                    """
+                    f"""
                     SELECT *
                     FROM terminal_sessions
                     WHERE id = ?
                       AND agent_id = ?
-                      AND status IN ('starting','attached','running','active','idle')
+                      AND status IN {TERMINAL_ACTIVE_STATUS_SQL}
                     """,
                     (terminal_id, req.agentId),
                 )

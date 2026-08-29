@@ -19,6 +19,7 @@ from __future__ import annotations
 import time
 from typing import Any, Optional
 
+from service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL
 from service.api_core.records import _environment_record_to_dict
 from service.api_core.runtime import (
     _normalize_runtime,
@@ -249,10 +250,10 @@ async def _managed_console_is_booting(db, agent_id: str) -> bool:
     is live/streaming (the existing liveness gate); a dead/hung console is reaped separately.
     """
     console = await (await db.execute(
-        """
+        f"""
         SELECT created_at FROM terminal_sessions
         WHERE agent_id = ?
-          AND status IN ('starting','attached','running','active','idle','recovering')
+          AND status IN {TERMINAL_LIVE_FILTER_SQL}
           -- SYNTHETIC ROWS ARE NOT A CONSOLE, and this query was the odd one out. Six other queries
           -- asking "does agent ? have a live terminal row" carry this exclusion; measured
           -- 2026-08-26, this was the only one asking that question without it. Plan 4 deprecated

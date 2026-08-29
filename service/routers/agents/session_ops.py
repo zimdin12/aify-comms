@@ -12,6 +12,7 @@ import time
 
 from fastapi import HTTPException, Request
 
+from service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.agent_stop_resume import _apply_agent_stop_or_resume
 from service.api_core.status_broadcast import _broadcast_agent_status
@@ -280,12 +281,11 @@ async def stop_agent_worker(agent_id: str, request: Request):
         # `id NOT LIKE 'vterm_%'` skips the synthesized rows (handled above, and already marked
         # stopped) so a virtual terminal is never double-stopped.
         live_terminals = await (await db.execute(
-            """
+            f"""
             SELECT * FROM terminal_sessions
             WHERE agent_id = ?
               AND id NOT LIKE 'vterm_%'
-              AND LOWER(COALESCE(status,'')) IN
-                  ('starting','attached','running','active','idle','recovering')
+              AND LOWER(COALESCE(status,'')) IN {TERMINAL_LIVE_FILTER_SQL}
             """,
             (agent_id,),
         )).fetchall()

@@ -27,6 +27,7 @@ import logging
 import time
 from datetime import datetime, timezone
 
+from service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL
 from service.api_core.dead_terminal_spawn_query import (
     _count_spawns_masked_by_live_sibling,
     _select_spawns_with_dead_terminals,
@@ -60,7 +61,7 @@ async def _fail_running_spawns_superseded_by_current_session(db) -> int:
         ISO_SECONDS, time.gmtime(time.time() - SPAWN_ORPHAN_GRACE_SECONDS)
     )
     cursor = await db.execute(
-        """
+        f"""
         SELECT s.id AS session_id, s.agent_id, s.spawn_request_id, s.started_at
         FROM agent_sessions s
         JOIN terminal_sessions t
@@ -75,7 +76,7 @@ async def _fail_running_spawns_superseded_by_current_session(db) -> int:
         WHERE s.mode IN ('managed', 'managed-warm')
           AND s.status IN ('starting','running','active','idle','recovering')
           AND COALESCE(s.spawn_request_id, '') <> ''
-          AND t.status IN ('starting','attached','running','active','idle','recovering')
+          AND t.status IN {TERMINAL_LIVE_FILTER_SQL}
           AND COALESCE(NULLIF(t.updated_at, ''), '') >= ?
         ORDER BY s.started_at DESC
         """,
@@ -110,7 +111,7 @@ async def _fail_running_spawns_superseded_by_current_session(db) -> int:
             if not old_epoch or old_epoch >= current_started_epoch:
                 continue
             update_cursor = await db.execute(
-                """
+                f"""
                 UPDATE spawn_requests
                 SET status = 'failed',
                     error = COALESCE(
@@ -139,7 +140,7 @@ async def _fail_running_spawns_superseded_by_current_session(db) -> int:
                       AND s.spawn_request_id = ?
                       AND s.mode IN ('managed', 'managed-warm')
                       AND s.status IN ('starting','running','active','idle','recovering')
-                      AND t.status IN ('starting','attached','running','active','idle','recovering')
+                      AND t.status IN {TERMINAL_LIVE_FILTER_SQL}
                       AND COALESCE(NULLIF(t.updated_at, ''), '') >= ?
                   )
                 """,

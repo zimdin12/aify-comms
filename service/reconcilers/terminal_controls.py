@@ -22,6 +22,7 @@ from typing import Any
 
 import aiosqlite
 
+from service.api_core.terminal_status import TERMINAL_ACTIVE_STATUS_SQL
 from service.clock import ISO_SECONDS, now as _now
 
 
@@ -117,7 +118,7 @@ async def _reconcile_terminal_controls(db: aiosqlite.Connection):
     # environment/bridge is no longer current, stop included, so a control for a dead environment
     # does not pile up forever.
     await db.execute(
-        """
+        f"""
         UPDATE terminal_controls
         SET status = 'failed',
             handled_at = COALESCE(handled_at, ?),
@@ -128,7 +129,7 @@ async def _reconcile_terminal_controls(db: aiosqlite.Connection):
           AND LOWER(COALESCE(action, '')) != 'stop'
           AND terminal_id IN (
               SELECT id FROM terminal_sessions
-              WHERE status NOT IN ('starting', 'attached', 'running', 'active', 'idle')
+              WHERE status NOT IN {TERMINAL_ACTIVE_STATUS_SQL}
           )
         """,
         (now,),
@@ -383,11 +384,11 @@ async def _reconcile_ended_terminal_controls(db, *, limit: int = 500) -> int:
     console that is gone cannot be honoured, and the caller should learn that instead of hanging.
     """
     cursor = await db.execute(
-        """
+        f"""
         SELECT DISTINCT terminal.id
         FROM terminal_sessions terminal
         JOIN terminal_controls control ON control.terminal_id = terminal.id
-        WHERE terminal.status NOT IN ('starting', 'attached', 'running', 'active', 'idle')
+        WHERE terminal.status NOT IN {TERMINAL_ACTIVE_STATUS_SQL}
           AND control.status IN ('pending', 'claimed')
           AND LOWER(COALESCE(control.action, '')) != 'stop'
         LIMIT ?

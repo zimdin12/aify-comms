@@ -52,14 +52,38 @@ FOREIGN_LITERALS = {
 }
 
 
+#: The status fragments `api_core/terminal_status.py` renders, resolved so a filter that interpolates
+#: one is still read as naming its members. Without this the scan below goes BLIND the moment a query
+#: stops spelling its list out: on 2026-08-29 sixteen filters moved behind these constants, and this
+#: file failed with "recovering is declared foreign but no terminal-status filter uses it any more" --
+#: which was FALSE. Twelve still use it; the text just moved.
+#:
+#: Imported rather than re-listed, so the resolution cannot drift from what the queries actually get.
+def _status_fragments() -> dict[str, str]:
+    from service.api_core import terminal_status
+
+    return {
+        name: getattr(terminal_status, name)
+        for name in dir(terminal_status)
+        if name.endswith("_STATUS_SQL") and isinstance(getattr(terminal_status, name), str)
+    }
+
+
 def _sql_text(node: ast.AST) -> str:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     if isinstance(node, ast.JoinedStr):
-        return "".join(
-            part.value for part in node.values
-            if isinstance(part, ast.Constant) and isinstance(part.value, str)
-        )
+        fragments = _status_fragments()
+        rendered = []
+        for part in node.values:
+            if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                rendered.append(part.value)
+            elif isinstance(part, ast.FormattedValue):
+                names = [n.id for n in ast.walk(part.value) if isinstance(n, ast.Name)]
+                # A status fragment resolves to its members; anything else becomes a placeholder,
+                # because guessing at an unknown interpolation would invent literals.
+                rendered.append(next((fragments[n] for n in names if n in fragments), "(?)"))
+        return "".join(rendered)
     return ""
 
 

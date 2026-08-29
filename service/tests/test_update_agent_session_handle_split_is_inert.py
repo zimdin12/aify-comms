@@ -38,6 +38,21 @@ AGENTS_SHARED = REPO / "service" / "routers" / "agents" / "shared.py"
 FIXTURE = (Path(__file__).resolve().parent / "data"
            / "update_agent_session_handle_before_split.py")
 
+#: DECLARED EDIT, 2026-08-29. Sixteen live-terminal filters spelled their status set out by hand;
+#: they now interpolate a fragment from `api_core/terminal_status.py`. Undone here rather than
+#: re-captured, so the pre-split baseline survives.
+EDITED_SINCE = [
+    (
+        '\nfrom service.api_core.terminal_status import TERMINAL_ACTIVE_STATUS_SQL\nfrom service.api_core.dispatch_state import _get_dispatch_state_for_agent',
+        '\nfrom service.api_core.dispatch_state import _get_dispatch_state_for_agent',
+    ),
+    (
+        '                    "SELECT command FROM terminal_sessions WHERE agent_id = ? "\n                    f"AND status IN {TERMINAL_ACTIVE_STATUS_SQL} "\n                    "AND id NOT LIKE \'vterm_%\' ORDER BY datetime(COALESCE(updated_at, created_at)) DESC LIMIT 1",',
+        '                    "SELECT command FROM terminal_sessions WHERE agent_id = ? "\n                    "AND status IN (\'starting\',\'attached\',\'running\',\'active\',\'idle\') "\n                    "AND id NOT LIKE \'vterm_%\' ORDER BY datetime(COALESCE(updated_at, created_at)) DESC LIMIT 1",',
+    ),
+]
+
+
 SOURCE_FUNCTION = "update_agent_session_handle"
 EXTRACTIONS = [
     "_detect_fresh_start_terminal",
@@ -82,7 +97,7 @@ class UpdateAgentSessionHandleSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS, EDITED_SINCE)
 
     def test_the_source_function_is_still_where_this_proof_looks(self):
         """`CALLER` is a location pin, and a relocation is what breaks it.

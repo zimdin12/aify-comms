@@ -17,6 +17,7 @@ DB ACCESS: `db` is passed in. No connection opened, no commit, no rollback.
 from __future__ import annotations
 
 
+from service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL, TERMINAL_STOPPABLE_STATUS_SQL
 from service.api_core.events import _append_terminal_control
 from service.api_core.serialization import _json_loads_or
 from service.api_core.terminal_status import _TERMINAL_END_STATUSES
@@ -41,11 +42,11 @@ async def _request_stop_agent_terminals(
     even when the agent row is already gone (REMOVE) and session_mode can't be
     resolved at claim time."""
     cursor = await db.execute(
-        """
+        f"""
         SELECT id, environment_id, bridge_id, session_id FROM terminal_sessions
         WHERE agent_id = ?
           AND id NOT LIKE 'vterm_%'
-          AND status IN ('starting', 'attached', 'running', 'active', 'idle', 'recovering', 'stopping')
+          AND status IN {TERMINAL_STOPPABLE_STATUS_SQL}
         """,
         (agent_id,),
     )
@@ -118,7 +119,7 @@ async def _resolve_live_console_terminal(db, agent_id: str):
     return await (
         await db.execute(
             "SELECT * FROM terminal_sessions WHERE agent_id = ? "
-            "AND status IN ('starting','attached','running','active','idle','recovering') "
+            f"AND status IN {TERMINAL_LIVE_FILTER_SQL} "
             "AND id NOT LIKE 'vterm_%' ORDER BY updated_at DESC LIMIT 1",
             (agent_id,),
         )

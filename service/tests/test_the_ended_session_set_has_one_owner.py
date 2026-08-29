@@ -76,13 +76,25 @@ class TheEndedSessionSetHasOneOwner(unittest.TestCase):
         passes perfectly. This drives the same function against a set it MUST find -- and against a
         near-miss it must not, since a scan that matched five-of-six would report a filter that is
         deliberately different as a duplicate."""
-        live = {"active", "attached", "idle", "running", "starting"}
-        self.assertNotEqual(hand_typed_spellings(REPO, live), [], (
-            "the scanner found no SQL spelling of the live-terminal set, which this repo definitely "
-            "contains -- so its empty verdict above proves nothing"
-        ))
-        impossible = {"nonesuch-alpha", "nonesuch-beta"}
-        self.assertEqual(hand_typed_spellings(REPO, impossible), [])
+        # A WITNESS THAT CANNOT BE PAID OFF. This control used to hunt the repo for the
+        # live-terminal set, on the grounds that it "definitely contains" one. On 2026-08-29 those
+        # four spellings were themselves replaced by a constant and this test went red for a repair
+        # -- a control whose witness is somebody else's debt expires the day that debt is paid.
+        # It now drives the same scan over a directory written for the purpose.
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="ended-set-scan-") as workspace:
+            root = Path(workspace)
+            (root / "planted.py").write_text(
+                "QUERY = \"SELECT 1 FROM t WHERE status IN ('alpha', 'beta')\"", encoding="utf-8",
+            )
+            (root / "innocent.py").write_text(
+                "OTHER = \"SELECT 1 FROM t WHERE status IN ('alpha', 'gamma')\"", encoding="utf-8",
+            )
+            found = hand_typed_spellings(root, {"alpha", "beta"})
+            self.assertEqual(found, ["planted.py:1"], "the scan did not find a spelling it was shown")
+            self.assertEqual(hand_typed_spellings(root, {"nonesuch-alpha", "nonesuch-beta"}), [],
+                             "the scan reported a set that is not there")
 
     def test_the_fragment_is_DERIVED_from_the_constant(self):
         """A fragment typed out beside the constant would be the tenth copy, in the file whose whole

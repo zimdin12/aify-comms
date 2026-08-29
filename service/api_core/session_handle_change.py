@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 
+from service.api_core.terminal_status import TERMINAL_ACTIVE_STATUS_SQL
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.records import _agent_record_to_dict
 from service.api_core.serialization import _json_loads_or
@@ -64,7 +65,7 @@ async def _detect_fresh_start_terminal(
             try:
                 _lt = await (await db.execute(
                     "SELECT command FROM terminal_sessions WHERE agent_id = ? "
-                    "AND status IN ('starting','attached','running','active','idle') "
+                    f"AND status IN {TERMINAL_ACTIVE_STATUS_SQL} "
                     "AND id NOT LIKE 'vterm_%' ORDER BY datetime(COALESCE(updated_at, created_at)) DESC LIMIT 1",
                     (agent_id,),
                 )).fetchone()

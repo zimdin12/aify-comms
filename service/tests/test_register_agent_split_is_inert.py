@@ -69,7 +69,34 @@ FIXTURE = Path(__file__).resolve().parent / "data" / "register_agent_before_spli
 #: replaces the CURRENT text with the ORIGINAL before inlining. Written the other way round it
 #: fails with "0 occurrences" naming text that is genuinely not there, which reads like the code
 #: moved rather than like the declaration is inside out.
+#: DECLARED EDIT, 2026-08-29. Sixteen live-terminal filters spelled their status set out by hand;
+#: they now interpolate a fragment from `api_core/terminal_status.py`. Undone here rather than
+#: re-captured, so the pre-split baseline survives.
 EDITED_SINCE = [
+    (
+        '\nfrom service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL\nfrom service.api_core.active_run_lookup import _get_blocking_active_run',
+        '\nfrom service.api_core.active_run_lookup import _get_blocking_active_run',
+    ),
+    (
+        '                await db.execute(\n                    f"""\n                    SELECT id, environment_id, bridge_id',
+        '                await db.execute(\n                    """\n                    SELECT id, environment_id, bridge_id',
+    ),
+    (
+        "                    WHERE agent_id = ?\n                      AND status IN {TERMINAL_LIVE_FILTER_SQL}\n                      AND (? = '' OR id != ?)",
+        "                    WHERE agent_id = ?\n                      AND status IN ('starting','attached','running','active','idle','recovering')\n                      AND (? = '' OR id != ?)",
+    ),
+    (
+        '\nfrom service.api_core.terminal_status import TERMINAL_ACTIVE_STATUS_SQL\nfrom service.api_core.ownership_authority import (',
+        '\nfrom service.api_core.ownership_authority import (',
+    ),
+    (
+        '                await db.execute(\n                    f"""\n                    SELECT *',
+        '                await db.execute(\n                    """\n                    SELECT *',
+    ),
+    (
+        '                      AND agent_id = ?\n                      AND status IN {TERMINAL_ACTIVE_STATUS_SQL}\n                    """,',
+        '                      AND agent_id = ?\n                      AND status IN (\'starting\',\'attached\',\'running\',\'active\',\'idle\')\n                    """,',
+    ),
     (
         """        prior_runtime_state = _json_loads_or(row["runtime_state"], {}) if row else {}
         # The environment's answers survive a registration; everything else still refreshes.

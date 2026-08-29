@@ -26,6 +26,33 @@ QUERY = REPO / "service" / "api_core" / "idle_worker_query.py"
 FIXTURE = (Path(__file__).resolve().parent / "data"
            / "close_idle_virtual_rpc_workers_before_split.py")
 
+#: DECLARED EDIT, 2026-08-29. Sixteen live-terminal filters spelled their status set out by hand;
+#: they now interpolate a fragment from `api_core/terminal_status.py`. Undone here rather than
+#: re-captured, so the pre-split baseline survives.
+EDITED_SINCE = [
+    (
+        '\nfrom service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL\nfrom service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET',
+        '\nfrom service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET',
+    ),
+    (
+        '        LEFT JOIN agents a ON a.id = t.agent_id\n        WHERE t.status IN {TERMINAL_LIVE_FILTER_SQL}\n          AND (',
+        "        LEFT JOIN agents a ON a.id = t.agent_id\n        WHERE t.status IN ('starting', 'attached', 'running', 'recovering', 'active', 'idle')\n          AND (",
+    ),
+    (
+        '\nfrom service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL\nfrom service.api_core.agent_sessions import ENDED_AGENT_SESSION_STATUS_SQL',
+        '\nfrom service.api_core.agent_sessions import ENDED_AGENT_SESSION_STATUS_SQL',
+    ),
+    (
+        '    cursor = await db.execute(\n        f"""\n        SELECT t.id AS terminal_id, t.agent_id',
+        '    cursor = await db.execute(\n        """\n        SELECT t.id AS terminal_id, t.agent_id',
+    ),
+    (
+        '        WHERE a.session_mode = \'resident\'\n          AND t.status IN {TERMINAL_LIVE_FILTER_SQL}\n        """',
+        '        WHERE a.session_mode = \'resident\'\n          AND t.status IN (\'starting\',\'attached\',\'running\',\'active\',\'idle\',\'recovering\')\n        """',
+    ),
+]
+
+
 SOURCE_FUNCTION = "_close_idle_virtual_rpc_workers"
 EXTRACTIONS = ["_select_idle_virtual_rpc_workers"]
 
@@ -55,7 +82,7 @@ class CloseIdleVirtualRpcWorkersSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS, EDITED_SINCE)
 
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""
@@ -92,12 +119,25 @@ class CloseIdleVirtualRpcWorkersSplitIsInertTests(unittest.TestCase):
         the only safe way to have it is from `service/api_core/virtual_rpc.py`. A local copy of that
         set is the forked-constant class: the copies agree until a runtime is added to one, and then
         this sweep stops recognising — or starts closing — the wrong workers.
+
+        WIDENED 2026-08-29 to a SET OF OWNERS rather than one name, because the same argument
+        produced a second import. This leaf's `WHERE t.status IN (...)` was one of sixteen hand-typed
+        live-terminal filters, and it now takes that set from `api_core/terminal_status.py` for
+        exactly the reason the paragraph above gives about the command set. The claim that matters is
+        unchanged and still enforced: every import here is an OWNER of a vocabulary this query needs,
+        and nothing else gets in.
         """
+        OWNERS = {"service.api_core.virtual_rpc", "service.api_core.terminal_status"}
         modules = {
             node.module for node in ast.walk(ast.parse(QUERY.read_text(encoding="utf-8")))
             if isinstance(node, ast.ImportFrom) and node.module
         }
-        self.assertEqual({"service.api_core.virtual_rpc"}, modules - {"__future__"})
+        self.assertEqual(modules - {"__future__"} - OWNERS, set(), (
+            "this leaf imports something that is not a vocabulary owner; the point of the rule is "
+            "that it reaches sets from where they are DECLARED and depends on nothing else"
+        ))
+        self.assertIn("service.api_core.virtual_rpc", modules,
+                      "the command set is no longer read from its owner")
         declared = {
             t.id for n in ast.parse(QUERY.read_text(encoding="utf-8")).body
             if isinstance(n, ast.Assign) for t in n.targets if isinstance(t, ast.Name)

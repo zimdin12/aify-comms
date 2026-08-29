@@ -68,7 +68,22 @@ def _combined_split_source() -> str:
 #: interpolate `ENDED_AGENT_SESSION_STATUS_SQL`, rendered once from that constant. Undone here
 #: rather than re-captured: re-capturing the fixture would erase the pre-split baseline and
 #: leave this proving only that the split is inert relative to whatever the code is today.
+#: DECLARED EDIT, 2026-08-29. Sixteen live-terminal filters spelled their status set out by hand;
+#: they now interpolate a fragment from `api_core/terminal_status.py`. Undone here rather than
+#: re-captured, so the pre-split baseline survives.
 EDITED_SINCE = [
+    (
+        '\nfrom service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL\nfrom service.api_core.agent_sessions import ENDED_AGENT_SESSION_STATUS_SQL',
+        '\nfrom service.api_core.agent_sessions import ENDED_AGENT_SESSION_STATUS_SQL',
+    ),
+    (
+        '                live_terminal = await (await db.execute(\n                    f"""\n                    SELECT id, status, command, workspace, session_id FROM terminal_sessions',
+        '                live_terminal = await (await db.execute(\n                    """\n                    SELECT id, status, command, workspace, session_id FROM terminal_sessions',
+    ),
+    (
+        "                      AND id NOT LIKE 'vterm_%'\n                      AND status IN {TERMINAL_LIVE_FILTER_SQL}\n                      AND datetime(COALESCE(NULLIF(created_at, ''), '1970-01-01'))",
+        "                      AND id NOT LIKE 'vterm_%'\n                      AND status IN ('starting', 'attached', 'running', 'active', 'idle', 'recovering')\n                      AND datetime(COALESCE(NULLIF(created_at, ''), '1970-01-01'))",
+    ),
     (
         '                        f"""\n                        UPDATE agent_sessions\n                        SET terminal_id = ?, terminal_status = ?,\n                            terminal_command = ?, terminal_workspace = ?,\n                            -- Binding a LIVE terminal is the authoritative "backing (re)started"\n                            -- event: promote a dead-state denorm back to running, else the row\n                            -- keeps the PREVIOUS backing\'s \'stopped\' and the Console label reads\n                            -- "Console stopped" for a live attached terminal forever (cms-manager,\n                            -- 2026-06-10; the display deriver deliberately never promotes).\n                            status = CASE WHEN status IN {ENDED_AGENT_SESSION_STATUS_SQL}\n                                          THEN \'running\' ELSE status END,\n                            ended_at = CASE WHEN status IN {ENDED_AGENT_SESSION_STATUS_SQL}\n                                            THEN NULL ELSE ended_at END\n                        WHERE id = ?',
         '                        """\n                        UPDATE agent_sessions\n                        SET terminal_id = ?, terminal_status = ?,\n                            terminal_command = ?, terminal_workspace = ?,\n                            -- Binding a LIVE terminal is the authoritative "backing (re)started"\n                            -- event: promote a dead-state denorm back to running, else the row\n                            -- keeps the PREVIOUS backing\'s \'stopped\' and the Console label reads\n                            -- "Console stopped" for a live attached terminal forever (cms-manager,\n                            -- 2026-06-10; the display deriver deliberately never promotes).\n                            status = CASE WHEN status IN (\'stopped\',\'ended\',\'failed\',\'lost\',\'cancelled\',\'completed\')\n                                          THEN \'running\' ELSE status END,\n                            ended_at = CASE WHEN status IN (\'stopped\',\'ended\',\'failed\',\'lost\',\'cancelled\',\'completed\')\n                                            THEN NULL ELSE ended_at END\n                        WHERE id = ?',

@@ -24,6 +24,7 @@ bookkeeping over whatever it returned.
 """
 from __future__ import annotations
 
+from service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 
 
@@ -46,7 +47,7 @@ async def _select_idle_virtual_rpc_workers(db, minutes, limit):
         FROM terminal_sessions t
         LEFT JOIN agent_sessions s ON s.id = t.session_id
         LEFT JOIN agents a ON a.id = t.agent_id
-        WHERE t.status IN ('starting', 'attached', 'running', 'recovering', 'active', 'idle')
+        WHERE t.status IN {TERMINAL_LIVE_FILTER_SQL}
           AND (
             t.command IN ({",".join("?" for _ in VIRTUAL_RPC_COMMAND_SET)})
             OR t.command LIKE '%-aify%'

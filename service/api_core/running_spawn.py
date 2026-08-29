@@ -26,6 +26,7 @@ import logging
 import time
 import uuid
 
+from service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL
 from service.api_core.agent_sessions import ENDED_AGENT_SESSION_STATUS_SQL
 from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
 from service.api_core.capabilities import _default_capabilities_for, _managed_via_wrapper_for_runtime
@@ -224,12 +225,12 @@ async def _migrate_bridge_id_onto_live_terminal(db, row, session_id, migrate_bri
                 unprovable.
                 """
                 live_terminal = await (await db.execute(
-                    """
+                    f"""
                     SELECT id, status, command, workspace, session_id FROM terminal_sessions
                     WHERE agent_id = ?
                       AND bridge_id = ?
                       AND id NOT LIKE 'vterm_%'
-                      AND status IN ('starting', 'attached', 'running', 'active', 'idle', 'recovering')
+                      AND status IN {TERMINAL_LIVE_FILTER_SQL}
                       AND datetime(COALESCE(NULLIF(created_at, ''), '1970-01-01'))
                           >= datetime(COALESCE(NULLIF(?, ''), '1970-01-01'))
                     ORDER BY datetime(COALESCE(updated_at, created_at, '1970-01-01')) DESC, rowid DESC

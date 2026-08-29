@@ -58,8 +58,29 @@ def _sql_literals(tree: ast.AST):
     `ast` rather than a regex, and that is not style. See this file's docstring: the window scan this
     replaces reported zero matches across the whole service.
     """
+    # AN F-STRING IS NOT A CONSTANT, and missing that made this scan report ZERO live-terminal
+    # queries on 2026-08-29, the moment sixteen of them started interpolating a status fragment.
+    # `ast.walk` still yields an f-string's literal PIECES -- but split at every `{...}`, so no
+    # single piece carries "FROM terminal_sessions" and "agent_id = ?" and the status list together,
+    # and every one of them fails the question. Reassemble the whole thing, rendering each
+    # interpolation as `{NAME}` so a reader of the text can still see what it inserts.
+    inside_fstrings: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.JoinedStr):
+            rendered = []
+            for value in node.values:
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    inside_fstrings.add(id(value))
+                    rendered.append(value.value)
+                elif isinstance(value, ast.FormattedValue):
+                    names = [n.id for n in ast.walk(value.value) if isinstance(n, ast.Name)]
+                    rendered.append("{" + (names[0] if names else "?") + "}")
+            yield node.lineno, "".join(rendered)
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if id(node) in inside_fstrings:
+                continue
             yield node.lineno, node.value
         elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
             parts, stack = [], [node]
@@ -95,7 +116,18 @@ def _asks_the_question(sql: str) -> bool:
         "FROM terminal_sessions" in sql
         and "status IN" in sql
         and "agent_id = ?" in sql
-        and any(f"'{status}'" in sql for status in LIVE_STATUSES)
+        and (
+            any(f"'{status}'" in sql for status in LIVE_STATUSES)
+            # THE STATUS LIST MOVED BEHIND A CONSTANT on 2026-08-29 and this scan went BLIND: it
+            # matched on the literal member names, so once sixteen filters interpolated
+            # `TERMINAL_LIVE_FILTER_SQL` / `TERMINAL_ACTIVE_STATUS_SQL` instead, it found ZERO
+            # live-terminal queries and reported a clean sweep of nothing. Its own
+            # `test_most_of_the_population_carries_the_clause` is what said so -- "only 0 of 0" --
+            # which is exactly the job of a positive control.
+            or "TERMINAL_LIVE_FILTER_SQL" in sql
+            or "TERMINAL_ACTIVE_STATUS_SQL" in sql
+            or "TERMINAL_STOPPABLE_STATUS_SQL" in sql
+        )
     )
 
 

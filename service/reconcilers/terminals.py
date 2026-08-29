@@ -21,6 +21,7 @@ import logging
 import time
 from datetime import datetime, timezone
 
+from service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL
 from service.api_core.agent_sessions import ENDED_AGENT_SESSION_STATUS_SQL
 from service.api_core.idle_worker_query import _select_idle_virtual_rpc_workers
 from service.api_core.serialization import _json_loads_or  # v0.5.1c: the leaf owner, not via the router
@@ -246,12 +247,12 @@ async def _reconcile_stale_managed_terminals_for_resident_agents(db) -> int:
     Returns the number of terminal_sessions that were reconciled.
     """
     cursor = await db.execute(
-        """
+        f"""
         SELECT t.id AS terminal_id, t.agent_id
         FROM terminal_sessions t
         JOIN agents a ON a.id = t.agent_id
         WHERE a.session_mode = 'resident'
-          AND t.status IN ('starting','attached','running','active','idle','recovering')
+          AND t.status IN {TERMINAL_LIVE_FILTER_SQL}
         """
     )
     rows = await cursor.fetchall()

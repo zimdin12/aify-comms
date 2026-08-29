@@ -26,6 +26,7 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 
+from service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL
 from service.api_core.runtime import _normalize_launch_mode, _normalize_runtime, _normalize_session_mode
 from service.api_core.terminal_text import _terminal_prompt_hint_from_raw
 from service.api_core.vocabulary import LAUNCHABLE_RUNTIMES as _LAUNCHABLE_RUNTIMES
@@ -260,10 +261,10 @@ async def _agent_awaiting_input(db, agent_id: str) -> bool:
         return False
     try:
         row = await (await db.execute(
-            """
+            f"""
             SELECT output, cols, runtime FROM terminal_sessions
             WHERE agent_id = ?
-              AND status IN ('starting','attached','running','active','idle','recovering')
+              AND status IN {TERMINAL_LIVE_FILTER_SQL}
               AND id NOT LIKE 'vterm_%'
             ORDER BY updated_at DESC LIMIT 1
             """,

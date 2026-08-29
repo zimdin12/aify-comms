@@ -22,6 +22,40 @@ from __future__ import annotations
 _TERMINAL_ACTIVE_STATUSES = {"starting", "attached", "running", "active", "idle"}
 _TERMINAL_MONOTONIC_STATUSES = {"stopping", "stopped", "failed", "lost", "ended", "completed", "cancelled"}
 
+#: SIXTEEN HAND-TYPED LIVE-TERMINAL FILTERS, AND THEY DID NOT AGREE WITH EACH OTHER. Measured
+#: 2026-08-29: twelve `WHERE status IN (...)` filters across eleven modules carried the active set
+#: PLUS `recovering`, in four different spellings; four more carried the active set exactly. Twelve
+#: queries treated a `recovering` terminal as live and four treated it as dead.
+#:
+#: Both populations now read a constant, and they read DIFFERENT ONES, because the difference is
+#: DELIBERATE and already ruled on. The operator settled it in `44299eb6`: "`recovering` is live but
+#: not active, on purpose -- do not unify them", and `test_terminal_sql_compares_terminal_statuses.py`
+#: has carried that ruling in its `FOREIGN_LITERALS` ledger since, with the reason. The twelve
+#: filters are inert with respect to that member -- `_terminal_status_transition` below refuses any
+#: status outside `TERMINAL_SESSION_STATUSES` -- and they are inert ON PURPOSE.
+#:
+#: So nothing here changes what any filter matches. What changed is that sixteen copies became two
+#: named fragments, so the two vocabularies are visible in the names instead of in the diff between
+#: two lists somebody has to notice.
+
+#: The DECLARED active set, for the four filters that use exactly it.
+TERMINAL_ACTIVE_STATUS_SQL = "(" + ", ".join(
+    f"'{status}'" for status in sorted(_TERMINAL_ACTIVE_STATUSES)
+) + ")"
+
+#: The set the other twelve use: the active set plus the disputed member.
+TERMINAL_LIVE_FILTER_STATUSES = frozenset(_TERMINAL_ACTIVE_STATUSES | {"recovering"})
+TERMINAL_LIVE_FILTER_SQL = "(" + ", ".join(
+    f"'{status}'" for status in sorted(TERMINAL_LIVE_FILTER_STATUSES)
+) + ")"
+
+#: The live-filter set plus `stopping`, for the stop sweep -- which wants "not yet gone" rather than
+#: "live" and must reach a terminal already on its way out. DERIVED, so a ruling on `recovering`
+#: reaches all three fragments at once.
+TERMINAL_STOPPABLE_STATUS_SQL = "(" + ", ".join(
+    f"'{status}'" for status in sorted(TERMINAL_LIVE_FILTER_STATUSES | {"stopping"})
+) + ")"
+
 #: EVERY status a `terminal_sessions.status` column may hold. DERIVED, not retyped — the same rule
 #: `new_dashboard/status.js` states for its live subset, and for the same reason: two hand-typed
 #: copies of one vocabulary drift.

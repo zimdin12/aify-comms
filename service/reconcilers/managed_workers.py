@@ -26,6 +26,7 @@ import logging
 import time
 from datetime import datetime, timezone
 
+from service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL
 from service.api_core.dispatch_run_state import _mark_dispatch_run_answered
 from service.api_core.reply_contract import _message_satisfies_reply_contract
 from service.api_core.serialization import _json_loads_or  # v0.5.1c: the leaf owner, not via the router
@@ -162,6 +163,10 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
         # old counter was really showing every minute without saying so.
         "orphan_workers_still_orphaned": 0,
     }
+    # `.format()`, NOT an f-string: this query already interpolated `{placeholders}` that way, and
+    # prefixing it with `f` made Python resolve that name at literal-evaluation time -- a NameError
+    # on every call, which four tests caught immediately. The status fragment goes through the same
+    # `.format()` rather than a second mechanism.
     cursor = await db.execute(
         """
         SELECT t.id AS terminal_id, t.agent_id AS agent_id, a.runtime AS runtime,
@@ -170,10 +175,11 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
         JOIN agents a ON a.id = t.agent_id
         WHERE a.session_mode = 'managed'
           AND a.runtime IN ({placeholders})
-          AND t.status IN ('starting','attached','running','active','idle','recovering')
+          AND t.status IN {terminal_active}
           AND t.id NOT LIKE 'vterm_%'
         """.format(
-            placeholders=",".join("?" for _ in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES)
+            placeholders=",".join("?" for _ in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES),
+            terminal_active=TERMINAL_LIVE_FILTER_SQL,
         ),
         tuple(_CHANNEL_SIDECAR_DELIVERY_RUNTIMES),
     )

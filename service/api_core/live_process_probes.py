@@ -26,6 +26,7 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 
+from service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL
 from service.api_core.serialization import _json_loads_or
 from service.api_core.tuning import LIVE_SESSION_STATUSES
 from service.clock import iso_to_epoch as _iso_to_epoch
@@ -53,10 +54,10 @@ async def _has_live_terminal_session(db, agent_id: str) -> bool:
         return False
     try:
         cursor = await db.execute(
-            """
+            f"""
             SELECT COUNT(*) AS cnt FROM terminal_sessions
             WHERE agent_id = ?
-              AND status IN ('starting', 'attached', 'running', 'active', 'idle', 'recovering')
+              AND status IN {TERMINAL_LIVE_FILTER_SQL}
               AND id NOT LIKE 'vterm_%'
             """,
             (agent_id,),
