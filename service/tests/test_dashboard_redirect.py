@@ -56,7 +56,11 @@ class DashboardRedirectTests(unittest.TestCase):
             data_dir=self.tmp.name,
             config_dir=self.tmp.name,
             api_key="",
-            host="127.0.0.1",
+            # NO `host=`. `ServiceConfig` no longer declares one: it was settable through `HOST` and
+            # through `service.json` and read by nothing, while the container's CMD hardcodes
+            # `--host 0.0.0.0`. This test never depended on it -- the redirect it proves is built
+            # from the REQUEST's Host header and `AIFY_DASHBOARD_URL`, which is why passing a value
+            # here changed nothing and made the field look alive.
             port=8800,
             mcp_enabled=False,
         )

@@ -52,7 +52,13 @@ class ServiceConfig:
 
     # Network
     port: int = 8800
-    host: str = "0.0.0.0"
+    #: NO `host`. It was declared, settable through `HOST` and through `service.json`, and read by
+    #: nothing -- so an operator setting it got no change and no warning. The bind address is not
+    #: this file's to decide: `Dockerfile`'s CMD passes `--host 0.0.0.0` to uvicorn, and what is
+    #: REACHABLE is decided by the compose port mapping. Binding to loopback means publishing the
+    #: port as `127.0.0.1:8800:8800`, which is what `aify-comms doctor`'s `api-exposure` check says
+    #: in its own fix text. A knob that cannot move anything is worse than an absent one: an absent
+    #: knob is obviously absent.
 
     # Paths
     data_dir: str = "/data"
@@ -61,8 +67,8 @@ class ServiceConfig:
     # MCP
     mcp_enabled: bool = True
     mcp_path_prefix: str = "/mcp"
-    mcp_user_id: str = "default"
-    mcp_app_name: str = "claude-code"
+    #: NO `mcp_user_id` / `mcp_app_name` either, for the same reason: both were settable and read
+    #: by nothing, in the service and in `mcp/` alike.
 
     # Security
     api_key: str = ""
@@ -153,13 +159,10 @@ class ServiceConfig:
             "AIFY_BUILD_BRANCH": "build_branch",
             "AIFY_BUILT_AT": "built_at",
             "SERVICE_PORT": ("port", int),
-            "HOST": "host",
             "DATA_DIR": "data_dir",
             "CONFIG_DIR": "config_dir",
             "MCP_ENABLED": ("mcp_enabled", lambda v: v.lower() in ("true", "1", "yes")),
             "MCP_PATH_PREFIX": "mcp_path_prefix",
-            "MCP_USER_ID": "mcp_user_id",
-            "MCP_APP_NAME": "mcp_app_name",
             "API_KEY": "api_key",
             "OPERATOR_KEY": "operator_key",
             "CORS_ORIGINS": ("cors_origins", lambda v: [s.strip() for s in v.split(",")]),
