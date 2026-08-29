@@ -63,6 +63,27 @@ AGENT_COLUMNS = {
     "requested_by", "handled_by", "removed_by",
 }
 
+#: The SHAPE of a name that refers to a party, from which the population above is derived rather
+#: than remembered. `AGENT_COLUMNS` answers the question; this asks it. Measured 2026-08-29 over
+#: `service/schema.py`: 143 declared columns, 10 shaped, 9 of them agent references.
+def _looks_like_a_party_column(column: str) -> bool:
+    return (
+        column == "agent_id"
+        or column.endswith("_agent")
+        or column.endswith("_agent_id")
+        or column.endswith("_by")
+    )
+
+
+#: Shaped like a party reference and NOT an agent id, each with the reason. An entry here is a
+#: decision recorded, which is the whole difference between this and a name nobody ever looked at.
+NOT_AGENT_COLUMNS = {
+    #: A BRIDGE instance id. `bridge_registration.py` supersedes rows with `SET superseded_by = ?`
+    #: and binds `bridge_id`, the id of the bridge doing the superseding -- so a rename has nothing
+    #: to move here, and a rename that DID move it would corrupt the supersession chain.
+    "superseded_by": "holds a bridge instance id, not an agent id",
+}
+
 REPOINTED = {
     ("agents", "managed_by"),
     ("agent_sessions", "agent_id"),
@@ -189,12 +210,77 @@ def _repointed_by_the_rewrite() -> set[tuple[str, str]]:
 
 
 class AgentRenameCoversEveryAgentReferenceTests(unittest.TestCase):
-    def test_the_schema_scan_finds_the_tables_it_is_supposed_to(self):
-        """Anti-vacuity: every check below is over what this finds, so finding little must fail."""
+    def test_the_schema_scan_finds_EVERY_table_the_file_declares(self):
+        """Anti-vacuity: every check below is over what this finds, so finding little must fail.
+
+        A floor -- this asserted `>= 20` against 25 real tables -- passes with five of them
+        silently unparsed, and an unparsed table's columns are classified by nobody. The file
+        declares its own answer, so count that instead of choosing a number.
+
+        The statement shape is matched, not the words: `service/schema.py` opens with prose
+        containing `CREATE TABLE IF NOT EXISTS`, and a scan that accepts the phrase anywhere reads
+        `IF` as a table name. Requiring the opening parenthesis is what separates a statement from
+        a sentence about statements.
+        """
+        source = DB.read_text(encoding="utf-8")
+        declared = set(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+) \(", source))
         tables = _schema_tables()
-        self.assertGreaterEqual(len(tables), 20, f"only {len(tables)} tables parsed; the scan is blind")
+        self.assertGreaterEqual(len(declared), 20, "the DDL scan itself found almost nothing")
+        self.assertEqual(
+            set(), declared - set(tables),
+            "the parser missed a table the schema declares, and its columns are then classified by "
+            "nothing: " + ", ".join(sorted(declared - set(tables))),
+        )
         self.assertIn("agents", tables)
         self.assertIn("agent_id", tables.get("terminal_sessions", set()))
+
+    def test_every_column_SHAPED_like_a_party_reference_is_classified(self):
+        """The population, derived. Everything else in this file measures over `AGENT_COLUMNS`, so
+        a column holding an agent id under a name absent from it is invisible to all of them -- and
+        the file's claim is completeness. `requested_by`, `handled_by` and `removed_by` sat exactly
+        there until 2026-08-26.
+
+        A new name must land in one of two places: `AGENT_COLUMNS`, or `NOT_AGENT_COLUMNS` with the
+        reason it is not one. Neither is a decision this test can make."""
+        shaped = {
+            column
+            for columns in _schema_tables().values()
+            for column in columns
+            if _looks_like_a_party_column(column)
+        }
+        #: Anti-vacuity: a shape predicate that matched nothing would pass by looking at nothing.
+        self.assertGreaterEqual(len(shaped), 8, f"only {len(shaped)} shaped columns; the scan is blind")
+        self.assertIn("agent_id", shaped)
+        unclassified = sorted(shaped - AGENT_COLUMNS - set(NOT_AGENT_COLUMNS))
+        self.assertEqual(
+            [], unclassified,
+            "these column names look like a party reference and nothing here says whether they hold "
+            "an agent id. Add each to AGENT_COLUMNS, or to NOT_AGENT_COLUMNS with its "
+            "reason:\n  "
+            + "\n  ".join(unclassified),
+        )
+
+    def test_the_shape_predicate_can_say_no(self):
+        """A predicate that answered True for everything would make the test above vacuous in the
+        other direction: every column classified, because every column is shaped."""
+        for column in ("agent_id", "from_agent", "target_agent", "requested_by", "superseded_by"):
+            self.assertTrue(_looks_like_a_party_column(column), column)
+        for column in ("created_at", "status", "body", "id", "machine_id", "bridge_id"):
+            self.assertFalse(_looks_like_a_party_column(column), column)
+
+    def test_NOT_AGENT_COLUMNS_names_only_columns_that_exist_and_are_shaped(self):
+        """An exception for a column that is gone, or that the shape scan never reaches, quietly
+        stops being an exception to anything."""
+        all_columns = {c for columns in _schema_tables().values() for c in columns}
+        for column, reason in NOT_AGENT_COLUMNS.items():
+            self.assertIn(column, all_columns, f"{column} is not in the schema any more")
+            self.assertTrue(_looks_like_a_party_column(column),
+                            f"{column} is not shaped like a party reference, so exempting it is a no-op")
+            self.assertTrue(reason.strip(), f"{column} is exempted with no reason")
+        self.assertEqual(
+            set(), AGENT_COLUMNS & set(NOT_AGENT_COLUMNS),
+            "a column cannot both hold an agent id and not hold one",
+        )
 
     def test_every_agent_reference_in_the_schema_is_classified(self):
         classified = REPOINTED | CASCADES | set(LEFT_BEHIND) | set(UNRESOLVED)
