@@ -58,40 +58,26 @@ def _sql_literals(tree: ast.AST):
     `ast` rather than a regex, and that is not style. See this file's docstring: the window scan this
     replaces reported zero matches across the whole service.
     """
-    # AN F-STRING IS NOT A CONSTANT, and missing that made this scan report ZERO live-terminal
-    # queries on 2026-08-29, the moment sixteen of them started interpolating a status fragment.
-    # `ast.walk` still yields an f-string's literal PIECES -- but split at every `{...}`, so no
-    # single piece carries "FROM terminal_sessions" and "agent_id = ?" and the status list together,
-    # and every one of them fails the question. Reassemble the whole thing, rendering each
-    # interpolation as `{NAME}` so a reader of the text can still see what it inserts.
-    inside_fstrings: set[int] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.JoinedStr):
-            rendered = []
-            for value in node.values:
-                if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                    inside_fstrings.add(id(value))
-                    rendered.append(value.value)
-                elif isinstance(value, ast.FormattedValue):
-                    names = [n.id for n in ast.walk(value.value) if isinstance(n, ast.Name)]
-                    rendered.append("{" + (names[0] if names else "?") + "}")
-            yield node.lineno, "".join(rendered)
+    # ONE OWNER for reading an f-string whole. This gate grew its own copy of that handling on
+    # 2026-08-29 and so did `test_terminal_sql_compares_terminal_statuses`, the same afternoon, for
+    # the same reason -- which is precisely the duplication these gates catch in product code.
+    # `service/tests/sql_sources.py` owns it now and carries its own controls.
+    #
+    # The status FRAGMENTS are deliberately left unresolved here. This gate asks whether a query
+    # carries `AND id NOT LIKE 'vterm_%'`, which is about the clause AROUND the status list, and
+    # `_asks_the_question` below recognises such a query by the fragment NAME.
+    from service.tests.sql_sources import literal_text
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            if id(node) in inside_fstrings:
-                continue
-            yield node.lineno, node.value
-        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-            parts, stack = [], [node]
-            while stack:
-                current = stack.pop()
-                if isinstance(current, ast.BinOp) and isinstance(current.op, ast.Add):
-                    stack.extend([current.left, current.right])
-                elif isinstance(current, ast.Constant) and isinstance(current.value, str):
-                    parts.append(current.value)
-            if parts:
-                yield node.lineno, " ".join(parts)
+        if not isinstance(node, (ast.Constant, ast.JoinedStr, ast.BinOp)):
+            continue
+        if isinstance(node, ast.Constant) and not isinstance(node.value, str):
+            continue
+        if isinstance(node, ast.BinOp) and not isinstance(node.op, ast.Add):
+            continue
+        rendered = literal_text(node)
+        if rendered:
+            yield node.lineno, rendered
 
 
 def _without_sql_comments(sql: str) -> str:
