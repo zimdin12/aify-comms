@@ -35,8 +35,24 @@ SENDER = "lc-sender"
 
 
 class OrphanUnreadCleanupTests(FastApiTestCase):
+    def _tombstone(self, agent_id: str) -> None:
+        """Mark an agent REMOVED the way `remove_agent` does. It calls `_tombstone_agent`
+        unconditionally before `DELETE FROM agents`, so a removal always leaves this row -- and from
+        2026-08-29 it is what tells a removed agent apart from an identity that was never one."""
+        self._write(
+            "INSERT OR REPLACE INTO agent_tombstones (agent_id, removed_at, removed_by, reason)"
+            " VALUES (?,?,?,?)",
+            (agent_id, "2026-08-29T00:00:00Z", "dashboard", "test"),
+        )
+
     def setUp(self):
         super().setUp()
+        # GONE is a REMOVED agent, and a removal always leaves a tombstone: `remove_agent` calls
+        # `_tombstone_agent` unconditionally before `DELETE FROM agents`. Seeding only the absence --
+        # which this fixture did until 2026-08-29 -- is a state the product cannot produce, and it is
+        # also the state of `dashboard`, which was never an agent and whose 1,792 unread messages the
+        # old absence-based predicate would have deleted.
+        self._tombstone(GONE)
         for agent_id in (LIVE, SENDER):
             response = self.client.post(
                 "/api/v1/agents", json={"agentId": agent_id, "role": "coder"},

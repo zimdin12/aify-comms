@@ -66,6 +66,11 @@ SKIP_DIRS = {"node_modules", "__pycache__", ".git", ".pytest_cache", ".venv", "v
 #: adding its name here in the same commit PASSES, on purpose: the point is that the decision is
 #: written down, not that it is forbidden. What cannot happen is a field arriving with no reader and
 #: nobody noticing. Entries leaving is the good direction and is required as soon as it is true.
+#: `orphan_unread_messages` LEFT THIS LIST on 2026-08-29, which is the direction the ledger is
+#: supposed to move. It had no reader, and an unread counter is exactly where a wrong number
+#: hides: it reported 1,891 while the cleanup endpoint that number recommends would have
+#: deleted the dashboard's 1,792-message inbox. It now shares one predicate with that endpoint
+#: and a test asserts the two agree on the same fixture.
 KNOWN_UNREAD = {
     "active_dm_pairs_24h",
     "active_sessions",
@@ -78,7 +83,6 @@ KNOWN_UNREAD = {
     "failed_spawns_24h",
     "messages_by_agent",
     "messages_today",
-    "orphan_unread_messages",
     "shared_size_bytes",
     "shared_size_mb",
     "spawn_requests_by_status",

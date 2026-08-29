@@ -37,12 +37,24 @@ BEFORE_DIRECT = """
     WHERE m.to_agent IS NOT NULL AND m.source = 'direct' AND r.message_id IS NULL
 """
 BEFORE_CHANNEL = BEFORE_DIRECT.replace("'direct'", "'channel'")
+#: THE ORACLE FOR THE THIRD COUNTER CHANGED ON 2026-08-29, with the meaning it verifies.
+#:
+#: It used to ask `a.id IS NULL` -- no row in `agents` -- which is also true of every message
+#: addressed to `dashboard`, the UI's own identity, which held 1,792 unread and had sent 3,401. The
+#: counter now asks whether the recipient has an `agent_tombstones` row, which is what a REMOVAL
+#: leaves behind, and it shares that predicate with `POST /messages/cleanup/orphan-unread` so the
+#: number and the deletion cannot disagree.
+#:
+#: Keeping the old text here would make this file assert the defect. It is replaced rather than
+#: deleted, because the point of the oracle is unchanged: an independent statement of what the
+#: counter means, run beside the endpoint.
 BEFORE_ORPHAN = """
     SELECT COUNT(*)
     FROM messages m
-    LEFT JOIN agents a ON a.id = m.to_agent
     LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = m.to_agent
-    WHERE m.to_agent IS NOT NULL AND a.id IS NULL AND r.message_id IS NULL
+    WHERE m.to_agent IS NOT NULL
+      AND EXISTS (SELECT 1 FROM agent_tombstones t WHERE t.agent_id = m.to_agent)
+      AND r.message_id IS NULL
 """
 
 
@@ -104,7 +116,14 @@ class ThreeUnreadCountsAgreeAfterOnePass(FastApiTestCase):
         self._message("m-channel-unread-a", "registered", "channel")
         self._message("m-channel-unread-b", "registered", "channel")
         self._message("m-channel-read", "registered", "channel", read=True)
-        # Addressed to an agent that was never registered (or has been removed): the orphan case.
+        # REMOVED, not merely absent. `remove_agent` tombstones before deleting, and from
+        # 2026-08-29 the tombstone is what makes a recipient an orphan -- an agent that was never
+        # registered is not one, which is the whole reason `dashboard` stopped matching.
+        self._write(
+            "INSERT INTO agent_tombstones (agent_id, removed_at, removed_by, reason)"
+            " VALUES (?,?,?,?)",
+            ("vanished", "2026-08-29T00:00:00Z", "dashboard", "test"),
+        )
         self._message("m-orphan-a", "vanished", "direct")
         self._message("m-orphan-b", "vanished", "channel")
         self._message("m-orphan-c", "vanished", "direct")

@@ -35,6 +35,13 @@ from service.routers.dispatch_messages.message_removal import _ORPHAN_UNREAD_WHE
 #: through — it clears reply links in `messages`, `dispatch_runs` and `dispatch_controls`, so those
 #: tables have to exist or the delete raises rather than returning a count.
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS agent_tombstones (
+    agent_id TEXT PRIMARY KEY,
+    removed_at TEXT NOT NULL,
+    removed_by TEXT DEFAULT '',
+    bridge_id TEXT DEFAULT '',
+    reason TEXT DEFAULT ''
+);
 CREATE TABLE messages (
     id TEXT PRIMARY KEY, from_agent TEXT, to_agent TEXT, channel TEXT, source TEXT,
     type TEXT, subject TEXT, body TEXT, in_reply_to TEXT, timestamp TEXT
@@ -50,9 +57,16 @@ CREATE TABLE dispatch_controls (id TEXT PRIMARY KEY, source_message_id TEXT);
 
 async def _seed(db):
     await db.executescript(SCHEMA)
-    # One LIVE agent, and one that has been removed (removal really does DELETE the agents row —
-    # `agent_removal.py` deletes and tombstones, so "orphan" here means the row is gone).
+    # One LIVE agent, and one that has been REMOVED. `remove_agent` calls `_tombstone_agent`
+    # unconditionally and then deletes the row, so a removal always leaves BOTH marks -- and from
+    # 2026-08-29 the tombstone is what "orphan" means. Seeding only the absence, which this fixture
+    # did, is a state the product cannot produce: it is also the state of `dashboard`, which was
+    # never an agent and had 1,792 unread messages the old predicate would have deleted.
     await db.execute("INSERT INTO agents (id) VALUES ('live-agent')")
+    await db.execute(
+        "INSERT INTO agent_tombstones (agent_id, removed_at, removed_by, reason)"
+        " VALUES ('gone-agent', '2026-08-29T00:00:00Z', 'dashboard', 'test')"
+    )
     rows = [
         # id                  to_agent        channel     source
         ("orphan-unread",     "gone-agent",   None,       "direct"),
@@ -103,24 +117,31 @@ class OrphanUnreadCleanupTests(unittest.TestCase):
         )
 
     def test_a_channel_BROADCAST_is_never_deleted(self):
-        """THE ONE THAT WOULD HURT. A broadcast row has no `to_agent`, so `a.id IS NULL` is
-        trivially true for it — the `IS NOT NULL` condition is the only thing between this endpoint
-        and every unread channel message in the database."""
+        """A broadcast row has no `to_agent`, and it must never be selected.
+
+        THE MUTATION THAT USED TO LIVE HERE NO LONGER FIRES, and that is a real change rather than a
+        weakened test. Against the old `a.id IS NULL` predicate, dropping `to_agent IS NOT NULL`
+        selected every unread broadcast in the database -- a missing agent row is trivially true when
+        there is no recipient at all -- so that condition was the only thing standing in the way.
+        The predicate now asks for an `agent_tombstones` row matching `m.to_agent`, and a NULL
+        recipient matches no tombstone either, so the broadcast is excluded twice over.
+
+        The condition stays: it says what the query means, and a future predicate that stops being
+        NULL-safe would need it. What is asserted is the OUTCOME, which is what mattered."""
         selected = _run(_selected_ids(_ORPHAN_UNREAD_WHERE))
         self.assertNotIn("channel-broadcast", selected)
-
-        # And the mutation, run here rather than argued: drop that one condition and the broadcast
-        # is selected for deletion.
-        without_guard = _ORPHAN_UNREAD_WHERE.replace("m.to_agent IS NOT NULL AND ", "")
-        self.assertIn(
-            "channel-broadcast", _run(_selected_ids(without_guard)),
-            "if this ever stops being true the condition has stopped doing anything",
-        )
+        self.assertIn("m.to_agent IS NOT NULL", _ORPHAN_UNREAD_WHERE,
+                      "the recipient guard is gone; nothing states that a broadcast is not an orphan")
 
     def test_a_live_agents_message_is_never_deleted(self):
+        """And the mutation that DOES still fire, run here rather than argued: drop the removal test
+        and a live agent's unread message is selected for deletion."""
         selected = _run(_selected_ids(_ORPHAN_UNREAD_WHERE))
         self.assertNotIn("live-unread", selected)
-        without_guard = _ORPHAN_UNREAD_WHERE.replace("a.id IS NULL AND ", "")
+        without_guard = _ORPHAN_UNREAD_WHERE.replace(
+            " AND EXISTS (SELECT 1 FROM agent_tombstones t WHERE t.agent_id = m.to_agent)", "")
+        self.assertNotEqual(without_guard, _ORPHAN_UNREAD_WHERE,
+                            "the removal test is not in the predicate; this mutation removed nothing")
         self.assertIn("live-unread", _run(_selected_ids(without_guard)))
 
     def test_an_already_read_message_is_never_deleted(self):

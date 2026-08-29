@@ -25,6 +25,7 @@ from service.api_core.message_store import _delete_messages_by_ids, _delete_mess
 from service.api_core.routing import domain_router
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
+from service.api_core.orphan_messages import ORPHAN_UNREAD_WHERE
 from service.db import get_db
 
 # Imported for ANNOTATIONS as well as calls: under postponed evaluation a missing model does not fail
@@ -197,13 +198,12 @@ async def clear_direct_conversation(req: ConversationClearRequest, request: Requ
 #:     tombstone), so this is what "orphan" means here.
 #:   * `r.message_id IS NULL` — nobody read it. A message the operator already read is history, not
 #:     an orphan.
-_ORPHAN_UNREAD_WHERE = """
+_ORPHAN_UNREAD_WHERE = f"""
             id IN (
                 SELECT m.id
                 FROM messages m
-                LEFT JOIN agents a ON a.id = m.to_agent
                 LEFT JOIN read_receipts r ON r.message_id = m.id AND r.agent_id = m.to_agent
-                WHERE m.to_agent IS NOT NULL AND a.id IS NULL AND r.message_id IS NULL
+                WHERE {ORPHAN_UNREAD_WHERE}
             )
             """
 

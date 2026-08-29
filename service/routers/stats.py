@@ -62,13 +62,23 @@ async def get_stats(request: Request):
         # The plans differ in the honest direction: the two source-split queries used
         # `idx_messages_source` and the orphan one already SCANNED, so the combined query keeps that
         # one scan and drops the other two passes rather than turning an index seek into a scan.
-        # Verified against live data before the change: both forms return (128, 0, 1891).
+        # Verified against live data when the three became one pass: all forms returned
+        # (128, 0, 1891).
+        #
+        # THE THIRD COUNTER CHANGED MEANING ON 2026-08-29 and the number with it. It asked
+        # `a.id IS NULL` -- no row in `agents` -- which is true of every message addressed to
+        # `dashboard`, the UI's own identity, which had 1,792 unread and had sent 3,401. It now asks
+        # whether the recipient has an `agent_tombstones` row, which is what a REMOVAL leaves behind,
+        # and reports 78 rather than 1,891. `POST /messages/cleanup/orphan-unread` shares the
+        # predicate (`api_core/orphan_messages.py`), so the number here and the rows that endpoint
+        # deletes cannot drift apart -- which they had, in the direction that deletes an inbox.
         unread_c = await db.execute(
             """
             SELECT
               SUM(CASE WHEN a.id IS NOT NULL AND m.source = 'direct'  THEN 1 ELSE 0 END),
               SUM(CASE WHEN a.id IS NOT NULL AND m.source = 'channel' THEN 1 ELSE 0 END),
-              SUM(CASE WHEN a.id IS NULL THEN 1 ELSE 0 END)
+              SUM(CASE WHEN EXISTS (SELECT 1 FROM agent_tombstones t
+                                    WHERE t.agent_id = m.to_agent) THEN 1 ELSE 0 END)
             FROM messages m
             LEFT JOIN agents a ON a.id = m.to_agent
             LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = m.to_agent
