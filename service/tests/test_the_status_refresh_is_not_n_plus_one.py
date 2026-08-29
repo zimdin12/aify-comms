@@ -39,6 +39,7 @@ import aiosqlite
 
 from service.clock import now as clock_now
 from service.tests._base import FastApiTestCase
+from service.tests.frozen_clock import frozen_service_clock
 
 
 def _count_round_trips(coro_factory):
@@ -199,28 +200,31 @@ class StatusRefreshIsNotNPlusOneTests(FastApiTestCase):
     def _frozen_clock(self):
         """One `now` for a whole comparison.
 
-        A REAL FLAKE, twice, and the second time was my own incomplete fix. These tests derive the
-        same agents through both readers and compare the WHOLE dict, which carries a wall-clock
-        stamp. Under load two of the derivations straddle a second boundary -- observed as
-        `...:31:27Z` against `...:31:28Z` -- and the two dicts differ by a field that has nothing to
-        do with the prefetch. Seen twice in ~4,790-test runs and never in isolation, which is the
-        signature of a clock inside an equality rather than of a defect.
+        A REAL FLAKE, THREE TIMES, and the first two fixes never touched the clock this path reads.
+        These tests derive the same agents through both readers and compare the WHOLE dict, which
+        carries a wall-clock stamp; under load two derivations straddle a second boundary and the
+        dicts differ by a field that has nothing to do with the prefetch.
+
+        WHAT THE EARLIER FIXES FROZE. `status_refresh._now` -- and `_refresh_agent_live_state`, the
+        function under test, never calls it. It takes `now` as a parameter, defaults it to None, and
+        hands that to `_compute_live_status_cache`, which stamps `updated_at` from
+        `status_inputs._now`. The frozen name belonged to a sibling function this test does not
+        call, so the freeze had never once worked; it passed because two derivations usually land in
+        the same second, which is also why the flake was rare rather than absent.
+
+        Reproduced on demand rather than waited for, by putting a real 1.2s sleep between the two
+        derivations: the only differing field was `updated_at`, live `...:34:32Z` against prefetched
+        `...:34:33Z`.
+
+        76 modules bind `service.clock.now` as their own `_now`, so freezing one name freezes one
+        seventy-sixth of the clock. `frozen_service_clock` derives the set instead and refuses to
+        run if it reaches almost nothing.
 
         FROZEN RATHER THAN EXCLUDED. Dropping the field from the comparison would also stop it being
         compared, and it is one of the things the prefetch has to carry correctly.
-
-        ON THE CLASS, not inline in one method. The first fix patched a single test and left its
-        sibling with the identical construction, which then flaked on the next full run.
         """
-        import service.api_core.status_refresh as status_refresh
-
-        frozen = clock_now()
-        original = status_refresh._now
-        status_refresh._now = lambda: frozen
-        try:
+        with frozen_service_clock() as frozen:
             yield frozen
-        finally:
-            status_refresh._now = original
 
     def test_prefetched_and_live_readers_DERIVE_THE_SAME_CACHE(self):
         """The assertion that matters most. Everything else here is about cost; this is about truth.
