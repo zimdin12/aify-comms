@@ -148,8 +148,13 @@ class TextColourContrastIsClassifiedAndMeasured(unittest.TestCase):
         """The equality relation, so a parser that stops seeing rules fails here rather than reporting
         a clean sweep of a smaller population. The first version asserted only `> 50` included and
         `> 10` excluded, which would have stayed green through substantial loss."""
-        self.assertEqual(TOTAL, 212, f"the candidate population moved: {[(k, len(v)) for k, v in BUCKETS.items()]}")
-        self.assertEqual(len(BUCKETS["INHERITED"]), 149)
+        #: 212 -> 214 and INHERITED 149 -> 151 on 2026-08-29: `.chat-rail-why` and its hover/focus
+        #: rule, the chat rail's truncation hint. INHERITED is the right bucket and not a dodge --
+        #: the button sets `background: transparent`, so it owns no surface and its `var(--muted)`
+        #: foreground is read against whatever panel it sits on, exactly as `.chat-rail-section`
+        #: beside it already is.
+        self.assertEqual(TOTAL, 214, f"the candidate population moved: {[(k, len(v)) for k, v in BUCKETS.items()]}")
+        self.assertEqual(len(BUCKETS["INHERITED"]), 151)
         self.assertEqual(len(BUCKETS["OWNS_OPAQUE"]), 34)
         self.assertEqual(len(BUCKETS["RUNTIME"]), 15)
         self.assertEqual(len(BUCKETS["COMPOSITE"]), 13)

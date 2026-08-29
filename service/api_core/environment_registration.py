@@ -33,6 +33,28 @@ async def _record_environment_registration(
         name differs from the parameter it fills.
         """
         if existing:
+            # A HEARTBEAT THAT DECLARES NO BRIDGE KEEPS THE ONE ON THE ROW.
+            #
+            # `bridgeId` is optional on `EnvironmentHeartbeat`, and the model already says why: "a
+            # bridge started by hand has no launcher and sends neither; that is normal rather than
+            # missing data". The environment TIER advertising its own capabilities is the same
+            # shape -- it describes the host, it does not claim to own the bridge.
+            #
+            # Writing `req.bridgeId or ""` blanked the column for those callers, and the blanking is
+            # not the expensive half. Supersession is gated on BOTH sides carrying an id:
+            #
+            #     if existing and existing["bridge_id"].strip() and req.bridgeId.strip():
+            #
+            # so ONE id-less heartbeat disarms the arbitration between a stale bridge and a fresh
+            # one, permanently and silently, and the `bridgeStartedAt` comparison behind it never
+            # runs again. A guard whose input has been erased reads exactly like a guard with
+            # nothing to arbitrate.
+            #
+            # The INSERT below keeps `or ""`: a row being created has no prior bridge to preserve.
+            preserved_bridge_id = str(req.bridgeId or "").strip() or str(existing["bridge_id"] or "")
+            preserved_bridge_version = (
+                str(req.bridgeVersion or "").strip() or str(existing["bridge_version"] or "")
+            )
             await db.execute(
                 """
                 UPDATE environments
@@ -47,8 +69,8 @@ async def _record_environment_registration(
                     req.machineId or "",
                     req.os or "",
                     req.kind or "",
-                    req.bridgeId or "",
-                    req.bridgeVersion or "",
+                    preserved_bridge_id,
+                    preserved_bridge_version,
                     req.launcherVersion or "",
                     req.launcherRegistryFingerprint or "",
                     json.dumps(effective_roots),

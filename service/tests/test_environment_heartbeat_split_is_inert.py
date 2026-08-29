@@ -76,7 +76,29 @@ def _module_constants(path: Path) -> set[str]:
 #: declared it as `ISO_SECONDS` -- and that module's own docstring says stored timestamps are
 #: compared LEXICALLY in SQL throughout, so a site that drifts produces a comparison that is wrong
 #: with no error. The helper below is one of the ten that now import the constant.
+#: DECLARED EDIT, 2026-08-29. An environment-tier advertisement describes the HOST and declares
+#: no `bridgeId`. Both inputs to the supersede arbitration were being erased by it -- the id, by
+#: `req.bridgeId or ""` on the UPDATE, and `bridgeStartedAt`, because `next_metadata` REPLACES
+#: the stored metadata. Either one alone disarms the guard. The UPDATE now preserves what is on
+#: the row and the metadata merge keeps the bridge-owned keys. Undone here rather than
+#: re-captured, so the pre-split baseline survives.
 EDITED_SINCE = [
+    (
+        '# it travelled with the drain that was its only reader.\n\n\n#: What only a BRIDGE can know about itself, and therefore what an advertisement must leave alone.\n#:\n#: An environment-tier heartbeat describes the HOST -- runtimes, roots, terminal availability -- and\n#: declares no `bridgeId`. Its metadata carries no `bridgeStartedAt` either, and `next_metadata`\n#: REPLACES the stored metadata, so an advertisement erased the timestamp the supersede arbitration\n#: reads. Preserving `bridge_id` alone was not enough: with two ids and no start times, the branch\n#: that refuses an OLDER incoming bridge cannot fire, and a stale bridge reclaims the environment a\n#: fresh one owns.\n#:\n#: DERIVED FROM ITS READERS, not guessed: `bridgeStartedAt` is read by `_bridge_started_at` here and\n#: by `environment_claim.py`, and nothing else in the service reads a `bridge*` metadata key. A\n#: second one belongs in this tuple the day it gets a reader.\nBRIDGE_OWNED_METADATA = ("bridgeStartedAt",)\n',
+        '# it travelled with the drain that was its only reader.\n',
+    ),
+    (
+        '        next_metadata = {**metadata, "advertisedCwdRoots": cwd_roots}\n        if not str(req.bridgeId or "").strip():\n            for bridge_key in BRIDGE_OWNED_METADATA:\n                if bridge_key in existing_metadata and bridge_key not in next_metadata:\n                    next_metadata[bridge_key] = existing_metadata[bridge_key]\n        if manual_roots:',
+        '        next_metadata = {**metadata, "advertisedCwdRoots": cwd_roots}\n        if manual_roots:',
+    ),
+    (
+        '        if existing:\n            # A HEARTBEAT THAT DECLARES NO BRIDGE KEEPS THE ONE ON THE ROW.\n            #\n            # `bridgeId` is optional on `EnvironmentHeartbeat`, and the model already says why: "a\n            # bridge started by hand has no launcher and sends neither; that is normal rather than\n            # missing data". The environment TIER advertising its own capabilities is the same\n            # shape -- it describes the host, it does not claim to own the bridge.\n            #\n            # Writing `req.bridgeId or ""` blanked the column for those callers, and the blanking is\n            # not the expensive half. Supersession is gated on BOTH sides carrying an id:\n            #\n            #     if existing and existing["bridge_id"].strip() and req.bridgeId.strip():\n            #\n            # so ONE id-less heartbeat disarms the arbitration between a stale bridge and a fresh\n            # one, permanently and silently, and the `bridgeStartedAt` comparison behind it never\n            # runs again. A guard whose input has been erased reads exactly like a guard with\n            # nothing to arbitrate.\n            #\n            # The INSERT below keeps `or ""`: a row being created has no prior bridge to preserve.\n            preserved_bridge_id = str(req.bridgeId or "").strip() or str(existing["bridge_id"] or "")\n            preserved_bridge_version = (\n                str(req.bridgeVersion or "").strip() or str(existing["bridge_version"] or "")\n            )\n            await db.execute(',
+        '        if existing:\n            await db.execute(',
+    ),
+    (
+        '                    req.kind or "",\n                    preserved_bridge_id,\n                    preserved_bridge_version,\n                    req.launcherVersion or "",',
+        '                    req.kind or "",\n                    req.bridgeId or "",\n                    req.bridgeVersion or "",\n                    req.launcherVersion or "",',
+    ),
     ("            ).strftime(ISO_SECONDS)", '            ).strftime("%Y-%m-%dT%H:%M:%SZ")'),
 ]
 

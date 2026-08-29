@@ -368,6 +368,11 @@ function railWith(messageCounts) {
   });
 }
 
+//: Everything OUTSIDE an attribute value -- i.e. what a reader actually sees on the page. The hint
+//: is meant to be one glyph; asserting on raw HTML cannot tell a tooltip from a paragraph, because
+//: both contain the sentence.
+const visibleText = (html) => String(html).replace(/"[^"]*"/g, '""');
+
 test("A PARTIAL RAIL SAYS SO, and says the badges are partial too", async () => {
   const html = await railWith({ showing: 80, truncated: true });
   assert.match(html, /Showing the 80 most recent messages/);
@@ -378,6 +383,25 @@ test("A PARTIAL RAIL SAYS SO, and says the badges are partial too", async () => 
   // NO FLEET TOTAL IN THE SENTENCE. The rendered list is the recent feed; 3,189 belongs to one
   // agent's inbox, and putting it here would conflate two populations behind a correct-looking number.
   assert.doesNotMatch(html, /3,189|of \d+ messages/);
+});
+
+test("the caveat is a HINT, not a paragraph across the rail", async () => {
+  // The operator's complaint, pinned. The sentence was never wrong; it occupied a row of the list it
+  // annotates, on every partial render. It now lives on a hover/focus affordance.
+  const html = await railWith({ showing: 80, truncated: true });
+  assert.match(html, /class="chat-rail-why"/, "the hint affordance is gone");
+  assert.doesNotMatch(html, /chat-rail-note subtle/, "the paragraph is back");
+  assert.doesNotMatch(visibleText(html), /most recent messages/,
+    "the caveat is rendered as visible text again rather than as a hint");
+});
+
+test("the hint is reachable by keyboard and named for a screen reader", async () => {
+  // A `?` that only answers a mouse is a caveat keyboard users never receive, and a lone "?" is not
+  // an accessible name -- which is why the same sentence carries both roles.
+  const html = await railWith({ showing: 80, truncated: true });
+  assert.match(html, /<button type="button" class="chat-rail-why"/, "the hint must be focusable");
+  assert.match(html, /aria-label="Showing the 80 most recent messages/, "the hint has no name");
+  assert.match(html, /title="Showing the 80 most recent messages/, "the hint has no hover text");
 });
 
 test("a complete rail says nothing", async () => {

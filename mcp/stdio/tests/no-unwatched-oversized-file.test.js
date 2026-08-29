@@ -116,7 +116,12 @@ const CEILINGS = {
   // Python leaf so a fourth reply-owing type fails on the day it lands rather than growing this file
   // again unnoticed. Paying it down needs a dead-rule census of this stylesheet, which is a real
   // piece of work and not something to do badly in the same commit as a one-line fix.
-  "service/new_dashboard/styles.css": 1839,
+  // 1839 -> 1843 on 2026-08-29. The chat rail's truncation caveat became a hover hint at the
+  // operator's request -- it was a full-width sentence across the top of the list it annotates,
+  // on every partial render. Two rules, and the first draft cost eleven lines: a block button
+  // that aligns itself with `margin-left: auto` needs no wrapper element and no wrapper rule,
+  // which paid back seven of them and removed a div from the markup as well.
+  "service/new_dashboard/styles.css": 1843,
 };
 
 const SKIP_DIRS = new Set(["node_modules", ".git", "__pycache__", "dist", "build", ".messages", "data"]);

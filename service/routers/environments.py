@@ -59,6 +59,21 @@ router = domain_router()
 # it travelled with the drain that was its only reader.
 
 
+#: What only a BRIDGE can know about itself, and therefore what an advertisement must leave alone.
+#:
+#: An environment-tier heartbeat describes the HOST -- runtimes, roots, terminal availability -- and
+#: declares no `bridgeId`. Its metadata carries no `bridgeStartedAt` either, and `next_metadata`
+#: REPLACES the stored metadata, so an advertisement erased the timestamp the supersede arbitration
+#: reads. Preserving `bridge_id` alone was not enough: with two ids and no start times, the branch
+#: that refuses an OLDER incoming bridge cannot fire, and a stale bridge reclaims the environment a
+#: fresh one owns.
+#:
+#: DERIVED FROM ITS READERS, not guessed: `bridgeStartedAt` is read by `_bridge_started_at` here and
+#: by `environment_claim.py`, and nothing else in the service reads a `bridge*` metadata key. A
+#: second one belongs in this tuple the day it gets a reader.
+BRIDGE_OWNED_METADATA = ("bridgeStartedAt",)
+
+
 def _bridge_started_at(metadata: Any) -> str:
     if isinstance(metadata, dict):
         # `_parsed_timestamp`: this value comes from the registering bridge and decides whether a
@@ -150,6 +165,10 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
         manual_roots = bool(existing_metadata.get("manualRoots"))
         effective_roots = _json_loads_or(existing["cwd_roots"], []) if existing and manual_roots else cwd_roots
         next_metadata = {**metadata, "advertisedCwdRoots": cwd_roots}
+        if not str(req.bridgeId or "").strip():
+            for bridge_key in BRIDGE_OWNED_METADATA:
+                if bridge_key in existing_metadata and bridge_key not in next_metadata:
+                    next_metadata[bridge_key] = existing_metadata[bridge_key]
         if manual_roots:
             next_metadata.update({
                 "manualRoots": True,

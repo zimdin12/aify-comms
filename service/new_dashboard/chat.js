@@ -72,8 +72,20 @@ export function createChatController(deps) {
     // belong to `/messages/inbox/dashboard`, one agent's inbox. Putting that total beside this list
     // would be the same conflation of two populations, wearing a correct-looking number. What this
     // endpoint can say for certain is that there are more, and that is what it says.
+    //
+    // A `?` RATHER THAN A PARAGRAPH (operator, 2026-08-29). The sentence was correct and it sat
+    // across the top of the rail on every partial render -- a lot of furniture for a caveat, in the
+    // one place the reader came to look at a list. Same words, one hover or one Tab away.
+    //
+    // A BUTTON, not a bare span: a hint nobody can focus is a hint keyboard users never receive,
+    // and `title` alone renders on hover only. `aria-label` carries the identical sentence because
+    // a lone "?" is not a name and there is no shorter honest one -- the button's whole purpose IS
+    // the sentence.
+    const scopeText = `Showing the ${counts.showing} most recent messages — older ones are not `
+      + `loaded, and the unread badges count only these.`;
     const scopeNote = partial
-      ? `<div class="chat-rail-note subtle">Showing the ${counts.showing} most recent messages — older ones are not loaded, and the unread badges count only these.</div>`
+      ? `<button type="button" class="chat-rail-why" `
+        + `aria-label="${esc(scopeText)}" title="${esc(scopeText)}">?</button>`
       : '';
     const html = (
       scopeNote
