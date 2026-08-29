@@ -76,17 +76,13 @@ export async function runDispatchPass({
           ...liveAgent,
           runtimeState: liveAgent.runtimeState || state.info.runtimeState || {},
         };
-        if (
-          normalizeSessionMode(liveAgent.sessionMode) === "managed" &&
-          liveAgent.runtimeState?.pendingResidentTakeover &&
-          String(liveAgent.runtimeState.pendingResidentTakeover.bridgeId || "") === BRIDGE_INSTANCE_ID
-        ) {
-          // A CLI registered for this agent while a managed turn was active.
-          // Keep heartbeating, but do not claim work until the backend
-          // promotes ownership after that active turn reaches a terminal
-          // state.
-          continue;
-        }
+        // NO HOLD-BACK HERE ANY MORE. A branch used to stop a managed agent claiming work when
+        // `runtimeState.pendingResidentTakeover` named this bridge -- "a CLI registered for this
+        // agent while a managed turn was active". The service retired that key in `e3c3ce8c`
+        // (2026-05-26); every mention left in the service is a `pop`, so the condition could not
+        // become true and the `continue` never ran. The case it existed for is handled server-side
+        // now: a resident registering against a driving managed agent is parked by the
+        // `manualResidentCandidate` path and told `manual_switch_required`.
       }
     } catch (error) {
       // If the server forgot about this agent (404), auto-re-register from

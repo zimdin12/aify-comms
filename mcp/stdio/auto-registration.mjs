@@ -173,12 +173,6 @@ export function makeAutoRegister({ ensureDispatchLoop }) {
       } catch {
         // Best effort.
       }
-      const pendingTakeover =
-        r.ownershipTransition === "pending_resident_takeover" ||
-        (
-          runtimeState?.pendingResidentTakeover &&
-          String(runtimeState.pendingResidentTakeover.bridgeId || "") === BRIDGE_INSTANCE_ID
-        );
       // WHOSE ANSWER THIS IS. `runtimeState.bridgeInstanceId` names the bridge that OWNS this agent,
       // and for a managed agent that is the environment bridge hosting its delivery loop -- not this
       // per-session sidecar. Writing it here made the field a race between two processes with two
@@ -190,7 +184,14 @@ export function makeAutoRegister({ ensureDispatchLoop }) {
         sessionMode: resolvedSessionMode,
         managedWrapperChild: payload.managedWrapperChild === true,
       });
-      if (!pendingTakeover && ownership.claim) {
+      // NO `pendingTakeover` TERM. It read `r.ownershipTransition === "pending_resident_takeover"`
+      // or a `runtimeState.pendingResidentTakeover` naming this bridge, and the service retired both
+      // in `e3c3ce8c` (2026-05-26): every remaining mention of that key in the service is a `pop`,
+      // and the transition vocabulary is `console_terminal_attached` / `manual_switch_required`. So
+      // the term was always false and this read `if (ownership.claim)`. Parking a resident that
+      // registers against a driving managed agent is the SERVICE's job now -- the
+      // `manualResidentCandidate` path returns `manual_switch_required` and never lets it drive.
+      if (ownership.claim) {
         runtimeState = { ...runtimeState, bridgeInstanceId: BRIDGE_INSTANCE_ID };
         try {
           await httpCall("PATCH", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/runtime-state`, { runtimeState });
