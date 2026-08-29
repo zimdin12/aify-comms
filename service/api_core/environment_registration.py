@@ -51,9 +51,22 @@ async def _record_environment_registration(
             # nothing to arbitrate.
             #
             # The INSERT below keeps `or ""`: a row being created has no prior bridge to preserve.
-            preserved_bridge_id = str(req.bridgeId or "").strip() or str(existing["bridge_id"] or "")
-            preserved_bridge_version = (
-                str(req.bridgeVersion or "").strip() or str(existing["bridge_version"] or "")
+            #: ONE RULE, SEVEN FIELDS. Each is `Optional[...] = None` on the request model, so a
+            #: caller that omits one has said nothing about it -- and `req.X or ""` turned that
+            #: silence into an erasure. The model already states the distinction for roots: "null
+            #: means the service said nothing about roots -- keep what we had. An empty ARRAY means
+            #: it said there are none."
+            def _kept(incoming, column):
+                return str(incoming or "").strip() or str(existing[column] or "")
+
+            preserved_bridge_id = _kept(req.bridgeId, "bridge_id")
+            preserved_bridge_version = _kept(req.bridgeVersion, "bridge_version")
+            preserved_machine_id = _kept(req.machineId, "machine_id")
+            preserved_os = _kept(req.os, "os")
+            preserved_kind = _kept(req.kind, "kind")
+            preserved_launcher_version = _kept(req.launcherVersion, "launcher_version")
+            preserved_launcher_fingerprint = _kept(
+                req.launcherRegistryFingerprint, "launcher_registry_fingerprint"
             )
             await db.execute(
                 """
@@ -66,13 +79,13 @@ async def _record_environment_registration(
                 """,
                 (
                     req.label or env_id,
-                    req.machineId or "",
-                    req.os or "",
-                    req.kind or "",
+                    preserved_machine_id,
+                    preserved_os,
+                    preserved_kind,
                     preserved_bridge_id,
                     preserved_bridge_version,
-                    req.launcherVersion or "",
-                    req.launcherRegistryFingerprint or "",
+                    preserved_launcher_version,
+                    preserved_launcher_fingerprint,
                     json.dumps(effective_roots),
                     json.dumps(runtimes),
                     requested_status,

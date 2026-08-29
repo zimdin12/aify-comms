@@ -87,7 +87,24 @@ def _module_constants(path: Path) -> set[str]:
 #: advertiser deriving it independently would agree the day it was written and mint a DUPLICATE
 #: environment the first time either copy of the rule changed. Undone here rather than
 #: re-captured, so the pre-split baseline survives.
+#: DECLARED EDIT, 2026-08-30. One `_kept()` rule for seven fields: a heartbeat does not blank
+#: what it said nothing about. `req.X or ""` turned an omitted field into an erased one, which
+#: is how an id-less beat disarmed supersession in 02045701 -- that fix covered the two fields
+#: the guard reads, and five more had the same shape. Undone here rather than re-captured, so
+#: the pre-split baseline survives.
 EDITED_SINCE = [
+    (
+        '            # The INSERT below keeps `or ""`: a row being created has no prior bridge to preserve.\n            #: ONE RULE, SEVEN FIELDS. Each is `Optional[...] = None` on the request model, so a\n            #: caller that omits one has said nothing about it -- and `req.X or ""` turned that\n            #: silence into an erasure. The model already states the distinction for roots: "null\n            #: means the service said nothing about roots -- keep what we had. An empty ARRAY means\n            #: it said there are none."\n            def _kept(incoming, column):\n                return str(incoming or "").strip() or str(existing[column] or "")\n\n            preserved_bridge_id = _kept(req.bridgeId, "bridge_id")\n            preserved_bridge_version = _kept(req.bridgeVersion, "bridge_version")\n            preserved_machine_id = _kept(req.machineId, "machine_id")\n            preserved_os = _kept(req.os, "os")\n            preserved_kind = _kept(req.kind, "kind")\n            preserved_launcher_version = _kept(req.launcherVersion, "launcher_version")\n            preserved_launcher_fingerprint = _kept(\n                req.launcherRegistryFingerprint, "launcher_registry_fingerprint"\n            )',
+        '            # The INSERT below keeps `or ""`: a row being created has no prior bridge to preserve.\n            preserved_bridge_id = str(req.bridgeId or "").strip() or str(existing["bridge_id"] or "")\n            preserved_bridge_version = (\n                str(req.bridgeVersion or "").strip() or str(existing["bridge_version"] or "")\n            )',
+    ),
+    (
+        '                    req.label or env_id,\n                    preserved_machine_id,\n                    preserved_os,\n                    preserved_kind,\n                    preserved_bridge_id,',
+        '                    req.label or env_id,\n                    req.machineId or "",\n                    req.os or "",\n                    req.kind or "",\n                    preserved_bridge_id,',
+    ),
+    (
+        '                    preserved_bridge_version,\n                    preserved_launcher_version,\n                    preserved_launcher_fingerprint,\n                    json.dumps(effective_roots),',
+        '                    preserved_bridge_version,\n                    req.launcherVersion or "",\n                    req.launcherRegistryFingerprint or "",\n                    json.dumps(effective_roots),',
+    ),
     (
         '\ndef _derived_environment_id(kind: Any, hostname: Any) -> str:\n    """`kind:hostname:default`, the id a caller may omit.\n\n    ONE IMPLEMENTATION, HERE. The join keys this service\'s own table, and a second advertiser that\n    built the same string itself would agree until either copy of the rule changed -- at which point\n    it would not fail, it would create a DUPLICATE environment beside the real one and leave the\n    managed agents bound to whichever the bridge wrote.\n\n    `kind` is host knowledge the service cannot compute: it distinguishes wsl, docker, windows,\n    macos and linux from environment variables and `/.dockerenv` on the host itself. So the host\n    sends the two facts and the service performs the join.\n\n    THE HOSTNAME IS NOT LOWERCASED, and that is inherited rather than chosen. The live row is\n    `windows:StevenZ-L:default` while its `machineId` is `win32:stevenz-l` -- the service normalises\n    machineId with a field validator and has never normalised this. Lowercasing here would mint a\n    new id for every existing environment and orphan the agents bound to the old one.\n\n    Returns "" when either fact is missing, so the caller\'s own "id is required" refusal still fires\n    rather than a half-built id like `windows::default` reaching the table.\n    """\n    kind_text = str(kind or "").strip()\n    host_text = str(hostname or "").strip()\n    if not kind_text or not host_text:\n        return ""\n    return f"{kind_text}:{host_text}:default"\n\n\n#: What only a BRIDGE can know about itself, and therefore what an advertisement must leave alone.',
         '\n#: What only a BRIDGE can know about itself, and therefore what an advertisement must leave alone.',
