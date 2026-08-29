@@ -53,8 +53,17 @@ FIXTURE = Path(__file__).resolve().parent / "data" / "get_inbox_before_split.py"
 EDITED_SINCE = [
     (
         chr(10).join([
-            "        unread_total = total",
-            "        if filter != \"unread\" and not messageId:",
+            "        unread_is_already_total = (",
+            "            filter == \"unread\"",
+            "            and not messageId",
+            "            and not fromAgent",
+            "            and not fromRole",
+            "            and not type",
+            "            and bool(peek)",
+            "        )",
+            "        if unread_is_already_total:",
+            "            unread_total = total",
+            "        else:",
             "            unread_cursor = await db.execute(",
             "                \"SELECT COUNT(*) FROM messages m \"",
             "                \"LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ? \"",

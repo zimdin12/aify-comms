@@ -112,22 +112,38 @@ async def get_inbox(
         # Mark as read + update status (unless peek)
         await _settle_inbox_read(db, messages, agent_id, peek)
 
-        # HOW MANY ARE UNREAD, not how many of the page are. The dashboard's rail badges each
-        # conversation by counting unread rows in the page it was given, and that page is 80 long.
-        # Measured on the operator's database 2026-08-29: 3,189 messages addressed to `dashboard`,
-        # 1,792 of them unread, and 29 unread inside the 80-row page. The badges could therefore
-        # under-report by roughly sixty to one, and nothing on the surface said the number was a
-        # sample.
+        # HOW MANY ARE UNREAD, GLOBALLY AND NOW. Two words doing work:
         #
-        # ONE COUNT, MEASURED BEFORE ADDING IT: 3.3 ms median in the container (7 runs, min 3.1, max
-        # 3.6) against a 15s poll. The endpoint already runs one COUNT for `total`, so this is a
-        # second of the same shape for a number the operator plainly needs.
+        # GLOBALLY: this is the addressed agent's whole unread population, NOT the count matching this
+        # query. `total` is query-scoped and stays that way -- a `messageId` view has a total of one,
+        # and a `fromAgent` view has a subset -- so reusing it here reported "1 unread" for an agent
+        # with hundreds.
         #
-        # Skipped when the filter ALREADY answers it: with `filter=unread`, `total` IS the unread
-        # total, and running the same query twice to put it under a second name is cost with no
-        # reader.
-        unread_total = total
-        if filter != "unread" and not messageId:
+        # NOW: computed AFTER `_settle_inbox_read`, which marks the returned messages read. The first
+        # version reused `total`, taken before that write, and a reviewer executed the consequence:
+        # three unread, `limit=1`, non-peek -> the response said `unreadTotal: 3` while the current
+        # answer was 2, because it had just read one of them. Reproduced here before fixing.
+        #
+        # The optimisation that started this matched the SPELLING of the filter rather than its
+        # semantics. `total` is only the same number when the query is unread-scoped AND unfiltered AND
+        # nothing settled, so that is exactly the condition -- and `peek` is part of it, not an aside.
+        #
+        # `bool(peek)` IS THE SAME EXPRESSION `_settle_inbox_read` GATES ON (`if not peek`). Writing a
+        # tidier predicate here would be a second implementation of one question, which is how this
+        # endpoint got into trouble in the first place. Worth knowing while reading it: that gate takes
+        # any non-empty string, so `peek=false` reads as peek -- surprising, load-bearing for callers
+        # that pass it, and left alone here rather than changed under cover of an unrelated fix.
+        unread_is_already_total = (
+            filter == "unread"
+            and not messageId
+            and not fromAgent
+            and not fromRole
+            and not type
+            and bool(peek)
+        )
+        if unread_is_already_total:
+            unread_total = total
+        else:
             unread_cursor = await db.execute(
                 "SELECT COUNT(*) FROM messages m "
                 "LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ? "
