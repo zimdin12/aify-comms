@@ -28,10 +28,25 @@ import { normalizeSessionMode } from "./session-mode.mjs";
 
 const MACHINE_ID = defaultMachineId();
 
+// NO snake_case ALTERNATES. Until 2026-08-29 both functions read `info.machineId || info.machine_id`
+// and `info.sessionMode || info.session_mode`. NEITHER alternate can ever arrive:
+//
+//   * the service emits no snake_case key at all on an agent record -- checked against the live
+//     `/agents` and `/agents/{id}` on the operator's deployment, zero of them;
+//   * the LOCAL registry, the other producer feeding these functions, writes `machineId` and
+//     `sessionMode` (see `registration-tool.mjs`), and nothing in this bridge writes the other pair.
+//
+// They are not harmless. The dashboard removed three of exactly this shape and wrote down why: "a
+// dead alternate is worse than nothing here, because it reads like coverage for the rename it cannot
+// catch". Here it is worse still. `normalizeSessionMode` fails toward `resident`, so if `sessionMode`
+// ever went missing, `|| info.session_mode` would look like it handled the case while every MANAGED
+// agent was silently classified resident -- and `wakeModeSummary` is what tells an operator whether a
+// silent agent is idle or structurally unreachable.
+
 export function runtimeSummary(info = {}) {
   const runtime = normalizeRuntime(info.runtime || "generic");
-  const machine = info.machineId || info.machine_id || MACHINE_ID;
-  const sessionMode = normalizeSessionMode(info.sessionMode || info.session_mode);
+  const machine = info.machineId || MACHINE_ID;
+  const sessionMode = normalizeSessionMode(info.sessionMode);
   return `${runtime} @ ${machine} (${sessionMode})`;
 }
 
@@ -39,7 +54,7 @@ export function wakeModeSummary(info = {}) {
   const explicit = String(info.wakeMode || "").trim();
   if (explicit) return explicit;
   const runtime = normalizeRuntime(info.runtime || "generic");
-  const sessionMode = normalizeSessionMode(info.sessionMode || info.session_mode);
+  const sessionMode = normalizeSessionMode(info.sessionMode);
   const capabilities = Array.isArray(info.capabilities) ? info.capabilities : [];
   if (sessionMode === "managed" && capabilities.includes("managed-run")) return "managed-worker";
   if (sessionMode === "resident" && runtime === "claude-code" && capabilities.includes("resident-run")) return "claude-live";

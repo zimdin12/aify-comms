@@ -132,9 +132,20 @@ test("anything else falls back to message-only, and never throws", () => {
 test("runtimeSummary names the runtime, the machine and the mode, and never leaks a placeholder", () => {
   assert.match(runtimeSummary({ runtime: "codex", machineId: "box-1", sessionMode: "managed" }),
     /codex @ box-1 \(managed\)/);
-  // snake_case arrives from the service alongside camelCase; both must be read.
-  assert.match(runtimeSummary({ runtime: "pi", machine_id: "box-2", session_mode: "managed" }),
-    /pi @ box-2 \(managed\)/);
+  // SNAKE_CASE DOES NOT ARRIVE, and this test used to assert that it did -- "snake_case arrives from
+  // the service alongside camelCase; both must be read". Measured 2026-08-29 three ways: the live
+  // `/agents` and `/agents/{id}` carry ZERO snake_case keys on an agent record; the service's own
+  // assembly (`_agent_record_to_dict` plus the two `_enforce_*` gates) emits 32 fields and none of
+  // them is snake_case; and the LOCAL registry, the other producer feeding these functions, writes
+  // `machineId` and `sessionMode`.
+  //
+  // The alternates are gone, and this now pins their ABSENCE, because reinstating them is worse than
+  // it looks: `normalizeSessionMode` fails toward `resident`, so `|| info.session_mode` would read
+  // like coverage for a `sessionMode` rename while classifying every managed agent as resident.
+  const snakeOnly = runtimeSummary({ runtime: "pi", machine_id: "box-2", session_mode: "managed" });
+  assert.doesNotMatch(snakeOnly, /box-2/, "a snake_case machine id is being read again");
+  assert.match(snakeOnly, /\(resident\)/,
+    "a snake_case session mode is being read again; it must fall to the normalized default");
   // With no machine given it falls back to THIS machine, which is the honest answer for a local agent.
   const local = runtimeSummary({ runtime: "codex" });
   assert.ok(!/undefined|null/.test(local), `leaked a placeholder: ${local}`);
