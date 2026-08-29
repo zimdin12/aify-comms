@@ -203,6 +203,25 @@ const EXTRACTIONS = [
         name: "state",
         at: 43,
         marker: "// state moved to ./state.mjs in v0.5.4 — see that module for why the earlier measurement said it would not help.",
+        // The Sessions list has always been a PAGE and nothing said so. Measured on the live database
+        // 2026-08-28: 303 sessions past the default filter, the dashboard asks for 80, and the empty
+        // state offered a Spawn button while 303 existed. `/sessions` now reports `truncated` the way
+        // `/contracts` and `/terminals` already did, and this flag is where the render reads it.
+        editedSince: [
+          {
+            was: [
+              "  showSupersededSessions: false,",
+            ],
+            now: [
+              "  showSupersededSessions: false,",
+              "  // The Sessions list is a PAGE, and until 2026-08-29 nothing said so. Measured on the live",
+              "  // database: 303 sessions survive the default filter, the page asks for 80, and the empty",
+              "  // state read \"No sessions yet -- spawn a managed session\" while 303 existed. `/sessions`",
+              "  // now reports `truncated`, the way `/contracts` and `/terminals` already did.",
+              "  sessionsTruncated: false,",
+            ],
+          },
+        ],
       },
     ],
   },
@@ -425,12 +444,47 @@ const EXTRACTIONS = [
         // `overflow-wrap: anywhere`, which broke paths mid-word on the live dashboard
         // (`echoes_of_the_fa | llen`) and, because `anywhere` also feeds min-content sizing, let the
         // card shrink and wrap text that fits: 3 of 12 paths dropped from two lines to one.
+        //
+        // AND THE LIST NOW SAYS IT IS A PAGE. Measured on the live database 2026-08-28: 303 sessions
+        // past the default filter, the dashboard asks for 80, and the empty state offered a Spawn
+        // button while 303 existed -- which sent an operator to start a second session for an agent
+        // that already had one, off the page.
+        //
+        // ONE ARRAY, not a second `editedSince` key beside the first. An object literal takes the
+        // LAST key of a repeated name, so a second one is silently discarded and the gate then fails
+        // with the declared edit apparently ignored -- which is what happened writing this entry.
         editedSince: [{
           was: [
             "              <p class=\"preview\">${esc(session.workspace || session.cwd || '')}</p>",
           ],
           now: [
             "              <p class=\"preview session-path\">${esc(session.workspace || session.cwd || '')}</p>",
+          ],
+        },
+        {
+          was: [
+            "  byId('session-rail').innerHTML = groups.length ? groups.map((group) => `",
+          ],
+          now: [
+            "  // SAID ON SCREEN. The list is a page of the newest rows, live ones first, and an operator whose",
+            "  // session is not on it gets an empty result that reads as \"it does not exist\". Measured on the live",
+            "  // database 2026-08-28: 303 rows past the default filter, 80 requested.",
+            "  const capped = state.sessionsTruncated",
+            "    ? '<div class=\"mb mb-warn\">Showing the most recent sessions — more exist than are listed. Narrow with Find, or filter by status.</div>'",
+            "    : '';",
+            "  byId('session-rail').innerHTML = capped + (groups.length ? groups.map((group) => `",
+          ],
+        },
+        {
+          was: [
+            "    </details>`).join('') : '<div class=\"empty-state\"><span class=\"empty-icon\">🖥️</span><strong>No sessions yet</strong><p>Spawn a managed session from Environments to get an agent running.</p><button class=\"primary\" data-page-jump=\"environments\">Spawn a session</button></div>';",
+          ],
+          now: [
+            "    </details>`).join('') : (state.sessionsTruncated",
+            "    // NOT \"no sessions yet\" when the server said there are more. That sentence sent an operator to",
+            "    // spawn a second session for an agent that already had one running.",
+            "    ? '<div class=\"empty-state\"><span class=\"empty-icon\">🔎</span><strong>None on this page</strong><p>More sessions exist than this page lists, and none of them match the current filter.</p></div>'",
+            "    : '<div class=\"empty-state\"><span class=\"empty-icon\">🖥️</span><strong>No sessions yet</strong><p>Spawn a managed session from Environments to get an agent running.</p><button class=\"primary\" data-page-jump=\"environments\">Spawn a session</button></div>'));",
           ],
         }],
       },
@@ -1774,6 +1828,18 @@ const EXTRACTIONS = [
             "  refreshOpenInspector,",
             "  renderAll,",
             "}) {",
+          ],
+        },
+        // 2026-08-29: the sessions list is a PAGE and the response now says so. Measured on the
+        // live database: 303 rows past the default filter, the dashboard asks for 80, and the
+        // empty state offered a Spawn button while 303 existed.
+        {
+          was: "    state.sessions = asArray(val(5), 'sessions');",
+          now: [
+            "    state.sessions = asArray(val(5), 'sessions');",
+            "    // KEPT, not dropped. Under a capped page, \"no sessions match\" and \"none exist\" are different",
+            "    // facts that look identical -- the same reason the contracts list keeps its flag.",
+            "    state.sessionsTruncated = Boolean(val(5)?.truncated);",
           ],
         }],
       },

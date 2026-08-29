@@ -28,7 +28,8 @@ import {
 } from "./session-rail.mjs";
 
 function seed({ sessions = [], agents = [], environments = [], filter = "", statusFilter = null,
-                selected = [], showSuperseded = true } = {}) {
+                selected = [], showSuperseded = true, truncated = false } = {}) {
+  state.sessionsTruncated = truncated;
   state.sessions = sessions;
   state.agents = agents;
   state.environments = environments;
@@ -445,4 +446,75 @@ test("a session's WORKSPACE PATH is marked as a path, not styled as prose", () =
   } finally {
     if (hadDoc) globalThis.document = prevDoc; else delete globalThis.document;
   }
+});
+
+// ---- the list is a PAGE, and it has to say so -----------------------------------------------------
+
+/** Render the rail into a captured string. The rail is the only element whose innerHTML is read. */
+function renderRailHtml(seedArgs) {
+  const hadDoc = Object.prototype.hasOwnProperty.call(globalThis, "document");
+  const prevDoc = globalThis.document;
+  let railHtml = "";
+  const el = (capture = false) => ({
+    hidden: false, textContent: "", value: "", dataset: {},
+    set innerHTML(v) { if (capture) railHtml = v; },
+    get innerHTML() { return capture ? railHtml : ""; },
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    setAttribute() {}, removeAttribute() {}, appendChild() {}, addEventListener() {},
+    querySelector: () => null, querySelectorAll: () => [], closest: () => null,
+  });
+  globalThis.document = {
+    getElementById: (id) => el(id === "session-rail"),
+    querySelector: () => el(), querySelectorAll: () => [], createElement: () => el(),
+  };
+  try {
+    seed(seedArgs);
+    renderSessionRail();
+    return railHtml;
+  } finally {
+    if (hadDoc) globalThis.document = prevDoc; else delete globalThis.document;
+  }
+}
+
+test("a truncated list SAYS it is a page", () => {
+  // MEASURED ON THE LIVE DATABASE, 2026-08-28: 510 session rows, 303 past the default filter, and the
+  // page asks for 80. 223 sessions were absent with nothing on screen saying so, and an operator
+  // searching for one of them got an empty result that reads as "it does not exist".
+  const html = renderRailHtml({
+    sessions: [session("alpha-1", "coder", "env")],
+    agents: [{ id: "coder", status: "online" }],
+    statusFilter: new Set(),
+    truncated: true,
+  });
+  assert.match(html, /more exist than are listed/i);
+  assert.match(html, /alpha-1|coder/, "the note must not replace the list it annotates");
+});
+
+test("a complete list says nothing", () => {
+  // The other half, and the reason the note is worth having: an alarm that fires on every render is
+  // one an operator learns to skim past.
+  const html = renderRailHtml({
+    sessions: [session("alpha-1", "coder", "env")],
+    agents: [{ id: "coder", status: "online" }],
+    statusFilter: new Set(),
+    truncated: false,
+  });
+  assert.doesNotMatch(html, /more exist than are listed/i);
+});
+
+test("EMPTY AND TRUNCATED IS NOT \"no sessions yet\"", () => {
+  // The actively misleading case. That empty state offers a Spawn button, so it sent an operator to
+  // start a second session for an agent that already had one running, off the page.
+  const html = renderRailHtml({ sessions: [], statusFilter: new Set(), truncated: true });
+  assert.doesNotMatch(html, /No sessions yet/);
+  assert.match(html, /More sessions exist/i);
+  assert.doesNotMatch(html, /data-page-jump="environments"/,
+    "the Spawn button is the wrong action when sessions exist and are merely not on this page");
+});
+
+test("empty and COMPLETE still offers the spawn path", () => {
+  // A genuinely empty deployment is the case that empty state was written for, and it must survive.
+  const html = renderRailHtml({ sessions: [], statusFilter: new Set(), truncated: false });
+  assert.match(html, /No sessions yet/);
+  assert.match(html, /data-page-jump="environments"/);
 });

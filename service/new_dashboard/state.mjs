@@ -63,6 +63,11 @@ export const state = {
   // as one entry. Off by default; the collapsed-count note toggles it. Without this the older
   // rows would be UNREACHABLE — and Delete session is only offered on a row you can see.
   showSupersededSessions: false,
+  // The Sessions list is a PAGE, and until 2026-08-29 nothing said so. Measured on the live
+  // database: 303 sessions survive the default filter, the page asks for 80, and the empty
+  // state read "No sessions yet -- spawn a managed session" while 303 existed. `/sessions`
+  // now reports `truncated`, the way `/contracts` and `/terminals` already did.
+  sessionsTruncated: false,
   settingsTab: '', // active settings tab (empty → first group)
   // Global analytics page (WS-C). Lazily loaded when the page is first opened, then on refresh
   // while it stays active, and on range change. data === null until first load completes.

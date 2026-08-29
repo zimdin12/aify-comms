@@ -100,6 +100,9 @@ export async function runRefreshCycle({
   if (ok(4)) state.runs = val(4).runs || [];
   if (ok(5)) {
     state.sessions = asArray(val(5), 'sessions');
+    // KEPT, not dropped. Under a capped page, "no sessions match" and "none exist" are different
+    // facts that look identical -- the same reason the contracts list keeps its flag.
+    state.sessionsTruncated = Boolean(val(5)?.truncated);
     state.sessions.forEach((session) => {
       const terminalId = session.terminalId || session.terminal?.id;
       const agentId = session.agentId || session.agent_id;

@@ -230,11 +230,20 @@ async def list_sessions(
             + ",".join("?" for _ in live)
             + ") THEN 0 ELSE 1 END"
         )
+        # ONE MORE ROW THAN ASKED FOR, so the response can say whether this is the whole answer.
+        # The ordering above guarantees a bounded page loses only history -- but the page still LOOKS
+        # like everything, and the dashboard renders exactly what it gets with no note. Measured on
+        # the live database 2026-08-28: 303 rows survive the default filter and the dashboard asks for
+        # 80, so 223 sessions were absent with nothing saying so. An operator searching for one of
+        # them sees an empty result and concludes the session does not exist. `/contracts` and
+        # `/terminals` both already report `truncated` for this reason; this endpoint never did.
         cursor = await db.execute(
             f"SELECT * FROM agent_sessions {where_sql} ORDER BY {live_first}, last_seen DESC LIMIT ?",
-            (*params, *live, limit),
+            (*params, *live, limit + 1),
         )
         rows = await cursor.fetchall()
+        truncated = len(rows) > limit
+        rows = rows[:limit]
         # Phase 3 (2026-06-03): DERIVE the served session status from live truth
         # (terminal_sessions / bridge_instances) so GET /sessions matches GET
         # /agents — the stored agent_sessions.status is a cache, never the display
@@ -249,7 +258,9 @@ async def list_sessions(
                     await db.execute("SELECT * FROM agents WHERE id = ?", (aid,))
                 ).fetchone()
             sessions.append(await _agent_session_dict_live(db, row, agent_row=agent_cache.get(aid)))
-        return {"ok": True, "sessions": sessions}
+        # `limit` beside `truncated`: "there are more" without "more than what" leaves a reader
+        # unable to ask for the next page or to judge how much is missing.
+        return {"ok": True, "sessions": sessions, "truncated": truncated, "limit": limit}
     finally:
         await db.close()
 

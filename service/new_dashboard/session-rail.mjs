@@ -113,7 +113,13 @@ export function renderSessionRail() {
   const groups = groupedSessionsByEnvironment();
   renderSessionBulkToolbar();
   renderSessionStatusFilter();
-  byId('session-rail').innerHTML = groups.length ? groups.map((group) => `
+  // SAID ON SCREEN. The list is a page of the newest rows, live ones first, and an operator whose
+  // session is not on it gets an empty result that reads as "it does not exist". Measured on the live
+  // database 2026-08-28: 303 rows past the default filter, 80 requested.
+  const capped = state.sessionsTruncated
+    ? '<div class="mb mb-warn">Showing the most recent sessions — more exist than are listed. Narrow with Find, or filter by status.</div>'
+    : '';
+  byId('session-rail').innerHTML = capped + (groups.length ? groups.map((group) => `
     <details class="session-env-group" data-env-group="${esc(group.id)}"${sessionGroupCollapsed(group.id) ? '' : ' open'}>
       <summary class="session-env-title">${esc(group.label)} <span>${group.sessions.length}</span></summary>
       ${group.sessions.map((session) => {
@@ -135,7 +141,11 @@ export function renderSessionRail() {
             </div>
           </article>`;
       }).join('')}
-    </details>`).join('') : '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No sessions yet</strong><p>Spawn a managed session from Environments to get an agent running.</p><button class="primary" data-page-jump="environments">Spawn a session</button></div>';
+    </details>`).join('') : (state.sessionsTruncated
+    // NOT "no sessions yet" when the server said there are more. That sentence sent an operator to
+    // spawn a second session for an agent that already had one running.
+    ? '<div class="empty-state"><span class="empty-icon">🔎</span><strong>None on this page</strong><p>More sessions exist than this page lists, and none of them match the current filter.</p></div>'
+    : '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No sessions yet</strong><p>Spawn a managed session from Environments to get an agent running.</p><button class="primary" data-page-jump="environments">Spawn a session</button></div>'));
 }
 export function sessionGroupCollapsed(envId) {
   try { return (JSON.parse(localStorage.getItem('aifyCollapsedSessionGroups') || '[]') || []).includes(envId); } catch { return false; }
