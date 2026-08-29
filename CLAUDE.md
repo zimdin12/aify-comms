@@ -265,22 +265,28 @@ true.
 
 ### The 1000-line gate fails your change — read this before "fixing" it
 
-**Measured 2026-08-27, closest to the limit first**, counted two ways (`wc -l` and `grep -c ""`,
+**Measured 2026-08-29, closest to the limit first**, counted two ways (`wc -l` and `grep -c ""`,
 agreeing on every row):
 
 | lines | file | headroom |
 |---|---|---|
 | 993 | `mcp/stdio/pi-session.js` | 7 |
+| 991 | `mcp/stdio/doctor-predicates.js` | 9 |
 | 987 | `service/new_dashboard/app.js` | 13 |
-| 961 | `mcp/stdio/server.js` | 39 |
-| 919 | `mcp/stdio/terminal-runtime.js` | 81 |
-| 913 | `mcp/stdio/doctor-predicates.js` | 87 |
+| 984 | `mcp/stdio/server.js` | 16 |
+| 969 | `mcp/stdio/terminal-runtime.js` | 31 |
 | 893 | `service/control_plane.py` | 107 |
 
-`doctor-predicates.js` was 868 and sixth here on 2026-08-26; it is 913 and fifth, having taken 45 lines
-on 2026-08-27 to become the single home of the launcher-delegation parse that `doctor.js` and
-`scripts/installed-delegation.sh` each also carried. That is the ordinary way this table goes stale --
-not neglect, but somebody making a correct change and not re-reading the row it moved.
+FIVE files are now within 31 lines of the gate, and three of them moved in a SINGLE day: on
+2026-08-28 `doctor-predicates.js` took 78 lines, `terminal-runtime.js` 50 and `server.js` 23, all from
+one run of doctor and delegation fixes. None of those changes was wrong and none of them re-read the
+row it moved -- which is the ordinary way this table goes stale, and why the table dated two days
+earlier was already wrong when the next person came to quote it. That person was the one who wrote it.
+
+`doctor-predicates.js` is the one to watch: it was 868 and SIXTH on 2026-08-26, and it is 991 and
+second three days later. The next doctor check goes red on arrival, and the fix is to give the check
+its own module the way `service-check.mjs` and `api-exposure-check.mjs` already are -- which is the
+direction the doctor is moving anyway, rather than a chore the gate invented.
 
 Nothing is broken — the gate is a red test, not a silent failure — but the next small edit to
 pi-session.js goes red for a reason unrelated to that edit, and its author should hear it from this
