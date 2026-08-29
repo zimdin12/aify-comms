@@ -28,6 +28,12 @@ BRIDGE = ROOT / "mcp" / "stdio"
 TOOL_NAME = re.compile(r"""server\.tool\(\s*["']([a-z0-9_]+)["']""")
 SKILL_MENTION = re.compile(r"\b(comms_[a-z0-9_]+)\b")
 
+#: A skill writes a call as `comms_send(to="x", type="info")`. Only the keyword names matter here.
+SKILL_CALL = re.compile(r"\b(comms_[a-z0-9_]+)\(([^)]*)\)")
+KWARG = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*=")
+#: A top-level key of the zod schema object, e.g. `  to: z.string()`.
+SCHEMA_KEY = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:")
+
 
 def registered_tools() -> set[str]:
     """What the bridge actually hands to an MCP client."""
@@ -35,6 +41,57 @@ def registered_tools() -> set[str]:
     for path in list(BRIDGE.glob("*.mjs")) + list(BRIDGE.glob("*.js")):
         names |= set(TOOL_NAME.findall(path.read_text(encoding="utf-8", errors="replace")))
     return names
+
+
+def tool_parameters() -> dict[str, set[str]]:
+    """tool name -> the parameter names its zod schema declares.
+
+    The schema is `server.tool`\'s THIRD argument, so this brace-matches from the first `{` after the
+    registration rather than trying to parse JavaScript. Nested objects are excluded by depth: a
+    `z.object({ ... })` inside a parameter must not contribute its own keys as if they were the
+    tool\'s.
+    """
+    found: dict[str, set[str]] = {}
+    for path in sorted(list(BRIDGE.glob("*.mjs")) + list(BRIDGE.glob("*.js"))):
+        if ".test." in path.name:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for match in TOOL_NAME.finditer(text):
+            window = text[match.end():match.end() + 2000]
+            if "{" not in window:
+                continue
+            start = text.index("{", match.end())
+            depth = 0
+            end = start
+            while end < len(text):
+                if text[end] == "{":
+                    depth += 1
+                elif text[end] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                end += 1
+            keys: set[str] = set()
+            level = 0
+            for line in text[start + 1:end].splitlines():
+                key = SCHEMA_KEY.match(line.strip())
+                if level == 0 and key:
+                    keys.add(key.group(1))
+                level += line.count("{") + line.count("(") - line.count("}") - line.count(")")
+            found[match.group(1)] = keys
+    return found
+
+
+def skill_parameters() -> dict[str, dict[str, set[str]]]:
+    """tool name -> parameter -> the skill files that write it."""
+    found: dict[str, dict[str, set[str]]] = {}
+    for path in skill_files():
+        for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            for call in SKILL_CALL.finditer(line):
+                for kwarg in KWARG.findall(call.group(2)):
+                    where = f"{path.relative_to(ROOT)}:{number}"
+                    found.setdefault(call.group(1), {}).setdefault(kwarg, set()).add(where)
+    return found
 
 
 def skill_files() -> list[Path]:
@@ -65,6 +122,48 @@ class SkillsAndToolsAgreeOnNames(unittest.TestCase):
         """The other control. A matcher that matched everything would also pass the two tests below."""
         self.assertNotIn("comms_zzz_not_a_tool", registered_tools())
         self.assertNotIn("comms_zzz_not_a_tool", mentioned_tools())
+
+    def test_the_parameter_scans_find_both_sides(self):
+        """The control for the parameter half. A schema reader that parsed nothing, or a call reader
+        that matched nothing, would make the comparison below pass having read one side or neither."""
+        schemas = tool_parameters()
+        self.assertGreater(len(schemas), 20, "no tool schema was parsed")
+        self.assertIn("to", schemas.get("comms_send", set()), "comms_send\'s own parameters are missing")
+        self.assertEqual(schemas.get("comms_agents"), set(),
+                         "comms_agents takes no parameters; a reader claiming otherwise is over-matching")
+        written = skill_parameters()
+        self.assertGreaterEqual(len(written), 5, "no parameterised call was found in any skill")
+        self.assertIn("to", written.get("comms_send", {}), "a call every skill writes was not read")
+
+    def test_the_parameter_scan_can_say_no(self):
+        """The other control: an invented parameter must be absent from both sides."""
+        self.assertNotIn("aifyNotAParam", tool_parameters().get("comms_send", set()))
+        self.assertNotIn("aifyNotAParam", skill_parameters().get("comms_send", {}))
+
+    def test_no_skill_teaches_a_parameter_the_tool_does_not_take(self):
+        """The gate itself.
+
+        A tool whose schema could not be parsed is SKIPPED rather than treated as taking nothing --
+        an unparsed schema is no evidence, and reporting every one of its parameters as wrong would
+        bury a real finding in noise. `test_the_parameter_scans_find_both_sides` is what stops that
+        skip from swallowing the whole gate.
+        """
+        schemas = tool_parameters()
+        wrong: dict[str, set[str]] = {}
+        for tool, params in skill_parameters().items():
+            declared = schemas.get(tool)
+            if declared is None:
+                continue
+            for param, where in params.items():
+                if param not in declared:
+                    wrong.setdefault(f"{tool}({param}=...)", set()).update(where)
+        self.assertEqual(
+            wrong, {},
+            "these parameters are taught to every agent on every turn and the tool does not take "
+            "them: " + "; ".join(
+                f"{call} (in {', '.join(sorted(files))})" for call, files in sorted(wrong.items())
+            ),
+        )
 
     def test_no_skill_teaches_a_tool_that_does_not_exist(self):
         registered = registered_tools()
