@@ -105,3 +105,73 @@ def registration_owner_bridge_id(
         return requested, f"{mode or 'unknown'} agent: its own bridge is its owner"
     # No id offered and none to keep. Preserving beats inventing.
     return existing, "no bridge id offered; kept whatever was recorded"
+
+
+def patched_owner_bridge_id(
+    *,
+    session_mode: str,
+    current_bridge_instance_id: str,
+    incoming_bridge_instance_id: str,
+    live_environment_bridge_ids=(),
+) -> tuple[str, str]:
+    """The same question one endpoint later: who may CHANGE a managed agent's owner.
+
+    `registration_owner_bridge_id` above answers it for the registration POST, where the answer is
+    always "not the registering sidecar". `PATCH /agents/{id}/runtime-state` is the other door, and it
+    is the one the environment bridge itself comes through -- `managed-environment-sync.mjs` re-adopts
+    an agent by PATCHing its own `BRIDGE_INSTANCE_ID`. So "refuse every change" is wrong here, and it
+    is exactly what the service did.
+
+    THE GUARD WAS NARROW AND GOT WIDENED BY A COMMIT ABOUT SOMETHING ELSE. Before `e3c3ce8c`
+    ("fix(sessions): make ownership switching manual", 2026-05-26) the rule fired only when the
+    incoming id was a PENDING RESIDENT TAKEOVER candidate::
+
+        if managed and isinstance(pending, dict) and next.bridgeInstanceId == pending.bridgeId:
+            next.bridgeInstanceId = current.bridgeInstanceId
+
+    That commit removed `pendingResidentTakeover` and replaced the condition with an unconditional
+    one -- keeping the action while deleting the reason for it. A managed agent's owner became frozen
+    at its first non-empty value for life.
+
+    MEASURED ON THE OPERATOR'S HOST, 2026-08-29: 19 of 24 managed agents carried a `bridgeInstanceId`
+    that was not the one online environment bridge (`e720826b-...`), six of them sharing one dead
+    generation. The only two that read correctly were the two the CURRENT bridge had spawned -- the
+    spawn path writes `runtime_state` directly and never meets this guard.
+
+    WHAT READS IT, at the strength each one actually has. `claim_block_reason` returns
+    `bridge_not_current` on a mismatch for any agent that is not managed-with-an-`environmentId`, so
+    such an agent has no valid claimer and its run sits queued. `aify-comms doctor`'s
+    `managed-orphans` calls a working agent an orphan and prescribes a bridge relaunch, which reaps
+    the fleet. `reap-managed-survivors.js` skips survivors owned by a different LIVE bridge, a
+    protection a stale owner removes -- latent here, since it needs two live environments. All three
+    are read from source; demonstrating any of them needs a bridge restart.
+
+    :param live_environment_bridge_ids: the `bridge_id` of every environment whose DERIVED status is
+        online. Derived, not stored -- `environment_effective_status` ages a silent bridge out, and a
+        stored column would let a dead bridge keep its authority.
+    :returns: ``(bridge_instance_id, reason)``.
+    """
+    mode = str(session_mode or "").strip().lower()
+    current = str(current_bridge_instance_id or "").strip()
+    incoming = str(incoming_bridge_instance_id or "").strip()
+
+    if mode != "managed":
+        # A resident agent IS its own bridge, so its own PATCH is authoritative. Unchanged.
+        return incoming, "resident agent: its own bridge is its owner"
+    if not current:
+        return incoming, "managed agent with no recorded owner: the first environment bridge claims it"
+    if not incoming or incoming == current:
+        # An omitted field is not a request to clear an environment-owned answer. Every PATCH caller
+        # merges over its local cache, so a missing id means the caller did not know it -- not that
+        # nobody owns this agent. A live environment bridge can still replace it below.
+        return current, "no change requested; kept the recorded environment bridge"
+
+    live = {str(value or "").strip() for value in (live_environment_bridge_ids or ())}
+    live.discard("")
+    if incoming in live:
+        return incoming, "a live environment bridge claimed this agent, which is the answer it owns"
+    # The sidecar case the guard was built for, and still the default: an id belonging to no live
+    # environment bridge has no standing to reassign one. Fails closed, including when the caller
+    # could not determine which bridges are live -- an empty set refuses every change rather than
+    # allowing them all.
+    return current, "the claiming id is not a live environment bridge; kept the recorded one"

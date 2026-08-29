@@ -28,7 +28,10 @@ from service.api_core.agent_sessions import _touch_current_agent_session
 from service.api_core.capabilities import _default_capabilities_for
 from service.api_core.records import _terminal_session_to_dict
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.ownership_authority import patched_owner_bridge_id
 from service.api_core.serialization import _json_loads_or
+from service.api_core.settings import _load_settings
+from service.env_status import live_environment_bridge_ids
 from service.db import get_db
 from service.clock import now as _now
 import sqlite3
@@ -132,13 +135,35 @@ async def update_agent_runtime_state(agent_id: str, req: AgentRuntimeStateUpdate
             elif next_state.get(key) is None and key in next_state:
                 # Caller explicitly passed null → honor the clear.
                 next_state.pop(key, None)
-        if _normalize_session_mode(current["session_mode"] or "resident") == "managed":
+        session_mode = _normalize_session_mode(current["session_mode"] or "resident")
+        if session_mode == "managed":
             current_bridge = str(current_state.get("bridgeInstanceId") or "").strip()
             next_bridge = str(next_state.get("bridgeInstanceId") or "").strip()
+            # The live set is only consulted when the answer can turn on it -- a genuine attempt to
+            # REPLACE a recorded owner. Every other managed PATCH keeps what is stored and costs no
+            # query. `patched_owner_bridge_id` stays the single decision either way.
+            live_bridge_ids = ()
             if current_bridge and next_bridge and current_bridge != next_bridge:
-                next_state["bridgeInstanceId"] = current_bridge
-                if current_state.get("environmentId"):
-                    next_state["environmentId"] = current_state.get("environmentId")
+                settings = await _load_settings(db)
+                environment_rows = await (await db.execute(
+                    "SELECT * FROM environments WHERE COALESCE(bridge_id, '') != ''"
+                )).fetchall()
+                live_bridge_ids = live_environment_bridge_ids(
+                    environment_rows,
+                    offline_seconds=settings.get("environment_offline_seconds", 90),
+                )
+            owner, _owner_reason = patched_owner_bridge_id(
+                session_mode=session_mode,
+                current_bridge_instance_id=current_bridge,
+                incoming_bridge_instance_id=next_bridge,
+                live_environment_bridge_ids=live_bridge_ids,
+            )
+            if owner:
+                next_state["bridgeInstanceId"] = owner
+            if owner == current_bridge and owner != next_bridge and current_state.get("environmentId"):
+                # The claim was REFUSED, so the environment it named is refused with it. An ACCEPTED
+                # claim brings its own environmentId (managed-environment-sync writes both together).
+                next_state["environmentId"] = current_state.get("environmentId")
         # Automatic resident takeover is disabled. A resident bridge heartbeat
         # must not stash or preserve pending takeover state; operators flip
         # ownership explicitly with PATCH /agents/{id}/session-mode.

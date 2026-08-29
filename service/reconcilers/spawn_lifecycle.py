@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 
 from service.clock import now as _now
 from service.clock import iso_to_epoch as _iso_to_epoch
-from service.env_status import environment_effective_status as _environment_effective_status
+from service.env_status import live_environment_bridge_ids
 
 logger = logging.getLogger(__name__)
 
@@ -148,14 +148,10 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wal
     environment_rows = await (await db.execute(
         "SELECT * FROM environments WHERE COALESCE(bridge_id, '') != ''"
     )).fetchall()
-    live_bridge_ids = {
-        str(row["bridge_id"]).strip()
-        for row in (environment_rows or [])
-        if _environment_effective_status(
-            row,
-            offline_seconds=offline_seconds,
-        ) == "online"
-    }
+    # ONE OWNER FOR "WHICH BRIDGES ARE LIVE". This set was derived here and, from 2026-08-29, also by
+    # `PATCH /agents/{id}/runtime-state` deciding who may re-own a managed agent. Two copies of the
+    # same predicate agree until one is fixed.
+    live_bridge_ids = live_environment_bridge_ids(environment_rows, offline_seconds=offline_seconds)
 
     # The same wall ceiling the managed-run reaper uses for the same shape of question -- "this has
     # been in flight implausibly long" -- rather than a second number meaning the same thing.

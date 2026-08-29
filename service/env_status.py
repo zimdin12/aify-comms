@@ -59,3 +59,26 @@ def environment_effective_status(row, *, offline_seconds: int = 90) -> str:
         except Exception:
             pass
     return status
+
+
+def live_environment_bridge_ids(rows, *, offline_seconds: int = 90) -> set[str]:
+    """The `bridge_id` of every environment that is ONLINE right now.
+
+    PURE, and it takes rows rather than a connection on purpose: the query is trivial and differs by
+    caller, while the part that can be WRONG -- which derived status counts as live -- is one answer
+    that two callers must not hold separately.
+
+    Both readers use it to decide who has authority. `spawn_lifecycle` fails a `running` spawn whose
+    claiming bridge is not in this set; `PATCH /agents/{id}/runtime-state` lets an id in this set take
+    ownership of a managed agent and refuses one that is not. `degraded` is deliberately NOT live here:
+    it means the bridge is answering but unhealthy, which is enough to keep its own work and not enough
+    to be handed somebody else's.
+    """
+    live = set()
+    for row in rows or []:
+        bridge_id = str(row["bridge_id"] or "").strip()
+        if not bridge_id:
+            continue
+        if environment_effective_status(row, offline_seconds=offline_seconds) == "online":
+            live.add(bridge_id)
+    return live
