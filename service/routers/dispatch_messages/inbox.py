@@ -137,10 +137,15 @@ async def recent_messages(
             ORDER BY m.timestamp DESC
             LIMIT ?
             """,
-            (limit,),
+            (limit + 1,),
         )
+        # ONE ROW WIDER THAN THE PAGE, so the response can say whether this is the whole answer -- the
+        # same shape as /sessions, /dispatch/runs, /contracts and /terminals.
+        rows = await cursor.fetchall()
+        truncated = len(rows) > limit
+        rows = rows[:limit]
         messages = []
-        for row in await cursor.fetchall():
+        for row in rows:
             messages.append({
                 "id": row["id"],
                 "from": row["from_agent"],
@@ -165,7 +170,20 @@ async def recent_messages(
                 "read": ("read_at" in row.keys()) and (row["read_at"] is not None),
                 "readAt": row["read_at"] if "read_at" in row.keys() else None,
             })
-        return {"ok": True, "messages": messages, "total": len(messages)}
+        # `total` IS GONE AND THAT IS THE POINT. It was `len(messages)` -- the length of the PAGE,
+        # under a name that promises a count of the whole. Measured on the operator's database
+        # 2026-08-29: this query's WHERE matches 33,612 rows and the field reported 80. A consumer
+        # asking "is there more" got "no", always.
+        #
+        # NOT REPLACED WITH A REAL COUNT. `SELECT COUNT(*)` over the same WHERE measured 19.6 ms
+        # median (7 runs, min 19.2, max 20.8) inside the container, and the dashboard polls this every
+        # 15s per open tab. That is a real cost for a number no reader wants: searching aify-comms,
+        # aify-wrapper and aify-env found no consumer of this field -- `compact-tool.mjs` reads
+        # `.messages` alone, and the dashboard reads neither. I cannot see consumers outside those
+        # three repos, so this is a removal made on the evidence available, not on proof of absence.
+        #
+        # `truncated` answers the question the name was reaching for, exactly, and costs nothing.
+        return {"ok": True, "messages": messages, "truncated": truncated, "limit": limit}
     finally:
         await db.close()
 

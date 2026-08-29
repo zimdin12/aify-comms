@@ -124,9 +124,15 @@ async def list_spawn_requests(
             ORDER BY sr.created_at DESC
             LIMIT ?
             """,
-            (*params, limit),
+            (*params, limit + 1),
         )
+        # ONE ROW WIDER THAN THE PAGE, so the response can say whether this is the whole answer. The
+        # dashboard asks for 200 and renders exactly what it gets; without this the Environments page
+        # cannot tell a complete spawn history from a window onto it. Costs nothing -- the spec batch
+        # below already reads only the rows kept.
         rows = await cursor.fetchall()
+        truncated = len(rows) > limit
+        rows = rows[:limit]
         # ONE query for every spec, not one per row. This loop used to run a separate
         # `SELECT * FROM spawn_specs WHERE id = ?` for each row -- at the dashboard's limit=200 that
         # is 200 extra round trips on EVERY poll, and the dashboard polls about every 15 seconds.
@@ -156,7 +162,7 @@ async def list_spawn_requests(
         result = []
         for row in rows:
             result.append(_spawn_request_to_dict(row, specs.get(row["spawn_spec_id"])))
-        return {"ok": True, "spawnRequests": result}
+        return {"ok": True, "spawnRequests": result, "truncated": truncated, "limit": limit}
     finally:
         await db.close()
 
