@@ -345,6 +345,11 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "undeliverable_queued_runs_failed": len(reaped_queued),
             "stranded_reply_runs_failed": len(failed_stranded_replies),
             "claim_receipts_released": released_receipts,
+            # The sender notices this pass mailed for runs a REAPER failed. Dropped from this dict
+            # until 2026-08-29 while every other step reported: 49 notices had gone out on the
+            # operator's host, 17 of them in one day, and not one produced a log line. A healer
+            # nobody can see stopping is the failure this dict's own comment names.
+            "failed_handoff_notices_mirrored": mirrored_failed_handoffs,
             "ended_run_controls_closed": len(closed_ended_controls),
             "managed_ghost_rows_reaped": managed_hygiene.get("managed_ghost_rows_reaped", 0),
             "orphan_workers_reaped": managed_hygiene.get("orphan_workers_reaped", 0),
