@@ -107,10 +107,21 @@ export async function reattachLostStreams(manager) {
     state.streamLost = null;
     reattached.push(id);
     try {
+      // SAY THAT THE TEXT ABOVE MAY REPEAT. aify-env replays its recent buffer to every new
+      // subscriber -- up to 64 KB -- because a first viewer attaching to a running agent must not
+      // see an empty pane. Correct there, and unavoidable here: this re-subscribes to a process
+      // this bridge has already been reading, and `_handleOutput` appends whatever arrives.
+      //
+      // Naming it is the honest half of the fix. The other half -- dropping the overlap -- is NOT
+      // done here on purpose: `state.outputTail` has had OSC noise stripped by `appendTail`, so it
+      // is not byte-identical to what the environment buffered, and an overlap computed against
+      // mismatched text would DELETE output rather than repeat it. Repeating is the recoverable
+      // failure; dropping is not.
       await manager.onOutput(
         id,
         `${String.fromCharCode(10)}[aify-comms] output stream re-attached; this terminal is live `
-        + `again.${String.fromCharCode(10)}`,
+        + `again. The environment replays its recent output to a new subscriber, so some of the text `
+        + `above this line has already been shown.${String.fromCharCode(10)}`,
       );
     } catch {
       // A console that cannot be written to does not get to undo the re-attach.

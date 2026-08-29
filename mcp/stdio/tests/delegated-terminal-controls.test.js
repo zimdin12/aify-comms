@@ -381,6 +381,15 @@ test("a held terminal gets its stream back when the environment returns", async 
     outputs.some((text) => text.includes("re-attached")),
     "the console was not told its terminal came back",
   );
+  // AND THAT THE TEXT ABOVE IT MAY REPEAT. aify-env replays its recent buffer -- up to 64 KB -- to
+  // every new subscriber, deliberately, so a first viewer of a running agent does not see an empty
+  // pane. A re-subscribe gets the same replay, and `_handleOutput` appends whatever arrives with no
+  // dedup on the delegated path, so the operator sees output they have already read. The assertion
+  // above is satisfied by a notice that says nothing about that, and was.
+  assert.ok(
+    outputs.some((text) => /replays its recent output/.test(text)),
+    "the notice does not say the environment replays, so repeated output reads as the agent looping",
+  );
 
   // AND IT DOES NOT KEEP TRYING. A terminal that is live again must leave the lost set, or every
   // tick re-subscribes it for ever and the streams pile up.
