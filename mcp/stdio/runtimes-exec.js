@@ -23,6 +23,24 @@ export function bashShebangFallback(absPath) {
 const RESOLVED_EXECUTABLE_CACHE = new Map();
 const EXECUTABLE_RESOLUTION_LOG = new Map();
 
+/**
+ * Forget every resolution made so far.
+ *
+ * A MODULE-LEVEL CACHE IS AN AMBIENT INPUT, and a test that seals PATH but not this one is sealed
+ * only until something in the same process resolves successfully. That is not hypothetical: the
+ * launchability gate put five wrappers on PATH, deleted them, then asserted a single wrapper made a
+ * single runtime available -- and three runtimes answered from the cache, off paths that no longer
+ * existed.
+ *
+ * Only successful resolutions are stored (see the write below), so a miss is never cached and an
+ * install during a bridge's life is still found. What this undoes is the opposite case: a path
+ * remembered after the file behind it is gone.
+ */
+export function forgetResolvedExecutables() {
+  RESOLVED_EXECUTABLE_CACHE.clear();
+  EXECUTABLE_RESOLUTION_LOG.clear();
+}
+
 function isReallyExecutable(absPath) {
   if (!absPath || !/[\\/]/.test(absPath)) return false;
   try {

@@ -37,9 +37,27 @@ assert.deepEqual(defaultCapabilitiesForRuntime("pi", "resident", "session-123"),
 process.env.PI_SESSION_ID = "pi-session-123";
 assert.equal(defaultSessionHandleForRuntime("pi"), "pi-session-123");
 
-const availability = runtimeLaunchAvailability("pi");
-assert.equal(availability.available, true);
-assert.match(availability.message, /Pi launcher available/);
+// SEALED, because this read the real PATH. It asserted pi was launchable and matched the message for
+// it, which held only because Oh My Pi is installed on the machine that usually runs this suite --
+// the same assertion was always red on a host without it. Availability is now decided by the
+// `pi-aify` WRAPPER (a delegated spawn runs the wrapper; aify-env refuses a file with no harness
+// contract marker, and `omp` carries none), so the fixture is a wrapper on a PATH of one directory.
+const availabilityTmp = tmpDir("aify-pi-availability-");
+const fakeWrapper = path.join(availabilityTmp, process.platform === "win32" ? "pi-aify.cmd" : "pi-aify");
+fs.writeFileSync(fakeWrapper, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+const realPath = process.env.PATH;
+const realPathExt = process.env.PATHEXT;
+process.env.PATH = availabilityTmp;
+if (process.platform === "win32") process.env.PATHEXT = ".CMD";
+try {
+  const availability = runtimeLaunchAvailability("pi");
+  assert.equal(availability.available, true, availability.message);
+  assert.match(availability.message, /Pi aify wrapper available/);
+} finally {
+  process.env.PATH = realPath;
+  if (realPathExt === undefined) delete process.env.PATHEXT;
+  else process.env.PATHEXT = realPathExt;
+}
 
 const runtimeTmp = tmpDir("aify-pi-runtime-");
 const fakeOmp = path.join(runtimeTmp, "fake-omp.mjs");

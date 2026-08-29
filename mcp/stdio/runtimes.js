@@ -26,6 +26,7 @@ export {
 export {
   describeExecutableResolution,
   diagnosticsFor,
+  forgetResolvedExecutables,
 } from "./runtimes-exec.js";
 export {
   quoteForDisplay,
@@ -306,18 +307,46 @@ export function runtimeLaunchAvailability(runtime) {
     };
   }
   if (normalized === "opencode") {
-    return { available: true, message: "OpenCode SDK available" };
-  }
-  if (normalized === "pi") {
-    const launcher = defaultPiCommand();
-    const available = hasExecutable(launcher.command);
+    // WAS AN UNCONDITIONAL YES. "OpenCode SDK available" described a launch path the adapter does not
+    // take: the map at the top of this file records `adapters/opencode.js -> "opencode-aify --resume
+    // <id>"`, so the wrapper is what runs. Nothing probed it, so every environment advertised opencode
+    // as launchable regardless of what was installed, and `managed-environment-sync` reads that field
+    // to decide what may be started.
+    const expected = String(process.env.AIFY_OPENCODE_AIFY_COMMAND || "").trim() || "opencode-aify";
+    const resolved = resolveExecutable(expected);
+    const available = Boolean(resolved);
     return {
       available,
       message: available
-        ? `Pi launcher available (${launcher.command})`
-        : `Runtime "pi" is not launchable from this bridge because "${launcher.command}" is not on PATH. ` +
-          `Install Oh My Pi for this OS/user or restart the bridge from a shell where "${launcher.command}" works. ` +
-          `Diagnostic: ${diagnosticsFor(launcher.command)}`,
+        ? `OpenCode aify wrapper available (resolved to ${resolved})`
+        : `Runtime "opencode" is not launchable from this bridge because the required wrapper "${expected}" is not available. ` +
+          `Note that aify-wrapper ships no opencode template, so this wrapper has to be provided by hand or ` +
+          `AIFY_OPENCODE_AIFY_COMMAND set to an absolute opencode-aify-compatible wrapper path, then restart the bridge. ` +
+          `Diagnostic: ${diagnosticsFor(expected)}`,
+    };
+  }
+  if (normalized === "pi") {
+    // THE WRAPPER FIRST, the runtime only as the reason. `defaultPiCommand()` resolves `omp`, which is
+    // what the wrapper itself starts -- so a host with Oh My Pi installed and no `pi-aify` advertised
+    // pi as launchable, and the delegated spawn was then refused by aify-env because `omp` carries no
+    // harness contract marker. aify-wrapper DOES ship `pi-aify.sh.in`, so the fix for a red one here
+    // is to install it, which the message says.
+    const expected = String(process.env.AIFY_PI_AIFY_COMMAND || "").trim() || "pi-aify";
+    const resolved = resolveExecutable(expected);
+    if (resolved) {
+      return { available: true, message: `Pi aify wrapper available (resolved to ${resolved})` };
+    }
+    // Which of the two is missing changes what the operator does next, so both are reported.
+    const runtime = defaultPiCommand();
+    const runtimePresent = hasExecutable(runtime.command);
+    return {
+      available: false,
+      message: `Runtime "pi" is not launchable from this bridge because the required wrapper "${expected}" is not available. ` +
+        (runtimePresent
+          ? `Oh My Pi itself IS installed ("${runtime.command}" resolves), so install the wrapper with install.sh, `
+          : `Oh My Pi is also not on PATH as "${runtime.command}", so install it and then the wrapper with install.sh, `) +
+        `or set AIFY_PI_AIFY_COMMAND to an absolute pi-aify-compatible wrapper path and restart the bridge. ` +
+        `Diagnostic: ${diagnosticsFor(expected)}`,
     };
   }
   return { available: false, message: `Runtime "${normalized}" is not launchable from this bridge.` };
