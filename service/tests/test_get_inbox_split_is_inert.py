@@ -36,6 +36,44 @@ CALLER = REPO / "service" / "routers" / "dispatch_messages" / "inbox.py"
 RECEIPTS = REPO / "service" / "api_core" / "inbox_read_receipts.py"
 FIXTURE = Path(__file__).resolve().parent / "data" / "get_inbox_before_split.py"
 
+#: WHAT HAS CHANGED IN `get_inbox` SINCE THE SPLIT, so the round trip still closes on everything
+#: else. Verified verbatim: a stale entry that matched nothing would silently stop undoing anything,
+#: so the gate refuses one that does not appear exactly once.
+#:
+#: THE TUPLE IS (NOW, WAS). `extract_method` reads `for now_text, was_text in edited_since` and
+#: replaces the CURRENT text with the ORIGINAL before inlining. Written the other way round it fails
+#: with "0 occurrences" naming text that is genuinely absent, which reads like the code moved.
+#:
+#: 2026-08-29: the dashboard rail badges each conversation by counting unread rows in the page it
+#: was given, and that page is 80 long. Measured on the operator's database: 3,189 messages
+#: addressed to `dashboard`, 1,792 unread, and 29 unread inside the page -- so the badges could
+#: under-report by roughly sixty to one. `unreadTotal` is the number the surface needs; the COUNT is
+#: 3.3 ms median (7 runs, min 3.1, max 3.6) against a 15s poll, and is skipped when `filter=unread`
+#: already answers it.
+EDITED_SINCE = [
+    (
+        chr(10).join([
+            "        unread_total = total",
+            "        if filter != \"unread\" and not messageId:",
+            "            unread_cursor = await db.execute(",
+            "                \"SELECT COUNT(*) FROM messages m \"",
+            "                \"LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ? \"",
+            "                \"WHERE m.to_agent = ? AND r.message_id IS NULL\",",
+            "                (agent_id, agent_id),",
+            "            )",
+            "            unread_total = (await unread_cursor.fetchone())[0]",
+            "        return {",
+            "            \"total\": total,",
+            "            \"showing\": len(messages),",
+            "            \"unreadTotal\": unread_total,",
+            "            \"messages\": messages,",
+            "        }",
+        ]),
+        chr(10).join([
+            "        return {\"total\": total, \"showing\": len(messages), \"messages\": messages}",
+        ]),
+    ),
+]
 SOURCE_FUNCTION = "get_inbox"
 EXTRACTIONS = ["_settle_inbox_read"]
 
@@ -72,7 +110,8 @@ class GetInboxSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS,
+            edited_since=EDITED_SINCE)
 
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""
