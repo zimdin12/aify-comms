@@ -59,7 +59,7 @@ was written for a consumer that did not exist yet. This is that consumer.
 
 | job | home | why |
 |---|---|---|
-| 1 advertise | **aify-env** | it already reads the service registry, already reports `terminals.available`, and already identifies installed wrappers by contract marker — `allowlist.mjs`, "DERIVED, NOT LISTED". Runtime detection lives in aify-wrapper (`detectHarnesses`, `whichFrom`), which aify-env already depends on because it launches them. |
+| 1 advertise | **aify-env** | it already reads the service registry, already reports `terminals.available`, and already identifies installed wrappers by contract marker — `allowlist.mjs`, "DERIVED, NOT LISTED". That marker read IS the detector: asking it of every `*-aify` on PATH answers "what was aify-wrapper installed for" with no dependency on aify-wrapper, which aify-env does not have — it declares none, and starts wrappers as files by path rather than importing them. |
 | 2 heartbeat | **aify-env** | `POST /environments/heartbeat` is an existing endpoint taking an existing payload. Outbound from the host, so it survives a host with no inbound path. |
 | 3 spawn | **service, over the held connection** | the service already owns the decision; today it writes a row and waits for a poller to notice. Pushing it down an open socket removes the poll interval and the claim. |
 | 4 sweep | **aify-env** | it owns `runner.list()`, `runner.stop(id)`, and reports `processes[]` and `unknown[]`. Reaping its own previous generation is the definition of its job. |
@@ -97,7 +97,7 @@ and it would be a large one.
 
 | fact | tier | why |
 |---|---|---|
-| which runtimes are installed, and the reason one is not | **aify-env** | a PATH probe on the host, and `detectHarnesses` already fails closed |
+| which runtimes are installed, and the reason one is not | **aify-env** | a marker read of every `*-aify` on PATH, which fails closed: an unreadable file is absent, never present |
 | terminal availability and its reason | **aify-env** | already in its `/health` |
 | `modes` and the ten `capabilities` flags | **the service** | statements about how it drives a runtime, true of the runtime rather than of the host |
 
@@ -110,9 +110,58 @@ ON the host and has to be shipped there and kept current — which is what `brid
 today, and the service enriches. Recorded here rather than discovered halfway through the advertiser,
 where the tempting fix would have been to copy the table across and let two of them drift.
 
+## What "available" means, corrected by building it
+
+Writing the detector forced a question the existing probe had answered two different ways, and one of
+them could not have worked.
+
+**The wrapper is the fact, not the runtime.** A managed spawn is delegated to aify-env, which runs a
+file only when it carries the harness contract marker. `omp.exe` carries none. So "Oh My Pi is on
+PATH" is not "pi can be started here" — the tier that owns processes would refuse it — and the two
+answers differ on this very host, where `omp` is installed and `pi-aify` is not.
+
+Measured 2026-08-30 on the operator's machine, positive and negative control in the same walk:
+
+| runtime | wrapper installed | runtime binary | what the bridge advertised |
+|---|---|---|---|
+| claude-code | yes | yes | available — correct |
+| codex | yes | yes | available — correct |
+| hermes | yes | yes | available — correct |
+| pi | **no** | yes (`omp`) | **available — wrong**, probed the runtime |
+| opencode | **no** | yes | **available — wrong**, probed nothing at all |
+
+`opencode`'s branch returned a hardcoded `{ available: true, message: "OpenCode SDK available" }`,
+describing a launch path its own adapter does not take: the map in `runtimes.js` records
+`adapters/opencode.js -> "opencode-aify --resume <id>"`, and aify-wrapper ships no opencode template.
+`managed-environment-sync.mjs` reads exactly this field to decide what may be started, so both wrong
+yeses became spawns that fail with no cause attached.
+
+Fixed in aify-comms so all five probe the file a spawn would run, gated by a test that runs the real
+probe with a sealed PATH — the existing suite injected `availabilityFor` and so was green throughout.
+
+**aify-env detects by reading the marker, not by probing for a runtime.** The earlier plan borrowed
+`detectHarnesses`/`whichFrom` from aify-wrapper. aify-env has no dependencies and does not need them:
+it already owns `allowlist.mjs`, whose rule is "a file may run if it carries the harness contract
+marker", and asking that question of every `*-aify` on PATH answers "what was aify-wrapper installed
+for" directly. Derived, not listed — a harness installed later is advertised with nobody editing
+anything. Read, never run, because asking a pre-contract launcher what it is starts a runtime.
+
+## The tenth field: `label`
+
+The preservation fix covered nine fields a heartbeat could blank by omitting them. `label` was argued
+out of that set on the grounds that `req.label or env_id` falls back to a real default rather than a
+blank. True, and beside the point: on an UPDATE that default is the raw environment id, so a single
+advertisement that says nothing about the label renames `Windows on StevenZ-L` to
+`windows:StevenZ-L:default`. Measured against the running service rather than reasoned about, and
+fixed the same way. The INSERT still uses the id, because a row being created has no prior name.
+
+The advertiser is the caller that would have triggered it: aify-env has no idea what the operator
+chose to call this machine, so it sends no label at all — and, for the same reason, no `cwdRoots`.
+Which directories work may run in is the service's policy.
+
 ## Performance: advertise a fingerprint, not a payload
 
-`detectHarnesses` walks `PATH` and stats candidates. Recomputing that on every beat is the waste
+The detector walks `PATH` and reads every `*-aify` it finds. Recomputing that on every beat is the waste
 worth removing — and it is the ONLY one worth removing here.
 
 - aify-env detects capabilities at start and re-detects on a slow interval.
