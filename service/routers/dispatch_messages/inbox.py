@@ -176,8 +176,15 @@ async def recent_messages(
             FROM messages m
             LEFT JOIN read_receipts rr ON rr.message_id = m.id AND rr.agent_id = m.to_agent
             WHERE
-              (m.source = 'direct' AND m.to_agent IS NOT NULL)
-              OR (m.source = 'channel' AND m.to_agent IS NULL)
+              -- `+m.source` TELLS SQLite NOT TO INDEX THESE TWO TERMS, and that is the whole
+              -- optimisation. Indexed, the planner takes `MULTI-INDEX OR` over
+              -- `idx_messages_source` and then `USE TEMP B-TREE FOR ORDER BY`: it materialises and
+              -- sorts every matching row to take the newest 81. Measured against the live database
+              -- 2026-08-29 -- 33,619 of 34,107 messages match this predicate, so that is a 33,619-row
+              -- sort per poll, growing with a table that has no retention. Un-indexed, it walks
+              -- `idx_messages_timestamp` in order and stops at 81. Same 81 rows, same order, verified.
+              (+m.source = 'direct' AND m.to_agent IS NOT NULL)
+              OR (+m.source = 'channel' AND m.to_agent IS NULL)
             ORDER BY m.timestamp DESC
             LIMIT ?
             """,
