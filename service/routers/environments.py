@@ -59,6 +59,33 @@ router = domain_router()
 # it travelled with the drain that was its only reader.
 
 
+def _derived_environment_id(kind: Any, hostname: Any) -> str:
+    """`kind:hostname:default`, the id a caller may omit.
+
+    ONE IMPLEMENTATION, HERE. The join keys this service's own table, and a second advertiser that
+    built the same string itself would agree until either copy of the rule changed -- at which point
+    it would not fail, it would create a DUPLICATE environment beside the real one and leave the
+    managed agents bound to whichever the bridge wrote.
+
+    `kind` is host knowledge the service cannot compute: it distinguishes wsl, docker, windows,
+    macos and linux from environment variables and `/.dockerenv` on the host itself. So the host
+    sends the two facts and the service performs the join.
+
+    THE HOSTNAME IS NOT LOWERCASED, and that is inherited rather than chosen. The live row is
+    `windows:StevenZ-L:default` while its `machineId` is `win32:stevenz-l` -- the service normalises
+    machineId with a field validator and has never normalised this. Lowercasing here would mint a
+    new id for every existing environment and orphan the agents bound to the old one.
+
+    Returns "" when either fact is missing, so the caller's own "id is required" refusal still fires
+    rather than a half-built id like `windows::default` reaching the table.
+    """
+    kind_text = str(kind or "").strip()
+    host_text = str(hostname or "").strip()
+    if not kind_text or not host_text:
+        return ""
+    return f"{kind_text}:{host_text}:default"
+
+
 #: What only a BRIDGE can know about itself, and therefore what an advertisement must leave alone.
 #:
 #: An environment-tier heartbeat describes the HOST -- runtimes, roots, terminal availability -- and
@@ -118,7 +145,7 @@ async def list_environments(request: Request):
 
 @router.post("/environments/heartbeat")
 async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
-    env_id = str(req.id or "").strip()
+    env_id = str(req.id or "").strip() or _derived_environment_id(req.kind, req.hostname)
     if not env_id:
         raise HTTPException(400, "Environment id is required")
 

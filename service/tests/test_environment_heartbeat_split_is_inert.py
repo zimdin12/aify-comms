@@ -82,7 +82,20 @@ def _module_constants(path: Path) -> set[str]:
 #: the stored metadata. Either one alone disarms the guard. The UPDATE now preserves what is on
 #: the row and the metadata merge keeps the bridge-owned keys. Undone here rather than
 #: re-captured, so the pre-split baseline survives.
+#: DECLARED EDIT, 2026-08-29. The service now JOINS `kind` + `hostname` into the environment id
+#: when a caller sends no `id`, so the string is built once in the tier whose table it keys. An
+#: advertiser deriving it independently would agree the day it was written and mint a DUPLICATE
+#: environment the first time either copy of the rule changed. Undone here rather than
+#: re-captured, so the pre-split baseline survives.
 EDITED_SINCE = [
+    (
+        '\ndef _derived_environment_id(kind: Any, hostname: Any) -> str:\n    """`kind:hostname:default`, the id a caller may omit.\n\n    ONE IMPLEMENTATION, HERE. The join keys this service\'s own table, and a second advertiser that\n    built the same string itself would agree until either copy of the rule changed -- at which point\n    it would not fail, it would create a DUPLICATE environment beside the real one and leave the\n    managed agents bound to whichever the bridge wrote.\n\n    `kind` is host knowledge the service cannot compute: it distinguishes wsl, docker, windows,\n    macos and linux from environment variables and `/.dockerenv` on the host itself. So the host\n    sends the two facts and the service performs the join.\n\n    THE HOSTNAME IS NOT LOWERCASED, and that is inherited rather than chosen. The live row is\n    `windows:StevenZ-L:default` while its `machineId` is `win32:stevenz-l` -- the service normalises\n    machineId with a field validator and has never normalised this. Lowercasing here would mint a\n    new id for every existing environment and orphan the agents bound to the old one.\n\n    Returns "" when either fact is missing, so the caller\'s own "id is required" refusal still fires\n    rather than a half-built id like `windows::default` reaching the table.\n    """\n    kind_text = str(kind or "").strip()\n    host_text = str(hostname or "").strip()\n    if not kind_text or not host_text:\n        return ""\n    return f"{kind_text}:{host_text}:default"\n\n\n#: What only a BRIDGE can know about itself, and therefore what an advertisement must leave alone.',
+        '\n#: What only a BRIDGE can know about itself, and therefore what an advertisement must leave alone.',
+    ),
+    (
+        'async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):\n    env_id = str(req.id or "").strip() or _derived_environment_id(req.kind, req.hostname)\n    if not env_id:',
+        'async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):\n    env_id = str(req.id or "").strip()\n    if not env_id:',
+    ),
     (
         '# it travelled with the drain that was its only reader.\n\n\n#: What only a BRIDGE can know about itself, and therefore what an advertisement must leave alone.\n#:\n#: An environment-tier heartbeat describes the HOST -- runtimes, roots, terminal availability -- and\n#: declares no `bridgeId`. Its metadata carries no `bridgeStartedAt` either, and `next_metadata`\n#: REPLACES the stored metadata, so an advertisement erased the timestamp the supersede arbitration\n#: reads. Preserving `bridge_id` alone was not enough: with two ids and no start times, the branch\n#: that refuses an OLDER incoming bridge cannot fire, and a stale bridge reclaims the environment a\n#: fresh one owns.\n#:\n#: DERIVED FROM ITS READERS, not guessed: `bridgeStartedAt` is read by `_bridge_started_at` here and\n#: by `environment_claim.py`, and nothing else in the service reads a `bridge*` metadata key. A\n#: second one belongs in this tuple the day it gets a reader.\nBRIDGE_OWNED_METADATA = ("bridgeStartedAt",)\n',
         '# it travelled with the drain that was its only reader.\n',

@@ -1,6 +1,6 @@
 """Pydantic models for aify-comms API."""
 from typing import Any, Literal, Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 def _normalize_machine_id_value(value: Optional[str]) -> Optional[str]:
@@ -348,7 +348,14 @@ class DispatchControlUpdate(_MachineIdNormalizingModel):
 
 
 class EnvironmentHeartbeat(_MachineIdNormalizingModel):
-    id: str
+    #: OPTIONAL SINCE 2026-08-29, and the service derives it from `kind` + `hostname` when it is
+    #: absent. The id keys the service's own table, so deriving it here is one implementation; an
+    #: advertiser that built `${kind}:${hostname}:default` itself would agree on the day it was
+    #: written and mint a DUPLICATE environment the first time either copy of the rule changed.
+    #: A bridge still sends `id` and is unaffected.
+    id: Optional[str] = None
+    #: The host's own name, unmodified. Sent so the service can do the join above.
+    hostname: Optional[str] = None
     label: Optional[str] = None
     machineId: Optional[str] = None
     os: Optional[str] = None
@@ -367,6 +374,30 @@ class EnvironmentHeartbeat(_MachineIdNormalizingModel):
     terminalRuntimes: Optional[list[str]] = None
     status: Optional[str] = None
     metadata: Optional[dict[str, Any]] = None
+
+    @model_validator(mode="after")
+    def _identifiable(self):
+        """An id, or the two facts the service can build one from. Refused HERE, not in the handler.
+
+        `id` became optional so the service could join `kind` + `hostname` itself and no second
+        advertiser would derive that string. It did NOT become unchecked, and the difference matters
+        to a caller: an omitted id is a 422 from this model, exactly as it was when the field was
+        required, rather than a 400 that looks the same and is produced by a different layer.
+
+        `test_an_absent_field_is_the_models_job_not_the_handlers` names this trade in its own words:
+        "making a field Optional would silently move a 422 into the handler's 400 with nobody
+        noticing which check is now doing the work."
+
+        A BLANK id is deliberately NOT refused here. `""` and `"   "` are strings this model accepts
+        and the handler strips to nothing, which is a boundary another test pins at exactly one space
+        either side. Calling whitespace absent would move that refusal up a layer — the same mistake
+        this validator exists to avoid, pointing the other way.
+        """
+        if self.id is not None:
+            return self
+        if str(self.kind or "").strip() and str(self.hostname or "").strip():
+            return self
+        raise ValueError("environment heartbeat needs `id`, or both `kind` and `hostname`")
 
 
 class EnvironmentControlRequest(BaseModel):

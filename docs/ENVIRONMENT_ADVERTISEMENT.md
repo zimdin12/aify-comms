@@ -73,17 +73,61 @@ Two fields of the environment row stay service-side because they are not host fa
 advertised from the host because it depends on the harness-and-wrapper pair, but it is the one field
 two tiers can both hold an opinion about, and therefore the one that will drift first.
 
+## `runtimes[]` is two kinds of fact, and only one of them is the host's
+
+The seam I flagged as `runtimes[].modes` is wider than one field. `runtimeCapability()` builds each
+row as:
+
+    { runtime, modes: ["managed-warm"], available, unavailableReason,
+      capabilities: { persistent, nativeResume, bridgeResume, cliAttach, interrupt,
+                      streaming, tokenTelemetry, costTelemetry, contextReset } }
+
+Ten of those fields are not host facts. Whether a runtime supports `nativeResume`, can be
+`interrupt`ed, `streaming`s, or honours a `contextReset` is a statement about how a SERVICE drives
+it — the same class of knowledge as `modes`. Only `available` and `unavailableReason` are answers a
+host can give, and they come from a PATH probe.
+
+An aify-env that produced this whole row would have to carry `normalizeRuntime`,
+`runtimeLaunchAvailability`, `ENVIRONMENT_RUNTIME_IDS` and the capability table itself — aify-comms'
+semantics, living in the tier whose README opens "Nothing here knows what a message is, what a
+dispatch is, or whether an agent is thinking". That is the copy this whole document exists to avoid,
+and it would be a large one.
+
+**So the split is by who can answer, not by who happens to send:**
+
+| fact | tier | why |
+|---|---|---|
+| which runtimes are installed, and the reason one is not | **aify-env** | a PATH probe on the host, and `detectHarnesses` already fails closed |
+| terminal availability and its reason | **aify-env** | already in its `/health` |
+| `modes` and the ten `capabilities` flags | **the service** | statements about how it drives a runtime, true of the runtime rather than of the host |
+
+The service already owns the table; it would join its own capability rows to the availability the
+host reports. That is strictly less code than today, where the table lives in aify-comms code running
+ON the host and has to be shipped there and kept current — which is what `bridge-installed` and
+`bridge-current` are for.
+
+**This changes the Phase 1 payload.** aify-env sends availability, not `runtimes[]` as it stands
+today, and the service enriches. Recorded here rather than discovered halfway through the advertiser,
+where the tempting fix would have been to copy the table across and let two of them drift.
+
 ## Performance: advertise a fingerprint, not a payload
 
-`detectHarnesses` walks `PATH` and stats candidates. Recomputing that on every beat is the obvious
-waste, and the fix is a pattern this repo already uses: `launcherRegistryFingerprint`.
+`detectHarnesses` walks `PATH` and stats candidates. Recomputing that on every beat is the waste
+worth removing — and it is the ONLY one worth removing here.
 
-- aify-env computes capabilities at start, then on a slow interval or on an observed change.
-- The heartbeat carries the **fingerprint**.
-- The full document is exchanged only when the service holds a different one.
+- aify-env detects capabilities at start and re-detects on a slow interval.
+- A fingerprint over the capability fields says whether a re-detection changed anything.
+- The payload is sent on every beat regardless, because it is a few hundred bytes.
 
-Steady state is a few dozen bytes per beat per host. A full capability exchange happens when
-somebody installs or removes a harness, which is when it should.
+**CORRECTED FROM THE FIRST DRAFT OF THIS DOCUMENT**, which said the heartbeat should carry only the
+fingerprint and exchange the full document when the service holds a different one. That is a
+NEGOTIATION — a service-side "do you already have this" round trip, a fingerprint the service must
+store, and a fallback for when the two disagree — invented to save a payload smaller than the HTTP
+headers around it. The cost is the PATH walk, not the bytes, so caching the detection is the whole
+optimisation and the protocol stays one POST.
+
+Worth recording because the first draft read as the more rigorous design and was the more expensive
+one: a mechanism defending against a cost nobody had measured.
 
 ## Unity: one advertiser per host, not one per service
 
