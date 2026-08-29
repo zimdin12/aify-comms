@@ -67,11 +67,76 @@ The OpenAI quota panel additionally needs the **`codex` CLI signed in** (`codex 
 
 ## Security — read before exposing beyond localhost
 
-By default the service runs **without authentication** (`api_key=""`), with **CORS `*`**, and binds **`0.0.0.0`** — a deliberate LAN-trust posture for a private network. Every mutating endpoint (including typing into live agent consoles) is open to anything that can reach the port, and the compose file mounts host agent credentials (e.g. `~/.claude`) into the container for the runtimes to use. Before running anywhere untrusted:
+By default the service runs **without authentication** (`api_key=""`), with **CORS `*`**, and binds **`0.0.0.0`** — a deliberate LAN-trust posture for a private network. Every mutating endpoint (including typing into live agent consoles) is open to anything that can reach the port, and the compose file mounts host agent credentials (e.g. `~/.claude`) into the container for the runtimes to use.
 
-- set a real `API_KEY` in `.env` (clients send it via `AIFY_API_KEY`),
-- bind the published ports to loopback in `docker-compose.yml` (`127.0.0.1:8800:8800`), and
-- scope `cors_origins` in `config/service.json` to your dashboard origin.
+### Turning on a key — one flag, then one restart
+
+```bash
+bash install.sh --client claude http://localhost:8800 --with-api-key
+docker compose up -d          # the service only reads the key at startup
+```
+
+`--with-api-key` generates a key if there is none, writes it to `.env` where the service reads it, and
+passes the same value into every wrapper and MCP config it writes. **An existing key is reused, never
+rotated** — a fresh one would leave every already-installed bridge holding the old value.
+
+Then open the dashboard **once** with the key in the URL:
+
+```
+http://localhost:8800/?api_key=<the value now in .env>
+```
+
+It is exchanged for an `HttpOnly`, `SameSite=Lax` cookie and the browser presents it from then on --
+including to Dashboard Next on `:8801`, since cookies are scoped by host and ignore the port. A
+browser cannot send `X-API-Key` on a document request, so without this step turning auth on serves
+your own dashboard a 401.
+
+Dashboard Next runs as its own container and is **not** passed the key by compose. If it ever calls
+the API from the server rather than from your browser, that call carries no cookie and no key; add
+`API_KEY` to its environment if you hit 401s there.
+
+**Re-run `install.sh` for every client you use** — no flag needed the second time. Every install now
+reads the key out of `.env` when the shell does not carry one, so the rest of the fleet picks up the
+same value on its own. A client installed *before* the key was set has none and will get 401s until it
+is reinstalled and its wrapper relaunched.
+
+### A page you visit cannot drive the fleet
+
+Always on, no configuration. A request a browser made from a page on **another site** is refused
+(`403`), and a WebSocket handshake from one is closed. This is the browser leg of the finding
+KNOWN_ISSUES has carried since the 2026-06-28 audit: binding loopback does not help, because the
+browser is already on the machine, and with `CORS *` the page could read the replies too.
+
+It costs nothing on either side — no program sends `Sec-Fetch-Site`, the classic dashboard is
+same-origin, and Dashboard Next on `:8801` is same-site. An origin you name in `cors_origins` is
+honoured; `*` grants no exemption, because a wildcard is the absence of a decision rather than a
+decision to trust every page.
+
+### What a key does not cover
+
+- **The port is still published on `0.0.0.0`.** Bind it to loopback in `docker-compose.yml`
+  (`127.0.0.1:8800:8800`) if nothing off this machine should reach it.
+- **CORS is still `*`.** Scope `cors_origins` in `config/service.json` to your dashboard origin.
+- **`/health`, `/version`, `/docs` and `/openapi.json` stay open** — the skip list is asserted by
+  `service/tests/test_api_key_middleware.py` against the app's real routes. `/ws` is on that list too,
+  but it is not unguarded: its handshake refuses a browser Origin that is not this host's.
+
+`aify-comms doctor`'s `api-exposure` check reports the combination that actually matters: an
+unauthenticated fleet listing that also returns live gateway tokens.
+
+### aify-env
+
+aify-env binds `127.0.0.1` and is not configurable, so nothing off the machine reaches it. It also
+**refuses requests a browser made**, identified by `Origin` / `Sec-Fetch-Site`, because a page you
+merely visit runs on the machine too: `POST /processes` with `content-type: text/plain` is a CORS
+simple request needing no preflight, and the allowlist would have bounded the damage to starting a
+coding agent with attacker-chosen arguments rather than preventing it. Programs are unaffected — Node
+sends neither header — and reading `/health` in a browser tab still works.
+
+It has no token, and that is a judgement rather than an omission: the remaining caller it cannot tell
+apart is another process running as **you**, which can already read any token you would give it. A
+token would help against a different local user account, which is not the shape of a single-operator
+machine. The browser was the caller that could reach it without being you.
 
 The full audit notes live in [KNOWN_ISSUES.md](KNOWN_ISSUES.md) (security defaults section).
 

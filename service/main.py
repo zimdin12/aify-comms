@@ -90,18 +90,75 @@ class RequestTimingMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class CrossSiteBrowserMiddleware(BaseHTTPMiddleware):
+    """Refuse requests a browser made from a page on another site.
+
+    THE THREAT, as KNOWN_ISSUES has recorded since the 2026-06-28 audit: with CORS `*` and no key, a
+    page the operator merely visits can drive every mutating endpoint -- including
+    `POST /agents/{id}/console/input`, which types into a live PTY -- and read every response. Binding
+    loopback does not help: the browser is already on the machine.
+
+    WHY A HEADER AND NOT A KEY. A key has to be generated, distributed to every client and rotated,
+    and it is opt-in for exactly that reason. `Sec-Fetch-Site` is attached by the BROWSER and cannot be
+    removed by page script, and no program sends it -- so this protects the default deployment, which
+    is the one that needed protecting.
+
+    ABSENT MEANS "not a browser", and that is not a hole: a browser cannot omit this header. Refusing
+    on absence would refuse every bridge, every CLI and every `curl` this service exists to serve.
+    """
+
+    def __init__(self, app, allowed_origins: list[str] | None = None):
+        super().__init__(app)
+        # `*` is deliberately NOT an exemption. A wildcard is the absence of a decision about who may
+        # drive this service from a browser, and reading it as "everyone" would make the guard a no-op
+        # in exactly the default configuration it exists to protect.
+        self.allowed_origins = {
+            str(origin).strip().rstrip("/").lower()
+            for origin in (allowed_origins or [])
+            if str(origin).strip() not in ("", "*")
+        }
+
+    async def dispatch(self, request: Request, call_next):
+        if request.headers.get("sec-fetch-site", "").strip().lower() != "cross-site":
+            return await call_next(request)
+        origin = request.headers.get("origin", "").strip().rstrip("/").lower()
+        if origin and origin in self.allowed_origins:
+            # The operator named this origin in `cors_origins`. That is a decision, and it stands.
+            return await call_next(request)
+        return Response(
+            content='{"error":"Cross-site browser requests are refused. Add the origin to cors_origins in config/service.json if this is your own dashboard."}',
+            status_code=403,
+            media_type="application/json",
+        )
+
+
 class APIKeyMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, api_key: str):
         super().__init__(app)
         self.api_key = api_key
 
+    #: The cookie a browser gets in exchange for a valid `?api_key=`, so the dashboard is usable at all
+    #: once a key is set. Named rather than typed at each site: it is read in one place and written in
+    #: another, and a typo between them is a login that silently never sticks.
+    COOKIE = "aify_api_key"
+
+    #: Long enough that an operator is not re-pasting a key every day, short enough that a borrowed
+    #: browser does not stay authorised for a year.
+    COOKIE_MAX_AGE = 30 * 24 * 3600
+
     async def dispatch(self, request: Request, call_next):
         skip_paths = ["/health", "/ready", "/version", "/docs", "/redoc", "/openapi.json", "/ws", "/favicon", "/api/v1/favicon"]
         if any(request.url.path.startswith(p) for p in skip_paths):
             return await call_next(request)
+        # THREE CARRIERS, and the third is why the dashboard works at all. A browser cannot set a
+        # header on a document request, so with only `X-API-Key` a protected service serves its own
+        # UI a 401 -- measured against the real app, and invisible to the suite, whose base builds an
+        # app with no middleware. `?api_key=` is exchanged for a cookie below.
+        from_query = request.query_params.get("api_key")
         provided_key = (
             request.headers.get("X-API-Key")
-            or request.query_params.get("api_key")
+            or from_query
+            or request.cookies.get(self.COOKIE)
         )
         # Compare as BYTES (bughunt 2026-07-03): hmac.compare_digest raises TypeError
         # on a str containing non-ASCII code points, which was unhandled → HTTP 500 on
@@ -116,7 +173,25 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 status_code=401,
                 media_type="application/json",
             )
-        return await call_next(request)
+        response = await call_next(request)
+        if from_query:
+            # Set only on the request that ARRIVED with a valid key in the URL, never on a request
+            # that authenticated by header or by an existing cookie. A program calling with a header
+            # has no use for one, and re-setting it on every call would refresh the expiry of a
+            # browser session nobody is using.
+            #
+            # `samesite="lax"` IS Starlette's default -- checked, not assumed, after a mutation that
+            # deleted the argument left the header unchanged. It is written out anyway because it is
+            # the security property this cookie stands on, not a formatting preference: a cookie is
+            # sent automatically, so without Lax every state-changing route becomes reachable from any
+            # page the operator visits -- a hole the header-only scheme did not have, opened by the fix
+            # for a different problem. A default nobody stated is a default somebody upgrades away.
+            # `httponly` is NOT a default (Starlette's is False) and is doing work on its own.
+            response.set_cookie(
+                self.COOKIE, self.api_key,
+                max_age=self.COOKIE_MAX_AGE, httponly=True, samesite="lax", path="/",
+            )
+        return response
 
 
 def _setup_logging(config):
@@ -152,6 +227,46 @@ async def _periodic_dispatch_reconcile() -> None:
             raise
         except Exception as e:
             logger.error(f"Periodic dispatch reconcile skipped: {e}")
+
+
+def websocket_origin_is_allowed(origin: str, host: str, allowed_origins) -> bool:
+    """May a WebSocket handshake carrying this `Origin` be accepted?
+
+    PURE, so every case can be driven without a socket. `origin` is the handshake header, `host` is
+    the `Host` this service was reached on, and `allowed_origins` is `cors_origins` from config.
+
+    NO ORIGIN MEANS NOT A BROWSER -- a bridge, a CLI, a test -- and those are the callers this endpoint
+    exists to serve. Refusing on absence would refuse all of them, and a browser cannot omit it.
+
+    COMPARED BY HOST, not by full origin, because the dashboard is a browser client too: the classic UI
+    is same-origin, and Dashboard Next answers on another PORT of the same host. Ports do not make a
+    different site, so refusing on a port difference would break the second dashboard while stopping
+    nothing -- an attacker cannot serve from the operator's own hostname.
+
+    `*` in `cors_origins` grants nothing, matching the HTTP guard: a wildcard is the absence of a
+    decision about who may drive this service from a browser, not a decision to trust every page.
+    """
+    origin = str(origin or "").strip()
+    if origin == "":
+        return True
+    named = {
+        str(entry).strip().rstrip("/").lower()
+        for entry in (allowed_origins or [])
+        if str(entry).strip() not in ("", "*")
+    }
+    if origin.rstrip("/").lower() in named:
+        return True
+    from urllib.parse import urlsplit
+
+    origin_host = (urlsplit(origin).hostname or "").lower()
+    # `Host` carries a port; the origin's hostname does not. Compare the names alone.
+    #
+    # PARSED, NOT SPLIT ON THE LAST COLON. That shortcut is right for `localhost:8800` and wrong for
+    # every IPv6 form: `[::1]` served on port 80 has no port to strip, and splitting it anyway yields
+    # `":"` -- which matches no origin, so a legitimate same-origin request is refused. The address is
+    # bracketed precisely so it can be told from a port, and `urlsplit` already knows how.
+    own_host = urlsplit(f"//{str(host or '').strip()}").hostname or ""
+    return bool(origin_host) and origin_host == own_host.lower()
 
 
 async def _authorize_websocket(ws: WebSocket, api_key: str) -> bool:
@@ -329,6 +444,17 @@ def create_app() -> FastAPI:
         app.add_middleware(APIKeyMiddleware, api_key=config.api_key)
         logger.info("API key auth enabled")
 
+    # Cross-site browser requests, refused whether or not a key is configured.
+    #
+    # ADDED AFTER THE KEY MIDDLEWARE ON PURPOSE. Starlette runs middleware in REVERSE order of
+    # `add_middleware`, so the last one added is the outermost -- and this has to see a request before
+    # the key check does, because the deployment it protects is the one with NO key. It also sits
+    # outside CORS, so a cross-site preflight is refused before CORS gets to approve it.
+    #
+    # ALWAYS ON. Unlike the key and the bind address, this costs an operator nothing: no program sends
+    # `Sec-Fetch-Site`, and both dashboards are same-origin or same-site.
+    app.add_middleware(CrossSiteBrowserMiddleware, allowed_origins=config.cors_origins)
+
     app.add_middleware(RequestTimingMiddleware)
 
     app.include_router(health.router)
@@ -338,6 +464,15 @@ def create_app() -> FastAPI:
     # WebSocket endpoint
     @app.websocket("/ws")
     async def websocket_endpoint(ws: WebSocket):
+        # BEFORE THE KEY CHECK, and unconditionally. A WebSocket reaches neither middleware --
+        # `BaseHTTPMiddleware` passes non-http scopes straight through -- and WebSocket handshakes are
+        # not subject to CORS, so a page on any site could open this stream and read fleet activity
+        # with no key configured, which is the default.
+        if not websocket_origin_is_allowed(
+            ws.headers.get("origin", ""), ws.headers.get("host", ""), config.cors_origins
+        ):
+            await ws.close(code=1008)
+            return
         if config.api_key and not await _authorize_websocket(ws, config.api_key):
             return
         agent_id = ws.query_params.get("agent_id")

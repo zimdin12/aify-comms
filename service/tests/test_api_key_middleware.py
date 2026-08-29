@@ -227,13 +227,102 @@ class ApiKeyMiddlewareTests(unittest.TestCase):
         """The list above is a copy, so it is compared against the source of truth rather than
         trusted — a prefix added to the middleware and not here would leave the census above
         checking the wrong set."""
+        import ast
         import inspect
+        import textwrap
 
-        source = inspect.getsource(APIKeyMiddleware.dispatch)
-        for prefix in EXPECTED_SKIPS:
-            with self.subTest(prefix=prefix):
-                self.assertIn(f'"{prefix}"', source)
+        # THE LIST ITSELF, not every string in the method that happens to start with a slash. The
+        # earlier version counted `source.count('"/')`, which was a fine proxy while `skip_paths` was
+        # the only such literal -- and stopped being one the moment `set_cookie(path="/")` appeared.
+        # That miscount was harmless; the same proxy would also have let a real new prefix hide behind
+        # the removal of an unrelated string, which would not have been.
+        tree = ast.parse(textwrap.dedent(inspect.getsource(APIKeyMiddleware.dispatch)))
+        declared = [
+            [element.value for element in node.value.elts]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            and any(getattr(target, "id", "") == "skip_paths" for target in node.targets)
+            and isinstance(node.value, ast.List)
+        ]
+        self.assertEqual(len(declared), 1, "skip_paths is not a single list literal any more")
         self.assertEqual(
-            source.count('"/'), len(EXPECTED_SKIPS),
+            declared[0], EXPECTED_SKIPS,
             "the middleware skips a prefix this test does not know about",
         )
+
+
+class ABrowserCanHoldTheKeyTests(unittest.TestCase):
+    """Turning auth on locked the operator out of their own dashboard.
+
+    MEASURED against the real `create_app()` with `API_KEY` set, which is the only place it shows --
+    the suite's own base builds an app with NO middleware, so every test here was green either way:
+
+        /                -> 401
+        /api/v1/agents   -> 401
+        /health          -> 200   (skip list)
+
+    A browser cannot put `X-API-Key` on a document request. `?api_key=` was accepted but would have to
+    be appended to the dashboard's URL and to every request its scripts make, which it does not do. So
+    "protect the service" and "keep the dashboard usable" were mutually exclusive, and an installer
+    flag that turned auth on would have handed over a locked door.
+    """
+
+    def setUp(self):
+        self.client = TestClient(_app_with_key())
+
+    def test_a_browser_with_no_key_is_still_refused(self):
+        # The control. Everything below is only interesting if this stays true.
+        self.assertEqual(self.client.get("/api/v1/agents").status_code, 401)
+
+    def test_a_valid_key_in_the_URL_is_exchanged_for_a_cookie(self):
+        response = self.client.get(f"/api/v1/agents?api_key={API_KEY}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("aify_api_key", response.cookies, "no cookie came back to hold the session")
+
+    def test_the_cookie_alone_then_authenticates(self):
+        """The whole point: paste the key once, and the dashboard works from then on."""
+        self.client.get(f"/api/v1/agents?api_key={API_KEY}")
+        self.assertEqual(self.client.get("/api/v1/agents").status_code, 200)
+
+    def test_the_cookie_is_HttpOnly_and_SameSite_Lax(self):
+        """SameSite is doing security work here, not tidiness. A cookie travels automatically, so
+        without it every state-changing route becomes reachable from any page the operator visits --
+        a hole the header-only scheme did not have, opened by the fix for a different problem."""
+        header = self.client.get(f"/api/v1/agents?api_key={API_KEY}").headers["set-cookie"].lower()
+        self.assertIn("httponly", header, "page script can read the key back out")
+        self.assertIn("samesite=lax", header, "the cookie would ride along on a cross-site request")
+        self.assertIn("path=/", header)
+
+    def test_a_WRONG_key_in_the_URL_sets_no_cookie(self):
+        response = self.client.get("/api/v1/agents?api_key=wrong")
+        self.assertEqual(response.status_code, 401)
+        self.assertNotIn("set-cookie", {k.lower() for k in response.headers},
+                         "a refused request handed out a session anyway")
+
+    def test_a_HEADER_call_gets_no_cookie(self):
+        """A program has no use for one, and setting it on every call would keep refreshing the expiry
+        of a browser session nobody is using."""
+        response = self.client.get("/api/v1/agents", headers={"X-API-Key": API_KEY})
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("set-cookie", {k.lower() for k in response.headers})
+
+    def test_a_request_that_authenticated_BY_COOKIE_does_not_reset_it(self):
+        self.client.get(f"/api/v1/agents?api_key={API_KEY}")
+        response = self.client.get("/api/v1/agents")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("set-cookie", {k.lower() for k in response.headers})
+
+    def test_a_FORGED_cookie_does_not_authenticate(self):
+        """The cookie carries the key itself, so it is checked by the same constant-time comparison as
+        every other carrier. It is a convenience for transport, never a second way in."""
+        client = TestClient(_app_with_key())
+        client.cookies.set("aify_api_key", "not-the-key")
+        self.assertEqual(client.get("/api/v1/agents").status_code, 401)
+
+    def test_the_cookie_name_is_read_and_written_from_ONE_constant(self):
+        """Read in one method and written in another. A typo between them is a login that silently
+        never sticks -- it authenticates once, then every later request is a 401 with no clue why."""
+        self.assertEqual(APIKeyMiddleware.COOKIE, "aify_api_key")
+        header = self.client.get(f"/api/v1/agents?api_key={API_KEY}").headers["set-cookie"]
+        self.assertTrue(header.startswith(f"{APIKeyMiddleware.COOKIE}="),
+                        f"the cookie written is not the one read: {header}")
