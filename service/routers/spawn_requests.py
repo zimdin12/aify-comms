@@ -69,6 +69,21 @@ router = domain_router()
 
 
 
+#: EVERY STATUS A SPAWN REQUEST CAN HOLD, in the order it moves through them.
+#:
+#: `queued` is the column default and arrives with the row; the other five are what
+#: `PATCH /spawn-requests/{id}` accepts, and it answers 400 for anything else. This set existed as a
+#: literal at that validation site with `_SPAWN_TERMINAL_STATUSES` three hundred lines above holding
+#: a subset -- two spellings of one vocabulary, neither naming the other, and `queued` in neither.
+#:
+#: It is named so a test can read it. `service/tests/test_the_spawn_panel_names_real_statuses.py`
+#: compares it against the words the dashboard's spawn panel puts in front of an operator, which is
+#: how the panel's promise of a "completed" spawn -- a state the service refuses -- was found.
+SPAWN_REQUEST_STATUSES = ("queued", "claimed", "starting", "running", "failed", "cancelled")
+
+#: The subset a bridge may PATCH. `queued` is not one: nothing moves a request BACK to unclaimed.
+SPAWN_REQUEST_PATCHABLE_STATUSES = frozenset(SPAWN_REQUEST_STATUSES) - {"queued"}
+
 # Domain-local: after the handlers moved, nothing outside this module referenced either.
 _SPAWN_TERMINAL_STATUSES = {"running", "failed", "cancelled"}
 _SPAWN_MODES = {"managed-warm"}
@@ -305,7 +320,7 @@ async def claim_spawn_request(req: SpawnRequestClaim, request: Request):
 @router.patch("/spawn-requests/{spawn_request_id}")
 async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, request: Request):
     status_value = str(req.status or "").strip().lower()
-    if status_value not in {"claimed", "starting", "running", "failed", "cancelled"}:
+    if status_value not in SPAWN_REQUEST_PATCHABLE_STATUSES:
         raise HTTPException(400, f'Unsupported spawn request status "{req.status}"')
     db = await get_db()
     try:

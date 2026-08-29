@@ -975,7 +975,87 @@ const EXTRACTIONS = [
           ],
         }],
       },
-      { name: "renderSpawnRequests", at: 3063, marker: "// renderSpawnRequests moved to ./environments-panels.mjs in v0.5.4." },
+      {
+        name: "renderSpawnRequests", at: 3063,
+        marker: "// renderSpawnRequests moved to ./environments-panels.mjs in v0.5.4.",
+        editedSince: [
+          {
+            was: [
+              "  const requests = [...state.spawnRequests].sort((a, b) =>",
+              "    String(b.createdAt || b.created_at || '').localeCompare(String(a.createdAt || a.created_at || '')));",
+            ],
+            now: [
+              "  const requests = [...state.spawnRequests].sort((a, b) =>",
+              "    String(b.createdAt || '').localeCompare(String(a.createdAt || '')));",
+            ],
+          },
+          {
+            was: [
+              "  if (!requests.length) {",
+              "    el.innerHTML = '<div class=\"empty-state\"><span class=\"empty-icon\">\ud83c\udf31</span><strong>No spawn requests</strong><p>Queued, failed, and completed spawns will appear here.</p></div>';",
+            ],
+            now: [
+              "  if (!requests.length) {",
+              "    // THE STATES THIS TABLE CAN ACTUALLY SHOW. It promised \"completed\" spawns, and a spawn",
+              "    // request is never completed: the five statuses the service writes are queued, claimed,",
+              "    // running, failed and cancelled. An empty state that names a state the system has never had",
+              "    // tells the operator to wait for something that is not coming.",
+              "    el.innerHTML = '<div class=\"empty-state\"><span class=\"empty-icon\">\ud83c\udf31</span><strong>No spawn requests</strong><p>Queued, claimed, running, failed and cancelled spawns will appear here.</p></div>';",
+            ],
+          },
+          {
+            was: [
+              "  const rows = requests.map((req) => {",
+            ],
+            now: [
+              "  const rows = requests.map((req) => {",
+              "    // NO `done` MAPPING. It read `status === 'done' ? 'completed' : status`, and neither value is",
+              "    // one a spawn request can hold, so the branch was unreachable and its target meaningless.",
+            ],
+          },
+          {
+            was: [
+              "    const status = String(req.status || 'queued').toLowerCase();",
+              "    const chipStatus = status === 'done' ? 'completed' : status;",
+            ],
+            now: [
+              "    const status = String(req.status || 'queued').toLowerCase();",
+            ],
+          },
+          {
+            was: [
+              "    const detail = req.error || req.claimedByBridgeId || '';",
+              "    const created = req.createdAt || req.created_at || '';",
+            ],
+            now: [
+              "    const detail = req.error || req.claimedByBridgeId || '';",
+              "    const created = req.createdAt || '';",
+            ],
+          },
+          {
+            was: [
+              "      <td>${created ? esc(relTime(created)) + ' ago' : '\u2014'}</td>",
+              "      <td><strong>${esc(req.agentId || req.agent_id || '\u2014')}</strong>${req.role ? `<br><span class=\"subtle\">${esc(req.role)}</span>` : ''}</td>",
+              "      <td class=\"clip\">${esc(req.environmentId || req.environment_id || '\u2014')}</td>",
+            ],
+            now: [
+              "      <td>${created ? esc(relTime(created)) + ' ago' : '\u2014'}</td>",
+              "      <td><strong>${esc(req.agentId || '\u2014')}</strong>${req.role ? `<br><span class=\"subtle\">${esc(req.role)}</span>` : ''}</td>",
+              "      <td class=\"clip\">${esc(req.environmentId || '\u2014')}</td>",
+            ],
+          },
+          {
+            was: [
+              "      <td>${esc(req.runtime || '\u2014')}</td>",
+              "      <td>${renderStatusChip(chipStatus, { label: status, why: `Spawn request status: ${status}.` })}</td>",
+            ],
+            now: [
+              "      <td>${esc(req.runtime || '\u2014')}</td>",
+              "      <td>${renderStatusChip(status, { label: status, why: `Spawn request status: ${status}.` })}</td>",
+            ],
+          },
+        ],
+      },
       { name: "renderEnvironmentSummary", at: 2995, marker: "// renderEnvironmentSummary moved to ./environments-panels.mjs in v0.5.4." },
       { name: "openEnvironmentRootsEditor", at: 3122, marker: "// openEnvironmentRootsEditor moved to ./environments-panels.mjs in v0.5.4." },
       // The four ACTIONS, added later in v0.5.4. They landed in this module rather than a new one
@@ -3112,6 +3192,55 @@ function rebuild(overrides = {}) {
     carrierEdits: overrides.carrierEdits ?? CARRIER_EDITS,
   });
 }
+
+test("AN EDIT THAT CANNOT BE PLACED IS REFUSED, rather than placed at line 0", () => {
+  // A pure DELETION is written `now: []`, and `[].every(...)` is vacuously true, so `findIndex`
+  // answers 0 and the removed text is undone at the TOP of the declaration -- above its own
+  // `function` line. That happened while declaring a one-line removal from `renderSpawnRequests`,
+  // and it surfaced as a whole-file byte mismatch reported three thousand lines from the cause.
+  //
+  // The second refusal is the same hazard one step weaker: an anchor matching twice puts `was` at
+  // whichever came first, which is a choice the plan never made.
+  const nl = String.fromCharCode(10);
+  const mod = ["export function pub() {", "  const a = 1;", "  const a = 1;", "  return a;", "}", ""].join(nl);
+  const host = ["import { pub } from './mod.mjs';", "// pub moved to ./mod.mjs.", ""].join(nl);
+  const plan = (editedSince) => [{
+    module: "mod.mjs",
+    importLine: "import { pub } from './mod.mjs';",
+    items: [{ name: "pub", at: 0, marker: "// pub moved to ./mod.mjs.", editedSince }],
+  }];
+
+  assert.throws(
+    () => reconstruct({
+      after: host,
+      modules: { "mod.mjs": mod },
+      extractions: plan([{ was: ["  const gone = 2;"], now: [] }]),
+    }),
+    /empty `now`/,
+    "a deletion with no anchor must be refused, not undone at the top of the declaration",
+  );
+
+  assert.throws(
+    () => reconstruct({
+      after: host,
+      modules: { "mod.mjs": mod },
+      extractions: plan([{ was: ["  const a = 9;"], now: ["  const a = 1;"] }]),
+    }),
+    /matches at lines/,
+    "an anchor that matches twice must be refused, not applied to whichever came first",
+  );
+
+  // AND THE CONTROL: the same edit with one line of context is unique, and is applied.
+  const fixed = reconstruct({
+    after: host,
+    modules: { "mod.mjs": mod },
+    extractions: plan([{
+      was: ["  const a = 1;", "  return a;"],
+      now: ["  const a = 1;", "  return a;"],
+    }]),
+  });
+  assert.ok(fixed.includes("return a;"), "a uniquely anchored edit must still be applied");
+});
 
 test("A DECLARED CARRIER EDIT IS UNDONE, and an undeclared one still fails", () => {
   // `carrierEdits` is the only way a line that STAYED in app.js may differ from the fixture, and it

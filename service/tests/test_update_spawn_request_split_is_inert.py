@@ -93,7 +93,19 @@ def _helper() -> ast.AST:
 #: DECLARED EDIT, 2026-08-29. Sixteen live-terminal filters spelled their status set out by hand;
 #: they now interpolate a fragment from `api_core/terminal_status.py`. Undone here rather than
 #: re-captured, so the pre-split baseline survives.
+#: DECLARED EDIT, 2026-08-29. The spawn-status vocabulary moved from a set literal at this
+#: validation site to `SPAWN_REQUEST_PATCHABLE_STATUSES`, which is derived from
+#: `SPAWN_REQUEST_STATUSES` rather than written beside it. Undone here rather than re-captured,
+#: so the pre-split baseline survives.
 EDITED_SINCE = [
+    (
+        '\n\n#: EVERY STATUS A SPAWN REQUEST CAN HOLD, in the order it moves through them.\n#:\n#: `queued` is the column default and arrives with the row; the other five are what\n#: `PATCH /spawn-requests/{id}` accepts, and it answers 400 for anything else. This set existed as a\n#: literal at that validation site with `_SPAWN_TERMINAL_STATUSES` three hundred lines above holding\n#: a subset -- two spellings of one vocabulary, neither naming the other, and `queued` in neither.\n#:\n#: It is named so a test can read it. `service/tests/test_the_spawn_panel_names_real_statuses.py`\n#: compares it against the words the dashboard\'s spawn panel puts in front of an operator, which is\n#: how the panel\'s promise of a "completed" spawn -- a state the service refuses -- was found.\nSPAWN_REQUEST_STATUSES = ("queued", "claimed", "starting", "running", "failed", "cancelled")\n\n#: The subset a bridge may PATCH. `queued` is not one: nothing moves a request BACK to unclaimed.\nSPAWN_REQUEST_PATCHABLE_STATUSES = frozenset(SPAWN_REQUEST_STATUSES) - {"queued"}\n',
+        '\n',
+    ),
+    (
+        '    status_value = str(req.status or "").strip().lower()\n    if status_value not in SPAWN_REQUEST_PATCHABLE_STATUSES:\n        raise HTTPException(400, f\'Unsupported spawn request status "{req.status}"\')',
+        '    status_value = str(req.status or "").strip().lower()\n    if status_value not in {"claimed", "starting", "running", "failed", "cancelled"}:\n        raise HTTPException(400, f\'Unsupported spawn request status "{req.status}"\')',
+    ),
     (
         '\nfrom service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL\nfrom service.api_core.agent_sessions import ENDED_AGENT_SESSION_STATUS_SQL',
         '\nfrom service.api_core.agent_sessions import ENDED_AGENT_SESSION_STATUS_SQL',

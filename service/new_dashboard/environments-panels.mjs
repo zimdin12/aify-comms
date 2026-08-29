@@ -190,22 +190,27 @@ export function renderSpawnRequests() {
   const el = byId('spawn-requests-list');
   if (!el) return;
   const requests = [...state.spawnRequests].sort((a, b) =>
-    String(b.createdAt || b.created_at || '').localeCompare(String(a.createdAt || a.created_at || '')));
+    String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
   if (!requests.length) {
-    el.innerHTML = '<div class="empty-state"><span class="empty-icon">🌱</span><strong>No spawn requests</strong><p>Queued, failed, and completed spawns will appear here.</p></div>';
+    // THE STATES THIS TABLE CAN ACTUALLY SHOW. It promised "completed" spawns, and a spawn
+    // request is never completed: the five statuses the service writes are queued, claimed,
+    // running, failed and cancelled. An empty state that names a state the system has never had
+    // tells the operator to wait for something that is not coming.
+    el.innerHTML = '<div class="empty-state"><span class="empty-icon">🌱</span><strong>No spawn requests</strong><p>Queued, claimed, running, failed and cancelled spawns will appear here.</p></div>';
     return;
   }
   const rows = requests.map((req) => {
+    // NO `done` MAPPING. It read `status === 'done' ? 'completed' : status`, and neither value is
+    // one a spawn request can hold, so the branch was unreachable and its target meaningless.
     const status = String(req.status || 'queued').toLowerCase();
-    const chipStatus = status === 'done' ? 'completed' : status;
     const detail = req.error || req.claimedByBridgeId || '';
-    const created = req.createdAt || req.created_at || '';
+    const created = req.createdAt || '';
     return `<tr>
       <td>${created ? esc(relTime(created)) + ' ago' : '—'}</td>
-      <td><strong>${esc(req.agentId || req.agent_id || '—')}</strong>${req.role ? `<br><span class="subtle">${esc(req.role)}</span>` : ''}</td>
-      <td class="clip">${esc(req.environmentId || req.environment_id || '—')}</td>
+      <td><strong>${esc(req.agentId || '—')}</strong>${req.role ? `<br><span class="subtle">${esc(req.role)}</span>` : ''}</td>
+      <td class="clip">${esc(req.environmentId || '—')}</td>
       <td>${esc(req.runtime || '—')}</td>
-      <td>${renderStatusChip(chipStatus, { label: status, why: `Spawn request status: ${status}.` })}</td>
+      <td>${renderStatusChip(status, { label: status, why: `Spawn request status: ${status}.` })}</td>
       <td class="clip">${esc(req.workspace || '—')}</td>
       <td class="clip">${esc(detail)}</td>
     </tr>`;

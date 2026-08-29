@@ -65,13 +65,17 @@ function spawnRows(requests) {
   });
 }
 
-test("a `done` spawn is chipped as completed, not left unknown", () => {
-  // `done` is the one spawn status the canonical resolver does not know. The alias is what keeps a
-  // finished spawn out of the unknown bucket; if it ever stops working, every completed spawn on this
-  // page goes grey at once and the panel stops meaning anything.
+test("A STATUS THE SERVICE REFUSES IS NOT ALIASED INTO ONE IT ACCEPTS", () => {
+  // This used to require `done` be chipped as `completed`, on the reasoning that "every completed
+  // spawn on this page goes grey at once" without the alias. Neither value is a spawn status:
+  // `PATCH /spawn-requests/{id}` validates against {claimed, starting, running, failed, cancelled}
+  // and answers 400 for anything else, and `queued` is the creation default. The alias could not
+  // fire, and its target was not a state either -- so a reader of that test learned a vocabulary the
+  // system does not have.
   const html = spawnRows([{ agentId: "a", status: "done" }]);
-  assert.ok(html.includes("completed"), "the chip must resolve to a known status");
-  assert.ok(html.includes(">done<") || html.includes("done"), "…while the raw status stays visible as the label");
+  assert.ok(!html.includes("completed"),
+    "an unknown status must render as itself, not be translated into a state that does not exist");
+  assert.ok(html.includes("done"), "…and the raw value stays visible, so the anomaly is readable");
 });
 
 test("other spawn statuses pass through unaliased, and case does not matter", () => {
@@ -86,10 +90,13 @@ test("a spawn with no status reads as queued rather than blank", () => {
   assert.ok(html.includes("queued"));
 });
 
-test("spawn requests are newest-first, under either timestamp spelling", () => {
+test("spawn requests are newest-first", () => {
+  // `createdAt` only. It read `createdAt || created_at`, and `_spawn_request_to_dict` emits
+  // camelCase for every key -- so the second spelling was a dead branch, and the row that used it
+  // here sorted as if it had no timestamp at all.
   const html = spawnRows([
     { agentId: "older", createdAt: "2026-08-14T10:00:00Z" },
-    { agentId: "newest", created_at: "2026-08-14T12:00:00Z" },
+    { agentId: "newest", createdAt: "2026-08-14T12:00:00Z" },
     { agentId: "middle", createdAt: "2026-08-14T11:00:00Z" },
   ]);
   const order = ["newest", "middle", "older"].map((n) => html.indexOf(n));

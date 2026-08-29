@@ -239,10 +239,36 @@ function undoEdits(body, edits, name, module) {
   for (const edit of edits) {
     const now = [].concat(edit.now);
     const was = [].concat(edit.was);
+    // AN EMPTY `now` MATCHES EVERYWHERE, so it must not be allowed to match anywhere.
+    // `[].every(...)` is vacuously true, so `findIndex` answers 0 and a declared DELETION is undone
+    // at the top of the declaration -- above its own `function` line. That happened, and it
+    // surfaced as a byte mismatch reported three thousand lines from the cause. The fix a plan
+    // needs is a line of context on both sides, which this says rather than leaving to be inferred.
+    if (!now.length) {
+      throw new Error(
+        `${name} in ${module}: an editedSince entry has an empty \`now\`, which matches at line 0 `
+          + "and would undo the edit at the top of the declaration. Give the hunk one line of "
+          + "surrounding context in BOTH arrays so its anchor is unique: "
+          + JSON.stringify(was[0] ?? null),
+      );
+    }
     const at = lines.findIndex((_, i) => now.every((l, k) => lines[i + k] === l));
     if (at === -1) {
       throw new Error(
         `${name} in ${module}: declared edit not found verbatim, so the plan and the module disagree: `
+          + JSON.stringify(now[0]),
+      );
+    }
+    // AND IT MUST MATCH ONCE. A second match means `was` lands at whichever came first, which is a
+    // choice the plan never made. The seeding undo already refuses an ambiguous line; this is the
+    // same rule for a declaration's edits.
+    const again = lines.findIndex(
+      (_, i) => i > at && now.every((l, k) => lines[i + k] === l),
+    );
+    if (again !== -1) {
+      throw new Error(
+        `${name} in ${module}: an editedSince anchor matches at lines ${at + 1} and ${again + 1}, `
+          + "so which one it undoes is arbitrary. Widen the hunk with surrounding context: "
           + JSON.stringify(now[0]),
       );
     }
