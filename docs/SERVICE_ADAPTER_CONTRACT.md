@@ -1,6 +1,6 @@
 # The service adapter: how aify-env supervises something that is not a harness
 
-**Status: DESIGN, revision 4. Nothing here is built.** It is the first architecture slice of the
+**Status: DESIGN, revision 5. Nothing here is built.** It is the first architecture slice of the
 operator's 2026-08-29 instruction — "get that aify-env and aify-comms bridge thing sorted out, real
 separation of concerns" — and it is deliberately narrower than the harness-driver question, which
 follows it.
@@ -17,10 +17,16 @@ it means whatever a scanner happened to walk. Rollback had no binding to the tra
 The singleton lease had no owner. The readiness stamps had no rule making them observations rather than
 configuration.
 
-Revision 4 clears three contradictions revision 3 left standing, and they are the kind worth naming:
+Revision 4 cleared three contradictions revision 3 left standing, and they are the kind worth naming:
 each was a place where the document said one thing in one section and its opposite in another, so an
 implementer could satisfy it either way and neither reading would be wrong. A contract that can be
 satisfied two ways has not decided anything.
+
+Revision 5 fixes two things I introduced while fixing those. Both are the same mistake in different
+clothes: **a property stated in one place and quietly assumed away in another.** Making the digest
+algorithm configurable and then naming the release by a bare digest assumes one algorithm. Calling a
+record immutable and then saying it becomes "spent" assumes it has a lifecycle. Neither survives being
+read twice.
 
 Companion to [AIFY_ENV_BOUNDARY.md](AIFY_ENV_BOUNDARY.md) (who owns what) and
 [HARNESS_KNOWLEDGE_BELONGS_TO_AIFY_WRAPPER.md](HARNESS_KNOWLEDGE_BELONGS_TO_AIFY_WRAPPER.md) (where the
@@ -70,8 +76,8 @@ releases/<manifestDigest>/
     ...                  every other governed runtime byte
 ```
 
-- `<manifestDigest>` is the digest of the **canonical manifest bytes**, taken with the algorithm the
-  manifest itself declares (1b).
+- `<manifestDigest>` is the sha-256 of the **canonical manifest bytes** — one algorithm in v1, fixed by
+  `manifestVersion` rather than chosen per artifact (1b says why).
 - Every manifest entry is a path relative to `payload/`.
 - aify-env enumerates `payload/` **exactly and only**, and requires closure in both directions: no
   listed file missing, no unlisted file present.
@@ -98,7 +104,7 @@ says that the manifest does not authenticate can be substituted while the payloa
 | `kind` | `service-adapter` |
 | `adapterAbi` | the ABI the adapter implements. **Authenticated here**, so the registry and the receipt can only agree with it, never override it. |
 | `entrypoint` | exactly one relative payload member. Not a list, not a pattern. |
-| `digestAlgorithm` | the algorithm used for the file rows AND for the manifest digest that names the release. An unknown value refuses. |
+| `digestAlgorithm` | **`sha256` in v1, and nothing else is legal.** Present so a future change is a declared change; not present so an implementation may choose. An unknown value refuses. |
 | `files` | sorted rows of `{path, byteLength, digest, type}`, the digest computed with `digestAlgorithm` |
 | `prerequisites` | declared externals (see 1c). Named, not hashed. |
 
@@ -110,12 +116,24 @@ says that the manifest does not authenticate can be substituted while the payloa
 - Rows sorted byte-wise by canonical path, so ordering is not a degree of freedom.
 - No duplicate paths, and no two paths equal after case folding: Windows resolves those to one file, so
   two rows could otherwise name one byte sequence.
-- The release is named by the digest of the canonical manifest bytes, computed with the manifest's own
-  `digestAlgorithm`, so a future change is a declared change rather than a silent reinterpretation.
-  Revision 3 promised that the algorithm was named inside the manifest and then did not give it a
-  field; a reader could implement either. An unknown or mismatched algorithm **refuses** — it does not
-  fall back to a default, because a default is how one side ends up hashing with something the other
-  never agreed to.
+- The release is named by the digest of the canonical manifest bytes. An unknown or mismatched
+  algorithm **refuses** — it does not fall back to a default, because a default is how one side ends up
+  hashing with something the other never agreed to.
+
+**ONE ALGORITHM IN v1, AND THAT IS A DECISION.** Revision 4 made `digestAlgorithm` a field and left the
+release identity a bare digest — in the registry, in the receipt, in the transition record and in the
+directory name. A bare digest is an unambiguous identity only if exactly one algorithm is legal, so the
+two halves contradicted each other: the field promised agility the identity could not carry.
+
+The two coherent answers are a namespaced identity everywhere (`sha256-<digest>`) or a single algorithm
+fixed by `manifestVersion`. **v1 takes the second.** Agility bought nothing here — there is one producer
+and one verifier, both shipped together — and it would have put an algorithm selector inside an artifact
+that is not yet trusted at the moment it is read, which is a strange place to take instruction from.
+When a second algorithm is genuinely needed it arrives as `manifestVersion: 2`, and the migration is
+that bump rather than a per-artifact negotiation.
+
+If that decision is ever reversed, the identity must be namespaced in ALL FOUR places at once. A
+namespaced digest in the manifest and a bare one in the directory name is the same contradiction moved.
 
 **Where the shared library lives**, because "one canonical library" is otherwise an ownerless
 component. It computes canonical serialisation and digests and nothing else: no filesystem walk, no
@@ -220,9 +238,25 @@ custody. Two records, because they answer two questions:
 | **artifact receipt** | who installed THIS release, and what does it contain | one per release, immutable |
 | **transition record** | this attempt to make that release desired | one per CAS attempt, immutable |
 
-The transition record carries: the candidate release, the expected-old predecessor, the registry
-revision or fingerprint it was written against, the identity and result of the CAS that succeeded, and
-the rollback state. A rollback consumes THAT record and no other.
+**AN IMMUTABLE RECORD CANNOT CARRY MUTABLE STATE OR BECOME "SPENT".** Revision 4 said the transition
+record holds "the rollback state" and that a retry leaves the old one spent. Both give a lifecycle to
+something declared immutable, and "the CAS that succeeded" has no referent for an attempt that failed.
+
+So a transition is an APPEND-ONLY SEQUENCE of events, not a mutable row:
+
+| event | written | carries |
+|---|---|---|
+| `attempted` | before every CAS | candidate release, expected-old predecessor, registry revision it was written against |
+| `outcome` | after every CAS | typed result — `applied`, `conflict`, `refused` — and, on `applied` only, the new registry revision |
+| `rolled_back` | after a rollback | a reference to the exact `applied` event it reverses, and its own CAS outcome |
+
+Every attempt gets both of the first two. A failed attempt is a complete, readable record of a thing
+that did not happen, rather than an absence. A retry appends; nothing is overwritten and nothing is
+spent.
+
+A rollback names one `applied` event and succeeds only if current desired still equals that event's
+candidate. Where a newer same-service desired value exists it **refuses** and the supervisor reconciles
+forward, which is 7b's rule stated against a record that can actually be pointed at.
 
 **Said plainly: without a signature or an OS ACL, a local receipt is provenance under a local-host
 trust boundary.** It records who installed what. It is not protection against an attacker who can
@@ -319,8 +353,9 @@ same-service update can change the predecessor while this installer rereads and 
 "atomically restore the previous release" overwrites a newer desired state somebody else just
 published. The rollback would be atomic and wrong.
 
-- the rollback consumes the TRANSITION RECORD of the CAS that actually succeeded, not the receipt: a
-  retry against a changed predecessor writes a new transition record and the old one is spent;
+- the rollback names the `applied` EVENT it reverses, not the receipt, and not "the CAS that
+  succeeded" — a retry appends a new attempt and outcome, and the earlier events stay exactly as they
+  were written;
 - the rollback CAS succeeds only if current desired still equals **this failed candidate**;
 - if a newer same-service desired value exists, rollback **refuses**, and the supervisor reconciles
   forward to that newer value instead;
