@@ -103,7 +103,22 @@ const CEILINGS = {
   // next person to write prose there will read it. PAID, not just recorded: removing those two
   // verifier runs took one render from ~8.5s to ~4.2s, which is the same file getting cheaper as it
   // gets longer. Still unpaid by the Phase 8 deletion, same as above.
-  "install.sh": 3049,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
+  // 3049 -> 3074 on 2026-08-30. A DECISION, and here is what it buys and what already paid most of it.
+  //
+  // Setting `API_KEY` used to take the fleet down. The service installs its auth middleware only when
+  // that value is set, so the default is keyless and everything works; the moment an operator sets it,
+  // every installed client holds no key and re-running this installer did NOT fix them -- it looked
+  // only in the shell, found nothing, and wrote the same keyless config again. The remedy that
+  // obviously should work made no difference, which is the worst shape a failure can have.
+  //
+  // MOST OF THE COST WAS PAID RATHER THAN ARGUED. The resolver and the generator -- 73 lines -- moved
+  // to scripts/api-key.sh, beside scripts/installed-endpoint.sh and scripts/hook-installed.sh, which
+  // exist for exactly this: reading what the host already chose before an update overwrites it. The
+  // four hand-typed copies of the key precedence collapsed into one call. What is left here is the
+  // wiring that cannot live anywhere else: a flag, its usage line, one resolver call, and the
+  // generate-and-report block with its error path. Every comment on this change was cut to a pointer
+  // at the script that carries the reasoning.
+  "install.sh": 3074,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.

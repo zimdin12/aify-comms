@@ -37,6 +37,7 @@ AIFY_BRIDGE_DIR="$AIFY_NATIVE_BASE/mcp/stdio"
 CLIENT="claude"
 SERVER_URL=""
 WITH_HOOK=false
+WITH_API_KEY=false
 # Plan 5 (2026-05-25): --prebuild-dry-run exits after running the hermes
 # web_dist prebuild branch (no npm invocation, no wrapper writes). Used by
 # service/tests/test_install_hermes_prebuild.py to verify the branch's
@@ -58,7 +59,7 @@ DEFAULT_AIFY_SERVER_URL="${AIFY_DEFAULT_SERVER_URL:-http://127.0.0.1:8800}"
 usage() {
   cat <<'EOF'
 Usage:
-  bash install.sh --client <claude|codex|hermes> [SERVER_URL] [--with-hook]
+  bash install.sh --client <claude|codex|hermes> [SERVER_URL] [--with-hook] [--with-api-key]
 
 Examples:
   bash install.sh --client claude
@@ -87,6 +88,10 @@ while [ $# -gt 0 ]; do
       ;;
     --with-hook)
       WITH_HOOK=true
+      shift
+      ;;
+    --with-api-key)  # opt-in: takes effect on the service's NEXT start. An existing key is reused.
+      WITH_API_KEY=true
       shift
       ;;
     --delegate-spawns)
@@ -1576,6 +1581,12 @@ hermes_runtime_is_native_windows() {
   return 1
 }
 
+# One reader for the key: this shell, then the service's own `.env`. scripts/api-key.sh says why.
+# stderr is deliberately NOT swallowed; `|| true` keeps having no key non-fatal, which is supported.
+aify_api_key() {
+  bash "$SCRIPT_DIR/scripts/api-key.sh" || true
+}
+
 path_for_node() {
   local value="$1"
   if is_git_bash_windows && command -v cygpath >/dev/null 2>&1; then
@@ -1712,7 +1723,7 @@ install_opencode_config() {
   local config_file="$config_root/opencode.json"
   local node_config_file=""
   local node_server_path=""
-  local api_key="${CLAUDE_MCP_API_KEY:-${AIFY_API_KEY:-}}"
+  local api_key; api_key="$(aify_api_key)"
   mkdir -p "$config_root"
   if [ ! -f "$config_file" ]; then
     cat > "$config_file" <<'EOF'
@@ -1770,7 +1781,7 @@ install_pi_config() {
   local config_file="$config_root/mcp.json"
   local node_config_file=""
   local node_server_path=""
-  local api_key="${CLAUDE_MCP_API_KEY:-${AIFY_API_KEY:-}}"
+  local api_key; api_key="$(aify_api_key)"
   mkdir -p "$config_root"
   if [ ! -f "$config_file" ]; then
     cat > "$config_file" <<'EOF'
@@ -2611,7 +2622,7 @@ install_claude_hook() {
 register_stdio_server() {
   local cli="$1"
   local server_name="aify-comms"
-  local api_key="${CLAUDE_MCP_API_KEY:-${AIFY_API_KEY:-}}"
+  local api_key; api_key="$(aify_api_key)"
   local -a scope_args=()
 
   if [ "$cli" = "claude" ]; then
@@ -2739,7 +2750,7 @@ install_codex_mcp_env_vars() {
 register_claude_channel_server() {
   local cli="$1"
   local server_name="aify-comms-channel"
-  local api_key="${CLAUDE_MCP_API_KEY:-${AIFY_API_KEY:-}}"
+  local api_key; api_key="$(aify_api_key)"
 
   "$cli" mcp remove --scope local "$server_name" >/dev/null 2>&1 || true
   "$cli" mcp remove --scope project "$server_name" >/dev/null 2>&1 || true
@@ -2780,6 +2791,20 @@ if [ -n "$EMIT_WRAPPERS_DIR" ]; then
   # And the bridge launcher: it is a launcher, and it is the one carrying delegation.
   install_bridge_launcher
   exit 0
+fi
+
+# Settled BEFORE the first config that carries it is written. Resolved always, generated only on ask.
+if [ "$WITH_API_KEY" = true ]; then
+  if RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key.sh" --generate)"; then
+    export CLAUDE_MCP_API_KEY="$RESOLVED_API_KEY"
+    export AIFY_API_KEY="$RESOLVED_API_KEY"
+    echo "API key in place (.env). RESTART THE SERVICE for it to take effect:"
+    echo "    docker compose up -d"
+    echo "Until then the service still accepts unauthenticated requests."
+  else
+    echo "ERROR: --with-api-key was requested but no key could be generated." >&2
+    exit 1
+  fi
 fi
 
 # Plan 5 (2026-05-25): pre-build hermes web_dist BEFORE the heavy install
