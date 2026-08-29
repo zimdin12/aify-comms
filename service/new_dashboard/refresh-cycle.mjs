@@ -97,7 +97,12 @@ export async function runRefreshCycle({
   if (recentUsable || inboxMessages) {
     state.messages = recentUsable || inboxMessages || state.messages || [];
   }
-  if (ok(4)) state.runs = val(4).runs || [];
+  if (ok(4)) {
+    state.runs = val(4).runs || [];
+    // KEPT for the same reason as the sessions flag: under a capped page, "nothing matches" and
+    // "none exist" are different facts that look identical.
+    state.runsTruncated = Boolean(val(4)?.truncated);
+  }
   if (ok(5)) {
     state.sessions = asArray(val(5), 'sessions');
     // KEPT, not dropped. Under a capped page, "no sessions match" and "none exist" are different

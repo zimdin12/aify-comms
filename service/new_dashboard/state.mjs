@@ -68,6 +68,11 @@ export const state = {
   // state read "No sessions yet -- spawn a managed session" while 303 existed. `/sessions`
   // now reports `truncated`, the way `/contracts` and `/terminals` already did.
   sessionsTruncated: false,
+  // The Runs list is a page too, and its From / To / runtime dropdowns are built FROM that page,
+  // so an agent whose last run fell off it is not merely absent -- it is unselectable, while the
+  // empty state invited the operator to adjust the filters. Measured on the live database
+  // 2026-08-29: a limit=80 page reached back to 26 August and offered ONE distinct sender.
+  runsTruncated: false,
   settingsTab: '', // active settings tab (empty → first group)
   // Global analytics page (WS-C). Lazily loaded when the page is first opened, then on refresh
   // while it stays active, and on range change. data === null until first load completes.

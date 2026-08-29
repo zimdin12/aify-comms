@@ -210,6 +210,19 @@ const EXTRACTIONS = [
         editedSince: [
           {
             was: [
+              "  sessionsTruncated: false,",
+            ],
+            now: [
+              "  sessionsTruncated: false,",
+              "  // The Runs list is a page too, and its From / To / runtime dropdowns are built FROM that page,",
+              "  // so an agent whose last run fell off it is not merely absent -- it is unselectable, while the",
+              "  // empty state invited the operator to adjust the filters. Measured on the live database",
+              "  // 2026-08-29: a limit=80 page reached back to 26 August and offered ONE distinct sender.",
+              "  runsTruncated: false,",
+            ],
+          },
+          {
+            was: [
               "  showSupersededSessions: false,",
             ],
             now: [
@@ -1681,6 +1694,17 @@ const EXTRACTIONS = [
           "});",
         ],
                 editedSince: [
+        {
+          was: "  if (ok(4)) state.runs = val(4).runs || [];",
+          now: [
+            "  if (ok(4)) {",
+            "    state.runs = val(4).runs || [];",
+            "    // KEPT for the same reason as the sessions flag: under a capped page, \"nothing matches\" and",
+            "    // \"none exist\" are different facts that look identical.",
+            "    state.runsTruncated = Boolean(val(4)?.truncated);",
+            "  }",
+          ],
+        },
           {
             was: [
               "  const chip = refreshChipState(settled);",
@@ -1965,6 +1989,42 @@ const EXTRACTIONS = [
         name: "renderRuns",
         at: 3190,
         marker: "// renderRuns moved to ./run-inspector.mjs in v0.5.4.",
+        // 2026-08-29: the runs list is a PAGE and now says which of its filters can reach past it.
+        // Status is in the query string; From, To, runtime and search are applied client-side over
+        // the rows already fetched, and the three dropdowns are POPULATED from those rows -- so an
+        // agent whose last run fell off the page is unselectable, while the empty state invited the
+        // operator to adjust the filters.
+        editedSince: [
+        {
+          was: [
+            "    note.textContent = `Showing ${runs.length} most recent matching ${status}run${runs.length === 1 ? '' : 's'}.`;",
+          ],
+          now: [
+            "    // WHICH FILTERS REACH THE SERVER, said only when it matters. Status is in the query string;",
+            "    // From, To, runtime and search are applied here, over the rows already fetched -- and the three",
+            "    // dropdowns are POPULATED from those same rows, so an agent whose last run fell off the page",
+            "    // cannot even be selected. Measured on the live database 2026-08-29: a limit=80 page reached back",
+            "    // to 26 August and offered one distinct sender.",
+            "    const scope = state.runsTruncated",
+            "      ? ' Older runs are not loaded: From, To, runtime and search cover only these, and only Status re-queries.'",
+            "      : '';",
+            "    note.textContent = `Showing ${runs.length} most recent matching ${status}run${runs.length === 1 ? '' : 's'}.${scope}`;",
+          ],
+        },
+        {
+          was: [
+            "    </article>`).join('') || '<div class=\"empty-state\"><span class=\"empty-icon\">\uD83D\uDCE8</span><strong>No dispatch runs</strong><p>Runs appear here when an agent sends or receives work. Adjust the filters above if you expected to see some.</p></div>';",
+          ],
+          now: [
+            "    </article>`).join('') || (state.runsTruncated",
+            "    // NOT \"adjust the filters\" when four of the five cannot reach further than the loaded page. That",
+            "    // sentence sends an operator round a loop that always ends where it started -- the same defect a",
+            "    // reviewer caught in the sessions note the same day.",
+            "    ? '<div class=\"empty-state\"><span class=\"empty-icon\">\uD83D\uDD0E</span><strong>None on this page</strong><p>None of the loaded runs match. Older runs are not loaded — only the Status filter re-queries the server.</p></div>'",
+            "    : '<div class=\"empty-state\"><span class=\"empty-icon\">\uD83D\uDCE8</span><strong>No dispatch runs</strong><p>Runs appear here when an agent sends or receives work. Adjust the filters above if you expected to see some.</p></div>');",
+          ],
+        },
+        ],
       },
       {
         name: "renderRunInspector",

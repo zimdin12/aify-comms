@@ -340,3 +340,65 @@ test("the six injected names are NOT imported", async () => {
     assert.doesNotMatch(src, new RegExp(`^import .*\\b${name}\\b`, "m"), `${name} must be injected`);
   }
 });
+
+// ---- the runs list is a PAGE, and four of its five filters cannot reach past it ------------------
+
+test("A TRUNCATED RUNS LIST SAYS WHICH FILTERS REACH THE SERVER", () => {
+  // MEASURED ON THE LIVE DATABASE, 2026-08-29: a `limit=80` page reached back to 26 August and its
+  // From dropdown offered ONE distinct sender -- because `syncRunFilterOptions` builds those options
+  // from `state.runs`, the rows already fetched. So an agent whose last run fell off the page is not
+  // merely absent from the list, it is unselectable, and the empty state invited the operator to
+  // "adjust the filters above".
+  const h = withInspector(null);
+  try {
+    state.runs = [{ id: "r1", status: "running", target_agent: "coder" }];
+    state.runsTruncated = true;
+    state.runToFilter = "";
+    state.runRuntimeFilter = "";
+    renderRuns();
+    const note = h.els.get("run-result-note").textContent;
+    assert.match(note, /Older runs are not loaded/i);
+    assert.match(note, /only Status re-queries/i,
+      "the note must name the one filter that DOES reach the server, or it reads as though none do");
+  } finally { state.runsTruncated = false; h.restore(); }
+});
+
+test("a complete runs list says nothing extra", () => {
+  // The control. A note that appears on every render is one an operator stops reading, and this one
+  // is only true when rows were left behind.
+  const h = withInspector(null);
+  try {
+    state.runs = [{ id: "r1", status: "running", target_agent: "coder" }];
+    state.runsTruncated = false;
+    state.runToFilter = "";
+    state.runRuntimeFilter = "";
+    renderRuns();
+    assert.doesNotMatch(h.els.get("run-result-note").textContent, /Older runs are not loaded/i);
+  } finally { h.restore(); }
+});
+
+test("EMPTY AND TRUNCATED DOES NOT SAY \"adjust the filters\"", () => {
+  // The advice that cannot work. Four of the five filters are client-side over rows already fetched,
+  // so adjusting them can never retrieve the run the operator is looking for -- the same defect a
+  // reviewer caught in the sessions note the same day.
+  const h = withInspector(null);
+  try {
+    state.runs = [];
+    state.runsTruncated = true;
+    renderRuns();
+    const html = h.els.get("run-list").innerHTML;
+    assert.doesNotMatch(html, /Adjust the filters/i);
+    assert.match(html, /None of the loaded runs match/i);
+  } finally { state.runsTruncated = false; h.restore(); }
+});
+
+test("empty and COMPLETE keeps the original advice, which is sound there", () => {
+  // With nothing left behind, "adjust the filters" is exactly right: everything that exists is loaded.
+  const h = withInspector(null);
+  try {
+    state.runs = [];
+    state.runsTruncated = false;
+    renderRuns();
+    assert.match(h.els.get("run-list").innerHTML, /Adjust the filters/i);
+  } finally { h.restore(); }
+});

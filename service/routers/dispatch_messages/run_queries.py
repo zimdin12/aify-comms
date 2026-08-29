@@ -66,10 +66,22 @@ async def list_dispatch_runs(
         if status:
             query += " AND status = ?"
             params.append(status)
+        # ONE MORE ROW THAN ASKED FOR, so the response can say whether this is the whole answer.
+        # The dashboard asks for 80 and renders exactly what it gets, and its From / To / runtime
+        # dropdowns are BUILT FROM THE ROWS IT RECEIVED -- so an agent whose last run is off the page
+        # is not merely absent from the list, it is unselectable, while the empty state invites the
+        # operator to "adjust the filters above". Measured on the live database 2026-08-29: a
+        # `limit=80` page reached back to 2026-08-26T13:28 and offered ONE distinct sender; a
+        # `limit=200` page was also full, so the window is a window at every size the API allows.
+        #
+        # Same shape as `/sessions` and for the same reason: a bounded page that cannot say it is
+        # bounded reads as the whole list. `/contracts` and `/terminals` already report this.
         query += " ORDER BY requested_at DESC LIMIT ?"
-        params.append(limit)
+        params.append(limit + 1)
         cursor = await db.execute(query, params)
         rows = await cursor.fetchall()
+        truncated = len(rows) > limit
+        rows = rows[:limit]
         # Perf (audit 2026-06-28): batch the per-run source-controls lookup into ONE query keyed
         # by all run_ids on the page, instead of a sub-query per row (was ~80 queries/poll on the
         # dashboard's 15s cycle → 1). Read-only; output is identical (same fields, ASC order, the
@@ -105,7 +117,9 @@ async def list_dispatch_runs(
             if source_controls:
                 payload["sourceControls"] = source_controls
             runs.append(payload)
-        return {"runs": runs}
+        # `limit` beside `truncated`: "there are more" without "more than what" leaves a reader
+        # unable to judge how much is missing.
+        return {"runs": runs, "truncated": truncated, "limit": limit}
     finally:
         await db.close()
 

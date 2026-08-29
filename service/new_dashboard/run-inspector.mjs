@@ -77,7 +77,15 @@ export function renderRuns() {
   const note = byId('run-result-note');
   if (note) {
     const status = state.runStatusFilter ? `${state.runStatusFilter} ` : '';
-    note.textContent = `Showing ${runs.length} most recent matching ${status}run${runs.length === 1 ? '' : 's'}.`;
+    // WHICH FILTERS REACH THE SERVER, said only when it matters. Status is in the query string;
+    // From, To, runtime and search are applied here, over the rows already fetched -- and the three
+    // dropdowns are POPULATED from those same rows, so an agent whose last run fell off the page
+    // cannot even be selected. Measured on the live database 2026-08-29: a limit=80 page reached back
+    // to 26 August and offered one distinct sender.
+    const scope = state.runsTruncated
+      ? ' Older runs are not loaded: From, To, runtime and search cover only these, and only Status re-queries.'
+      : '';
+    note.textContent = `Showing ${runs.length} most recent matching ${status}run${runs.length === 1 ? '' : 's'}.${scope}`;
   }
   byId('run-list').innerHTML = runs.map((run) => `
     <article class="run-row" data-kind="run" data-id="${esc(run.id)}">
@@ -89,7 +97,12 @@ export function renderRuns() {
         <button class="ghost" data-run-inspector="${esc(run.id)}" data-run-source="runs">Inspect</button>
         ${['claimed', 'running'].includes(resolveStatus(run.status).kind) ? `<button class="ghost" data-steer-run="${esc(run.id)}">Steer</button>` : ''}
       </div>
-    </article>`).join('') || '<div class="empty-state"><span class="empty-icon">📨</span><strong>No dispatch runs</strong><p>Runs appear here when an agent sends or receives work. Adjust the filters above if you expected to see some.</p></div>';
+    </article>`).join('') || (state.runsTruncated
+    // NOT "adjust the filters" when four of the five cannot reach further than the loaded page. That
+    // sentence sends an operator round a loop that always ends where it started -- the same defect a
+    // reviewer caught in the sessions note the same day.
+    ? '<div class="empty-state"><span class="empty-icon">🔎</span><strong>None on this page</strong><p>None of the loaded runs match. Older runs are not loaded — only the Status filter re-queries the server.</p></div>'
+    : '<div class="empty-state"><span class="empty-icon">📨</span><strong>No dispatch runs</strong><p>Runs appear here when an agent sends or receives work. Adjust the filters above if you expected to see some.</p></div>');
   renderDiagnosticsBulkToolbar();
 }
 
