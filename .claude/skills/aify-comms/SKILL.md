@@ -154,7 +154,7 @@ Use `comms_send` for normal teamwork:
 
 - Omit it for normal type defaults: `request`, `review`, and `error` owe replies; `info`, `response`, and `approval` do not.
 - Set `requireReply=true` only when a normally optional message genuinely needs a tracked response.
-- Set `requireReply=false` only for an intentionally fire-and-forget request/review/error whose body asks no question or action. Do not use it to hide unfinished delegated work.
+- `requireReply=false` does not stop the chase: the Work Loop enrols `request`/`review`/`error` by type. It only drops the reply contract on `info`/`response`/`approval`.
 
 Ordinary sends are live-delivery gated, but an `available` managed agent AUTO-STARTS on send (the service cold-starts a bridge-claimed worker) — so you don't pre-spawn idle agents. Only `offline`/no-online-env targets and explicitly-disabled `stopped` agents fail. Busy steer-capable targets receive ordinary sends as steer into the active run; busy non-steer targets queue/merge as next-turn work (`queueIfBusy=true` to force that path). Requests, reviews, and errors are reply contracts by default; routine `info` is not unless `requireReply` is set. For the full send-gating rules (auto-start binding, the `stopped`/disable path, per-runtime delivery surfaces, the orange-pulse hint, `blocked` vs completed-without-reply, and the reply-contract reminder loop), see `references/operations.md` (Send Gating & Delivery).
 

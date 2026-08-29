@@ -38,7 +38,7 @@ async def comms_send(
     queueIfBusy: bool = False,
     requireReply: bool | None = None,
 ) -> str:
-    """Send a live-gated message to an agent by ID or role. Offline/stopped/no-wake targets fail without storing. Busy steer-capable targets receive ordinary sends as current-run steer; busy live non-steer targets queue/merge as next-turn work. Set queueIfBusy=true only when you intentionally want next-turn delivery even if steering is available. Reply tracking: omit requireReply for type defaults (request/review/error=true; info/response/approval=false); set true only when a normally optional message needs a tracked response, and false only for intentional fire-and-forget. requireReply does not control delivery or waking. Use silent=true only for legacy inbox-only delivery."""
+    """Send a live-gated message to an agent by ID or role. Offline/stopped/no-wake targets fail without storing. Busy steer-capable targets receive ordinary sends as current-run steer; busy live non-steer targets queue/merge as next-turn work. Set queueIfBusy=true only when you intentionally want next-turn delivery even if steering is available. Reply tracking: omit requireReply for type defaults (request/review/error=true; info/response/approval=false); set true only when a normally optional message needs a tracked response; false drops the contract on info/response/approval and does NOT exempt request/review/error, which the Work Loop enrols by type. requireReply does not control delivery or waking. Use silent=true only for legacy inbox-only delivery."""
     if not to and not toRole:
         return "Error: need 'to' or 'toRole'"
     should_trigger = not silent
@@ -109,7 +109,7 @@ async def comms_dispatch(
     requireStart: bool = False,
     requireReply: bool | None = None,
 ) -> str:
-    """Lower-level tracked run-control/debug API. Normal teamwork should use comms_send, which already fails visibly when live delivery is unavailable. Direct dispatch expects a reply by default unless requireReply=false."""
+    """Lower-level tracked run-control/debug API. Normal teamwork should use comms_send, which already fails visibly when live delivery is unavailable. Direct dispatch expects a reply by default; requireReply=false drops that on info/response/approval only, and the Work Loop still enrols request/review/error by type."""
     if not to and not toRole:
         return "Error: need 'to' or 'toRole'"
     data = {
