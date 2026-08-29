@@ -18,52 +18,14 @@ mutation, so this runs on a machine with a live fleet without touching it.
 from __future__ import annotations
 
 import re
-import shutil
 import subprocess
-import tempfile
-from pathlib import Path
 
-import pytest
+from _launchers import INSTALL_SH as INSTALL, REPO as ROOT, bash as _bash, emittable_clients, render
 
-ROOT = Path(__file__).resolve().parents[2]
-INSTALL = ROOT / "install.sh"
-
-# Every client install.sh can render. Derived below rather than trusted, so a new one cannot arrive
-# ungoverned the way hermes and pi did.
+# Every client install.sh can render is DERIVED in `_launchers`, not listed here, so a new one
+# cannot arrive ungoverned the way hermes and pi did. The render is cached for the session there
+# too: this file's four-client scan was 42.5 seconds of the suite, all of it install.sh.
 PLACEHOLDER = re.compile(r"@@[A-Z0-9_]+@@")
-
-
-def emittable_clients() -> list[str]:
-    """The clients --emit-wrappers can render, read out of install.sh's own template mapping."""
-    source = INSTALL.read_text(encoding="utf-8")
-    names = sorted(set(re.findall(r"([a-z]+)-aify\.sh\.in", source)))
-    assert names, "no wrapper templates named in install.sh; this test would render nothing"
-    return names
-
-
-def _bash() -> str:
-    found = shutil.which("bash")
-    if not found:
-        pytest.skip("bash not on PATH")
-    return found
-
-
-def render(client: str, *extra: str) -> str:
-    with tempfile.TemporaryDirectory() as out:
-        # THE RESOLVED bash, not the literal name. On Windows the bare word finds System32's WSL
-        # bash first, which cannot open a C: path at all and fails 127 on every form -- measured
-        # here: `shutil.which` returns Git Bash and both path forms work, the literal works with
-        # neither. aify-env shipped this same shadowing bug and could not launch anything.
-        result = subprocess.run(
-            [_bash(), INSTALL.as_posix(), "--client", client, "http://127.0.0.2:1",
-             *extra, "--emit-wrappers", Path(out).as_posix()],
-            capture_output=True, text=True, cwd=ROOT, timeout=600,
-        )
-        rendered = Path(out) / f"{client}-aify"
-        assert rendered.exists(), (
-            f"{client}: nothing rendered (exit {result.returncode})\n{result.stdout}{result.stderr}"
-        )
-        return rendered.read_text(encoding="utf-8")
 
 
 def test_the_template_scan_finds_every_client():
@@ -74,23 +36,39 @@ def test_the_template_scan_finds_every_client():
 
 def test_the_placeholder_pattern_can_actually_match_one():
     """Negative control: the detector must be able to say PRESENT, or its absences mean nothing."""
-    assert PLACEHOLDER.findall("if [ \"@@MCP_TRANSPORT@@\" = \"sse\" ]") == ["@@MCP_TRANSPORT@@"]
+    assert PLACEHOLDER.findall('if [ "@@MCP_TRANSPORT@@" = "sse" ]') == ["@@MCP_TRANSPORT@@"]
     assert PLACEHOLDER.findall('if [ "stdio" = "sse" ]') == []
+
+
+def _leftover(files: dict[str, str]) -> dict[str, list[str]]:
+    """Which rendered files kept a placeholder, and which one. Named, because the remedy differs
+    per parameter and a bare boolean sends the reader back to render it themselves."""
+    return {
+        name: sorted(set(PLACEHOLDER.findall(text)))
+        for name, text in files.items() if PLACEHOLDER.search(text)
+    }
 
 
 def test_no_client_renders_a_literal_placeholder():
     offences = {}
     for client in emittable_clients():
-        leftover = sorted(set(PLACEHOLDER.findall(render(client))))
+        leftover = _leftover(render(client))
         if leftover:
             offences[client] = leftover
-    assert not offences, f"launchers rendered with literal placeholders: {offences}"
+    assert not offences, (
+        f"launchers rendered with literal placeholders: {offences}. A template parameter reached "
+        "a rendered launcher as a literal. That is how @@MCP_TRANSPORT@@ forced every launcher "
+        "onto the stdio arm for a value nobody chose, and how @@SERVICE_NAME@@ later made the "
+        "rendered MCP config name a server called `@@SERVICE_NAME@@` and hung "
+        "claude-wrapper-behaviour.test.js at 200 seconds. Substitute it in "
+        "render_wrapper_template, or ask why aify-wrapper added a parameter this repo does not "
+        "fill."
+    )
 
 
 def test_the_sse_transport_renders_clean_too():
     """The non-default arm. A placeholder reachable only under a flag is still shipped text."""
-    leftover = sorted(set(PLACEHOLDER.findall(render("claude", "--mcp-transport", "sse"))))
-    assert leftover == [], leftover
+    assert _leftover(render("claude", "--mcp-transport", "sse")) == {}
 
 
 def test_help_runs_clean_and_says_nothing_on_stderr():

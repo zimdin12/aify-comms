@@ -76,7 +76,34 @@ const CEILINGS = {
   //
   // Still not paid by the Phase 8 deletion promised above: that reduction is spent once, and this file
   // loses roughly 139 lines when the `aify-comms` command goes. This ceiling comes down then.
-  "install.sh": 3017,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
+  // 3017 -> 3043 on 2026-08-29. THE FIX THAT MAKES THE 39 LINES ABOVE SURVIVE AN UPDATE. Those
+  // bought `--delegate-spawns`; this stops a plain re-install throwing it away. `redeploy.sh` has
+  // read the setting back since the day delegation shipped and install.sh never did -- and
+  // install.sh is the command `aify-comms doctor` tells you to run after a bridge edit, so
+  // following the tool's own advice moved managed spawns off aify-env, silently. Observed on the
+  // operator's host minutes after an install: `spawn-delegation` went `delegated` -> `local`.
+  //
+  // 26 lines: the read-back, `--no-delegate-spawns` so the carry-forward is not a sticky default
+  // with no off switch, and the bridge launcher joining the render-only hook -- it was the ONE
+  // launcher no test could render, which is exactly why a regression in it reached a live host.
+  //
+  // COMMENTS CUT TO WHAT A READER NEEDS, following this file's own precedent from 2026-08-25: the
+  // incident lives in the commit and in test_install_keeps_the_delegation_the_host_chose.py, where
+  // it does not cost a line on every read. Still unpaid by the Phase 8 deletion: this file loses
+  // roughly 139 lines when the `aify-comms` command goes, and this ceiling comes down then.
+  // 3043 -> 3046 on 2026-08-29. THE SECOND UNSUBSTITUTED TEMPLATE PARAMETER. aify-wrapper
+  // parameterised the service name; a pin bump inherited it; the rendered launcher wrote an MCP
+  // config naming a server called `@@SERVICE_NAME@@`, and claude-wrapper-behaviour.test.js went from
+  // three tests at ~7s each to the whole file killed at 200 seconds. 3 lines: the substitution and
+  // two of comment. Still unpaid by the Phase 8 deletion, same as above.
+  // 3046 -> 3049 on 2026-08-29. THE BACKTICKS THAT RAN AT RENDER TIME. This body is an unquoted
+  // heredoc, and two prose backtick pairs in it executed 'aify-doctor' and 'aify-comms doctor' on
+  // every install, splicing their stdout into the launcher and leaving one sentence without its
+  // subject. 3 lines: two straight-quote fixes and a two-line warning INSIDE the heredoc, where the
+  // next person to write prose there will read it. PAID, not just recorded: removing those two
+  // verifier runs took one render from ~8.5s to ~4.2s, which is the same file getting cheaper as it
+  // gets longer. Still unpaid by the Phase 8 deletion, same as above.
+  "install.sh": 3049,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.

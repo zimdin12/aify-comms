@@ -20,6 +20,8 @@ AIFY_SERVICE_REGISTRY="${AIFY_SERVICE_REGISTRY:-$HOME/.aify/services.json}"
 # asks otherwise. Baked into the launcher either way, so the setting is visible in the file rather
 # than depending on whatever environment happened to start it.
 DELEGATE_SPAWNS=""
+# Empty means the caller said neither way, and the installed launcher decides.
+DELEGATION_CHOSEN=""
 AIFY_ENV_ENDPOINT_BAKED=""
 # Native client-install location for the host-side MCP bridge runtime. The repo
 # may sit on a slow filesystem (e.g. a WSL2 9p Docker bind-mount, where reading
@@ -96,10 +98,18 @@ while [ $# -gt 0 ]; do
       # 127.0.0.1:8802 and deliberately has no --host, so there is one right answer and no reason to
       # make an operator type it.
       DELEGATE_SPAWNS=1
+      DELEGATION_CHOSEN=1
       case "${2:-}" in
         http://*|https://*) AIFY_ENV_ENDPOINT_BAKED="$2"; shift 2 ;;
         *) AIFY_ENV_ENDPOINT_BAKED="http://127.0.0.1:8802"; shift ;;
       esac
+      ;;
+    --no-delegate-spawns)
+      # The way back: a carried-forward setting with no off switch is its own trap.
+      DELEGATE_SPAWNS=""
+      AIFY_ENV_ENDPOINT_BAKED=""
+      DELEGATION_CHOSEN=1
+      shift
       ;;
     --mcp-transport)
       # `stdio` spawns the local bridge from ~/.aify-comms; `sse` talks to <endpoint>/mcp/sse and
@@ -137,6 +147,19 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+# WHERE SPAWNS GO, READ BACK BEFORE THIS OVERWRITES IT. redeploy.sh has carried this since
+# 2026-08-25; install.sh did not, and install.sh is what the doctor tells you to run. Same reader,
+# never a second copy of the parse. Reads the directory this script is about to WRITE.
+# test_install_keeps_the_delegation_the_host_chose.py has the incident.
+if [ -z "$DELEGATION_CHOSEN" ]; then
+  _bridge_dir="${EMIT_WRAPPERS_DIR:-$HOME/.local/bin}"
+  if _installed_endpoint="$(bash "$(dirname "${BASH_SOURCE[0]}")/scripts/installed-delegation.sh" "$_bridge_dir" 2>/dev/null)"; then
+    DELEGATE_SPAWNS=1
+    AIFY_ENV_ENDPOINT_BAKED="$_installed_endpoint"
+    echo "  spawns: keeping DELEGATED to aify-env at $_installed_endpoint (installed setting)"
+  fi
+fi
 
 # Default the server URL when none was passed positionally. Without this, a
 # documented invocation like `install.sh --client claude` (no URL) left
@@ -507,6 +530,9 @@ render_wrapper_template() {
   # until 2026-08-24, so every launcher carried the literal `@@MCP_TRANSPORT@@`, compared it to "sse",
   # and took the stdio arm by accident -- while aify-wrapper's installer had substituted it all along.
   text="${text//@@MCP_TRANSPORT@@/${MCP_TRANSPORT:-stdio}}"
+  # WHICH SERVICE THIS LAUNCHER IS FOR. Same shape as the line above, one parameter later, which is
+  # why no-unsubstituted-placeholder.test.js derives the check instead of listing known placeholders.
+  text="${text//@@SERVICE_NAME@@/aify-comms}"
   text="${text//@@STRICT_EXTRA_MCP_B64@@/}"
   text="${text//@@BRIDGE_DIR@@/$AIFY_BRIDGE_DIR}"
   text="${text//@@NATIVE_BASE@@/$AIFY_NATIVE_BASE}"
@@ -1337,7 +1363,8 @@ EOF
 }
 
 install_bridge_launcher() {
-  local wrapper_dir="$HOME/.local/bin"
+  # Render-testable like every other wrapper: it carries the delegation setting.
+  local wrapper_dir="${EMIT_WRAPPERS_DIR:-$HOME/.local/bin}"
   local wrapper_path="$wrapper_dir/aify-comms"
   local default_server="${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}"
   mkdir -p "$wrapper_dir"
@@ -1438,7 +1465,7 @@ optional safety boundaries.
 
   doctor          Verify the install against the RUNNING system (container
                   build, installed vs running bridge, wrappers, runtimes).
-                  Accepts --json and --strict. Same tool as `aify-doctor`.
+                  Accepts --json and --strict. Same tool as 'aify-doctor'.
   --check         Validate this launcher WITHOUT starting or registering
                   anything. Use this to confirm it works — a bare run takes
                   over the live bridge.
@@ -1491,8 +1518,11 @@ export AIFY_CWD_ROOTS="\$ROOTS"
 #
 # aify-env becomes REQUIRED for managed spawns once this is set: a spawn fails loudly rather than
 # quietly falling back, because a silent fallback would mean two spawners on one host -- the exact
-# collision this tier exists to end. `aify-comms doctor` reports both the setting and whether
+# collision this tier exists to end. 'aify-comms doctor' reports both the setting and whether
 # aify-env is answering.
+#
+# THE QUOTES ARE NOT STYLE: this body is an UNQUOTED heredoc, so a backtick here runs a command while
+# the launcher is RENDERED. no-backtick-in-an-unquoted-heredoc.test.js has the incident and the rule.
 export AIFY_COMMS_DELEGATE_SPAWNS="$DELEGATE_SPAWNS"
 export AIFY_ENV_ENDPOINT="$AIFY_ENV_ENDPOINT_BAKED"
 
@@ -2747,6 +2777,8 @@ echo ""
 if [ -n "$EMIT_WRAPPERS_DIR" ]; then
   mkdir -p "$EMIT_WRAPPERS_DIR"
   "install_${CLIENT}_wrapper"
+  # And the bridge launcher: it is a launcher, and it is the one carrying delegation.
+  install_bridge_launcher
   exit 0
 fi
 
