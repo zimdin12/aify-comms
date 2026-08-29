@@ -94,8 +94,21 @@ export async function runRefreshCycle({
   if (!recentUsable) {
     try { inboxMessages = await loadInboxMessages(); } catch (_) { noteSliceFailure('inbox'); /* keep prior messages */ }
   }
-  if (recentUsable || inboxMessages) {
-    state.messages = recentUsable || inboxMessages || state.messages || [];
+  // `inboxMessages` IS THE WHOLE RESPONSE NOW, not the array. The loader returns it so the counts
+  // travel with the rows; unwrapping here rather than there keeps the decision about WHICH list is on
+  // screen in the one place that knows.
+  const fallbackRows = inboxMessages?.messages || null;
+  if (recentUsable || fallbackRows) {
+    state.messages = recentUsable || fallbackRows || state.messages || [];
+    // AND WHAT IT IS A PAGE OF, from whichever loader actually supplied it. The first version read
+    // this off the inbox loader alone -- which runs only when `/messages/recent` returns nothing, so
+    // the note it fed never rendered on a healthy service. Both endpoints report `truncated`; the
+    // fallback also reports `showing`, and either way the count recorded is the list on screen.
+    const source = recentUsable ? val(3) : inboxMessages;
+    state.messageCounts = {
+      showing: Number(source?.showing ?? state.messages.length) || state.messages.length,
+      truncated: Boolean(source?.truncated) || Number(source?.total ?? 0) > state.messages.length,
+    };
   }
   if (ok(4)) {
     state.runs = val(4).runs || [];

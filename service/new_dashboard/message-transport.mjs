@@ -30,17 +30,10 @@ export async function loadInboxMessages() {
   // that rule replaced.
   try {
     const res = await api('/messages/inbox/dashboard?filter=all&peek=true&limit=80');
-    // AND THE COUNTS IT CAME WITH. The response has said `showing` and `total` all along and this
-    // returned the messages alone, so the Chat surface rendered 80 rows out of 3,189 with the two
-    // numbers that say so sitting unread in the same object. `unreadTotal` joined them for the rail's
-    // badges, which count unread rows in the page they were handed: measured on the operator's
-    // database, 1,792 unread against 29 inside the page.
-    state.inboxCounts = {
-      showing: Number(res?.showing ?? 0) || 0,
-      total: Number(res?.total ?? 0) || 0,
-      unreadTotal: Number(res?.unreadTotal ?? 0) || 0,
-    };
-    return (res && res.messages) || null;
+    // THE WHOLE RESPONSE, so the caller can read the counts it came with. Returning `messages` alone
+    // is what left the surface unable to say it was showing a page; the poll cycle decides what to
+    // record, because it is the half that knows WHICH loader supplied the rendered list.
+    return res || null;
   } catch (_) { noteSliceFailure('inbox'); /* keep prior messages */ return null; }
 }
 export async function chatLoadConversation(name) {

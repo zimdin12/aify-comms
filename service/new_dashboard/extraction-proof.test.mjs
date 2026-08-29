@@ -208,21 +208,31 @@ const EXTRACTIONS = [
         // state offered a Spawn button while 303 existed. `/sessions` now reports `truncated` the way
         // `/contracts` and `/terminals` already did, and this flag is where the render reads it.
         editedSince: [
-          // 2026-08-29: the Chat rail is built from the most recent 80 messages and badges unread
-          // from that page. The inbox response says `showing`, `total` and `unreadTotal`; the
-          // transport dropped all three, so the surface rendered 80 of 3,189 and badged 29 against
-          // 1,792. EDITS ARE UNDONE LATEST FIRST, so this goes at the HEAD of the array.
+          // 2026-08-29: the Chat rail renders a page of messages and badges unread from that page.
+          // The first version read the counts off the inbox LOADER, which runs only when
+          // /messages/recent returns nothing -- so on a healthy service the field stayed at zero and
+          // the note never rendered. Named for the rendered list now, and set by the poll cycle.
+          // EDITS ARE UNDONE LATEST FIRST, so this stays at the HEAD of the array.
           {
             was: [
               "  runsTruncated: false,",
             ],
             now: [
               "  runsTruncated: false,",
-              "  // WHAT THE INBOX SAID ABOUT ITSELF. `/messages/inbox/dashboard` reports `showing`, `total`",
-              "  // and `unreadTotal`, and the transport dropped all three -- so Chat rendered 80 of 3,189",
-              "  // messages, and badged unread from the 29 inside that page against 1,792 that exist.",
+              "  // WHAT THE RENDERED MESSAGE LIST IS A PAGE OF, from whichever loader supplied it.",
+              "  //",
+              "  // NAMED FOR THE LIST, NOT FOR THE INBOX, and the first version got that wrong in a way that made",
+              "  // the feature unable to fire. It read the inbox endpoint's counts -- but `loadInboxMessages` is the",
+              "  // FALLBACK, called only when `/messages/recent` returns nothing, so on the healthy path the counts",
+              "  // stayed at zero and the note never rendered. A reviewer found it; the Chat tests could not,",
+              "  // because they seed this by hand and so cannot see the producer-to-state join.",
+              "  //",
+              "  // The two are also different POPULATIONS: `/messages/recent` is the fleet-wide feed the rail",
+              "  // actually renders, and `/messages/inbox/dashboard` is one agent's inbox. Sourcing a note about the",
+              "  // rendered list from the inbox's totals would be the same conflation under a correct-looking number.",
+              "  //",
               "  // Zeroes until the first successful load, which renders no note rather than a wrong one.",
-              "  inboxCounts: { showing: 0, total: 0, unreadTotal: 0 },",
+              "  messageCounts: { showing: 0, truncated: false },",
             ],
           },
           {
@@ -1821,8 +1831,21 @@ const EXTRACTIONS = [
             "  if (!recentUsable) {",
             "    try { inboxMessages = await loadInboxMessages(); } catch (_) { noteSliceFailure('inbox'); /* keep prior messages */ }",
             "  }",
-            "  if (recentUsable || inboxMessages) {",
-            "    state.messages = recentUsable || inboxMessages || state.messages || [];",
+            "  // `inboxMessages` IS THE WHOLE RESPONSE NOW, not the array. The loader returns it so the counts",
+            "  // travel with the rows; unwrapping here rather than there keeps the decision about WHICH list is on",
+            "  // screen in the one place that knows.",
+            "  const fallbackRows = inboxMessages?.messages || null;",
+            "  if (recentUsable || fallbackRows) {",
+            "    state.messages = recentUsable || fallbackRows || state.messages || [];",
+            "    // AND WHAT IT IS A PAGE OF, from whichever loader actually supplied it. The first version read",
+            "    // this off the inbox loader alone -- which runs only when `/messages/recent` returns nothing, so",
+            "    // the note it fed never rendered on a healthy service. Both endpoints report `truncated`; the",
+            "    // fallback also reports `showing`, and either way the count recorded is the list on screen.",
+            "    const source = recentUsable ? val(3) : inboxMessages;",
+            "    state.messageCounts = {",
+            "      showing: Number(source?.showing ?? state.messages.length) || state.messages.length,",
+            "      truncated: Boolean(source?.truncated) || Number(source?.total ?? 0) > state.messages.length,",
+            "    };",
             "  }",
           ],
         }, {

@@ -73,11 +73,20 @@ export const state = {
   // empty state invited the operator to adjust the filters. Measured on the live database
   // 2026-08-29: a limit=80 page reached back to 26 August and offered ONE distinct sender.
   runsTruncated: false,
-  // WHAT THE INBOX SAID ABOUT ITSELF. `/messages/inbox/dashboard` reports `showing`, `total`
-  // and `unreadTotal`, and the transport dropped all three -- so Chat rendered 80 of 3,189
-  // messages, and badged unread from the 29 inside that page against 1,792 that exist.
+  // WHAT THE RENDERED MESSAGE LIST IS A PAGE OF, from whichever loader supplied it.
+  //
+  // NAMED FOR THE LIST, NOT FOR THE INBOX, and the first version got that wrong in a way that made
+  // the feature unable to fire. It read the inbox endpoint's counts -- but `loadInboxMessages` is the
+  // FALLBACK, called only when `/messages/recent` returns nothing, so on the healthy path the counts
+  // stayed at zero and the note never rendered. A reviewer found it; the Chat tests could not,
+  // because they seed this by hand and so cannot see the producer-to-state join.
+  //
+  // The two are also different POPULATIONS: `/messages/recent` is the fleet-wide feed the rail
+  // actually renders, and `/messages/inbox/dashboard` is one agent's inbox. Sourcing a note about the
+  // rendered list from the inbox's totals would be the same conflation under a correct-looking number.
+  //
   // Zeroes until the first successful load, which renders no note rather than a wrong one.
-  inboxCounts: { showing: 0, total: 0, unreadTotal: 0 },
+  messageCounts: { showing: 0, truncated: false },
   settingsTab: '', // active settings tab (empty → first group)
   // Global analytics page (WS-C). Lazily loaded when the page is first opened, then on refresh
   // while it stays active, and on range change. data === null until first load completes.

@@ -346,7 +346,7 @@ test("openAnalytics records a failed load instead of an empty panel", () => with
 // looking authoritative -- and the response had been carrying `showing` and `total` all along, dropped
 // by the transport one function from where they were needed.
 
-function railWith(inboxCounts) {
+function railWith(messageCounts) {
   // THROUGH THE STUB DOCUMENT. `render()` reads `document.activeElement` to avoid stealing focus, so
   // without it these fail on the DOM rather than on the assertion.
   return withStubDocument(() => {
@@ -362,37 +362,42 @@ function railWith(inboxCounts) {
       "chat-conv-title", "chat-msg-search", "chat-timeline", "chat-conv-actions", "chat-rail-list"]) {
       harness.els[id] = { ...stub };
     }
-    harness.state.inboxCounts = inboxCounts;
+    harness.state.messageCounts = messageCounts;
     harness.controller.render();
     return harness.els["chat-rail-list"].innerHTML;
   });
 }
 
 test("A PARTIAL RAIL SAYS SO, and says the badges are partial too", async () => {
-  const html = await railWith({ showing: 80, total: 3189, unreadTotal: 1792 });
-  assert.match(html, /1,792 unread/, "the unread total the service computes must reach the screen");
-  assert.match(html, /showing the 80 most recent of 3,189/);
-  assert.match(html, /Badges count only these/,
+  const html = await railWith({ showing: 80, truncated: true });
+  assert.match(html, /Showing the 80 most recent messages/);
+  assert.match(html, /older ones are not loaded/i);
+  assert.match(html, /unread badges count only these/i,
     "a badge counted from a page, beside a note that does not say so, still reads as authoritative");
   assert.match(html, /Direct messages/, "the note must not replace the rail it annotates");
+  // NO FLEET TOTAL IN THE SENTENCE. The rendered list is the recent feed; 3,189 belongs to one
+  // agent's inbox, and putting it here would conflate two populations behind a correct-looking number.
+  assert.doesNotMatch(html, /3,189|of \d+ messages/);
 });
 
 test("a complete rail says nothing", async () => {
   // The control. A note on every render is one nobody reads, and it would be false here.
-  const html = await railWith({ showing: 12, total: 12, unreadTotal: 3 });
-  assert.doesNotMatch(html, /most recent of/);
+  const html = await railWith({ showing: 12, truncated: false });
+  assert.doesNotMatch(html, /most recent messages/);
 });
 
 test("before the first load there is no note rather than a wrong one", async () => {
   // Zeroes are the pre-load state. "showing the 0 most recent of 0" is worse than silence.
-  assert.doesNotMatch(await railWith({ showing: 0, total: 0, unreadTotal: 0 }), /most recent of/);
-  assert.doesNotMatch(await railWith(undefined), /most recent of/);
+  assert.doesNotMatch(await railWith({ showing: 0, truncated: false }), /most recent messages/);
+  assert.doesNotMatch(await railWith({ showing: 0, truncated: true }), /most recent messages/,
+    "truncated with nothing loaded is the pre-load state, not a page");
+  assert.doesNotMatch(await railWith(undefined), /most recent messages/);
 });
 
-test("a partial rail with nothing unread still says it is partial", async () => {
-  // The two facts are independent: the page can be a window even when the operator is caught up, and
-  // conflating them would hide the truncation for anyone with a clean inbox.
-  const html = await railWith({ showing: 80, total: 3189, unreadTotal: 0 });
-  assert.match(html, /showing the 80 most recent of 3,189/);
-  assert.doesNotMatch(html, /unread ·/);
+test("the note names the count it can prove and no other", async () => {
+  // `showing` is the rows on screen. There is no fleet total in this sentence because the endpoint
+  // that supplies the list does not report one, and borrowing another endpoint's total is the
+  // conflation this note was rewritten to avoid.
+  const html = await railWith({ showing: 41, truncated: true });
+  assert.match(html, /Showing the 41 most recent messages/);
 });

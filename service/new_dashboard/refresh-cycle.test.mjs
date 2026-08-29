@@ -47,7 +47,8 @@ function makeElements() {
  * Run one cycle with `reject` naming the path prefixes whose fetch should fail.
  * Returns the recorded calls plus the status-chip element.
  */
-async function cycle({ reject = [], extraDeps = {}, filesPage = null, environmentsPage = null, seed = {} } = {}) {
+async function cycle({ reject = [], extraDeps = {}, filesPage = null, environmentsPage = null,
+  seed = {}, recentBody = null, inboxBody = null } = {}) {
   const els = makeElements();
   const saved = {
     document: globalThis.document,
@@ -81,7 +82,17 @@ async function cycle({ reject = [], extraDeps = {}, filesPage = null, environmen
     const path = String(url);
     requested.push(path);
     if (reject.some((p) => path.includes(p))) throw new TypeError("Failed to fetch");
-    return { ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify(bodyFor(path.replace(/^https?:\/\/[^/]*/, ""))) };
+    // PER-PATH OVERRIDES for the two message endpoints. The cycle records what the rendered list is
+    // a page of, and that fact lives in the RESPONSE -- so a test about it has to be able to say what
+    // the response said, rather than asserting against one fixed fixture.
+    const clean = path.replace(/^https?:\/\/[^/]*/, "");
+    if (recentBody && clean.startsWith("/messages/recent")) {
+      return { ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify(recentBody) };
+    }
+    if (inboxBody && clean.startsWith("/messages/inbox")) {
+      return { ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify(inboxBody) };
+    }
+    return { ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify(bodyFor(clean)) };
   };
 
   setApiBase("");
@@ -109,7 +120,9 @@ async function cycle({ reject = [], extraDeps = {}, filesPage = null, environmen
     globalThis.document = saved.document;
     globalThis.fetch = saved.fetch;
   }
-  return { calls, requested, chip: els.get("api-status") };
+  // `state` is the module singleton the cycle writes; returned so a test can read what a cycle
+  // RECORDED rather than only which URLs it asked for.
+  return { calls, requested, chip: els.get("api-status"), state };
 }
 
 test("a clean cycle fetches every slice it still needs, and renders", async () => {
@@ -378,4 +391,35 @@ test("THE CALL SITE passes the realtime flag, not just the helper accepting one"
 test("with the socket up the chip is unchanged", async () => {
   const { chip } = await cycle({ seed: { realtimeConnected: true } });
   assert.equal(chip.textContent, "live");
+});
+
+// ---- what the rendered message list is a page of ---------------------------------------------------
+
+test("A HEALTHY CYCLE RECORDS WHAT THE MESSAGE LIST IS A PAGE OF", async () => {
+  // THE JOIN THE CHAT TESTS COULD NOT SEE. Those seed `state.messageCounts` by hand, so they proved
+  // the note renders and said nothing about whether anything ever sets it. The first version read the
+  // counts inside `loadInboxMessages` -- the FALLBACK, called only when `/messages/recent` returns
+  // nothing -- so on a healthy service the counts stayed at zero and the note never appeared. A
+  // reviewer found that by reading the call site rather than the tests.
+  const { state } = await cycle({
+    extraDeps: {},
+    seed: {},
+    recentBody: { messages: [{ id: "m1" }, { id: "m2" }], truncated: true, limit: 80 },
+  });
+  assert.deepEqual(state.messageCounts, { showing: 2, truncated: true });
+});
+
+test("a complete page records itself as complete", async () => {
+  const { state } = await cycle({ recentBody: { messages: [{ id: "m1" }], truncated: false, limit: 80 } });
+  assert.equal(state.messageCounts.truncated, false);
+});
+
+test("the FALLBACK path records the counts too, from its own response", async () => {
+  // `/messages/recent` failing is the one case the inbox loader runs, and the note must be as true
+  // there as on the healthy path -- the inbox reports `showing` and `total` rather than `truncated`.
+  const { state } = await cycle({
+    reject: ["/messages/recent"],
+    inboxBody: { messages: [{ id: "i1" }], showing: 1, total: 3189, unreadTotal: 1792 },
+  });
+  assert.deepEqual(state.messageCounts, { showing: 1, truncated: true });
 });

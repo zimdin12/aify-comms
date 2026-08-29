@@ -65,16 +65,15 @@ export function createChatController(deps) {
     // partial, computed and discarded one function from where it was needed.
     //
     // Shown only when rows were actually left behind. A note on every render is one nobody reads.
-    const counts = state.inboxCounts || { showing: 0, total: 0, unreadTotal: 0 };
-    const partial = counts.total > counts.showing && counts.showing > 0;
-    // AN EXPLICIT LOCALE, not the runner's. A bare `toLocaleString()` groups in a browser and does
-    // not under the Node the tests run on -- so an assertion written against what an operator sees
-    // fails on the runner, and one written against the runner asserts something the operator never
-    // sees. Fixing the locale makes the two the same string.
-    const grouped = (n) => Number(n || 0).toLocaleString('en-US');
-    const unreadNote = counts.unreadTotal > 0 ? `${grouped(counts.unreadTotal)} unread · ` : '';
+    const counts = state.messageCounts || { showing: 0, truncated: false };
+    const partial = counts.truncated === true && counts.showing > 0;
+    // NO TOTAL IN THE SENTENCE, and that is a correction rather than a simplification. The rendered
+    // list is `/messages/recent` -- the fleet-wide feed -- while the 3,189 and 1,792 measured earlier
+    // belong to `/messages/inbox/dashboard`, one agent's inbox. Putting that total beside this list
+    // would be the same conflation of two populations, wearing a correct-looking number. What this
+    // endpoint can say for certain is that there are more, and that is what it says.
     const scopeNote = partial
-      ? `<div class="chat-rail-note subtle">${unreadNote}showing the ${counts.showing} most recent of ${grouped(counts.total)} messages. Badges count only these.</div>`
+      ? `<div class="chat-rail-note subtle">Showing the ${counts.showing} most recent messages — older ones are not loaded, and the unread badges count only these.</div>`
       : '';
     const html = (
       scopeNote
