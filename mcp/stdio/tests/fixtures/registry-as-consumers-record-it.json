@@ -6,6 +6,10 @@
         "CLAUDE_MCP_SERVER_URL",
         "AIFY_SERVER_URL"
       ],
+      "keyEnv": [
+        "CLAUDE_MCP_API_KEY",
+        "AIFY_API_KEY"
+      ],
       "mcp": [
         {
           "args": [

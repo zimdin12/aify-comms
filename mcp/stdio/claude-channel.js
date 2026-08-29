@@ -17,6 +17,7 @@ import { boundAgentId } from "./bound-agent-id.mjs";
 // three of them and the same code with a different comment for the fourth, which is what a fork
 // looks like right up until one copy gets a fix and the others do not.
 import {
+  apiKeyFrom,
   coerceLoopbackToIPv4,
   defaultFallbackServerUrls,
   splitServerUrls,
@@ -38,7 +39,7 @@ const SERVER_URLS = uniqueServerUrls([
   ...defaultFallbackServerUrls(SERVER_URL),
 ]);
 let ACTIVE_SERVER_URL = SERVER_URLS[0] || "";
-const API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";
+const API_KEY = apiKeyFrom();
 const MACHINE_ID = defaultMachineId();
 // Per-agent channel-sidecar bridge id. MUST be agent-scoped: bridge_instances.id
 // is the PRIMARY KEY, so a machine-global `channel-<machine>` id let only ONE

@@ -21,7 +21,7 @@ const isPlainObject = (value) => typeof value === "object" && value !== null && 
  *
  * @param {string} existingText  current file contents ("" when absent)
  * @param {string} serviceName   the key this service owns
- * @param {{endpoint: string, endpointEnv: string[], mcp: object[]}} entry
+ * @param {{endpoint: string, endpointEnv: string[], keyEnv: string[], mcp: object[]}} entry
  * @returns {{ok: boolean, text?: string, errors: string[]}}
  */
 // The READER, imported rather than reimplemented. `parseRegistry` owns what a valid entry is;
@@ -90,6 +90,7 @@ function normaliseEntry(entry) {
   const normalised = {
     endpoint: String(entry.endpoint).trim(),
     endpointEnv: [...(entry.endpointEnv ?? [])],
+    keyEnv: [...(entry.keyEnv ?? [])],
     mcp: (entry.mcp ?? []).map((server) => ({
       name: server.name,
       command: server.command,

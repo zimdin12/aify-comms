@@ -24,7 +24,34 @@
 // suite proves the repo, not the fleet. `aify-comms doctor`'s `bridge-current` will read red until the
 // relaunch, and that red is accurate.
 
-const API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";
+/**
+ * The environment names that carry the key opening that service, in precedence order.
+ *
+ * SAME ARGUMENT AS `ENDPOINT_ENV_NAMES` below -- named rather than pointed at, because this block had
+ * to move above its own reader and a "see above" would then have pointed the wrong way. It was left
+ * half-applied for a year. The per-server MCP env block is key-scoped,
+ * so a key name this bridge reads but the registry does not declare is INHERITED from whatever
+ * launched the runtime -- which for a credential is worse than an endpoint: one service's key reaches
+ * another service's bridge and the request is accepted or refused for reasons nobody can see from
+ * either side.
+ *
+ * Five modules typed this precedence out by hand. One list, read here and declared in the registry.
+ */
+export const API_KEY_ENV_NAMES = ["CLAUDE_MCP_API_KEY", "AIFY_API_KEY"];
+
+/**
+ * The key this process was given, or "" when it was given none.
+ *
+ * "" IS A REAL ANSWER, not a failure: a service running without `API_KEY` set accepts unauthenticated
+ * calls, and every caller must be able to say "I have no key" without inventing one.
+ *
+ * @param {object} [env] the environment to read; injected so a test need not mutate the real one
+ */
+export function apiKeyFrom(env = process.env) {
+  return API_KEY_ENV_NAMES.map((name) => env[name]).find(Boolean) || "";
+}
+
+const API_KEY = apiKeyFrom();
 
 // Windows + Docker Desktop: `localhost` resolves to IPv6 ::1 first, but
 // Docker Desktop's IPv6 port forwarding is unreliable — HTTP requests
@@ -54,6 +81,7 @@ function coerceLoopbackToIPv4(url) {
  * One list, read here and declared there. Not a regex over this file, and not a second hand-typed copy.
  */
 export const ENDPOINT_ENV_NAMES = ["CLAUDE_MCP_SERVER_URL", "AIFY_SERVER_URL"];
+
 
 const SERVER_URL = coerceLoopbackToIPv4(
   ENDPOINT_ENV_NAMES.map((name) => process.env[name]).find(Boolean) || "",

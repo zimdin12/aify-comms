@@ -22,6 +22,8 @@
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run and the wrappers relaunch.
 
+import { apiKeyFrom } from "./aify-service-endpoint.mjs";
+
 function coerceLoopbackToIPv4(url) {
   return String(url || "").replace(/^(https?:\/\/)localhost(?=[:\/]|$)/i, "$1127.0.0.1");
 }
@@ -29,7 +31,7 @@ function coerceLoopbackToIPv4(url) {
 export const AIFY_SERVER_URL = coerceLoopbackToIPv4(
   process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "",
 ).replace(/\/+$/, "");
-export const AIFY_API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";
+export const AIFY_API_KEY = apiKeyFrom();
 const HTTP_TIMEOUT_MS = Math.max(1000, Number(process.env.AIFY_HTTP_TIMEOUT_MS || 20000));
 
 

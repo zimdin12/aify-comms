@@ -22,8 +22,10 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
+  API_KEY_ENV_NAMES,
   RETRIABLE_POST_PATHS,
   SERVER_URL,
+  apiKeyFrom,
   activeServerUrl,
   coerceLoopbackToIPv4,
   isRetriableRequest,
@@ -137,9 +139,18 @@ test("server.js no longer declares any of the moved names", () => {
 
 test("no API key VALUE is embedded in the module", () => {
   // The binding is env-derived and named; a literal here would be a credential in the repo.
+  //
+  // ASSERTED BY CALLING, not by matching `API_KEY = process.env.` in the text. That spelling was
+  // a proxy for "env-derived", and it stopped matching the day the read moved into
+  // `apiKeyFrom()` -- while the property it stood for was still true. A check that breaks on a
+  // refactor it should not care about is a proxy, so the property is now checked directly.
   const src = readFileSync(path.join(STDIO, "aify-service-endpoint.mjs"), "utf-8");
-  assert.match(src, /API_KEY = process\.env\./, "the key must come from the environment");
   assert.ok(!/API_KEY\s*=\s*["'][^"']+["']/.test(src), "no literal key value may be assigned");
+  assert.equal(apiKeyFrom({}), "", "a key appeared from somewhere other than the environment");
+  assert.equal(apiKeyFrom({ AIFY_API_KEY: "from-env" }), "from-env");
+  for (const name of API_KEY_ENV_NAMES) {
+    assert.match(src, new RegExp(`"${name}"`), `${name} is read but not declared here`);
+  }
 });
 
 test("server.js imports nothing from this module that it does not use", () => {

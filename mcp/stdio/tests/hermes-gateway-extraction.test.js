@@ -127,7 +127,20 @@ const EXTRACTIONS = [
     items: [
       { name: "coerceLoopbackToIPv4", at: 95, marker: "// coerceLoopbackToIPv4 moved to ./aify-http.mjs in v0.5.4." },
       { name: "AIFY_SERVER_URL", at: 99, marker: "// AIFY_SERVER_URL moved to ./aify-http.mjs in v0.5.4." },
-      { name: "AIFY_API_KEY", at: 102, marker: "// AIFY_API_KEY moved to ./aify-http.mjs in v0.5.4." },
+      {
+        name: "AIFY_API_KEY", at: 102, marker: "// AIFY_API_KEY moved to ./aify-http.mjs in v0.5.4.",
+        // v0.7: five modules each typed out this two-name precedence and the registry declared neither
+        // name, so a key the bridge reads could be INHERITED from whatever launched the runtime. The
+        // read now goes through `apiKeyFrom()` in aify-service-endpoint.mjs, which owns the one list
+        // and is declared to the registry as `keyEnv`.
+        editedSince: [{
+          // NO `export ` PREFIX in either text. The reconstruction strips it from a span whose
+          // declaration was private before extraction (`pristineExported` is false here), and the edit
+          // is applied to the stripped body -- so declaring the exported spelling matches nothing.
+          was: ['const AIFY_API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";'],
+          now: ["const AIFY_API_KEY = apiKeyFrom();"],
+        }],
+      },
       { name: "HTTP_TIMEOUT_MS", at: 119, marker: "// HTTP_TIMEOUT_MS moved to ./aify-http.mjs in v0.5.4." },
       { name: "makeAifyHttpCall", at: 342, marker: "// makeAifyHttpCall moved to ./aify-http.mjs in v0.5.4." },
     ],

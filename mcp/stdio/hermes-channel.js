@@ -44,7 +44,7 @@ import { startInFlightRepulse } from "./hermes-turn-repulse.js";
 import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
 import { reportGatewayDead } from "./hermes-gateway.mjs";
 // `coerceLoopbackToIPv4` from its owner; this module carried a fourth copy until v0.5.4.
-import { coerceLoopbackToIPv4 } from "./aify-service-endpoint.mjs";
+import { apiKeyFrom, coerceLoopbackToIPv4 } from "./aify-service-endpoint.mjs";
 
 // In-flight re-pulse cadence (#172). chatStream can run a turn well past the
 // server's 120s TURN_BUSY_STALE_SECONDS window; re-pulse turn_busy while the
@@ -64,7 +64,7 @@ const IS_MAIN =
 const AIFY_SERVER_URL = coerceLoopbackToIPv4(
   process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "",
 ).replace(/\/+$/, "");
-const AIFY_API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";
+const AIFY_API_KEY = apiKeyFrom();
 
 // hermes api_server daemon coordinates. When the operator/wrapper passes
 // AIFY_HERMES_APISERVER_URL/_KEY they win (explicit override, back-compat). When

@@ -15,7 +15,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-import { ENDPOINT_ENV_NAMES } from "./aify-service-endpoint.mjs";
+import { API_KEY_ENV_NAMES, ENDPOINT_ENV_NAMES } from "./aify-service-endpoint.mjs";
 import { upsertService } from "./service-registry.mjs";
 
 const EXIT_CONFIG = 78;
@@ -45,6 +45,11 @@ const result = upsertService(existing, SERVICE_NAME, {
   // registry does not declare gets INHERITED from whatever launched the runtime, because a runtime's
   // per-server MCP env block is key-scoped.
   endpointEnv: ENDPOINT_ENV_NAMES,
+  // Declared for the same reason as the endpoint names, and it was the half left undone. A per-server
+  // MCP env block is key-scoped, so a key name the bridge reads but the registry does not declare is
+  // INHERITED from whatever launched the runtime -- one service's credential reaching another
+  // service's bridge, accepted or refused for reasons visible from neither side.
+  keyEnv: API_KEY_ENV_NAMES,
   mcp: [
     { name: "aify-comms", command: "node", args: [`${bridgeDir}/server.js`] },
     { name: "aify-comms-channel", command: "node", args: [`${bridgeDir}/claude-channel.js`] },

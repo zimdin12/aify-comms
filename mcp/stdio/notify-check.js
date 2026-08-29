@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { apiKeyFrom } from "./aify-service-endpoint.mjs";
+
 /**
  * aify-comms inbox notification checker + heartbeat.
  *
@@ -13,7 +15,7 @@ import { readAgentBindingFile } from "./binding-file.js";
 loadSettingsEnv();
 
 const SERVER_URL = process.argv[2] || process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "";
-const API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";
+const API_KEY = apiKeyFrom();
 const tmpDir = process.env.TEMP || process.env.TMP || "/tmp";
 
 async function readHookPayload() {
