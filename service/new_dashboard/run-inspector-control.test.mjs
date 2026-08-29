@@ -241,3 +241,50 @@ test("a failing runs fetch REJECTS — it does not quietly leave a stale list", 
   await assert.rejects(() => loadRunsForStatus("queued", false), /db locked/);
   assert.deepEqual(state.runs, [{ id: "stale" }], "a failed load half-cleared the list");
 });
+
+// ── the truncation flag travels with the rows ───────────────────────────────
+//
+// THE STATUS DROPDOWN IS THE ONE ACTION ON THIS PAGE THAT RE-QUERIES THE SERVER, and it went through
+// here rather than through `runRefreshCycle` -- which stored `truncated` while this function did not.
+// So picking a status whose whole result fits on a page still rendered "Older runs are not loaded" and
+// the truncated empty state, carrying the PREVIOUS query's answer. The note claims to appear only when
+// rows were left behind, and a stale flag makes that claim false at the one moment an operator is
+// acting on it. Found in review; the producer/call-site class again, a value the response carries and
+// one of two consumers drops.
+
+test("A TRUE FLAG IS CLEARED BY A RESPONSE THAT SAYS FALSE", async () => {
+  state.runsTruncated = true;
+  responder = () => ({ body: JSON.stringify({ runs: [], truncated: false, limit: 80 }) });
+  await loadRunsForStatus("queued", false);
+  assert.equal(state.runsTruncated, false, "the page still claims older runs are not loaded, on a "
+    + "result the server said was complete");
+});
+
+test("…and a false one is set by a response that says true", async () => {
+  // The other direction, because a flag that only ever clears is a flag that never warns.
+  state.runsTruncated = false;
+  responder = () => ({ body: JSON.stringify({ runs: [{ id: "r1" }], truncated: true, limit: 80 }) });
+  await loadRunsForStatus("", false);
+  assert.equal(state.runsTruncated, true);
+});
+
+test("a response that says nothing about truncation is not truncated", async () => {
+  // `Boolean(undefined)`. An older service, or an error shape, must not leave the note latched on --
+  // and must not invent a warning either.
+  state.runsTruncated = true;
+  responder = () => ({ body: JSON.stringify({ ok: true }) });
+  await loadRunsForStatus("", false);
+  assert.equal(state.runsTruncated, false);
+});
+
+test("A FAILED FETCH CHANGES NEITHER THE ROWS NOR THE FLAG", async () => {
+  // The rows and the flag are one fact and must move together. `api` throws on a non-ok response, so
+  // both keep what the last successful load established -- the alternative is a page showing the old
+  // rows under a freshly-computed note about a query that never returned.
+  state.runs = [{ id: "kept" }];
+  state.runsTruncated = true;
+  responder = () => ({ ok: false, status: 503, body: JSON.stringify({ error: "down" }) });
+  await assert.rejects(() => loadRunsForStatus("queued", false));
+  assert.deepEqual(state.runs, [{ id: "kept" }]);
+  assert.equal(state.runsTruncated, true);
+});

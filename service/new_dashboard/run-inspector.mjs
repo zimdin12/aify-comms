@@ -48,6 +48,15 @@ export async function loadRunsForStatus(status = state.runStatusFilter, render =
   state.runStatusFilter = status || '';
   const runs = await api(runQueryPath(state.runStatusFilter));
   state.runs = runs.runs || [];
+  // AND THE FLAG WITH THEM. This is the ONE action on the page that re-queries the server, and it
+  // stored the rows while leaving `runsTruncated` carrying the PREVIOUS query's answer -- so picking a
+  // status whose whole result fits on a page still showed "Older runs are not loaded" and the
+  // truncated empty state. The note claims to appear only when rows were left behind; a stale flag
+  // makes that claim false at the one moment the operator is acting on it.
+  //
+  // Same producer/call-site class as the ownership defect the same day: a value the response carries,
+  // dropped by one of two consumers, so the fix looks complete from wherever you happen to look.
+  state.runsTruncated = Boolean(runs?.truncated);
   if (render) {
     renderRuns();
   }

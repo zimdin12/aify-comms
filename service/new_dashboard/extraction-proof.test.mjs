@@ -1976,6 +1976,25 @@ const EXTRACTIONS = [
         name: "loadRunsForStatus",
         at: 723,
         marker: "// loadRunsForStatus moved to ./run-inspector.mjs in v0.5.4.",
+        editedSince: [
+        {
+          was: [
+            "  state.runs = runs.runs || [];",
+          ],
+          now: [
+            "  state.runs = runs.runs || [];",
+            "  // AND THE FLAG WITH THEM. This is the ONE action on the page that re-queries the server, and it",
+            "  // stored the rows while leaving `runsTruncated` carrying the PREVIOUS query's answer -- so picking a",
+            "  // status whose whole result fits on a page still showed \"Older runs are not loaded\" and the",
+            "  // truncated empty state. The note claims to appear only when rows were left behind; a stale flag",
+            "  // makes that claim false at the one moment the operator is acting on it.",
+            "  //",
+            "  // Same producer/call-site class as the ownership defect the same day: a value the response carries,",
+            "  // dropped by one of two consumers, so the fix looks complete from wherever you happen to look.",
+            "  state.runsTruncated = Boolean(runs?.truncated);",
+          ],
+        },
+        ],
       },
       {
         // These two came along because nothing was left reading them. A one-line helper that stays
