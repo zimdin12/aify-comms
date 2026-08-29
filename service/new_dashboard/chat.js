@@ -54,8 +54,31 @@ export function createChatController(deps) {
     const loaded = state.loaded !== false;
     const dmEmpty = loaded ? 'No agents.' : 'Loading…';
     const chEmpty = loaded ? 'No channels.' : 'Loading…';
+    // WHAT THIS RAIL IS BUILT FROM, when it is not everything. The messages behind it are the most
+    // recent 80 the inbox holds, and the per-conversation unread badges are counted from THAT page --
+    // measured on the operator's database 2026-08-29: 3,189 messages addressed to `dashboard`, 1,792
+    // unread, and 29 unread inside the page. So a badge could under-report by roughly sixty to one
+    // while looking authoritative.
+    //
+    // The response has carried `showing` and `total` all along and the transport dropped them, which
+    // is the same producer/call-site loss as the truncation flags: the number that says the surface is
+    // partial, computed and discarded one function from where it was needed.
+    //
+    // Shown only when rows were actually left behind. A note on every render is one nobody reads.
+    const counts = state.inboxCounts || { showing: 0, total: 0, unreadTotal: 0 };
+    const partial = counts.total > counts.showing && counts.showing > 0;
+    // AN EXPLICIT LOCALE, not the runner's. A bare `toLocaleString()` groups in a browser and does
+    // not under the Node the tests run on -- so an assertion written against what an operator sees
+    // fails on the runner, and one written against the runner asserts something the operator never
+    // sees. Fixing the locale makes the two the same string.
+    const grouped = (n) => Number(n || 0).toLocaleString('en-US');
+    const unreadNote = counts.unreadTotal > 0 ? `${grouped(counts.unreadTotal)} unread · ` : '';
+    const scopeNote = partial
+      ? `<div class="chat-rail-note subtle">${unreadNote}showing the ${counts.showing} most recent of ${grouped(counts.total)} messages. Badges count only these.</div>`
+      : '';
     const html = (
-      `<div class="chat-rail-section">Direct messages</div>`
+      scopeNote
+      + `<div class="chat-rail-section">Direct messages</div>`
       + (dmItems.length ? dmItems.map((i) => railItemHtml(i, state.chat.selected, state.chat.drafts, state.chat.identity === 'all')).join('') : `<p class="subtle chat-rail-empty">${dmEmpty}</p>`)
       + `<div class="chat-rail-section">Channels</div>`
       + (chItems.length ? chItems.map((i) => railItemHtml(i, state.chat.selected, state.chat.drafts)).join('') : `<p class="subtle chat-rail-empty">${chEmpty}</p>`)

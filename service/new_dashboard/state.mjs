@@ -73,6 +73,11 @@ export const state = {
   // empty state invited the operator to adjust the filters. Measured on the live database
   // 2026-08-29: a limit=80 page reached back to 26 August and offered ONE distinct sender.
   runsTruncated: false,
+  // WHAT THE INBOX SAID ABOUT ITSELF. `/messages/inbox/dashboard` reports `showing`, `total`
+  // and `unreadTotal`, and the transport dropped all three -- so Chat rendered 80 of 3,189
+  // messages, and badged unread from the 29 inside that page against 1,792 that exist.
+  // Zeroes until the first successful load, which renders no note rather than a wrong one.
+  inboxCounts: { showing: 0, total: 0, unreadTotal: 0 },
   settingsTab: '', // active settings tab (empty → first group)
   // Global analytics page (WS-C). Lazily loaded when the page is first opened, then on refresh
   // while it stays active, and on range change. data === null until first load completes.

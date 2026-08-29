@@ -208,6 +208,23 @@ const EXTRACTIONS = [
         // state offered a Spawn button while 303 existed. `/sessions` now reports `truncated` the way
         // `/contracts` and `/terminals` already did, and this flag is where the render reads it.
         editedSince: [
+          // 2026-08-29: the Chat rail is built from the most recent 80 messages and badges unread
+          // from that page. The inbox response says `showing`, `total` and `unreadTotal`; the
+          // transport dropped all three, so the surface rendered 80 of 3,189 and badged 29 against
+          // 1,792. EDITS ARE UNDONE LATEST FIRST, so this goes at the HEAD of the array.
+          {
+            was: [
+              "  runsTruncated: false,",
+            ],
+            now: [
+              "  runsTruncated: false,",
+              "  // WHAT THE INBOX SAID ABOUT ITSELF. `/messages/inbox/dashboard` reports `showing`, `total`",
+              "  // and `unreadTotal`, and the transport dropped all three -- so Chat rendered 80 of 3,189",
+              "  // messages, and badged unread from the 29 inside that page against 1,792 that exist.",
+              "  // Zeroes until the first successful load, which renders no note rather than a wrong one.",
+              "  inboxCounts: { showing: 0, total: 0, unreadTotal: 0 },",
+            ],
+          },
           {
             was: [
               "  sessionsTruncated: false,",
