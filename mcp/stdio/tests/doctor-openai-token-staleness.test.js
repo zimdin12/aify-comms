@@ -19,7 +19,7 @@ import {
   openAiRefreshLooksBroken,
   openAiTokenExpiry,
   openAiUsageVerdict,
-} from "../doctor-predicates.js";
+} from "../openai-usage-check.mjs";
 import { hasOpenAiRefreshToken, openAiLastRefreshEpoch } from "../usage-collector.js";
 
 const NOW = 1_786_000_000;

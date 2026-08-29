@@ -14,7 +14,7 @@
 
 import { readFileSync, readdirSync, statSync, openSync, fstatSync, readSync, closeSync } from "node:fs";
 import { join } from "node:path";
-import { openAiTokenExpiry, openAiUsageVerdict } from "./doctor-predicates.js";
+import { openAiTokenExpiry, openAiUsageVerdict } from "./openai-usage-check.mjs";
 
 const ANTHROPIC_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const ANTHROPIC_USAGE_HEADERS = { "anthropic-beta": "oauth-2025-04-20" };
@@ -524,7 +524,7 @@ export async function checkOpenAiUsageAccess({ readHermesAuth = defaultReadHerme
     // out of auth.json while the login is perfectly healthy. Observed live 2026-08-09: HTTP 401
     // here, then GREEN three minutes later with no operator action — and the old wording had
     // already told the operator to run `codex login`, which was wrong. Let the predicate decide
-    // which of those two situations this is; see doctor-predicates.js.
+    // which of those two situations this is; see openai-usage-check.mjs.
     const verdict = openAiUsageVerdict({
       hasToken: true,
       tokenExp: openAiTokenExpiry(token),
