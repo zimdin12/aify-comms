@@ -28,6 +28,7 @@ from collections import deque
 from typing import Any
 
 from service.api_core.terminal_output import _append_terminal_output
+from service.api_core.terminal_status import TERMINAL_STOPPABLE_STATUSES
 from service.clock import now as _now
 from service.db import get_db
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -222,12 +223,26 @@ class TerminalOutputWriteQueue:
                     """,
                     (norm_status, _now(), terminal["session_id"]),
                 )
-            elif norm_status in {"attached", "running", "live", "idle", "starting", "stopping"}:
+            elif norm_status in TERMINAL_STOPPABLE_STATUSES:
                 # Mirror the live terminal status onto the session so the
                 # status engine sees the console advance past "starting".
                 # Without this agent_sessions.terminal_status stays "starting"
                 # forever and the engine reports a permanent transitioning
                 # "working" even for an idle console.
+                #
+                # THE SET IS THE VOCABULARY'S, NOT THIS FILE'S. It was hand-typed as
+                # {attached, running, live, idle, starting, stopping}: missing `active` and
+                # `recovering`, and carrying `live`, which is not a terminal status -- the
+                # transition rule refuses anything outside `TERMINAL_SESSION_STATUSES`, and `live`
+                # is not in it. So a terminal reporting `active` or `recovering` left the session's
+                # mirrored status stale, which is exactly the harm the paragraph above names.
+                # Latent rather than live: the bridge sends `attached` and `failed` with output.
+                #
+                # The `stopped`/`failed` branch above is deliberately NOT widened to the full end
+                # vocabulary here. It also writes `owner_mode`, and the ROUTE already closes out
+                # every end status through `_close_out_terminal_on_end_status` with
+                # `_TERMINAL_END_STATUSES` -- so widening this one would duplicate that with
+                # different side effects rather than complete it.
                 await db.execute(
                     """
                     UPDATE agent_sessions

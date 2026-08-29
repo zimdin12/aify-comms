@@ -49,11 +49,18 @@ TERMINAL_LIVE_FILTER_SQL = "(" + ", ".join(
     f"'{status}'" for status in sorted(TERMINAL_LIVE_FILTER_STATUSES)
 ) + ")"
 
-#: The live-filter set plus `stopping`, for the stop sweep -- which wants "not yet gone" rather than
-#: "live" and must reach a terminal already on its way out. DERIVED, so a ruling on `recovering`
-#: reaches all three fragments at once.
+#: The live-filter set plus `stopping`: "not yet gone" rather than "live", for anything that must
+#: reach a terminal already on its way out. DERIVED, so a ruling on `recovering` reaches every
+#: fragment at once.
+#:
+#: THE SET IS NAMED, not only its SQL. `terminal_write_queue` asks this question in Python -- it
+#: mirrors a live terminal's status onto its session row -- and with only the SQL form exported it
+#: hand-typed its own set instead. That copy was missing `active` and `recovering` and carried
+#: `live`, which is not a terminal status at all. A sweep looking for `WHERE status IN (...)` could
+#: not see it, which is why it survived the unification of the other sixteen.
+TERMINAL_STOPPABLE_STATUSES = frozenset(TERMINAL_LIVE_FILTER_STATUSES | {"stopping"})
 TERMINAL_STOPPABLE_STATUS_SQL = "(" + ", ".join(
-    f"'{status}'" for status in sorted(TERMINAL_LIVE_FILTER_STATUSES | {"stopping"})
+    f"'{status}'" for status in sorted(TERMINAL_STOPPABLE_STATUSES)
 ) + ")"
 
 #: EVERY status a `terminal_sessions.status` column may hold. DERIVED, not retyped — the same rule
