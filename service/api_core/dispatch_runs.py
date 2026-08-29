@@ -259,7 +259,6 @@ async def _create_dispatch_runs(
                 recipient_status = "unknown"
                 has_active = False
                 if recipient_row:
-                    settings = await _load_settings(db)
                     recipient_status = await _compute_agent_status(recipient_row, db)
                     dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
                     has_active = bool(dispatch_state.get("hasActiveRun"))

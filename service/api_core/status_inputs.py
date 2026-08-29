@@ -294,16 +294,21 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # is itself gated on `"resident-run" in _row_capabilities(...)`, and
     # _row_capabilities STRIPS resident-run for a hermes with no gatewayUrl — so a
     # missing-handle resident never reaches that gate and would otherwise fall
-    # through to `available`. This flag closes that hole at the same liveness
-    # altitude. A genuinely-live resident (fresh bridge + usable handle →
-    # `*-live`/`-thread-resume`) is unaffected. Excludes `presence-only`
-    # (opencode/pi resident) and inbox/`message-only` agents, which are not
-    # wake-handle-backed targets and have their own taxonomy.
-    resident_missing_handle = False
+    # through to `available`. Setting `resident_bridge_stale` HERE closes that hole
+    # at the same liveness altitude — that is the flag `derive()` reads, through the
+    # facts built at the end of this function. A genuinely-live resident (fresh
+    # bridge + usable handle → `*-live`/`-thread-resume`) is unaffected. Excludes
+    # `presence-only` (opencode/pi resident) and inbox/`message-only` agents, which
+    # are not wake-handle-backed targets and have their own taxonomy.
+    #
+    # THIS COMMENT NAMED THE WRONG FLAG until 2026-08-29. It said "this flag closes
+    # that hole" of a `resident_missing_handle` local that nothing read — so the
+    # block looked like dead code with one live line hidden inside it, and deleting
+    # it on that reading would have reopened the hole the paragraph above describes.
+    # `test_resident_hermes_missing_handle_status.py` is what would have caught it.
     if agent_session_mode == "resident":
         _wake_mode = _agent_wake_mode(agent_row)
         if _wake_mode.endswith("-missing-handle"):
-            resident_missing_handle = True
             resident_bridge_stale = True
     # has_live_worker (+ the two channel-sidecar reason flags) is now decided by
     # the SHARED _worker_liveness_for helper so the legacy derivation and the
@@ -393,7 +398,8 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             )
         except Exception:
             terminal_input_hint = ""
-    active_run_runtime = _normalize_runtime(str(active_run["runtime"] or "")) if active_run else ""
+    # NO `active_run_runtime`. It was computed here on every status refresh and read at no line in
+    # the service; `active_run_mode` beside it IS read, which is how it survived.
     active_run_mode = str(active_run["dispatch_mode"] or "").strip().lower() if active_run else ""
     active_run_terminal_missing = (
         active_run

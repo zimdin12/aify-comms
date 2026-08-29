@@ -200,7 +200,6 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
         await db.commit()
 
         updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-        settings = await _load_settings(db)
         status = await _compute_agent_status(updated, db)
         dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
         ws = await _get_ws(request)

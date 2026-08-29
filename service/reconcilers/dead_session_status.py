@@ -192,7 +192,7 @@ async def _reconcile_dead_session_status(db, *, lease_seconds: int, limit: int =
     stop_ids: list[str] = []
     stop_agents: list[str] = []
     for row in (resident_rows or []):
-        keys = row.keys()
+        # NO `keys = row.keys()`. Nothing below reads it; the row is subscripted directly.
         sid = str(row["id"])
         agent_id = str(row["agent_id"] or "")
         # Stop ONLY when the AGENT has no fresh bridge at all. A fresh bridge

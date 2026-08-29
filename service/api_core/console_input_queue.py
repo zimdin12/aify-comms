@@ -212,7 +212,11 @@ async def _queue_console_dispatch_inputs(db, req, msg_id, recipients, console_re
             for recipient_id, terminal in console_recipients.items():
                 terminal_id = str(terminal["terminal_id"] or "").strip()
                 recipient_message_id = source_message_ids.get(recipient_id, msg_id)
-                terminal_runtime = _normalize_runtime(terminal["runtime"] or "")
+                # NO `terminal_runtime`. It normalised the recipient's runtime here and dropped
+                # it: `_append_terminal_control` takes terminal_id, environment_id, bridge_id,
+                # action, requested_by, body, cols and rows -- no runtime. Passing one is a
+                # behaviour change to what a control carries, not a cleanup, so the dead line
+                # goes and the question stays open.
                 control_id = await _append_terminal_control(
                     db,
                     terminal_id=terminal_id,
@@ -288,7 +292,11 @@ async def _queue_console_inputs_for_dispatch(db, req, message_id, console_recipi
         for recipient_id, terminal in console_recipients.items():
             terminal_id = str(terminal["terminal_id"] or "").strip()
             recipient_message_id = source_message_ids.get(recipient_id, message_id)
-            terminal_runtime = _normalize_runtime(terminal["runtime"] or "")
+            # NO `terminal_runtime`. It normalised the recipient's runtime here and dropped
+            # it: `_append_terminal_control` takes terminal_id, environment_id, bridge_id,
+            # action, requested_by, body, cols and rows -- no runtime. Passing one is a
+            # behaviour change to what a control carries, not a cleanup, so the dead line
+            # goes and the question stays open.
             control_id = await _append_terminal_control(
                 db,
                 terminal_id=terminal_id,

@@ -46,6 +46,22 @@ CONSOLE_QUEUE = REPO / "service" / "api_core" / "console_input_queue.py"
 MODULES = (DISPATCH, DISPATCH_START, DELIVERY_RESOLVE, CONSOLE_QUEUE)
 FIXTURE = Path(__file__).resolve().parent / "data" / "create_dispatch_before_split.py"
 
+#: DECLARED EDIT, 2026-08-29. `_queue_console_dispatch_inputs` normalised the recipient's
+#: runtime into a local and never read it; `_append_terminal_control` takes no runtime. The
+#: dead line is gone and a note stands in its place, in BOTH console-input twins -- the twins
+#: gate requires them to differ only by their declared substitutions. Undone here rather than
+#: re-captured, so the pre-split baseline survives.
+EDITED_SINCE = [
+    (
+        "                recipient_message_id = source_message_ids.get(recipient_id, msg_id)\n                # NO `terminal_runtime`. It normalised the recipient's runtime here and dropped\n                # it: `_append_terminal_control` takes terminal_id, environment_id, bridge_id,\n                # action, requested_by, body, cols and rows -- no runtime. Passing one is a\n                # behaviour change to what a control carries, not a cleanup, so the dead line\n                # goes and the question stays open.\n                control_id = await _append_terminal_control(",
+        '                recipient_message_id = source_message_ids.get(recipient_id, msg_id)\n                terminal_runtime = _normalize_runtime(terminal["runtime"] or "")\n                control_id = await _append_terminal_control(',
+    ),
+    (
+        "            recipient_message_id = source_message_ids.get(recipient_id, message_id)\n            # NO `terminal_runtime`. It normalised the recipient's runtime here and dropped\n            # it: `_append_terminal_control` takes terminal_id, environment_id, bridge_id,\n            # action, requested_by, body, cols and rows -- no runtime. Passing one is a\n            # behaviour change to what a control carries, not a cleanup, so the dead line\n            # goes and the question stays open.\n            control_id = await _append_terminal_control(",
+        '            recipient_message_id = source_message_ids.get(recipient_id, message_id)\n            terminal_runtime = _normalize_runtime(terminal["runtime"] or "")\n            control_id = await _append_terminal_control(',
+    ),
+]
+
 SOURCE_FUNCTION = "create_dispatch"
 EXTRACTIONS = ["_resolve_dispatch_recipient_delivery", "_queue_console_inputs_for_dispatch"]
 
@@ -70,7 +86,7 @@ class CreateDispatchSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS, EDITED_SINCE)
 
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""

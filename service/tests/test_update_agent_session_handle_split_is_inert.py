@@ -41,7 +41,22 @@ FIXTURE = (Path(__file__).resolve().parent / "data"
 #: DECLARED EDIT, 2026-08-29. Sixteen live-terminal filters spelled their status set out by hand;
 #: they now interpolate a fragment from `api_core/terminal_status.py`. Undone here rather than
 #: re-captured, so the pre-split baseline survives.
+#: DECLARED EDIT, 2026-08-29. A `settings = await _load_settings(db)` whose result was never
+#: read -- one of eleven discarded results removed across the service. Undone here rather than
+#: re-captured, so the pre-split baseline survives.
 EDITED_SINCE = [
+    (
+        '        updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()\n        status = await _compute_agent_status(updated, db)',
+        '        updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()\n        settings = await _load_settings(db)\n        status = await _compute_agent_status(updated, db)',
+    ),
+    (
+        '            updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()\n            status = await _compute_agent_status(updated, db)',
+        '            updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()\n            settings = await _load_settings(db)\n            status = await _compute_agent_status(updated, db)',
+    ),
+    (
+        '                updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()\n                status = await _compute_agent_status(updated, db)',
+        '                updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()\n                settings = await _load_settings(db)\n                status = await _compute_agent_status(updated, db)',
+    ),
     (
         '\nfrom service.api_core.terminal_status import TERMINAL_ACTIVE_STATUS_SQL\nfrom service.api_core.dispatch_state import _get_dispatch_state_for_agent',
         '\nfrom service.api_core.dispatch_state import _get_dispatch_state_for_agent',
