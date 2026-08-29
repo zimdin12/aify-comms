@@ -59,6 +59,16 @@ async def _record_environment_registration(
             def _kept(incoming, column):
                 return str(incoming or "").strip() or str(existing[column] or "")
 
+            # LABEL BELONGS IN THE SET AFTER ALL, and the reason it was left out was wrong. The
+            # argument was that `req.label or env_id` falls back to a real default rather than a
+            # blank -- true, and irrelevant on an UPDATE: the "real default" is the raw environment
+            # id, so one advertisement that says nothing about the label replaces the operator's
+            # "Windows on StevenZ-L" with "windows:StevenZ-L:default". Measured, not reasoned about.
+            #
+            # The INSERT below keeps `req.label or env_id`: a row being created has no prior label,
+            # and its id is the honest name until somebody gives it one.
+            preserved_label = _kept(req.label, "label")
+
             preserved_bridge_id = _kept(req.bridgeId, "bridge_id")
             preserved_bridge_version = _kept(req.bridgeVersion, "bridge_version")
             preserved_machine_id = _kept(req.machineId, "machine_id")
@@ -78,7 +88,7 @@ async def _record_environment_registration(
                 WHERE id = ?
                 """,
                 (
-                    req.label or env_id,
+                    preserved_label or env_id,
                     preserved_machine_id,
                     preserved_os,
                     preserved_kind,

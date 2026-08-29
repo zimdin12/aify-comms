@@ -150,8 +150,11 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
         raise HTTPException(400, "Environment id is required")
 
     now = _now()
-    cwd_roots = _normalize_roots(req.cwdRoots or [])
-    runtimes = req.runtimes or []
+    #: `is None`, NOT falsiness. For a list, "said nothing" and "said there are none" are different
+    #: claims, and `or []` collapsed them -- so a heartbeat that omitted either field erased it. The
+    #: stored value is restored below, once `existing` has been read.
+    cwd_roots = _normalize_roots(req.cwdRoots) if req.cwdRoots is not None else None
+    runtimes = req.runtimes if req.runtimes is not None else None
     metadata = req.metadata or {}
     if req.terminal is not None:
         metadata["terminal"] = bool(req.terminal)
@@ -190,8 +193,26 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
         registered_at = existing["registered_at"] if existing else now
         existing_metadata = _json_loads_or(existing["metadata"], {}) if existing else {}
         manual_roots = bool(existing_metadata.get("manualRoots"))
-        effective_roots = _json_loads_or(existing["cwd_roots"], []) if existing and manual_roots else cwd_roots
-        next_metadata = {**metadata, "advertisedCwdRoots": cwd_roots}
+        #: Three cases, and the middle one is the fix. Manual roots always win; a caller that said
+        #: nothing keeps what the row holds; a caller that spoke is believed, including when it says
+        #: the list is empty.
+        stored_roots = _json_loads_or(existing["cwd_roots"], []) if existing else []
+        if manual_roots and existing:
+            effective_roots = stored_roots
+        elif cwd_roots is None:
+            effective_roots = stored_roots
+        else:
+            effective_roots = cwd_roots
+        #: Same rule for the runtimes. Blanking these is the worst of the set: an environment with no
+        #: runtimes advertises nothing that can be spawned on it.
+        if runtimes is None:
+            runtimes = _json_loads_or(existing["runtimes"], []) if existing else []
+        #: What the CALLER advertised, which is a different fact from what the row now holds. A
+        #: caller that said nothing has not advertised an empty list, so the previous claim stands.
+        advertised_roots = cwd_roots if cwd_roots is not None else (
+            existing_metadata.get("advertisedCwdRoots", []) if existing else []
+        )
+        next_metadata = {**metadata, "advertisedCwdRoots": advertised_roots}
         if not str(req.bridgeId or "").strip():
             for bridge_key in BRIDGE_OWNED_METADATA:
                 if bridge_key in existing_metadata and bridge_key not in next_metadata:

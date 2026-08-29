@@ -17,8 +17,12 @@ An environment-tier advertisement omits several of those by design -- it describ
 launcher a bridge was started from -- so the first advertiser would have erased them on its first
 beat.
 
-`label` is deliberately NOT in the set. `req.label or env_id` falls back to a real default rather
-than a blank, which is a different behaviour and a correct one.
+`label` WAS ARGUED OUT OF THIS SET, on the grounds that `req.label or env_id` falls back to a real
+default rather than a blank. That is true and it is not the point: on an UPDATE the "real default" is
+the raw environment id, so one silent heartbeat replaces the operator's "Windows on StevenZ-L" with
+"windows:StevenZ-L:default". Measured against the running service on 2026-08-30, not reasoned about,
+and it is the tenth field in the same family. The INSERT still uses the id, because a row being
+created has no prior label and its id is the honest name until somebody gives it one.
 """
 
 from __future__ import annotations
@@ -114,3 +118,62 @@ class AHeartbeatDoesNotBlankWhatItDidNotMentionTests(FastApiTestCase):
         after = self._beat({"id": ENV_ID, "bridgeId": "   ", "launcherVersion": ""})
         self.assertEqual("bridge-A", after["bridgeId"])
         self.assertEqual("0.6.0", after["launcherVersion"])
+
+    # -- the two LIST fields, whose rule is not the strings' rule ---------------------------------
+
+    def test_lists_the_caller_omitted_keep_their_stored_value(self):
+        """The worst case in the set, and the last found. `cwd_roots = _normalize_roots(req.cwdRoots
+        or [])` and `runtimes = req.runtimes or []` turned "said nothing" into "said there are none",
+        so a bare heartbeat left an environment advertising NOTHING SPAWNABLE."""
+        self._beat({**FULL, "cwdRoots": ["C:/work", "C:/other"],
+                    "runtimes": [{"runtime": "claude-code", "available": True}]})
+        after = self._beat({"id": ENV_ID})
+        self.assertEqual(["C:/work", "C:/other"], after["cwdRoots"],
+                         "a heartbeat that never mentioned roots erased them")
+        self.assertEqual(1, len(after["runtimes"]),
+                         "a heartbeat that never mentioned runtimes left the host unspawnable")
+
+    def test_an_EMPTY_list_is_a_claim_and_is_believed(self):
+        """`None` and `[]` are different claims -- the model's own words about roots: "null means the
+        service said nothing about roots -- keep what we had. An empty ARRAY means it said there are
+        none." A fix that preserved on both would make it impossible to ever clear a stale list."""
+        self._beat({**FULL, "cwdRoots": ["C:/work"],
+                    "runtimes": [{"runtime": "claude-code", "available": True}]})
+        after = self._beat({"id": ENV_ID, "cwdRoots": [], "runtimes": []})
+        self.assertEqual([], after["cwdRoots"], "an explicit empty root list was ignored")
+        self.assertEqual([], after["runtimes"], "an explicit empty runtime list was ignored")
+
+    def test_a_caller_that_speaks_still_replaces_the_lists(self):
+        self._beat({**FULL, "cwdRoots": ["C:/work"],
+                    "runtimes": [{"runtime": "claude-code", "available": True}]})
+        after = self._beat({"id": ENV_ID, "cwdRoots": ["D:/elsewhere"],
+                            "runtimes": [{"runtime": "hermes", "available": False}]})
+        self.assertEqual(["D:/elsewhere"], after["cwdRoots"])
+        self.assertEqual("hermes", after["runtimes"][0]["runtime"])
+
+    def test_the_advertised_roots_note_is_not_overwritten_by_silence(self):
+        """`metadata.advertisedCwdRoots` records what a CALLER claimed, which is a different fact
+        from what the row holds. A beat that said nothing has not advertised an empty list."""
+        self._beat({**FULL, "cwdRoots": ["C:/work"]})
+        after = self._beat({"id": ENV_ID})
+        self.assertEqual(["C:/work"], after.get("metadata", {}).get("advertisedCwdRoots"),
+                         "silence was recorded as an advertisement of nothing")
+
+    # -- the label, whose "real default" is the id itself --------------------------------------
+
+    def test_a_label_the_caller_omitted_is_not_replaced_by_the_id(self):
+        """The argument that kept label out of the table, tested instead of trusted."""
+        self._beat({**FULL, "label": "Windows on StevenZ-L"})
+        after = self._beat({"id": ENV_ID})
+        self.assertEqual("Windows on StevenZ-L", after["label"],
+                         "a silent heartbeat renamed the environment after its own id")
+
+    def test_a_new_row_is_still_named_after_its_id(self):
+        """The INSERT is untouched: an unnamed environment showing its id beats showing nothing."""
+        row = self._beat({"id": "windows:unnamed-host:default"})
+        self.assertEqual("windows:unnamed-host:default", row["label"])
+
+    def test_a_caller_that_names_the_environment_still_renames_it(self):
+        self._beat({**FULL, "label": "Old Name"})
+        after = self._beat({"id": ENV_ID, "label": "New Name"})
+        self.assertEqual("New Name", after["label"])
