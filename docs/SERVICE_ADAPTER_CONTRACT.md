@@ -1,6 +1,6 @@
 # The service adapter: how aify-env supervises something that is not a harness
 
-**Status: DESIGN, revision 5. Nothing here is built.** It is the first architecture slice of the
+**Status: DESIGN, revision 6. Nothing here is built.** It is the first architecture slice of the
 operator's 2026-08-29 instruction — "get that aify-env and aify-comms bridge thing sorted out, real
 separation of concerns" — and it is deliberately narrower than the harness-driver question, which
 follows it.
@@ -22,11 +22,25 @@ each was a place where the document said one thing in one section and its opposi
 implementer could satisfy it either way and neither reading would be wrong. A contract that can be
 satisfied two ways has not decided anything.
 
-Revision 5 fixes two things I introduced while fixing those. Both are the same mistake in different
+Revision 5 fixed two things I introduced while fixing those. Both are the same mistake in different
 clothes: **a property stated in one place and quietly assumed away in another.** Making the digest
 algorithm configurable and then naming the release by a bare digest assumes one algorithm. Calling a
 record immutable and then saying it becomes "spent" assumes it has a lifecycle. Neither survives being
 read twice.
+
+Revision 6 names the pattern behind all of them, because it has now happened three times in this one
+document and the individual repairs were not teaching anybody anything:
+
+> **A design may not promise a guarantee its storage cannot make.** "Every attempt gets an outcome"
+> reads like a rule and is actually a claim about atomicity across two writes. "The old record is
+> spent" reads like bookkeeping and is actually a lifecycle on something declared immutable. "The
+> algorithm is declared inside the manifest" reads like flexibility and is actually an identity that
+> cannot be compared. Each was fixed on its own; each came from the same habit of writing the property
+> I wanted rather than the one the mechanism supplies.
+>
+> The test is mechanical: for every guarantee, name the write that establishes it and the failure that
+> would break it. If the answer is "two writes and a crash between them", the guarantee is a wish and
+> the honest version has an UNKNOWN state in it.
 
 Companion to [AIFY_ENV_BOUNDARY.md](AIFY_ENV_BOUNDARY.md) (who owns what) and
 [HARNESS_KNOWLEDGE_BELONGS_TO_AIFY_WRAPPER.md](HARNESS_KNOWLEDGE_BELONGS_TO_AIFY_WRAPPER.md) (where the
@@ -246,17 +260,41 @@ So a transition is an APPEND-ONLY SEQUENCE of events, not a mutable row:
 
 | event | written | carries |
 |---|---|---|
-| `attempted` | before every CAS | candidate release, expected-old predecessor, registry revision it was written against |
-| `outcome` | after every CAS | typed result — `applied`, `conflict`, `refused` — and, on `applied` only, the new registry revision |
-| `rolled_back` | after a rollback | a reference to the exact `applied` event it reverses, and its own CAS outcome |
+| `attempted` | before every CAS | operation id, candidate release, expected-old predecessor, registry revision it was written against |
+| `outcome` | after every CAS | operation id, and a typed result — `applied`, `conflict`, `refused` — with the new registry revision on `applied` only |
+| `rollback_attempted` | before a rollback CAS | operation id, and the exact `applied` event it intends to reverse |
+| `rollback_outcome` | after a rollback CAS | typed result, same three values |
+| `rolled_back` | only after a `rollback_outcome` of `applied` | the reversal, as a fact rather than an intention |
 
-Every attempt gets both of the first two. A failed attempt is a complete, readable record of a thing
-that did not happen, rather than an absence. A retry appends; nothing is overwritten and nothing is
-spent.
+**`rolled_back` CANNOT CARRY `conflict` OR `refused`**, and revision 5's did. Those outcomes mean no
+rollback happened, so an event named for the thing having happened is a record of the opposite. The
+attempt and its result are two events for the same reason the forward transition's are.
+
+A retry appends. Nothing is overwritten.
 
 A rollback names one `applied` event and succeeds only if current desired still equals that event's
 candidate. Where a newer same-service desired value exists it **refuses** and the supervisor reconciles
 forward, which is 7b's rule stated against a record that can actually be pointed at.
+
+### The interrupted write, which revision 5 promised away
+
+"Every attempt gets an outcome" is not a rule this design can keep. The CAS and the event append are
+two writes, and a crash between them leaves an attempt with no result — so the honest contract has a
+state for it rather than a promise it will not happen.
+
+- **A durable OPERATION ID reaches the registry CAS itself**, not only the event log. Without it there
+  is nothing in the registry to match a recovered attempt against.
+- **After a restart, an attempt with no outcome is `OUTCOME_UNKNOWN`** until the registry's revision or
+  recorded operation id proves the CAS applied or did not.
+- **Candidate equality is NOT proof.** Current desired equalling the candidate does not mean THIS
+  attempt applied it: another writer can select the same immutable release, which is the whole point
+  of a content-addressed release being selectable more than once.
+- **No further transition or rollback proceeds while an outcome is unresolved.** Reconciling forward
+  past an attempt that may or may not have applied is how one supervisor undoes another's write.
+
+Controls: kill between CAS and append and require `OUTCOME_UNKNOWN`; resolve it forward from the
+registry revision; resolve it backward when the CAS did not apply; and a case where a second writer
+selected the same release, where candidate equality would have resolved it wrongly.
 
 **Said plainly: without a signature or an OS ACL, a local receipt is provenance under a local-host
 trust boundary.** It records who installed what. It is not protection against an attacker who can
