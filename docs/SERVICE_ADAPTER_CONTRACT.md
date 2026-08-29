@@ -1,6 +1,6 @@
 # The service adapter: how aify-env supervises something that is not a harness
 
-**Status: DESIGN, revision 6. Nothing here is built.** It is the first architecture slice of the
+**Status: DESIGN, revision 7. Nothing here is built.** It is the first architecture slice of the
 operator's 2026-08-29 instruction — "get that aify-env and aify-comms bridge thing sorted out, real
 separation of concerns" — and it is deliberately narrower than the harness-driver question, which
 follows it.
@@ -28,8 +28,9 @@ algorithm configurable and then naming the release by a bare digest assumes one 
 record immutable and then saying it becomes "spent" assumes it has a lifecycle. Neither survives being
 read twice.
 
-Revision 6 names the pattern behind all of them, because it has now happened three times in this one
-document and the individual repairs were not teaching anybody anything:
+Revision 6 names the pattern behind all of them, because it had by then happened three times in this
+one document and the individual repairs were not teaching anybody anything. Revision 7 exists because
+the same revision broke the rule one table below where it wrote it, and a reviewer caught that too:
 
 > **A design may not promise a guarantee its storage cannot make.** "Every attempt gets an outcome"
 > reads like a rule and is actually a claim about atomicity across two writes. "The old record is
@@ -263,12 +264,25 @@ So a transition is an APPEND-ONLY SEQUENCE of events, not a mutable row:
 | `attempted` | before every CAS | operation id, candidate release, expected-old predecessor, registry revision it was written against |
 | `outcome` | after every CAS | operation id, and a typed result — `applied`, `conflict`, `refused` — with the new registry revision on `applied` only |
 | `rollback_attempted` | before a rollback CAS | operation id, and the exact `applied` event it intends to reverse |
-| `rollback_outcome` | after a rollback CAS | typed result, same three values |
-| `rolled_back` | only after a `rollback_outcome` of `applied` | the reversal, as a fact rather than an intention |
+| `rollback_outcome` | after a rollback CAS | typed result, same three values, and the new registry revision on `applied` only |
 
 **`rolled_back` CANNOT CARRY `conflict` OR `refused`**, and revision 5's did. Those outcomes mean no
 rollback happened, so an event named for the thing having happened is a record of the opposite. The
 attempt and its result are two events for the same reason the forward transition's are.
+
+**AND THEN REVISION 6 ADDED A THIRD EVENT THAT BROKE ITS OWN RULE.** It kept a separate `rolled_back`,
+written only after a `rollback_outcome` of `applied` — which is two appends, with a crash between them
+leaving a rollback that happened and no event saying so. That is precisely the pattern the rule at the
+top of this document names, recreated in the revision that introduced the rule, one table below it.
+
+It is gone. `rollback_outcome` with `result: applied` IS the fact, carrying the new registry revision
+the way the forward outcome does. Anything wanting a `rolled_back` view derives it; a projection is
+free to be absent because its absence claims nothing, while a missing authoritative event claims the
+rollback did not happen.
+
+Worth stating plainly, since it is the fourth instance: **writing the rule did not stop me applying
+it.** The rule is only useful attached to a mechanical check, which is why it ends in one — name the
+write that establishes the guarantee, and the failure that would break it.
 
 A retry appends. Nothing is overwritten.
 

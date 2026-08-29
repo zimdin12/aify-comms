@@ -149,10 +149,24 @@ def _producer_paths() -> set[str]:
                 f"evaluating {name} from {module.name} failed, so any capped path it builds is "
                 f"ungoverned:\n{result.stderr[-800:]}"
             )
-        for line in result.stdout.splitlines():
-            candidate = line.strip()
-            if candidate.startswith("/") and "limit=" in candidate:
-                paths.add(candidate)
+        # EXACTLY ONE STRING, AND IT IS CLASSIFIED. A producer that returns a Promise, an object, or
+        # nothing printed no line -- and no line is indistinguishable from "builds no capped path".
+        # `/dispatch/runs` has a positive control today; the NEXT producer would not, which is the
+        # difference between a gate that fails closed and one that happens to be right.
+        printed = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if len(printed) != 1:
+            raise AssertionError(
+                f"{name} in {module.name} produced {len(printed)} string result(s); this gate needs "
+                "exactly one to classify. A producer returning a promise or an object contributes "
+                "nothing and looks identical to one that builds no capped path."
+            )
+        candidate = printed[0]
+        if not candidate.startswith("/"):
+            raise AssertionError(f"{name} returned {candidate!r}, which is not a request path")
+        # Classified either way: a producer whose path carries no limit is governed by nothing here and
+        # that is a fact worth being explicit about rather than a silent skip.
+        if "limit=" in candidate:
+            paths.add(candidate)
     return paths
 
 
@@ -334,20 +348,58 @@ class CappedListSaysItIsCappedTests(FastApiTestCase):
               f"2026-08-0{1 + i}T00:00:00Z", f"2026-08-0{1 + i}T00:00:00Z") for i in range(3)],
         )
 
+    def _count(self, sql: str, params: tuple = ()) -> int:
+        """Count rows straight from the database.
+
+        A SEPARATE AUTHORITY from the endpoint under test, and that is the point. Without it the
+        fixture's size is inferred from the same contract being judged, so a seeder that silently
+        stopped inserting -- a schema change, a renamed column, a swallowed constraint -- would leave
+        the endpoint answering "complete" about an empty table and the gate calling that correct.
+        """
+        import asyncio
+
+        from service.db import get_db
+
+        async def go() -> int:
+            db = await get_db()
+            try:
+                row = await (await db.execute(sql, params)).fetchone()
+                return int(row[0])
+            finally:
+                await db.close()
+
+        return asyncio.run(go())
+
     def seeders(self) -> dict:
-        """ROUTE -> the seeder that puts more than one row behind it.
+        """ROUTE -> (seeder, expected matching rows, a count that proves it independently).
 
         Closed in both directions by a test below: a governed route with no seeder would be probed
         against an empty table, where "not truncated" is the honest answer and proves nothing.
+
+        The COUNT is the third element because the response must not be allowed to prove its own
+        precondition. Each is written against the same predicate the route filters on, so a route that
+        starts filtering differently fails here rather than quietly probing a population of zero.
         """
         return {
-            "/contracts": self._seed_runs,
-            "/dispatch/runs": self._seed_runs,
-            "/sessions": self._seed_sessions,
-            "/messages/recent": self._seed_messages,
-            "/spawn-requests": self._seed_spawn_requests,
-            "/channels/{name}": self._seed_channel,
-            "/messages/inbox/{agent}": self._seed_dashboard_inbox,
+            # The contracts default view is `status NOT IN ('completed','failed','cancelled')`.
+            "/contracts": (self._seed_runs, 3,
+                           ("SELECT COUNT(*) FROM dispatch_runs WHERE status NOT IN "
+                            "('completed','failed','cancelled')", ())),
+            "/dispatch/runs": (self._seed_runs, 3,
+                               ("SELECT COUNT(*) FROM dispatch_runs WHERE dispatch_mode IS NULL "
+                                "OR dispatch_mode != 'audit'", ())),
+            "/sessions": (self._seed_sessions, 3,
+                          ("SELECT COUNT(*) FROM agent_sessions WHERE id LIKE 'gate-sess-%'", ())),
+            "/messages/recent": (self._seed_messages, 3,
+                                 ("SELECT COUNT(*) FROM messages WHERE to_agent = ? "
+                                  "AND source = 'direct'", ("gate-agent",))),
+            "/spawn-requests": (self._seed_spawn_requests, 3,
+                                ("SELECT COUNT(*) FROM spawn_requests", ())),
+            "/channels/{name}": (self._seed_channel, 3,
+                                 ("SELECT COUNT(*) FROM messages WHERE channel = ?", ("gate-channel",))),
+            "/messages/inbox/{agent}": (self._seed_dashboard_inbox, 3,
+                                        ("SELECT COUNT(*) FROM messages WHERE to_agent = ?",
+                                         ("dashboard",))),
         }
 
     # ---- the population ---------------------------------------------------------------------------
@@ -462,10 +514,19 @@ class CappedListSaysItIsCappedTests(FastApiTestCase):
         # that had stopped inserting anything, which is the failure that makes a witness worthless.
         already: set = set()
         for route, path in sorted(by_route.items()):
-            seeder = seeders[route]
+            seeder, expected, (count_sql, count_params) = seeders[route]
             if seeder not in already:
                 seeder()
                 already.add(seeder)
+            # THE FIXTURE IS PROVEN BEFORE THE ENDPOINT IS ASKED. At least `expected` rows must match
+            # the route's own predicate, counted from the database rather than inferred from the
+            # response -- otherwise the thing under test is certifying its own precondition.
+            actual = self._count(count_sql, count_params)
+            self.assertGreaterEqual(actual, expected, (
+                f"{route}: its seeder left {actual} matching row(s), fewer than the {expected} this "
+                "witness needs. Every assertion below would then be about an endpoint with nothing "
+                "to truncate."
+            ))
             base, _, raw_query = path.partition("?")
             query = [p for p in raw_query.split("&") if p and not p.startswith("limit=")]
             def ask(limit: int) -> dict:
