@@ -236,6 +236,12 @@ test("the module reaches only owned leaves", () => {
     "./bridge-agent-state.mjs",
     "./bridge-instance.mjs",
     "./claude-turn-detector-state.mjs",
+    // REVIEWED, 2026-08-29. A PURE leaf that imports nothing: it answers whether this process may
+    // claim environment ownership of the agent it is registering. It is here because the answer used
+    // to be "always yes", and a managed agent's own sidecar was overwriting the environment bridge's
+    // id in `runtimeState.bridgeInstanceId` -- observed live, two different ids for one agent within
+    // minutes, and `aify-comms doctor` calling an answering agent an orphan on the strength of it.
+    "./environment-ownership-claim.mjs",
     "./hermes-endpoint.js",
     "./launch-identity.mjs",
     "./local-active-run.mjs",

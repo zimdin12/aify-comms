@@ -31,6 +31,7 @@
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
+import { mayClaimEnvironmentOwnership } from "./environment-ownership-claim.mjs";
 import fs from "fs";
 import path from "path";
 
@@ -250,13 +251,25 @@ export function registerRegistrationTool(server, z, { ensureDispatchLoop }) {
         } catch {
           // best effort
         }
-        runtimeState = { ...runtimeState, bridgeInstanceId: BRIDGE_INSTANCE_ID };
-        try {
-          await httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/runtime-state`, {
-            runtimeState,
-          });
-        } catch {
-          // best effort
+        // WHOSE ANSWER THIS IS. Same rule as the auto-registration path: the field names the bridge
+        // that OWNS this agent, and a managed agent is owned by the environment bridge hosting its
+        // delivery loop, not by the sidecar registering it. See environment-ownership-claim.mjs for
+        // what two writers of this one field cost.
+        // NO `isEnvironmentBridge` ARGUMENT HERE, deliberately. This is the `comms_register` tool, run
+        // by an agent's own session; the environment bridge does not register itself through it, and
+        // `auto-registration.mjs` returns early for that process anyway. Passing the flag would add a
+        // NEW import of the environment-bridge marker, and a gate in this suite refuses that on the
+        // grounds that Phase 8 is retiring the command -- correctly, since a coupling site added
+        // today is one more to remove later.
+        if (mayClaimEnvironmentOwnership({ sessionMode: agentData.sessionMode }).claim) {
+          runtimeState = { ...runtimeState, bridgeInstanceId: BRIDGE_INSTANCE_ID };
+          try {
+            await httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/runtime-state`, {
+              runtimeState,
+            });
+          } catch {
+            // best effort
+          }
         }
         REMOTE_AGENT_STATE.set(agentId, {
           info: {

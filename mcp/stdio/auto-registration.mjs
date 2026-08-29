@@ -24,6 +24,7 @@
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
+import { mayClaimEnvironmentOwnership } from "./environment-ownership-claim.mjs";
 import {
   AIFY_AGENT_ID,
   AIFY_AGENT_ROLE,
@@ -178,7 +179,18 @@ export function makeAutoRegister({ ensureDispatchLoop }) {
           runtimeState?.pendingResidentTakeover &&
           String(runtimeState.pendingResidentTakeover.bridgeId || "") === BRIDGE_INSTANCE_ID
         );
-      if (!pendingTakeover) {
+      // WHOSE ANSWER THIS IS. `runtimeState.bridgeInstanceId` names the bridge that OWNS this agent,
+      // and for a managed agent that is the environment bridge hosting its delivery loop -- not this
+      // per-session sidecar. Writing it here made the field a race between two processes with two
+      // meanings, and `aify-comms doctor` then reported a live, answering agent as an orphaned loop
+      // "bound to no live bridge", advising a bridge relaunch that reaps the fleet.
+      // No `isEnvironmentBridge`: this function returns above when that is what we are, and a gate
+      // in this suite refuses a second reference to a marker Phase 8 is retiring.
+      const ownership = mayClaimEnvironmentOwnership({
+        sessionMode: resolvedSessionMode,
+        managedWrapperChild: payload.managedWrapperChild === true,
+      });
+      if (!pendingTakeover && ownership.claim) {
         runtimeState = { ...runtimeState, bridgeInstanceId: BRIDGE_INSTANCE_ID };
         try {
           await httpCall("PATCH", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/runtime-state`, { runtimeState });
