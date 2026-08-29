@@ -117,20 +117,38 @@ def _producer_paths() -> set[str]:
             if re.search(rf"^export (?:async )?function {re.escape(name)}\b", text, re.M):
                 exporters[name] = source
 
+    # FAIL CLOSED ON A PRODUCER THAT CANNOT BE RESOLVED. A name found at `api(name())` with no
+    # exporting module is a path this gate cannot see, and silently dropping it is how the first
+    # version came to govern six routes while believing it governed seven.
+    unresolved = sorted(n for n in names if n not in exporters)
+    if unresolved:
+        raise AssertionError(
+            f"{unresolved} are handed to api(...) but no module exports them, so any capped path they "
+            "build is ungoverned. Resolve them, or the population is a guess."
+        )
+
     paths = set()
     for name, module in sorted(exporters.items()):
         # A `file://` URL, not a bare Windows path: node's ESM loader refuses `c:/...` outright
         # ("Only URLs with a scheme in: file, data, and node"), and the refusal is swallowed by the
         # try/catch below -- so the producer would silently contribute nothing and the population
         # would be short by exactly the paths this arm exists to find.
+        # NO try/catch AROUND THE CALL. Swallowing a throw turns a producer that broke into a producer
+        # that contributes nothing, and an empty contribution is indistinguishable from a producer that
+        # builds no capped path. A non-zero exit is reported with its stderr instead.
         script = (
             f"import {{ {name} }} from {json.dumps(module.as_uri())};"
-            f"try {{ const v = {name}(); if (typeof v === 'string') console.log(v); }} catch {{}}"
+            f"const v = {name}(); if (typeof v === 'string') console.log(v);"
         )
         result = subprocess.run(
             [node, "--input-type=module", "-e", script],
             capture_output=True, text=True, cwd=str(DASHBOARD), timeout=60,
         )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"evaluating {name} from {module.name} failed, so any capped path it builds is "
+                f"ungoverned:\n{result.stderr[-800:]}"
+            )
         for line in result.stdout.splitlines():
             candidate = line.strip()
             if candidate.startswith("/") and "limit=" in candidate:
@@ -269,13 +287,16 @@ class CappedListSaysItIsCappedTests(FastApiTestCase):
         )
 
     def _seed_sessions(self) -> None:
+        # THE ONLY SURVIVING `OR IGNORE`, and deliberately: two seeders need this same environment
+        # row and neither owns it. Everywhere else it is gone -- it swallows a duplicate id AND a
+        # seeder that has stopped inserting anything, and a witness that seeds nothing proves nothing.
         self._seed_rows(
             "INSERT OR IGNORE INTO environments (id, label, machine_id, registered_at, last_seen) "
             "VALUES (?, ?, ?, ?, ?)",
             [("gate-env", "gate", "gate-host", "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z")],
         )
         self._seed_rows(
-            "INSERT OR IGNORE INTO agent_sessions (id, agent_id, environment_id, status, runtime, "
+            "INSERT INTO agent_sessions (id, agent_id, environment_id, status, runtime, "
             "started_at, last_seen, spawn_spec_id, spawn_request_id) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)",
             [(f"gate-sess-{i}", "gate-agent", "gate-env", "stopped", "claude-code",
@@ -299,13 +320,13 @@ class CappedListSaysItIsCappedTests(FastApiTestCase):
         # is refused outright -- the schema saying that a spawn request is a request to run a
         # particular spec, not a free-floating row.
         self._seed_rows(
-            "INSERT OR IGNORE INTO spawn_specs (id, agent_id, environment_id, runtime, workspace, "
+            "INSERT INTO spawn_specs (id, agent_id, environment_id, runtime, workspace, "
             "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             [(f"gate-spec-{i}", f"gate-spawn-agent-{i}", "gate-env", "claude-code", "C:/gate",
               "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z") for i in range(3)],
         )
         self._seed_rows(
-            "INSERT OR IGNORE INTO spawn_requests (id, spawn_spec_id, created_by, environment_id, "
+            "INSERT INTO spawn_requests (id, spawn_spec_id, created_by, environment_id, "
             "agent_id, role, runtime, workspace, status, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [(f"gate-spawn-{i}", f"gate-spec-{i}", "gate-agent", "gate-env",
@@ -393,12 +414,40 @@ class CappedListSaysItIsCappedTests(FastApiTestCase):
             f"limit and return `truncated`:\n{missing}"
         ))
 
-    def test_EVERY_ROUTE_REPORTS_TRUNCATION_WHEN_IT_IS_TRUNCATED(self):
-        """THE HONESTY CHECK, per route rather than per file.
+    def _partial_signal(self, body: dict) -> bool:
+        """Does this response say the page is INCOMPLETE?"""
+        if body.get("truncated") is True:
+            return True
+        if "showing" in body and "total" in body:
+            return body["total"] > body["showing"]
+        page = next((body[k] for k in PAGE_KEYS if isinstance(body.get(k), list)), [])
+        return body.get("totalMessages", 0) > len(page)
 
-        The first version seeded ONE endpoint while its name claimed all of them, so hardcoding
-        `/spawn-requests` to `truncated: false` left the gate green. Each route is now seeded past its
-        limit and asked for one row, and fails on its own.
+    def _complete_signal(self, body: dict) -> bool:
+        """Does it say the page is the WHOLE answer?
+
+        Not merely `not partial`: a count-shaped contract has to agree with the page it describes, or
+        "complete" is being inferred from two numbers that were never compared.
+        """
+        if body.get("truncated") is False:
+            return True
+        page = next((body[k] for k in PAGE_KEYS if isinstance(body.get(k), list)), None)
+        if "showing" in body and "total" in body:
+            return body["total"] == body["showing"] and (page is None or len(page) == body["showing"])
+        if "totalMessages" in body and page is not None:
+            return body["totalMessages"] == len(page)
+        return False
+
+    def test_EVERY_ROUTE_REPORTS_TRUNCATION_WHEN_IT_IS_TRUNCATED(self):
+        """THE HONESTY CHECK, per route and in BOTH directions.
+
+        Two earlier versions of this were each half a check. The first seeded ONE endpoint while its
+        name claimed all of them, so hardcoding `/spawn-requests` to `truncated: false` left the gate
+        green. The second seeded every route but asked only whether a truncated page SAYS truncated --
+        so hardcoding the same flag to `true` left it green too, which a reviewer executed.
+
+        Each route is now asked twice against the same seeded rows: once with a limit below the
+        population, once above it. A flag welded to either value fails one arm.
         """
         seeders = self.seeders()
         by_route: dict[str, str] = {}
@@ -406,6 +455,7 @@ class CappedListSaysItIsCappedTests(FastApiTestCase):
             by_route.setdefault(route_of(path), path)
 
         silent = []
+        lying = []
         # RUN EACH SEEDER ONCE. `/contracts` and `/dispatch/runs` deliberately share one -- a contract
         # is a derived view of a run -- and calling it twice hits `UNIQUE constraint failed:
         # messages.id`. An `INSERT OR IGNORE` would swallow that, and would equally swallow a seeder
@@ -418,19 +468,36 @@ class CappedListSaysItIsCappedTests(FastApiTestCase):
                 already.add(seeder)
             base, _, raw_query = path.partition("?")
             query = [p for p in raw_query.split("&") if p and not p.startswith("limit=")]
-            probe = f"/api/v1{base}?" + "&".join([*query, "limit=1"])
-            body = self.client.get(probe).json()
-            ok, why = answers_completeness(body)
+            def ask(limit: int) -> dict:
+                # THE RESPONSE IS CHECKED, not just parsed. Routes cap their own limits at different
+                # ceilings -- /dispatch/runs at 200, /messages/recent at 250 -- and asking past one
+                # returns a 422 whose body has no completeness signal at all. That read as "the route
+                # is stuck on partial" until the status was asserted, which is a diagnosis pointing at
+                # the wrong file.
+                probe = f"/api/v1{base}?" + "&".join([*query, f"limit={limit}"])
+                response = self.client.get(probe)
+                self.assertEqual(response.status_code, 200, f"{probe}: {response.text[:200]}")
+                return response.json()
+
+            # ARM 1: fewer rows than exist. Must say partial.
+            partial_body = ask(1)
+            ok, why = answers_completeness(partial_body)
             self.assertTrue(ok, f"{route}: {why}")
-            if body.get("truncated") is True:
-                continue
-            if "showing" in body and "total" in body and body["total"] > body["showing"]:
-                continue
-            page = next((body[k] for k in PAGE_KEYS if isinstance(body.get(k), list)), [])
-            if body.get("totalMessages", 0) > len(page):
-                continue
-            silent.append((route, {k: v for k, v in body.items() if not isinstance(v, list)}))
+            if not self._partial_signal(partial_body):
+                silent.append((route, {k: v for k, v in partial_body.items() if not isinstance(v, list)}))
+
+            # ARM 2: more rows than exist. Must say complete. Without this arm a flag welded to `true`
+            # passes forever, which is exactly what a reviewer demonstrated. 100 rather than 500: it is
+            # far above the handful each seeder creates and below every route's own ceiling.
+            complete_body = ask(100)
+            if not self._complete_signal(complete_body):
+                lying.append((route, {k: v for k, v in complete_body.items() if not isinstance(v, list)}))
+
         self.assertEqual(silent, [], (
             "these routes were given more rows than they were asked for and still did not say the page "
             f"was partial, so their completeness signal is not measuring anything:\n{silent}"
+        ))
+        self.assertEqual(lying, [], (
+            "these routes were asked for more rows than exist and still did not say the page was "
+            f"complete, so their signal is stuck on rather than measured:\n{lying}"
         ))
