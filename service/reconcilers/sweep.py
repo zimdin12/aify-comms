@@ -26,6 +26,34 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def reportable(result: dict) -> dict:
+    """What a sweep pass actually DID, for the log line.
+
+    `service/main.py` writes one INFO line per pass and filtered it with `if value`, so a counter of
+    zero stayed out. One entry defeated that: `wal_checkpoint` is the `(busy, log_pages, ckpt_pages)`
+    tuple from `PRAGMA wal_checkpoint`, and a tuple of three zeros is TRUTHY. It therefore appeared in
+    every line whether or not anything was checkpointed.
+
+    MEASURED on the operator's container, 2026-08-29: 507 reconcile lines, all 507 carrying
+    `wal_checkpoint`, exactly ONE of them not `(0, 0, 0)` -- and 53 lines where it was the only entry,
+    i.e. 53 log lines that reported nothing while looking like they reported something.
+
+    The busy alarm is NOT this: `_run_dispatch_reconcile_once` logs its own WARNING when the
+    checkpoint is blocked or slow, so dropping an all-zero tuple here cannot hide it.
+
+    A container whose every member is falsy counts as nothing happened; a string (the `skipped: ...`
+    branch) is always something.
+    """
+    kept = {}
+    for key, value in (result or {}).items():
+        if isinstance(value, (tuple, list, set)):
+            if any(value):
+                kept[key] = value
+        elif value:
+            kept[key] = value
+    return kept
+
+
 async def _run_dispatch_reconcile_once() -> dict[str, int]:
     from service.db import get_db as _get_db
     # v0.5 slice 1a: these two moved out of api_v2 into their own module. Imported here in the

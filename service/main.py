@@ -135,7 +135,7 @@ logger = logging.getLogger(__name__)
 # than in the process entry point. Imported here because the periodic task below and
 # the startup path both call it, and because tests reach it as
 # `service.main._run_dispatch_reconcile_once`, which an import keeps resolving.
-from service.reconcilers.sweep import _run_dispatch_reconcile_once
+from service.reconcilers.sweep import _run_dispatch_reconcile_once, reportable
 
 
 
@@ -145,7 +145,7 @@ async def _periodic_dispatch_reconcile() -> None:
         await asyncio.sleep(60)
         try:
             result = await _run_dispatch_reconcile_once()
-            visible = {key: value for key, value in result.items() if value}
+            visible = reportable(result)
             if visible:
                 logger.info(f"Periodic dispatch reconcile: {visible}")
         except asyncio.CancelledError:
@@ -187,7 +187,7 @@ async def lifespan(app: FastAPI):
     # must never block startup.
     try:
         result = await _run_dispatch_reconcile_once()
-        visible = {key: value for key, value in result.items() if value}
+        visible = reportable(result)
         if visible:
             logger.info(f"Startup dispatch reconcile/prune: {visible}")
     except Exception as e:
