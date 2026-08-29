@@ -52,6 +52,45 @@ TAKEOVER = REPO / "service" / "api_core" / "resident_takeover_writes.py"
 MODULES = (CALLER, GATES, SESSIONS, REG_WRITES, TAKEOVER, SAME_MODE)
 FIXTURE = Path(__file__).resolve().parent / "data" / "register_agent_before_split.py"
 
+#: WHAT HAS CHANGED IN `register_agent` SINCE THE SPLIT, declared so the round trip still closes on
+#: everything else. This is the only mechanism that lets a behavioural fix land in a function whose
+#: proof is byte-identity with a pre-split fixture, and it is verified verbatim -- a stale entry that
+#: matched nothing would silently stop undoing anything, so the gate refuses one that does not appear
+#: exactly once.
+#:
+#: 2026-08-29: a managed agent's own sidecar was overwriting the environment bridge that hosts its
+#: delivery loop. `fresh_state` starts EMPTY and the upsert replaces `runtime_state`, so taking
+#: `bridgeInstanceId` from the request wiped the environment's answer -- observed live, two different
+#: ids for one agent within minutes, and `aify-comms doctor` calling an answering agent an orphaned
+#: loop on the strength of it, with "relaunch the environment bridge" as the remedy. Writing the same
+#: fresh dict also dropped `environmentId`, which `managed-environment-sync.mjs` reads to decide
+#: whether an agent belongs to this environment at all.
+#: THE TUPLE IS (NOW, WAS). `extract_method` reads `for now_text, was_text in edited_since` and
+#: replaces the CURRENT text with the ORIGINAL before inlining. Written the other way round it
+#: fails with "0 occurrences" naming text that is genuinely not there, which reads like the code
+#: moved rather than like the declaration is inside out.
+EDITED_SINCE = [
+    (
+        """        prior_runtime_state = _json_loads_or(row["runtime_state"], {}) if row else {}
+        # The environment's answers survive a registration; everything else still refreshes.
+        fresh_state.update(preserved_environment_state(
+            session_mode=normalized_session_mode,
+            managed_wrapper_child=managed_wrapper_child,
+            existing_runtime_state=prior_runtime_state,
+        ))
+        owner_bridge_id, _owner_reason = registration_owner_bridge_id(
+            bridge_id=bridge_id,
+            session_mode=normalized_session_mode,
+            managed_wrapper_child=managed_wrapper_child,
+            existing_bridge_instance_id=str(prior_runtime_state.get("bridgeInstanceId", "") or ""),
+        )
+        if owner_bridge_id:
+            fresh_state["bridgeInstanceId"] = owner_bridge_id""",
+        """        if bridge_id:
+            fresh_state["bridgeInstanceId"] = bridge_id""",
+    ),
+]
+
 SOURCE_FUNCTION = "register_agent"
 #: EVERY extraction, inlined back TOGETHER against the ONE true original — not a chain of per-slice
 #: fixtures. The analytics precedent records why: verifying extraction N against "the state just before
@@ -107,7 +146,8 @@ class RegisterAgentSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS,
+            edited_since=EDITED_SINCE)
 
     def test_the_source_function_is_still_where_this_proof_looks(self):
         """`CALLER` is a location pin, and a relocation is what breaks it.

@@ -27,6 +27,10 @@ of the bounded SQLite write-lock retry.
 
 from __future__ import annotations
 
+from service.api_core.ownership_authority import (
+    preserved_environment_state,
+    registration_owner_bridge_id,
+)
 import json
 
 from fastapi import Request
@@ -189,8 +193,26 @@ async def register_agent(req: AgentRegister, request: Request):
                 bridge_id, normalized_runtime, session_handle, resolved_cwd, capabilities, runtime_config, now,
             )
         fresh_state = _runtime_state_with_handle(normalized_runtime, {}, session_handle)
-        if bridge_id:
-            fresh_state["bridgeInstanceId"] = bridge_id
+        # WHOSE ID THIS IS. `fresh_state` starts EMPTY and the upsert replaces `runtime_state`, so
+        # taking `bridgeInstanceId` from the request meant a managed agent's own sidecar overwrote the
+        # environment bridge that hosts its delivery loop -- observed live, two different ids for one
+        # agent within minutes, and doctor calling an answering agent an orphan on the strength of it.
+        # See service/api_core/ownership_authority.py for the reproduction against this exact route.
+        prior_runtime_state = _json_loads_or(row["runtime_state"], {}) if row else {}
+        # The environment's answers survive a registration; everything else still refreshes.
+        fresh_state.update(preserved_environment_state(
+            session_mode=normalized_session_mode,
+            managed_wrapper_child=managed_wrapper_child,
+            existing_runtime_state=prior_runtime_state,
+        ))
+        owner_bridge_id, _owner_reason = registration_owner_bridge_id(
+            bridge_id=bridge_id,
+            session_mode=normalized_session_mode,
+            managed_wrapper_child=managed_wrapper_child,
+            existing_bridge_instance_id=str(prior_runtime_state.get("bridgeInstanceId", "") or ""),
+        )
+        if owner_bridge_id:
+            fresh_state["bridgeInstanceId"] = owner_bridge_id
         if normalized_session_mode == "resident":
             fresh_state["ownership"] = {
                 "mode": "resident",
