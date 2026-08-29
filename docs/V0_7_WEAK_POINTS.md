@@ -8,10 +8,16 @@ was found and *not* fixed, plus what was deliberately left alone.
 
 ## What actually needs you, ranked
 
-NINETEEN genuine decisions; everything else in the file is a recorded judgement that needed no ruling.
-This list exists because the file is 2,038 lines and a decision buried on line 900 is a decision nobody
-makes -- and because the list itself proved the point: it stood at eight for a full day of rounds while
-six more decisions were being written below it.
+SEVENTEEN genuine decisions, and two entries below are CLOSED -- kept in place, marked, and numbered as
+they were, because other entries and commit messages refer to them by number. Everything else in the
+file is a recorded judgement that needed no ruling.
+
+This list exists because the file is over two thousand lines and a decision buried on line 900 is a
+decision nobody makes -- and because the list itself keeps proving the point in both directions. It
+stood at eight for a full day of rounds while six more decisions were being written below it. Then, on
+2026-08-29, a re-walk found two of its NINETEEN already shipped -- one of them by a commit whose own
+docstring says the thing this list still called missing. A ranked list of what needs you is worth
+exactly as much as its last verification.
 
 1. **The API and dashboard are unauthenticated and not bound to loopback**, and 16 of 47 agents
    return a live hermes gateway token through `GET /api/v1/agents`. Measured, not inferred: no API
@@ -39,22 +45,31 @@ six more decisions were being written below it.
    `clientNonce`, and the index that protects the DM path does not cover the channel row's NULL
    `to_agent`. A schema decision, not an edit -- and the honest first move is a counter, since nothing
    measures how often a channel send fails.
-3. **Nothing lists terminals.** Every terminal route is keyed by id, which blocked four separate
-   questions in this round alone, including "what stopped these two workers in the same second".
+3. **CLOSED 2026-08-29 by verification, shipped 2026-08-28.** `GET /terminals` exists
+   (`list_terminals`, filtered by status/agent/environment and capped at `MAX_TERMINAL_LIST`), and
+   its own docstring opens "THIS DID NOT EXIST" and cites the `ef-manager` orphan that motivated
+   it. `aify-comms doctor`'s `env-processes` check is built on it. The entry stood here for a day
+   after the thing it asks for had shipped.
+
+   ~~Nothing lists terminals. Every terminal route is keyed by id, which blocked four separate
+   questions in this round alone, including "what stopped these two workers in the same second".~~
 4. **48,116 of a 133,878-byte console payload is an events array nothing reads.** A response-shape
    change that an existing regression test pins, so it needs someone who can weigh breaking a
    consumer.
 5. **Three independent caps bound `terminal_events`, and one is justified by prose about another.**
-6. **`/stats` computes 24 keys in 20 SQL round-trips so one page can show two of them**, and the
+6. **`/stats` computes 24 keys in 18 SQL round-trips so one page can show two of them**, and the
    obvious page-gate is blocked by a render gate that reads the same field. See the entry for why it
    was not simply done.
-7. **`active_count()` is defined and called by NOTHING.** Verified 2026-08-26: it exists at
-   `service/ws.py:25` with zero callers anywhere in the service, and `/health` returns only
-   `build, ntfy, status, version`. So "how many dashboards are connected" is unanswerable without
-   opening a browser -- which is exactly why I could not size the sequential WebSocket broadcast this
-   round. One line on `/health` would give the method its only consumer.
+7. **The agent-addressed half of `WSManager` has no client.** (Half of this entry is CLOSED --
+   see below.)
 
-   It is larger than one method. `WSManager` has a whole agent-addressed half -- `online_agents()`,
+   ~~`active_count()` is defined and called by NOTHING. Verified 2026-08-26: it exists at
+   `service/ws.py:25` with zero callers anywhere in the service, and `/health` returns only
+   `build, ntfy, status, version`.~~ **CLOSED, verified 2026-08-29:** `health.py` calls
+   `active_count()` and `/health` returns `sockets` beside `build, ntfy, status, version` -- it
+   answered 6 when this was re-walked. "How many dashboards are connected" is answerable now.
+
+   THE REST OF THE ENTRY STANDS, and it matters more than it did. `WSManager` has a whole agent-addressed half -- `online_agents()`,
    `notify_agent()`, and the `?agent_id=` parameter on `/ws` -- and **nothing in this repo connects
    that way**. Measured 2026-08-26 by widening past the bridge to every `/ws` reference repo-wide:
    every client is the dashboard's own `new WebSocket(`${wsOrigin}/ws`)`, with no agent id, and the
@@ -64,6 +79,14 @@ six more decisions were being written below it.
    `/ws?agent_id=` is an intended external-client API or dead weight**, and it is yours because
    deleting a public endpoint on my own judgement is not a bughunt finding. Nothing is broken either
    way: an event nobody receives costs one dictionary lookup.
+
+   **RE-VERIFIED 2026-08-29 and the answer has not moved**: still no client anywhere connects to
+   `/ws` with an agent id, and `notify_agent` still has exactly the three call sites above. What
+   HAS moved is who might want it. A second service on this host -- the separation is real, and
+   the registry, the wrapper's reader and aify-env all handle more than one -- is precisely the
+   consumer `?agent_id=` was shaped for. So the decision is now "keep it for the service that has
+   not been built yet, or delete it and let that service ask for it back", which is a better
+   question than the one this entry originally posed.
 8. **The codex console input is named only by a placeholder**, which typing erases.
 
 ADDED 2026-08-26, in the rounds after this list was first written. Each is recorded in full further
@@ -80,8 +103,22 @@ down; these are the one-line versions, because the front of the file is the only
    them takes a default guaranteed to violate the constraint, and SQLite names no column in the error.
    All three production writers name them, so nothing is broken; the question is whether to migrate
    the defaults to NULL. It cost me two debugging cycles inside one session.
-11. **`/messages/recent?limit=80` is 294,226 bytes -- 66% of every refresh cycle** -- fetched on every
-   page at a default 15s interval, roughly 1.18 MB per minute per open tab. It cannot simply be
+11. **`/messages/recent?limit=80` is 326,393 bytes -- the largest thing on every refresh cycle** --
+   fetched on every page at a default 15s interval, roughly 1.3 MB per minute per open tab.
+
+   RE-MEASURED 2026-08-29 against the running service: 294,226 bytes when this entry was written,
+   326,393 now, so the number moved 11% in the direction that makes the entry MORE true. The
+   breakdown is the useful part and was not recorded before -- summed over the 80 rows returned:
+
+       body        279,695 bytes   88.6%
+       preview      18,407          5.8%
+       subject       5,483          1.7%
+       everything else together     3.9%
+
+   So the payload IS the bodies, and a `preview` of each body is already being sent beside them.
+   That looks like a free win and is not one, for a second reason on top of the one below: the
+   dashboard's chat TIMELINE renders from this same store, so headers-only would empty the
+   conversation view, not just the packet. It cannot simply be
    page-gated: `buildHandoffPacket` reads the same store for message BODIES and is reached from an
    agent action, so gating it would produce an EMPTY packet with no error. The safe version makes that
    function fetch on demand, which means making an operator-facing action async.
