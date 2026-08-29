@@ -212,3 +212,80 @@ test("copyable commands stay shell-neutral", () => {
     assert.ok(!els["inspector-content"].innerHTML.includes("aify-comms.cmd"));
   });
 });
+
+// ---- Last seen -------------------------------------------------------------------------------
+//
+// WHAT THIS IS AND IS NOT. The age was ALREADY in the drawer, inside the status chip's `title` and
+// `data-status-why` -- `statusWhyContext('agent', ...)` builds "Agent x is available. Last seen 42m
+// ago." So this is not "the drawer never said"; it is "the drawer said it only on hover, over a chip
+// reading `available`, which gives nobody a reason to hover". The change promotes it to a visible
+// row beside the machine.
+//
+// MEASURED on the operator's fleet 2026-08-29: 18 of 47 agents silent for more than 30 days, three
+// for 120, and TWO of those reading `available` -- a status that is honest, since the environment
+// can cold-start them, and identical to the one an agent that answered forty seconds ago carries.
+//
+// EVERY ASSERTION BELOW READS THE ROW, not the drawer. The first version matched `/42m ago/` against
+// the whole HTML and THREE of these four passed with the row deleted, because they were matching the
+// tooltip. The mutation is what said so: removing the row reddened exactly one of the four.
+
+/** The `<dd>` of the Last seen row, or null when the row is absent. */
+function lastSeenCell(html) {
+  const match = /<dt>Last seen<\/dt><dd>([^<]*)<\/dd>/.exec(html);
+  return match ? match[1] : null;
+}
+
+test("the drawer says how long ago the agent was last seen", () => {
+  const minutesAgo = new Date(Date.now() - 42 * 60 * 1000).toISOString();
+  seed({ agents: [{ id: "coder", lastSeen: minutesAgo }] });
+  withDom(drawerEls(), (els) => {
+    openAgentDrawer("coder");
+    assert.equal(lastSeenCell(els["inspector-content"].innerHTML), "42m ago");
+  });
+});
+
+test("A LONG-DEAD AGENT READS DIFFERENTLY FROM A LIVE ONE", () => {
+  // The whole point. `gov-tui` was 42 days silent and `available`; every visible row in the drawer
+  // was the same as for an agent that answered a minute ago.
+  const longAgo = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString();
+  seed({ agents: [{ id: "ef-tech-lead", status: "available", lastSeen: longAgo }] });
+  withDom(drawerEls(), (els) => {
+    openAgentDrawer("ef-tech-lead");
+    assert.equal(lastSeenCell(els["inspector-content"].innerHTML), "120d ago");
+  });
+});
+
+test("IT FAILS CLOSED when there is no timestamp", () => {
+  // `relTime` returns '' for a missing or unparseable value. Rendering that raw would produce
+  // "Last seen  ago", and parsing it as an epoch would claim an age measured from 1970 -- the two
+  // failure modes `environments-panels.mjs` names for the same field on the environment card.
+  for (const agent of [{ id: "quiet" }, { id: "quiet", lastSeen: "" },
+                       { id: "quiet", lastSeen: "not-a-timestamp" }]) {
+    seed({ agents: [agent] });
+    withDom(drawerEls(), (els) => {
+      openAgentDrawer("quiet");
+      const cell = lastSeenCell(els["inspector-content"].innerHTML);
+      assert.equal(cell, "\u2014", `expected an em dash, got ${JSON.stringify(cell)}`);
+    });
+  }
+});
+
+test("it reads the field the service ACTUALLY EMITS, and no snake_case alternate", () => {
+  // The first version accepted `agent.last_seen` as well, "cheap tolerance", with a test asserting
+  // it worked. `test_the_dashboard_reads_only_agent_fields_the_service_emits` went red: the service
+  // emits `lastSeen` and nothing else, so the alternate was a branch that could never fire -- the
+  // exact shape that gate was written to remove after three of them were found in one sweep.
+  const minutesAgo = new Date(Date.now() - 7 * 60 * 1000).toISOString();
+  seed({ agents: [{ id: "coder", last_seen: minutesAgo }] });
+  withDom(drawerEls(), (els) => {
+    openAgentDrawer("coder");
+    assert.equal(lastSeenCell(els["inspector-content"].innerHTML), "—",
+      "a snake_case alternate is being read again; the service does not send one");
+  });
+
+  seed({ agents: [{ id: "coder", lastSeen: minutesAgo }] });
+  withDom(drawerEls(), (els) => {
+    openAgentDrawer("coder");
+    assert.equal(lastSeenCell(els["inspector-content"].innerHTML), "7m ago");
+  });
+});

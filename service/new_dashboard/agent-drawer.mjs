@@ -28,7 +28,7 @@ import { sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from 
 import { state } from './state.mjs';
 import { renderStatusChip, statusWhyContext } from './status.js';
 import { byId } from './ui.js';
-import { esc } from './util.js';
+import { esc, relTime } from './util.js';
 
 export function sessionForAgent(agentId) {
   return state.sessions.find((session) => sessionAgentId(session) === agentId) || null;
@@ -83,6 +83,25 @@ export function openAgentDrawer(agentId) {
         <div class="cli-cmd-row"><code class="cli-cmd">${esc(cliCmd)}</code><button class="ghost" data-copy-cli="${esc(cliCmd)}" title="Copy the resume command">Copy</button></div>`
           : `<p class="subtle">${esc(cli.reason)}</p>`}
       </div>`;
+  // HOW LONG AGO THIS AGENT WAS LAST HEARD FROM. The age was already in the drawer -- inside the
+  // status chip's `title`, built by `statusWhyContext` -- so this is not "the drawer never said".
+  // It said it only on hover, over a chip reading `available`, which gives nobody a reason to hover.
+  //
+  // MEASURED on the operator's fleet 2026-08-29: 18 of 47 agents had been silent for more than 30
+  // days, three of them for 120, and TWO of those still read `available`. That status is honest --
+  // the environment can cold-start them -- and it is the same word an agent that answered forty
+  // seconds ago carries. `environments-panels.mjs` makes the identical argument for hosts: "A host
+  // that dropped a minute ago and one abandoned in June render identically as `offline`, and those
+  // call for opposite actions."
+  //
+  // FAILS CLOSED: `relTime` returns '' for a missing or unparseable timestamp, so the row renders an
+  // em dash and claims nothing, rather than "last seen  ago" or an age measured from the epoch.
+  // `lastSeen` ONLY. The `|| agent.last_seen` alternate I wrote here first is a field this
+  // service does not emit, and `test_the_dashboard_reads_only_agent_fields_the_service_emits`
+  // reddened on it -- correctly. That gate exists because three such alternates were removed
+  // in one sweep: "a dead alternate is worse than nothing here, because it reads like
+  // coverage for the rename it cannot catch". I added a fourth and a test asserting it works.
+  const lastSeen = relTime(agent.lastSeen);
   const sessionChangedBanner = agent.sessionChanged ? `
       <div class="session-changed-banner" role="alert">
         <p>⚠ This agent reported a new session id <code>${esc(agent.pendingSessionId)}</code> that differs from its pinned handle <code>${esc(agent.sessionHandle || '—')}</code>. Delivery still targets the pinned handle until you resolve this.</p>
@@ -102,6 +121,7 @@ export function openAgentDrawer(agentId) {
         ${row('Workspace', esc((session && (session.workspace || session.cwd)) || agent.cwd || '—'))}
         ${row('Session', sid ? `${esc(sid)} · ${esc(session.status || 'unknown')}` : '<span class="subtle">no active session</span>')}
         ${row('Machine', esc(agent.machineId || '—'))}
+        ${row('Last seen', lastSeen ? `${esc(lastSeen)} ago` : '—')}
       </dl>
       ${continueCliBlock}
       <div class="agent-drawer-actions">${actions}</div>

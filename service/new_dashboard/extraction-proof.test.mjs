@@ -586,7 +586,50 @@ const EXTRACTIONS = [
     importLine: "import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './agent-drawer.mjs';",
     items: [
       { name: "sessionForAgent", at: 1708, marker: "// sessionForAgent moved to ./agent-drawer.mjs in v0.5.4." },
-      { name: "openAgentDrawer", at: 3469, marker: "// openAgentDrawer moved to ./agent-drawer.mjs in v0.5.4." },
+      { name: "openAgentDrawer", at: 3469, marker: "// openAgentDrawer moved to ./agent-drawer.mjs in v0.5.4.",
+        // TWO declared edits: the `lastSeen` const and the row that renders it. Kept INSIDE
+        // the function on purpose -- a new top-level helper in this module is a declaration
+        // the reconstruct pulls back into app.js, and the first attempt at this change added
+        // one and put 1,462 characters into a fixture that never had them.
+        editedSince: [
+        {
+          was: [
+          "        ${row('Machine', esc(agent.machineId || '—'))}",
+        ],
+          now: [
+          "        ${row('Machine', esc(agent.machineId || '—'))}",
+          "        ${row('Last seen', lastSeen ? `${esc(lastSeen)} ago` : '—')}",
+        ],
+        },
+        {
+          was: [
+          "      </div>`;",
+        ],
+          now: [
+          "      </div>`;",
+          "  // HOW LONG AGO THIS AGENT WAS LAST HEARD FROM. The age was already in the drawer -- inside the",
+          "  // status chip's `title`, built by `statusWhyContext` -- so this is not \"the drawer never said\".",
+          "  // It said it only on hover, over a chip reading `available`, which gives nobody a reason to hover.",
+          "  //",
+          "  // MEASURED on the operator's fleet 2026-08-29: 18 of 47 agents had been silent for more than 30",
+          "  // days, three of them for 120, and TWO of those still read `available`. That status is honest --",
+          "  // the environment can cold-start them -- and it is the same word an agent that answered forty",
+          "  // seconds ago carries. `environments-panels.mjs` makes the identical argument for hosts: \"A host",
+          "  // that dropped a minute ago and one abandoned in June render identically as `offline`, and those",
+          "  // call for opposite actions.\"",
+          "  //",
+          "  // FAILS CLOSED: `relTime` returns '' for a missing or unparseable timestamp, so the row renders an",
+          "  // em dash and claims nothing, rather than \"last seen  ago\" or an age measured from the epoch.",
+          "  // `lastSeen` ONLY. The `|| agent.last_seen` alternate I wrote here first is a field this",
+          "  // service does not emit, and `test_the_dashboard_reads_only_agent_fields_the_service_emits`",
+          "  // reddened on it -- correctly. That gate exists because three such alternates were removed",
+          "  // in one sweep: \"a dead alternate is worse than nothing here, because it reads like",
+          "  // coverage for the rename it cannot catch\". I added a fourth and a test asserting it works.",
+          "  const lastSeen = relTime(agent.lastSeen);",
+        ],
+        },
+      ],
+      },
       { name: "syncInspectorToSelection", at: 3558, marker: "// syncInspectorToSelection moved to ./agent-drawer.mjs in v0.5.4." },
     ],
   },
