@@ -17,6 +17,9 @@ This mirrors `managed-environment-sync.mjs`, which has always filtered on `avail
 
 from __future__ import annotations
 
+import unittest
+
+from service.api_core.dispatch_start import _why_no_environment_can_start
 from service.api_core.runtime import _runtime_unlaunchable_reason
 from service.tests._base import FastApiTestCase
 
@@ -98,6 +101,10 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
         self._environment([{"runtime": "pi", "available": False, "unavailableReason": REASON}])
         response = self._spawn("pi")
         self.assertEqual(response.status_code, 409, response.text)
+        # The phrase as well as the code: `test_every_refusal_is_exercised.py` requires each refusal's
+        # TEXT to be asserted somewhere, because a status alone does not say the operator was told
+        # anything useful -- and the text is the entire product of this particular refusal.
+        self.assertIn(" cannot launch runtime ", response.text)
         self.assertIn("pi-aify", response.text,
                       "the refusal did not carry the host's diagnostic, which is its whole value")
 
@@ -122,3 +129,61 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
         response = self._spawn("hermes")
         self.assertEqual(response.status_code, 400, response.text)
         self.assertIn("does not advertise", response.text)
+
+
+class TheColdStartRefusalCarriesTheReasonTests(unittest.TestCase):
+    """The path two real agents are on.
+
+    `graph-tester-pi` and `comms-senior-dev-pi` are managed, offline and bound to no environment, so a
+    send to either falls back to "pick any online environment that advertises the runtime". That
+    fallback used to pick the Windows environment -- which claimed pi was available while `pi-aify` is
+    not installed -- and the cold start then failed somewhere else entirely. The environment is now
+    correctly skipped, which leaves the operator with "could not be resolved": true, and useless.
+
+    The host already explained itself. This is the moment somebody wants to read it.
+    """
+
+    @staticmethod
+    def _environment(runtimes, status="online", env_id="windows:cold-host:default"):
+        return {"id": env_id, "status": status, "runtimes": runtimes}
+
+    def test_the_hosts_diagnostic_reaches_the_refusal(self):
+        reason = _why_no_environment_can_start(
+            [self._environment([{"runtime": "pi", "available": False, "unavailableReason": REASON}])],
+            "pi")
+        self.assertIn("pi-aify", reason, "the wrapper the operator must install was not named")
+        self.assertIn("windows:cold-host:default", reason, "the refusal did not say WHICH host said it")
+
+    def test_nothing_is_invented_when_no_host_explained_itself(self):
+        """A different case with a different answer: no environment advertises this runtime AT ALL.
+        Filler here would overwrite the caller's own correct wording with a guess."""
+        self.assertEqual(_why_no_environment_can_start(
+            [self._environment([{"runtime": "pi", "available": False, "unavailableReason": REASON}])],
+            "hermes"), "")
+        self.assertEqual(_why_no_environment_can_start([], "pi"), "")
+
+    def test_an_available_runtime_produces_no_refusal_text(self):
+        self.assertEqual(_why_no_environment_can_start(
+            [self._environment([{"runtime": "pi", "available": True, "unavailableReason": ""}])],
+            "pi"), "")
+
+    def test_an_OFFLINE_hosts_opinion_is_not_quoted(self):
+        """A host that is not running has a stale reading of its own wrappers, and quoting it would
+        send an operator to fix a machine whose only problem is that it is off."""
+        self.assertEqual(_why_no_environment_can_start(
+            [self._environment([{"runtime": "pi", "available": False, "unavailableReason": REASON}],
+                               status="offline")],
+            "pi"), "")
+
+    def test_the_FIRST_online_host_that_explains_itself_is_the_one_quoted(self):
+        # Rows arrive most-recently-seen first, and one sentence an operator can act on beats three
+        # they have to compare.
+        reason = _why_no_environment_can_start([
+            self._environment([{"runtime": "pi", "available": True}], env_id="a"),
+            self._environment([{"runtime": "pi", "available": False, "unavailableReason": "first reason"}],
+                              env_id="b"),
+            self._environment([{"runtime": "pi", "available": False, "unavailableReason": "second reason"}],
+                              env_id="c"),
+        ], "pi")
+        self.assertIn("first reason", reason)
+        self.assertNotIn("second reason", reason)

@@ -50,6 +50,7 @@ from service.api_core.records import _environment_record_to_dict
 from service.api_core.runtime import (
     _normalize_runtime,
     _runtime_capability_for_environment,
+    _runtime_unlaunchable_reason,
 )
 from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import _load_settings
@@ -62,6 +63,32 @@ def _coldstart_refusal(warnings: Optional[list[str]], reason: str) -> bool:
     if warnings is not None:
         warnings.append(f"{COLDSTART_REFUSED_PREFIX}{reason}")
     return False
+
+
+def _why_no_environment_can_start(environments, runtime: str) -> str:
+    """What an ONLINE environment said about why it cannot launch `runtime`, or "" if none said so.
+
+    PURE: rows in, sentence out. It was written async and taking `db`, which made testing it require a
+    second event loop beside the one the client holds -- the tell that it does no I/O and should not
+    have been asking for a connection.
+
+    Only online environments are consulted. An offline host's opinion about its wrappers is a stale
+    reading, and quoting it would send an operator to fix a machine that is simply not running.
+
+    ONE REASON, NOT A LIST. With several hosts the messages differ per machine, and pasting all of them
+    into a single refusal buries the answer; the first online host that advertises the runtime and
+    explains itself is the one to read.
+
+    Returns "" rather than filler when nothing explained itself, so the caller keeps its own wording
+    for the genuinely different case of "no environment advertises this runtime at all".
+    """
+    for environment in environments or []:
+        if str(environment.get("status") or "").lower() != "online":
+            continue
+        reason = _runtime_unlaunchable_reason(environment, runtime)
+        if reason:
+            return f'no environment can start "{runtime}". {environment.get("id") or "a host"} says: {reason}'
+    return ""
 
 
 async def _coldstart_spawn_request_for_dispatch(
@@ -188,8 +215,19 @@ async def _coldstart_spawn_request_for_dispatch(
             db, normalized_runtime, offline_seconds=offline_seconds
         )
         if environment is None:
+            # WHY, when a host has already said why. An environment that advertises the runtime and
+            # reports it unlaunchable is skipped above -- correctly, since a spawn there would be
+            # refused by the tier that runs launchers -- and without this the operator is told only
+            # that nothing resolved.
+            cursor = await db.execute("SELECT * FROM environments ORDER BY last_seen DESC")
+            refusal = _why_no_environment_can_start(
+                [_environment_record_to_dict(row, offline_seconds=offline_seconds)
+                 for row in await cursor.fetchall()],
+                normalized_runtime,
+            )
             return _coldstart_refusal(
-                warnings, f"the environment bound to this agent could not be resolved")
+                warnings,
+                refusal or "the environment bound to this agent could not be resolved")
 
     environment_id = str(environment.get("id") or "").strip()
     if not environment_id:
