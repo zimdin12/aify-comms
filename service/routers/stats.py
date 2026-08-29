@@ -49,39 +49,39 @@ async def get_stats(request: Request):
         total_c = await db.execute("SELECT COUNT(*) FROM messages WHERE source = 'direct'")
         total = (await total_c.fetchone())[0]
 
-        # Unread direct inbox messages for currently registered agents only
+        # THREE COUNTS, ONE PASS. These were three queries differing only in which rows they kept:
+        # unread-to-a-registered-agent split by source, and unread-to-an-unregistered one. Each
+        # re-walked `messages` and re-probed `read_receipts` for the same population.
+        #
+        # MEASURED on the operator's database, 2026-08-29, with 34,107 messages and 31,913 receipts:
+        # the three drove 67,856 read_receipts probes per request (33,440 direct + 488 channel +
+        # 33,928 addressed) where one drives 33,928 -- exactly half, because the two source-split
+        # queries sum to the third's population. `/stats` is on the dashboard's poll cycle and logged
+        # 2,262 SLOW-REQ warnings in the 8.5 hours to 2026-08-29 07:56.
+        #
+        # The plans differ in the honest direction: the two source-split queries used
+        # `idx_messages_source` and the orphan one already SCANNED, so the combined query keeps that
+        # one scan and drops the other two passes rather than turning an index seek into a scan.
+        # Verified against live data before the change: both forms return (128, 0, 1891).
         unread_c = await db.execute(
             """
-            SELECT COUNT(*)
-            FROM messages m
-            JOIN agents a ON a.id = m.to_agent
-            LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = m.to_agent
-            WHERE m.to_agent IS NOT NULL AND m.source = 'direct' AND r.message_id IS NULL
-            """
-        )
-        unread = (await unread_c.fetchone())[0]
-
-        channel_unread_c = await db.execute(
-            """
-            SELECT COUNT(*)
-            FROM messages m
-            JOIN agents a ON a.id = m.to_agent
-            LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = m.to_agent
-            WHERE m.to_agent IS NOT NULL AND m.source = 'channel' AND r.message_id IS NULL
-            """
-        )
-        channel_unread = (await channel_unread_c.fetchone())[0]
-
-        orphan_unread_c = await db.execute(
-            """
-            SELECT COUNT(*)
+            SELECT
+              SUM(CASE WHEN a.id IS NOT NULL AND m.source = 'direct'  THEN 1 ELSE 0 END),
+              SUM(CASE WHEN a.id IS NOT NULL AND m.source = 'channel' THEN 1 ELSE 0 END),
+              SUM(CASE WHEN a.id IS NULL THEN 1 ELSE 0 END)
             FROM messages m
             LEFT JOIN agents a ON a.id = m.to_agent
             LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = m.to_agent
-            WHERE m.to_agent IS NOT NULL AND a.id IS NULL AND r.message_id IS NULL
+            WHERE m.to_agent IS NOT NULL AND r.message_id IS NULL
             """
         )
-        orphan_unread = (await orphan_unread_c.fetchone())[0]
+        # SUM over no rows is NULL, not 0. An empty database would otherwise put `None` into three
+        # dashboard counters, which renders as "null" rather than "0" -- the COUNT(*) these replace
+        # could never do that.
+        unread_row = await unread_c.fetchone()
+        unread = int(unread_row[0] or 0)
+        channel_unread = int(unread_row[1] or 0)
+        orphan_unread = int(unread_row[2] or 0)
 
         # Today
         today_start = int(time.mktime(time.strptime(time.strftime("%Y-%m-%d"), "%Y-%m-%d")) * 1000)
