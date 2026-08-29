@@ -20,7 +20,10 @@ so a reconciler that committed on its own would break that batching.
 """
 from __future__ import annotations
 
-from service.api_core.tuning import TERMINAL_EVENTS_KEPT_PER_TERMINAL
+from service.api_core.tuning import (
+    TERMINAL_EVENTS_KEPT_PER_TERMINAL,
+    TERMINAL_LIFECYCLE_EVENTS_KEPT_PER_TERMINAL,
+)
 
 
 async def _prune_terminal_history(
@@ -45,6 +48,7 @@ async def _prune_terminal_history(
     """
     counts = {"terminal_events": 0, "terminal_events_capped": 0, "dispatch_events": 0, "ended_output_cleared": 0, "terminal_controls": 0, "terminal_sessions": 0}
     keep_events_per_terminal = TERMINAL_EVENTS_KEPT_PER_TERMINAL
+    keep_lifecycle_per_terminal = TERMINAL_LIFECYCLE_EVENTS_KEPT_PER_TERMINAL
 
     async def _chunked_delete(sql: str, params: tuple) -> int:
         removed = 0
@@ -78,26 +82,38 @@ async def _prune_terminal_history(
         r["terminal_id"]
         for r in await (await db.execute("SELECT DISTINCT terminal_id FROM terminal_events")).fetchall()
     ]
+    # PER KIND, because one kind was starving the other. `terminal_output` rows are the fallback
+    # recording; everything else is the lifecycle trail that says what happened to the terminal.
+    # Measured 2026-08-29: 4,605 output rows against 326 lifecycle rows, and 3 of the 21 terminals at
+    # the cap held ZERO lifecycle events -- their entire window was output chatter.
+    #
+    # The two passes are identical except for the predicate, so it is a parameter rather than two
+    # copies of a delete loop that would drift.
     for tid in term_ids:
-        cutoff_row = await (await db.execute(
-            "SELECT id FROM terminal_events WHERE terminal_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?",
-            (tid, keep_events_per_terminal),
-        )).fetchone()
-        if not cutoff_row:
-            continue
-        cutoff_id = cutoff_row["id"]
-        for _ in range(max_chunks):
-            cur = await db.execute(
-                f"DELETE FROM terminal_events WHERE id IN ("
-                f"SELECT id FROM terminal_events WHERE terminal_id = ? AND id <= ? "
-                f"ORDER BY id ASC LIMIT {int(chunk)})",
-                (tid, cutoff_id),
-            )
-            await db.commit()
-            n = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
-            counts["terminal_events_capped"] += n
-            if n < chunk:
-                break
+        for predicate, keep in (
+            ("event_type = 'terminal_output'", keep_events_per_terminal),
+            ("event_type != 'terminal_output'", keep_lifecycle_per_terminal),
+        ):
+            cutoff_row = await (await db.execute(
+                f"SELECT id FROM terminal_events WHERE terminal_id = ? AND {predicate} "
+                "ORDER BY id DESC LIMIT 1 OFFSET ?",
+                (tid, keep),
+            )).fetchone()
+            if not cutoff_row:
+                continue
+            cutoff_id = cutoff_row["id"]
+            for _ in range(max_chunks):
+                cur = await db.execute(
+                    f"DELETE FROM terminal_events WHERE id IN ("
+                    f"SELECT id FROM terminal_events WHERE terminal_id = ? AND {predicate} "
+                    f"AND id <= ? ORDER BY id ASC LIMIT {int(chunk)})",
+                    (tid, cutoff_id),
+                )
+                await db.commit()
+                n = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+                counts["terminal_events_capped"] += n
+                if n < chunk:
+                    break
 
     cur = await db.execute(
         "UPDATE terminal_sessions SET output = '' "

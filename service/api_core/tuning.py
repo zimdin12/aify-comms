@@ -55,6 +55,25 @@ STUCK_STOPPING_GRACE_SECONDS = 900  # a 'stopping' PTY that never reached 'stopp
 #: two responses were already truncating with nothing in them saying so.
 TERMINAL_EVENTS_KEPT_PER_TERMINAL = 200
 
+#: The same cap, applied SEPARATELY to the two kinds of terminal event, because one was starving the
+#: other.
+#:
+#: `terminal_output` rows are a per-chunk copy of the bytes -- the fallback recording
+#: `richest_recording` reads when `terminal_sessions.output` holds nothing but an exit marker (18
+#: characters against 14,773 in the events, on a real death). Everything else is the lifecycle trail:
+#: control completions, input requests, consistency repairs, orphan reaps, PTY starts.
+#:
+#: MEASURED on the operator's database 2026-08-29: 4,605 output rows against 326 lifecycle rows, and
+#: the newest-200-of-everything rule meant 3 of the 21 terminals at the cap held ZERO lifecycle
+#: events. Their whole window was output. The window itself covers a median of 4.5 minutes and as
+#: little as 3.3 on the busiest console, so "what was it doing when it died" was answerable only
+#: within minutes, and for those three not at all.
+#:
+#: Two caps rather than a bigger one: raising a single cap buys more output at the same ratio.
+#: Lifecycle rows are rare -- median 2 per terminal, 159 at the most -- so this costs almost nothing
+#: today and cannot be starved tomorrow.
+TERMINAL_LIFECYCLE_EVENTS_KEPT_PER_TERMINAL = 200
+
 LIST_AGENTS_REFRESH_LIMIT = 8
 
 _UNTHREADED_HANDOFF_WINDOW_MS = 24 * 60 * 60 * 1000
