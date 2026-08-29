@@ -899,7 +899,14 @@ export function spawnDelegationVerdict({ launcherText = null, endpointAnswered =
     detail: `Delegation is on but aify-env at ${endpoint || "(no endpoint baked)"} is not answering. `
       + "Every managed spawn will FAIL until it is: the bridge refuses rather than silently hosting "
       + "them itself, because two spawners on one host is the collision this tier exists to end.",
-    fix: "Start aify-env on this host, or reinstall without --delegate-spawns to host spawns locally.",
+    // `--no-delegate-spawns`, NOT "without --delegate-spawns". Omitting the flag CARRIES THE
+    // SETTING FORWARD -- install.sh reads the installed launcher and prints "keeping DELEGATED to
+    // aify-env at <endpoint> (installed setting)" -- which is deliberate, so that a reinstall for
+    // an unrelated reason never moves a host's spawns. This text said the opposite, in front of an
+    // operator whose every managed spawn is failing.
+    fix: "Start aify-env on this host, or reinstall with `--no-delegate-spawns` to host spawns "
+      + "locally. Omitting the flag does NOT turn delegation off: install.sh carries the installed "
+      + "setting forward.",
   };
 }
 /**

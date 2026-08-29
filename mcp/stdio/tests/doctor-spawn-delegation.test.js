@@ -49,7 +49,17 @@ test("delegated and NOT answering fails, and says every spawn will fail", () => 
   assert.equal(v.code, "unreachable");
   assert.match(v.detail, /will FAIL/);
   assert.match(v.fix, /Start aify-env/);
-  assert.match(v.fix, /reinstall without --delegate-spawns/, "the way back must be stated too");
+  // THE WAY BACK IS `--no-delegate-spawns`, and this used to require the opposite: "reinstall
+  // without --delegate-spawns". Omitting the flag KEEPS delegation -- install.sh reads the
+  // installed launcher and prints "keeping DELEGATED to aify-env at <endpoint> (installed
+  // setting)", deliberately, so an unrelated reinstall never moves a host's spawns. This text is
+  // read by an operator whose every managed spawn is failing; sending them to a reinstall that
+  // changes nothing costs them the one thing they do not have.
+  assert.match(v.fix, /--no-delegate-spawns/, "the way back must name the switch that exists");
+  assert.doesNotMatch(v.fix, /without --delegate-spawns/,
+    "omitting the flag carries the setting forward; advising it is advising a no-op");
+  assert.match(v.fix, /carries the installed setting forward|does NOT turn delegation off/i,
+    "say why omitting it is not the way back, or the next reader re-derives it");
 });
 
 test("delegated but never asked is unknown-all, never a pass", () => {
