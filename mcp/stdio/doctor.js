@@ -32,6 +32,7 @@ import { checkOpenAiUsageAccess } from "./usage-collector.js";
 // checks at import and ends in process.exit(), so nothing here is importable by a test. See
 // doctor-predicates.js for why (two shipped false greens, zero coverage).
 import { defaultMachineId } from "./runtimes.js";
+import { checkApiExposure } from "./api-exposure-check.mjs";
 import { checkEnvProcesses } from "./env-processes-check.mjs";
 import { checkService } from "./service-check.mjs";
 import {
@@ -375,6 +376,28 @@ await checkEnvProcesses({
   },
   launcherText: installedLauncherText(),
   machineId: defaultMachineId(),
+});
+// IS THE FLEET LISTING OPEN, AND DOES IT HAND OUT CREDENTIALS WHEN IT IS? Measured on the operator's
+// host 2026-08-29: 200 with no key, 200 with a wrong one, and 16 of 47 agent rows carrying a live
+// gateway token. Neither half is a defect alone -- running without a key is a configuration, and the
+// token is in the listing because the console link needs it -- so the check fires only on the
+// combination, and reports rather than repairs: every way out is a decision with a cost.
+//
+// ITS OWN fetch, deliberately: `get` carries the configured API key, and asking with a key can only
+// ever answer "yes, with a key".
+await checkApiExposure({
+  add,
+  baseUrl: SERVER_URL,
+  fetchJson: async (url) => {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
+      // A 401 body is the GOOD answer here and must reach the verdict rather than being flattened to
+      // null the way an unreachable service is.
+      return await response.json();
+    } catch {
+      return null;
+    }
+  },
 });
 checkNativeBridge();
 // WHERE MANAGED SPAWNS RUN, and whether that place is answering.
