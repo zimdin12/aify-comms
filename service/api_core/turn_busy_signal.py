@@ -50,16 +50,24 @@ async def _apply_turn_busy_signal(db, agent_id, bridge_id, body, now, turn_flip)
             if turn_busy:
                 await db.execute(
                     """
-                    INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-                    VALUES (?, 1, ?, ?, ?, ?)
+                    INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at, turn_started_at)
+                    VALUES (?, 1, ?, ?, ?, ?, ?)
                     ON CONFLICT(agent_id) DO UPDATE SET
                         turn_busy = 1,
                         turn_run_id = excluded.turn_run_id,
                         turn_bridge_id = excluded.turn_bridge_id,
                         turn_runtime = excluded.turn_runtime,
-                        turn_updated_at = excluded.turn_updated_at
+                        turn_updated_at = excluded.turn_updated_at,
+                        -- Kept across a re-pulse, taken fresh only on the not-busy -> busy
+                        -- transition. The delivery ceiling ages against this, so a heartbeat that
+                        -- re-pulses turnBusy for a still-running turn must not push it forward.
+                        turn_started_at = CASE
+                            WHEN turn_busy = 1 AND COALESCE(turn_started_at, '') != ''
+                            THEN turn_started_at
+                            ELSE excluded.turn_started_at
+                        END
                     """,
-                    (agent_id, turn_run_id, bridge_id, turn_runtime, now),
+                    (agent_id, turn_run_id, bridge_id, turn_runtime, now, now),
                 )
                 turn_flip = not _prev_busy  # to-working transition
                 # status v2 (Fix A, 2026-06-05): the /heartbeat turnBusy field is the

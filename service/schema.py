@@ -429,6 +429,11 @@ CREATE TABLE IF NOT EXISTS agent_turn_state (
     turn_bridge_id TEXT DEFAULT '',
     turn_runtime TEXT DEFAULT '',
     turn_updated_at TEXT NOT NULL,
+    -- WHEN THE TURN BEGAN. Set on the not-busy -> busy transition and left alone for the rest of the
+    -- turn, so a poster that re-stamps on a timer cannot postpone the anti-strand ceiling.
+    -- `turn_updated_at` answers "when did someone last say this was still going", which is what the
+    -- ceiling used to measure and is exactly what a latched-but-still-beating turn keeps fresh.
+    turn_started_at TEXT NOT NULL DEFAULT '',
     FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
 );
 

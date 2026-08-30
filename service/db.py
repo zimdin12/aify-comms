@@ -147,7 +147,30 @@ TERMINAL_SESSION_MIGRATIONS = {
 # bit; public idle-live status is `online`, not `ready`.
 AGENT_TURN_STATE_MIGRATIONS = {
     "ready": "ALTER TABLE agent_turn_state ADD COLUMN ready INTEGER NOT NULL DEFAULT 0",
+    # WHEN THIS TURN BEGAN, which is a different fact from when somebody last said it was still
+    # going. `turn_updated_at` is the second, and the 30-minute anti-strand ceiling was measured
+    # against it -- so any poster that re-stamps on a timer postpones the ceiling for ever and the
+    # latch it exists to catch never ages out. Measured live 2026-08-30: a managed hermes agent held
+    # every queued dispatch for 38 minutes while `turn_updated_at` advanced 18:23:11Z -> 18:23:56Z.
+    #
+    # THE SAME SHAPE WAS FOUND AND PATCHED ONCE BEFORE, narrowly: a superseded claude turn-detector
+    # re-stamping every 45s, fixed by refusing that specific poster in `turn_boundaries.py`. The hook
+    # path was deliberately left authoritative there, which is right for resident claude and wrong
+    # for a managed hermes whose `pre_llm_call` fires before EVERY model call. Anchoring the ceiling
+    # to the START retires the whole class instead of naming posters one at a time.
+    "turn_started_at": "ALTER TABLE agent_turn_state ADD COLUMN turn_started_at TEXT NOT NULL DEFAULT ''",
 }
+
+#: Give every EXISTING busy row a start anchor, or the fix cannot reach the rows that need it most.
+#:
+#: A latched agent never makes another not-busy -> busy transition -- that is what "latched" means --
+#: so a column filled only on transition would stay empty exactly where it matters and the ceiling
+#: would still never fire. Seeding from `turn_updated_at` costs a genuinely-working agent nothing: it
+#: gets a fresh 30-minute ceiling, which is what it would have had anyway.
+AGENT_TURN_STATE_BACKFILLS = (
+    "UPDATE agent_turn_state SET turn_started_at = turn_updated_at "
+    "WHERE COALESCE(turn_started_at, '') = '' AND COALESCE(turn_updated_at, '') != ''",
+)
 
 
 async def _migrate_agents_table(db: aiosqlite.Connection):
@@ -253,6 +276,11 @@ async def _migrate_agent_turn_state_table(db: aiosqlite.Connection):
     for column, statement in AGENT_TURN_STATE_MIGRATIONS.items():
         if column not in existing:
             await db.execute(statement)
+    # Runs on every boot, not only on the boot that adds the column: it is idempotent by its own
+    # WHERE clause, and a row that somehow reaches a blank anchor later is repaired rather than left
+    # holding delivery for ever.
+    for statement in AGENT_TURN_STATE_BACKFILLS:
+        await db.execute(statement)
 
 
 # Runtimes the bridge can drive through a native managed integration.

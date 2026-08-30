@@ -296,13 +296,35 @@ async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
     can never be claimed. For a target WITHOUT `steer` the claim gate returns early,
     so that agent goes permanently deaf to every dispatch.
 
-    A genuinely long turn is unaffected: the bridge turn detectors KEEP-FRESH re-stamp
-    turn-start, so turn_updated_at keeps advancing for as long as real work runs. Only
-    an ABANDONED flag ages out — which is exactly the strand this bounds.
+    THE CEILING MEASURES FROM WHEN THE TURN BEGAN, and the sentence that used to stand
+    here is why it has to. It read: "A genuinely long turn is unaffected: the bridge turn
+    detectors KEEP-FRESH re-stamp turn-start, so turn_updated_at keeps advancing for as
+    long as real work runs. Only an ABANDONED flag ages out." The second half does not
+    follow from the first. An abandoned flag ages out only if nothing is still stamping
+    it — and the things that stamp it run on TIMERS, not on whether work is real.
+
+    MEASURED 2026-08-30, on the operator's fleet. A managed hermes agent held every queued
+    dispatch for 38 minutes. Its `pre_llm_call` hook POSTs /turn-start before every model
+    call, so two reads 45s apart showed turn_updated_at advancing 18:23:11Z → 18:23:56Z:
+    the age this function computed was permanently ~45s and the 1800s ceiling never fired.
+    The dead-bridge sweep could not rescue it either — it deliberately skips the hook
+    marker the agent was stamped with, to avoid wiping genuine hook-driven turns (#233).
+    Both nets were down at once, each for its own good reason.
+
+    The same shape was found and patched once before, narrowly: a superseded claude
+    turn-detector re-stamping every 45s, closed in `turn_boundaries.py` by refusing that
+    one poster. Naming posters does not scale, and the hook is deliberately exempt there.
+    Anchoring to `turn_started_at` — written on the not-busy→busy transition and untouched
+    for the rest of the turn — retires the class: no re-stamp can move it, so the bound
+    holds regardless of who is beating.
+
+    A genuinely long turn is still unaffected for 30 minutes, and past that the status
+    engine has ALREADY stopped reporting `working`. Releasing there is what makes the two
+    agree instead of stranding work behind a flag the dashboard no longer believes.
     """
     try:
         row = await (await db.execute(
-            "SELECT turn_busy, turn_updated_at FROM agent_turn_state WHERE agent_id = ?",
+            "SELECT turn_busy, turn_updated_at, turn_started_at FROM agent_turn_state WHERE agent_id = ?",
             (agent_id,),
         )).fetchone()
     except Exception:
@@ -310,7 +332,13 @@ async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
         return False
     if not row or not int((row["turn_busy"] if "turn_busy" in row.keys() else 0) or 0):
         return False
-    seen = _iso_to_epoch(str(row["turn_updated_at"] or ""))
+    # Prefer the START anchor; fall back to the last-touch column for rows written before the anchor
+    # existed. The fallback is deliberately NOT "release when unanchored": that would deliver
+    # mid-turn to every legacy agent at once. Boot backfills the anchor, so the fallback is a
+    # transitional path, not the steady state.
+    _keys = row.keys()
+    _started = str((row["turn_started_at"] if "turn_started_at" in _keys else "") or "")
+    seen = _iso_to_epoch(_started) or _iso_to_epoch(str(row["turn_updated_at"] or ""))
     if not seen:
         # MISSING/UNPARSEABLE timestamp → do NOT hold (fixed 2026-07-26, review follow-up).
         # The first cut returned True here "to trust the raw flag", which quietly reproduced the

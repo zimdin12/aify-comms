@@ -31,7 +31,8 @@ from service.api_core.turn_busy_signal import _apply_turn_busy_signal
 SCHEMA = """
 CREATE TABLE agent_turn_state (
     agent_id TEXT PRIMARY KEY, turn_busy INTEGER DEFAULT 0, turn_run_id TEXT DEFAULT '',
-    turn_bridge_id TEXT DEFAULT '', turn_runtime TEXT DEFAULT '', turn_updated_at TEXT
+    turn_bridge_id TEXT DEFAULT '', turn_runtime TEXT DEFAULT '', turn_updated_at TEXT,
+    turn_started_at TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE agent_status_state (
     agent_id TEXT PRIMARY KEY, in_turn INTEGER DEFAULT 0, awaiting_input INTEGER DEFAULT 0,
@@ -56,8 +57,13 @@ class TurnBusySignalTests(unittest.IsolatedAsyncioTestCase):
         await self.db.close()
 
     async def _open_turn(self, *, agent="a1", bridge="b1", run="run-1"):
+        # Columns NAMED, not positional. A bare `VALUES (...)` binds by ordinal, so adding a column
+        # to the table breaks every one of these inserts with an arity error that names neither the
+        # column nor the change -- which is exactly what `turn_started_at` did on 2026-08-30.
         await self.db.execute(
-            "INSERT INTO agent_turn_state VALUES (?,1,?,?,'hermes',?)", (agent, run, bridge, BEFORE))
+            "INSERT INTO agent_turn_state "
+            "(agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at) "
+            "VALUES (?,1,?,?,'hermes',?)", (agent, run, bridge, BEFORE))
         await self.db.execute(
             "INSERT INTO agent_status_state VALUES (?,1,0,?,'turn_start',?,?)", (agent, run, BEFORE, BEFORE))
 
@@ -165,7 +171,9 @@ class TurnBusySignalTests(unittest.IsolatedAsyncioTestCase):
     async def test_clearing_an_ALREADY_idle_agent_is_not_a_flip(self):
         """`turn_flip = _prev_busy` — the write happens, but there was no transition to announce."""
         await self.db.execute(
-            "INSERT INTO agent_turn_state VALUES ('a1',0,'run-1','b1','hermes',?)", (BEFORE,))
+            "INSERT INTO agent_turn_state "
+            "(agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at) "
+            "VALUES ('a1',0,'run-1','b1','hermes',?)", (BEFORE,))
         flip = await self._signal({"turnBusy": False, "turnRunId": "run-1"})
         self.assertFalse(flip)
 
@@ -211,3 +219,53 @@ class TurnBusySignalTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheInlineSchemaMustNotDriftFromTheRealOneTests(unittest.TestCase):
+    """The fixture above hand-copies `agent_turn_state`, so it can go stale. Catch that here.
+
+    IT DID GO STALE, on 2026-08-30. `turn_started_at` was added to the real table and this copy was
+    not updated; five tests in this file died with "no column named turn_started_at" — a failure
+    that says nothing about the change and everything about the duplicate. The copy is deliberate
+    (see the note beside it: the real ON CONFLICT upsert needs the primary key), so the answer is
+    not to delete it but to make the drift loud and immediate.
+    """
+
+    def test_the_fixture_declares_every_column_the_real_table_has(self):
+        import re
+        from pathlib import Path
+
+        real_sql = Path(__file__).resolve().parents[1].joinpath("schema.py").read_text(encoding="utf-8")
+        block = real_sql[real_sql.index("CREATE TABLE IF NOT EXISTS agent_turn_state"):]
+        block = block[: block.index(");")]
+        # Column names are the first token of each non-comment, non-constraint line.
+        def columns(sql: str) -> set[str]:
+            found = set()
+            for line in sql.splitlines()[1:]:
+                line = line.strip().rstrip(",")
+                if not line or line.startswith("--") or line.upper().startswith(("FOREIGN KEY", "PRIMARY KEY", "UNIQUE")):
+                    continue
+                name = re.split(r"\s", line)[0]
+                if re.fullmatch(r"[a-z_]+", name):
+                    found.add(name)
+            return found
+
+        real = columns(block)
+        fixture_block = SCHEMA[SCHEMA.index("CREATE TABLE agent_turn_state"):]
+        fixture_block = fixture_block[: fixture_block.index(");")]
+        # The fixture packs several columns per line; split on commas too.
+        fixture = set()
+        for chunk in fixture_block.split("(", 1)[1].replace("\n", " ").split(","):
+            name = chunk.strip().split(" ")[0]
+            if re.fullmatch(r"[a-z_]+", name):
+                fixture.add(name)
+
+        # POSITIVE CONTROL: both readers found a real table, so a missing column is a real
+        # difference and not one of them silently parsing nothing.
+        self.assertIn("turn_busy", real, "the real-schema reader found nothing usable")
+        self.assertIn("turn_busy", fixture, "the fixture reader found nothing usable")
+        self.assertEqual(
+            set(), real - fixture,
+            "the inline fixture is missing columns the real agent_turn_state has. Add them here, "
+            "or the tests in this file exercise a table production cannot produce.",
+        )

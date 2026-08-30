@@ -62,6 +62,23 @@ def _declared(path: Path) -> set[str]:
     }
 
 
+#: Edits made to the extracted helpers SINCE the split, as (now, was) pairs undone before the round
+#: trip. Without this the proof would forbid ever changing extracted code -- which is not what it is
+#: for. It proves the SPLIT changed nothing, not that the code is frozen. Each `now` is verified to
+#: appear exactly once, so a stale declaration fails loudly instead of quietly undoing nothing.
+#:
+#: 2026-08-30: `turn_started_at` -- the anchor the anti-strand delivery ceiling ages against. The
+#: ceiling used to measure `turn_updated_at`, which every re-pulse refreshes, so a latched turn
+#: postponed its own 30-minute ceiling for ever and held every queued dispatch. The upsert now keeps
+#: an anchor that is already set and takes a fresh one only on the not-busy -> busy transition.
+EDITED_SINCE = [
+    (
+        "                    INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at, turn_started_at)\n                    VALUES (?, 1, ?, ?, ?, ?, ?)\n                    ON CONFLICT(agent_id) DO UPDATE SET\n                        turn_busy = 1,\n                        turn_run_id = excluded.turn_run_id,\n                        turn_bridge_id = excluded.turn_bridge_id,\n                        turn_runtime = excluded.turn_runtime,\n                        turn_updated_at = excluded.turn_updated_at,\n                        -- Kept across a re-pulse, taken fresh only on the not-busy -> busy\n                        -- transition. The delivery ceiling ages against this, so a heartbeat that\n                        -- re-pulses turnBusy for a still-running turn must not push it forward.\n                        turn_started_at = CASE\n                            WHEN turn_busy = 1 AND COALESCE(turn_started_at, '') != ''\n                            THEN turn_started_at\n                            ELSE excluded.turn_started_at\n                        END\n                    \"\"\",\n                    (agent_id, turn_run_id, bridge_id, turn_runtime, now, now),",
+        "                    INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)\n                    VALUES (?, 1, ?, ?, ?, ?)\n                    ON CONFLICT(agent_id) DO UPDATE SET\n                        turn_busy = 1,\n                        turn_run_id = excluded.turn_run_id,\n                        turn_bridge_id = excluded.turn_bridge_id,\n                        turn_runtime = excluded.turn_runtime,\n                        turn_updated_at = excluded.turn_updated_at\n                    \"\"\",\n                    (agent_id, turn_run_id, bridge_id, turn_runtime, now),",
+    ),
+]
+
+
 class AgentHeartbeatSplitIsInertTests(unittest.TestCase):
     def test_the_extraction_inlines_back_to_the_original(self):
         fixture_src = FIXTURE.read_text(encoding="utf-8")
@@ -70,7 +87,8 @@ class AgentHeartbeatSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS,
+            EDITED_SINCE)
 
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""

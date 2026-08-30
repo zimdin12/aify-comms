@@ -103,10 +103,21 @@ async def agent_turn_start(agent_id: str, request: Request):
         # dashboard's "working on subject X" display intact.
         await db.execute(
             """
-            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-            VALUES (?, 1, '', 'user-prompt-submit', ?, ?)
+            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at, turn_started_at)
+            VALUES (?, 1, '', 'user-prompt-submit', ?, ?, ?)
             ON CONFLICT(agent_id) DO UPDATE SET
                 turn_busy = 1,
+                -- THE ANCHOR THE ANTI-STRAND CEILING MEASURES, and the whole point is that this
+                -- endpoint does NOT move it mid-turn. `pre_llm_call` fires before every model call,
+                -- so a hook-driven turn re-enters here every ~45s; stamping the start each time is
+                -- what let a latched turn postpone its own 30-minute ceiling for ever. Bare column
+                -- names in DO UPDATE read the EXISTING row, so this keeps an anchor that is already
+                -- set on a busy row and takes a fresh one only on the not-busy -> busy transition.
+                turn_started_at = CASE
+                    WHEN turn_busy = 1 AND COALESCE(turn_started_at, '') != ''
+                    THEN turn_started_at
+                    ELSE excluded.turn_started_at
+                END,
                 turn_bridge_id = CASE
                     WHEN turn_busy = 1 AND COALESCE(turn_run_id, '') != ''
                          AND COALESCE(turn_bridge_id, '') NOT IN ('', 'user-prompt-submit')
@@ -116,7 +127,7 @@ async def agent_turn_start(agent_id: str, request: Request):
                 turn_runtime = excluded.turn_runtime,
                 turn_updated_at = excluded.turn_updated_at
             """,
-            (agent_id, runtime, now),
+            (agent_id, runtime, now, now),
         )
         await db.execute(
             "UPDATE agents SET last_seen = ? WHERE id = ?",
