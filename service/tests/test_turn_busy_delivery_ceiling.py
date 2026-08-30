@@ -409,3 +409,136 @@ class TheWritersMustNotMoveTheAnchorTests(FastApiTestCase):
         self.assertEqual(second["turn_started_at"], first["turn_started_at"][:11] + second["turn_started_at"][11:],
                          "sanity: the fresh anchor is a current stamp, not the backdated one")
         self.assertTrue(int(second["turn_busy"]), "and it must latch busy again")
+
+
+class OnlyAVerifiableRenewalMayExtendATurnTests(FastApiTestCase):
+    """A turn may run long ONLY when something we can verify says it is still running.
+
+    THE POLICY, chosen by the operator 2026-08-30 after the reviewer refused the previous shape.
+    Anchoring the ceiling to `turn_started_at` fixed a 38-minute strand but bought it with a hard
+    30-minute maximum on EVERY turn -- and that is not free: comms-senior-dev's review of the v0.6
+    diff took 47 minutes in one turn. A hard cut would have delivered queued work into the middle
+    of it.
+
+    The distinction that resolves it is WHO SAID SO, not how long ago:
+
+      * `turn_bridge_id` names a bridge row that exists, belongs to this agent, and is heartbeating
+        -> the lease RENEWS against `turn_updated_at`, exactly as it always did, because something
+        independently observable is still claiming the turn. An absolute maximum still applies, so
+        a bridge that heartbeats for ever cannot strand work for ever.
+      * anything else -- the hook marker, an empty owner, a bridge that is gone or stale -> the
+        strict anchor. Nothing verifiable is claiming this turn, so re-stamps prove nothing and the
+        30-minute bound is measured from the START.
+
+    That is why the hook could defeat the old ceiling: it re-stamped a column while naming an owner
+    that is not a bridge at all, so there was never anything to check it against.
+    """
+
+    DB_NAME = "aify-turn-lease-test.db"
+
+    def _turn(self, agent_id, *, bridge_id, started_age, updated_age):
+        def stamp(age):
+            return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - age))
+
+        async def _run():
+            db = await get_db()
+            try:
+                await db.execute("PRAGMA foreign_keys=OFF")
+                await db.execute(
+                    """
+                    INSERT INTO agent_turn_state
+                        (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime,
+                         turn_updated_at, turn_started_at)
+                    VALUES (?, 1, '', ?, 'hermes', ?, ?)
+                    ON CONFLICT(agent_id) DO UPDATE SET
+                        turn_busy = 1, turn_bridge_id = excluded.turn_bridge_id,
+                        turn_updated_at = excluded.turn_updated_at,
+                        turn_started_at = excluded.turn_started_at
+                    """,
+                    (agent_id, bridge_id, stamp(updated_age), stamp(started_age)),
+                )
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+
+    def _bridge(self, bridge_id, agent_id, *, last_seen_age):
+        """A bridge_instances row, which is the thing that makes a renewal VERIFIABLE."""
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - last_seen_age))
+
+        async def _run():
+            db = await get_db()
+            try:
+                await db.execute("PRAGMA foreign_keys=OFF")
+                await db.execute(
+                    "INSERT INTO bridge_instances (id, agent_id, last_seen, registered_at) "
+                    "VALUES (?,?,?,?) "
+                    "ON CONFLICT(id) DO UPDATE SET agent_id=excluded.agent_id, last_seen=excluded.last_seen",
+                    (bridge_id, agent_id, stamp, stamp),
+                )
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+
+    def _holds(self, agent_id):
+        async def _run():
+            db = await get_db()
+            try:
+                return await claim_gating._turn_busy_holds_delivery(db, agent_id)
+            finally:
+                await db.close()
+
+        return asyncio.run(_run())
+
+    def test_a_LIVE_bridge_may_hold_a_turn_far_past_the_anchor(self):
+        """THE 47-MINUTE REVIEW. A real bridge is heartbeating and re-stamping; the work is real."""
+        self._bridge("bridge-live", "lease-long", last_seen_age=5)
+        self._turn("lease-long", bridge_id="bridge-live", started_age=47 * 60, updated_age=5)
+        self.assertTrue(
+            self._holds("lease-long"),
+            "a 47-minute turn owned by a heartbeating bridge was cut off. That delivers queued work "
+            "into the middle of real work, which is the cost the operator declined.",
+        )
+
+    def test_the_HOOK_marker_gets_the_strict_anchor_however_fresh_the_restamp(self):
+        """THE 38-MINUTE STRAND. Nothing verifiable claims this turn, so a re-stamp proves nothing."""
+        self._turn("lease-hook", bridge_id="user-prompt-submit", started_age=40 * 60, updated_age=5)
+        self.assertFalse(self._holds("lease-hook"), "a hook-marked latch must still age out")
+
+    def test_a_DEAD_bridge_cannot_renew_either(self):
+        """A bridge row that stopped heartbeating is not evidence that work is still running."""
+        self._bridge("bridge-dead", "lease-dead", last_seen_age=3 * 3600)
+        self._turn("lease-dead", bridge_id="bridge-dead", started_age=40 * 60, updated_age=5)
+        self.assertFalse(self._holds("lease-dead"), "a stale bridge must not renew a lease")
+
+    def test_a_bridge_belonging_to_ANOTHER_agent_cannot_renew_this_turn(self):
+        """The row must be this agent's. Matching on id alone would let any live bridge on the host
+        renew any agent's turn."""
+        self._bridge("bridge-elsewhere", "some-other-agent", last_seen_age=5)
+        self._turn("lease-wrong-owner", bridge_id="bridge-elsewhere", started_age=40 * 60, updated_age=5)
+        self.assertFalse(self._holds("lease-wrong-owner"))
+
+    def test_an_ABSOLUTE_MAXIMUM_still_bounds_a_renewing_bridge(self):
+        """A renewable lease with no ceiling is the permanent strand again, wearing a better hat."""
+        self._bridge("bridge-forever", "lease-forever", last_seen_age=5)
+        self._turn("lease-forever", bridge_id="bridge-forever",
+                   started_age=claim_gating.TURN_LEASE_ABSOLUTE_MAX_SECONDS + 60, updated_age=5)
+        self.assertFalse(
+            self._holds("lease-forever"),
+            "a bridge that heartbeats for ever held delivery for ever",
+        )
+
+    def test_the_absolute_maximum_is_well_clear_of_a_real_long_turn(self):
+        """A bound below observed real work would re-create the problem it exists to avoid. The
+        longest turn actually seen on this fleet was 47 minutes."""
+        self.assertGreaterEqual(claim_gating.TURN_LEASE_ABSOLUTE_MAX_SECONDS, 4 * 3600)
+
+    def test_a_live_bridge_that_STOPS_re_stamping_still_ages_out(self):
+        """Renewable is not unconditional: the lease still expires if nothing renews it."""
+        self._bridge("bridge-quiet", "lease-quiet", last_seen_age=5)
+        self._turn("lease-quiet", bridge_id="bridge-quiet",
+                   started_age=60 * 60, updated_age=liveness.TURN_BUSY_BACKSTOP_SECONDS + 60)
+        self.assertFalse(self._holds("lease-quiet"), "an un-renewed lease must expire")

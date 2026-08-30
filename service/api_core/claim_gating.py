@@ -35,12 +35,24 @@ from service.api_core.capabilities import _row_capabilities
 from service.api_core.dispatch_text import _MERGED_DISPATCH_HEADER
 from service.api_core.events import _append_terminal_event
 from service.api_core.liveness import TURN_BUSY_BACKSTOP_SECONDS
+from service.api_core.live_process_probes import ACTIVE_RUN_BRIDGE_STALE_SECONDS
+
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.serialization import _dedupe_preserve, _json_loads_or
 from service.api_core.settings import _load_settings
 from service.clock import iso_to_epoch as _iso_to_epoch, now as _now
 from service.env_status import environment_effective_status as _environment_effective_status
 from service.models import DispatchClaimRequest
+
+
+#: The longest a turn may hold delivery even while a live bridge keeps renewing it.
+#:
+#: A renewable lease with no ceiling is the permanent strand again wearing a better hat: a bridge
+#: that heartbeats for ever would hold queued work for ever. Four hours is far clear of the longest
+#: turn actually observed on this fleet (47 minutes, a review), so it bounds the pathological case
+#: without touching a real one. It is deliberately NOT `TURN_BUSY_BACKSTOP_SECONDS`: that one bounds
+#: an UNVERIFIED claim and wants to be short, this one bounds a verified one and wants to be long.
+TURN_LEASE_ABSOLUTE_MAX_SECONDS = 4 * 60 * 60
 
 
 
@@ -273,6 +285,35 @@ async def _release_stale_console_owner_for_claim(db, owner_session, req: Dispatc
     return None
 
 
+async def _turn_lease_is_renewable(db, agent_id: str, bridge_id: str) -> bool:
+    """Is something INDEPENDENTLY OBSERVABLE still claiming this turn?
+
+    True only when `turn_bridge_id` names a bridge row that exists, belongs to THIS agent, and has
+    heartbeated inside the same staleness window the dead-bridge sweep uses. Ownership is checked
+    because matching on id alone would let any live bridge on the host renew any agent's turn.
+
+    The hook marker and the empty owner are not bridges and can never be verified, which is exactly
+    why they get the strict anchor instead of a renewable lease.
+    """
+    owner = str(bridge_id or "").strip()
+    if not owner or owner == "user-prompt-submit":
+        return False
+    try:
+        row = await (await db.execute(
+            """
+            SELECT 1 FROM bridge_instances
+            WHERE id = ? AND COALESCE(agent_id, '') = ?
+              AND datetime(last_seen) > datetime('now', ?)
+            """,
+            (owner, agent_id, f"-{ACTIVE_RUN_BRIDGE_STALE_SECONDS} seconds"),
+        )).fetchone()
+    except Exception:
+        # Unreadable bridge state is not evidence of a live claim. Fall back to the strict anchor,
+        # which is the safe direction: it releases work rather than stranding it.
+        return False
+    return row is not None
+
+
 async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
     """True when the RAW turn_busy flag may still hold delivery back.
 
@@ -318,13 +359,36 @@ async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
     for the rest of the turn — retires the class: no re-stamp can move it, so the bound
     holds regardless of who is beating.
 
-    A genuinely long turn is still unaffected for 30 minutes, and past that the status
-    engine has ALREADY stopped reporting `working`. Releasing there is what makes the two
-    agree instead of stranding work behind a flag the dashboard no longer believes.
+    ONLY A VERIFIABLE RENEWAL MAY EXTEND A TURN. The distinction is WHO SAID SO, not how
+    long ago, and it is what lets both failures be avoided at once:
+
+      * `turn_bridge_id` names a bridge row that EXISTS, belongs to this agent, and is
+        heartbeating -> the lease renews against `turn_updated_at`, exactly as it always
+        did. Something independently observable is still claiming the turn, so a re-stamp
+        is evidence. `TURN_LEASE_ABSOLUTE_MAX_SECONDS` still bounds it, because a
+        renewable lease with no ceiling is the permanent strand again in a better hat.
+      * Anything else — the hook marker, an empty owner, a bridge that is gone or stale ->
+        the strict anchor, measured from `turn_started_at`. Nothing checkable is claiming
+        this turn, so re-stamps prove nothing.
+
+    That asymmetry is exactly why the hook defeated the old ceiling: it re-stamped the
+    column the bound was measured against while naming an owner that is not a bridge at
+    all, so there was never anything to check the claim against.
+
+    AN EARLIER VERSION OF THIS DOCSTRING WAS WRONG TWICE and the corrections are the
+    reason the shape above exists. It said a long turn was "still unaffected" — it was
+    not; a hard start-anchored bound cut off a 47-minute review that really was running.
+    And it said the status engine "has ALREADY stopped reporting `working`" past the
+    ceiling, so releasing merely made the two agree. It has not: the `in_turn` clamp
+    (`status_inputs.py:95`, `:519`) ages against `agent_status_state.last_event_at`, which
+    the SAME hook refreshes. Delivery and status DISAGREE on that path, and moving status
+    onto the same evidence is still open — see Row 8 in
+    `docs/superpowers/plans/2026-08-30-v0.6.1-roadmap.md`.
     """
     try:
         row = await (await db.execute(
-            "SELECT turn_busy, turn_updated_at, turn_started_at FROM agent_turn_state WHERE agent_id = ?",
+            "SELECT turn_busy, turn_updated_at, turn_started_at, turn_bridge_id "
+            "FROM agent_turn_state WHERE agent_id = ?",
             (agent_id,),
         )).fetchone()
     except Exception:
@@ -337,8 +401,19 @@ async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
     # mid-turn to every legacy agent at once. Boot backfills the anchor, so the fallback is a
     # transitional path, not the steady state.
     _keys = row.keys()
-    _started = str((row["turn_started_at"] if "turn_started_at" in _keys else "") or "")
-    seen = _iso_to_epoch(_started) or _iso_to_epoch(str(row["turn_updated_at"] or ""))
+    _started = _iso_to_epoch(str((row["turn_started_at"] if "turn_started_at" in _keys else "") or ""))
+    _touched = _iso_to_epoch(str(row["turn_updated_at"] or ""))
+    _owner = str((row["turn_bridge_id"] if "turn_bridge_id" in _keys else "") or "")
+
+    if await _turn_lease_is_renewable(db, agent_id, _owner):
+        # A verified claim: age against the last renewal, and bound the whole turn absolutely.
+        if _started and (datetime.now(timezone.utc).timestamp() - _started) > TURN_LEASE_ABSOLUTE_MAX_SECONDS:
+            return False
+        seen = _touched or _started
+    else:
+        # Nothing checkable is claiming this. The start anchor is the bound; fall back to the
+        # last-touch column only for rows written before the anchor existed.
+        seen = _started or _touched
     if not seen:
         # MISSING/UNPARSEABLE timestamp → do NOT hold (fixed 2026-07-26, review follow-up).
         # The first cut returned True here "to trust the raw flag", which quietly reproduced the
